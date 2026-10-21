@@ -2577,7 +2577,13 @@ or arms one nothing ever asked the forge for, which is also answered by
 `rerun` — `wait` says nothing is to be done yet, `escalate` hands it up the
 escalation ladder (to the Lead Product Manager or the architect, or to you for a
 reason on your closed list), and
-`retire-raise` ends a raise its owner's amendment made moot. A stopped
+`retire-raise` ends a raise its owner's amendment made moot. Two more answer
+the re-run claim a fresh run spent where the harness could not prove that run
+bought nothing: `give-back-claim` gives it back, so her re-run decision is
+carried out again, and `leave-claim-spent` leaves it spent. Each names the item
+and that fresh run, and the harness carries a give-back out at its next pull
+or by `yoyo triage give-back` — see [a re-run claim spent on a run that bought
+nothing](operations.md#recovering-interrupted-runs). A stopped
 document publication has no work item, so none of those can be recorded on it:
 its entry names the document and its pull request, and she answers it with
 `retry`, which lands the same confirmed text through a fresh run and closes the

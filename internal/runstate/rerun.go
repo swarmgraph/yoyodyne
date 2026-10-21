@@ -29,6 +29,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -105,6 +106,138 @@ type Rerun struct {
 	RunID     string             `json:"run_id,omitempty"`
 	Preserved PreservedArtifacts `json:"preserved"`
 	UpdatedAt time.Time          `json:"updated_at"`
+	// ClaimDecision is the development manager's decision about this claim once
+	// it was spent on a fresh run that bought nothing the harness could prove:
+	// give it back, or leave it spent. It stands until the harness carries a
+	// give-back out, which moves it into GivenBack. See RerunClaimDecision.
+	ClaimDecision *RerunClaimDecision `json:"claim_decision,omitempty"`
+	// GivenBack says the claim was given back: who carried it out, on whose
+	// decision, and why. A claim given back is no longer spent, so the decision
+	// that took it authorizes a re-run again.
+	GivenBack *RerunGivenBack `json:"given_back,omitempty"`
+	// EarlierGivenBack are the earlier claims of this stoppage that were given back,
+	// oldest first. A claim given back can be taken again, and the record it
+	// replaces keeps saying who gave it back and why.
+	EarlierGivenBack []RerunGivenBack `json:"earlier_given_back,omitempty"`
+}
+
+// The two answers the development manager gives about a spent claim.
+const (
+	// RerunClaimGiveBack gives the claim back, so the re-run her earlier decision
+	// authorized is carried out again.
+	RerunClaimGiveBack = "give-back"
+	// RerunClaimLeaveSpent leaves the claim spent: what the fresh run cost is what
+	// the decision bought, and a further re-run needs a further decision.
+	RerunClaimLeaveSpent = "leave-spent"
+)
+
+// MaxRerunGiveBacks bounds how many earlier claims given back one stoppage's record
+// keeps. A stoppage given its claim back this often has something no further
+// give-back settles.
+const MaxRerunGiveBacks = 16
+
+// RerunClaimDecision is the development manager's decision about one spent
+// claim, recorded the way her triage decisions are: who, where, when, and why.
+//
+// It exists because the harness gives a claim back by itself only where it can
+// prove the fresh run bought nothing (Withdraw), and a fresh run that died
+// before it claimed its item, or one whose environment nothing classified, is
+// not provable that way. What that leaves is a judgement, and the judgement is
+// hers; the harness carries it out (orchestrator's ClaimGiver).
+type RerunClaimDecision struct {
+	Decision     string    `json:"decision"`
+	Reason       string    `json:"reason"`
+	DecidedBy    string    `json:"decided_by"`
+	Conversation string    `json:"conversation"`
+	Turn         int       `json:"turn"`
+	DecidedAt    time.Time `json:"decided_at"`
+}
+
+// Validate reports every contract violation in the decision at once.
+func (d RerunClaimDecision) Validate() error {
+	var problems []error
+	if d.Decision != RerunClaimGiveBack && d.Decision != RerunClaimLeaveSpent {
+		problems = append(problems, fmt.Errorf("%q is not a decision about a spent re-run claim; the decisions are %q and %q", d.Decision, RerunClaimGiveBack, RerunClaimLeaveSpent))
+	}
+	switch reason := strings.TrimSpace(d.Reason); {
+	case reason == "":
+		problems = append(problems, errors.New("a decision about a spent re-run claim records the reasoning it was made on"))
+	case len(reason) > MaxTriageDecisionReasonBytes:
+		problems = append(problems, fmt.Errorf("the decision reason is %d bytes, limit is %d", len(reason), MaxTriageDecisionReasonBytes))
+	}
+	if by := strings.TrimSpace(d.DecidedBy); by == "" || len(by) > MaxTriageDecisionByBytes {
+		problems = append(problems, errors.New("a decision about a spent re-run claim names the role that recorded it"))
+	}
+	if conversation := strings.TrimSpace(d.Conversation); conversation == "" || len(conversation) > MaxTriageDecisionConversationBytes {
+		problems = append(problems, errors.New("a decision about a spent re-run claim names the conversation it was recorded in"))
+	}
+	if d.Turn < 0 {
+		problems = append(problems, fmt.Errorf("turn %d is not a turn", d.Turn))
+	}
+	if d.DecidedAt.IsZero() {
+		problems = append(problems, errors.New("a decision about a spent re-run claim records when it was made"))
+	}
+	return errors.Join(problems...)
+}
+
+// Cite names where the decision was recorded, in the words a triage decision is
+// cited in.
+func (d RerunClaimDecision) Cite() string {
+	return fmt.Sprintf("recorded by the %s in conversation %s after turn %d, at %s",
+		strings.TrimSpace(d.DecidedBy), strings.TrimSpace(d.Conversation), d.Turn, d.DecidedAt.UTC().Format(time.RFC3339))
+}
+
+// RerunGivenBack is one claim given back: the decision it carried out, the claim
+// and the fresh run it had been spent on, and who carried it out when.
+type RerunGivenBack struct {
+	Decision  RerunClaimDecision `json:"decision"`
+	ClaimedAt time.Time          `json:"claimed_at"`
+	RunID     string             `json:"run_id,omitempty"`
+	// By is who carried the decision out: the harness's watching session, or the
+	// person who ran `yoyo triage give-back`.
+	By string    `json:"by"`
+	At time.Time `json:"at"`
+}
+
+// Says is the give-back in one sentence: whose decision, why, and who carried it
+// out when.
+func (g RerunGivenBack) Says() string {
+	spent := "no fresh run"
+	if run := strings.TrimSpace(g.RunID); run != "" {
+		spent = "run " + run
+	}
+	return fmt.Sprintf("the claim taken at %s and spent on %s was given back at %s by %s, carrying out the decision %s: %s",
+		g.ClaimedAt.UTC().Format(time.RFC3339), spent, g.At.UTC().Format(time.RFC3339), strings.TrimSpace(g.By),
+		g.Decision.Cite(), strings.TrimSpace(g.Decision.Reason))
+}
+
+func (g RerunGivenBack) validate() error {
+	var problems []error
+	if g.Decision.Decision != RerunClaimGiveBack {
+		problems = append(problems, fmt.Errorf("a claim given back carries a %q decision, not %q", RerunClaimGiveBack, g.Decision.Decision))
+	}
+	if err := g.Decision.Validate(); err != nil {
+		problems = append(problems, err)
+	}
+	if g.ClaimedAt.IsZero() {
+		problems = append(problems, errors.New("a claim given back records when it had been claimed"))
+	}
+	if strings.TrimSpace(g.By) == "" {
+		problems = append(problems, errors.New("a claim given back records who carried it out"))
+	}
+	if g.At.IsZero() {
+		problems = append(problems, errors.New("a claim given back records when"))
+	}
+	return errors.Join(problems...)
+}
+
+// Spent reports the claim standing: taken, and not given back.
+func (r Rerun) Spent() bool { return r.GivenBack == nil }
+
+// GiveBackOutstanding reports a decision to give this claim back that the
+// harness has not yet carried out.
+func (r Rerun) GiveBackOutstanding() bool {
+	return r.GivenBack == nil && r.ClaimDecision != nil && r.ClaimDecision.Decision == RerunClaimGiveBack
 }
 
 // Validate reports every contract violation in the record at once.
@@ -153,6 +286,29 @@ func (r Rerun) Validate() error {
 	if r.Preserved.Disposition != PreservedRetired && r.Preserved.RetiredAt != nil {
 		problems = append(problems, fmt.Errorf("an artifact recorded as %q was not retired, so it has no retirement to date", r.Preserved.Disposition))
 	}
+	if r.ClaimDecision != nil {
+		if err := r.ClaimDecision.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	// A give-back carries the decision it carried out, so a decision standing
+	// beside one would be a second decision about a claim that is no longer spent.
+	if r.GivenBack != nil {
+		if r.ClaimDecision != nil {
+			problems = append(problems, errors.New("a claim given back has no decision standing about it; the one it carried out is on the give-back"))
+		}
+		if err := r.GivenBack.validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	if len(r.EarlierGivenBack) > MaxRerunGiveBacks {
+		problems = append(problems, fmt.Errorf("%d earlier claims given back are recorded, which exceeds the bound of %d", len(r.EarlierGivenBack), MaxRerunGiveBacks))
+	}
+	for index, earlier := range r.EarlierGivenBack {
+		if err := earlier.validate(); err != nil {
+			problems = append(problems, fmt.Errorf("earlier_given_back[%d]: %w", index, err))
+		}
+	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid triage re-run: %w", err)
 	}
@@ -169,6 +325,12 @@ func (r Rerun) Render() string {
 	}
 	fmt.Fprintf(&rendered, "  decided: %s\n", strings.TrimSpace(r.Reason))
 	rendered.WriteString(r.Preserved.Render())
+	if r.ClaimDecision != nil {
+		fmt.Fprintf(&rendered, "  claim: %q, %s: %s\n", r.ClaimDecision.Decision, r.ClaimDecision.Cite(), strings.TrimSpace(r.ClaimDecision.Reason))
+	}
+	if r.GivenBack != nil {
+		fmt.Fprintf(&rendered, "  given back: %s\n", r.GivenBack.Says())
+	}
 	return rendered.String()
 }
 
@@ -295,8 +457,16 @@ func (s *RerunStore) Claim(ctx context.Context, rerun Rerun) (Rerun, error) {
 	if err != nil {
 		return Rerun{}, err
 	}
-	if found {
+	if found && existing.Spent() {
 		return Rerun{}, RerunTakenError{Existing: existing}
+	}
+	// A claim given back is taken again in place, and the record keeps who gave
+	// the earlier one back and why.
+	if found {
+		claimed.EarlierGivenBack = append(slices.Clone(existing.EarlierGivenBack), *existing.GivenBack)
+		if len(claimed.EarlierGivenBack) > MaxRerunGiveBacks {
+			return Rerun{}, fmt.Errorf("the stoppage keyed %s has had its re-run claim given back %d times, which is the bound: a stoppage given back this often has something no further re-run settles", key, len(existing.EarlierGivenBack)+1)
+		}
 	}
 	if err := s.save(key, claimed); err != nil {
 		return Rerun{}, err
@@ -331,6 +501,9 @@ func (s *RerunStore) Settle(ctx context.Context, docketKey, runID string, preser
 	}
 	if !found {
 		return Rerun{}, fmt.Errorf("no re-run of the stoppage keyed %s is recorded, so there is nothing to settle", key)
+	}
+	if !settled.Spent() {
+		return Rerun{}, fmt.Errorf("the re-run claim of the stoppage keyed %s was given back (%s), so there is no claim standing to settle", key, settled.GivenBack.Says())
 	}
 	if run := strings.TrimSpace(runID); run != "" {
 		settled.RunID = run
@@ -386,16 +559,153 @@ func (s *RerunStore) Withdraw(ctx context.Context, docketKey string) error {
 	if err != nil {
 		return err
 	}
-	if !found {
+	if !found || !claimed.Spent() {
 		return nil
 	}
 	if run := strings.TrimSpace(claimed.RunID); run != "" {
-		return fmt.Errorf("the re-run of the stoppage keyed %s started run %s, so its claim was acted on and is not one to give back", key, run)
+		return fmt.Errorf("the re-run of the stoppage keyed %s started run %s, so its claim was acted on and is not one the harness gives back by itself; the development manager decides whether to give it back, and `yoyo triage give-back %s` carries out her decision", key, run, run)
+	}
+	// A claim taken again after a give-back is withdrawn to the record it
+	// replaced, so who gave the earlier claim back and why is not lost with it.
+	if last := len(claimed.EarlierGivenBack) - 1; last >= 0 {
+		restored := claimed
+		given := claimed.EarlierGivenBack[last]
+		restored.EarlierGivenBack = slices.Clone(claimed.EarlierGivenBack[:last])
+		restored.GivenBack = &given
+		restored.ClaimDecision = nil
+		restored.ClaimedAt = given.ClaimedAt
+		restored.RunID = given.RunID
+		restored.UpdatedAt = time.Now().UTC()
+		return s.save(key, restored)
 	}
 	if err := os.Remove(s.path(key)); err != nil {
 		return fmt.Errorf("withdraw the triage re-run of %s: %w", key, err)
 	}
 	return syncDirectory(s.root)
+}
+
+// SpentOn reports the standing claim whose fresh run is runID, or, where no
+// claim names that run, the standing claim taken against the stoppage of runID
+// that names no fresh run. It is how a decision naming a run finds the claim it
+// is about: the docket entry she decides from is the fresh run's, and a claim
+// the harness could not give back before any fresh run was recorded is found by
+// the stopped run it was taken for.
+func (s *RerunStore) SpentOn(runID string) (Rerun, bool, error) {
+	run := strings.TrimSpace(runID)
+	if run == "" {
+		return Rerun{}, false, errors.New("a run is required to find the re-run claim spent on it")
+	}
+	recorded, err := s.List()
+	if err != nil {
+		return Rerun{}, false, err
+	}
+	for _, rerun := range recorded {
+		if rerun.Spent() && rerun.RunID == run {
+			return rerun, true, nil
+		}
+	}
+	for _, rerun := range recorded {
+		if rerun.Spent() && rerun.RunID == "" && rerun.PriorRunID == run {
+			return rerun, true, nil
+		}
+	}
+	return Rerun{}, false, nil
+}
+
+// DecideClaim records the development manager's decision about one spent claim,
+// in place of any decision standing about it. A claim already given back has
+// nothing left to decide, and is refused rather than decided again.
+func (s *RerunStore) DecideClaim(ctx context.Context, docketKey string, decision RerunClaimDecision) (Rerun, error) {
+	key := strings.TrimSpace(docketKey)
+	if key == "" {
+		return Rerun{}, errors.New("a docket entry is required to decide about its re-run claim")
+	}
+	decision.Decision = strings.TrimSpace(decision.Decision)
+	decision.Reason = strings.TrimSpace(decision.Reason)
+	decision.DecidedBy = strings.TrimSpace(decision.DecidedBy)
+	decision.Conversation = strings.TrimSpace(decision.Conversation)
+	if decision.DecidedAt.IsZero() {
+		decision.DecidedAt = time.Now()
+	}
+	decision.DecidedAt = decision.DecidedAt.UTC()
+	if err := decision.Validate(); err != nil {
+		return Rerun{}, fmt.Errorf("invalid decision about a spent re-run claim: %w", err)
+	}
+	release, err := s.lock(ctx, key)
+	if err != nil {
+		return Rerun{}, err
+	}
+	defer release()
+	claimed, found, err := s.load(key)
+	if err != nil {
+		return Rerun{}, err
+	}
+	if !found {
+		return Rerun{}, fmt.Errorf("no re-run claim of the stoppage keyed %s is recorded, so there is nothing to decide about", key)
+	}
+	if !claimed.Spent() {
+		return Rerun{}, fmt.Errorf("the re-run claim of the stoppage keyed %s was already given back (%s), so there is nothing left to decide about it", key, claimed.GivenBack.Says())
+	}
+	claimed.ClaimDecision = &decision
+	claimed.UpdatedAt = decision.DecidedAt
+	if err := s.save(key, claimed); err != nil {
+		return Rerun{}, err
+	}
+	return claimed, nil
+}
+
+// GiveBack carries out a standing decision to give one spent claim back, and
+// records on the claim who carried it out and when beside the decision it
+// carried out. It reports whether this call is what gave it back: a claim
+// already given back is the decision already carried out, not a failure. A claim
+// with no give-back decision standing is refused, because what gives a claim
+// back is her decision and not whoever asks.
+func (s *RerunStore) GiveBack(ctx context.Context, docketKey, by string, at time.Time) (Rerun, bool, error) {
+	key := strings.TrimSpace(docketKey)
+	if key == "" {
+		return Rerun{}, false, errors.New("a docket entry is required to give its re-run claim back")
+	}
+	if strings.TrimSpace(by) == "" {
+		return Rerun{}, false, errors.New("a give-back records who carried it out")
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+	release, err := s.lock(ctx, key)
+	if err != nil {
+		return Rerun{}, false, err
+	}
+	defer release()
+	claimed, found, err := s.load(key)
+	if err != nil {
+		return Rerun{}, false, err
+	}
+	if !found {
+		return Rerun{}, false, fmt.Errorf("no re-run claim of the stoppage keyed %s is recorded, so there is nothing to give back", key)
+	}
+	if !claimed.Spent() {
+		return claimed, false, nil
+	}
+	if !claimed.GiveBackOutstanding() {
+		standing := "no decision about it is recorded"
+		if claimed.ClaimDecision != nil {
+			standing = fmt.Sprintf("the decision standing is %q, %s", claimed.ClaimDecision.Decision, claimed.ClaimDecision.Cite())
+		}
+		return Rerun{}, false, fmt.Errorf("the re-run claim of the stoppage keyed %s is spent and %s; a claim is given back only on the development manager's decision to give it back", key, standing)
+	}
+	claimed.GivenBack = &RerunGivenBack{
+		Decision:  *claimed.ClaimDecision,
+		ClaimedAt: claimed.ClaimedAt,
+		RunID:     claimed.RunID,
+		By:        strings.TrimSpace(by),
+		At:        at.UTC(),
+	}
+	claimed.ClaimDecision = nil
+	claimed.UpdatedAt = at.UTC()
+	if err := s.save(key, claimed); err != nil {
+		return Rerun{}, false, err
+	}
+	return claimed, true, nil
 }
 
 // Find reports the re-run of one docketed stoppage. A stoppage nothing has been
@@ -419,7 +729,9 @@ func (s *RerunStore) Find(docketKey string) (Rerun, bool, error) {
 // A claim counts whatever became of the run it caused. That is the direction this
 // record fails in everywhere else: a re-run claimed and then not run is an
 // attempt nobody took rather than one nobody counted, and treating it as unspent
-// is what would let one decision start two runs.
+// is what would let one decision start two runs. The one claim not counted is
+// one given back on the development manager's decision, which is that decision
+// saying the run it caused bought nothing.
 func (s *RerunStore) Claimed(workItemID string) ([]Rerun, error) {
 	id := strings.TrimSpace(workItemID)
 	if id == "" {
@@ -431,7 +743,7 @@ func (s *RerunStore) Claimed(workItemID string) ([]Rerun, error) {
 	}
 	var claimed []Rerun
 	for _, rerun := range recorded {
-		if rerun.WorkItemID == id {
+		if rerun.WorkItemID == id && rerun.Spent() {
 			claimed = append(claimed, rerun)
 		}
 	}

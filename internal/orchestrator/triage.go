@@ -718,6 +718,7 @@ func (d Docketer) joinDecisions(entries []triage.Entry, docketedRuns map[string]
 		}
 		entry.Counters = d.counters(decisions.counters, run, entry.Counters.RepairAttempts, len(decisions.claimed), publication)
 		entry.Rerun = rerunOf(*entry, decisions.claimed)
+		entry.SpentClaim = spentClaimOf(*entry, decisions.claimed, runs)
 		// Joined here and never written, exactly as the re-run above is: an override
 		// answers the escalation this entry produced, so it is always made after the
 		// entry exists.
@@ -844,6 +845,59 @@ func rerunOf(entry triage.Entry, claimed []runstate.Rerun) *triage.Rerun {
 		}
 	}
 	return nil
+}
+
+// spentClaimOf is the re-run claim the entry's run was started by, where it was
+// one: matched on the fresh run the claim records, so an entry about the
+// stopped run the claim was taken against is not mistaken for one about the
+// run it started.
+//
+// A claim that names no fresh run is matched on the stopped run's own entry
+// instead, where no run of the item has started since the claim was taken:
+// the run it was for never started and the harness could not save giving the
+// claim back, so this entry is the only place it can be put in front of her. A
+// claim with a run of the item started since is one whose run is still being
+// settled, or was refused after the claim was saved, and is left alone.
+func spentClaimOf(entry triage.Entry, claimed []runstate.Rerun, runs map[string]runstate.State) *triage.SpentClaim {
+	if strings.TrimSpace(entry.RunID) == "" {
+		return nil
+	}
+	for _, claim := range claimed {
+		noFreshRun := false
+		switch {
+		case claim.RunID == entry.RunID:
+		case claim.RunID == "" && claim.DocketKey == entry.Key && claim.PriorRunID == entry.RunID && !runStartedSince(runs, claim.WorkItemID, claim.ClaimedAt):
+			noFreshRun = true
+		default:
+			continue
+		}
+		spent := &triage.SpentClaim{
+			NoFreshRun: noFreshRun,
+			PriorRunID: claim.PriorRunID,
+			DocketKey:  claim.DocketKey,
+			ClaimedAt:  claim.ClaimedAt,
+			Reason:     claim.Reason,
+		}
+		if decided := claim.ClaimDecision; decided != nil {
+			spent.Decision = fmt.Sprintf("%q, %s: %s", decided.Decision, decided.Cite(), strings.TrimSpace(decided.Reason))
+			if claim.GiveBackOutstanding() {
+				spent.Decision += "; the harness gives it back at its next pull"
+			}
+		}
+		return spent
+	}
+	return nil
+}
+
+// runStartedSince reports a recorded run of the item started at or after a
+// moment.
+func runStartedSince(runs map[string]runstate.State, workItemID string, at time.Time) bool {
+	for _, state := range runs {
+		if state.WorkItemID == workItemID && !state.StartedAt.Before(at) {
+			return true
+		}
+	}
+	return false
 }
 
 // RecordStoppedRun dockets one run that stopped with its change still there, at

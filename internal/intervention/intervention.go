@@ -73,6 +73,9 @@ const (
 	KindRearm Kind = "rearm"
 	// KindOverride is crossing one of a work item's triage caps.
 	KindOverride Kind = "override"
+	// KindGiveBack is carrying out by hand the development manager's decision to
+	// give a spent re-run claim back.
+	KindGiveBack Kind = "give-back"
 	// KindStop is stopping a run.
 	KindStop Kind = "stop"
 	// KindSettle is settling or reconciling what runs left behind, by hand.
@@ -103,7 +106,7 @@ const (
 // in the order they are listed. Each can also be observed: a run stopped by
 // killing its process is a stop the harness never saw.
 var performedKinds = []Kind{
-	KindRun, KindRerun, KindRepair, KindResume, KindRearm, KindOverride,
+	KindRun, KindRerun, KindRepair, KindResume, KindRearm, KindOverride, KindGiveBack,
 	KindStop, KindSettle, KindApprove, KindDecline, KindDirective,
 }
 
@@ -151,6 +154,8 @@ func (k Kind) Describe() string {
 		return "asked the forge again for a dropped merge"
 	case KindOverride:
 		return "crossed a work item's triage cap"
+	case KindGiveBack:
+		return "gave back a spent re-run claim by hand"
 	case KindStop:
 		return "stopped a run"
 	case KindSettle:

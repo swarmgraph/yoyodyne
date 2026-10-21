@@ -327,6 +327,11 @@ type Options struct {
 	// into her conversation and no other, and a conversation without one refuses
 	// both decisions rather than recording one nothing will carry out.
 	Publications StoppedPublications
+	// Claims is where the development manager's decision about a spent re-run
+	// claim is recorded: give it back, or leave it spent (claimdecision.go). It is
+	// wired into her conversation and no other, and a conversation without one
+	// refuses both decisions rather than recording one nothing will carry out.
+	Claims RerunClaims
 	// InFlight is how the Lead Product Manager's decision about an item whose run
 	// is in flight reaches the development manager's docket. It is wired into her
 	// conversation and no other, and a conversation without one refuses the

@@ -58,9 +58,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/intervention"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
@@ -74,6 +76,7 @@ type triageOutput struct {
 	Rearm    *orchestrator.RearmResult             `json:"rearm,omitempty"`
 	Resume   *orchestrator.IntegrationResumeResult `json:"resume,omitempty"`
 	Override *triageOverrideResult                 `json:"override,omitempty"`
+	GiveBack *orchestrator.ClaimGiveBackResult     `json:"give_back,omitempty"`
 	Error    string                                `json:"error,omitempty"`
 }
 
@@ -106,6 +109,8 @@ func runTriage(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return resumeIntegration(ctx, args[1:], stdout, stderr)
 	case "override":
 		return overrideTriageCap(ctx, args[1:], stdout, stderr)
+	case "give-back":
+		return giveBackClaim(ctx, args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown triage command %q\n\n", args[0])
 		printTriageUsage(stderr)
@@ -246,6 +251,89 @@ func resumeIntegration(ctx context.Context, args []string, stdout, stderr io.Wri
 		})
 	}
 	return reportResume(stdout, stderr, *jsonOutput, result, err)
+}
+
+// giveBackClaim carries out the development manager's decision to give back the
+// re-run claim spent on one run. The decision is read from the claim's own
+// record, where her conversation wrote it, and nothing here can make one: a
+// claim with no give-back decision standing is refused. A process the harness
+// launched for a role is refused too, because a claim given back is a re-run the
+// harness then starts, and a developer freeing one for itself is work deciding
+// what work happens next.
+func giveBackClaim(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("triage give-back", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	configPath := flags.String("config", "", "configuration file path (default: the nearest project configuration)")
+	by := flags.String("by", os.Getenv("USER"), "who is carrying out the decision")
+	jsonOutput := flags.Bool("json", false, "emit machine-readable JSON")
+	positional, err := parseArguments(flags, args)
+	if err != nil {
+		return 2
+	}
+	if len(positional) != 1 || strings.TrimSpace(*by) == "" {
+		fmt.Fprintln(stderr, "triage give-back requires exactly one run identifier, the run the spent claim started or the stopped run it was taken for, and --by naming who carries it out")
+		printTriageUsage(stderr)
+		return 2
+	}
+	if role, launched := execution.LaunchedForRole(nil); launched {
+		return reportGiveBack(stdout, stderr, *jsonOutput, orchestrator.ClaimGiveBackResult{},
+			fmt.Errorf("yoyo triage give-back is refused from a process the harness launched for the %s: the development manager decides whether a spent re-run claim goes back, and the harness or a person carries her decision out", role.Title()))
+	}
+	parts, err := buildComponents(*configPath)
+	if err != nil {
+		return reportGiveBack(stdout, stderr, *jsonOutput, orchestrator.ClaimGiveBackResult{}, err)
+	}
+	result, err := claimGiverFrom(parts).GiveBack(ctx, positional[0], strings.TrimSpace(*by)+" with yoyo triage give-back")
+	if err == nil && result.GivenBack {
+		noteHandStepFor(*configPath, stderr, handStep{
+			kind:  intervention.KindGiveBack,
+			items: []string{result.WorkItemID},
+			run:   positional[0],
+			said:  "gave back the re-run claim spent on " + positional[0] + " with yoyo triage give-back",
+		})
+	}
+	return reportGiveBack(stdout, stderr, *jsonOutput, result, err)
+}
+
+// claimGiverFrom wires the give-back over the claims, the runs it proves ended,
+// and the tracker it notes the item through.
+func claimGiverFrom(parts components) *orchestrator.ClaimGiver {
+	return &orchestrator.ClaimGiver{
+		Claims: parts.store.Reruns(),
+		Runs:   parts.store,
+		Notes:  parts.tracker(),
+	}
+}
+
+func reportGiveBack(stdout, stderr io.Writer, jsonOutput bool, result orchestrator.ClaimGiveBackResult, err error) int {
+	if jsonOutput {
+		output := triageOutput{GiveBack: &result}
+		if err != nil {
+			output.Error = err.Error()
+		}
+		if code := writeJSON(stdout, stderr, output); code != 0 {
+			return code
+		}
+		if err != nil {
+			return 1
+		}
+		return 0
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	switch {
+	case result.Already:
+		fmt.Fprintf(stdout, "the re-run claim of %s was already given back: %s\n", result.WorkItemID, result.Claim.GivenBack.Says())
+	default:
+		fmt.Fprintf(stdout, "gave back the re-run claim of %s: %s\n", result.WorkItemID, result.Claim.GivenBack.Says())
+		fmt.Fprintf(stdout, "the re-run decided about the stoppage of run %s is outstanding again; a watching session carries it out at its next pull, and yoyo triage rerun %s carries it out now\n", result.PriorRunID, result.PriorRunID)
+	}
+	if result.NoteProblem != "" {
+		fmt.Fprintln(stderr, result.NoteProblem)
+	}
+	return 0
 }
 
 // buildIntegrationResumer wires the resume action over the same parts the repair
@@ -807,6 +895,9 @@ func carryOutFrom(parts components) *orchestrator.CarryOut {
 		// carries one out through, with its checks. What became of the request is
 		// noted on the item through the same tracker.
 		Integrations: orchestrator.RecoveredIntegrations{Runs: parts.store, Resumer: integrationResumerFrom(parts), Items: parts.tracker()},
+		// A re-run claim she decided to give back, given back through the same
+		// action `yoyo triage give-back` carries it out through.
+		ClaimGiver: claimGiverFrom(parts),
 		// The same pause every run and every turn reads. A carry-out spends on a
 		// provider, so `yoyo pause` covers it exactly as it covers them — and it is
 		// read here rather than left to the pipeline because a repair writes to the
@@ -884,6 +975,7 @@ func printTriageUsage(writer io.Writer) {
        yoyo triage rearm    [options] <run-id>
        yoyo triage resume   [options] <run-id>
        yoyo triage override [options] <beads-id>
+       yoyo triage give-back [options] <run-id>
 
 "rerun", "repair", and "rearm" carry out a decision the development manager
 recorded about a docketed entry. "resume" carries out no decision, because the
@@ -1023,6 +1115,22 @@ which spends the item's budget as it always did, and the carry-out acts on that
 decision under every condition it already asks. Crossing a cap and spending it
 are two decisions and stay two.
 
+"give-back" carries out the development manager's decision to give back a
+spent re-run claim. A re-run is claimed once per docketed stoppage, and the
+claim stays spent whatever the fresh run came to unless the harness can prove
+that run bought nothing. A fresh run that died at its tracker claim or while
+its worktree was being prepared is not provable that way, so its docket entry
+says which claim it spent and what that cost, and she records "give-back-claim"
+or "leave-claim-spent" about it in her conversation. A watching "yoyo work"
+session gives back every claim she decided to give back at its next pull; this
+does the same now. It names the run the claim started, or the stopped run the
+claim was taken for where no fresh run was recorded. It is refused where no
+give-back decision stands, while the run the claim was spent on is still going,
+and from a process the harness launched for a role. The claim's record keeps
+who gave it back, on whose decision, and why, and her re-run decision is then
+outstanding again. Nothing under the state root is to be edited by hand to
+give a claim back.
+
 Options:
   --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)
   --reason <text>   rearm: the development manager's recorded reasoning
@@ -1034,6 +1142,7 @@ Options:
                     "repair grant", "re-run", or "merge re-arm"
   --cap <n>         override: the ceiling to raise that budget to
   --clear           override: lift that budget entirely instead
-  --by <name>       override: the operator deciding it (required)
+  --by <name>       override: the operator deciding it (required); give-back:
+                    who carries the decision out (default: $USER)
   --json            emit machine-readable JSON`)
 }

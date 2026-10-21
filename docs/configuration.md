@@ -6508,7 +6508,13 @@ provably never started — a reservation refused for capacity creates no run
 record, claims no work item and runs no agent. A claim carrying a run is refused
 rather than removed. A withdrawal the harness could not write is reported rather
 than swallowed: the stoppage has then spent its re-run on a run that never
-started, which is a thing to go and correct.
+started. The claim stays recorded as spent, and the development manager's list
+names it — on the entry of the fresh run where one was recorded, and otherwise
+on the stopped run's own entry, which comes back onto her list until she decides
+about the claim. Whether it goes back is her decision, which the harness carries
+out — [a re-run claim spent on a run that bought
+nothing](operations.md#recovering-interrupted-runs) says how. Nobody edits the
+record by hand.
 
 **A pause the fresh run meets gives the claim back too**, and for the same
 reason. The operator's hold on all activity, an unresolved directive, work the
@@ -6546,7 +6552,11 @@ where they are, because nothing else records what they hold. Nothing automated
 deletes the record, for the reason nothing deletes a counter file — save the
 withdrawals above, which remove a claim that provably bought nothing: one whose
 fresh run the pipeline answered before it reserved anything, and one whose fresh
-run the environment refused before any agent of it ran.
+run the environment refused before any agent of it ran. A claim the development
+manager decided to give back is not removed: the record says it was given back,
+on whose decision, why, and who carried it out, and it no longer counts as
+spent, so the stoppage may be claimed again — the new claim keeping every
+earlier give-back.
 
 A retirement is written onto the stopped run itself as well, under that run's own
 lease, because its record is what `yoyo status` and the docket read to say

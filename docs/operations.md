@@ -1908,7 +1908,8 @@ ones it carries out for you as it does them:
 - running a work item by name — `yoyo run <id>`, or `/work <id>` in a
   conversation;
 - starting a re-run, a repair, a resume, or a re-arm by hand with `yoyo triage`,
-  and crossing a cap with `yoyo triage override`;
+  giving a spent re-run claim back with `yoyo triage give-back`, and crossing a
+  cap with `yoyo triage override`;
 - stopping a run — `/stop`, `/stop-everything`, or `/redirect` on a running item;
 - settling or reconciling by hand — `yoyo reconcile` typed at a terminal;
 - approving or declining a proposal or a document in a conversation, and a
@@ -4343,6 +4344,66 @@ a stop she decided, the stoppage docketed as settled by her decision. The slot
 is free as the record goes terminal. `yoyo reconcile` says `cancelled` against
 the run, with the stop's own words and that the sweep ended it in the dead
 process's place.
+
+**A re-run claim spent on a run that bought nothing goes back by the
+development manager's decision, and nobody edits the claims by hand.** A re-run
+the development manager decided is carried out once per stoppage: the harness
+records a claim against the stoppage under
+`<state root>/projects/<product id>/state/reruns/` before the fresh run starts,
+and the claim counts as spent whatever the fresh run came to. The harness gives
+a claim back by itself only where it can prove the fresh run bought nothing —
+the run was refused before it was reserved, or the environment refused it before
+any agent of it ran ([triage thresholds](configuration.md#triage-thresholds)
+says which). A fresh run that died at its tracker claim, or while its worktree
+was being prepared, with nothing classifying why, is not provable that way, and
+neither is a give-back the harness tried and could not write. Such a claim stays
+spent, and her re-run decision reads as carried out by a run that did nothing.
+What happens next is hers to decide and the harness's to carry out:
+
+1. **It is put in front of her.** The docket entry of the fresh run the claim
+   was spent on says which claim started it — the stopped run the re-run was
+   decided about, when the claim was taken, and the decision it carried out —
+   and what spending it cost: how many of the item's decided re-runs now read as
+   carried out, so the stopped work is not run again on the decision that stands.
+   A claim the harness could not give back is recorded as spent on its fresh run
+   so the entry can name it. Where no fresh run was ever recorded — the run was
+   refused before it was reserved and giving the claim back could not be saved —
+   the claim is named on the stopped run's own entry instead, which comes back
+   onto her list, though her re-run decision had closed it, until she decides
+   about the claim.
+2. **She decides, in her conversation.** `give-back-claim` gives it back;
+   `leave-claim-spent` leaves it spent, and the fresh run's stoppage is still
+   hers to decide. Each names the item and the fresh run (or, where no fresh run
+   was recorded, the stopped run the claim was taken for), carries her reason,
+   and spends nothing. The decision is written onto the claim itself with who
+   decided it, in which conversation, on which turn, and why, and noted on the
+   item. A give-back also closes the fresh run's docket entry, since running the
+   stopped work again is the answer to it.
+3. **The harness carries it out.** A watching `yoyo work` session gives back
+   every claim she decided to give back at its next pull, outside the developer
+   slots, before it reads what decisions are outstanding. `yoyo triage give-back
+   <run-id>` does the same now:
+
+   ```sh
+   ./bin/yoyo triage give-back run-d234e83c6c426420648e95a01f9e5211
+   ```
+
+   Either way the claim's record keeps the give-back — her decision and its
+   reason, the run it had been spent on, who carried it out (`the harness's
+   watching session`, or `<you> with yoyo triage give-back`), and when — and the
+   item is told. Her re-run decision is then outstanding again, and the next
+   pull carries it out under every gate a re-run already asks; the stoppage's
+   record keeps every earlier give-back when it is claimed again.
+
+A give-back is refused, with nothing written, where no give-back decision
+stands on the claim, while the run the claim was spent on is still going, and
+where the item has been run again since by some other run — giving the claim
+back then would start the item a second time; the decision is then hers to
+change. `yoyo triage give-back` is also refused from any process the harness
+launched for a role, including a shell an agent opened. Editing or deleting a
+file under `reruns/` by hand is never the recovery: a claim changed that way
+carries no account of who changed it or why, and the docket, the carry-out, and
+every status surface read the record rather than the edit.
 
 ## Git maintenance, and the one prune that is still yours
 

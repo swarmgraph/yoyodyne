@@ -336,3 +336,116 @@ func TestTheRerunStoreIsTheRunStoresOwnProduct(t *testing.T) {
 		t.Fatalf("Find() = %t, error = %v, want the claim the run store's own record took", found, err)
 	}
 }
+
+func giveBackDecision() RerunClaimDecision {
+	return RerunClaimDecision{
+		Decision:     RerunClaimGiveBack,
+		Reason:       "the fresh run died at its tracker claim and bought nothing",
+		DecidedBy:    "development manager",
+		Conversation: "chat-0123456789abcdef",
+		Turn:         7,
+		DecidedAt:    time.Date(2026, 8, 20, 9, 0, 0, 0, time.UTC),
+	}
+}
+
+// A claim spent on a fresh run is given back only on the development manager's
+// decision, and once given back it is no longer counted as spent, so the decision
+// that took it may be carried out again. The record keeps who gave it back and
+// why, through the claim taken again after it.
+func TestASpentClaimIsGivenBackOnlyOnTheDevelopmentManagersDecision(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newRerunStore(t)
+	if _, err := store.Claim(ctx, claimedRerun()); err != nil {
+		t.Fatalf("Claim() error = %v", err)
+	}
+	const fresh = "run-fedcba9876543210fedcba9876543210"
+	if _, err := store.Settle(ctx, rerunDocketKey, fresh, PreservedArtifacts{Disposition: PreservedKept}); err != nil {
+		t.Fatalf("Settle() error = %v", err)
+	}
+	if err := store.Withdraw(ctx, rerunDocketKey); err == nil || !strings.Contains(err.Error(), "yoyo triage give-back") {
+		t.Fatalf("Withdraw() error = %v, want the harness's own give-back refused naming the decision that applies", err)
+	}
+	if _, _, err := store.GiveBack(ctx, rerunDocketKey, "the harness's watching session", time.Now()); err == nil {
+		t.Fatal("GiveBack() with no decision standing gave the claim back")
+	}
+	spent, found, err := store.SpentOn(fresh)
+	if err != nil || !found || spent.DocketKey != rerunDocketKey {
+		t.Fatalf("SpentOn(%s) = %#v, %v, %v, want the claim spent on it", fresh, spent, found, err)
+	}
+	if _, err := store.DecideClaim(ctx, rerunDocketKey, giveBackDecision()); err != nil {
+		t.Fatalf("DecideClaim() error = %v", err)
+	}
+	if claimed, err := store.Claimed("yoyodyne-ifd.102.6"); err != nil || len(claimed) != 1 {
+		t.Fatalf("Claimed() = %d, %v before the give-back is carried out, want the claim still spent", len(claimed), err)
+	}
+
+	at := time.Date(2026, 8, 20, 9, 5, 0, 0, time.UTC)
+	given, gave, err := store.GiveBack(ctx, rerunDocketKey, "the harness's watching session", at)
+	if err != nil || !gave {
+		t.Fatalf("GiveBack() = %v, %v, want it given back", gave, err)
+	}
+	if given.GivenBack == nil || given.GivenBack.By != "the harness's watching session" || given.GivenBack.RunID != fresh ||
+		given.GivenBack.Decision.Reason != giveBackDecision().Reason || given.ClaimDecision != nil {
+		t.Fatalf("given back = %#v, want who carried it out, the run it was spent on, and the decision with its reason", given.GivenBack)
+	}
+	if says := given.GivenBack.Says(); !strings.Contains(says, "chat-0123456789abcdef") || !strings.Contains(says, "bought nothing") {
+		t.Fatalf("Says() = %q, want the decision cited with its reason", says)
+	}
+	if _, again, err := store.GiveBack(ctx, rerunDocketKey, "someone", at); err != nil || again {
+		t.Fatalf("second GiveBack() = %v, %v, want the decision already carried out", again, err)
+	}
+	if claimed, err := store.Claimed("yoyodyne-ifd.102.6"); err != nil || len(claimed) != 0 {
+		t.Fatalf("Claimed() = %d, %v, want a claim given back not counted", len(claimed), err)
+	}
+	if _, found, _ := store.SpentOn(fresh); found {
+		t.Fatal("SpentOn() still finds a claim given back")
+	}
+	if _, err := store.DecideClaim(ctx, rerunDocketKey, giveBackDecision()); err == nil {
+		t.Fatal("DecideClaim() decided again about a claim already given back")
+	}
+
+	// The stoppage may be claimed again, and the earlier give-back stays on it.
+	again := claimedRerun()
+	again.ClaimedAt = at.Add(time.Minute)
+	if _, err := store.Claim(ctx, again); err != nil {
+		t.Fatalf("Claim() after the give-back error = %v", err)
+	}
+	reclaimed, _, err := store.Find(rerunDocketKey)
+	if err != nil || reclaimed.GivenBack != nil || len(reclaimed.EarlierGivenBack) != 1 || reclaimed.EarlierGivenBack[0].By != "the harness's watching session" {
+		t.Fatalf("re-claimed record = %#v, %v, want the earlier give-back kept", reclaimed, err)
+	}
+	// Withdrawing that claim, which started nothing, restores the given-back
+	// record rather than erasing it.
+	if err := store.Withdraw(ctx, rerunDocketKey); err != nil {
+		t.Fatalf("Withdraw() error = %v", err)
+	}
+	restored, found, err := store.Find(rerunDocketKey)
+	if err != nil || !found || restored.GivenBack == nil || restored.GivenBack.RunID != fresh || len(restored.EarlierGivenBack) != 0 {
+		t.Fatalf("withdrawn record = %#v, %v, %v, want the give-back it replaced", restored, found, err)
+	}
+}
+
+// Leaving a claim spent records that she looked, and gives nothing back.
+func TestAClaimLeftSpentStaysSpent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newRerunStore(t)
+	if _, err := store.Claim(ctx, claimedRerun()); err != nil {
+		t.Fatalf("Claim() error = %v", err)
+	}
+	decision := giveBackDecision()
+	decision.Decision = RerunClaimLeaveSpent
+	decided, err := store.DecideClaim(ctx, rerunDocketKey, decision)
+	if err != nil || decided.ClaimDecision == nil || decided.GiveBackOutstanding() {
+		t.Fatalf("DecideClaim() = %#v, %v, want the decision recorded and nothing to give back", decided.ClaimDecision, err)
+	}
+	if _, _, err := store.GiveBack(ctx, rerunDocketKey, "someone", time.Now()); err == nil || !strings.Contains(err.Error(), RerunClaimLeaveSpent) {
+		t.Fatalf("GiveBack() error = %v, want it refused naming the decision standing", err)
+	}
+	if claimed, _ := store.Claimed("yoyodyne-ifd.102.6"); len(claimed) != 1 {
+		t.Fatalf("Claimed() = %d, want the claim still spent", len(claimed))
+	}
+}

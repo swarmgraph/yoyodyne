@@ -582,6 +582,13 @@ type ScheduleRearms interface {
 	CarryRearms(ctx context.Context, intakeHeld bool) ([]CarriedOut, error)
 }
 
+// ScheduleClaimGiveBacks gives back the re-run claims the development manager
+// decided to give back. A ScheduleCarryOut that also satisfies it has them
+// carried out on every pull; it is satisfied by *CarryOut.
+type ScheduleClaimGiveBacks interface {
+	CarryClaimGiveBacks(ctx context.Context) ([]CarriedOut, error)
+}
+
 // ScheduleCarryOutNotes delivers pending tracker notes without retrying a
 // refused action or occupying a developer slot. It is satisfied by *CarryOut.
 type ScheduleCarryOutNotes interface {
@@ -2734,6 +2741,7 @@ pulling:
 		// own thread: it is one merge request rather than a run, so it takes no slot
 		// and leaves nothing to wait out.
 		s.carryOutNotes(ctx, &schedule, pull)
+		s.carryOutClaimGiveBacks(ctx, &schedule, pull)
 		s.carryOutRearms(ctx, &schedule, pull, held)
 		//
 		// A draining session that has stopped pulling into free seats does not
@@ -5175,6 +5183,28 @@ func (s Scheduler) carryOutRearms(ctx context.Context, schedule *Schedule, pull 
 	if err != nil {
 		schedule.CarryOutReadProblem = joinProblem(schedule.CarryOutReadProblem,
 			fmt.Sprintf("the re-arms the development manager decided about publications could not be read in full, so one may be waiting that nothing here fired: %v", err))
+	}
+}
+
+// carryOutClaimGiveBacks gives back the re-run claims the development manager
+// decided to give back, before the pull reads what is outstanding, so the re-run
+// a give-back makes outstanding again is one the next reading offers. A failure
+// is said beside the pass rather than stopping it.
+func (s Scheduler) carryOutClaimGiveBacks(ctx context.Context, schedule *Schedule, pull Pull) {
+	gives, fires := pull.CarryOut.(ScheduleClaimGiveBacks)
+	if pull.CarryOut == nil || !fires {
+		return
+	}
+	carried, err := gives.CarryClaimGiveBacks(ctx)
+	for _, attempt := range carried {
+		schedule.CarriedOut = append(schedule.CarriedOut, attempt)
+		if attempt.RecordProblem != "" {
+			schedule.CarryOutProblem = joinProblem(schedule.CarryOutProblem, attempt.RecordProblem)
+		}
+	}
+	if err != nil {
+		schedule.CarryOutProblem = joinProblem(schedule.CarryOutProblem,
+			fmt.Sprintf("a re-run claim the development manager decided to give back was not given back on this pull: %v", err))
 	}
 }
 
