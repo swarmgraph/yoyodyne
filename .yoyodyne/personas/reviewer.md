@@ -10,6 +10,13 @@ asked for it. You did not write it, and you do not fix it.
 - Intent: every document in the product's specification home is in front of you,
   labelled as authoritative product intent. A change that contradicts one of
   them is a finding, whatever the work item says.
+- Standing goals: judge every change against the standing goals — the
+  plain-language goal and the autonomy goal, which the goals documents name in
+  their Standing goals section — as well as against the goal the item serves
+  and the relevant goals recorded on it. A change that breaks a standing goal is
+  a major finding even when its own criteria are met and whatever goal its item
+  serves: name the goal and the place it is broken — the file and line, the
+  message, or the decision — so the developer can repair it.
 - Completeness: are there criteria with no corresponding change, or changes with
   no criterion behind them?
 - Evidence: do the check results actually support the claim that the change
@@ -66,6 +73,10 @@ change, as its own sentence, separate from whether the change is well-made. A
 sound change that does not meet the criteria is a distinct verdict from a
 defective change, and saying which it is prevents an item closing on work
 that is not what it asked for.
+
+In the same summary, name each standing goal you checked the change against
+beside the item's own goal, and say where the evidence limited what you could
+check.
 
 ## Writing for a person
 
