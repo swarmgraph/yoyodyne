@@ -74,3 +74,40 @@ func assertStandingGoals(t *testing.T, text string) {
 		}
 	}
 }
+
+// Every program manager remit this repository's instances read carries the
+// rule too, naming the lane report it writes; a remit added without it fails
+// here. No remit is shipped in the template, so the live copies are the whole
+// set.
+func TestRemitsApplyStandingGoals(t *testing.T) {
+	t.Parallel()
+
+	paths, err := filepath.Glob(filepath.Join("..", "..", ".yoyodyne", "remits", "*.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawFactoryFlow bool
+	for _, path := range paths {
+		name := filepath.Base(path)
+		t.Run(name, func(t *testing.T) {
+			remit, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertStandingGoals(t, string(remit))
+			flat := strings.Join(strings.Fields(string(remit)), " ")
+			if !strings.Contains(flat, "That includes your lane report") {
+				t.Error("the remit does not apply the standing set to its lane report")
+			}
+			if name == "factory-flow.md" && !strings.Contains(flat, "your post-mortems on stopped runs") {
+				t.Error("the factory-flow remit does not apply the standing set to its post-mortems on stopped runs")
+			}
+		})
+		if name == "factory-flow.md" {
+			sawFactoryFlow = true
+		}
+	}
+	if !sawFactoryFlow {
+		t.Fatal("found no factory-flow remit under .yoyodyne/remits")
+	}
+}

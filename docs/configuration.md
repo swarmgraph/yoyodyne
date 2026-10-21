@@ -8870,6 +8870,10 @@ in Yoyodyne it is [the plain-language and autonomy goals](product/goals/v1-goals
 An output or decision that breaks one is a defect to report, naming the goal
 and where it was broken. The pass prompts `init` writes carry the same rule,
 and a program manager applies it to its lane report and post-mortems too.
+Every program manager remit this repository's instances read, under
+`.yoyodyne/remits`, carries the rule as well, naming the lane report and,
+for the factory-flow remit, the post-mortems on stopped runs; no remit is
+shipped in the template, and a test fails if any of them lacks it.
 
 Every shipped persona, every role contract, the pass prompts `init` writes,
 and this repository's factory-flow remit also carry the rule for writing for a
