@@ -622,11 +622,11 @@ func FromDecision(proposal amendment.Proposal, decision amendment.Decision) (Not
 // counting it.
 func FromIntakeHold(hold runstate.IntakeHold) Notification {
 	detail := Detail{Reason: hold.Account()}
-	// A hold the brake is working itself is the development manager's or the
-	// harness's, and the record says which; the fixed clause names the operator,
-	// which is right for the operator's hold and for nothing else.
+	// Whose move the hold is, is the read model's answer for it (the ownership
+	// registry's rule for the hold): the operator's for his own hold, and for the
+	// brake's whoever its record says — never derived here.
+	detail.Mover = readmodel.IntakeHoldWhose(hold)
 	if hold.Braked() {
-		detail.Mover = hold.Whose()
 		detail.Stops = strings.Join(hold.Brake.Entries(), "; ")
 	}
 	return productNotification(KindIntakeHeld, hold.HeldAt, detail)
@@ -696,16 +696,18 @@ func FromOperatorAction(action OperatorAction) (Notification, error) {
 }
 
 // FromBrakeEscalation is the one message that says the brake's hold has been
-// handed to the operator, whoever handed it. A hold the development manager
+// escalated to the Lead Product Manager, whoever escalated it, and it is how
+// the operator is told. A hold the development manager
 // escalated is said in the hold's own account of who decided it, as the trip
 // was. A hold only the harness escalated, at its cycle bound, is said as the
 // harness's escalation: the moment is the escalation's own rather than the
-// hold's, because that is when the hold became a person's, and the reason is
+// hold's, because that is when the hold left the harness's loop, and the reason is
 // the hold's whole account — what tripped it, and the cycles and the last
 // probe's stoppage that ended the loop. Its mover is left to the fixed clause:
 // the hold's own wording of it is the same account again, and a message that
 // said it twice is one the operator reads once. It is a warning: the hold now
-// waits on a person, and the hourly line raises it from there as it stands.
+// waits on the Lead Product Manager's decision, and the hourly line raises it
+// from there as it stands.
 //
 // Where both stand — she escalated a hold the harness already had — her
 // decision is the account, as it is on every other surface that says whose
@@ -713,8 +715,8 @@ func FromOperatorAction(action OperatorAction) (Notification, error) {
 // way.
 //
 // A hold nobody has escalated is refused rather than said as if it had: a
-// message telling the operator the hold is his, over a hold still being
-// worked, is the false record this exists to prevent.
+// message telling the operator the hold has been escalated, over a hold still
+// being worked, is the false record this exists to prevent.
 func FromBrakeEscalation(hold runstate.IntakeHold) (Notification, error) {
 	if !hold.Braked() || !hold.Brake.Escalated() {
 		return Notification{}, errors.New("address the brake's escalation: nobody has escalated this hold")
@@ -830,8 +832,8 @@ type Line struct {
 	// beside the state itself rather than here, so the clause this message ends
 	// on and the attention line `yoyo status` prints name one move. A line
 	// stopped by the brake's hold is the development manager's or the harness's
-	// while the brake works it and the operator's once she has escalated it, and
-	// one fixed clause could not be right about both.
+	// while the brake works it and the Lead Product Manager's once it is
+	// escalated, and one fixed clause could not be right about both.
 	Mover string
 	// Standing is where the harness stands, in the four lines the read model
 	// renders. It is said with the line because the two answer one question at

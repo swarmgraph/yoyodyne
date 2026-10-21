@@ -19,8 +19,8 @@ goals), questions about intent, stopped work the development manager escalates,
 and the pause and intake hold you place yourself. When runs keep failing one
 after another, the harness holds intake on its own and calls the development
 manager to decide whether to release that hold, test the line with one run, or
-escalate it to you; you are told when it happens, and you may release it
-yourself ([how that hold works](docs/operations.md#pausing-everything-and-resuming-it)).
+escalate it to the Lead Product Manager; you are told when it happens, and you
+may release it yourself ([how that hold works](docs/operations.md#pausing-everything-and-resuming-it)).
 
 Three gates hold that up, and the harness enforces each rather than trusting an
 agent's good behavior:

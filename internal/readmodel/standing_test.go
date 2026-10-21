@@ -1976,7 +1976,7 @@ func TestABrakeHoldNamesWhoIsDecidingAndTheProbe(t *testing.T) {
 				trip.Decision, trip.DecidedAt, trip.DecisionReason = runstate.BrakeDecisionEscalate, &decidedAt, "the same check fails everywhere"
 			}),
 			want: []string{
-				"— the Lead Product Manager's — the development manager escalated it, and what ends it is to decide whether intake reopens; the operator is told and may release it; nothing new is chosen until `yoyo release` lifts it",
+				"— the Lead Product Manager's — the development manager escalated it, and she decides whether intake reopens; the operator is told and may release it, and nothing new is chosen until `yoyo release` lifts it",
 			},
 		},
 		{
@@ -1991,7 +1991,7 @@ func TestABrakeHoldNamesWhoIsDecidingAndTheProbe(t *testing.T) {
 				trip.Decision, trip.DecidedAt, trip.DecisionReason = runstate.BrakeDecisionEscalate, &decidedAt, "the same check fails everywhere"
 			}),
 			want: []string{
-				"— the Lead Product Manager's — the development manager escalated it, and what ends it is to decide whether intake reopens; the operator is told and may release it; nothing new is chosen until `yoyo release` lifts it",
+				"— the Lead Product Manager's — the development manager escalated it, and she decides whether intake reopens; the operator is told and may release it, and nothing new is chosen until `yoyo release` lifts it",
 			},
 		},
 	} {

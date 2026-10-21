@@ -221,14 +221,15 @@ const (
 	// buried in a thread that would misfile them.
 	KindIntakeHeld     Kind = "intake.held"
 	KindIntakeReleased Kind = "intake.released"
-	// The brake's own hold handed to the operator by the harness, after its
-	// summons-and-probe loop went round the configured number of times with the
-	// development manager not escalating it. It is a kind of its own rather than
-	// the hold said again because it is the moment the hold becomes a person's:
-	// the trip was said when it happened and asked nothing of anybody, and this
-	// is the one message about that hold that does. It is said once, tagged to
-	// the operators and sent to them directly, naming the cycles spent and what
-	// stopped the last probe; the hourly line carries it from there.
+	// The brake's own hold escalated by the harness to the Lead Product Manager,
+	// after its summons-and-probe loop went round the configured number of times
+	// with the development manager not escalating it. It is a kind of its own
+	// rather than the hold said again because it is the moment the hold leaves
+	// the harness's loop: the trip was said when it happened, and this is the one
+	// message that tells the operator the loop has ended. It is said once, tagged
+	// to the operators and sent to them directly, naming the cycles spent and
+	// what stopped the last probe; the hourly line carries it from there, in the
+	// channel, as the Lead Product Manager's.
 	KindIntakeEscalated Kind = "intake.escalated"
 	KindHoldPlaced      Kind = "hold.placed"
 	KindHoldLifted      Kind = "hold.lifted"
@@ -899,8 +900,8 @@ type Detail struct {
 	// the read model beside the hold itself, so the sentence a terminal prints on
 	// its attention line and the clause this message ends on are one wording.
 	// KindLineWaiting reads it the same way, for the intake hold above all: the
-	// brake's hold is the development manager's while she decides and the
-	// operator's once she has escalated it, and the hold's own record words which.
+	// brake's hold is the development manager's while she decides and the Lead
+	// Product Manager's once it is escalated, and the read model words which.
 	Cause string `json:"cause,omitempty"`
 	Mover string `json:"mover,omitempty"`
 	// Waiting is what a provider's refusal stopped, read by

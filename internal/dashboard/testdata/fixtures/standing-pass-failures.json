@@ -23,6 +23,11 @@
       "kind": "failing-task",
       "id": "maintenance",
       "mover": "program-manager",
+      "ownership": {
+        "owner": "program-manager",
+        "remedy": "find and fix why the pass keeps failing",
+        "capability": "triage decision"
+      },
       "label": "scheduled task failing",
       "failing_task": {
         "task": "maintenance",

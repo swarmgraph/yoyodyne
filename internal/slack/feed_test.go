@@ -625,7 +625,7 @@ func TestABrakeTripIsSaidToTheOperatorDirectlyOnceAndItsEscalationOnceMore(t *te
 	if err != nil {
 		t.Fatalf("render the escalation: %v", err)
 	}
-	if !strings.Contains(message.Body, "the development manager escalated it to the operator") {
+	if !strings.Contains(message.Body, "the development manager escalated it to the Lead Product Manager, and the operator is told") {
 		t.Fatalf("escalation reads as %q, which does not say she escalated it", message.Body)
 	}
 	cursors = harness.poll(t, cursors, notify.KindIntakeHeld)
@@ -1372,7 +1372,8 @@ func newTestHarness(t *testing.T, since time.Time) *testHarness {
 	return harness
 }
 
-// A brake hold escalated to the operator is said to him directly once, whoever
+// A brake hold escalated to the Lead Product Manager is said to the operator
+// directly once, so he is told, whoever
 // escalated it and however many times the record is escalated again: the
 // harness at its bound and then the development manager on top of it, her and
 // then the harness, her deciding it twice, a hold first read already
@@ -1486,7 +1487,7 @@ func TestAnEscalatedBrakeHoldIsSaidToTheOperatorDirectlyOnce(t *testing.T) {
 	}
 
 	// A hold first read already escalated is said once, by the trip's own
-	// message, which already names the operator as the one to move.
+	// message, which already names the Lead Product Manager as the one to move.
 	t.Run("first read already escalated", func(t *testing.T) {
 		t.Parallel()
 		harness := newTestHarness(t, time.Time{})
@@ -1500,8 +1501,8 @@ func TestAnEscalatedBrakeHoldIsSaidToTheOperatorDirectlyOnce(t *testing.T) {
 		if err != nil {
 			t.Fatalf("render the hold: %v", err)
 		}
-		if !strings.Contains(rendered.Body, "Next: the operator's — the harness escalated it") {
-			t.Fatalf("hold reads as %q, which does not say the harness escalated it to the operator", rendered.Body)
+		if !strings.Contains(rendered.Body, "Next: the Lead Product Manager's — the harness escalated it") {
+			t.Fatalf("hold reads as %q, which does not say the harness escalated it to the Lead Product Manager", rendered.Body)
 		}
 		byHer(t, harness, escalatedAt.Add(10*time.Minute))
 		harness.poll(t, cursors)

@@ -911,6 +911,18 @@ func (a *Attention) UnmarshalJSON(data []byte) error {
 	if strings.TrimSpace(wire.Whose) != "" && wire.Whose != decoded.Whose() {
 		return fmt.Errorf("attention entry %s %s: its whose %q disagrees with its record, which says %q", decoded.Kind, decoded.ID, wire.Whose, decoded.Whose())
 	}
+	// An entry that carries the registry's answer is held to it, as its
+	// sentences are: the answer and the mover are the registry's for the record
+	// beside them, and the reason in words is that answer's.
+	if decoded.Ownership != (ownership.Answer{}) {
+		answer := ownership.Resolve(decoded.Kind, decoded.ownershipRecord())
+		if decoded.Ownership != answer || decoded.Mover != answer.Owner {
+			return fmt.Errorf("attention entry %s %s: its owner %q and answer %+v disagree with the ownership registry, which answers %+v", decoded.Kind, decoded.ID, decoded.Mover, decoded.Ownership, answer)
+		}
+	}
+	if wire.OwnerReason != "" && wire.OwnerReason != decoded.Ownership.ReasonSays() {
+		return fmt.Errorf("attention entry %s %s: its owner reason %q disagrees with its answer, which says %q", decoded.Kind, decoded.ID, wire.OwnerReason, decoded.Ownership.ReasonSays())
+	}
 	*a = decoded
 	return nil
 }
@@ -929,6 +941,20 @@ func operatorHoldAttention(hold runstate.OperatorHold) Attention {
 // same order, and a test holds the two together.
 func intakeHoldAttention(hold runstate.IntakeHold) Attention {
 	return resolved(Attention{Kind: AttentionHold, ID: HoldIntake, IntakeHold: &hold})
+}
+
+// IntakeHoldWhose is whose move a held intake is and what ends it, as the
+// attention line says it, for a surface that says a held intake outside that
+// line: the channel's message about the hold and its hourly line over a stopped
+// queue. It is the registry's answer, so no surface words an owner of its own.
+func IntakeHoldWhose(hold runstate.IntakeHold) string {
+	return intakeHoldAttention(hold).Whose()
+}
+
+// IntakeHoldOwner is the registry's whole answer for a held intake: who moves
+// it, and why where that is the operator.
+func IntakeHoldOwner(hold runstate.IntakeHold) ownership.Answer {
+	return intakeHoldAttention(hold).Ownership
 }
 
 // intakeHoldWhose is whose move a held intake is, and what ends it. The hold's

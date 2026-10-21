@@ -155,6 +155,11 @@
       "kind": "amendment",
       "id": "amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c",
       "mover": "architect",
+      "ownership": {
+        "owner": "architect",
+        "remedy": "decide the proposed change from its conversation",
+        "capability": "amendment action"
+      },
       "work_item_id": "yoyodyne-ifd.210",
       "amendment": {
         "schema_version": 1,
@@ -180,6 +185,11 @@
       "kind": "amendment",
       "id": "amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d",
       "mover": "architect",
+      "ownership": {
+        "owner": "architect",
+        "remedy": "decide the proposed change from its conversation",
+        "capability": "amendment action"
+      },
       "work_item_id": "yoyodyne-ifd.432.5",
       "amendment": {
         "schema_version": 1,
@@ -204,6 +214,11 @@
     {
       "kind": "held-work",
       "mover": "development-manager",
+      "ownership": {
+        "owner": "development-manager",
+        "remedy": "decide what becomes of each stopped run",
+        "capability": "triage decision"
+      },
       "held_work": {
         "awaiting": "decision",
         "count": 1
@@ -215,6 +230,11 @@
     {
       "kind": "held-work",
       "mover": "harness",
+      "ownership": {
+        "owner": "harness",
+        "remedy": "carry out the decision already recorded",
+        "capability": "watch session"
+      },
       "held_work": {
         "awaiting": "carry-out",
         "count": 1
@@ -226,6 +246,11 @@
     {
       "kind": "report",
       "mover": "product-manager",
+      "ownership": {
+        "owner": "product-manager",
+        "remedy": "handle the oldest undecided reports",
+        "capability": "report handling"
+      },
       "reports": {
         "collected": 14,
         "unhandled": 2,
@@ -241,6 +266,11 @@
       "kind": "conversation-carried-item",
       "id": "yoyodyne-ifd.188",
       "mover": "product-manager",
+      "ownership": {
+        "owner": "product-manager",
+        "remedy": "do the work in its conversation",
+        "capability": "conversation"
+      },
       "work_item_id": "yoyodyne-ifd.188",
       "executor": "conversation:product-manager",
       "what": "yoyodyne-ifd.188 is admitted for \"conversation:product-manager\" rather than a developer run",

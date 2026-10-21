@@ -1096,14 +1096,15 @@ changes that were present; a stop the environment made counts toward nothing --
 and the same poll summons the development manager's sweep ahead of its schedule
 with the blocked runs and the reason each blocked in front of her. She decides
 what happens to the hold: release it, keep it and probe the line with one run,
-or escalate it to you. Where she records nothing by execution.brake_cooldown,
+or escalate it to the Lead Product Manager, which you are told of. Where she
+records nothing by execution.brake_cooldown,
 the session probes by itself: one run started under the hold, whose landing
 reopens intake and whose blocking keeps it held and summons her again. That
 loop is bounded by execution.brake_escalation_cycles: after that many probes
 have blocked with her not escalating the hold, the session escalates it to
-you itself, and no further probe starts. So the only brake hold that waits
-on a person is one she escalated or one the harness escalated at that bound;
-"yoyo release" lifts any of them sooner. The hold's own record says who is
+the Lead Product Manager itself, you are told, and no further probe starts. So
+a brake hold never waits on you: an escalated one is the Lead Product
+Manager's to decide, and "yoyo release" lifts any of them sooner. The hold's own record says who is
 deciding it, where the loop stands, and what the harness does next, and
 "yoyo status" reads it back.
 And what the session is doing -- watching, idle, braked, resumed, stopped -- is
