@@ -35,7 +35,6 @@ package readmodel
 
 import (
 	"context"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -59,12 +58,6 @@ const untitledWorkItem = "no title recorded"
 // trackerUnreadable opens what every reference is shown with when the tracker
 // could not be read; the time of the reading follows it.
 const trackerUnreadable = "tracker unreadable at "
-
-// renderedState is the shape of what an earlier rendering put after an id:
-// a priority and the rest, or one of the two words for an item with no state.
-// Text that already carries one is given the current state in its place
-// rather than a second set of parentheses.
-var renderedState = regexp.MustCompile(`^(P[0-9]+(, [^:()]*)?: |` + notInTracker + `$|` + trackerUnreadable + `)`)
 
 // citedItem is what the tracker holds of one item, as it is shown.
 type citedItem struct {
@@ -240,12 +233,20 @@ func (w *WorkItemTitles) CiteKnowing(text string, known ...string) string {
 		if within(listed, reference.Start) {
 			continue
 		}
-		cited.WriteString(text[last:reference.End])
-		cited.WriteString(" (" + w.state(id) + ")")
-		last = reference.End
-		if end, ok := renderedAfter(text, reference.End); ok {
-			last = end
+		state := " (" + w.state(id) + ")"
+		if strings.HasPrefix(text[reference.End:], state) {
+			// Exactly what this reading would put there is there already: the
+			// text passed through this renderer once on its way here. It is left
+			// as it is, and nothing inside it — a title read from the tracker —
+			// is searched. Anything else after an id is the writer's own words
+			// and is kept as written, with the state put in before it.
+			cited.WriteString(text[last : reference.End+len(state)])
+			last = reference.End + len(state)
+			continue
 		}
+		cited.WriteString(text[last:reference.End])
+		cited.WriteString(state)
+		last = reference.End
 	}
 	if last == 0 {
 		return text
@@ -286,14 +287,17 @@ func (w *WorkItemTitles) Unresolved(text string) int {
 }
 
 // UnresolvedSays is the line a surface prints under text it showed with short
-// ids left as written, and empty where there were none.
+// ids left as written, and empty where there were none. It covers both ways
+// text comes to have no references: recorded before references were kept, or
+// recorded while the tracker could not be listed.
 func UnresolvedSays(unresolved int) string {
 	if unresolved <= 0 {
 		return ""
 	}
 	return count(unresolved, "short work item id") + " above " + plural(unresolved, "was", "were") +
-		" written before work item references were kept, so " + plural(unresolved, "it is", "they are") +
-		" shown as written rather than guessed at"
+		" recorded with no tracker listing to resolve " + plural(unresolved, "it", "them") +
+		" against — before work item references were kept, or while the tracker could not be read — so " +
+		plural(unresolved, "it is", "they are") + " shown as written rather than guessed at"
 }
 
 // plural is the singular form for one and the plural form otherwise.
@@ -366,32 +370,4 @@ func within(spans [][2]int, offset int) bool {
 		}
 	}
 	return false
-}
-
-// renderedAfter reports whether what follows an id at offset is a state an
-// earlier rendering put there, and where it ends, so that it is given the
-// current state rather than a second one beside it.
-func renderedAfter(text string, offset int) (int, bool) {
-	if !strings.HasPrefix(text[offset:], " (") {
-		return 0, false
-	}
-	open := offset + 2
-	depth := 1
-	for at := open; at < len(text); at++ {
-		switch text[at] {
-		case '(':
-			depth++
-		case ')':
-			depth--
-			if depth == 0 {
-				if renderedState.MatchString(text[open:at]) {
-					return at + 1, true
-				}
-				return 0, false
-			}
-		case '\n':
-			return 0, false
-		}
-	}
-	return 0, false
 }

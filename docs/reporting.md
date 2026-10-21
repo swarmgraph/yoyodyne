@@ -462,22 +462,29 @@ Blocked by yoyodyne-ifd.434.9 (P1, reliability: Price a resumed session at what 
 A full id — the tracker's prefix, a hyphen, the item's hash, and any dotted
 children — is always read as a reference. A short id such as `434.9` or
 `ifd.434.9` is read as one only when the text is recorded, against the tracker
-as it stood then, and only where exactly one item ends in it: a report from a
-conversation, what became of a report, a lane report, and a recurring pass's
-account keep the references found when they were written, as each id and the
-bytes that named it, and show the short id as the full id it named. Text
-recorded before references were kept, and text recorded with no tracker
-listing to resolve against, is read for full ids only; a short id in it is left
-as written, because whether it named exactly one item when it was written
+as it stood then, and only where exactly one item ends in it: a report —
+from a conversation, a developer's or reviewer's run, a branch review, or an
+exchange that closed unresolved — what became of a report, a lane report, and a
+recurring pass's account keep the references found when they were written, as
+each id and the bytes that named it, and show the short id as the full id it
+named. Text recorded before references were kept, and text recorded while the
+tracker could not be listed, is read for full ids only; a short id in it is
+left as written, because whether it named exactly one item when it was written
 cannot be known now, and `yoyo reports` and `yoyo sweeps` count such ids under
-what they show. A report records whether its references were looked for, so
-one recorded against a listing is never counted that way. Reports filed from a
-developer's or a reviewer's run keep no references yet. So `Go 1.22` is never
+what they show. A report and a lane report record whether their references were
+looked for (`references_kept`), so one recorded against a listing is never
+counted that way, and the lane report the dashboard's card reads says
+`found_when_read` where its references were found by reading it now rather
+than kept when it was written. So `Go 1.22` is never
 shown as whichever item happens to end in `1.22`. Nothing in a path, a link,
 between backticks, or in a fenced code block is read as a reference, because a
 state put into the middle would break what somebody is meant to read or type
 exactly. A name in the operator's form is never searched again either: an id
-inside an item's title is the title's.
+inside an item's title is the title's. Words in parentheses after an id are the
+writer's own and are kept as written, with the item's state put in before
+them; the one thing left alone is a state exactly as this reading would put
+it, which is text that already passed through the renderer on its way to the
+surface, such as the four lines inside a Slack message.
 
 An id the tracker does not hold is shown as `(not in the tracker)`. When the
 tracker cannot be read, every reference is shown as

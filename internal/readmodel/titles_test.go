@@ -95,10 +95,21 @@ func TestARenamedItemChangesOnlyTheParenthesesAfterIt(t *testing.T) {
 	if want := "Retrying ex-7 (P1, bug, reliability: Retry the merge after a refusal) now."; after != want {
 		t.Fatalf("Cite() after the rename = %q, want %q", after, want)
 	}
-	// A rendering made before the rename is given the current state in place
-	// of the old one rather than a second state beside it.
-	if refreshed := NewWorkItemTitles(renamed).Cite(before); refreshed != after {
-		t.Errorf("Cite(earlier rendering) = %q, want %q", refreshed, after)
+}
+
+// Words a role wrote in parentheses after an id are its own, whatever they look
+// like: they are kept as written, with the item's state put in before them.
+func TestARolesOwnParenthesesAfterAnIdSurvive(t *testing.T) {
+	t.Parallel()
+
+	titles := NewWorkItemTitles(exampleItems())
+	for stored, want := range map[string]string{
+		"ex-7 (P1: retry after the forge answers)":  "ex-7 (P1, reliability: Retry the merge) (P1: retry after the forge answers)",
+		"ex-7 (not in the tracker, I think) failed": "ex-7 (P1, reliability: Retry the merge) (not in the tracker, I think) failed",
+	} {
+		if got := titles.Cite(stored); got != want {
+			t.Errorf("Cite(%q) = %q, want %q", stored, got, want)
+		}
 	}
 }
 
@@ -290,6 +301,7 @@ func TestALaneReportsCardShowsEveryItemItsReferencesName(t *testing.T) {
 	current := blockedBy("factory-pgm", "restart-0123456789abcdef")
 	current.Report.Summary = "Moving on 434.9 and 434.3."
 	current.Report.SummaryReferences, _ = titles.References(current.Report.Summary)
+	current.Report.ReferencesKept = true
 	current.Report.Remaining = []string{"yoyodyne-ifd.12", "yoyodyne-ifd.999.1", "older 434.9"}
 	current.Report.Blockers[0].What = "yoyodyne-ifd.434.9 needs a restart"
 	sources := programManagerSources()
@@ -301,6 +313,16 @@ func TestALaneReportsCardShowsEveryItemItsReferencesName(t *testing.T) {
 	if err != nil || answer.Report == nil {
 		t.Fatalf("ReadProgramManagerReport() = %+v, %v", answer, err)
 	}
+	if answer.Report.FoundWhenRead {
+		t.Errorf("FoundWhenRead = true on a report written with its references kept")
+	}
+	older := current
+	older.Report.ReferencesKept, older.Report.SummaryReferences = false, nil
+	sources.LaneReports = fakeLaneReports{reports: map[string]runstate.LaneReport{"factory-pgm": older}}
+	if read, err := ReadProgramManagerReport(sources, "factory-pgm"); err != nil || read.Report == nil || !read.Report.FoundWhenRead {
+		t.Errorf("a report written before references were kept = %+v, %v; want it marked found_when_read", read.Report, err)
+	}
+	sources.LaneReports = fakeLaneReports{reports: map[string]runstate.LaneReport{"factory-pgm": current}}
 	if want := "Moving on yoyodyne-ifd.434.9 (P1, reliability: Price a resumed session at what it moved by) and yoyodyne-ifd.434.3 (P2: Say the provider's reset in local time)."; answer.Report.Summary != want {
 		t.Errorf("Summary = %q, want %q", answer.Report.Summary, want)
 	}

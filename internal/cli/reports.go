@@ -33,6 +33,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 type reportsOutput struct {
@@ -308,4 +309,25 @@ stopped.
 Options:
   --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)
   --json            emit machine-readable JSON`)
+}
+
+// referenceFinder takes one listing of the product's tracker, bounded as every
+// other listing is, and gives back what finds the work items a report's
+// message names as it is collected; nil where the tracker could not be listed,
+// so the report is collected without references rather than resolved against
+// nothing.
+func referenceFinder(parts components) func() func(text string) []workref.Reference {
+	return func() func(text string) []workref.Reference {
+		titles, err := readmodel.ReadWorkItemTitles(context.Background(), readmodel.Sources{
+			Tracker: parts.tracker(), TrackerTimeout: trackerCommandTimeout,
+			TrackerPrefixes: []string{string(parts.config.Product.ID)},
+		})
+		if err != nil || !titles.Readable() {
+			return nil
+		}
+		return func(text string) []workref.Reference {
+			found, _ := titles.References(text)
+			return found
+		}
+	}
 }

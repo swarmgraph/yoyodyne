@@ -48,7 +48,7 @@ func TestTheReportListingShowsEveryItemWithItsState(t *testing.T) {
 		"yoyodyne-ifd.999.1 (not in the tracker)",
 		"older: 434.9 is open",
 		"kept: 434.9 was not yet admitted",
-		"1 short work item id above was written before work item references were kept",
+		"1 short work item id above was recorded with no tracker listing to resolve it against",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("renderCollectedReports() = %q, want it to carry %q", rendered, want)

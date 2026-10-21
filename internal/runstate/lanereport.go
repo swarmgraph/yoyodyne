@@ -157,6 +157,10 @@ type LaneReportContent struct {
 	// references were kept carries none.
 	SummaryReferences   []workref.Reference   `json:"summary_references,omitempty"`
 	RemainingReferences [][]workref.Reference `json:"remaining_references,omitempty"`
+	// ReferencesKept says the report was searched for references against a
+	// listing of the tracker when it was written, which empty lists alone cannot
+	// say of a report that named nothing.
+	ReferencesKept bool `json:"references_kept,omitempty"`
 	// Refused names each Blocked on a human entry the turn wrote that was left
 	// out, and why. One bad entry does not refuse the report; the rest stands,
 	// and the refusals reach the pass record. It is never stored.
@@ -595,7 +599,8 @@ func (s *LaneReportStore) redact(content LaneReportContent) LaneReportContent {
 	// redaction moved no longer covers its id and is shown as written
 	// (workref.Expand).
 	redacted := LaneReportContent{Summary: s.redactor.Redact(content.Summary), Refused: content.Refused,
-		SummaryReferences: content.SummaryReferences, RemainingReferences: content.RemainingReferences}
+		SummaryReferences: content.SummaryReferences, RemainingReferences: content.RemainingReferences,
+		ReferencesKept: content.ReferencesKept}
 	if content.BlockedOnAHuman != nil {
 		redacted.BlockedOnAHuman = make([]LaneReportHumanBlock, len(content.BlockedOnAHuman))
 		for index, entry := range content.BlockedOnAHuman {

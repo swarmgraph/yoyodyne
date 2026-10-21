@@ -239,6 +239,7 @@ func (s *Session) writeLaneReportWithoutToolAudit(ctx context.Context, content *
 			for _, entry := range content.Remaining {
 				content.RemainingReferences = append(content.RemainingReferences, find(entry))
 			}
+			content.ReferencesKept = true
 		}
 		written, err := s.options.LaneReports.Write(ctx, runstate.LaneReport{
 			ProductID: s.options.ProductID,

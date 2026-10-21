@@ -398,6 +398,11 @@ type LaneReportText struct {
 	ConversationID string    `json:"conversation_id"`
 	Turn           int       `json:"turn"`
 	WrittenAt      time.Time `json:"written_at"`
+	// FoundWhenRead says the report was written with no references kept, so
+	// every reference shown in it was found by reading its full ids now, and a
+	// short id in it is left as written. It tells a reviewer those references
+	// from ones kept when the report was written.
+	FoundWhenRead bool `json:"found_when_read,omitempty"`
 }
 
 // ProgramManagerReport is the per-instance query the dashboard opens a report
@@ -465,6 +470,7 @@ func ReadProgramManagerReport(sources Sources, agent string) (ProgramManagerRepo
 			ConversationID: current.Stamp.ConversationID,
 			Turn:           current.Stamp.Turn,
 			WrittenAt:      current.RecordedAt,
+			FoundWhenRead:  !current.Report.ReferencesKept,
 		}
 		return answer, nil
 	}

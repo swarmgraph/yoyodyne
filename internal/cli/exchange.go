@@ -520,7 +520,8 @@ func conversationExchanges(parts components, authority chat.Authority, provider 
 		return nil
 	}
 	return exchange.Conductor{
-		Store: store,
+		Store:           store,
+		ReferenceFinder: referenceFinder(parts),
 		// The lease is what holds one exchange to one round at a time. Two
 		// conversations open at once are two processes, and without it the second
 		// would write over the first one's round.

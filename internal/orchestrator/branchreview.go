@@ -50,6 +50,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/review"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/toolcatalog"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 // BranchChangeReader describes an accumulated change. It is the narrow half of
@@ -74,8 +75,14 @@ type BranchReviewRecorder interface {
 // BranchReviewer runs one independent review of what a branch accumulated over
 // a base commit.
 type BranchReviewer struct {
-	Worktrees BranchChangeReader
-	Reviewer  ChangeReviewer
+	// ReferenceFinder takes one listing of the tracker and gives back what
+	// finds the work items a report's message names as it is collected
+	// (internal/workref), so a short id the role wrote is shown as the item it
+	// named then. It is nil, or gives back nil, where no tracker could be listed,
+	// and the report is then collected without references.
+	ReferenceFinder func() func(text string) []workref.Reference
+	Worktrees       BranchChangeReader
+	Reviewer        ChangeReviewer
 	// Reviews is where the verdict is recorded. A review nothing can write down
 	// is still a review that happened, so a failure to record is reported on the
 	// outcome rather than hiding the verdict it could not keep.
@@ -482,6 +489,7 @@ func (b BranchReviewer) collectReportsWithoutToolAudit(outcome *BranchReviewOutc
 		Build:        b.Build,
 		ProductID:    b.Config.Product.ID,
 		RepositoryID: string(b.Config.Product.RepositoryID),
+		References:   findReferences(b.ReferenceFinder),
 	}, b.clock().Now())
 	if err != nil {
 		b.noteReportProblem(outcome, err)

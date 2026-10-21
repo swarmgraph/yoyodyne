@@ -418,7 +418,7 @@ func TestAShortIdInARecordedPassIsShownWithItsItem(t *testing.T) {
 		"  yoyodyne-ifd.434.9 (P1, reliability: Price a resumed session at what it moved by) is still blocked\n",
 		"[left] yoyodyne-ifd.434.9 (P1, reliability: Price a resumed session at what it moved by) has no reviewer",
 		"  434.9 is blocked\n",
-		"1 short work item id above was written before work item references were kept",
+		"1 short work item id above was recorded with no tracker listing to resolve it against",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("renderSweeps() = %q, want it to carry %q", rendered, want)
