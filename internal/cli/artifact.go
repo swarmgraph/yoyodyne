@@ -490,7 +490,13 @@ func renderArtifactApproval(recorded artifact.Artifact, policy artifact.Policy) 
 	latest, approved := recorded.LatestApproval()
 	if approved {
 		given := fmt.Sprintf("given by the %s %s, for revision %d",
-			latest.By, latest.At.UTC().Format(time.RFC3339), latest.Revision)
+			latest.By.Title(), latest.At.UTC().Format(time.RFC3339), latest.Revision)
+		if latest.By == artifact.ApproverProductManager {
+			// Her approval is a decision the operator delegated, so it says so and
+			// names the item that directed it, rather than reading as his.
+			item, _ := artifact.DirectingItem(latest.Reason)
+			given += fmt.Sprintf(" under the authority you delegated to her, recorded as consistent with intent and directed by %s, so you were not asked", item)
+		}
 		if recorded.ApprovalState() == artifact.ApprovalApproved {
 			return "approved as it stands, " + given + rewordedSince(recorded)
 		}
@@ -498,6 +504,8 @@ func renderArtifactApproval(recorded artifact.Artifact, policy artifact.Policy) 
 			given, laterRevisions(recorded.RevisionsSinceApproval()), rewordedSince(recorded), undelegated(recorded, latest.Revision))
 	}
 	switch {
+	case policy.RequiresFor(recorded) && artifact.IntentPolicy(setting) && mode != domain.ApprovalHuman:
+		return fmt.Sprintf("none recorded; this document is the product's intent, so it is yours to approve although %s is %s — only a change the %s records as consistent with intent is approved as hers", setting, mode, domain.RoleProductManager.Title())
 	case policy.RequiresFor(recorded):
 		return fmt.Sprintf("none recorded, and %s is %s, so this document is yours to approve", setting, mode)
 	case governed:
@@ -593,11 +601,15 @@ is append-only, and losing it would leave a document nobody could correct.
 Your approval of one of these documents is recorded in the same frontmatter,
 against the revision it was given for, so a document amended after you approved
 it reads as approved-and-amended-since rather than as approved. The exception is
-a rewording of the goals the Lead Product Manager records as consistent with
-intent -- intent: consistent on the amendment, with a reason opening with the
-work item that directed it -- because the goals then admit and refuse the same
-work they did, and that change is delegated rather than yours; an amendment
-recorded as fundamental, or one that does not say, is still put to you.
+a change to a document of the product's intent -- anything filed in the
+specification home -- that the Lead Product Manager records as consistent with
+intent: intent: consistent on the creation or amendment, with a reason opening
+with the work item that directed it. The goals then admit and refuse the same
+work they did, so that change is delegated rather than yours: your approval
+stands through it, and one written from her conversation is recorded as
+approved by her, naming her and that item, whether it creates the document or
+revises it. A change recorded as fundamental, or one that does not say, is put
+to you whatever approvals.brief or approvals.goals says.
 
 What needs your approval is your configuration's to say: approvals.brief and
 approvals.goals default to human, approvals.designs to automatic, and a decision record is the

@@ -228,6 +228,12 @@ type Draft struct {
 	Body string
 	// Reason is why this artifact is being recorded, kept as the first revision.
 	Reason string
+	// Intent is what the creating role says the new document does to what the
+	// product intends: consistent where it records intent already given, such as
+	// rules the operator already directed. Left empty it says nothing, and a
+	// creation that says nothing is treated as the operator's to approve. See
+	// rewording.go.
+	Intent Intent
 }
 
 // Amendment is a bounded change to an artifact that already exists. Every field
@@ -283,6 +289,7 @@ func (s Store) prepareCreate(role domain.AgentRole, draft Draft, now time.Time) 
 			By:     role,
 			At:     now.UTC(),
 			Reason: strings.TrimSpace(draft.Reason),
+			Intent: draft.Intent,
 		}},
 	}
 	if err := created.Validate(); err != nil {

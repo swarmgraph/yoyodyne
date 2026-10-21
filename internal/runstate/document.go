@@ -203,5 +203,8 @@ func (d DocumentPublication) Validate() error {
 	if artifact.IntentPolicy(approval.Policy) && !artifact.ConsistentIntentClaim(revision) {
 		return errors.New("automatic publication cannot confirm a change of fundamental intent")
 	}
+	if approval.By == artifact.ApproverProductManager && d.Owner != domain.RoleProductManager {
+		return errors.New("only the Lead Product Manager's own document can carry her approval")
+	}
 	return nil
 }

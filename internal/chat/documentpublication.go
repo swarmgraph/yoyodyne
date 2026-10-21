@@ -81,7 +81,8 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 			}
 		}
 		if record.pending.Publication == nil {
-			confirmed, err := s.confirmDocument(record, publisher.PublishesDocuments())
+			_, landsDecided := s.approvedDocumentRoute()
+			confirmed, err := s.confirmDocument(record, publisher.PublishesDocuments(), landsDecided)
 			if err != nil {
 				return err
 			}
@@ -99,7 +100,7 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 			// is asked, or a submission the store refuses goes back to its owner.
 			lapse := fmt.Sprintf("Document %s (%s) was not published and no run was opened: %v.", record.pending.ID, record.pending.Write.ID, err)
 			record.pending.Publication = nil
-			if _, err := s.confirmDocument(record, false); err != nil {
+			if _, err := s.confirmDocument(record, false, false); err != nil {
 				return err
 			}
 			record.lapsed = true
@@ -194,12 +195,18 @@ func withoutDeadline(ctx context.Context) (context.Context, context.CancelFunc) 
 // once.
 const documentWaitingForSlot = "waiting for a document landing"
 
-// confirmDocument confirms one waiting document under the automatic policy and
-// saves the publication handoff, reporting whether it did. A document the
-// policy does not confirm, or one that could not land through a reviewed run,
-// is left for the operator; one the store refuses goes back to its owner. Only
-// a failure to record the conversation is returned.
-func (s *Session) confirmDocument(record *writeRecord, publishes bool) (bool, error) {
+// confirmDocument confirms one waiting document under the automatic policy, or
+// records the Lead Product Manager's approval of a change to the product's
+// intent she recorded as consistent with it, and saves the publication handoff,
+// reporting whether it did. A document neither confirms, or one that could not
+// land through a reviewed run, is left for the operator; one the store refuses
+// goes back to its owner. Only a failure to record the conversation is
+// returned.
+//
+// publishes says a run lands what the harness confirms, which needs automatic
+// integration; landsDecided says a run carries what somebody decided, which an
+// approval of hers is, as the operator's is (approvedDocumentRoute).
+func (s *Session) confirmDocument(record *writeRecord, publishes, landsDecided bool) (bool, error) {
 	preparer, ok := s.options.Documents.(confirmationPreparer)
 	if !ok || record.lapsed {
 		return false, nil
@@ -212,7 +219,7 @@ func (s *Session) confirmDocument(record *writeRecord, publishes bool) (bool, er
 	// A confirmation saved where nothing can land it would hold the document
 	// out of the operator's reach with no run to settle it, so the integration
 	// setting is decided before anything is confirmed.
-	if !automatic || !publishes {
+	if !automatic || !publishes && !(landsDecided && candidate.ProductManagerApproved()) {
 		return false, nil
 	}
 	// The document checks are applied when a document is written

@@ -88,10 +88,9 @@ func TestOpenPutsTheContractBeforeAPersonaThatTriesToWidenIt(t *testing.T) {
 	for _, required := range []string{
 		"Your role is read-only",
 		"they may not make them",
-		// The brief and the goals are the product manager's to draft and nobody's
-		// to file without the operator, and a persona that says otherwise does not
-		// change it.
-		"nobody's to file without the operator",
+		// A change of fundamental intent waits for the operator whatever the
+		// settings say, and a persona that says otherwise does not change it.
+		"One you mark fundamental, or leave unmarked, waits for the operator's approval whatever the settings say",
 		"Nothing reaches the repository unapproved",
 	} {
 		if !strings.Contains(prompt, required) {

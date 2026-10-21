@@ -1330,7 +1330,7 @@ The document itself, unchanged by any of the above.
 | `title` | One line naming what the document is. |
 | `supports` | The artifacts upstream of this one, by id: the goal a design serves, the brief a goal serves. Optional — the brief is the root and supports nothing. |
 | `status` | `draft` (written, not yet active), `active` (what the product currently intends), `superseded` (replaced by a later artifact), or `retired` (stopped applying, not replaced). |
-| `revisions` | Append-only: what changed (`created`, `amended`, `superseded`, `retired`), the role it was recorded under, when, and why. At least the creation is required, and the role must be the one that [owns the kind](#who-may-change-an-artifact). An amendment may also say what it did to the document's intent — `intent: consistent` or `intent: fundamental` — which on the goals decides [whether your approval stands through it](#approving-a-document). |
+| `revisions` | Append-only: what changed (`created`, `amended`, `superseded`, `retired`), the role it was recorded under, when, and why. At least the creation is required, and the role must be the one that [owns the kind](#who-may-change-an-artifact). A creation or an amendment may also say what it did to the product's intent — `intent: consistent` or `intent: fundamental` — which on a document of the product's intent decides [whether it is approved without you](#approving-a-document). |
 | `approvals` | Append-only, and optional: [your approval of the document](#approving-a-document), each entry naming the revision it was given for. |
 
 Everything below the frontmatter is the document, and nothing about it is
@@ -1399,8 +1399,10 @@ it does not leave a file for you to commit. It needs `approvals.integration:
 automatic` as well; where integration is `human`, the document is put to you to
 confirm instead. A document governed by `approvals.brief` or `approvals.goals`
 — the non-goals, the operating rules, and anything filed in the specifications
-directory included — remains yours to confirm unless the owner records a
-consistent revision with its directing work item. [Writing a document from a conversation](artifacts.md#writing-a-document-from-a-conversation)
+directory included — is never confirmed by the harness, whatever those settings
+say: it is approved by the Lead Product Manager where she records the creation
+or revision as consistent with intent with its directing work item, and is yours
+to approve otherwise, as below. [Writing a document from a conversation](artifacts.md#writing-a-document-from-a-conversation)
 describes restart recovery and failures returned to the owner.
 
 `at` is when the approval was **recorded**, which is not always when it was given
@@ -1469,13 +1471,16 @@ v1-goals [goals, active] V1 goals
             as it now reads is not what was approved
 ```
 
-**A rewording of the goals that is consistent with what you approved is not an
-amendment you are asked about.** The test is what the goals admit: a change is of
-fundamental intent if the goals would afterwards admit work they refused
+**A change to the product's intent that is consistent with what you approved
+is not one you are asked about.** The test is what the goals admit: a change is
+of fundamental intent if the goals would afterwards admit work they refused
 before, or refuse work they admitted, and that is yours; anything else is a
-consistent rewording, delegated to the Lead Product Manager. Which one a change
-is, is the Lead Product Manager's judgement, and it is recorded on the amendment
-rather than inferred from it:
+consistent rewording, or the recording of intent you already gave, delegated to
+the Lead Product Manager. That holds for every document filed in the
+specifications directory — the brief, the goals, the non-goals, the operating
+rules — and for a creation as much as a revision. Which one a change is, is the
+Lead Product Manager's judgement, and it is recorded on the revision rather than
+inferred from it:
 
 ```yaml
 revisions:
@@ -1486,15 +1491,31 @@ revisions:
       intent: consistent
 ```
 
-An amendment of a goals document recorded by the Lead Product Manager as
-`intent: consistent`, with a reason that opens with the work item that directed
-it, leaves the document approved: work naming its goals is admitted exactly as
-before, `yoyo artifact show` says the approval stands through that many
-rewordings, and [`yoyo stale`](artifacts.md#what-a-change-upstream-leaves-stale)
-lists it as a rewording rather than an amendment. Every other amendment is still
-yours — one recorded as `intent: fundamental`, one that says nothing, and one
-labelled consistent whose record is short of the rest: recorded by another role,
-against a document other than the goals, or with no item named. The last of
+A creation or an amendment of a document of the product's intent recorded by
+the Lead Product Manager as `intent: consistent`, with a reason that opens with
+the work item that directed it, leaves the document approved: work naming its
+goals is admitted exactly as before, `yoyo artifact show` says the approval
+stands through that many rewordings, and
+[`yoyo stale`](artifacts.md#what-a-change-upstream-leaves-stale) lists it as a
+rewording rather than an amendment. One she writes from her conversation is
+recorded as approved by her, not by you and not by a setting:
+
+```yaml
+approvals:
+    - revision: 0
+      by: product-manager
+      at: 2026-10-20T19:00:00Z
+      reason: yoyodyne-ifd.433.17 - approved by the Lead Product Manager, who recorded this creation as consistent with intent; ...
+```
+
+The approval names her and opens with the directing item, and it is refused
+when the file is read if the revision it names is not one she recorded that
+way. So a document that records rules you already gave is created approved
+rather than put to you. Every other change is still yours, whatever
+`approvals.brief` and `approvals.goals` say — one recorded as
+`intent: fundamental`, one that says nothing, and one labelled consistent whose
+record is short of the rest: recorded by another role, against a document that
+is not the product's intent, or with no item named. The last of
 those is said on `show` with what it is missing, so the label does not read as
 ignored. What is checked is the shape of the identifier the reason opens with and
 not that the tracker holds it; the reason is the record you follow to the
@@ -1514,6 +1535,13 @@ specifications directory too, whatever its kind, because everything there is
 authoritative product intent. A decision record is the architect's account of
 how something was decided rather than a statement of what the product should do,
 so `approvals.designs` governs it as it governs a design.
+
+Setting `approvals.brief` or `approvals.goals` to `automatic` does not hand a
+document of the product's intent to the harness to confirm. Such a document is
+approved by you, or by the Lead Product Manager for a change she records as
+consistent with intent as above, whatever the setting says, and `yoyo artifact
+list` and `show` say it is yours to approve while it waits on you, naming the
+setting they set aside.
 
 **Recording an approval gates one thing: what reaches the work queue.** An
 unapproved document still loads, still governs what is downstream of it, and

@@ -630,7 +630,7 @@ func (s *Session) awaitingWriteDecision(writeID string) (*writeRecord, error) {
 			return nil, fmt.Errorf("document %s has already been decided", trimmed)
 		}
 		if record.pending.Publication != nil {
-			return nil, fmt.Errorf("document %s was already confirmed under policy and is waiting for its reviewed run", trimmed)
+			return nil, fmt.Errorf("document %s was already confirmed, under policy or as a change the Lead Product Manager approved, and is waiting for its reviewed run", trimmed)
 		}
 		return record, nil
 	}

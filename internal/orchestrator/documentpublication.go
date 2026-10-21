@@ -112,9 +112,15 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	}
 	// A document the operator approved answers to no approval setting: a person
 	// decided it, and only the harness's own confirmation is bounded by the
-	// setting it was given under.
+	// setting it was given under. Nor does one the Lead Product Manager approved
+	// as a change consistent with intent, which is a decision the operator
+	// delegated to her; the candidate's own validation holds her approval to the
+	// revision that claim is on.
 	confirmed := "approved by the operator"
-	if !document.Candidate.OperatorApproved() {
+	if document.Candidate.ProductManagerApproved() {
+		confirmed = "approved by the " + domain.RoleProductManager.Title() + " as consistent with intent"
+	}
+	if !document.Candidate.Decided() {
 		policy := artifact.Policy{Brief: p.Config.Approvals.Brief, Goals: p.Config.Approvals.Goals, Designs: p.Config.Approvals.Designs, SpecificationsHome: p.Config.Product.Specifications}
 		name, mode, governed := policy.SettingFor(document.Candidate.Artifact)
 		approval, _ := document.Candidate.Artifact.LatestApproval()
@@ -139,10 +145,11 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	if err := documentRouteRefusal(p.Config, []string{document.Candidate.Artifact.Path}); err != nil {
 		return p.refuseDocument(document, err)
 	}
-	// A document the operator approved goes through a reviewed run whatever the
-	// integration setting, and is left for them to merge where it is not
-	// automatic; the harness's own confirmation lands only where the run can.
-	if !p.automatic() && !document.Candidate.OperatorApproved() {
+	// A document the operator or the Lead Product Manager approved goes through
+	// a reviewed run whatever the integration setting, and is left for the
+	// operator to merge where it is not automatic; the harness's own confirmation
+	// lands only where the run can.
+	if !p.automatic() && !document.Candidate.Decided() {
 		return p.refuseDocument(document, errors.New("reviewed document publication requires automatic integration"))
 	}
 	if !p.automatic() {
