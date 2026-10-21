@@ -75,6 +75,39 @@ func assertStandingGoals(t *testing.T, text string) {
 	}
 }
 
+// The reviewer is the one gate every change passes, so both copies of its
+// persona say it judges every change against the standing set beside the
+// item's own goal, refuses a change that breaks one as a major finding naming
+// the goal and the place, and names the goals it checked in its summary.
+func TestReviewerPersonaJudgesEveryChangeAgainstStandingGoals(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		filepath.Join("builtin", "v1", bundlePersonaDirectory, "reviewer.md"),
+		filepath.Join("..", "..", ".yoyodyne", "personas", "reviewer.md"),
+	} {
+		t.Run(path, func(t *testing.T) {
+			text, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			flat := strings.Join(strings.Fields(string(text)), " ")
+			for _, want := range []string{
+				"judge every change against the standing goals",
+				"the plain-language goal and the autonomy goal",
+				"as well as against the goal the item serves",
+				"A change that breaks a standing goal is a major finding",
+				"name the goal and the place it is broken",
+				"name each standing goal you checked the change against",
+			} {
+				if !strings.Contains(flat, want) {
+					t.Errorf("the reviewer persona is missing %q", want)
+				}
+			}
+		})
+	}
+}
+
 // Every program manager remit this repository's instances read carries the
 // rule too, naming the lane report it writes; a remit added without it fails
 // here. No remit is shipped in the template, so the live copies are the whole
