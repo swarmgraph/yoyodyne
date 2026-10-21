@@ -1,7 +1,7 @@
 ---
 id: ownership-and-the-operator
 kind: design
-title: "Who owns what, and when it reaches the operator"
+title: Who owns what, and when it reaches the operator
 supports:
     - v1-goals
 status: active
@@ -10,8 +10,17 @@ revisions:
       by: architect
       at: 2026-09-30T02:00:00Z
       reason: 'yoyodyne-ifd.430 - Mason''s direction of 2026-09-29: one ownership registry and one resolver every surface reads, a closed list of what is the operator''s held by a test, an escalation ladder between roles, and missing capabilities recorded as defects rather than asks of the operator'
+    - action: amended
+      by: architect
+      at: 2026-10-21T02:44:54.016255Z
+      reason: 'Owning roles deciding proposed changes to their own documents is built by yoyodyne-i92: it moves from the missing-capability list to the acts already moved, and the item named is corrected from the design item yoyodyne-ifd.437.14 to the build. The operator''s share of proposed changes now names the brief beside the goals, as the ruling on yoyodyne-ifd.437.14 and the code do; the reviewer on yoyodyne-i92 reported both (report-d6f4075c). ''usage window'' becomes ''usage limit reached''. Answers amendment-94940a02.'
+approvals:
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-10-21T02:44:54.016255Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 987, for document-987.1 under the automatic approval policy
 ---
-
 # Who owns what, and when it reaches the operator
 
 Serves the autonomy goal: the operator states intent and approves the brief and
@@ -56,26 +65,27 @@ The read model calls the resolver once per entry as it builds the standing.
 The dashboard, the Slack sink, `yoyo status`, the conversations' context, the
 needs-a-human line, the development manager's pass, and report handling all
 project the answer the read model carries. None of them derives an owner. This
-is the one-read-model invariant applied to who owns what.
+is the invariant that surfaces project one read model, applied to who owns
+what.
 
 **The default is the Lead Product Manager, never the operator.** A record the
 rule for its kind cannot classify resolves to her, with the remedy "classify
-this entry": it is an unowned-entry defect, shown on the harness's line and in
-her pass, and she files it against the registry.
+this entry": it is a defect, an entry nobody owns, shown on the harness's line
+and in her pass, and she files it against the registry.
 
 ## The rule for each kind
 
 | Kind | Owner |
 | --- | --- |
-| amendment | the role that owns the target document; the operator only for an amendment to the goals recorded as `intent: fundamental` or recorded with no intent, reason `fundamental-intent` |
+| amendment | the role that owns the target document; the operator only for an amendment to the brief or the goals recorded as `intent: fundamental` or recorded with no intent, reason `fundamental-intent` |
 | directive | the Lead Product Manager, who ends it or carries it into a document or item; where settling it would change what the goals admit, what reaches the operator is her drafted change to the goals, as an amendment, not the directive |
 | report | the Lead Product Manager, who handles it; a critical whose remedy is a role's names that role; the operator only when her handling names a reason from the closed list |
 | owed step | the harness |
 | publication | the harness while it can replay, re-arm, or wait on a red target; the development manager for a merge handed back; the operator only where the forge refuses the harness's token, reason `forge-setting` |
 | degraded service, failing task | the harness or the supervisor; the task's role where the task failed on its own work; the operator only where the remedy is a credential, reason `credential` |
 | hold | the operator for a hold or pause he placed, reason `own-hold`; the development manager for the brake's intake hold; the harness for capacity |
-| outage, usage window | nobody, since it lifts on the provider's clock; the operator only for an expired login, reason `credential` |
-| stall | the harness for a first silent-stream stall; the development manager after that |
+| outage, usage limit reached | nobody, since it lifts on the provider's clock; the operator only for an expired login, reason `credential` |
+| stall | the harness for the first stall where the stream went silent; the development manager after that |
 | stoppage | the development manager |
 | escalation | the role it names; the operator only when it carries a reason from the closed list |
 | held work | the owner of the group it is held in |
@@ -89,8 +99,8 @@ her pass, and she files it against the registry.
 The operator is the owner only for one of these reasons:
 
 - `fundamental-intent`: a change to what the goals admit or refuse, drafted by
-  the Lead Product Manager, or an amendment to the goals that does not say
-  which kind it is.
+  the Lead Product Manager, or an amendment to the brief or the goals that does
+  not say which kind it is.
 - `credential`: a credential or an external account only a person holds.
 - `forge-setting`: a forge or repository setting the harness's token cannot
   change.
@@ -110,13 +120,11 @@ never a code change on its own.
 ## A role's decision that needs the operator's hand
 
 Some remedies are a role's to decide, but the harness cannot yet perform them
-for that role. Today these are deciding an amendment, which waits on owning
-roles deciding amendments (yoyodyne-ifd.437.14); applying operational
-configuration, which waits on configuration applied through a run
-(yoyodyne-ifd.434.8); and committing a document written from a conversation.
-Such an entry keeps the role as its owner and carries `hand`: the operator, the
-capability that is missing, and the item that closes the gap. It never sets
-the owner to the operator.
+for that role. Today these are applying operational configuration, which waits
+on configuration applied through a run (yoyodyne-ifd.434.8), and committing a
+document written from a conversation. Such an entry keeps the role as its owner
+and carries `hand`: the operator, the capability that is missing, and the item
+that closes the gap. It never sets the owner to the operator.
 
 The needs-a-human line prints two heads from this:
 
@@ -155,12 +163,14 @@ through the registered actions and tools of
 kind from the hand head. Already moved: a role writing its own documents from
 a conversation (yoyodyne-ifd.100), the Lead Product Manager ending a directive
 (yoyodyne-ifd.430.32) and withdrawing her own proposal (yoyodyne-ifd.433.18),
-and the development manager stopping a run (yoyodyne-ifd.428.42). In order,
-next: owning roles deciding amendments (yoyodyne-ifd.437.14); operational
+the development manager stopping a run (yoyodyne-ifd.428.42), and the owning
+role deciding an amendment to its own documents (yoyodyne-i92, designed under
+yoyodyne-ifd.437.14), leaving the operator only amendments to the brief or the
+goals that change intent or do not say. In order, next: operational
 configuration applied through a run (yoyodyne-ifd.434.8); a document write
 from a conversation confirmed under the approvals policy for its kind, so that
-only goals changing intent ask the operator; and committing that write through
-a reviewed run rather than by hand.
+only a brief or goals change of intent asks the operator; and committing that
+write through a reviewed run rather than by hand.
 
 ## What is enforced in code
 
@@ -170,13 +180,16 @@ a reviewed run rather than by hand.
 - The operator's mover value is named only in `internal/ownership`: a test
   over the module's non-test Go files fails on any other use.
 - Escalations, report handlings, and asks naming the operator without a
-  closed-list reason are refused.
+  reason from the closed list are refused.
 - An entry with `hand` never renders under "Yours to decide".
+- An amendment to a design, specification, decision record, or invariant
+  never resolves to the operator, and an amendment to the brief resolves to
+  him only as one to the goals does.
 
 The existing tests stay: the renders of every owner's label
-(yoyodyne-ifd.432.23), every persona and contract carrying the
-decide-and-report rule (yoyodyne-ifd.430.21), and critical reports reaching the
-Lead Product Manager at once (yoyodyne-ifd.430.27).
+(yoyodyne-ifd.432.23), every persona and contract carrying the rule to decide
+and report (yoyodyne-ifd.430.21), and critical reports reaching the Lead
+Product Manager at once (yoyodyne-ifd.430.27).
 
 ## Alternatives rejected
 
@@ -190,6 +203,10 @@ Lead Product Manager at once (yoyodyne-ifd.430.27).
   tells him a decision is his when it is not, which is the defect this design
   exists to end. The hand field says what is true: the role decided, and the
   harness needs his keyboard until an item lands.
+- **Reserving only goals amendments for the operator.** The brief is the other
+  half of what the product is for, so a change of intent there is his for the
+  same reason; a consistent rewording of either stays with the Lead Product
+  Manager.
 
 ## Build
 
@@ -199,5 +216,6 @@ Three bounded items, admitted by the Lead Product Manager:
    resolved owner, removing the owner logic each surface derives today.
 2. The hand field and the two heads on the needs-a-human line, the dashboard,
    and Slack.
-3. The refusals of operator-targeted escalations, handlings, and asks without
-   a closed-list reason, with the refusal naming the rung to use.
+3. The refusals of escalations, handlings, and asks aimed at the operator
+   without a reason from the closed list, with the refusal naming the rung to
+   use.
