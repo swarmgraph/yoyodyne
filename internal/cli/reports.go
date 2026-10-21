@@ -183,7 +183,7 @@ func writeReports(out io.Writer, theme console.Theme, collected []report.Report,
 	for _, reported := range collected {
 		text := words.Render(titles.Cite(reported.RenderAgainst(gauge)))
 		fmt.Fprint(out, theme.Severity(console.Severity(reported.Severity), text))
-		if reported.References == nil {
+		if !reported.ReferencesKept {
 			unresolved += titles.Unresolved(reported.Message)
 		}
 		if handling, done := handled[reported.ID]; done {

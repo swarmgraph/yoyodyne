@@ -174,6 +174,7 @@ func (x *Index) find(text string, resolveShort bool) ([]Reference, int) {
 	}
 	var found []Reference
 	unresolved := 0
+	fenced := fencedBlocks(text)
 	for at := 0; at < len(text); {
 		if !idByte(text[at]) || (at > 0 && !boundaryBefore(text, at)) {
 			at++
@@ -192,7 +193,7 @@ func (x *Index) find(text string, resolveShort bool) ([]Reference, int) {
 		if next == at {
 			next = at + 1
 		}
-		if !boundaryAfter(text, end) || insideCode(text, at) {
+		if !boundaryAfter(text, end) || insideCode(text, at) || insideFence(fenced, at) {
 			at = next
 			continue
 		}
@@ -353,6 +354,46 @@ func boundaryAfter(text string, offset int) bool {
 func insideCode(text string, offset int) bool {
 	lineStart := strings.LastIndexByte(text[:offset], '\n') + 1
 	return strings.Count(text[lineStart:offset], "`")%2 == 1
+}
+
+// fencedBlocks is where text holds a fenced code block: from a line opening
+// with three backticks to the line closing it, or to the end of the text where
+// nothing closes it. What is in one is a command or an excerpt somebody is
+// meant to read or type exactly as written, so nothing in it is a reference.
+func fencedBlocks(text string) [][2]int {
+	var blocks [][2]int
+	open := -1
+	for start := 0; start < len(text); {
+		end := strings.IndexByte(text[start:], '\n')
+		if end < 0 {
+			end = len(text)
+		} else {
+			end += start + 1
+		}
+		if strings.HasPrefix(strings.TrimLeft(text[start:end], " \t"), "```") {
+			if open < 0 {
+				open = start
+			} else {
+				blocks = append(blocks, [2]int{open, end})
+				open = -1
+			}
+		}
+		start = end
+	}
+	if open >= 0 {
+		blocks = append(blocks, [2]int{open, len(text)})
+	}
+	return blocks
+}
+
+// insideFence reports whether offset falls inside one of the fenced blocks.
+func insideFence(blocks [][2]int, offset int) bool {
+	for _, block := range blocks {
+		if offset >= block[0] && offset < block[1] {
+			return true
+		}
+	}
+	return false
 }
 
 // quantityUnits are the words a dotted number is a quantity of rather than an

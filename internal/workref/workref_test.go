@@ -95,3 +95,13 @@ func TestAnIndexWithNoListingKnowsPrefixesAndWhatACallerNames(t *testing.T) {
 		t.Errorf("PrefixOf() did not split the prefix off a full id")
 	}
 }
+
+func TestNothingInAFencedBlockIsAReference(t *testing.T) {
+	t.Parallel()
+
+	text := "before ex-7\n  ```sh\nyoyo run ex-7\nex-12 failed\n  ```\nafter ex-12\n```\nunclosed ex-7"
+	found, _ := exampleIndex().FindFull(text)
+	if len(found) != 2 || found[0].ID != "ex-7" || found[1].ID != "ex-12" || text[found[1].Start-6:found[1].Start] != "after " {
+		t.Errorf("FindFull() = %+v, want only the two references outside the fenced blocks", found)
+	}
+}

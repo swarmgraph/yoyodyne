@@ -128,3 +128,30 @@ func TestAPostAboutAnUnreadableRootItemMarksIt(t *testing.T) {
 		t.Errorf("posts = %q, want the root item marked as unreadable", all)
 	}
 }
+
+// A thread is headed with its item in the operator's form, and a title that
+// names another item is posted as the tracker holds it: text read from the
+// tracker is never searched for references.
+func TestAThreadHeadingWhoseTitleNamesAnotherItemIsPostedAsTheTrackerHoldsIt(t *testing.T) {
+	t.Parallel()
+
+	listing := &listedTitles{items: []beads.WorkItem{
+		{ID: "yoyodyne-ifd.68.12", Title: "Fix yoyodyne-ifd.434.9's timeout", Priority: 0, Labels: []string{"bug"}},
+		{ID: "yoyodyne-ifd.434.9", Title: "Price a resumed session at what it moved by", Priority: 1},
+	}}
+	posts := &recordedPosts{}
+	sink := newTestSink(t, t.TempDir(), &fixedFeed{deliveries: []Delivery{
+		filedReport(1, report.SeverityCritical, "still blocked"),
+	}}, posts)
+	sink.citing = &titleIndex{read: listing.read}
+
+	if err := sink.pass(context.Background()); err != nil {
+		t.Fatalf("pass() error = %v", err)
+	}
+	if len(posts.requests) == 0 {
+		t.Fatal("nothing was posted")
+	}
+	if got, want := posts.requests[0].Text, "*(P0, bug) Fix yoyodyne-ifd.434.9's timeout (yoyodyne-ifd.68.12)*"; got != want {
+		t.Errorf("thread heading = %q, want %q", got, want)
+	}
+}

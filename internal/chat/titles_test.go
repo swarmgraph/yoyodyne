@@ -34,14 +34,20 @@ func TestTheReportListingShowsEveryItemWithItsState(t *testing.T) {
 		RecordedAt:    fixedClock{}.Now(),
 	}
 	digest.References, _ = titles.References(digest.Message)
+	digest.ReferencesKept = true
 	older := digest
-	older.ID, older.Message, older.References = "report-fedcba9876543210fedcba9876543210", "older: 434.9 is open", nil
-	rendered := renderCollectedReports(console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest, older}, nil, nil, titles, fixedClock{}.Now())
+	older.ID, older.Message, older.References, older.ReferencesKept = "report-fedcba9876543210fedcba9876543210", "older: 434.9 is open", nil, false
+	// Recorded against a listing in which its short id named no one item: it is
+	// left as written, and not counted as written before references were kept.
+	kept := older
+	kept.ID, kept.Message, kept.ReferencesKept = "report-00112233445566778899aabbccddeeff", "kept: 434.9 was not yet admitted", true
+	rendered := renderCollectedReports(console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest, older, kept}, nil, nil, titles, fixedClock{}.Now())
 	for _, want := range []string{
 		"admitted yoyodyne-ifd.434.9 (P1, reliability: Price a resumed session at what it moved by)",
 		"objecting to yoyodyne-ifd.434.3 (P2: Say the provider's reset in local time)",
 		"yoyodyne-ifd.999.1 (not in the tracker)",
 		"older: 434.9 is open",
+		"kept: 434.9 was not yet admitted",
 		"1 short work item id above was written before work item references were kept",
 	} {
 		if !strings.Contains(rendered, want) {

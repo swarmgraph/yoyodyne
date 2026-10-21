@@ -221,6 +221,11 @@ type Report struct {
 	// wrote be shown as the item it named then; the message itself is never
 	// changed. A report collected before references were kept carries none.
 	References []workref.Reference `json:"references,omitempty"`
+	// ReferencesKept says the message was searched for references against a
+	// listing of the tracker when the report was collected, which References
+	// alone cannot say for a message that named nothing. A report without it was
+	// collected before references were kept, or with no tracker to read.
+	ReferencesKept bool `json:"references_kept,omitempty"`
 	// For is the role the report was addressed to, as the entry named it, and
 	// empty where it named none; see Entry.For and Addressee.
 	For        domain.AgentRole `json:"for,omitempty"`
@@ -418,8 +423,8 @@ type Attribution struct {
 	ProductID    domain.ProductID
 	RepositoryID string
 	// References finds the work items a message names as it is collected, and
-	// is nil where the collector has no tracker reading to resolve them with;
-	// such a report is read for full ids when it is shown.
+	// is nil where the collector has no listing of the tracker to resolve them
+	// against; such a report is read for full ids when it is shown.
 	References func(text string) []workref.Reference
 }
 
@@ -450,6 +455,7 @@ func Collect(entries []Entry, attribution Attribution, now time.Time) ([]Report,
 		}
 		if attribution.References != nil {
 			reported.References = attribution.References(reported.Message)
+			reported.ReferencesKept = true
 		}
 		if err := reported.Validate(); err != nil {
 			return nil, err

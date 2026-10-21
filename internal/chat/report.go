@@ -611,7 +611,7 @@ func renderCollectedReports(theme console.Theme, reports []report.Report, handle
 	for _, reported := range listed {
 		text := words.Render(titles.Cite(reported.RenderAgainst(gauge)))
 		rendered.WriteString(theme.Severity(console.Severity(reported.Severity), text))
-		if reported.References == nil {
+		if !reported.ReferencesKept {
 			unresolved += titles.Unresolved(reported.Message)
 		}
 		if handling, done := handled[reported.ID]; done {
@@ -651,17 +651,19 @@ func (s *Session) workItemTitles() *readmodel.WorkItemTitles {
 }
 
 // referencesFinder finds the work items a role's text names as it is
-// recorded, against one reading of the tracker taken when it is first asked,
-// and is nil where this conversation has no tracker.
+// recorded, against one listing of the tracker taken now, and is nil where
+// this conversation has no tracker or it could not be listed: text recorded
+// without references is read for full ids when it is shown, and a short id in
+// it is left as written rather than resolved against nothing.
 func (s *Session) referencesFinder() func(text string) []workref.Reference {
 	if s.options.Tracker == nil {
 		return nil
 	}
-	var titles *readmodel.WorkItemTitles
+	titles := s.workItemTitles()
+	if !titles.Readable() {
+		return nil
+	}
 	return func(text string) []workref.Reference {
-		if titles == nil {
-			titles = s.workItemTitles()
-		}
 		found, _ := titles.References(text)
 		return found
 	}

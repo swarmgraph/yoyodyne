@@ -218,6 +218,16 @@ func (w *WorkItemTitles) CiteKnowing(text string, known ...string) string {
 	if len(found) == 0 {
 		return text
 	}
+	// A name this reading rendered in the operator's form already says
+	// everything, and its title is text read from the tracker, which is never
+	// searched: every reference inside one is left as it is, the title's as well
+	// as the id's at its end.
+	var listed [][2]int
+	for _, reference := range found {
+		if start, ok := w.listedAt(text, reference); ok {
+			listed = append(listed, [2]int{start, reference.End + 1})
+		}
+	}
 	var cited strings.Builder
 	last := 0
 	for _, reference := range found {
@@ -227,7 +237,7 @@ func (w *WorkItemTitles) CiteKnowing(text string, known ...string) string {
 			continue
 		}
 		id := reference.ID
-		if w.listedAt(text, reference) {
+		if within(listed, reference.Start) {
 			continue
 		}
 		cited.WriteString(text[last:reference.End])
@@ -331,17 +341,31 @@ func (w *WorkItemTitles) titleOf(item citedItem) string {
 }
 
 // listedAt reports whether the reference is the id at the end of a Name this
-// reading rendered, "(P1, reliability) Retry the merge (ex-7)", which already
-// says everything and is left as it is.
-func (w *WorkItemTitles) listedAt(text string, reference workref.Reference) bool {
+// reading rendered, "(P1, reliability) Retry the merge (ex-7)", and where that
+// name starts.
+func (w *WorkItemTitles) listedAt(text string, reference workref.Reference) (int, bool) {
 	if reference.Start < 1 || text[reference.Start-1] != '(' || reference.End >= len(text) || text[reference.End] != ')' {
-		return false
+		return 0, false
 	}
 	item, known := w.items[reference.ID]
 	if !known || w.unreadable || w.recorded {
-		return false
+		return 0, false
 	}
-	return strings.HasSuffix(text[:reference.Start-1], w.listHead(item)+" ")
+	head := w.listHead(item) + " "
+	if !strings.HasSuffix(text[:reference.Start-1], head) {
+		return 0, false
+	}
+	return reference.Start - 1 - len(head), true
+}
+
+// within reports whether offset falls inside one of the spans.
+func within(spans [][2]int, offset int) bool {
+	for _, span := range spans {
+		if offset >= span[0] && offset < span[1] {
+			return true
+		}
+	}
+	return false
 }
 
 // renderedAfter reports whether what follows an id at offset is a state an

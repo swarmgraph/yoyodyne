@@ -329,3 +329,43 @@ func TestTheStandingNamesEveryItemItCarriesAField(t *testing.T) {
 		t.Errorf("WorkItemNames[yoyodyne-ifd.12] = %q, want %q", got, want)
 	}
 }
+
+// A name in the operator's form is never searched again: the id inside its
+// title is the title's, so the running line and the not-startable line show it
+// as the tracker holds it.
+func TestATitleNamingAnotherItemIsNotSearchedInAList(t *testing.T) {
+	t.Parallel()
+
+	standing := Standing{
+		Running:      []RunningRun{{RunID: "run-1", WorkItemID: "ex-12", Phase: runstate.PhaseDeveloping}},
+		NotStartable: []Refused{{WorkItemID: "ex-12", Reason: "waiting on ex-7"}},
+		Admitted:     1,
+		Titles:       NewWorkItemTitles(exampleItems()),
+	}
+	rendered := standing.RenderLines()
+	if !strings.Contains(rendered, "  (P0, bug) Fix ex-7's timeout (ex-12) — developing") {
+		t.Errorf("RenderLines() = %q, want the running item named with its title untouched", rendered)
+	}
+	if !strings.Contains(rendered, "  (P0, bug) Fix ex-7's timeout (ex-12) — waiting on ex-7 (P1, reliability: Retry the merge)") {
+		t.Errorf("RenderLines() = %q, want the refused item's title untouched and the reason's reference shown with its state", rendered)
+	}
+	if strings.Contains(rendered, "Fix ex-7 (") {
+		t.Errorf("RenderLines() = %q, searched a title read from the tracker", rendered)
+	}
+	titles := NewWorkItemTitles(exampleItems())
+	if named := titles.Name("ex-12"); titles.Cite("*"+named+"*") != "*"+named+"*" {
+		t.Errorf("Cite(Name()) = %q, want the name unchanged", titles.Cite("*"+named+"*"))
+	}
+}
+
+// Text in a fenced block is something to be read or typed exactly as written.
+func TestAFencedBlockIsLeftAsWritten(t *testing.T) {
+	t.Parallel()
+
+	titles := NewWorkItemTitles(exampleItems())
+	text := "Run this:\n```\nyoyo status ex-7\n```\nthen ex-7 lands."
+	want := "Run this:\n```\nyoyo status ex-7\n```\nthen ex-7 (P1, reliability: Retry the merge) lands."
+	if got := titles.Cite(text); got != want {
+		t.Errorf("Cite() = %q, want %q", got, want)
+	}
+}

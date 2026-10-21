@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 // A project that has scheduled nothing gets no trigger at all, and the nil has to
@@ -387,6 +388,41 @@ func TestASweepSummaryShowsEveryItemWithItsState(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "yoyodyne-ifd.999.1 (not in the tracker)") {
 		t.Errorf("renderSweeps() = %q, want the filed item the tracker does not hold said to be not in the tracker", rendered)
+	}
+}
+
+// A pass recorded with its references shows a short id its role wrote as the
+// item it named then; the same words in a pass recorded before references were
+// kept are left as written and counted under the listing.
+func TestAShortIdInARecordedPassIsShownWithItsItem(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 9, 26, 9, 0, 0, 0, time.UTC)
+	titles := readmodel.NewWorkItemTitles([]beads.WorkItem{
+		{ID: "yoyodyne-ifd.434.9", Title: "Price a resumed session at what it moved by", Priority: 1, Labels: []string{"reliability"}},
+	})
+	recorded := recordedSweep("a-sweep", at.Add(time.Hour), &sweep.Result{
+		Status:  sweep.StatusComplete,
+		Summary: "434.9 is still blocked",
+		Findings: []sweep.Finding{{
+			Issue: "434.9 has no reviewer", Disposition: sweep.DispositionLeft,
+		}},
+	}, "")
+	recorded.KeepReferences(func(text string) []workref.Reference {
+		found, _ := titles.References(text)
+		return found
+	})
+	older := recordedSweep("a-sweep", at, &sweep.Result{Status: sweep.StatusComplete, Summary: "434.9 is blocked"}, "")
+	rendered := renderSweeps([]runstate.Sweep{older, recorded}, nil, defaultRenderedSweeps, titles)
+	for _, want := range []string{
+		"  yoyodyne-ifd.434.9 (P1, reliability: Price a resumed session at what it moved by) is still blocked\n",
+		"[left] yoyodyne-ifd.434.9 (P1, reliability: Price a resumed session at what it moved by) has no reviewer",
+		"  434.9 is blocked\n",
+		"1 short work item id above was written before work item references were kept",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("renderSweeps() = %q, want it to carry %q", rendered, want)
+		}
 	}
 }
 

@@ -49,6 +49,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 // SweepSchemaVersion is 1 and has never changed. It is versioned independently
@@ -274,6 +275,61 @@ func (c SweepClaim) Validate() error {
 	return nil
 }
 
+// SweepReferences are the references in a pass's account, field by field:
+// the summary, each question, and each finding's issue and detail, in the
+// account's order.
+type SweepReferences struct {
+	Summary   []workref.Reference   `json:"summary,omitempty"`
+	Questions [][]workref.Reference `json:"questions,omitempty"`
+	Issues    [][]workref.Reference `json:"issues,omitempty"`
+	Details   [][]workref.Reference `json:"details,omitempty"`
+}
+
+// KeepReferences finds the work items the account names with find, as the
+// pass is recorded. A pass with no account, or nothing to find them with, keeps
+// none.
+func (s *Sweep) KeepReferences(find func(text string) []workref.Reference) {
+	if s.Result == nil || find == nil {
+		return
+	}
+	kept := &SweepReferences{Summary: find(s.Result.Summary)}
+	for _, question := range s.Result.Questions {
+		kept.Questions = append(kept.Questions, find(question))
+	}
+	for _, finding := range s.Result.Findings {
+		kept.Issues = append(kept.Issues, find(finding.Issue))
+		kept.Details = append(kept.Details, find(finding.Detail))
+	}
+	s.References = kept
+}
+
+// ExpandedAccount is the pass's account with each kept reference written as
+// the full id it was resolved to, and every other byte as the role wrote it.
+// A pass that kept no references gives its account as it was.
+func (s Sweep) ExpandedAccount() *sweep.Result {
+	if s.Result == nil || s.References == nil {
+		return s.Result
+	}
+	expanded := *s.Result
+	expanded.Summary = workref.Expand(s.Result.Summary, s.References.Summary)
+	expanded.Questions = append([]string(nil), s.Result.Questions...)
+	for index := range expanded.Questions {
+		if index < len(s.References.Questions) {
+			expanded.Questions[index] = workref.Expand(expanded.Questions[index], s.References.Questions[index])
+		}
+	}
+	expanded.Findings = append([]sweep.Finding(nil), s.Result.Findings...)
+	for index := range expanded.Findings {
+		if index < len(s.References.Issues) {
+			expanded.Findings[index].Issue = workref.Expand(expanded.Findings[index].Issue, s.References.Issues[index])
+		}
+		if index < len(s.References.Details) {
+			expanded.Findings[index].Detail = workref.Expand(expanded.Findings[index].Detail, s.References.Details[index])
+		}
+	}
+	return &expanded
+}
+
 // Sweep is one firing's durable report: what the harness woke, what it cost, and
 // the account the role gave of the pass.
 //
@@ -356,6 +412,11 @@ type Sweep struct {
 	// A development manager pass may instead carry the harness's forge findings,
 	// including when its conversation wait missed the role's first turn.
 	Result *sweep.Result `json:"result,omitempty"`
+	// References are the work items the account's own words name, found when the
+	// pass was recorded (internal/workref), so a short id the role wrote is shown
+	// as the item it named then. The account itself is never changed. It is nil on
+	// a pass recorded before references were kept, or with no tracker to read.
+	References *SweepReferences `json:"references,omitempty"`
 	// Problem is what went wrong with the firing: the turn that failed, or the
 	// account that could not be read. A sweep record carrying one is a pass that
 	// spent a turn and told nobody anything, which must never be indistinguishable
