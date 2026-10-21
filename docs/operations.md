@@ -7197,7 +7197,7 @@ rather than failed, what the later turn found is only in the conversation, and
 every write, report and admission stands. The listing says the pass kept the
 account its earlier turns gave. It does not count toward the repeated-failure
 finding, and a program manager's event cursor moves past it as after any
-partial pass; it does count toward the fresh-conversation bound below.
+partial pass; it does count toward the bound below on opening a fresh conversation.
 
 If no turn of the pass gave a valid report, the listing marks the pass **FAILED PASS**:
 its findings remain unrecorded, its writes stand, and it counts toward the
