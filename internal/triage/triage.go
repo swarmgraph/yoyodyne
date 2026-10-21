@@ -885,6 +885,17 @@ type SpentClaim struct {
 	// Decision is the development manager's standing decision about the claim,
 	// said in a sentence, and empty where she has decided nothing about it.
 	Decision string `json:"decision,omitempty"`
+	// NoFreshRun says the claim names no fresh run and no run of the item has
+	// started since it was taken: the harness took it, the run it was for never
+	// started, and giving it back could not be saved. Such a claim is shown on
+	// the entry of the stopped run it was taken for, which it puts back on the
+	// docket until she decides about the claim (Undecided).
+	NoFreshRun bool `json:"no_fresh_run,omitempty"`
+}
+
+// Stranded reports a claim with no fresh run that nobody has decided about yet.
+func (c *SpentClaim) Stranded() bool {
+	return c != nil && c.NoFreshRun && strings.TrimSpace(c.Decision) == ""
 }
 
 // Closure is the triage decision that settled one docketed stoppage: the moment
@@ -2419,6 +2430,12 @@ func (e Entry) nextMover() string {
 	if e.CountersProblem != "" {
 		return "      Next mover: unknown — " + gone + "this item's triage record could not be read, so whether anything is already decided about it cannot be said here.\n"
 	}
+	// A claim spent on a run that never started is the one thing on this entry
+	// waiting on a decision: the re-run decided about it reads as carried out
+	// until she gives the claim back or leaves it spent.
+	if e.SpentClaim.Stranded() {
+		return "      Next mover: you — the re-run decided about this stoppage was claimed for a run that never started, and the harness could not save giving the claim back, so whether it goes back is your decision; the harness carries out a give-back at its next pull.\n"
+	}
 	// A decision the harness was refused carrying out is hers again, whatever it
 	// was: the refusal below says what it is waiting for, and a re-arm refused for a
 	// run whose record cannot describe the merge is answered only by a re-run.
@@ -2791,6 +2808,16 @@ func (e Entry) renderSpentClaim() string {
 		return ""
 	}
 	var rendered strings.Builder
+	if claim.NoFreshRun {
+		fmt.Fprintf(&rendered, "      Re-run claim spent on no run: the re-run decided about this stoppage was claimed at %s, the run it was for never started, and the harness could not save giving the claim back, so %d of %d re-run(s) decided about %s read as carried out and this stoppage is not run again on the decision that stands.\n",
+			claim.ClaimedAt.UTC().Format(time.RFC3339), e.Counters.RerunsCarriedOut, e.Counters.Reruns, e.WorkItemID)
+		if decided := strings.TrimSpace(claim.Decision); decided != "" {
+			rendered.WriteString(indented("Decided about the claim", decided))
+			return rendered.String()
+		}
+		fmt.Fprintf(&rendered, "      Whether the claim goes back is yours: \"give-back-claim\" on run %s gives it back and the re-run is carried out again; \"leave-claim-spent\" leaves it spent. Neither spends anything.\n", e.RunID)
+		return rendered.String()
+	}
 	rendered.WriteString(indented(fmt.Sprintf("Started by the re-run claimed at %s for the stoppage of run %s", claim.ClaimedAt.UTC().Format(time.RFC3339), claim.PriorRunID), claim.Reason))
 	fmt.Fprintf(&rendered, "      What it cost: this run spent that claim, so %d of %d re-run(s) decided about %s read as carried out, and the stoppage of run %s is not run again on the decision that stands. The harness gives a claim back by itself only where it can prove the run bought nothing, and it could not prove that here.\n",
 		e.Counters.RerunsCarriedOut, e.Counters.Reruns, e.WorkItemID, claim.PriorRunID)

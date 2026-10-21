@@ -4366,7 +4366,11 @@ What happens next is hers to decide and the harness's to carry out:
    and what spending it cost: how many of the item's decided re-runs now read as
    carried out, so the stopped work is not run again on the decision that stands.
    A claim the harness could not give back is recorded as spent on its fresh run
-   so the entry can name it.
+   so the entry can name it. Where no fresh run was ever recorded — the run was
+   refused before it was reserved and giving the claim back could not be saved —
+   the claim is named on the stopped run's own entry instead, which comes back
+   onto her list, though her re-run decision had closed it, until she decides
+   about the claim.
 2. **She decides, in her conversation.** `give-back-claim` gives it back;
    `leave-claim-spent` leaves it spent, and the fresh run's stoppage is still
    hers to decide. Each names the item and the fresh run (or, where no fresh run

@@ -6508,9 +6508,11 @@ provably never started — a reservation refused for capacity creates no run
 record, claims no work item and runs no agent. A claim carrying a run is refused
 rather than removed. A withdrawal the harness could not write is reported rather
 than swallowed: the stoppage has then spent its re-run on a run that never
-started. The claim is recorded as spent on that run, the run's docket entry
-names it, and whether it goes back is the development manager's decision, which
-the harness carries out — [a re-run claim spent on a run that bought
+started. The claim stays recorded as spent, and the development manager's list
+names it — on the entry of the fresh run where one was recorded, and otherwise
+on the stopped run's own entry, which comes back onto her list until she decides
+about the claim. Whether it goes back is her decision, which the harness carries
+out — [a re-run claim spent on a run that bought
 nothing](operations.md#recovering-interrupted-runs) says how. Nobody edits the
 record by hand.
 

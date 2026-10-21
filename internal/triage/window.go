@@ -182,12 +182,14 @@ func (s Stoppage) Critical() bool {
 
 // Undecided reports an entry that is still a question at a moment: nobody has
 // decided about it, the decision has lapsed, or the harness tried to carry the
-// decision out and a gate stopped it.
+// decision out and a gate stopped it. A re-run claim spent on a run that never
+// started, which nobody has decided about, is the fourth (SpentClaim.Stranded):
+// the re-run decision reads as carried out until she decides about the claim.
 //
 // A finding that the recovery no longer applies does not reopen a settled
 // entry (CarryOutStopped), since it asks nobody to decide anything.
 func (e Entry) Undecided(at time.Time) bool {
-	return e.Closed == nil || !e.Closed.Holds(at) || e.CarryOutStopped()
+	return e.Closed == nil || !e.Closed.Holds(at) || e.CarryOutStopped() || e.SpentClaim.Stranded()
 }
 
 // decisionStands reports an entry a decision still holds over at a moment. Such

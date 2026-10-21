@@ -214,3 +214,75 @@ func (n *recordedNotes) RecordOutcome(_ context.Context, id, note string) (beads
 	n.notes = append(n.notes, note)
 	return beads.WorkItem{ID: id}, nil
 }
+
+// A claim the harness took for a run that never started, and then could not save
+// giving back, names no fresh run. It is put in front of the development manager
+// on the entry of the stopped run it was taken for, which her re-run decision had
+// closed, and a give-back she decides by that run is carried out.
+func TestAClaimSpentOnARunThatNeverStartedIsDocketedOnTheStoppedRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	harness := newRerunHarness(t, stoppedState())
+	key := triage.Key(triage.ClassStoppedRun, docketedRunID)
+	harness.docket.close(key, runstate.TriageDecisionRerun, docketedNow)
+	harness.failure = errors.New("reserve developer run: the checkout has uncommitted changes")
+	harness.outcome = Outcome{}
+	rerunner := harness.rerunner()
+	rerunner.Reruns = unwithdrawableReruns{RerunRecords: harness.reruns}
+	if _, err := rerunner.Rerun(ctx, rerunRequest()); err == nil || !strings.Contains(err.Error(), "could not be given back") {
+		t.Fatalf("Rerun() error = %v, want the refusal saying the claim could not be given back", err)
+	}
+	claim, found, err := harness.reruns.Find(key)
+	if err != nil || !found || !claim.Spent() || claim.RunID != "" {
+		t.Fatalf("claim = %#v, %v, %v, want it spent and naming no fresh run", claim, found, err)
+	}
+
+	docketer := docketerOverStore(harness.docket, harness.runs, config.Config{Triage: docketedTriage})
+	docketer.Clock = docketClock{}
+	built, err := docketer.Build()
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	var entry *triage.Entry
+	for index := range built.Entries {
+		if built.Entries[index].RunID == docketedRunID {
+			entry = &built.Entries[index]
+		}
+	}
+	if entry == nil || entry.SpentClaim == nil || !entry.SpentClaim.NoFreshRun {
+		t.Fatalf("docket = %#v, want the stopped run's entry back on the list naming the claim", built.Entries)
+	}
+	rendered := entry.Render()
+	for _, want := range []string{"Re-run claim spent on no run", "1 of 1 re-run(s)", `"give-back-claim" on run ` + docketedRunID, "Next mover: you"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("entry does not say %q:\n%s", want, rendered)
+		}
+	}
+
+	if _, err := harness.reruns.DecideClaim(ctx, key, runstate.RerunClaimDecision{
+		Decision: runstate.RerunClaimGiveBack, Reason: "the run it was claimed for never started",
+		DecidedBy: "development manager", Conversation: decidedIn, Turn: decidedOnTurn,
+	}); err != nil {
+		t.Fatalf("DecideClaim() error = %v", err)
+	}
+	giver := ClaimGiver{Claims: harness.reruns, Runs: harness.runs, Clock: docketClock{}}
+	result, err := giver.GiveBack(ctx, docketedRunID, "a person with yoyo triage give-back")
+	if err != nil || !result.GivenBack || result.Claim.GivenBack == nil || result.Claim.GivenBack.RunID != "" {
+		t.Fatalf("GiveBack() = %#v, %v, want the claim named by its stopped run given back", result, err)
+	}
+	built, err = docketer.Build()
+	if err != nil {
+		t.Fatalf("Build() after the give-back error = %v", err)
+	}
+	for _, listed := range built.Entries {
+		if listed.RunID == docketedRunID {
+			t.Fatalf("entry still listed after the give-back:\n%s", listed.Render())
+		}
+	}
+	harness.failure = nil
+	harness.outcome = Outcome{RunID: "run-abababababababababababababababab", WorkItemID: docketedItem, Status: runstate.StatusSucceeded}
+	if _, err := harness.rerunner().Rerun(ctx, rerunRequest()); err != nil {
+		t.Fatalf("Rerun() after the give-back error = %v, want the same decision carried out", err)
+	}
+}
