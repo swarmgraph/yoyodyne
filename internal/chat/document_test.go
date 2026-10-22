@@ -2,6 +2,8 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/documentcheck"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
@@ -804,5 +807,103 @@ func TestADocumentThatPassesTheDocumentChecksIsRecordedAsBefore(t *testing.T) {
 	}
 	if len(provider.requests) != 1 {
 		t.Fatalf("a clean document cost the role another turn; requests = %d", len(provider.requests))
+	}
+}
+
+// A section revision saved by one process and read back by another is still a
+// section revision: put back on the table, it replaces that one section of the
+// document and leaves the rest as it was, rather than the whole document being
+// replaced by the text of one section.
+func TestASavedSectionRevisionIsStillASectionRevisionWhenReadBack(t *testing.T) {
+	t.Parallel()
+
+	repository := t.TempDir()
+	store := artifact.StoreFor(repository, config.Product{
+		Specifications: config.DefaultSpecifications,
+		Designs:        config.DefaultDesigns,
+		Decisions:      config.DefaultDecisions,
+		Invariants:     config.DefaultInvariants,
+	})
+	var long strings.Builder
+	long.WriteString("# Long design\n")
+	for index := 0; long.Len() <= 2*artifact.MaxWriteBodyBytes; index++ {
+		long.WriteString("\n## Part " + strings.Repeat("x", index%7) + string(rune('a'+index%26)) + "\n\n" + strings.Repeat("Words nobody rewrites. ", 60) + "\n")
+	}
+	long.WriteString("\n## Scope\n\nOld scope.\n\n## After it\n\nUntouched.\n")
+	if _, err := store.Create(domain.RoleArchitect, artifact.Draft{ID: "long-design", Kind: artifact.KindDesign, Title: "Long design", Directory: "docs/designs", Body: long.String(), Reason: "owner decision"}, fixedClock{}.Now()); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(repository, "docs", "designs", "long-design.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	written := PendingWrite{ID: "document-3.1", ConversationID: "conversation-1", Turn: 3, Write: artifact.Write{
+		Action: artifact.WriteRevise, ID: "long-design", Section: "Scope", Body: "New scope.", Reason: "the scope narrows",
+	}}
+	if summary := written.recordedSummary(); summary["section"] != "Scope" {
+		t.Fatalf("the record's summary does not name the section: %#v", summary)
+	}
+	// Through JSON, as the conversation's durable record carries it.
+	encoded, err := json.Marshal(written.recorded())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved runstate.PendingWrite
+	if err := json.Unmarshal(encoded, &saved); err != nil {
+		t.Fatal(err)
+	}
+	restored := restoredWrite("conversation-1", saved)
+	if restored.Write.Section != "Scope" {
+		t.Fatalf("the section was lost when the record was read back: %#v", restored.Write)
+	}
+	if !strings.Contains(restored.Write.Describe(), `"Scope"`) {
+		t.Fatalf("what the operator is shown does not name the section: %q", restored.Write.Describe())
+	}
+
+	candidate, automatic, err := store.PrepareConfirmation(domain.RoleArchitect, restored.Write, artifact.Policy{Designs: domain.ApprovalAutomatic}, "confirmed under policy", fixedClock{}.Now())
+	if err != nil || !automatic {
+		t.Fatalf("confirmation: %v, %v", automatic, err)
+	}
+	// The document below its frontmatter, with only that section's text changed.
+	original := string(before)
+	body := original[strings.Index(original, "\n---\n")+len("\n---\n"):]
+	want := strings.Replace(body, "## Scope\n\nOld scope.\n", "## Scope\n\nNew scope.\n", 1)
+	if want == body || !strings.HasSuffix(candidate.Content, "\n---\n"+want) {
+		t.Fatal("the restored revision did not replace only that section")
+	}
+}
+
+// A section revision is checked as the whole document it leaves: its new text
+// may link to a heading elsewhere in that document, a link to a heading the
+// document does not have is still refused on the line of the text the role
+// wrote, and a link elsewhere in the document is not the revision's to answer.
+func TestASectionRevisionIsCheckedAgainstTheWholeDocumentItLeaves(t *testing.T) {
+	t.Parallel()
+
+	options, _ := documentOptions(t, &fakeBackend{})
+	store := options.Documents.(artifact.Store)
+	body := "# Design\n\n## Scope\n\nOld scope.\n\n## Limits\n\nWhat it will not do. See [an old link](#nowhere-at-all).\n"
+	if _, err := store.Create(domain.RoleArchitect, artifact.Draft{ID: "linked-design", Kind: artifact.KindDesign, Title: "Linked design", Directory: "docs/designs", Body: body, Reason: "owner decision"}, fixedClock{}.Now()); err != nil {
+		t.Fatal(err)
+	}
+	session := openTestSession(t, options)
+	revise := func(text string) artifact.Write {
+		return artifact.Write{Action: artifact.WriteRevise, ID: "linked-design", Section: "Scope", Body: text, Reason: "the scope narrows"}
+	}
+
+	if err := session.checkDocument(revise("New scope, bounded by [the limits](#limits).")); err != nil {
+		t.Fatalf("a link to a heading elsewhere in the document was refused: %v", err)
+	}
+	// Judged alone, the same text has no heading to link to, which is what a
+	// whole-document check of the section's text would have refused.
+	if err := session.checkDocument(artifact.Write{Action: artifact.WriteRevise, ID: "linked-design", Body: "New scope, bounded by [the limits](#limits).", Reason: "whole"}); err == nil {
+		t.Fatal("the comparison is empty: a whole revision without the heading was accepted")
+	}
+
+	err := session.checkDocument(revise("New scope.\n\nSee [what is gone](#no-such-heading)."))
+	var refused *documentcheck.Refusal
+	if !errors.As(err, &refused) || len(refused.Problems) != 1 || refused.Problems[0].Line != 3 || !strings.Contains(refused.Problems[0].Reason, "no-such-heading") {
+		t.Fatalf("a link to a missing heading in the section: %#v, %v", refused, err)
 	}
 }

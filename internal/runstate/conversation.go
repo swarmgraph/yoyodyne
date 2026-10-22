@@ -508,7 +508,11 @@ type PendingWrite struct {
 	Supports  []string `json:"supports,omitempty"`
 	Directory string   `json:"directory,omitempty"`
 	Body      string   `json:"body"`
-	Reason    string   `json:"reason"`
+	// Section is the heading whose section Body replaces on a revision, the rest
+	// of the document kept as it was; empty, Body is the whole document. A record
+	// written before it was kept has none, which is what it meant then.
+	Section string `json:"section,omitempty"`
+	Reason  string `json:"reason"`
 	// Answers are the work items the document is the design or ruling for, and
 	// Hold is what its owning role put on sending it; see artifact.Write.
 	Answers []string              `json:"answers,omitempty"`

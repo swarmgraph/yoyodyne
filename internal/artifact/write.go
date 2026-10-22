@@ -117,6 +117,12 @@ type Write struct {
 	// carry a drafted document to disk whole, and a revision that carried only a
 	// new title would be a metadata edit wearing a document's clothes.
 	Body string `json:"body"`
+	// Section, on a revision, names the heading whose section Body replaces,
+	// leaving the rest of the document byte for byte as it was. It is how a
+	// document longer than a role can read is revised at all; see section.go.
+	// Left out, Body is the whole document. It is refused on a creation, which
+	// has no sections yet to replace.
+	Section string `json:"section,omitempty"`
 	// Reason is why this document is being recorded, kept as the revision. It is
 	// required for the reason every revision's is: a change nobody explained is
 	// one nobody can evaluate later.
@@ -247,12 +253,21 @@ func (w Write) perActionProblems() []error {
 		if strings.TrimSpace(w.Directory) == "" {
 			problems = append(problems, errors.New("directory is required on a creation, naming the artifact home the document is filed in"))
 		}
+		if strings.TrimSpace(w.Section) != "" {
+			problems = append(problems, errors.New("section is refused on a creation; a new document is written whole"))
+		}
 	case WriteRevise:
 		if strings.TrimSpace(string(w.Kind)) != "" {
 			problems = append(problems, errors.New("kind is not revisable; it decides who owns the document, so changing it would be a mutation that reassigns its own authorization"))
 		}
 		if strings.TrimSpace(w.Directory) != "" {
 			problems = append(problems, errors.New("directory is not revisable; the document is already filed, and moving it would break every reference to the file"))
+		}
+		switch section := strings.TrimSpace(w.Section); {
+		case len(section) > MaxSectionHeadingBytes:
+			problems = append(problems, fmt.Errorf("section is %d bytes, limit is %d", len(section), MaxSectionHeadingBytes))
+		case strings.ContainsAny(section, "\r\n"):
+			problems = append(problems, errors.New("section names one heading, on one line"))
 		}
 	}
 	return problems
@@ -372,6 +387,9 @@ func (w Write) Describe() string {
 	case WriteCreate:
 		return fmt.Sprintf("create %s (%s) in %s", strings.TrimSpace(w.ID), w.Kind, strings.TrimSpace(w.Directory))
 	default:
+		if section := strings.TrimSpace(w.Section); section != "" {
+			return fmt.Sprintf("revise %s, replacing the section %q", strings.TrimSpace(w.ID), section)
+		}
 		return "revise " + strings.TrimSpace(w.ID)
 	}
 }
@@ -395,7 +413,7 @@ func (w Write) Draft() Draft {
 // mentions neither keeps both rather than replacing them with nothing.
 func (w Write) Amendment() Amendment {
 	body := strings.TrimSpace(w.Body)
-	amendment := Amendment{Body: &body, Reason: strings.TrimSpace(w.Reason), Intent: w.Intent}
+	amendment := Amendment{Body: &body, Section: strings.TrimSpace(w.Section), Reason: strings.TrimSpace(w.Reason), Intent: w.Intent}
 	if title := strings.TrimSpace(w.Title); title != "" {
 		amendment.Title = &title
 	}
@@ -467,6 +485,17 @@ func (s Store) CheckWrite(role domain.AgentRole, write Write) error {
 	if ended, hasEnding := found.Ended(); hasEnding {
 		return fmt.Errorf("artifact %q was %s on %s and is not revised back into force: %s",
 			id, ended.Action, ended.At.UTC().Format(time.RFC3339), ended.Reason)
+	}
+	// A section the document does not have, or has twice, is another answer
+	// that will not change, so it is refused before anybody is asked.
+	if section := strings.TrimSpace(write.Section); section != "" {
+		_, body, err := s.loadOne(id)
+		if err != nil {
+			return err
+		}
+		if _, err := ReplaceSection(body, section, write.Body); err != nil {
+			return fmt.Errorf("artifact %q: %w", id, err)
+		}
 	}
 	return nil
 }
@@ -592,7 +621,7 @@ To write one, end your reply with exactly one block of this shape:
 {"documents":[{"action":"create","id":"artifact-id","kind":"` + string(filing[0].Kind) + `","title":"one line","supports":["upstream-artifact-id"],"directory":"` + filing[0].Directory + `","body":"the whole document, in Markdown, below the frontmatter","reason":"why you are recording it"}]}
 ` + "```" + `
 
-A revision replaces what an existing document says: ` + "`" + `{"action":"revise","id":"artifact-id","body":"the whole document","reason":"why it is changing"}` + "`" + `.` + intentField + ` It carries the document whole rather than the part that changed, and it takes "title" and "supports" only where those change too. "kind" and "directory" are refused on a revision — the kind decides who owns the document, and the file has already been referred to by where it is.
+A revision replaces what an existing document says: ` + "`" + `{"action":"revise","id":"artifact-id","body":"the whole document","reason":"why it is changing"}` + "`" + `.` + intentField + ` It carries the document whole rather than the part that changed, and it takes "title" and "supports" only where those change too. A document longer than you can read whole is revised one section at a time: add "section":"the heading, as the document writes it", and the body is then the new text under that heading, its subsections included, without the heading line itself. The rest of the document is left exactly as it is; a heading the document does not have, or has twice, is refused. "kind" and "directory" are refused on a revision — the kind decides who owns the document, and the file has already been referred to by where it is.
 
 The kinds you may write, and where this project files each of them, are ` + strings.Join(kinds, ", ") + `. Any other kind is refused and nothing is written, and so is a document filed anywhere but the directory its own kind belongs in — being inside one of this project's ` + strings.Join(directories, " or ") + ` is not enough. The id is the file name without its extension, so it also has to be one: an id that already answers to a document is a revision rather than a creation.
 

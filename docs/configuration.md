@@ -1364,8 +1364,8 @@ yoyo artifact show v1-goals         # one artifact, its revisions, and your appr
 
 There is no `yoyo artifact create` or `amend`, unlike the invariant commands: an
 artifact's content is written by the role that owns it — by hand, or from its
-conversation as a typed write you approve, which the harness files with the
-frontmatter generated ([writing a document from a
+conversation as a typed write, which the harness files with the frontmatter
+generated and confirms as the document's approval policy says ([writing a document from a
 conversation](artifacts.md#writing-a-document-from-a-conversation)). What the harness owns is refusing a
 document whose identity is missing, malformed, or claimed by something else,
 [reporting a change recorded by a role that does not own it](#who-may-change-an-artifact),

@@ -250,6 +250,10 @@ type Amendment struct {
 	// Body replaces the document below the frontmatter. Leaving it unset amends
 	// the metadata and carries the prose through untouched.
 	Body *string
+	// Section names the heading whose section Body replaces, the rest of the
+	// document kept as it was; empty, Body is the whole document. See
+	// ReplaceSection.
+	Section string
 	// Reason is why the artifact is changing, recorded as a revision. It is
 	// required for the same reason an ending's is: a change nobody explained is
 	// one nobody can evaluate later.
@@ -381,7 +385,15 @@ func (s Store) prepareAmend(role domain.AgentRole, id string, amendment Amendmen
 		if replacement == "" {
 			return Artifact{}, "", fmt.Errorf("amending artifact %q to an empty document would leave an identity with nothing under it; retire it instead", id)
 		}
-		body = "\n" + replacement + "\n"
+		if amendment.Section != "" {
+			spliced, err := ReplaceSection(body, amendment.Section, replacement)
+			if err != nil {
+				return Artifact{}, "", fmt.Errorf("amending artifact %q: %w", id, err)
+			}
+			body = spliced
+		} else {
+			body = "\n" + replacement + "\n"
+		}
 	}
 	amended.Revisions = append(append([]Revision(nil), existing.Revisions...), Revision{
 		Action: ActionAmended,

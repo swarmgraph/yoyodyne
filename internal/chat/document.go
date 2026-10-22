@@ -53,6 +53,10 @@ type Documents interface {
 	// role's authority over the document it names, and whether the directory is
 	// the one its kind is filed in.
 	CheckWrite(role domain.AgentRole, write artifact.Write) error
+	// SectionDocument is the document a revision naming a section would leave,
+	// below its frontmatter, and the line its new text begins on; see
+	// artifact.Store.SectionDocument.
+	SectionDocument(write artifact.Write) (string, int, error)
 	// WritePath is the repository-relative file a write lands in, which is what
 	// the document is checked as before it is recorded.
 	WritePath(write artifact.Write) (string, error)
@@ -317,7 +321,9 @@ func (s *Session) refuseCopies(writes []artifact.Write) error {
 // writing anything at all.
 func (s *Session) checkDocument(write artifact.Write) error {
 	documentPath, err := s.options.Documents.WritePath(write)
-	if err == nil {
+	if err == nil && strings.TrimSpace(write.Section) != "" {
+		err = s.checkSection(documentPath, write)
+	} else if err == nil {
 		// The body is checked as the store files it, trimmed, so a line named in a
 		// refusal is the line it lands on below the frontmatter.
 		err = documentcheck.Check(s.options.Documents.Checkout(), documentPath, strings.TrimSpace(write.Body))
@@ -331,6 +337,35 @@ func (s *Session) checkDocument(write artifact.Write) error {
 			strings.TrimSpace(write.ID), err)
 	}
 	return nil
+}
+
+// checkSection checks a section revision as the whole document it leaves, so a
+// link from the new text to a heading elsewhere in the document resolves. Only
+// what the new text holds refuses it, numbered by the lines of that text as the
+// role wrote it, trimmed: the rest of the document is not the role's to answer
+// for in this revision, and the run landing it judges the whole file anyway.
+func (s *Session) checkSection(documentPath string, write artifact.Write) error {
+	document, start, err := s.options.Documents.SectionDocument(write)
+	if err != nil {
+		return err
+	}
+	err = documentcheck.Check(s.options.Documents.Checkout(), documentPath, document)
+	var refused *documentcheck.Refusal
+	if !errors.As(err, &refused) {
+		return err
+	}
+	end := start + strings.Count(strings.TrimSpace(write.Body), "\n")
+	var own []documentcheck.Problem
+	for _, problem := range refused.Problems {
+		if problem.Line >= start && problem.Line <= end {
+			problem.Line -= start - 1
+			own = append(own, problem)
+		}
+	}
+	if len(own) == 0 {
+		return nil
+	}
+	return &documentcheck.Refusal{Path: refused.Path, Problems: own}
 }
 
 // releaseCopies settles every waiting document that is a second copy of a
@@ -844,6 +879,9 @@ func (p PendingWrite) recordedSummary() map[string]any {
 		"directory": strings.TrimSpace(p.Write.Directory),
 		"reason":    strings.TrimSpace(p.Write.Reason),
 		"bytes":     len(strings.TrimSpace(p.Write.Body)),
+		// Said apart from the size, because a section's few bytes and a whole
+		// document's look alike in a byte count.
+		"section": strings.TrimSpace(p.Write.Section),
 	}
 }
 
@@ -865,6 +903,7 @@ func (p PendingWrite) recorded() runstate.PendingWrite {
 		Supports:    p.Write.Supports,
 		Directory:   strings.TrimSpace(p.Write.Directory),
 		Body:        p.Write.Body,
+		Section:     strings.TrimSpace(p.Write.Section),
 		Reason:      strings.TrimSpace(p.Write.Reason),
 		Answers:     p.Write.Answers,
 		Hold:        p.Write.Hold,
@@ -891,6 +930,7 @@ func restoredWrite(conversationID string, recorded runstate.PendingWrite) Pendin
 			Supports:  recorded.Supports,
 			Directory: recorded.Directory,
 			Body:      recorded.Body,
+			Section:   recorded.Section,
 			Reason:    recorded.Reason,
 			Answers:   recorded.Answers,
 			Hold:      recorded.Hold,
