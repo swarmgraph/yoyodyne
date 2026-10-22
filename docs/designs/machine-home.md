@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-10-17T12:26:26.10179Z
       reason: 'Answers the Lead Product Manager''s report-4a260a2e: the move section now says what a supervisor does when it starts and finds moving.json with no step of the move begun. It takes over a file left by a supervisor that is no longer running, keeps the recorded creation time and drain limit, and gives up as step 4 says once that limit has passed; an unreadable file is removed. The build list, the enforced list and validation check 6 follow. No other requirement changes.'
+    - action: amended
+      by: architect
+      at: 2026-10-22T16:23:35.35373Z
+      reason: 'Replacing a retired phrase, as the terms register''s row for it says: the list under One home now calls the file at the top of the home the operator''s pause, set by yoyo pause, and says one pause stops every project. Read at 145efe18; no other sentence and no requirement changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -38,6 +42,11 @@ approvals:
       by: harness
       at: 2026-10-17T12:26:26.10179Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1150, for document-1150.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-10-22T16:23:35.35373Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1498, for document-1498.1 under the automatic approval policy
 ---
 # The machine home
 
@@ -63,8 +72,9 @@ project owns:
 
 - `projects/<product.id>/` — one per project, below.
 - `accounts/` — provider accounts, which serve every project.
-- `operator-hold.json` — the operator's hold, which is machine-wide by decision:
-  one hold stops every project on the machine, as it does today.
+- `operator-hold.json` — the operator's pause, set by `yoyo pause`, which is
+  machine-wide by decision: one pause stops every project on the machine, as it
+  does today.
 - `logs/` — the harness's own logs.
 
 Anything that today sits beside `products/` under the state root and belongs to
