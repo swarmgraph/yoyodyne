@@ -654,6 +654,7 @@ func (s *Sink) pass(ctx context.Context) error {
 			if delivery.Tag {
 				into.tags = s.operators
 			}
+			notification = s.citeNotification(ctx, notification)
 			if err := notification.Notify(ctx, notifier); err != nil {
 				if into.reached {
 					return err
@@ -883,21 +884,72 @@ func (s *Sink) settle(ctx context.Context, messageTS string) {
 // Every message the sink sends goes through here rather than to the client
 // directly, because what Slack suppresses is an application posting too fast and
 // it does not care which of its own messages were the interesting ones.
+//
+// It posts the text as it is given: the work items in it have already been
+// shown with their state, by the read model's renderer, exactly once. Text that
+// has not been — a record's own words, a sentence the sink composes — goes
+// through postCited instead, and a notification has its record text rendered
+// before it is composed (citeNotification). Rendering text twice, against two
+// readings of the tracker that can disagree, would put two states beside one
+// id and search a title for ids, which the read model never does.
 func (s *Sink) post(ctx context.Context, message Message) (string, error) {
-	return s.postAbout(ctx, message)
-}
-
-// postAbout is post for a message about work items it names by id, which are
-// shown with their state whatever the shape of the id.
-func (s *Sink) postAbout(ctx context.Context, message Message, known ...string) (string, error) {
 	if err := s.pace.wait(ctx); err != nil {
 		return "", err
 	}
-	message.Text = s.citing.cite(ctx, message.Text, known...)
 	if s.sources != nil {
 		message.Text = readmodel.ReadTextTerms(s.sources.Repository).Render(message.Text)
 	}
 	return s.api.Post(ctx, message)
+}
+
+// postCited is post for text no rendering has passed through yet: each work
+// item it names is shown with its state from the sink's reading of the tracker,
+// and the known ids are items the message is about, shown whatever their shape.
+func (s *Sink) postCited(ctx context.Context, message Message, known ...string) (string, error) {
+	message.Text = s.citing.cite(ctx, message.Text, known...)
+	return s.post(ctx, message)
+}
+
+// citeNotification renders the record text a notification carries — what a
+// role or the harness wrote, and the sentences recorded about it — before the
+// notifier composes it into a message, so the message is posted as composed.
+// The where-the-harness-stands lines a notification carries are the read
+// model's rendering already and are left as they are, and so are the fields
+// that name a thing rather than say something about it: a title read from the
+// tracker is never searched for references.
+func (s *Sink) citeNotification(ctx context.Context, notification notify.Notification) notify.Notification {
+	if s.citing == nil {
+		return notification
+	}
+	known := []string{notification.Event.Refs.WorkItemID}
+	if notification.Topic.Kind == notify.TopicWorkItem {
+		known = append(known, notification.Topic.ID)
+	}
+	cite := func(text string) string {
+		if strings.TrimSpace(text) == "" {
+			return text
+		}
+		return s.citing.cite(ctx, text, known...)
+	}
+	event := &notification.Event
+	event.Text = cite(event.Text)
+	detail := &event.Detail
+	for _, field := range []*string{
+		&detail.SelectedBy, &detail.SelectionReason, &detail.Checks, &detail.Landing, &detail.Cause,
+		&detail.Waiting, &detail.Unresolved, &detail.Parent, &detail.Stopped, &detail.Setting,
+		&detail.Improvement, &detail.Ending, &detail.Remains, &detail.Asking, &detail.Budget,
+		&detail.Needs, &detail.RecordedIn, &detail.FoundBy, &detail.Ends, &detail.Stops, &detail.Reason,
+	} {
+		*field = cite(*field)
+	}
+	if len(detail.Requested) > 0 {
+		requested := make([]string, len(detail.Requested))
+		for index, request := range detail.Requested {
+			requested[index] = cite(request)
+		}
+		detail.Requested = requested
+	}
+	return notification
 }
 
 // advance records that one delivery has been posted, durably, before anything
@@ -1004,7 +1056,7 @@ func (p *poster) Post(ctx context.Context, message notify.Message) error {
 	}
 
 	emoji, url := icon(message.Identity.Avatar)
-	if _, err := sink.postAbout(ctx, Message{
+	if _, err := sink.post(ctx, Message{
 		Channel:   sink.channel,
 		Text:      tagged(p.mention, taggedAll(p.tags, renderText(message))),
 		ThreadTS:  threadTS,
@@ -1012,7 +1064,7 @@ func (p *poster) Post(ctx context.Context, message notify.Message) error {
 		Username:  message.Identity.Name,
 		IconEmoji: emoji,
 		IconURL:   url,
-	}, message.Refs.WorkItemID); err != nil {
+	}); err != nil {
 		return err
 	}
 	// What was posted is said in the sink's own log, by kind and topic and never

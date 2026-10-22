@@ -155,3 +155,52 @@ func TestAThreadHeadingWhoseTitleNamesAnotherItemIsPostedAsTheTrackerHoldsIt(t *
 		t.Errorf("thread heading = %q, want %q", got, want)
 	}
 }
+
+// The lines saying where the harness stands reach the sink already rendered by
+// the read model, against its own reading of the tracker. The sink posts them
+// as they are, whatever its own reading says: rendering them again against a
+// reading that failed, or one taken before a title changed, would put two
+// states beside one id and search a title for ids.
+func TestTheStandingLinesArePostedAsTheReadModelRenderedThem(t *testing.T) {
+	t.Parallel()
+
+	standingReading := readmodel.NewWorkItemTitles([]beads.WorkItem{
+		{ID: "yoyodyne-ifd.12", Title: "Fix yoyodyne-ifd.7's timeout", Priority: 0, Labels: []string{"bug"}},
+		{ID: "yoyodyne-ifd.7", Title: "Retry the merge", Priority: 1, Labels: []string{"reliability"}},
+	})
+	lines := "Running (1 developer run):\n  " + standingReading.Name("yoyodyne-ifd.12") + " — developing\n" +
+		"Not startable: " + standingReading.Cite("yoyodyne-ifd.12 waits on yoyodyne-ifd.7")
+	for name, sinkListing := range map[string]*listedTitles{
+		"the sink's listing failed": {err: errors.New("bd: database is locked")},
+		"a title changed between the readings": {items: []beads.WorkItem{
+			{ID: "yoyodyne-ifd.12", Title: "Fix yoyodyne-ifd.7's timeout under load", Priority: 1, Labels: []string{"bug"}},
+			{ID: "yoyodyne-ifd.7", Title: "Retry the merge after a refusal", Priority: 1, Labels: []string{"reliability"}},
+		}},
+	} {
+		posts := &recordedPosts{}
+		sink := newTestSink(t, t.TempDir(), &fixedFeed{deliveries: []Delivery{{
+			Stream:       reportStream,
+			Cursor:       Cursor{Position: 1},
+			Notification: notify.FromLine(notify.Line{Stopped: "nothing is choosing work", Since: time.Now().Add(-time.Hour), Ready: 1, Standing: lines}, report.SeverityWarning, time.Now()),
+		}}}, posts)
+		sink.citing = &titleIndex{read: sinkListing.read}
+		if err := sink.pass(context.Background()); err != nil {
+			t.Fatalf("%s: pass() error = %v", name, err)
+		}
+		var posted string
+		for _, request := range posts.requests {
+			posted += request.Text + "\n"
+		}
+		if !strings.Contains(posted, "(P0, bug) Fix yoyodyne-ifd.7's timeout (yoyodyne-ifd.12) — developing") {
+			t.Errorf("%s: posted %q, want the running item as the read model named it", name, posted)
+		}
+		if !strings.Contains(posted, "yoyodyne-ifd.7 (P1, reliability: Retry the merge)") {
+			t.Errorf("%s: posted %q, want the reference with the read model's state", name, posted)
+		}
+		for _, wrong := range []string{"tracker unreadable", "after a refusal", "under load", "Fix yoyodyne-ifd.7 (", ") ("} {
+			if strings.Contains(posted, wrong) {
+				t.Errorf("%s: posted %q, rendered the standing lines a second time (found %q)", name, posted, wrong)
+			}
+		}
+	}
+}

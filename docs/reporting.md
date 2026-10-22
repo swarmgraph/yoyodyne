@@ -483,19 +483,27 @@ exactly. A name in the operator's form is never searched again either: an id
 inside an item's title is the title's. Words in parentheses after an id are the
 writer's own and are kept as written, with the item's state put in before
 them; the one thing left alone is a state exactly as this reading would put
-it, which is text that already passed through the renderer on its way to the
-surface, such as the four lines inside a Slack message.
+it, which is text that already passed through the same renderer, with the same
+reading, on its way to the surface.
 
 An id the tracker does not hold is shown as `(not in the tracker)`. When the
 tracker cannot be read, every reference is shown as
 `(tracker unreadable at 09:40 PDT)`, the time the reading was made in this
 machine's zone, and a surface that knows an id is a work item — a run's item,
 an entry's item, the item a Slack message is about — marks it whatever its
-shape. Nothing is dropped and no page or message fails over it. The Slack sink
-lists the tracker at most once a minute rather than once a message, so an item
-admitted in the last minute can reach the channel marked as not in the tracker
-until the next listing; a posted message is not edited when the tracker changes
-later.
+shape. Nothing is dropped and no page or message fails over it.
+
+The Slack sink renders nothing twice. The lines saying where the harness
+stands — in the hourly message, in a message about a stopped line, and in the
+answer to an @mention — reach it already rendered by the read model, and are
+posted as they are. What it renders itself is only text no rendering has
+passed through: a record's own words and the sentences recorded about it in a
+notification, before the message is composed; what the Lead Product Manager
+answered in a thread; the answer to a decision and a question put to a person
+directly; and a work item's thread heading. For those it lists the tracker at
+most once a minute rather than once a message, so an item admitted in the last
+minute can reach the channel marked as not in the tracker until the next
+listing. A posted message is not edited when the tracker changes later.
 
 Closed items are shown too. Most of what a report or a pass names has closed by
 the time anybody reads it, and `bd list` given no status leaves closed work out,

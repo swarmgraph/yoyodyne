@@ -314,7 +314,7 @@ func decided(asked Decision, chosen choice) string {
 func (s *steering) answerDecision(ctx context.Context, message inboundMessage, answer string) {
 	identity := s.sink.appearance.Identity(notify.Harness())
 	emoji, url := icon(identity.Avatar)
-	if _, err := s.sink.post(ctx, Message{
+	if _, err := s.sink.postCited(ctx, Message{
 		Channel:   message.channel,
 		ThreadTS:  message.threadTS,
 		Text:      tagged(message.user, answer),

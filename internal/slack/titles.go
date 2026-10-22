@@ -5,12 +5,14 @@ package slack
 //
 // The records the sink reads carry what roles and the harness wrote, and a role
 // that names work by its id alone would otherwise put that id in the channel
-// exactly as it wrote it. So the text of every post is rendered by the read
-// model's own renderer on its way out (readmodel.WorkItemTitles), which is the
-// one place every message passes: a thread's opening message, a milestone, a
-// digest, the hourly line and the needs-a-human line under it, a direct message,
-// and an answer in a thread. The sink has no formatter of its own; a message is
-// rendered as the tracker stands when it is posted, and is not edited later.
+// exactly as it wrote it. So text no rendering has passed through is rendered
+// by the read model's own renderer (readmodel.WorkItemTitles) on its way out:
+// a notification's record text before the message is composed, a thread's
+// heading, a role's answer in a thread, and what the sink says to a person
+// directly. Text the read model has already rendered — where the harness
+// stands — is posted as it is, so nothing is rendered twice. The sink has no
+// formatter of its own; a message is rendered as the tracker stands when it is
+// posted, and is not edited later.
 //
 // The tracker is listed at most once a minute rather than once a message. A
 // catch-up posts hundreds of messages in a row and titles do not change under
