@@ -6285,6 +6285,40 @@ could not be listed is said under `tracker_problem` with no items, never as an
 empty backlog, and readiness that could not be read is said under
 `readiness_problem`, with each admitted item's state `not read`.
 
+### The backlog page
+
+The link "The backlog over time" in the top status band opens the backlog
+page, at `/backlog`, which charts `/api/backlog` so you can see whether work
+arrives faster than it lands. It uses the main page's token, so a tab already
+signed in opens it signed in. It reads the backlog when it opens and every five
+minutes after, and changes nothing.
+
+Three controls choose what is drawn. **Show** is items filed in each window,
+items closed in each window, or items open at the end of each window. **Split
+by** is nothing (one total), priority, who does the work, label, ready or
+waiting, or who filed it. **Time scale** is hourly (the last seven days), daily,
+or weekly, with weeks starting Monday. Every window is in your local time
+zone, the one your browser reports, and the page names it, for example
+`America/Los_Angeles (PDT)`. A part split from an existing item is counted under the
+item it came from, as one series of its own called "split from an item"; the
+check box beside the controls counts parts as new filings instead.
+
+Each item is split by what it is now, not by what it was in the window: its
+priority, labels, who does it, and whether it is ready are the read model's
+current values. An item with several labels is counted under each, so the
+label series add up to more than the items. An item whose admission recorded no
+origin is drawn under "unknown: no origin recorded". An item whose filing or
+closing time the tracker did not record is left out of what that time decides,
+and the page says how many there are.
+
+The page draws its chart with Chart.js once the library and a record of its
+version, source, checksum, and license are checked into
+`internal/dashboard/assets` (as `chart.umd.js` and `chartjs.md`), served by the
+dashboard itself, so the page loads nothing from anywhere else. The build does
+not carry them yet, so for now the page shows the figures as a table and says
+the chart library is not in this build. The table stays under the chart once
+the library is there.
+
 ### The dashboard under the product
 
 With `services.dashboard.enabled` set, the dashboard is one of the parts the
@@ -6858,8 +6892,9 @@ plane, and work is still directed from the conversation and the commands above.
 - **It answers only on this machine.** It binds `127.0.0.1` and nothing else,
   so nothing off the machine can reach it, and being on the machine is not
   enough on its own: every request for the read model has to carry the token.
-  What is served without one is the page shell and its own script and
-  stylesheet — static text compiled into the binary, with nothing of the read
+  What is served without one is the page shell, the backlog page's shell at
+  `/backlog`, and their own scripts and stylesheet, the chart library included
+  once it is checked in — static text compiled into the binary, with nothing of the read
   model in it, which a browser needs before it can present a token at all.
   Everything that reads state is behind the token.
 - **The token is never in a URL, and never in a cookie.** A token in a URL

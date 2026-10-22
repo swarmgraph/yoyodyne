@@ -1144,6 +1144,119 @@ input:focus-visible {
   color: var(--ink-soft);
 }
 
+/* ---- the backlog page ------------------------------------------------------------ */
+
+/* The backlog page shares this stylesheet; these are its own pieces. The link
+   that reaches it sits in the top status band, and the link back in its
+   header. The chart's box sets its height, since the library fills its box
+   rather than choosing one. */
+
+.page-link {
+  color: var(--accent-ink);
+  font-weight: 600;
+  text-underline-offset: 0.15em;
+}
+
+.page-link:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.band-links {
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+}
+
+.backlog-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem 1.25rem;
+  max-width: none;
+  margin: 0.75rem 0 1rem;
+}
+
+.backlog-controls label {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.backlog-controls label.check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 400;
+}
+
+select {
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+select:focus-visible,
+input[type="checkbox"]:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.backlog-chart {
+  position: relative;
+  height: 24rem;
+  margin: 0.75rem 0;
+}
+
+.footnotes {
+  margin: 0.75rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.backlog-figures {
+  margin-top: 1rem;
+}
+
+.backlog-figures summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.backlog-table-wrap {
+  overflow-x: auto;
+  max-height: 32rem;
+  margin-top: 0.5rem;
+}
+
+.backlog-table {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+}
+
+.backlog-table th,
+.backlog-table td {
+  padding: 0.3rem 0.75rem;
+  border-bottom: 1px solid var(--rule);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.backlog-table th[scope="row"],
+.backlog-table thead th:first-child {
+  text-align: left;
+}
+
+.backlog-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  border-bottom-color: var(--rule-strong);
+}
+
 /* ---- narrow screens ------------------------------------------------------------ */
 
 @media (max-width: 40rem) {
@@ -1171,6 +1284,14 @@ input:focus-visible {
 
   .popup {
     padding: 0.5rem;
+  }
+
+  .backlog-chart {
+    height: 18rem;
+  }
+
+  .backlog-controls label:not(.check) {
+    flex: 1 1 100%;
   }
 }
 
