@@ -37,7 +37,7 @@ const (
 	// harness has not given the decision.
 	HandAmendmentDecision HandNeed = "amendment-decision"
 	// HandOperationalConfiguration is applying an operational configuration
-	// value a role recommends — a check, a developer model, a task's cadence —
+	// value a role recommends — a check, a developer model, how often a task runs —
 	// which today only a person can write into .yoyodyne/config.yaml.
 	HandOperationalConfiguration HandNeed = "operational-configuration"
 	// HandDocumentConfirmation is confirming a document a role wrote from a
