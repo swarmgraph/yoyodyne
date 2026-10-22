@@ -730,16 +730,19 @@ token or the wrong one, a Host or Origin that is not the address it bound, and
 durable state it cannot read each get a refusal and never part of an answer.
 
 What the attention line names as the operator's and a verb approves or
-declines -- today, a change proposed to a document whose entry names him, and
-each proposal in an owning role's batch of recommendations -- is put to him on
-the page one at a time, with Approve, Decline, and a way to ask the role that
-raised it first. A decision is recorded exactly as `+"`yoyo amendment approve`"+`
-records it, and asking decides nothing. Only a person acts: the token printed or
-read above reads only, and a person binds a token of their own under
-operators.<name>.dashboard_token -- `+"`keychain`"+`, the item
-yoyo-dashboard.<product id>.<name> under the account yoyo, or `+"`file`"+`,
-<state root>/projects/<product id>/state/dashboard.<name>.token -- and acts only
-where they hold the grant: own-intent for a document or proposed work, and
+declines is put to him on the page one at a time, with Approve, Decline, and a
+way to ask the role that raised it first. Today that is the documents waiting
+for his approval -- the brief, the goals, the non-goals, and the operating
+rules -- and the changes proposed to the brief or the goals that the line names
+as his. Each decision is recorded exactly as its own verb at the command line records
+it: `+"`yoyo amendment approve`"+` or `+"`decline`"+` for a proposed change, and the
+conversation's `+"`approve document-...`"+` or `+"`decline document-...`"+` message for a
+document. Asking decides nothing. Only a person acts: the token printed or read
+above reads only, and the operator -- for now the one person holding own-intent
+-- binds a token of their own under operators.<name>.dashboard_token --
+`+"`keychain`"+`, the item yoyo-dashboard.<product id>.<name> under the account yoyo,
+or `+"`file`"+`, <state root>/projects/<product id>/state/dashboard.<name>.token --
+and acts only where they hold the grant: own-intent for a document or proposed work, and
 decide-amendments for a proposed change, with own-intent beside it for a change
 to a document the Lead Product Manager owns. Every other act is refused.
 
