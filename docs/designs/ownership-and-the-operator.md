@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-10-22T07:15:18.422149Z
       reason: 'Approved amendment-5fe0aad5: the table gains a row for a document waiting on approval, which the registry now has a rule for. A brief, goals, non-goals or operating rules document is the operator''s for fundamental intent; any other stays its owning role''s and carries hand while its approval policy needs him. The kind joins the list of kinds. Nothing else changes; ''usage window'' stays as main writes it because the terms register still names it for this document.'
+    - action: amended
+      by: architect
+      at: 2026-10-22T14:53:28.714302Z
+      reason: 'Replacing the coined vocabulary in the governed documents, first document (part of yoyodyne-ifd.437.21): the table''s entry kind for a provider''s usage limit is now written in the register''s ordinary words, since the terms-check fix (yoyodyne-ifd.437.48) lets a document drop a retired term its register row names. Nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -29,6 +33,11 @@ approvals:
       by: harness
       at: 2026-10-22T07:15:18.422149Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1473, for document-1473.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-10-22T14:53:28.714302Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1494, for document-1494.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -93,7 +102,7 @@ her pass, and she files it against the registry.
 | publication | the harness while it can replay, re-arm, or wait on a red target; the development manager for a merge handed back; the operator only where the forge refuses the harness's token, reason `repository-setting` |
 | degraded service, failing task | the harness or the supervisor; the task's role where the task failed on its own work; the operator only where the remedy is a credential, reason `credential` |
 | hold | the operator for a hold or pause he placed, reason `own-hold`; the development manager for the brake's hold on new work, and the Lead Product Manager once the development manager escalates it, with the operator told; the harness for its own pause on new work for lack of provider capacity, which it lifts at the provider's reset or after a successful check of the provider |
-| outage, usage window | nobody, since a provider outage or a provider's usage limit lifts on the provider's clock; the operator only for an expired login, reason `credential` |
+| outage, provider's usage limit | nobody, since a provider outage or a provider's usage limit lifts on the provider's clock; the operator only for an expired login, reason `credential` |
 | stall | the harness for a stalled queue, shown as a degraded service once the harness has left it down; for a run whose AI session went silent, the harness the first time and the development manager after that |
 | stoppage | the development manager |
 | escalation | the role it names; the operator only when it carries a reason from the closed list |
