@@ -838,6 +838,20 @@ func (r *resolution) applyAgent(name string, document agentDocument, applied lay
 		agent.config.Failover = failover
 		agent.origins["failover"] = applied.origin
 	}
+	if document.Subagents != nil {
+		subagents := Subagents{}
+		if document.Subagents.Enabled != nil {
+			subagents.Enabled = *document.Subagents.Enabled
+		}
+		if document.Subagents.Model != nil {
+			subagents.Model = strings.TrimSpace(*document.Subagents.Model)
+		}
+		if document.Subagents.Effort != nil {
+			subagents.Effort = strings.TrimSpace(*document.Subagents.Effort)
+		}
+		agent.config.Subagents = subagents
+		agent.origins["subagents"] = applied.origin
+	}
 	if document.Conversations != nil {
 		// Stated empty removes an inherited choice rather than leaving it in place,
 		// so a layer can put an agent back to queueing without having to know which

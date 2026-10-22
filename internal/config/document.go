@@ -291,6 +291,10 @@ type agentDocument struct {
 	// layer that switched failover on over an alternate some layer underneath
 	// named would be serving this agent's turns from a model nobody chose for it.
 	Failover *failoverDocument `yaml:"failover"`
+	// Subagents replaces an inherited sub-agent block completely, for the
+	// reason the failover block does: whether sub-agents are on and the model
+	// they run on are one answer.
+	Subagents *subagentsDocument `yaml:"subagents"`
 	// Conversations is whether this agent queues a question its main thread
 	// cannot take yet or holds it on a side thread. It overrides on its own, like
 	// the model version and unlike the failover block, because it is one value
@@ -316,7 +320,7 @@ type agentDocument struct {
 // entry is detected.
 func (d agentDocument) overridesFields() bool {
 	return d.Role != nil || d.Backend != nil || d.Model != nil || d.ModelVersion != nil || d.Effort != nil || d.Account != nil ||
-		d.Instances != nil || d.Persona != nil || d.Failover != nil || d.Conversations != nil ||
+		d.Instances != nil || d.Persona != nil || d.Failover != nil || d.Subagents != nil || d.Conversations != nil ||
 		d.Lane != nil || d.Remit != nil || d.Triggers != nil
 }
 

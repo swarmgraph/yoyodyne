@@ -633,7 +633,24 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 			if !developerWriteToolIsScoped(tool) {
 				return backend.RunResult{}, fmt.Errorf("developer write tool %q must be scoped to the worktree", tool)
 			}
+			if isSubagentTool(strings.SplitN(tool, "(", 2)[0]) {
+				return backend.RunResult{}, fmt.Errorf("allowed tool rule %q names the sub-agent tool, which only the run's sub-agent setting grants", tool)
+			}
 		}
+	}
+	// Sub-agents are a developer's, and only one that writes its worktree: a
+	// sub-agent's tools are the session's, so a session held read-only has
+	// nothing to hand one. See subagents.go.
+	subagents := request.Subagents
+	subagent := ""
+	if subagents != nil {
+		if request.Role != domain.RoleDeveloper || readOnly {
+			return backend.RunResult{}, fmt.Errorf("%s runs held to %s tool access cannot be given sub-agents", request.Role, posture)
+		}
+		if strings.TrimSpace(subagents.Model) == "" {
+			return backend.RunResult{}, errors.New("sub-agents were asked for with no model to run them on")
+		}
+		subagent = subagentName(request.RunID)
 	}
 
 	// What the role is given beside its prompt is what the project named, plus,
@@ -657,6 +674,14 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		settingsSources, plugins, repositoryInstructions = repositoryContext(request.WorkingDirectory)
 		instructions = append(repositoryInstructions, instructions...)
 	}
+	// The sub-agent launch is built where the launch check builds it, so the
+	// check asks about the launch this run makes (subagentcheck.go).
+	var definition string
+	if subagent != "" {
+		if _, definition, allowedTools, baseSettings, err = subagentLaunch(request.RunID, *subagents, allowedTools, baseSettings); err != nil {
+			return backend.RunResult{}, err
+		}
+	}
 	settings, err := settingsFor(baseSettings, !readOnly, request.WorkingDirectory)
 	if err != nil {
 		return backend.RunResult{}, err
@@ -678,6 +703,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		// system context alongside an immutable harness contract.
 		args = append(args, "--safe-mode")
 		args = append(args, stableSystemPromptFlag)
+	}
+	if subagent != "" {
+		args = append(args, "--agents", definition, "--forward-subagent-text")
 	}
 	switch {
 	case len(allowedTools) > 0:
@@ -726,6 +754,10 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	redactor := execution.NewRedactor(request.RedactValues...)
 	parser := newStreamParser(request.RunID, request.Role, request.LastSequence, clock, redactor, request.EventSink, request.ReplySink, b.dialect())
 	parser.loaded = loaded
+	if subagent != "" {
+		parser.subagents.models = map[string]string{subagent: subagents.Model}
+		parser.model, parser.subagentModel = request.Model, subagents.Model
+	}
 	parser.usageWindows = usageWindowSource{recorder: b.UsageWindows, provider: b.provider(), account: request.AccountAlias, model: request.Model}
 	var parseErrors []error
 	// The account this invocation is made under is the request's, falling back to
@@ -743,6 +775,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	environment := execution.WithAgentRole(withContextEnvironment(environmentFor(configDir)), request.Role)
 	if singleTurnRole(request.Role) {
 		environment = withPromptCacheLifetime(environment, singleTurnCacheLifetime)
+	}
+	if subagent != "" {
+		environment = withSubagentEnvironment(environment)
 	}
 	if request.Role == domain.RoleReviewer {
 		for _, variable := range reviewerEnvironment {

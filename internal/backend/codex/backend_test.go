@@ -462,6 +462,13 @@ func TestRunRefusesRolesAndPoliciesItCannotHold(t *testing.T) {
 			request: backendapi.RunRequest{Model: "gpt-6.1-sol", Role: domain.RoleDeveloper, AllowedTools: []string{"Read"}},
 			wanted:  "cannot be granted a tool list",
 		},
+		{
+			// Codex offers no sub-agents, so a request for them is refused out loud
+			// rather than served without them and nobody told.
+			name:    "sub-agents this provider does not offer",
+			request: backendapi.RunRequest{Model: "gpt-6.1-sol", Role: domain.RoleDeveloper, Subagents: &backendapi.SubagentRequest{Model: "gpt-6.1-sol"}},
+			wanted:  "cannot be given sub-agents: Codex does not offer them",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

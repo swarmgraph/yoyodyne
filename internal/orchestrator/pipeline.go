@@ -4553,6 +4553,9 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 	// continuation has no new account; review labels the saved attempt and content
 	// rather than losing the developer's earlier testimony.
 	a.outcome.Summary = ""
+	// The sub-agent setting is settled on the record before the first launch,
+	// in the same save, so every later invocation reads it back (subagents.go).
+	a.settleSubagents()
 	if err := p.Store.Save(a.state); err != nil {
 		return backend.RunResult{}, fmt.Errorf("save the developer invocation state: %w", err)
 	}
@@ -4588,6 +4591,7 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 	agent.Backend = named
 	a.state.ProviderEffortDescription = p.Config.DescribeInvocationEffort(agent, effort, "", false)
 	a.outcome.ProviderEffortDescription = a.state.ProviderEffortDescription
+	subagents := a.subagentsFor(ctx, developerBackend, named)
 	attribution := a.spendAttribution(domain.RoleDeveloper, a.developmentPhase())
 	attribution.Backend = named
 	provider := spend.Metered{
@@ -4608,6 +4612,7 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 		SessionID:         sessionID,
 		Model:             model,
 		Effort:            effort,
+		Subagents:         subagents,
 		LastSequence:      a.state.LastSequence,
 		RedactValues:      p.RedactValues,
 		EventSink:         a.sink,
@@ -4624,6 +4629,7 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 	// attempt whose session exited with its reply carries none, and clears the
 	// previous attempt's rather than leaving it to be read as this one's.
 	a.state.AfterReply = result.Process.AfterReply
+	a.noteSubagentLimit(result)
 	if (err != nil || result.IsError) && strings.TrimSpace(result.SessionID) == "" && strings.TrimSpace(launchedWith) != "" {
 		a.state.ProviderModel = launchedWith
 		a.outcome.ProviderModel = launchedWith
@@ -4678,6 +4684,12 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 	a.state.ProviderEffortDescription = providerResult.EffortDescription
 	a.state.ProviderEffortReported = providerResult.EffortReported
 	a.state.ProviderLoaded = providerResult.Loaded.Recorded()
+	// What each model did is the provider's report or nothing: a provider that
+	// reported a total only leaves the split unknown rather than estimated.
+	a.state.ProviderModelUsage = nil
+	if providerResult.ModelUsageReported {
+		a.state.ProviderModelUsage = append([]backend.ModelUsage(nil), providerResult.ModelUsage...)
+	}
 	a.state.LastSequence = providerResult.LastEvent
 	// Whatever stopped the previous attempt is spent: this one ran, and how it
 	// ended is recorded below.

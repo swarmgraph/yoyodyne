@@ -56,6 +56,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/developerslot"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -446,10 +447,15 @@ type RunningRun struct {
 	Model   string         `json:"model,omitempty"`
 	// Effort is the effort level the run's developer invocations ask for, said
 	// beside the model, and absent where the developer agent configured none.
-	Effort            string         `json:"effort,omitempty"`
-	EffortDescription string         `json:"effort_description,omitempty"`
-	Account           string         `json:"account,omitempty"`
-	Phase             runstate.Phase `json:"phase,omitempty"`
+	Effort            string `json:"effort,omitempty"`
+	EffortDescription string `json:"effort_description,omitempty"`
+	Account           string `json:"account,omitempty"`
+	// Subagents says whether the run hands work to sub-agents, why it is going
+	// without them where it cannot, and what each model did as the provider
+	// reported it, as the record words it; empty for a run with none of that to
+	// say. See runstate.State.SubagentsSays.
+	Subagents string         `json:"subagents,omitempty"`
+	Phase     runstate.Phase `json:"phase,omitempty"`
 	// Stage is the phase folded onto the three parts of a run a pipeline shows,
 	// derived here so no surface keeps its own list of which phase is which.
 	Stage Stage `json:"stage"`
@@ -1317,6 +1323,7 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 			Effort:              strings.TrimSpace(state.ProviderEffort),
 			EffortDescription:   state.ProviderEffortDescription,
 			Account:             state.AccountAlias,
+			Subagents:           state.SubagentsSays(),
 			Phase:               state.Phase,
 			Stage:               StageOf(state.Phase),
 			ResumingIntegration: state.ResumingIntegration(),
@@ -1351,6 +1358,7 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 				break
 			}
 		}
+		run.Subagents = subagentCallsOf(sources.Runs, state, run.NoProcess == "", run.Subagents)
 		// A confirmed document's landing holds no developer slot either, but it is
 		// running rather than paused: it is listed with the running and kept out
 		// of the developer slots (readSlots).
@@ -2463,4 +2471,47 @@ func singleLine(text string, limit int) string {
 		return bounded
 	}
 	return bounded + "…"
+}
+
+// RunEvents is a run's event log, where the hand-offs to its sub-agents are
+// recorded. It is satisfied by *runstate.Store.
+type RunEvents interface {
+	LoadEvents(runID string) ([]execution.Event, error)
+}
+
+// subagentCallsOf adds to what a run says about sub-agents how many calls it
+// has handed them and how many were interrupted, read off its event log, for a
+// run with sub-agents on. A log that cannot be read adds nothing, and the
+// line reads as it did. A call is in progress only while the run is developing
+// with a process behind it; otherwise one never finished was interrupted.
+func subagentCallsOf(runs any, state runstate.State, present bool, says string) string {
+	if state.Subagents == nil || !state.Subagents.Enabled {
+		return says
+	}
+	log, ok := runs.(RunEvents)
+	if !ok {
+		return says
+	}
+	events, err := log.LoadEvents(state.RunID)
+	if err != nil {
+		return says
+	}
+	calls := runstate.SubagentCallsOf(events, present && state.Phase == runstate.PhaseDeveloping)
+	if len(calls) == 0 {
+		return says
+	}
+	interrupted := 0
+	for _, call := range calls {
+		if call.Interrupted {
+			interrupted++
+		}
+	}
+	said := count(len(calls), "sub-agent call")
+	if interrupted > 0 {
+		said += fmt.Sprintf(", %d interrupted", interrupted)
+	}
+	if says == "" {
+		return said
+	}
+	return says + "; " + said
 }

@@ -132,6 +132,10 @@ type Descriptor struct {
 	// is passed on the command line the adapter builds. See effort.go.
 	EffortLevels  []string
 	DefaultEffort string
+	// Subagents is what this provider's adapter says about sub-agents, and a
+	// declared provider inherits its adapter's for the reason it inherits the
+	// effort levels: nothing a project writes decides it. See subagents.go.
+	Subagents SubagentSupport
 }
 
 // Runnable reports a provider something in this build can actually launch.
@@ -177,6 +181,7 @@ func BuiltInDescriptors() []Descriptor {
 			Postures:     Postures,
 			BuiltIn:      true,
 			EffortLevels: claudeCodeEffortLevels,
+			Subagents:    claudeCodeSubagents,
 		},
 		{
 			ID:             domain.BackendCodex,
@@ -366,6 +371,7 @@ func DescriptorFor(id domain.Backend, plugin ProviderPlugin) (Descriptor, error)
 		Dialect:        dialect,
 		EffortLevels:   append([]string(nil), adapter.EffortLevels...),
 		DefaultEffort:  adapter.DefaultEffort,
+		Subagents:      adapter.Subagents,
 	}, nil
 }
 

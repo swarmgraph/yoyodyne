@@ -305,6 +305,11 @@ var standingWarningAgeSeconds = 5 * 60;
     if (record.account) {
       parts.push("account " + record.account);
     }
+    // A run's sub-agents and the models that did its work, as the read model
+    // words them.
+    if (record.subagents) {
+      parts.push(record.subagents);
+    }
     return parts.join(" · ");
   }
 

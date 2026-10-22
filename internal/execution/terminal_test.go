@@ -51,6 +51,8 @@ var terminalEventSites = map[string]string{
 		"one that names none nowhere, asserted by TestStoreWillNotPlaceATerminalThatCouldHaveNamedItsPhaseAndDidNot",
 	"internal/chat/activity.go": "reads them: a conversation's activity line says a turn finished, and attributes no " +
 		"money to any phase",
+	"internal/runstate/subagents.go": "reads them: SubagentCallsOf takes the end of an invocation as the end of " +
+		"every call to a sub-agent it left unfinished, which it records as interrupted, and attributes no money to any phase",
 	"internal/orchestrator/recordedbackend.go": "reads them: erasedSession reads the role a terminal names to tell " +
 		"the developer's sessions from the reviewer's when it restores a session an earlier attempt erased, and " +
 		"attributes no money to any phase",

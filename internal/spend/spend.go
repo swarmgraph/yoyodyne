@@ -231,6 +231,9 @@ func (m Metered) line(request backend.RunRequest, result backend.RunResult, err 
 		Usage:             result.Usage,
 		Build:             processBuild,
 	}
+	if result.ModelUsageReported {
+		line.Models = append([]backend.ModelUsage(nil), result.ModelUsage...)
+	}
 	// The provider names the backend that served the invocation, which is the
 	// same one the configuration named. It is preferred where it is there because
 	// it is what actually ran, and the configured one is what a result that never

@@ -66,6 +66,16 @@ type DeveloperSlot struct {
 	// slot 1 prefers nothing and slot 2 prefers something.
 	Prefer  []string      `yaml:"prefer,omitempty" json:"prefer,omitempty"`
 	Routing *EndpointPair `yaml:"routing,omitempty" json:"routing,omitempty"`
+	// Subagents overrides the developer agent's sub-agent setting for this
+	// slot. Nil leaves the agent's setting as it is.
+	Subagents *SlotSubagents `yaml:"subagents,omitempty" json:"subagents,omitempty"`
+}
+
+// SlotSubagents is a slot's own sub-agent setting: on or off, and the model,
+// each of which wins over the developer agent's where it is stated.
+type SlotSubagents struct {
+	Enabled *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Model   string `yaml:"model,omitempty" json:"model,omitempty"`
 }
 
 // EndpointSpec selects an existing provider, model and account. Omitted
@@ -99,6 +109,14 @@ func (s DeveloperSlot) Clone() DeveloperSlot {
 		pair.Primary = cloneEndpointSpec(pair.Primary)
 		pair.Alternate = cloneEndpointSpec(pair.Alternate)
 		s.Routing = &pair
+	}
+	if s.Subagents != nil {
+		subagents := *s.Subagents
+		if subagents.Enabled != nil {
+			enabled := *subagents.Enabled
+			subagents.Enabled = &enabled
+		}
+		s.Subagents = &subagents
 	}
 	return s
 }
