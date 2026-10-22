@@ -169,9 +169,12 @@ it catches up with the template, and never a template under
 each such document, in backticks and repository-relative, and the check excuses
 the term there and nowhere else: not in another document, and never in a
 command's or the notifier's strings. The excuse ends with the amendment. Once a
-named document no longer carries the term the check refuses the row itself, so
-the document comes off the row rather than staying excused for a word it no
-longer says.
+named document no longer carries the term, `make test` logs the row as ready
+for that document to come off it, and the change that stopped writing the term
+still passes: rewording a document is what the row is waiting for, and the run
+doing it may be one that may write only that document and not this register.
+An excuse for a document that no longer says the word lets nothing through, and
+the next change to this register takes the document off the row.
 
 | Term                | Write instead                                          | Still written in, until its owner amends it                                                                                                    |
 | ------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |

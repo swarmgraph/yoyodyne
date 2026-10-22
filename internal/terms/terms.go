@@ -267,8 +267,9 @@ type Entry struct {
 // has asked to lose cannot wait on that to be refused everywhere else — the
 // help text, the notifier, the guides. So the row names the documents that are
 // excused, the check refuses the term anywhere the row does not name, and it
-// refuses the row itself once a named document no longer carries the term, so
-// the excuse cannot outlive its reason.
+// reports the row as ready to remove once a named document no longer carries
+// the term, so the excuse is seen to have outlived its reason;
+// CheckWithRemovable says why that is not a refusal.
 type Replacement struct {
 	Term       string   `json:"term"`
 	PlainWords string   `json:"plainWords"`
@@ -521,56 +522,72 @@ func SourceFiles(root string) ([]string, error) {
 }
 
 // Check reports every coinage in the governed homes and the source strings that
-// the register does not define, every register entry that defines nothing, and
-// every replaced term still excused in a document that no longer carries it.
+// the register does not define, and every register entry that defines nothing.
 // Problems come out in the order the register is written, then the order the
 // documents are walked, then the guides, then the sources, so two runs over one
-// checkout report the same thing in the same order.
+// checkout report the same thing in the same order. It is CheckWithRemovable
+// without the register rows ready to remove, which are not problems.
 func Check(root string) ([]Problem, error) {
+	problems, _, err := CheckWithRemovable(root)
+	return problems, err
+}
+
+// CheckWithRemovable is Check with a second answer: every place a replaced
+// term's row still excuses a document that no longer carries the term, which
+// is ready to be taken off the row and is not a problem.
+//
+// Taking a retired term out of a document is what the row is waiting for, and
+// the run doing it may be one that cannot edit the register: a document's own
+// run writes only that document, and docs/terms.md is not it. Refusing the
+// change there would refuse it for doing what was asked, so the row is
+// reported for whoever next changes the register. Nothing new gets through: an
+// excuse for a document that does not write the term excuses nothing, and the
+// term is refused everywhere the row does not name, as before.
+func CheckWithRemovable(root string) (problems []Problem, removable []Problem, err error) {
 	entries, err := Register(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	problems, registered := checkRegister(entries)
 	replacements, err := Replaced(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	excused := excusedDocuments(replacements)
 	documents, err := Documents(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	patterns := make([]*regexp.Regexp, len(Vocabulary))
 	for index, coinage := range Vocabulary {
 		patterns[index] = pattern(coinage)
 	}
 	// Which excused documents were seen to carry their term, so a row excusing a
-	// document that has since been amended is reported rather than kept.
+	// document that has since been amended is reported as ready to remove.
 	carried := make(map[string]map[string]bool)
 	for _, document := range documents {
 		content, err := read(filepath.Join(root, filepath.FromSlash(document)))
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", document, err)
+			return nil, nil, fmt.Errorf("read %s: %w", document, err)
 		}
 		found := scan{path: document, patterns: patterns, registered: registered, excused: excused[document], carried: carried}
 		problems = append(problems, found.problems(passages(strings.Split(content, "\n")))...)
 	}
 	guides, err := GuideFiles(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, guide := range guides {
 		content, err := read(filepath.Join(root, filepath.FromSlash(guide)))
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", guide, err)
+			return nil, nil, fmt.Errorf("read %s: %w", guide, err)
 		}
 		found := scan{path: guide, patterns: patterns, registered: registered, guide: true}
 		problems = append(problems, found.problems(passages(strings.Split(content, "\n")))...)
 	}
 	files, err := SourceFiles(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// Which recorded values were seen where they are excused, so one whose file
 	// no longer carries it is reported rather than kept.
@@ -582,7 +599,7 @@ func Check(root string) ([]Problem, error) {
 		}
 		stretches, err := stringsIn(root, file)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		var read []passage
 		for _, stretch := range stretches {
@@ -622,13 +639,13 @@ func Check(root string) ([]Problem, error) {
 	for _, replacement := range replacements {
 		for _, document := range replacement.StillIn {
 			if !carried[replacement.Term][document] {
-				problems = append(problems, Problem{Path: RegisterPath, Line: replacement.Line, Term: replacement.Term,
-					Reason: fmt.Sprintf("%q is recorded as still written in %s, and it is not; take the document off the row so the term is refused there too",
+				removable = append(removable, Problem{Path: RegisterPath, Line: replacement.Line, Term: replacement.Term,
+					Reason: fmt.Sprintf("%q is recorded as still written in %s, and it is not; the document is ready to be taken off the row, so the term is refused there too",
 						replacement.Term, document)})
 			}
 		}
 	}
-	return problems, nil
+	return problems, removable, nil
 }
 
 // boundPersona reports a persona copy a project binds for its roles, which is
