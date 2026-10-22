@@ -179,6 +179,13 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 			Record: CitedReport, Since: moment.Add(-time.Hour), Mover: ownership.ResolveBlockedOnAHuman(ownership.OperatorCredential),
 		}}}})[0],
 			"yoyodyne-ifd.430.9 is blocked on a human, says the program manager factory-pgm: renew the forge token (a credential or account only a person holds; since 2026-08-30T11:00:00Z)"},
+		AttentionDocumentApproval: {documentApprovalAttention(DocumentApproval{
+			WriteID: "document-4.1", ConversationID: "chat-1", Agent: "product-manager", Owner: domain.RoleProductManager,
+			Action: "create", Document: "v2-goals", Kind: "goals", Title: "V2 goals", Directory: "docs/product",
+			Reason: "the operator asked for the next goals", ProductIntent: true, Turn: 4, WrittenAt: moment.Add(-time.Hour),
+		}),
+			`document document-4.1, a new goals document v2-goals ("V2 goals") written by the ` + domain.RoleProductManager.Title() +
+				" in conversation chat-1, waits for the operator's approval, since " + localMoment(moment.Add(-time.Hour))},
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,

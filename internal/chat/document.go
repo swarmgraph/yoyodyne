@@ -85,11 +85,13 @@ type PendingWrite struct {
 	// deliberately unlike a proposal's bare turn.position: the two are decided by
 	// the same words, and an identifier that could mean either would let an
 	// approval land on the wrong thing.
-	ID             string                        `json:"id"`
-	ConversationID string                        `json:"conversation_id"`
-	Turn           int                           `json:"turn"`
-	Write          artifact.Write                `json:"write"`
-	Publication    *runstate.DocumentPublication `json:"publication,omitempty"`
+	ID             string `json:"id"`
+	ConversationID string `json:"conversation_id"`
+	Turn           int    `json:"turn"`
+	// WrittenAt is when the role wrote it; see runstate.PendingWrite.
+	WrittenAt   time.Time                     `json:"written_at,omitzero"`
+	Write       artifact.Write                `json:"write"`
+	Publication *runstate.DocumentPublication `json:"publication,omitempty"`
 }
 
 // writeRecord is one written document and whether confirmation and delivery finished
@@ -384,11 +386,13 @@ func (s *Session) renderDocumentRefusal(problem error) string {
 // which is the failure that put the transcription back in a person's hands.
 func (s *Session) recordWritesWithoutToolAudit(writes []artifact.Write) ([]PendingWrite, error) {
 	pending := make([]PendingWrite, 0, len(writes))
+	now := s.options.clock().Now().UTC()
 	for index, write := range writes {
 		record := &writeRecord{pending: PendingWrite{
 			ID:             fmt.Sprintf("document-%d.%d", s.state.Turns, index+1),
 			ConversationID: s.state.ConversationID,
 			Turn:           s.state.Turns,
+			WrittenAt:      now,
 			Write:          write,
 		}}
 		if err := s.emit(execution.EventDocumentDrafted, record.pending); err != nil {
@@ -853,6 +857,7 @@ func (p PendingWrite) recorded() runstate.PendingWrite {
 		Intent:      string(p.Write.Intent),
 		ID:          p.ID,
 		Turn:        p.Turn,
+		WrittenAt:   p.WrittenAt,
 		Action:      string(p.Write.Action),
 		Artifact:    strings.TrimSpace(p.Write.ID),
 		Kind:        string(p.Write.Kind),
@@ -876,6 +881,7 @@ func restoredWrite(conversationID string, recorded runstate.PendingWrite) Pendin
 		ID:             recorded.ID,
 		ConversationID: conversationID,
 		Turn:           recorded.Turn,
+		WrittenAt:      recorded.WrittenAt,
 		Write: artifact.Write{
 			Intent:    artifact.Intent(recorded.Intent),
 			Action:    artifact.WriteAction(recorded.Action),

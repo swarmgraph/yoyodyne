@@ -2091,6 +2091,21 @@ var standingWarningAgeSeconds = 5 * 60;
           add("Since", named(entry.operator_action.since) ? dayAndClock(entry.operator_action.since) : "");
         }
         break;
+      case "document-approval":
+        var waiting = entry.document_approval;
+        if (!waiting) {
+          break;
+        }
+        add("Document", waiting.document, "card-field-id");
+        add("Title", waiting.title || "");
+        add("Document kind", waiting.kind || "");
+        add("Change", waiting.action === "create" ? "a new document" : "a revision");
+        add("Written by agent", waiting.agent, "card-field-id");
+        add("Conversation", waiting.conversation_id, "card-field-id");
+        add("Why", waiting.reason, "card-field-prose");
+        add("Waiting since", named(waiting.written_at) ? dayAndClock(waiting.written_at) : "not recorded");
+        add("Id", waiting.write_id, "card-field-id");
+        break;
       case "blocked-on-a-human":
         if (entry.blocked_on_a_human) {
           var block = entry.blocked_on_a_human.entry;

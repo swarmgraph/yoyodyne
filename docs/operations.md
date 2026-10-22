@@ -5041,6 +5041,22 @@ has the rule.
   the line the moment the forge records the merge and `yoyo reconcile` settles
   it.
 
+A `document-approval` entry is a document a role wrote in a conversation that
+waits for your approval: which document, whether it is new or a revision,
+which role wrote it in which conversation, and since when. A document stating
+the product's intent — the brief, the goals and non-goals, the operating
+rules — is under **Waiting on the operator**, for a change of fundamental
+intent. Any other document waits on you only because the project's approval
+setting for its kind asks for a person, which is no reason on the operator's
+closed list, so it is under its owning role's head — **Waiting on the
+architect** for a design — and its words say you are who decides it. Either way the entry names the command that decides
+it, `yoyo agent chat <agent> --message "approve document-<turn>.<n>"` or
+`"decline document-<turn>.<n> <reason>"` (`yoyo chat` for the Lead Product
+Manager), and it leaves the line once you have: an approved document is
+handed to the reviewed run that lands it, and a declined one is settled. A
+document its owner holds for sending, and one a reviewed run is already
+landing, is not on the line.
+
 An `owed-step` entry is only for a finished run with no live process holding
 it. A live run in its checks, including landing checks after integration, never
 appears as an ended run here. The entry carries the recorded ending and phase,
@@ -5098,6 +5114,7 @@ they are not the labels a person reads:
 | `check-could-not-run` | check not running |
 | `heavy-check-kept` | check place kept |
 | `blocked-on-a-human` | blocked on a human |
+| `document-approval` | document waiting for approval |
 
 A line with nothing in it says `nothing` in words, and a line whose records could
 not be read says that instead — never `nothing`, which would be a confident
@@ -5388,7 +5405,8 @@ sentence about it: its `kind`, from a closed set — `amendment`,
 `publication`, `degraded-service`, `failing-task`, `config-mismatch`, `service-copies`, `hold`, `directive`,
 `outage`, `stall`, `held-work`, `operator-action`, `product-decision`,
 `human-gate`, `untraced-pass`, `factory-stall`, `tracker-unanswered`,
-`check-could-not-run`, `heavy-check-kept`, `blocked-on-a-human` — the `id`
+`check-could-not-run`, `heavy-check-kept`, `blocked-on-a-human`,
+`document-approval` — the `id`
 of the record it is about (an amendment's, a
 directive's, a run's, a work item's, a service's name, a recurring task's
 name, a human gate's name, which switch a hold is: `operator`, `intake`, or
@@ -5396,7 +5414,9 @@ name, a human gate's name, which switch a hold is: `operator`, `intake`, or
 and for a `tracker-unanswered` the moment listings began failing, and for a
 `check-could-not-run` the check's command, and for a `heavy-check-kept` the
 permit holding the place, and for a `blocked-on-a-human` the work item, or the
-record the entry cites where it names none), the
+record the entry cites where it names none, and for a `document-approval` the
+conversation and the document's identifier there, as
+`<conversation>/document-<turn>.<n>`), the
 `mover` whose move it is, in the same closed vocabulary the
 page counts by (`operator`, a role such as `architect`,
 `development-manager`, or `program-manager`, `harness`, `forge`, `provider`, `nobody`, or
@@ -5414,7 +5434,10 @@ field named for the kind — `amendment`,
 `oldest_proposal`, whose decider is whose move the queue is), `operator_action`,
 `product_decision`, `human_gate`, `untraced_pass`, `factory_stall`,
 `tracker_listings`, `unrun_check`, `kept_heavy_check`, `blocked_on_a_human`
-(the program manager's entry and the instance that wrote it), and for a hold `operator_hold`, `intake_hold`, or
+(the program manager's entry and the instance that wrote it),
+`document_approval` (the document, the role and agent that wrote it, the
+conversation and turn, what the write does and why, whether it states the
+product's intent, and `written_at`, since when it has waited), and for a hold `operator_hold`, `intake_hold`, or
 `capacity_hold`, whichever switch the `id` names. An `amendment` carries the
 target document, the proposer's role, agent, run, and work item, the proposed
 change, and why, none of it cut to a line. An entry about one admitted work

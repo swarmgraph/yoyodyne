@@ -172,6 +172,7 @@ var registry = map[Kind]Rule{
 	KindCapacityDegraded:  capacityDegradedRule,
 	KindKeptHeavyCheck:    keptHeavyCheckRule,
 	KindLaneHumanBlock:    laneHumanBlockRule,
+	KindDocumentApproval:  documentApprovalRule,
 	KindStoppage:          stoppageRule,
 }
 
@@ -507,4 +508,19 @@ func laneHumanBlockRule(r Record) (Answer, bool) {
 		return operator(r.Reason, "take the step the program manager's report names", "the step the entry cites")
 	}
 	return owned(MoverProductManager, "correct the program manager's report, which names the operator for no reason on the list", "report handling")
+}
+
+// documentApprovalRule is a document waiting for the operator's approval. One
+// stating the product's intent is his for a change of fundamental intent: the
+// Lead Product Manager approves a consistent rewording of her own, so one
+// still waiting is a change she could not approve. Any other is waiting on him
+// because the project's approval setting for its kind asks for a person, which
+// is no reason on his closed list, so it stays its owning role's, as the
+// ownership design's "A role's decision that needs the operator's hand" says,
+// and the remedy names his act.
+func documentApprovalRule(r Record) (Answer, bool) {
+	if r.FundamentalIntent {
+		return operator(OperatorFundamentalIntent, "approve or decline the document", "yoyo agent chat approve|decline")
+	}
+	return roleOwned(r.Role, "have the operator approve or decline the document, as the project's approval setting for its kind asks", "yoyo agent chat approve|decline")
 }

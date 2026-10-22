@@ -113,6 +113,10 @@ func (a Attention) Since() time.Time {
 		if a.KeptHeavyCheck != nil {
 			return a.KeptHeavyCheck.Since()
 		}
+	case AttentionDocumentApproval:
+		if a.DocumentApproval != nil {
+			return a.DocumentApproval.WrittenAt
+		}
 	}
 	return time.Time{}
 }
