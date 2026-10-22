@@ -168,10 +168,7 @@ func (s *Store) RecordHumanAct(act HumanAct) error {
 		return fmt.Errorf("the gate %q on %s was already passed by %s at %s; the act that passed it is the one on the record, and replacing it would change whose it was",
 			act.Gate, act.Subject, existing.Person, existing.RecordedAt.UTC().Format(time.RFC3339))
 	}
-	if err := createJSONFile(s.root, path, "human act", act); err != nil {
-		return err
-	}
-	return syncDirectory(s.root)
+	return createJSONFile(s.state, path, "human act", act)
 }
 
 // HumanAct is the act that passed one gate on one subject, and whether one has

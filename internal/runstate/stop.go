@@ -135,34 +135,11 @@ func (s *Store) RecordStop(request StopRequest) error {
 	if err := request.Validate(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create run state directory: %w", err)
-	}
 	path, err := s.stopPath(request.RunID)
 	if err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(s.root, ".stop-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary stop request: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary stop request: %w", err)
-	}
-	if err := writeJSONFile(temporary, "stop request", request); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary stop request: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace stop request: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, path, "stop request", request)
 }
 
 // StopRequested reports whether the operator has asked one run to stop. No

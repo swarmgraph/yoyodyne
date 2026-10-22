@@ -45,6 +45,8 @@ var ErrNoSideStream = sidestream.ErrNoStream
 
 // SideStreamStore is one product's side conversations.
 type SideStreamStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -56,7 +58,12 @@ func NewSideStreamStore(root string, productID domain.ProductID) (*SideStreamSto
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &SideStreamStore{
+		state:     state,
 		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "sidestreams"),
 		productID: productID,
 	}, nil
@@ -93,7 +100,7 @@ func (s *SideStreamStore) Open(stream sidestream.Stream, bound int) error {
 	if !stream.Open() {
 		return fmt.Errorf("side stream %s is opened with the outcome %q already on it", stream.ID, stream.Outcome)
 	}
-	admitting, taken, err := TryLeasePath(
+	admitting, taken, err := tryLeaseIn(s.state,
 		filepath.Join(s.root, "leases", stream.Agent+".opening.lease"),
 		"opening a side stream for "+stream.Agent)
 	if err != nil {
@@ -140,30 +147,7 @@ func (s *SideStreamStore) Save(stream sidestream.Stream) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create side stream directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".sidestream-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary side stream: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary side stream: %w", err)
-	}
-	if err := writeJSONFile(temporary, "side stream", stream); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary side stream: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace side stream: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, path, "side stream", stream)
 }
 
 // Load reads one side stream by its full identifier.
@@ -288,7 +272,7 @@ func (s *SideStreamStore) Hold(id string) (sidestream.Release, bool, error) {
 	if !sidestream.ValidID(id) {
 		return nil, false, fmt.Errorf("side stream id %q is invalid", id)
 	}
-	lease, taken, err := TryLeasePath(filepath.Join(s.root, "leases", id+".lease"), "side stream "+id)
+	lease, taken, err := tryLeaseIn(s.state, filepath.Join(s.root, "leases", id+".lease"), "side stream "+id)
 	if err != nil || !taken {
 		// A typed nil handed back as an interface is not nil, and a caller checking
 		// what it got would find a lease it does not have.
@@ -316,28 +300,10 @@ func (s *SideStreamStore) AppendEvent(event execution.Event) error {
 	if len(encoded) > maxEncodedEventBytes {
 		return fmt.Errorf("encoded event is %d bytes, limit is %d", len(encoded), maxEncodedEventBytes)
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create side stream directory: %w", err)
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("open side stream event log: %w", err)
-	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		file.Close()
+	// Appended in checked batches through the confined writer, which syncs the
+	// directory when it creates the log.
+	if err := s.state.appendTo(path, encoded); err != nil {
 		return fmt.Errorf("append side stream event: %w", err)
-	}
-	if written != len(encoded) {
-		file.Close()
-		return fmt.Errorf("append side stream event: %w", io.ErrShortWrite)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync side stream event log: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close side stream event log: %w", err)
 	}
 	return nil
 }

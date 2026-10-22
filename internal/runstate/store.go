@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -47,7 +48,9 @@ const (
 )
 
 type Store struct {
-	root      string
+	root string
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	productID domain.ProductID
 	// promotionWait bounds how long LeasePromotion waits its turn. It is a field
 	// only so a test can drive the bound without spending it; every store the
@@ -113,6 +116,9 @@ type Lease struct {
 	// one. It is empty on the rest: a lease nobody has to watch from outside
 	// carries nothing to keep in step with the lock.
 	holder string
+	// clearHolder removes the stamp through the confined writer. Every lease
+	// that keeps a stamp sets it.
+	clearHolder func() error
 	// scope names the one thing of its kind this lease owns, on the leases a
 	// write is asked to present: a merge queue's worker lease names its queue,
 	// so a worker for one queue cannot write another's generations.
@@ -153,7 +159,16 @@ func (l *Lease) Release() error {
 	var cleared error
 	if l.holder != "" {
 		releaseWorker(l.holder)
-		if err := os.Remove(l.holder); err != nil && !errors.Is(err, os.ErrNotExist) {
+		var err error
+		if l.clearHolder != nil {
+			err = l.clearHolder()
+		} else {
+			// Every lease that keeps a stamp says how to clear it through the
+			// confined writer; one that does not is a defect to report rather
+			// than a stamp to remove by its path.
+			err = fmt.Errorf("no confined way to clear %s", l.holder)
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			cleared = fmt.Errorf("clear the %s holder: %w", l.label, err)
 		}
 		l.holder = ""
@@ -192,8 +207,13 @@ func NewStore(root string, productID domain.ProductID) (*Store, error) {
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &Store{
 		root:          filepath.Join(home.ProductDirectory(root, string(productID)), "runs"),
+		state:         state,
 		productID:     productID,
 		promotionWait: promotionQueueWait,
 		leaseWait:     leaseGrace,
@@ -449,10 +469,7 @@ func (s *Store) AdoptRun(ctx context.Context, runID string) (State, *Lease, erro
 // lockReservations serializes the reservation and adoption critical sections
 // against every other Yoyodyne process.
 func (s *Store) lockReservations(ctx context.Context) (func(), error) {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create run state directory: %w", err)
-	}
-	lock, err := os.OpenFile(filepath.Join(s.root, ".reservation.lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	lock, err := s.state.openLock(filepath.Join(s.root, ".reservation.lock"))
 	if err != nil {
 		return nil, fmt.Errorf("open run reservation lock: %w", err)
 	}
@@ -472,7 +489,7 @@ func (s *Store) takeLease(ctx context.Context, runID string) (*Lease, bool, erro
 	if err != nil {
 		return nil, false, err
 	}
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(path)
 	if err != nil {
 		return nil, false, fmt.Errorf("open run lease: %w", err)
 	}
@@ -535,28 +552,15 @@ func (s *Store) Create(state State) error {
 	if err := s.validateState(state); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create run state directory: %w", err)
-	}
 	path, err := s.statePath(state.RunID)
 	if err != nil {
 		return err
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
+	if err := createJSONFile(s.state, path, "run state", state); err != nil {
+		if errors.Is(err, fs.ErrExist) {
 			return fmt.Errorf("run %s already exists", state.RunID)
 		}
-		return fmt.Errorf("create run state: %w", err)
-	}
-	if err := writeJSONFile(file, "run state", state); err != nil {
-		return cleanupFailedCreate(file, path, err)
-	}
-	if err := file.Close(); err != nil {
-		return cleanupFailedCreate(nil, path, fmt.Errorf("close run state: %w", err))
-	}
-	if err := syncDirectory(s.root); err != nil {
-		return cleanupFailedCreate(nil, path, err)
+		return err
 	}
 	return nil
 }
@@ -596,9 +600,6 @@ func (s *Store) Save(state State) error {
 // writeState durably replaces a run record that exists. Its callers hold the
 // run's write lock and have already validated the record.
 func (s *Store) writeState(state State) error {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create run state directory: %w", err)
-	}
 	path, err := s.statePath(state.RunID)
 	if err != nil {
 		return err
@@ -606,27 +607,7 @@ func (s *Store) writeState(state State) error {
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("load existing run state before save: %w", err)
 	}
-	temporary, err := os.CreateTemp(s.root, ".state-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary run state: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary run state: %w", err)
-	}
-	if err := writeJSONFile(temporary, "run state", state); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary run state: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace run state: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, path, "run state", state)
 }
 
 // Load reads one run record for a caller that is about to act on it, which is
@@ -922,33 +903,10 @@ func (s *Store) AppendEvent(event execution.Event) error {
 	if err != nil {
 		return err
 	}
-	_, statErr := os.Stat(path)
-	created := errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && !created {
-		return fmt.Errorf("inspect event log: %w", statErr)
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("open event log: %w", err)
-	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		file.Close()
+	// Appended in checked batches through the confined writer, which syncs the
+	// directory when it creates the log.
+	if err := s.state.appendTo(path, encoded); err != nil {
 		return fmt.Errorf("append event: %w", err)
-	}
-	if written != len(encoded) {
-		file.Close()
-		return fmt.Errorf("append event: %w", io.ErrShortWrite)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync event log: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close event log: %w", err)
-	}
-	if created {
-		return syncDirectory(s.root)
 	}
 	return nil
 }
@@ -1100,76 +1058,54 @@ func encodeRecord(label string, value any) ([]byte, error) {
 
 // createJSONFile durably writes one record that must not exist yet, and
 // replaceJSONFile durably replaces one that does. They are the two doors every
-// record in this package that is not a log goes through, written here rather
-// than once per record so that what "durable" means — written whole, put on the
-// disk, and named by a rename that a reader either sees or does not — is one
-// answer this package gives rather than each writer's own.
-//
-// Both take the directory as well as the path, because both create it and both
-// sync it: a record whose name is in a directory the operating system has agreed
-// to write later is a record a crash loses along with the name.
-func createJSONFile(directory, path, label string, value any) error {
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("create the directory for %s: %w", label, err)
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+// record in this package that is not a log goes through, so that what "durable"
+// means — written whole, synced, and published under its name by a rename a
+// reader either sees or does not — is one answer rather than each writer's own.
+// Both go through the confined writer with the state root as the root, which
+// creates the directory above the record and syncs it.
+func createJSONFile(state stateRoot, path, label string, value any) error {
+	encoded, err := encodeBoundedRecord(label, value)
 	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("create %s: %s already exists", label, filepath.Base(path))
+		return err
+	}
+	if err := state.create(path, encoded); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return recordExistsError{fmt.Sprintf("create %s: %s already exists", label, filepath.Base(path))}
 		}
 		return fmt.Errorf("create %s: %w", label, err)
-	}
-	if err := writeJSONFile(file, label, value); err != nil {
-		return cleanupFailedCreate(file, path, err)
-	}
-	if err := file.Close(); err != nil {
-		return cleanupFailedCreate(nil, path, fmt.Errorf("close %s: %w", label, err))
-	}
-	if err := syncDirectory(directory); err != nil {
-		return cleanupFailedCreate(nil, path, err)
 	}
 	return nil
 }
 
-func replaceJSONFile(directory, path, label string, value any) error {
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("create the directory for %s: %w", label, err)
-	}
-	temporary, err := os.CreateTemp(directory, ".record-*.tmp")
+func replaceJSONFile(state stateRoot, path, label string, value any) error {
+	encoded, err := encodeBoundedRecord(label, value)
 	if err != nil {
-		return fmt.Errorf("create temporary %s: %w", label, err)
+		return err
 	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		return errors.Join(fmt.Errorf("secure temporary %s: %w", label, err), temporary.Close())
-	}
-	if err := writeJSONFile(temporary, label, value); err != nil {
-		return errors.Join(err, temporary.Close())
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary %s: %w", label, err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
+	if err := state.replace(path, encoded); err != nil {
 		return fmt.Errorf("replace %s: %w", label, err)
 	}
-	return syncDirectory(directory)
+	return nil
 }
 
-func cleanupFailedCreate(file *os.File, path string, cause error) error {
-	var cleanupErrors []error
-	if file != nil {
-		if err := file.Close(); err != nil {
-			cleanupErrors = append(cleanupErrors, fmt.Errorf("close failed run state: %w", err))
-		}
+// recordExistsError is a record createJSONFile found already there. It is
+// fs.ErrExist, so a caller can say what it means for its own record.
+type recordExistsError struct{ message string }
+
+func (e recordExistsError) Error() string        { return e.message }
+func (e recordExistsError) Is(target error) bool { return target == fs.ErrExist }
+
+// encodeBoundedRecord is one record's bytes, refused past the bound every state
+// record is held to.
+func encodeBoundedRecord(label string, value any) ([]byte, error) {
+	encoded, err := encodeRecord(label, value)
+	if err != nil {
+		return nil, err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		cleanupErrors = append(cleanupErrors, fmt.Errorf("remove failed run state: %w", err))
+	if len(encoded) > maxEncodedStateBytes {
+		return nil, StopError{Class: StopStateBound, Cause: fmt.Errorf("encoded %s is %d bytes, limit is %d", label, len(encoded), maxEncodedStateBytes)}
 	}
-	if len(cleanupErrors) == 0 {
-		return cause
-	}
-	return errors.Join(cause, errors.Join(cleanupErrors...))
+	return encoded, nil
 }
 
 func ensureJSONEOF(decoder *json.Decoder) error {

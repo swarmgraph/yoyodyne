@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -44,10 +43,11 @@ func (s *SupervisionStore) RecordMachine(ctx context.Context, observation Machin
 	if observation.At.IsZero() {
 		return errors.New("a machine observation requires its time")
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return err
-	}
-	file, err := os.OpenFile(filepath.Join(s.root, "machine.jsonl"), os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o600)
+	// The log is its own lock: it is opened through the confined writer as a
+	// lock file, read-only, and what is appended goes through the checked
+	// batches rather than through that descriptor.
+	path := filepath.Join(s.root, "machine.jsonl")
+	file, err := s.state.openLock(path)
 	if err != nil {
 		return err
 	}
@@ -67,17 +67,7 @@ func (s *SupervisionStore) RecordMachine(ctx context.Context, observation Machin
 	if err := closeOffATornFragment(file, &encoded); err != nil {
 		return err
 	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		return err
-	}
-	if written != len(encoded) {
-		return io.ErrShortWrite
-	}
-	if err := file.Sync(); err != nil {
-		return err
-	}
-	return syncDirectory(s.root)
+	return s.state.appendTo(path, encoded)
 }
 
 func (s *SupervisionStore) MachineHistory() ([]MachineObservation, error) {

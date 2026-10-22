@@ -27,12 +27,13 @@ func TestAnUnfiledPassFailureIsFiledAndClearedAfterSuccess(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// The log reads as absent, but its missing parent prevents an append.
+	// The log reads as absent, but it is a link to nowhere, which the confined
+	// writer refuses to append through.
 	if err := os.Symlink(filepath.Join(root, "missing", "reports.jsonl"), reports.Path()); err != nil {
 		t.Fatal(err)
 	}
 	attribution := report.Attribution{RepositoryID: "example"}
-	if err := store.RecordPassFailures(context.Background(), reports, attribution, "factory-watch"); err == nil || !strings.Contains(err.Error(), "open report log") {
+	if err := store.RecordPassFailures(context.Background(), reports, attribution, "factory-watch"); err == nil || !strings.Contains(err.Error(), "append report") {
 		t.Fatalf("filing error = %v, want a refused report append", err)
 	}
 	recoveredAt := start.Add(3*time.Hour + time.Minute)

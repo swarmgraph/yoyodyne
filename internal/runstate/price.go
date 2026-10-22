@@ -628,6 +628,7 @@ func (s *Store) SideStreamSpend() SideStreamSpend {
 // own root for the reason the exchange store is.
 func (s *Store) sideStreams() *SideStreamStore {
 	return &SideStreamStore{
+		state:     s.state,
 		root:      filepath.Join(filepath.Dir(s.root), "sidestreams"),
 		productID: s.productID,
 	}
@@ -639,6 +640,7 @@ func (s *Store) sideStreams() *SideStreamStore {
 // have to carry a second time.
 func (s *Store) exchanges() *ExchangeStore {
 	return &ExchangeStore{
+		state:     s.state,
 		root:      filepath.Join(filepath.Dir(s.root), "exchanges"),
 		productID: s.productID,
 	}

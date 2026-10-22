@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -420,7 +421,7 @@ func TestAStartedSinkOutlivesThePassAndWritesToItsOwnLog(t *testing.T) {
 		t.Fatalf("Launch() = %d, want the process it started", pid)
 	}
 
-	if got := startedSinkWrote(t, pid, log); got != "yoyodyne" {
+	if got := startedSinkWrote(t, pid, log, "yoyodyne"); got != "yoyodyne" {
 		t.Fatalf("the started process recorded %q, want the namespace it was launched with", got)
 	}
 	if info, err := os.Stat(log); err != nil || info.Mode().Perm() != 0o600 {
@@ -455,33 +456,46 @@ func TestAStartedSinkCarriesTheGitMaintenanceFence(t *testing.T) {
 	}
 
 	want := "2\ngc.auto\nmaintenance.auto"
-	if got := startedSinkWrote(t, pid, filepath.Join(root, filepath.FromSlash(relative))); got != want {
+	if got := startedSinkWrote(t, pid, filepath.Join(root, filepath.FromSlash(relative)), want); got != want {
 		t.Fatalf("the started process recorded %q, want %q", got, want)
 	}
 }
 
 // startedSinkWrote reads back what a launched sink said, once it has said all
 // of it: the launcher returns without the process having run, which is the
-// point of it, and a log read while it is still writing is a partial answer
-// rather than a wrong one. The process is waited for rather than the log
-// polled against a clock — it is this process's child, in a session of its own
-// but reaped here all the same — so what is read is what it wrote by the time
-// it exited, however long a loaded machine took to run it.
-func startedSinkWrote(t *testing.T, pid int, log string) string {
+// point of it. The sink is the log relay's child rather than this process's,
+// so it cannot be waited for here; the sink's end is watched for instead, and
+// then the log read until it says what was expected or a minute has passed,
+// because the relay appends the last of it just after the sink ends.
+func startedSinkWrote(t *testing.T, pid int, log, want string) string {
 	t.Helper()
 
-	started, err := os.FindProcess(pid)
+	deadline := time.Now().Add(time.Minute)
+	for processAlive(pid) && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	var written string
+	for {
+		content, err := os.ReadFile(log)
+		if err != nil {
+			t.Fatalf("ReadFile(%q) error = %v", log, err)
+		}
+		written = strings.TrimSpace(string(content))
+		if written == want || time.Now().After(deadline) {
+			return written
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// processAlive reports whether a process still exists, by sending it no
+// signal at all.
+func processAlive(pid int) bool {
+	process, err := os.FindProcess(pid)
 	if err != nil {
-		t.Fatalf("FindProcess(%d) error = %v", pid, err)
+		return false
 	}
-	if _, err := started.Wait(); err != nil {
-		t.Fatalf("Wait() on the started process error = %v", err)
-	}
-	written, err := os.ReadFile(log)
-	if err != nil {
-		t.Fatalf("ReadFile(%q) error = %v", log, err)
-	}
-	return strings.TrimSpace(string(written))
+	return process.Signal(syscall.Signal(0)) == nil
 }
 
 // A sink's log is a write like any other the harness owns, and the one thing

@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -181,6 +180,8 @@ func (b BranchReview) Approved() bool {
 // it judged, and belongs to no one of them. It holds one append-only log of
 // verdicts, never revised once written, and one event log per review beside it.
 type BranchReviewStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -192,7 +193,12 @@ func NewBranchReviewStore(root string, productID domain.ProductID) (*BranchRevie
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &BranchReviewStore{
+		state:     state,
 		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "branch-reviews"),
 		productID: productID,
 	}, nil
@@ -216,37 +222,11 @@ func (s *BranchReviewStore) Append(reviewed BranchReview) error {
 	if len(encoded) > maxEncodedBranchReviewBytes {
 		return fmt.Errorf("encoded branch review is %d bytes, limit is %d", len(encoded), maxEncodedBranchReviewBytes)
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create branch review directory: %w", err)
-	}
 	path := s.Path()
-	_, statErr := os.Stat(path)
-	created := errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && !created {
-		return fmt.Errorf("inspect branch review log: %w", statErr)
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("open branch review log: %w", err)
-	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		file.Close()
+	// Appended in checked batches through the confined writer, which syncs the
+	// directory when it creates the log.
+	if err := s.state.appendTo(path, encoded); err != nil {
 		return fmt.Errorf("append branch review: %w", err)
-	}
-	if written != len(encoded) {
-		file.Close()
-		return fmt.Errorf("append branch review: %w", io.ErrShortWrite)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync branch review log: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close branch review log: %w", err)
-	}
-	if created {
-		return syncDirectory(s.root)
 	}
 	return nil
 }
@@ -311,36 +291,10 @@ func (s *BranchReviewStore) AppendEvent(event execution.Event) error {
 	if len(encoded) > maxEncodedEventBytes {
 		return fmt.Errorf("encoded event is %d bytes, limit is %d", len(encoded), maxEncodedEventBytes)
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create branch review directory: %w", err)
-	}
-	_, statErr := os.Stat(path)
-	created := errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && !created {
-		return fmt.Errorf("inspect branch review event log: %w", statErr)
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("open branch review event log: %w", err)
-	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		file.Close()
+	// Appended in checked batches through the confined writer, which syncs the
+	// directory when it creates the log.
+	if err := s.state.appendTo(path, encoded); err != nil {
 		return fmt.Errorf("append branch review event: %w", err)
-	}
-	if written != len(encoded) {
-		file.Close()
-		return fmt.Errorf("append branch review event: %w", io.ErrShortWrite)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync branch review event log: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close branch review event log: %w", err)
-	}
-	if created {
-		return syncDirectory(s.root)
 	}
 	return nil
 }

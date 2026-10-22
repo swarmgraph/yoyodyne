@@ -121,6 +121,8 @@ func (h LaunchSettingsHold) version() string {
 // product, written the way ProviderOutageStore writes its own and for the
 // reason that store gives.
 type LaunchSettingsHoldStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -132,7 +134,11 @@ func NewLaunchSettingsHoldStore(root string, productID domain.ProductID) (*Launc
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
-	return &LaunchSettingsHoldStore{root: home.ProductDirectory(root, string(productID)), productID: productID}, nil
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	return &LaunchSettingsHoldStore{root: home.ProductDirectory(root, string(productID)), state: state, productID: productID}, nil
 }
 
 // LaunchSettingsObservation is one check finding the settings not active.
@@ -240,7 +246,7 @@ func (s *LaunchSettingsHoldStore) Clear() (LaunchSettingsHold, bool, error) {
 	if err != nil || !found {
 		return LaunchSettingsHold{}, false, err
 	}
-	if err := os.Remove(s.path()); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := s.state.remove(s.path()); err != nil {
 		return LaunchSettingsHold{}, false, fmt.Errorf("clear launch settings hold: %w", err)
 	}
 	if err := syncDirectory(s.root); err != nil {
@@ -250,38 +256,12 @@ func (s *LaunchSettingsHoldStore) Clear() (LaunchSettingsHold, bool, error) {
 }
 
 func (s *LaunchSettingsHoldStore) write(recorded LaunchSettingsHold) error {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create product state directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".launch-settings-hold-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary launch settings hold: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary launch settings hold: %w", err)
-	}
-	if err := writeJSONFile(temporary, "launch settings hold", recorded); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary launch settings hold: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.path()); err != nil {
-		return fmt.Errorf("replace launch settings hold: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, s.path(), "launch settings hold", recorded)
 }
 
 // lock takes the store's exclusive lock and returns what releases it.
 func (s *LaunchSettingsHoldStore) lock() (func(), error) {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create product state directory: %w", err)
-	}
-	file, err := os.OpenFile(filepath.Join(s.root, "launch-settings-hold.lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(filepath.Join(s.root, "launch-settings-hold.lock"))
 	if err != nil {
 		return nil, fmt.Errorf("open launch settings hold lock: %w", err)
 	}

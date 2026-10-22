@@ -76,7 +76,9 @@ func TestASymlinkThatStaysInsideTheRepositoryIsFollowed(t *testing.T) {
 	root, _ := repository(t)
 	elsewhere := filepath.Join(root.Path(), "elsewhere")
 	makeDirectory(t, elsewhere)
-	link(t, elsewhere, filepath.Join(root.Path(), "docs"))
+	// Relative, because a link written as an absolute path is refused even when
+	// it points inside: a string proves nothing about where it lands.
+	link(t, "elsewhere", filepath.Join(root.Path(), "docs"))
 
 	written, err := root.WriteFile("docs/brief.md", []byte("what this says"))
 	if err != nil {
@@ -144,11 +146,11 @@ func TestASymlinkOutOfTheRepositoryIsRefused(t *testing.T) {
 			escape.prepare(t, root, outside)
 
 			_, err := root.WriteFile(escape.path, []byte("what this says"))
-			var refused *EscapeError
+			var refused *RefusalError
 			if !errors.As(err, &refused) {
-				t.Fatalf("WriteFile() error = %v, want an EscapeError", err)
+				t.Fatalf("WriteFile() error = %v, want a refusal", err)
 			}
-			if !strings.Contains(refused.Error(), "resolves outside the repository") {
+			if refused.Reason == "" || refused.Path != escape.path || !strings.Contains(refused.Error(), string(refused.Reason)) {
 				t.Errorf("the refusal reads %q, and does not say what is wrong with the path", refused)
 			}
 			assertUnchanged(t, outside)
@@ -198,21 +200,20 @@ func TestAWriteLeavesNoTemporaryFileBehind(t *testing.T) {
 	}
 }
 
-// What OpenAppend is for is output that keeps arriving: a descriptor a process
-// writes to for as long as it runs. So it adds to what is there rather than
-// replacing it, and it makes the directories it needs, the same way a document
-// written into a directory nobody created yet does.
+// What an appender is for is output that keeps arriving. So it adds to what is
+// there rather than replacing it, and it makes the directories it needs, the
+// same way a document written into a directory nobody created yet does.
 func TestAppendingAddsToWhatIsAlreadyThere(t *testing.T) {
 	t.Parallel()
 
 	root, _ := repository(t)
 	for _, line := range []string{"first\n", "second\n"} {
-		opened, err := root.OpenAppend("state/sink.log", 0o600, 0o700)
+		opened, err := root.OpenAppender("state/sink.log", 0o600, 0o700)
 		if err != nil {
-			t.Fatalf("OpenAppend() error = %v", err)
+			t.Fatalf("OpenAppender() error = %v", err)
 		}
-		if _, err := opened.WriteString(line); err != nil {
-			t.Fatalf("WriteString() error = %v", err)
+		if _, err := opened.Write([]byte(line)); err != nil {
+			t.Fatalf("Write() error = %v", err)
 		}
 		if err := opened.Close(); err != nil {
 			t.Fatalf("Close() error = %v", err)
@@ -228,9 +229,8 @@ func TestAppendingAddsToWhatIsAlreadyThere(t *testing.T) {
 	}
 }
 
-// The reason this is in this package at all: a descriptor handed to a
-// long-lived process is a write nobody watches afterwards, so where it points
-// is decided here and refused here.
+// Where an append lands is decided here and refused here, for a log that keeps
+// growing for as long as the process feeding it runs.
 func TestAppendingThroughASymlinkOutOfTheRepositoryIsRefused(t *testing.T) {
 	t.Parallel()
 
@@ -238,36 +238,36 @@ func TestAppendingThroughASymlinkOutOfTheRepositoryIsRefused(t *testing.T) {
 	writeFile(t, filepath.Join(outside, "sink.log"), "somebody else's log")
 	link(t, filepath.Join(outside, "sink.log"), filepath.Join(root.Path(), "sink.log"))
 
-	opened, err := root.OpenAppend("sink.log", 0o600, 0o700)
+	opened, err := root.OpenAppender("sink.log", 0o600, 0o700)
 	if opened != nil {
 		opened.Close()
 	}
-	var refused *EscapeError
+	var refused *RefusalError
 	if !errors.As(err, &refused) {
-		t.Fatalf("OpenAppend() error = %v, want an EscapeError", err)
+		t.Fatalf("OpenAppender() error = %v, want a refusal", err)
 	}
 	if content := readFile(t, filepath.Join(outside, "sink.log")); content != "somebody else's log" {
 		t.Fatalf("the file outside the repository reads %q, and a refused append changed it", content)
 	}
 }
 
-// A link inside the root is followed by the resolution, so what the append
-// opens is the file that link points at rather than the link — which is what
-// keeps refusing to follow one from refusing a layout that never left.
+// A directory link inside the root is followed, so an append under it lands in
+// the directory that link points at — which is what keeps refusing links that
+// leave from refusing a layout that never left.
 func TestAppendingThroughASymlinkThatStaysInsideTheRepositoryLandsOnItsTarget(t *testing.T) {
 	t.Parallel()
 
 	root, _ := repository(t)
 	elsewhere := filepath.Join(root.Path(), "elsewhere")
 	writeFile(t, filepath.Join(elsewhere, "real.log"), "before\n")
-	link(t, filepath.Join(elsewhere, "real.log"), filepath.Join(root.Path(), "sink.log"))
+	link(t, "elsewhere", filepath.Join(root.Path(), "logs"))
 
-	opened, err := root.OpenAppend("sink.log", 0o600, 0o700)
+	opened, err := root.OpenAppender("logs/real.log", 0o600, 0o700)
 	if err != nil {
-		t.Fatalf("OpenAppend() error = %v", err)
+		t.Fatalf("OpenAppender() error = %v", err)
 	}
-	if _, err := opened.WriteString("after\n"); err != nil {
-		t.Fatalf("WriteString() error = %v", err)
+	if _, err := opened.Write([]byte("after\n")); err != nil {
+		t.Fatalf("Write() error = %v", err)
 	}
 	if err := opened.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
@@ -277,34 +277,26 @@ func TestAppendingThroughASymlinkThatStaysInsideTheRepositoryLandsOnItsTarget(t 
 	}
 }
 
-// The case the resolution cannot answer, because it is about the moment after
-// it answered: a link standing at the target when the descriptor is opened. A
-// descriptor handed to a process that runs for hours is not one write anybody
-// will look at again, so the open refuses rather than follows. This plants the
-// link where the check has already been made, which is what a race would do at a
-// moment nothing can arrange on purpose.
+// A link standing at the target itself is never written through, even one that
+// stays inside the repository: a link is a name whose meaning can change after
+// it was checked.
 func TestAppendingRefusesALinkStandingAtTheTargetItself(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("refusing to follow the final component is the Unix hosts' O_NOFOLLOW")
-	}
 	t.Parallel()
 
-	root, outside := repository(t)
-	writeFile(t, filepath.Join(outside, "sink.log"), "somebody else's log")
-	// Straight at the resolved target, past the resolution rather than through
-	// it: what this proves is that the open itself refuses a link.
-	target := filepath.Join(root.Path(), "sink.log")
-	link(t, filepath.Join(outside, "sink.log"), target)
+	root, _ := repository(t)
+	writeFile(t, filepath.Join(root.Path(), "real.log"), "the real log")
+	link(t, "real.log", filepath.Join(root.Path(), "sink.log"))
 
-	opened, err := os.OpenFile(target, appendFlags, 0o600)
+	opened, err := root.OpenAppender("sink.log", 0o600, 0o700)
 	if opened != nil {
 		opened.Close()
 	}
-	if err == nil {
-		t.Fatal("the append flags followed a symlink at the target")
+	var refused *RefusalError
+	if !errors.As(err, &refused) || refused.Reason != ReasonFinalLink {
+		t.Fatalf("OpenAppender() error = %v, want a refusal for the link at the target", err)
 	}
-	if content := readFile(t, filepath.Join(outside, "sink.log")); content != "somebody else's log" {
-		t.Fatalf("the file outside the repository reads %q, and a refused open changed it", content)
+	if content := readFile(t, filepath.Join(root.Path(), "real.log")); content != "the real log" {
+		t.Fatalf("the linked file reads %q, and a refused open changed it", content)
 	}
 }
 
@@ -338,9 +330,9 @@ func TestTruncatingThroughASymlinkOutOfTheRepositoryIsRefused(t *testing.T) {
 	link(t, filepath.Join(outside, "sink.log"), filepath.Join(root.Path(), "sink.log"))
 
 	_, err := root.Truncate("sink.log", 0)
-	var refused *EscapeError
+	var refused *RefusalError
 	if !errors.As(err, &refused) {
-		t.Fatalf("Truncate() error = %v, want an EscapeError", err)
+		t.Fatalf("Truncate() error = %v, want a refusal", err)
 	}
 	if content := readFile(t, filepath.Join(outside, "sink.log")); content != "somebody else's log" {
 		t.Fatalf("the file outside the repository reads %q, and a refused cut changed it", content)
@@ -348,22 +340,19 @@ func TestTruncatingThroughASymlinkOutOfTheRepositoryIsRefused(t *testing.T) {
 }
 
 func TestTruncatingRefusesALinkStandingAtTheTargetItself(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("refusing to follow the final component is the Unix hosts' O_NOFOLLOW")
-	}
 	t.Parallel()
 
-	root, outside := repository(t)
-	writeFile(t, filepath.Join(outside, "sink.log"), "somebody else's log")
-	target := filepath.Join(root.Path(), "sink.log")
-	link(t, filepath.Join(outside, "sink.log"), target)
+	root, _ := repository(t)
+	writeFile(t, filepath.Join(root.Path(), "real.log"), "the real log")
+	link(t, "real.log", filepath.Join(root.Path(), "sink.log"))
 
-	opened, err := os.OpenFile(target, truncateFlags, 0)
-	if opened != nil {
-		opened.Close()
+	_, err := root.Truncate("sink.log", 0)
+	var refused *RefusalError
+	if !errors.As(err, &refused) || refused.Reason != ReasonFinalLink {
+		t.Fatalf("Truncate() error = %v, want a refusal for the link at the target", err)
 	}
-	if err == nil {
-		t.Fatal("the truncate flags followed a symlink at the target")
+	if content := readFile(t, filepath.Join(root.Path(), "real.log")); content != "the real log" {
+		t.Fatalf("the linked file reads %q, and a refused cut changed it", content)
 	}
 }
 
@@ -405,9 +394,9 @@ func TestMakingADirectoryThroughASymlinkOutOfTheRepositoryIsRefused(t *testing.T
 	link(t, outside, filepath.Join(root.Path(), "yoyodyne"))
 
 	made, err := root.MakeDirectory("yoyodyne/scratch/run-one", 0o700)
-	var refused *EscapeError
+	var refused *RefusalError
 	if !errors.As(err, &refused) {
-		t.Fatalf("MakeDirectory() = %q, error = %v, want an EscapeError", made, err)
+		t.Fatalf("MakeDirectory() = %q, error = %v, want a refusal", made, err)
 	}
 	assertUnchanged(t, outside)
 }
@@ -464,9 +453,9 @@ func TestRemovingADirectoryThroughASymlinkOutOfTheRepositoryIsRefused(t *testing
 	link(t, outside, filepath.Join(root.Path(), "worktrees"))
 
 	removed, err := root.RemoveDirectory("worktrees/yoyodyne-killed")
-	var refused *EscapeError
+	var refused *RefusalError
 	if !errors.As(err, &refused) {
-		t.Fatalf("RemoveDirectory() = %q, error = %v, want an EscapeError", removed, err)
+		t.Fatalf("RemoveDirectory() = %q, error = %v, want a refusal", removed, err)
 	}
 	if _, err := os.Lstat(filepath.Join(outside, "worktrees", "yoyodyne-killed")); err != nil {
 		t.Fatalf("Lstat() error = %v, want what is outside the repository untouched", err)

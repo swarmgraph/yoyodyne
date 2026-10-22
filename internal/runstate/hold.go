@@ -65,14 +65,20 @@ func (h OperatorHold) Validate() error {
 // OperatorHoldStore is where the hold is recorded: one file at the state root,
 // above the per-product records, because the switch is one switch.
 type OperatorHoldStore struct {
-	root string
+	// state is the state root every write this store makes is confined to.
+	state stateRoot
+	root  string
 }
 
 func NewOperatorHoldStore(root string) (*OperatorHoldStore, error) {
 	if !filepath.IsAbs(root) {
 		return nil, errors.New("state root must be an absolute path")
 	}
-	return &OperatorHoldStore{root: filepath.Clean(root)}, nil
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	return &OperatorHoldStore{root: filepath.Clean(root), state: state}, nil
 }
 
 func (s *OperatorHoldStore) Root() string { return s.root }
@@ -89,30 +95,7 @@ func (s *OperatorHoldStore) Hold(at time.Time) (OperatorHold, error) {
 	if err := recorded.Validate(); err != nil {
 		return OperatorHold{}, err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return OperatorHold{}, fmt.Errorf("create state root: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".operator-hold-*.tmp")
-	if err != nil {
-		return OperatorHold{}, fmt.Errorf("create the temporary record of the operator's pause: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return OperatorHold{}, fmt.Errorf("secure the temporary record of the operator's pause: %w", err)
-	}
-	if err := writeJSONFile(temporary, "operator's pause", recorded); err != nil {
-		temporary.Close()
-		return OperatorHold{}, err
-	}
-	if err := temporary.Close(); err != nil {
-		return OperatorHold{}, fmt.Errorf("close the temporary record of the operator's pause: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.path()); err != nil {
-		return OperatorHold{}, fmt.Errorf("replace the record of the operator's pause: %w", err)
-	}
-	if err := syncDirectory(s.root); err != nil {
+	if err := replaceJSONFile(s.state, s.path(), "operator's pause", recorded); err != nil {
 		return OperatorHold{}, err
 	}
 	return recorded, nil
@@ -158,7 +141,7 @@ func (s *OperatorHoldStore) Release() (OperatorHold, bool, error) {
 	if !found {
 		return OperatorHold{}, false, nil
 	}
-	if err := os.Remove(s.path()); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := s.state.remove(s.path()); err != nil {
 		return OperatorHold{}, false, fmt.Errorf("release the operator's pause: %w", err)
 	}
 	if err := syncDirectory(s.root); err != nil {

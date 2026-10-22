@@ -109,8 +109,8 @@ ordinary checkout) for as long as `bd` runs, around every command that changes
 an existing item: update, claim, close, adding or removing a dependency, and
 each record and status write built on them. The operating system drops the lock
 if the process holding it dies, so a crashed writer leaves nothing held. The
-lock file is opened through `repowrite.Root.OpenAppend`, confined to the store
-directory. `.beads/.gitignore` already ignores `*.lock`.
+lock file is opened through `repowrite.Root.OpenLock` (originally
+`OpenAppend`, which no longer exists), confined to the store directory. `.beads/.gitignore` already ignores `*.lock`.
 
 The store directory is found the way `bd` finds it from the same directory and
 environment (`storeDirectory`, following `FindBeadsDir` in `bd`'s own source):

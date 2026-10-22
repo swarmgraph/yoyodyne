@@ -359,6 +359,8 @@ func (r LaneReport) Validate() error {
 // per instance under the product: `report.json`, the current version whole, and
 // `history.jsonl`, the last fifty versions oldest first.
 type LaneReportStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 	// redactor is applied to everything the role wrote before it is measured or
@@ -415,7 +417,12 @@ func NewLaneReportStore(root string, productID domain.ProductID, movers LaneRepo
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &LaneReportStore{
+		state:     state,
 		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "program-managers"),
 		productID: productID,
 		redactor:  execution.NewRedactor(redactValues...),
@@ -747,10 +754,7 @@ func encodeLaneReport(version LaneReport) ([]byte, error) {
 // the same version twice or drop each other's.
 func (s *LaneReportStore) lock(ctx context.Context, agent string) (func(), error) {
 	directory := filepath.Join(s.root, agent)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return nil, fmt.Errorf("create the %s lane report directory: %w", agent, err)
-	}
-	file, err := os.OpenFile(filepath.Join(directory, laneReportLockFile), os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(filepath.Join(directory, laneReportLockFile))
 	if err != nil {
 		return nil, fmt.Errorf("open the %s lane report lock: %w", agent, err)
 	}

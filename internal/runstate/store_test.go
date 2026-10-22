@@ -15,20 +15,34 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
 
-func TestCleanupFailedCreateRemovesPartialState(t *testing.T) {
+// A record that must not exist yet is published whole or not at all: a second
+// create of the same record leaves the first exactly as it was, says it exists,
+// and leaves no temporary file behind.
+func TestCreatingARecordThatExistsLeavesItAndNothingElse(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "partial.json")
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	root := t.TempDir()
+	state, err := newStateRoot(root)
 	if err != nil {
-		t.Fatalf("OpenFile() error = %v", err)
+		t.Fatalf("newStateRoot() error = %v", err)
 	}
-	cause := errors.New("sync failed")
-	if err := cleanupFailedCreate(file, path, cause); !errors.Is(err, cause) {
-		t.Fatalf("cleanupFailedCreate() error = %v, want cause", err)
+	directory := filepath.Join(root, "records")
+	path := filepath.Join(directory, "record.json")
+	if err := createJSONFile(state, path, "record", map[string]string{"first": "yes"}); err != nil {
+		t.Fatalf("createJSONFile() error = %v", err)
 	}
-	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("partial state still exists: %v", err)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := createJSONFile(state, path, "record", map[string]string{"second": "yes"}); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("second createJSONFile() error = %v, want it to say the record exists", err)
+	}
+	if after, err := os.ReadFile(path); err != nil || string(after) != string(before) {
+		t.Fatalf("the first record changed: %q, %v", after, err)
+	}
+	if entries, err := os.ReadDir(directory); err != nil || len(entries) != 1 {
+		t.Fatalf("the directory holds %v, %v after a refused create", entries, err)
 	}
 }
 

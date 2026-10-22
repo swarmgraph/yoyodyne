@@ -21,6 +21,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/report"
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
 // ConversationSchemaVersion is versioned independently of run state. A
@@ -921,7 +922,11 @@ func (i ConversationIdentity) validate() error {
 // what every generated configuration produces — stores it exactly where the
 // role-keyed layout this replaced put it, so no existing conversation moves.
 type ConversationStore struct {
-	root      string
+	root string
+	// stateRoot is the root every conversation write is confined to, and
+	// anchor the nearest ancestor of it that existed when the store was made,
+	// which a state root that is not there yet is created beneath.
+	stateRoot string
 	anchor    string
 	productID domain.ProductID
 	// queued is told, once per take, that a claim found the conversation held
@@ -944,6 +949,7 @@ func NewConversationStore(root string, productID domain.ProductID) (*Conversatio
 	}
 	return &ConversationStore{
 		root:      filepath.Join(home.ProductDirectory(stateRoot, string(productID)), "conversations"),
+		stateRoot: stateRoot,
 		anchor:    anchor,
 		productID: productID,
 	}, nil
@@ -979,14 +985,18 @@ func (s *ConversationStore) take(ctx context.Context, identity ConversationIdent
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create conversation directory: %w", err)
-	}
 	path, err := s.leaseFile(identity)
 	if err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	// The lease is a lock file: created once, never replaced, and refused when
+	// it is a link or has a second one, so the lock everybody queues on is the
+	// one file inside the state root.
+	writer, relative, err := s.writer(path)
+	if err != nil {
+		return nil, err
+	}
+	file, err := writer.OpenLock(relative, 0o600, 0o700)
 	if err != nil {
 		return nil, fmt.Errorf("open conversation lease: %w", err)
 	}
@@ -1032,6 +1042,7 @@ func (s *ConversationStore) take(ctx context.Context, identity ConversationIdent
 	if err != nil {
 		return nil, errors.Join(err, lease.Release())
 	}
+	lease.clearHolder = func() error { return s.remove(holder) }
 	// The stamp is written under the lock, so what a reader sees was written by
 	// the process that actually owns the conversation. A hold that cannot be
 	// stamped is refused rather than taken: what it would otherwise buy is a turn
@@ -1136,31 +1147,61 @@ type conversationHolder struct {
 }
 
 // stampHolder writes this process's stamp for a conversation it now holds. It is
-// replaced by rename rather than written in place, so a reader sees the whole of
-// one stamp or none of it and never half of one.
+// published as a new file rather than written in place, so a reader sees the
+// whole of one stamp or none of it and never half of one.
 func (s *ConversationStore) stampHolder(path string) error {
-	temporary, err := os.CreateTemp(s.root, ".holder-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary conversation holder: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary conversation holder: %w", err)
-	}
 	holder := conversationHolder{PID: os.Getpid(), HeldAt: time.Now().UTC()}
-	if err := writeJSONFile(temporary, "conversation holder", holder); err != nil {
-		temporary.Close()
+	return s.replaceRecord(path, "conversation holder", holder)
+}
+
+// writer is the state root as the root a conversation write is confined to,
+// and path as a path relative to it. A state root that is not there yet is
+// created first, beneath the ancestor it was resolved from.
+func (s *ConversationStore) writer(path string) (repowrite.Root, string, error) {
+	root, err := stateWriter(s.stateRoot, s.anchor)
+	if err != nil {
+		return repowrite.Root{}, "", fmt.Errorf("open the conversation state root: %w", err)
+	}
+	relative, err := filepath.Rel(s.stateRoot, path)
+	if err != nil {
+		return repowrite.Root{}, "", err
+	}
+	return root, filepath.ToSlash(relative), nil
+}
+
+// replaceRecord publishes one JSON record at path in place of whatever was
+// there, bounded as every state record is.
+func (s *ConversationStore) replaceRecord(path, label string, value any) error {
+	encoded, err := encodeRecord(label, value)
+	if err != nil {
 		return err
 	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary conversation holder: %w", err)
+	if len(encoded) > maxEncodedStateBytes {
+		return StopError{Class: StopStateBound, Cause: fmt.Errorf("encoded %s is %d bytes, limit is %d", label, len(encoded), maxEncodedStateBytes)}
 	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace conversation holder: %w", err)
+	return s.replace(path, label, encoded)
+}
+
+func (s *ConversationStore) replace(path, label string, content []byte) error {
+	writer, relative, err := s.writer(path)
+	if err != nil {
+		return err
 	}
-	return syncDirectory(s.root)
+	if err := writer.ReplaceFile(relative, content, 0o600, 0o700); err != nil {
+		return fmt.Errorf("replace %s: %w", label, err)
+	}
+	return nil
+}
+
+// remove takes one file out of the conversation directory. One that is not
+// there is already removed.
+func (s *ConversationStore) remove(path string) error {
+	writer, relative, err := s.writer(path)
+	if err != nil {
+		return err
+	}
+	_, err = writer.RemoveFile(relative)
+	return err
 }
 
 // readHolder is one stamp as it sits on disk. A file that is not there is
@@ -1595,34 +1636,11 @@ func (s *ConversationStore) Save(conversation Conversation) error {
 	if err := s.validateConversation(conversation); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create conversation directory: %w", err)
-	}
 	path, err := s.statePathFor(conversation.Identity())
 	if err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(s.root, ".conversation-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary conversation state: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary conversation state: %w", err)
-	}
-	if err := writeJSONFile(temporary, "conversation state", conversation); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary conversation state: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace conversation state: %w", err)
-	}
-	return syncDirectory(s.root)
+	return s.replaceRecord(path, "conversation state", conversation)
 }
 
 // SavePendingPictureText writes the text of the picture a refresh has taken and
@@ -1686,40 +1704,16 @@ func (s *ConversationStore) ClearDeliveredPictureText(identity ConversationIdent
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := s.remove(path); err != nil {
 		return fmt.Errorf("remove the picture delivered to the %s: %w", identity, err)
 	}
 	return nil
 }
 
-// writePictureText replaces one picture's text by rename, so a reader sees the
-// whole of one picture or none of it.
+// writePictureText replaces one picture's text by publishing a new file, so a
+// reader sees the whole of one picture or none of it.
 func (s *ConversationStore) writePictureText(path, text string) error {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create conversation directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".picture-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary pending picture: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		return errors.Join(fmt.Errorf("secure temporary pending picture: %w", err), temporary.Close())
-	}
-	if _, err := temporary.WriteString(text); err != nil {
-		return errors.Join(fmt.Errorf("write pending picture: %w", err), temporary.Close())
-	}
-	if err := temporary.Sync(); err != nil {
-		return errors.Join(fmt.Errorf("sync pending picture: %w", err), temporary.Close())
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary pending picture: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace pending picture: %w", err)
-	}
-	return syncDirectory(s.root)
+	return s.replace(path, "pending picture", []byte(text))
 }
 
 // PendingPictureText is the text of the picture waiting to be delivered to an
@@ -1765,7 +1759,7 @@ func (s *ConversationStore) ClearPendingPictureText(identity ConversationIdentit
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := s.remove(path); err != nil {
 		return fmt.Errorf("remove the picture waiting for the %s: %w", identity, err)
 	}
 	return nil
@@ -1789,28 +1783,14 @@ func (s *ConversationStore) AppendEvent(event execution.Event) error {
 	if len(encoded) > maxEncodedEventBytes {
 		return fmt.Errorf("encoded event is %d bytes, limit is %d", len(encoded), maxEncodedEventBytes)
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create conversation directory: %w", err)
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	// Appended in checked batches: a link added to the log from outside the
+	// state root stops the append rather than receiving every later event.
+	writer, relative, err := s.writer(path)
 	if err != nil {
-		return fmt.Errorf("open conversation event log: %w", err)
+		return err
 	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		file.Close()
+	if err := writer.Append(relative, encoded, 0o600, 0o700); err != nil {
 		return fmt.Errorf("append conversation event: %w", err)
-	}
-	if written != len(encoded) {
-		file.Close()
-		return fmt.Errorf("append conversation event: %w", io.ErrShortWrite)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync conversation event log: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close conversation event log: %w", err)
 	}
 	return nil
 }

@@ -38,6 +38,8 @@ var ErrNoExchange = exchange.ErrNoExchange
 
 // ExchangeStore is one product's exchanges.
 type ExchangeStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -49,7 +51,12 @@ func NewExchangeStore(root string, productID domain.ProductID) (*ExchangeStore, 
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &ExchangeStore{
+		state:     state,
 		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "exchanges"),
 		productID: productID,
 	}, nil
@@ -73,30 +80,7 @@ func (s *ExchangeStore) Save(recorded exchange.Exchange) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create exchange directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".exchange-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary exchange: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary exchange: %w", err)
-	}
-	if err := writeJSONFile(temporary, "exchange", recorded); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary exchange: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace exchange: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, path, "exchange", recorded)
 }
 
 // Load reads one exchange by its full identifier, for a caller about to act on
@@ -270,7 +254,7 @@ func (s *ExchangeStore) Hold(id string) (exchange.Release, bool, error) {
 	if !exchange.ValidID(id) {
 		return nil, false, fmt.Errorf("exchange id %q is invalid", id)
 	}
-	lease, taken, err := TryLeasePath(filepath.Join(s.root, "leases", id+".lease"), "exchange "+id)
+	lease, taken, err := tryLeaseIn(s.state, filepath.Join(s.root, "leases", id+".lease"), "exchange "+id)
 	if err != nil || !taken {
 		// A typed nil handed back as an interface is not nil, and a caller checking
 		// what it got would find a lease it does not have.

@@ -204,35 +204,16 @@ func (s *Store) stampLease(lease *Lease, runID string, worker WorkerIdentity) er
 		return err
 	}
 	lease.holder = path
+	lease.clearHolder = func() error { return s.state.remove(path) }
 	holdWorker(path, worker)
 	return nil
 }
 
 // stampRunHolder writes this process's stamp for a run whose lease it now holds.
-// It is replaced by rename rather than written in place, so a reader sees the
-// whole of one stamp or none of it.
+// It is published as a new file rather than written in place, so a reader sees
+// the whole of one stamp or none of it.
 func (s *Store) stampRunHolder(path string, worker WorkerIdentity) error {
-	temporary, err := os.CreateTemp(s.root, ".holder-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary run holder: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary run holder: %w", err)
-	}
-	if err := writeJSONFile(temporary, "run holder", runHolder{PID: worker.PID, HeldAt: time.Now().UTC(), Worker: &worker}); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary run holder: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace run holder: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, path, "run holder", runHolder{PID: worker.PID, HeldAt: time.Now().UTC(), Worker: &worker})
 }
 
 // readRunHolder is one stamp as it sits on disk. A stamp that will not decode is

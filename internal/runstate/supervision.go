@@ -260,6 +260,8 @@ func (s Supervision) Degraded() []SupervisedChild {
 // for the reason the provider outage store gives: the state root is the
 // harness's own directory outside every repository.
 type SupervisionStore struct {
+	// state is the state root every write this store makes is confined to.
+	state stateRoot
 	// base is the state root, and within is where this store sits under it in
 	// slash form, kept apart because a detached child's log is a root and a
 	// path within it rather than one absolute name.
@@ -278,7 +280,12 @@ func NewSupervisionStore(root string, productID domain.ProductID) (*SupervisionS
 	}
 	base := filepath.Clean(root)
 	within := filepath.Join(filepath.FromSlash(home.ProductDirectoryWithin(base, string(productID))), "supervisor")
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &SupervisionStore{
+		state:     state,
 		base:      base,
 		within:    filepath.ToSlash(within),
 		root:      filepath.Join(base, within),
@@ -302,7 +309,7 @@ func (s *SupervisionStore) SupervisorLog() (root, relative string) {
 // got it. Two supervisors over one product would each restart what the other
 // had just stopped, so the second is refused rather than queued.
 func (s *SupervisionStore) Lease() (*Lease, bool, error) {
-	return TryLeasePath(filepath.Join(s.root, supervisorLeaseFile), "product supervisor")
+	return tryLeaseIn(s.state, filepath.Join(s.root, supervisorLeaseFile), "product supervisor")
 }
 
 // Running reports whether a supervisor is holding this product's lease, by
@@ -331,30 +338,7 @@ func (s *SupervisionStore) Save(recorded Supervision) error {
 	if err := recorded.Validate(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create supervisor state directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".supervision-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary supervision record: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary supervision record: %w", err)
-	}
-	if err := writeJSONFile(temporary, "supervision record", recorded); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary supervision record: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.path()); err != nil {
-		return fmt.Errorf("replace supervision record: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, s.path(), "supervision record", recorded)
 }
 
 // Load reads the record back, reporting whether a supervisor ever wrote one. A
@@ -451,39 +435,11 @@ func (s *SupervisionStore) RecordRetiredJob(job RetiredJob) (string, error) {
 	if len(encoded) > maxRetiredJobBytes {
 		return "", fmt.Errorf("encoded retired job is %d bytes, limit is %d", len(encoded), maxRetiredJobBytes)
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return "", fmt.Errorf("create supervisor state directory: %w", err)
-	}
 	path := s.RetiredJobsPath()
-	_, statErr := os.Stat(path)
-	created := errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && !created {
-		return "", fmt.Errorf("inspect retired job log: %w", statErr)
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return "", fmt.Errorf("open retired job log: %w", err)
-	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		file.Close()
+	// Appended in checked batches through the confined writer, which syncs the
+	// directory when it creates the log.
+	if err := s.state.appendTo(path, encoded); err != nil {
 		return "", fmt.Errorf("append retired job: %w", err)
-	}
-	if written != len(encoded) {
-		file.Close()
-		return "", fmt.Errorf("append retired job: %w", io.ErrShortWrite)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return "", fmt.Errorf("sync retired job log: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return "", fmt.Errorf("close retired job log: %w", err)
-	}
-	if created {
-		if err := syncDirectory(s.root); err != nil {
-			return "", err
-		}
 	}
 	return path, nil
 }

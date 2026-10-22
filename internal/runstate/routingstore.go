@@ -175,10 +175,7 @@ func (s *Store) lockRunWrites(ctx context.Context, runID string) (func(), error)
 	if !runIDPattern.MatchString(runID) {
 		return nil, errors.New("run id is invalid")
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create run state directory: %w", err)
-	}
-	lock, err := os.OpenFile(filepath.Join(s.root, runID+".write.lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	lock, err := s.state.openLock(filepath.Join(s.root, runID+".write.lock"))
 	if err != nil {
 		return nil, fmt.Errorf("open run write lock: %w", err)
 	}

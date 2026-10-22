@@ -103,32 +103,8 @@ func (s *Store) WaitForSlot(ctx context.Context, document DocumentPublication, a
 	if found {
 		wait.Since = existing.Since
 	}
-	directory := s.documentWaitDirectory()
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return DocumentWait{}, false, fmt.Errorf("create the document wait directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(directory, ".document-wait-*.tmp")
-	if err != nil {
-		return DocumentWait{}, false, fmt.Errorf("create the temporary record of a document waiting for a slot: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return DocumentWait{}, false, fmt.Errorf("secure the temporary record of a document waiting for a slot: %w", err)
-	}
-	if err := writeJSONFile(temporary, "document wait", wait); err != nil {
-		temporary.Close()
-		return DocumentWait{}, false, err
-	}
-	if err := temporary.Close(); err != nil {
-		return DocumentWait{}, false, fmt.Errorf("close the temporary record of a document waiting for a slot: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.documentWaitPath(document.RunID())); err != nil {
+	if err := replaceJSONFile(s.state, s.documentWaitPath(document.RunID()), "document wait", wait); err != nil {
 		return DocumentWait{}, false, fmt.Errorf("record the document waiting for a slot: %w", err)
-	}
-	if err := syncDirectory(directory); err != nil {
-		return DocumentWait{}, false, err
 	}
 	return wait, true, nil
 }
@@ -179,13 +155,10 @@ func (s *Store) ClearDocumentWait(runID string) error {
 	if !runIDPattern.MatchString(runID) {
 		return fmt.Errorf("document wait names an invalid run %q", runID)
 	}
-	if err := os.Remove(s.documentWaitPath(runID)); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
+	if err := s.state.remove(s.documentWaitPath(runID)); err != nil {
 		return fmt.Errorf("clear the document waiting for a slot: %w", err)
 	}
-	return syncDirectory(s.documentWaitDirectory())
+	return nil
 }
 
 func (s *Store) documentWait(runID string) (DocumentWait, bool, error) {

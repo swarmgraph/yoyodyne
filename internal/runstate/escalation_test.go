@@ -360,7 +360,7 @@ func TestAnEscalationOfAnotherProductIsRefused(t *testing.T) {
 	if _, err := store.Attempt(context.Background(), attemptedEscalation()); err != nil {
 		t.Fatalf("Attempt() error = %v", err)
 	}
-	other := &EscalationStore{root: store.Root(), productID: domain.ProductID("elsewhere")}
+	other := &EscalationStore{root: store.Root(), state: store.state, productID: domain.ProductID("elsewhere")}
 	if _, _, err := other.Find(escalationDocketKey); err == nil || !strings.Contains(err.Error(), "belongs to product") {
 		t.Fatalf("Find() error = %v, want another product's record refused", err)
 	}

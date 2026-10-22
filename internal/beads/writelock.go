@@ -77,7 +77,9 @@ func (c Client) lockItem(ctx context.Context, id string) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("lock writes to %s: %w", id, err)
 	}
-	file, err := root.OpenAppend(writeLockDirectory+"/"+id+".lock", 0o600, 0o700)
+	// A lock file: created once, opened read-only, and refused as a link or
+	// with a second link.
+	file, err := root.OpenLock(writeLockDirectory+"/"+id+".lock", 0o600, 0o700)
 	if err != nil {
 		return nil, fmt.Errorf("lock writes to %s: %w", id, err)
 	}

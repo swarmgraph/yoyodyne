@@ -218,6 +218,8 @@ func count(n int, noun string) string {
 // outside every repository, named by nothing a project configures, and every
 // store in this package writes there the same way.
 type ProviderOutageStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -229,7 +231,12 @@ func NewProviderOutageStore(root string, productID domain.ProductID) (*ProviderO
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &ProviderOutageStore{
+		state:     state,
 		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
@@ -348,7 +355,7 @@ func (s *ProviderOutageStore) Clear() (ProviderOutage, bool, error) {
 	if !found {
 		return ProviderOutage{}, false, nil
 	}
-	if err := os.Remove(s.path()); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := s.state.remove(s.path()); err != nil {
 		return ProviderOutage{}, false, fmt.Errorf("clear provider outage: %w", err)
 	}
 	if err := syncDirectory(s.root); err != nil {
@@ -358,30 +365,7 @@ func (s *ProviderOutageStore) Clear() (ProviderOutage, bool, error) {
 }
 
 func (s *ProviderOutageStore) write(recorded ProviderOutage) error {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create product state directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".provider-outage-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary provider outage: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary provider outage: %w", err)
-	}
-	if err := writeJSONFile(temporary, "provider outage", recorded); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary provider outage: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.path()); err != nil {
-		return fmt.Errorf("replace provider outage: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, s.path(), "provider outage", recorded)
 }
 
 // path names the outage's file. It is one fixed name under the product:

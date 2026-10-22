@@ -42,6 +42,8 @@ type UsageWindowRecord struct {
 // UsageWindowStore is where the product's usage-window readings are kept, one
 // file under the product beside the usage-limit log.
 type UsageWindowStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -55,7 +57,12 @@ func NewUsageWindowStore(root string, productID domain.ProductID) (*UsageWindowS
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &UsageWindowStore{
+		state:     state,
 		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
@@ -179,39 +186,13 @@ func (s *UsageWindowStore) read(strict bool) ([]backend.UsageWindowReading, erro
 }
 
 func (s *UsageWindowStore) write(record UsageWindowRecord) error {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create product state directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".usage-windows-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary usage limit record: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary usage limit record: %w", err)
-	}
-	if err := writeJSONFile(temporary, "usage limit record", record); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary usage limit record: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.Path()); err != nil {
-		return fmt.Errorf("replace usage limit record: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, s.Path(), "usage limit record", record)
 }
 
 // lock serializes the writers: every process an invocation runs in writes here,
 // and a read-modify-write with nothing between two of them loses one window.
 func (s *UsageWindowStore) lock() (func(), error) {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create product state directory: %w", err)
-	}
-	file, err := os.OpenFile(s.Path()+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(s.Path() + ".lock")
 	if err != nil {
 		return nil, fmt.Errorf("open usage limit lock: %w", err)
 	}

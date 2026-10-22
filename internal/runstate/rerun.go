@@ -388,6 +388,8 @@ func (e RerunTakenError) Unwrap() error { return ErrRerunTaken }
 // it. A file each rather than one shared record is what keeps two re-runs of two
 // stoppages out of each other's way.
 type RerunStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -399,7 +401,12 @@ func NewRerunStore(root string, productID domain.ProductID) (*RerunStore, error)
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &RerunStore{
+		state:     state,
 		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "reruns"),
 		productID: productID,
 	}, nil
@@ -411,6 +418,7 @@ func NewRerunStore(root string, productID domain.ProductID) (*RerunStore, error)
 // told the state root a second time.
 func (s *Store) Reruns() *RerunStore {
 	return &RerunStore{
+		state:     s.state,
 		root:      filepath.Join(filepath.Dir(s.root), "reruns"),
 		productID: s.productID,
 	}
@@ -581,10 +589,10 @@ func (s *RerunStore) Withdraw(ctx context.Context, docketKey string) error {
 		restored.UpdatedAt = time.Now().UTC()
 		return s.save(key, restored)
 	}
-	if err := os.Remove(s.path(key)); err != nil {
+	if err := s.state.remove(s.path(key)); err != nil {
 		return fmt.Errorf("withdraw the triage re-run of %s: %w", key, err)
 	}
-	return syncDirectory(s.root)
+	return nil
 }
 
 // SpentOn reports the standing claim whose fresh run is runID, or, where no
@@ -842,30 +850,7 @@ func (s *RerunStore) save(docketKey string, rerun Rerun) error {
 	if err := rerun.Validate(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create triage re-run directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".rerun-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary triage re-run: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary triage re-run: %w", err)
-	}
-	if err := writeJSONFile(temporary, "triage re-run", rerun); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary triage re-run: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.path(docketKey)); err != nil {
-		return fmt.Errorf("replace triage re-run: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, s.path(docketKey), "triage re-run", rerun)
 }
 
 // lock serializes the read-modify-write on one stoppage's record across every
@@ -873,10 +858,7 @@ func (s *RerunStore) save(docketKey string, rerun Rerun) error {
 // counters' does: removing it while another process held it would let a third
 // take a lock on a file nobody else can see.
 func (s *RerunStore) lock(ctx context.Context, docketKey string) (func(), error) {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create triage re-run directory: %w", err)
-	}
-	file, err := os.OpenFile(s.path(docketKey)+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(s.path(docketKey) + ".lock")
 	if err != nil {
 		return nil, fmt.Errorf("open triage re-run lock: %w", err)
 	}

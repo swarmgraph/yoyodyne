@@ -172,6 +172,8 @@ type DivergedTargetObservation struct {
 // sweep lifting one — and a read-modify-write with nothing between them is a
 // divergence one of them loses.
 type DivergedTargetStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -183,7 +185,12 @@ func NewDivergedTargetStore(root string, productID domain.ProductID) (*DivergedT
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &DivergedTargetStore{
+		state:     state,
 		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
@@ -306,7 +313,7 @@ func (s *DivergedTargetStore) Clear(targetBranch string) (DivergedTarget, bool, 
 		return DivergedTarget{}, false, nil
 	}
 	if len(kept) == 0 {
-		if err := os.Remove(s.path()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := s.state.remove(s.path()); err != nil {
 			return DivergedTarget{}, false, fmt.Errorf("clear diverged targets: %w", err)
 		}
 		if err := syncDirectory(s.root); err != nil {
@@ -326,39 +333,13 @@ func (s *DivergedTargetStore) write(targets []DivergedTarget) error {
 	if err := recorded.Validate(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create product state directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".diverged-targets-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary diverged targets: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary diverged targets: %w", err)
-	}
-	if err := writeJSONFile(temporary, "diverged targets", recorded); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary diverged targets: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.path()); err != nil {
-		return fmt.Errorf("replace diverged targets: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, s.path(), "diverged targets", recorded)
 }
 
 // lock serializes the writers of the record, bounded for the reason the intake
 // hold's lock is: what it waits on is another process's one small write.
 func (s *DivergedTargetStore) lock() (func(), error) {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create product state directory: %w", err)
-	}
-	file, err := os.OpenFile(s.path()+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(s.path() + ".lock")
 	if err != nil {
 		return nil, fmt.Errorf("open diverged targets lock: %w", err)
 	}

@@ -170,6 +170,8 @@ func (c PassCursor) Validate() error {
 
 // PassCursorStore keeps every instance's cursor for one product.
 type PassCursorStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -182,7 +184,12 @@ func NewPassCursorStore(root string, productID domain.ProductID) (*PassCursorSto
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &PassCursorStore{
+		state:     state,
 		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "program-managers"),
 		productID: productID,
 	}, nil
@@ -192,6 +199,7 @@ func NewPassCursorStore(root string, productID domain.ProductID) (*PassCursorSto
 // here for the reason the sweeps are.
 func (s *Store) PassCursors() *PassCursorStore {
 	return &PassCursorStore{
+		state:     s.state,
 		root:      filepath.Join(filepath.Dir(s.root), "program-managers"),
 		productID: s.productID,
 	}
@@ -344,10 +352,7 @@ func (s *PassCursorStore) Advance(ctx context.Context, agent string, positions m
 // Yoyodyne process.
 func (s *PassCursorStore) lock(ctx context.Context, agent string) (func(), error) {
 	directory := filepath.Join(s.root, agent)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return nil, fmt.Errorf("create the %s pass cursor directory: %w", agent, err)
-	}
-	file, err := os.OpenFile(filepath.Join(directory, passCursorLockFile), os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(filepath.Join(directory, passCursorLockFile))
 	if err != nil {
 		return nil, fmt.Errorf("open the %s pass cursor lock: %w", agent, err)
 	}
