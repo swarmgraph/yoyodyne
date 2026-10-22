@@ -622,12 +622,23 @@ the door of each of their homes — and some of what they find there is escalate
 rather than failed: a `supports` entry naming a document nobody wrote, an
 artifact reaching no brief, a revision recorded by a role that does not own the
 file, a home whose index is missing or has stopped answering, and a broken link
-in a file no developer's change may touch. Each is printed in full on stderr,
-naming the role that owns the home the file is in and the command that reaches
-that role, and `make test` stays green. Every one opens with
-`defect in a governed document (escalated;`, so they are one search away in the
-output of a build that passed — which they have to be, since `go test` shows
-nothing a passing test logged.
+in a file no developer's change may touch. Each is written to standard error,
+opening with `defect in a governed document (escalated;` and naming the role
+that owns the home the file is in and the command that reaches that role, and
+`make test` stays green.
+
+`go test ./...` discards everything a passing package printed, standard error
+included, so the suite's own output never shows them. `make test` therefore runs
+the tests that escalate once more with `-v` after the suite — the Makefile names
+them in `GOVERNED_DOCUMENT_TESTS` and their packages in
+`GOVERNED_DOCUMENT_GATES` — and prints each escalation with its route under it,
+or `no defect in a governed document was escalated`. That last step keeps the
+tests' own result, so it fails only if one of them fails.
+`internal/governeddoc` (`repository_test.go`) fails if a test that escalates is
+missing from that list, if the list names a test that does not escalate, or if
+the prefix the step looks for no longer opens what `governeddoc.Escalate`
+writes, so the step cannot go on saying there was nothing while defects go
+unprinted. Running `go test` yourself without `-v` shows none of this.
 
 That is not the check going soft. Those files live in directories every
 developer's change is refused in

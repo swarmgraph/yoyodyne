@@ -34,6 +34,7 @@ package governeddoc
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"strings"
@@ -182,21 +183,30 @@ func IndexDefects(statuses []artifacthome.Status) []Defect {
 }
 
 // EscalationPrefix opens every escalated defect. It is a fixed, searchable
-// string rather than prose so that one can be found in the output of a build
-// that passed, and so that anything watching a run can pick them out without
-// reading the wording.
+// string rather than prose so that the step in `make test` that prints the
+// escalations can pick them out of a test's output without reading the wording.
 const EscalationPrefix = "defect in a governed document (escalated; not this change's to fix):"
 
-// Escalate is where an escalated defect is written, and it is the process's own
-// standard error rather than the test log on purpose.
+// Escalate is where an escalated defect is written: the process's own standard
+// error, at the start of a line, rather than the test log, which would indent
+// it behind a file name.
 //
-// `go test` without `-v` shows nothing a passing test logged, and every gate
-// that routes through here is meant to pass on a defect it found. An escalation
-// nobody sees is not a report — it is the silence a red build was traded for,
-// which would be a worse arrangement than the one it replaced. Written here it
-// is in the output of `make test` whether or not anything failed.
+// Writing it is not the same as anybody seeing it. `go test ./...` discards
+// everything a passing package printed, its standard error included, and every
+// gate that routes through here is meant to pass on a defect it found. So
+// `make test` runs those gates once more with `-v` after the suite and prints
+// each escalation, or says there was none (the Makefile's
+// GOVERNED_DOCUMENT_GATES), and repository_test.go here fails if that step and
+// the gates that call this stop matching. Without that step an escalation would
+// be the silence a red build was traded for.
 func Escalate(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, EscalationPrefix+" "+format+"\n", args...)
+	escalateTo(os.Stderr, format, args...)
+}
+
+// escalateTo is Escalate with its writer named, so what an escalation looks
+// like can be held without capturing the process's standard error.
+func escalateTo(w io.Writer, format string, args ...any) {
+	fmt.Fprintf(w, EscalationPrefix+" "+format+"\n", args...)
 }
 
 // route is what a defect nobody here may fix says to do about it. It names the

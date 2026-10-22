@@ -74,6 +74,13 @@ build: cachecheck
 	mkdir -p $(dir $(BINARY))
 	$(GO) build -ldflags '$(LDFLAGS)' -o $(BINARY) ./cmd/yoyo
 
+# The repository tests that escalate a defect in a governed document rather
+# than failing on it, the packages holding them, and the start of the line each
+# escalation is written on. The test step below prints what they escalated.
+GOVERNED_DOCUMENT_GATES = ./internal/cli ./internal/doctor ./internal/doclink
+GOVERNED_DOCUMENT_TESTS = ^(TestThisRepositoryOwnArtifactsAreReadableByTheHarness|TestThisRepositoryReportsItsOwnArtifactHomesDocumented|TestThisRepositoryOwnDocumentationLinksResolve)$$
+GOVERNED_DOCUMENT_PREFIX = defect in a governed document (escalated;
+
 # The shipped-documentation gate warns for the length of a margin before it
 # fails, and `go test ./...` discards everything a passing test says -- so the
 # gate's size line and its warning are printed here, after the suite that
@@ -105,6 +112,22 @@ test: cachecheck
 		*) printf '%s\n' "$$render" ;; \
 	esac; \
 	exit $$rendered
+	@# A defect in a document no developer's change may edit is escalated rather
+	@# than failed (internal/governeddoc): the gates below write it to standard
+	@# error and pass. `go test ./...` discards a passing package's output, so
+	@# without this step the escalation would reach nobody. The gates are run
+	@# again with -v and each escalation is printed with the route under it, or
+	@# one line saying there was none. It is captured and its status kept, for
+	@# the reasons the render step above gives. internal/governeddoc's
+	@# repository_test.go fails if the list or the prefix stop matching the code.
+	@gates=$$($(GO) test -count=1 -v -run '$(GOVERNED_DOCUMENT_TESTS)' $(GOVERNED_DOCUMENT_GATES) 2>&1); \
+	gated=$$?; \
+	found=$$(printf '%s\n' "$$gates" | awk -v prefix='$(GOVERNED_DOCUMENT_PREFIX)' \
+		'index($$0, prefix) == 1 { shown = 1; print; next } shown && /^\t/ { print; next } { shown = 0 }'); \
+	if [ $$gated -ne 0 ]; then printf '%s\n' "$$gates"; \
+	elif [ -n "$$found" ]; then printf '%s\n' "$$found"; \
+	else echo "no defect in a governed document was escalated"; fi; \
+	exit $$gated
 
 # The race suite is the expensive one -- several times the plain suite, and
 # under two concurrent runs the check that took a run's check stage past two

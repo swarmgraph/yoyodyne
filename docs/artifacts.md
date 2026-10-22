@@ -233,9 +233,10 @@ documents live in directories every developer's change is refused in, so a
 malformed one used to stop every run in the project over a file no developer
 could open, with the only route out an amendment proposal made while every run
 stayed red. The checks a run makes still read these documents and still report
-what they find in full — they print it to stderr instead of failing, naming the
-owning role and the route. This command is where the same defect fails, run by
-whoever can put it right.
+what they find in full — instead of failing, they report it with the owning role
+and the route, and Yoyodyne's own `make test` prints those reports after its
+suite, since `go test` hides what a passing test wrote. This command is where
+the same defect fails, run by whoever can put it right.
 
 The index each home carries is meant to say this at the door, and the generator
 that writes one now does. The committed indexes may not: an index that already
