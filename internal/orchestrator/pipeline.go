@@ -38,6 +38,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/spend"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
 	"github.com/mason-bryant/yoyodyne/internal/toolcatalog"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 // maxCommitSubjectBytes bounds the work item title carried into the
@@ -362,6 +363,12 @@ type IntakeHolds interface {
 }
 
 type Pipeline struct {
+	// ReferenceFinder takes one listing of the tracker and gives back what
+	// finds the work items a report's message names as it is collected
+	// (internal/workref), so a short id the role wrote is shown as the item it
+	// named then. It is nil, or gives back nil, where no tracker could be listed,
+	// and the report is then collected without references.
+	ReferenceFinder func() func(text string) []workref.Reference
 	// Availability reads the same OS and scheduler observations as services.
 	Availability func(from, to time.Time, task string) readmodel.GapCause
 	Tracker      WorkTracker

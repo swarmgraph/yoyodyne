@@ -167,8 +167,8 @@ func TestAFailedWholeListingIsSaidOnceAndAskedOnce(t *testing.T) {
 	if !strings.Contains(standing.NotStartableProblem, "the admitted work could not be read") || !strings.Contains(standing.NotStartableProblem, "did not answer within its 30s bound") {
 		t.Fatalf("not startable problem = %q; want the failure said", standing.NotStartableProblem)
 	}
-	if standing.Titles != nil {
-		t.Fatalf("titles = %+v; want none from a listing that failed", standing.Titles)
+	if standing.Titles == nil || standing.Titles.Readable() {
+		t.Fatalf("titles = %+v; want the unreadable reading from a listing that failed, so items are marked rather than bare", standing.Titles)
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 // maxRenderedReports bounds how many collected reports one listing shows. The
@@ -125,6 +126,7 @@ func (s *Session) recordReportsWithoutToolAudit(entries []report.Entry) ([]repor
 		Build:        s.options.Build,
 		ProductID:    s.options.ProductID,
 		RepositoryID: s.options.RepositoryID,
+		References:   s.referencesFinder(),
 	}, s.options.clock().Now())
 	if err != nil {
 		return nil, singleLine(err.Error(), maxTrackerFailureBytes)
@@ -498,6 +500,7 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 		ProductID:      s.options.ProductID,
 		RepositoryID:   s.options.RepositoryID,
 		Reason:         strings.TrimSpace(outcome.Action.Reason),
+		References:     s.findReferences(strings.TrimSpace(outcome.Action.Reason)),
 		Requests:       requests,
 		RecordedAt:     s.options.clock().Now(),
 		NeedsOperator:  strings.TrimSpace(outcome.Action.Needs) == handleNeedsOperator,
@@ -573,8 +576,8 @@ func reportedOn(subject report.Report) string {
 // filed at, and the plain line under a loud one says exactly that.
 //
 // A report is a role's own words, a program manager's digest among them, so
-// each is read with every work item it names beside its title: an item the
-// report named by number alone reaches the operator named.
+// each work item it names is shown with its priority, labels, and title
+// (readmodel.WorkItemTitles), from the references recorded with it.
 func renderCollectedReports(theme console.Theme, reports []report.Report, handled map[string]report.Handling, gauge *report.Gauge, titles *readmodel.WorkItemTitles, now time.Time, wording ...*readmodel.TextTerms) string {
 	var words *readmodel.TextTerms
 	if len(wording) > 0 {
@@ -604,12 +607,19 @@ func renderCollectedReports(theme console.Theme, reports []report.Report, handle
 	if len(reports) > len(listed) {
 		fmt.Fprintf(&rendered, "  %d earlier report(s) are not listed here.\n", len(reports)-len(listed))
 	}
+	unresolved := 0
 	for _, reported := range listed {
 		text := words.Render(titles.Cite(reported.RenderAgainst(gauge)))
 		rendered.WriteString(theme.Severity(console.Severity(reported.Severity), text))
-		if handling, done := handled[reported.ID]; done {
-			rendered.WriteString(words.Render(titles.CiteAfter(text, handling.Render())))
+		if !reported.ReferencesKept {
+			unresolved += titles.Unresolved(reported.Message)
 		}
+		if handling, done := handled[reported.ID]; done {
+			rendered.WriteString(words.Render(titles.Cite(handling.Render())))
+		}
+	}
+	if said := readmodel.UnresolvedSays(unresolved); said != "" {
+		fmt.Fprintf(&rendered, "%s\n", said)
 	}
 	if problem := gauge.Problem(); problem != "" {
 		fmt.Fprintf(&rendered, "%s\n", problem)
@@ -617,18 +627,55 @@ func renderCollectedReports(theme console.Theme, reports []report.Report, handle
 	return rendered.String()
 }
 
-// workItemTitles is what the tracker calls every item, for a listing a person
-// reads, or nil where this conversation has no tracker or it could not be
-// listed — in which case the listing names items as they were written.
+// workItemTitlesTimeout bounds the one tracker listing a report listing or a
+// collection makes for its work items, as every other surface's listing is
+// bounded: a tracker that will not answer costs the listing its titles, never
+// the turn.
+const workItemTitlesTimeout = 30 * time.Second
+
+// workItemTitles is one reading of the tracker, for a listing a person reads or
+// for the references of text being recorded. It is nil where this conversation
+// has no tracker, and the unreadable reading where the tracker could not be
+// listed in time, so every item is still shown marked rather than bare.
 func (s *Session) workItemTitles() *readmodel.WorkItemTitles {
 	if s.options.Tracker == nil {
 		return nil
 	}
-	items, err := s.options.Tracker.List(context.Background(), "")
+	ctx, cancel := context.WithTimeout(context.Background(), workItemTitlesTimeout)
+	defer cancel()
+	items, err := s.options.Tracker.List(ctx, "")
 	if err != nil {
+		return readmodel.UnreadableWorkItemTitles(s.options.clock().Now(), string(s.options.ProductID))
+	}
+	return readmodel.NewWorkItemTitles(items, string(s.options.ProductID))
+}
+
+// referencesFinder finds the work items a role's text names as it is
+// recorded, against one listing of the tracker taken now, and is nil where
+// this conversation has no tracker or it could not be listed: text recorded
+// without references is read for full ids when it is shown, and a short id in
+// it is left as written rather than resolved against nothing.
+func (s *Session) referencesFinder() func(text string) []workref.Reference {
+	if s.options.Tracker == nil {
 		return nil
 	}
-	return readmodel.NewWorkItemTitles(items)
+	titles := s.workItemTitles()
+	if !titles.Readable() {
+		return nil
+	}
+	return func(text string) []workref.Reference {
+		found, _ := titles.References(text)
+		return found
+	}
+}
+
+// findReferences is the work items one text a role wrote names, as it is
+// recorded.
+func (s *Session) findReferences(text string) []workref.Reference {
+	if find := s.referencesFinder(); find != nil {
+		return find(text)
+	}
+	return nil
 }
 
 // buildGauge counts the builds of the reports one listing or one turn shows

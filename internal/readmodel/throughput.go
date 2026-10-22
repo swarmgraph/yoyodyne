@@ -129,6 +129,23 @@ type Throughput struct {
 	// RunsProblem is set where the run records could not be read; the endings
 	// in every window are then nothing rather than zero, and this says why.
 	RunsProblem string `json:"runs_problem,omitempty"`
+	// WorkItemNames is each landed item in the operator's form, as
+	// WorkItemTitles.Name names it from the tracker when the reading is made,
+	// and absent where the caller named none (NameWorkItems).
+	WorkItemNames map[string]string `json:"work_item_names,omitempty"`
+}
+
+// NameWorkItems names every item the windows say landed against one reading of
+// the tracker. Nil titles name nothing, and the landed items keep the title
+// each run recorded at its claim.
+func (t *Throughput) NameWorkItems(titles *WorkItemTitles) {
+	var ids []string
+	for _, window := range t.Windows {
+		for _, landed := range window.LandedItems {
+			ids = append(ids, landed.WorkItemID)
+		}
+	}
+	t.WorkItemNames = titles.Names(ids...)
 }
 
 // ReadThroughput assembles the two windows from the durable records.

@@ -476,7 +476,7 @@ func FromReport(reported report.Report) (Notification, error) {
 			Severity: reported.Severity,
 			Refs:     Refs{RunID: reported.RunID, WorkItemID: reported.WorkItemID},
 			Detail:   detail,
-			Text:     reported.Message,
+			Text:     reported.ExpandedMessage(),
 		},
 	}, nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 // A project that has scheduled nothing gets no trigger at all, and the nil has to
@@ -359,10 +360,9 @@ func TestReadSweepRecordsTheLastOfSeveralBlocksAndSaysSo(t *testing.T) {
 	}
 }
 
-// A pass's account is the role's own words, and a role that named work by its
-// number alone is read with each item's title beside it, in every pass that
-// names it.
-func TestASweepSummaryShowsEveryItemBesideItsTitle(t *testing.T) {
+// A pass's account is the role's own words, and each item it names by id is
+// read with the item's state beside it, in every pass that names it.
+func TestASweepSummaryShowsEveryItemWithItsState(t *testing.T) {
 	t.Parallel()
 
 	at := time.Date(2026, 9, 26, 9, 0, 0, 0, time.UTC)
@@ -372,7 +372,7 @@ func TestASweepSummaryShowsEveryItemBesideItsTitle(t *testing.T) {
 	rendered := renderSweeps([]runstate.Sweep{
 		recordedSweep("a-sweep", at, &sweep.Result{
 			Status:  sweep.StatusComplete,
-			Summary: "434.9 is blocked",
+			Summary: "yoyodyne-ifd.434.9 is blocked",
 			Findings: []sweep.Finding{{
 				Issue: "a stuck delivery", Disposition: sweep.DispositionFixed,
 				Filed: []string{"yoyodyne-ifd.999.1"},
@@ -380,14 +380,49 @@ func TestASweepSummaryShowsEveryItemBesideItsTitle(t *testing.T) {
 		}, ""),
 		recordedSweep("a-sweep", at.Add(time.Hour), &sweep.Result{
 			Status:  sweep.StatusComplete,
-			Summary: "434.9 is still blocked",
+			Summary: "yoyodyne-ifd.434.9 is still blocked",
 		}, ""),
 	}, nil, defaultRenderedSweeps, titles)
-	if got := strings.Count(rendered, "434.9 (Price a resumed session at what it moved by)"); got != 2 {
-		t.Errorf("renderSweeps() = %q, want the item titled in each of the two passes, got %d", rendered, got)
+	if got := strings.Count(rendered, "yoyodyne-ifd.434.9 (P0: Price a resumed session at what it moved by)"); got != 2 {
+		t.Errorf("renderSweeps() = %q, want the item shown with its state in each of the two passes, got %d", rendered, got)
 	}
-	if !strings.Contains(rendered, "yoyodyne-ifd.999.1 (unknown to the tracker)") {
-		t.Errorf("renderSweeps() = %q, want the filed item the tracker does not hold said to be unknown", rendered)
+	if !strings.Contains(rendered, "yoyodyne-ifd.999.1 (not in the tracker)") {
+		t.Errorf("renderSweeps() = %q, want the filed item the tracker does not hold said to be not in the tracker", rendered)
+	}
+}
+
+// A pass recorded with its references shows a short id its role wrote as the
+// item it named then; the same words in a pass recorded before references were
+// kept are left as written and counted under the listing.
+func TestAShortIdInARecordedPassIsShownWithItsItem(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 9, 26, 9, 0, 0, 0, time.UTC)
+	titles := readmodel.NewWorkItemTitles([]beads.WorkItem{
+		{ID: "yoyodyne-ifd.434.9", Title: "Price a resumed session at what it moved by", Priority: 1, Labels: []string{"reliability"}},
+	})
+	recorded := recordedSweep("a-sweep", at.Add(time.Hour), &sweep.Result{
+		Status:  sweep.StatusComplete,
+		Summary: "434.9 is still blocked",
+		Findings: []sweep.Finding{{
+			Issue: "434.9 has no reviewer", Disposition: sweep.DispositionLeft,
+		}},
+	}, "")
+	recorded.KeepReferences(func(text string) []workref.Reference {
+		found, _ := titles.References(text)
+		return found
+	})
+	older := recordedSweep("a-sweep", at, &sweep.Result{Status: sweep.StatusComplete, Summary: "434.9 is blocked"}, "")
+	rendered := renderSweeps([]runstate.Sweep{older, recorded}, nil, defaultRenderedSweeps, titles)
+	for _, want := range []string{
+		"  yoyodyne-ifd.434.9 (P1, reliability: Price a resumed session at what it moved by) is still blocked\n",
+		"[left] yoyodyne-ifd.434.9 (P1, reliability: Price a resumed session at what it moved by) has no reviewer",
+		"  434.9 is blocked\n",
+		"1 short work item id above was recorded with no tracker listing to resolve it against",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("renderSweeps() = %q, want it to carry %q", rendered, want)
+		}
 	}
 }
 

@@ -422,6 +422,12 @@ type documentPassTracker struct {
 	reads []string
 }
 
+// List is the listing a report is recorded against, to find the work items it
+// names; this tracker holds none.
+func (t *documentPassTracker) List(context.Context, string) ([]beads.WorkItem, error) {
+	return nil, nil
+}
+
 func (t *documentPassTracker) Show(_ context.Context, id string) (beads.WorkItem, error) {
 	t.reads = append(t.reads, id)
 	return beads.WorkItem{ID: id, Title: "Inspect document recovery", Status: "open"}, nil

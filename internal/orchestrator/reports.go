@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 // ReportCollector is where collected reports are kept. It is satisfied by
@@ -74,6 +75,7 @@ func (a *activeRun) collectReportsWithoutToolAudit(role domain.AgentRole, entrie
 		Build:        a.state.Build,
 		ProductID:    a.pipeline.Config.Product.ID,
 		RepositoryID: string(a.pipeline.Config.Product.RepositoryID),
+		References:   findReferences(a.pipeline.ReferenceFinder),
 	}, a.pipeline.clock().Now())
 	if err != nil {
 		a.noteReportProblem(role, err)
@@ -118,4 +120,14 @@ func (p Pipeline) agentNameForRole(role domain.AgentRole) string {
 		}
 	}
 	return ""
+}
+
+// findReferences is what finds the work items a report's message names as it
+// is collected, from one listing of the tracker, or nil where nothing was wired
+// to list it or it could not be listed.
+func findReferences(finder func() func(text string) []workref.Reference) func(text string) []workref.Reference {
+	if finder == nil {
+		return nil
+	}
+	return finder()
 }

@@ -445,19 +445,20 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 	// standing that could differ, which is the disagreement only the operator
 	// could adjudicate. Every store here is one this sink already holds.
 	standing := &readmodel.Sources{
-		Repository:    repository,
-		Runs:          runs,
-		Stoppages:     runs,
-		Decisions:     runs.Triage(),
-		Remains:       standingRemains(resolved),
-		Conversations: conversations,
-		Tracker:       tracker,
-		Directives:    directives,
-		Amendments:    proposals,
-		OperatorHolds: holds,
-		IntakeHolds:   intake,
-		Sessions:      watch,
-		Reports:       reports,
+		Repository:      repository,
+		Runs:            runs,
+		Stoppages:       runs,
+		Decisions:       runs.Triage(),
+		Remains:         standingRemains(resolved),
+		Conversations:   conversations,
+		Tracker:         tracker,
+		TrackerPrefixes: []string{string(resolved.Config.Product.ID)},
+		Directives:      directives,
+		Amendments:      proposals,
+		OperatorHolds:   holds,
+		IntakeHolds:     intake,
+		Sessions:        watch,
+		Reports:         reports,
 		// The triage docket, so the channel names an unanswered product decision
 		// about a run in flight exactly as the terminal does.
 		Docket: slackDocket(stateRoot, resolved.Config.Product.ID),

@@ -69,7 +69,9 @@ func UntracedPassesOf(passes []runstate.Sweep) []UntracedPass {
 		if pass.Result != nil {
 			entry.Findings = len(pass.Result.Findings)
 			if entry.Findings > 0 {
-				entry.First = pass.Result.Findings[0].Issue
+				// In the role's words, with each short id it wrote as the item it
+				// named when the pass was recorded.
+				entry.First = pass.ExpandedAccount().Findings[0].Issue
 			}
 		}
 		untraced = append(untraced, entry)

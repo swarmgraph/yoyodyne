@@ -20,6 +20,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/report"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 // Store is the durable home of exchanges. It is satisfied by
@@ -152,7 +153,13 @@ var ErrNoExchange = errors.New("no exchange is recorded under that identifier")
 // Conductor carries questions between two roles and keeps the record of what
 // they said.
 type Conductor struct {
-	Store Store
+	// ReferenceFinder takes one listing of the tracker and gives back what
+	// finds the work items a report's message names as it is collected
+	// (internal/workref), so a short id the role wrote is shown as the item it
+	// named then. It is nil, or gives back nil, where no tracker could be listed,
+	// and the report is then collected without references.
+	ReferenceFinder func() func(text string) []workref.Reference
+	Store           Store
 	// Leases is what makes one exchange take its rounds one at a time. A
 	// conductor wired without one still works and is what a test conducting a
 	// thread on its own gets; wired, a round on a thread another process is
@@ -548,6 +555,7 @@ func (c Conductor) escalate(recorded Exchange, at time.Time) error {
 			Build:        recorded.lastBuild(),
 			ProductID:    recorded.ProductID,
 			RepositoryID: recorded.RepositoryID,
+			References:   c.findReferences(),
 		}, at)
 	if err != nil {
 		return err
@@ -619,4 +627,13 @@ func previousSessionEndpoint(rounds []Round) (domain.Backend, string) {
 		}
 	}
 	return "", ""
+}
+
+// findReferences is what finds the work items an escalation names as it is
+// filed, or nil where nothing was wired to list the tracker.
+func (c Conductor) findReferences() func(text string) []workref.Reference {
+	if c.ReferenceFinder == nil {
+		return nil
+	}
+	return c.ReferenceFinder()
 }

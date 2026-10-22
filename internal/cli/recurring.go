@@ -59,8 +59,14 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		Tasks: parts.config.RecurringTasks,
 		// Where a firing is claimed and paced, so one task fires once per cadence
 		// however many sessions are polling.
-		Claims:             parts.store.Sweeps(),
-		Availability:       machineAvailability(parts),
+		Claims:       parts.store.Sweeps(),
+		Availability: machineAvailability(parts),
+		// One reading of the tracker as each pass's account is recorded, so the
+		// work items the account names are kept beside it.
+		WorkItemTitles: func(ctx context.Context) *readmodel.WorkItemTitles {
+			titles, _ := readmodel.ReadWorkItemTitles(ctx, readmodel.Sources{Tracker: parts.tracker(), TrackerTimeout: trackerCommandTimeout, TrackerPrefixes: []string{string(parts.config.Product.ID)}})
+			return titles
+		},
 		Reports:            parts.store.Sweeps(),
 		Roles:              roleConversation{configPath: configPath, stderr: stderr},
 		MissingReportLimit: parts.config.Execution.MissingReportLimit(),
@@ -911,7 +917,7 @@ func readSweeps(args []string, stdout, stderr io.Writer) int {
 	// A pass's account is a role's own words, and a role that named work by its
 	// number alone is read here with each item's title beside it. A tracker
 	// that cannot be listed costs the titles and nothing else.
-	titles, _ := readmodel.ReadWorkItemTitles(context.Background(), readmodel.Sources{Tracker: parts.tracker(), TrackerTimeout: trackerCommandTimeout})
+	titles, _ := readmodel.ReadWorkItemTitles(context.Background(), readmodel.Sources{Tracker: parts.tracker(), TrackerTimeout: trackerCommandTimeout, TrackerPrefixes: []string{string(parts.config.Product.ID)}})
 	fmt.Fprint(stdout, renderSweeps(recorded, unreadable, *limit, titles, readmodel.ReadTextTerms(parts.repository)))
 	if partial != nil {
 		// Said after the listing rather than before it, and on stderr, so what a
@@ -967,13 +973,23 @@ func renderSweeps(recorded []runstate.Sweep, unreadable []runstate.UnreadableSwe
 		fmt.Fprintf(&rendered, "%d sweep(s) recorded; the most recent %d follow. --limit reads further back, --limit 0 reads all of them\n\n",
 			len(recorded), len(shown))
 	}
+	unresolved := 0
 	for index := len(shown) - 1; index >= 0; index-- {
 		// Each pass is cited on its own, so an item two passes both name is
-		// titled in each of them rather than only in the newer.
-		rendered.WriteString(words.Render(titles.Cite(renderSweep(shown[index]))))
+		// shown with its state in each of them rather than only in the newer.
+		said := renderSweep(shown[index])
+		if shown[index].References == nil {
+			// Only a pass recorded without its references can carry a short id
+			// nobody resolved when it was written.
+			unresolved += titles.Unresolved(said)
+		}
+		rendered.WriteString(words.Render(titles.Cite(said)))
 		if index > 0 {
 			rendered.WriteString("\n")
 		}
+	}
+	if said := readmodel.UnresolvedSays(unresolved); said != "" {
+		rendered.WriteString("\n" + said + "\n")
 	}
 	return rendered.String()
 }
@@ -1064,13 +1080,16 @@ func renderSweep(recorded runstate.Sweep) string {
 		fmt.Fprintf(&rendered, "  no account of this pass was recorded: %s\n", nonEmptySweepProblem(recorded.Problem))
 		return rendered.String()
 	}
-	for _, question := range recorded.Result.Questions {
+	// The role's own words, with each short id it wrote shown as the full id it
+	// named when the pass was recorded.
+	account := recorded.ExpandedAccount()
+	for _, question := range account.Questions {
 		fmt.Fprintf(&rendered, "  ? %s\n", question)
 	}
-	if summary := strings.TrimSpace(recorded.Result.Summary); summary != "" {
+	if summary := strings.TrimSpace(account.Summary); summary != "" {
 		fmt.Fprintf(&rendered, "  %s\n", summary)
 	}
-	for _, finding := range recorded.Result.Findings {
+	for _, finding := range account.Findings {
 		fmt.Fprintf(&rendered, "  - [%s] %s\n", finding.Disposition, finding.Issue)
 		if detail := strings.TrimSpace(finding.Detail); detail != "" {
 			fmt.Fprintf(&rendered, "      %s\n", detail)

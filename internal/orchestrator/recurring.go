@@ -103,6 +103,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 // RecurringClaims is the durable cadence: where a firing is claimed before it is
@@ -513,6 +514,11 @@ type Trigger struct {
 	StopCauses   PassStopCauses
 	Clock        execution.Clock
 	Availability func(from, to time.Time, task string) readmodel.GapCause
+	// WorkItemTitles is one reading of the tracker, taken as a pass's account is
+	// recorded so the work items the account names are kept beside it
+	// (runstate.Sweep.KeepReferences). Nil, or a tracker that cannot be read,
+	// records the account with none, and it is then read for full ids only.
+	WorkItemTitles func(ctx context.Context) *readmodel.WorkItemTitles
 }
 
 // RecurringBreakage is the report pile as a missed cadence files into it. It is
@@ -1899,6 +1905,16 @@ func (t Trigger) reportedRequests() (map[int]bool, error) {
 func (t Trigger) settle(ctx context.Context, fired *Fired, recorded runstate.Sweep) {
 	write, stopWriting := recordContext(ctx)
 	defer stopWriting()
+	// The account's references are found now, against the tracker as it stands,
+	// which is the only time a short id in it can be resolved honestly.
+	if recorded.Result != nil && t.WorkItemTitles != nil {
+		if titles := t.WorkItemTitles(write); titles.Readable() {
+			recorded.KeepReferences(func(text string) []workref.Reference {
+				found, _ := titles.References(text)
+				return found
+			})
+		}
+	}
 	if err := t.Reports.Append(recorded); err != nil {
 		fired.Problem = appendProblem(fired.Problem, t.recordWithoutTheAccount(recorded, err))
 	}

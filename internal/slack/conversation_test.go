@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/notify"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -552,3 +553,24 @@ func (c *scriptedConversation) cancelled() bool {
 }
 
 const testConversation = "chat-0123456789abcdef0123456789abcdef"
+
+// A decision the harness carries out in the conversation is the harness's own
+// answer, and it names the work item the decision created. No rendering has
+// passed through it, so the item reaches the thread with its priority,
+// labels, and title, as every other item the channel names does.
+func TestADecisionAnsweredInTheThreadNamesTheItemWithItsState(t *testing.T) {
+	t.Parallel()
+
+	talker := &scriptedConversation{text: "[1.1] created yoyodyne-ifd.500: Pause on a usage limit", harness: true}
+	sink, posts := newConversingSink(t, talker)
+	listing := &listedTitles{items: []beads.WorkItem{
+		{ID: "yoyodyne-ifd.500", Title: "Pause on a usage limit", Priority: 1, Labels: []string{"reliability"}},
+	}}
+	sink.citing = &titleIndex{read: listing.read}
+	say(sink, topLevel(testOperator, "<@"+testApp+"> approve 1.1", "1750000001.000100"))
+
+	answer := onlyPost(t, posts)
+	if !strings.Contains(answer.Text, "created yoyodyne-ifd.500 (P1, reliability: Pause on a usage limit): Pause on a usage limit") {
+		t.Fatalf("answer = %q, want the created item shown with its priority, labels, and title", answer.Text)
+	}
+}

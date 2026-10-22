@@ -617,8 +617,11 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 	return orchestrator.Pipeline{
 		Availability: machineAvailability(parts),
 		Tracker:      parts.tracker(),
-		Worktrees:    parts.worktrees,
-		Store:        parts.store,
+		// What finds the work items a developer's or reviewer's report names, as
+		// the report is collected.
+		ReferenceFinder: referenceFinder(parts),
+		Worktrees:       parts.worktrees,
+		Store:           parts.store,
 		// The same store, named again because a workflow instance is written
 		// through it rather than through the interface a run's record goes
 		// through. It is wired unconditionally, and a project that rolled back to
@@ -940,7 +943,8 @@ func supervisionLoopFrom(parts components) (orchestrator.SupervisionLoop, error)
 	return orchestrator.SupervisionLoop{
 		Store: store,
 		Conductor: exchange.Conductor{
-			Store: store,
+			Store:           store,
+			ReferenceFinder: referenceFinder(parts),
 			// A thread that ran out of rounds reaches the operator through the same
 			// pile every role's reports land in.
 			Reports:      parts.reports,

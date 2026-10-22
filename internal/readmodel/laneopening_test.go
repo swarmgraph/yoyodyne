@@ -98,10 +98,10 @@ func TestALaneReportsThreeOpeningListsReachEverySurfaceAndTheBlockerIsCarried(t 
 	rendered := standing.RenderProgramManagers()
 	for _, want := range []string{
 		"  factory-pgm — lane reliability — blocked: blocked on a human for 1 thing\n    Completed (last 24 hours):\n      - ",
-		"      - \"Retire the old maintenance job\" (yoyodyne-ifd.7) — closed, ",
+		"      - (P0, reliability) Retire the old maintenance job (yoyodyne-ifd.7) — closed, ",
 		"    Handed off (last 24 hours):\n",
-		"      - \"Fix the checkout timeout under load\" (yoyodyne-ifd.8) — admitted, to a developer, ",
-		"    Blocked on a human:\n      - \"Renew the forge token\" (yoyodyne-ifd.9): renew the forge token in the keychain — a credential or account only a person holds; since ",
+		"      - (P0) Fix the checkout timeout under load (yoyodyne-ifd.8) — admitted, to a developer, ",
+		"    Blocked on a human:\n      - (P0) Renew the forge token (yoyodyne-ifd.9): renew the forge token in the keychain — a credential or account only a person holds; since ",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("RenderProgramManagers() does not carry %q:\n%s", want, rendered)

@@ -33,6 +33,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 type reportsOutput struct {
@@ -132,8 +133,8 @@ func readReports(args []string, stdout, stderr io.Writer) int {
 	// the one the channel says cannot come apart.
 	fmt.Fprintf(stdout, "reports: %s\n", report.SummarizeHandled(collected, handled, time.Now()).Describe())
 	// A report is a role's own words, a program manager's digest among them, so
-	// each is printed with every work item it names beside its title. A tracker
-	// that cannot be listed costs the titles and nothing else.
+	// each work item it names is printed with its priority, labels, and title.
+	// A tracker that cannot be listed marks each item as unreadable.
 	writeReports(stdout, theme, collected, handled, gauge, reportTitles(*configPath), reportTerms(*configPath))
 	// Why the counts are missing is said once, under the listing, rather than
 	// under every report it affects.
@@ -173,23 +174,31 @@ func reportBuilds(configPath string) (report.Builds, error) {
 }
 
 // writeReports prints each report dressed by its severity, with what became of
-// it plainly under it, and every work item either names beside its title.
+// it plainly under it, and every work item either names with its priority, labels, and title.
 func writeReports(out io.Writer, theme console.Theme, collected []report.Report, handled map[string]report.Handling, gauge *report.Gauge, titles *readmodel.WorkItemTitles, wording ...*readmodel.TextTerms) {
 	var words *readmodel.TextTerms
 	if len(wording) > 0 {
 		words = wording[0]
 	}
+	unresolved := 0
 	for _, reported := range collected {
 		text := words.Render(titles.Cite(reported.RenderAgainst(gauge)))
 		fmt.Fprint(out, theme.Severity(console.Severity(reported.Severity), text))
-		if handling, done := handled[reported.ID]; done {
-			fmt.Fprint(out, words.Render(titles.CiteAfter(text, handling.Render())))
+		if !reported.ReferencesKept {
+			unresolved += titles.Unresolved(reported.Message)
 		}
+		if handling, done := handled[reported.ID]; done {
+			fmt.Fprint(out, words.Render(titles.Cite(handling.Render())))
+		}
+	}
+	if said := readmodel.UnresolvedSays(unresolved); said != "" {
+		fmt.Fprintln(out, said)
 	}
 }
 
-// reportTitles is what the product's tracker calls every item, or nil where the
-// tracker cannot be found or listed.
+// reportTitles is one reading of the product's tracker, for the work items the
+// listing names: nil where the tracker cannot be found, and the unreadable
+// reading where it could not be listed, so each item is shown marked.
 func reportTitles(configPath string) *readmodel.WorkItemTitles {
 	resolved, err := loadConfiguration(configPath)
 	if err != nil {
@@ -200,7 +209,7 @@ func reportTitles(configPath string) *readmodel.WorkItemTitles {
 		return nil
 	}
 	tracker := beads.Client{Runner: execution.OSProcessRunner{}, Dir: repository}
-	titles, _ := readmodel.ReadWorkItemTitles(context.Background(), readmodel.Sources{Tracker: tracker, TrackerTimeout: chatTrackerTimeout})
+	titles, _ := readmodel.ReadWorkItemTitles(context.Background(), readmodel.Sources{Tracker: tracker, TrackerTimeout: chatTrackerTimeout, TrackerPrefixes: []string{string(resolved.Config.Product.ID)}})
 	return titles
 }
 
@@ -300,4 +309,25 @@ stopped.
 Options:
   --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)
   --json            emit machine-readable JSON`)
+}
+
+// referenceFinder takes one listing of the product's tracker, bounded as every
+// other listing is, and gives back what finds the work items a report's
+// message names as it is collected; nil where the tracker could not be listed,
+// so the report is collected without references rather than resolved against
+// nothing.
+func referenceFinder(parts components) func() func(text string) []workref.Reference {
+	return func() func(text string) []workref.Reference {
+		titles, err := readmodel.ReadWorkItemTitles(context.Background(), readmodel.Sources{
+			Tracker: parts.tracker(), TrackerTimeout: trackerCommandTimeout,
+			TrackerPrefixes: []string{string(parts.config.Product.ID)},
+		})
+		if err != nil || !titles.Readable() {
+			return nil
+		}
+		return func(text string) []workref.Reference {
+			found, _ := titles.References(text)
+			return found
+		}
+	}
 }

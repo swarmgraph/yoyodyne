@@ -178,7 +178,7 @@ func (s Standing) renderRunning() string {
 		listed, further := bound(len(s.Running))
 		for _, run := range s.Running[:listed] {
 			fmt.Fprintf(&rendered, "  %s — %s%s, %s elapsed, %s%s\n",
-				run.WorkItemID, phaseOf(run), atEffort(run.Model, run.Effort, run.EffortDescription), age(run.Elapsed), spendOf(run), slotOf(run))
+				s.named(run.WorkItemID, ""), phaseOf(run), atEffort(run.Model, run.Effort, run.EffortDescription), age(run.Elapsed), spendOf(run), slotOf(run))
 		}
 		rendered.WriteString(remainder(further, "developer run"))
 	}
@@ -203,6 +203,21 @@ func (s Standing) renderRunning() string {
 		}
 	}
 	return rendered.String()
+}
+
+// named is one work item as a list the harness builds names it: with its
+// priority, labels, and title as this reading of the tracker holds them
+// (WorkItemTitles.Name). A standing read with no tracker at all names it as
+// the line always did: by the title the caller passes, where it has one, and
+// otherwise by its id.
+func (s Standing) named(id, recorded string) string {
+	if s.Titles == nil {
+		if recorded = strings.TrimSpace(recorded); recorded != "" {
+			return recorded + " (" + id + ")"
+		}
+		return id
+	}
+	return s.Titles.Name(id)
 }
 
 // withNoProcess is how many of the runs in flight have no process behind them,
@@ -236,7 +251,7 @@ func (s Standing) renderPaused() string {
 	listed, further := bound(len(s.PausedRuns))
 	for _, run := range s.PausedRuns[:listed] {
 		fmt.Fprintf(&rendered, "  %s — waiting on unfinished work it depends on: %s, paused %s\n",
-			run.WorkItemID, run.WaitingOn, pausedAgo(s.ObservedAt, run.PausedSince))
+			s.named(run.WorkItemID, ""), run.WaitingOn, pausedAgo(s.ObservedAt, run.PausedSince))
 	}
 	rendered.WriteString(remainder(further, "developer run"))
 	return rendered.String()
@@ -350,7 +365,7 @@ func (s Standing) renderNotStartable() string {
 	if len(s.NotStartable) > 0 {
 		listed, further := bound(len(s.NotStartable))
 		for _, refused := range s.NotStartable[:listed] {
-			fmt.Fprintf(&rendered, "  %s — %s%s\n", refused.WorkItemID, heldSince(refused.HeldSince, s.ObservedAt), refused.Reason)
+			fmt.Fprintf(&rendered, "  %s — %s%s\n", s.named(refused.WorkItemID, ""), heldSince(refused.HeldSince, s.ObservedAt), refused.Reason)
 		}
 		rendered.WriteString(remainder(further, "refused item"))
 	}
@@ -358,7 +373,7 @@ func (s Standing) renderNotStartable() string {
 	waiting := append(append([]WorkItemRef{}, s.SchedulingWaitProblems...), notProlonged(s.SchedulingWaits)...)
 	listedWaits, furtherWaits := bound(len(waiting))
 	for _, item := range waiting[:listedWaits] {
-		fmt.Fprintf(&rendered, "  %s (%s) — not started: %s\n", item.Title, item.WorkItemID, item.WaitReason)
+		fmt.Fprintf(&rendered, "  %s — not started: %s\n", s.named(item.WorkItemID, item.Title), item.WaitReason)
 	}
 	rendered.WriteString(remainder(furtherWaits, "item the scheduler has kept a reason for not starting"))
 	if s.NotStartableProblem != "" {

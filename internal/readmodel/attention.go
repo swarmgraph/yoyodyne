@@ -29,7 +29,6 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
-	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
@@ -334,15 +333,15 @@ type Attention struct {
 	wording *TextTerms
 }
 
-// CitedWhat is What with every work item it names shown beside its title.
+// CitedWhat is What with every work item it names shown beside its priority,
+// labels, and title.
 func (a Attention) CitedWhat() string {
-	return a.wording.Render(a.titles.Cite(a.What()))
+	return a.wording.Render(a.titles.CiteKnowing(a.What(), a.WorkItemID))
 }
 
-// CitedWhose is Whose with every work item it names shown beside its title,
-// read after What, so an item the line has already titled is not titled twice.
+// CitedWhose is Whose with every work item it names shown with its priority, labels, and title.
 func (a Attention) CitedWhose() string {
-	return a.wording.Render(a.titles.CiteAfter(a.CitedWhat(), a.Whose()))
+	return a.wording.Render(a.titles.CiteKnowing(a.Whose(), a.WorkItemID))
 }
 
 // Named reports an entry the attention line prints by name wherever it falls
@@ -864,7 +863,7 @@ type attentionWire struct {
 	What  string `json:"what"`
 	Whose string `json:"whose"`
 	// SaidWhat and SaidWhose are the two sentences as a person reads them, with
-	// each work item beside its title, and absent where that changes nothing.
+	// each work item with its priority, labels, and title, and absent where that changes nothing.
 	// They are what the dashboard shows; What and Whose stay the derivation, so
 	// a document read back is still held to its fields.
 	SaidWhat  string `json:"said_what,omitempty"`
@@ -1143,7 +1142,7 @@ const maxBrakeEntriesBytes = 1 << 10
 // a refusal, including one found before the run itself could be settled.
 func ReconcileFindingAttention(state runstate.State) Attention {
 	attention := owedStepAttention(state)
-	attention.titles = NewWorkItemTitles([]beads.WorkItem{{ID: state.WorkItemID, Title: state.WorkItemTitle}})
+	attention.titles = RecordedWorkItemTitle(state.WorkItemID, state.WorkItemTitle)
 	return attention
 }
 

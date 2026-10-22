@@ -146,8 +146,9 @@ func branchReviewerFrom(parts components, model string) orchestrator.BranchRevie
 			// comparable to the review it was measured against.
 			Spend: parts.spend,
 		},
-		Reviews: parts.branchReviews,
-		Reports: parts.reports,
+		Reviews:         parts.branchReviews,
+		Reports:         parts.reports,
+		ReferenceFinder: referenceFinder(parts),
 		// Where a provider refusing this review for want of capacity is written
 		// down. It records nothing about the branch and reaches no run: it is the
 		// account of why nothing happened, for somebody who is not at this

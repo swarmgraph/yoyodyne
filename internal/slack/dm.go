@@ -155,7 +155,7 @@ func (s *Sink) put(ctx context.Context, member string, asking Ask) (Decision, er
 	}
 	identity := s.appearance.Identity(notify.Harness())
 	emoji, url := icon(identity.Avatar)
-	opened, err := s.post(ctx, Message{
+	opened, err := s.postCited(ctx, Message{
 		Channel:   channel,
 		Text:      topLine(asking),
 		Username:  identity.Name,
@@ -165,7 +165,7 @@ func (s *Sink) put(ctx context.Context, member string, asking Ask) (Decision, er
 	if err != nil {
 		return Decision{}, err
 	}
-	if _, err := s.post(ctx, Message{
+	if _, err := s.postCited(ctx, Message{
 		Channel:   channel,
 		Text:      threadedAsk(asking),
 		ThreadTS:  opened,

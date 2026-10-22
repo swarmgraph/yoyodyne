@@ -14,8 +14,10 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 // The developer and the reviewer both notice something outside the work they
@@ -123,6 +125,58 @@ func TestReportsAreCollectedWithoutChangingWhatTheRunDid(t *testing.T) {
 	}
 	if len(requests) != 2 || performed != 2 {
 		t.Fatalf("tool requests=%d performed=%d", len(requests), performed)
+	}
+}
+
+// A developer that names an item by its short id in a report has it kept as the
+// item it named when the report was collected, so the listing shows the full id
+// with the item's priority, labels, and title.
+func TestADevelopersReportKeepsTheItemsItNames(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	provider.DeveloperFinalText = "implemented the work item\n\n" +
+		reportBlock(`{"severity":"warning","message":"434.9 still prices a resumed session wrongly"}`)
+	collector := &fakeReports{}
+	pipeline, _ := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	pipeline.Reports = collector
+	titles := readmodel.NewWorkItemTitles([]beads.WorkItem{
+		{ID: "yoyodyne-ifd.434.9", Title: "Price a resumed session at what it moved by", Priority: 1, Labels: []string{"reliability"}},
+	})
+	listed := 0
+	pipeline.ReferenceFinder = func() func(text string) []workref.Reference {
+		listed++
+		return func(text string) []workref.Reference {
+			found, _ := titles.References(text)
+			return found
+		}
+	}
+
+	if _, err := pipeline.Run(context.Background(), tracker.Item.ID); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	var developed *report.Report
+	for index := range collector.appended {
+		if collector.appended[index].Role == domain.RoleDeveloper {
+			developed = &collector.appended[index]
+		}
+	}
+	if developed == nil || !developed.ReferencesKept || len(developed.References) != 1 || developed.References[0].ID != "yoyodyne-ifd.434.9" {
+		t.Fatalf("developer report = %+v, want its short id kept as the item it named", developed)
+	}
+	if developed.Message != "434.9 still prices a resumed session wrongly" {
+		t.Errorf("message = %q, want it kept exactly as written", developed.Message)
+	}
+	rendered := titles.Cite(developed.RenderAgainst(nil))
+	if want := "yoyodyne-ifd.434.9 (P1, reliability: Price a resumed session at what it moved by) still prices"; !strings.Contains(rendered, want) {
+		t.Errorf("rendered = %q, want it to carry %q", rendered, want)
+	}
+	if listed == 0 {
+		t.Error("the tracker was never listed for the report's references")
 	}
 }
 

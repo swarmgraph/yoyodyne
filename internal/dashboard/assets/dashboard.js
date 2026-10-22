@@ -765,7 +765,7 @@ var standingWarningAgeSeconds = 5 * 60;
     // The title and the id each open the item's card: two things to click on
     // because a reader's eye lands on either.
     var title = el("h3", "card-title");
-    title.appendChild(itemOpener(run.work_item_id, run.title || run.work_item_id));
+    title.appendChild(itemOpener(run.work_item_id, itemName(run.work_item_id, run.title)));
     card.appendChild(title);
     var meta = el("p", "card-meta");
     meta.appendChild(itemOpener(run.work_item_id, run.work_item_id, "item-id"));
@@ -1228,13 +1228,20 @@ var standingWarningAgeSeconds = 5 * 60;
   // The three lists a lane report opens with, one line per entry, each naming
   // its item by what it is. They are structured in the model, so a report
   // written as one paragraph still shows them as lists.
+  // namedOr is the read model's name for an item where the reading carried
+  // one, and what the record says of it otherwise.
+  function namedOr(id, otherwise) {
+    var named = itemName(id, "");
+    return named && named !== id ? named : otherwise;
+  }
+
   function laneEntrySays(entry) {
-    var about = entry.item ? (entry.title ? "\u201c" + entry.title + "\u201d (" + entry.item + ")" : entry.item) : entry.record;
+    var about = entry.item ? namedOr(entry.item, entry.title ? "\u201c" + entry.title + "\u201d (" + entry.item + ")" : entry.item) : entry.record;
     return about + " — " + entry.what + (entry.to ? ", to " + entry.to : "") + ", " + localMoment(entry.at);
   }
 
   function humanBlockSays(block) {
-    var about = block.item ? (block.title ? "\u201c" + block.title + "\u201d (" + block.item + "): " : block.item + ": ") : "";
+    var about = block.item ? namedOr(block.item, block.title ? "\u201c" + block.title + "\u201d (" + block.item + ")" : block.item) + ": " : "";
     return about + block.what + " — " + block.reason_says + "; since " + localMoment(block.since) + "; cleared when the act is recorded on " + block.cites +
       (block.unresolved ? " (" + block.unresolved + ")" : "");
   }
@@ -1349,7 +1356,7 @@ var standingWarningAgeSeconds = 5 * 60;
       }
       var entries = el("ul", "held-list");
       (queue.entries || []).forEach(function (entry) {
-        entries.appendChild(el("li", "held-reason", entry.place + ". " + entry.work_item_id + " " + entry.title + " \u2014 " + entry.label + ", in " + entry.mode_label + " \u2014 " + entry.why));
+        entries.appendChild(el("li", "held-reason", entry.place + ". " + namedOr(entry.work_item_id, entry.work_item_id + " " + entry.title) + " \u2014 " + entry.label + ", in " + entry.mode_label + " \u2014 " + entry.why));
       });
       row.appendChild(entries);
       list.appendChild(row);
@@ -1431,6 +1438,21 @@ var standingWarningAgeSeconds = 5 * 60;
     button.setAttribute("type", "button");
     button.setAttribute(kind, key);
     return button;
+  }
+
+  // itemName is one work item as the read model names it, in the operator's
+  // form — "(P1, reliability) Retry the merge (ex-7)" — with its priority and
+  // labels as the tracker held them when the reading was made. The page
+  // assembles no name of its own: where the reading named none, it shows the
+  // title the record carried, or the id.
+  function itemName(id, title) {
+    var names = [model.standing && model.standing.work_item_names, model.throughput && model.throughput.work_item_names];
+    for (var i = 0; i < names.length; i++) {
+      if (names[i] && names[i][id]) {
+        return names[i][id];
+      }
+    }
+    return title || id;
   }
 
   function itemOpener(id, text, className) {
@@ -1676,7 +1698,7 @@ var standingWarningAgeSeconds = 5 * 60;
         entry.appendChild(entryOpener(item.entry, item.title, "grouping-title"));
         entry.appendChild(el("span", "item-id", item.label));
       } else {
-        entry.appendChild(itemOpener(item.id, item.title || item.id, "grouping-title"));
+        entry.appendChild(itemOpener(item.id, itemName(item.id, item.title), "grouping-title"));
         entry.appendChild(el("span", "item-id", item.id));
       }
       if (item.detail) {
@@ -1760,7 +1782,7 @@ var standingWarningAgeSeconds = 5 * 60;
   }
 
   function renderCard(item) {
-    document.getElementById("card-heading").textContent = item.title || item.id;
+    document.getElementById("card-heading").textContent = item.named || item.title || item.id;
     document.getElementById("card-note").textContent = item.id + " · read " + clock(item.observed_at);
     var fields = document.getElementById("card-fields");
     clear(fields);

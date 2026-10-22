@@ -820,6 +820,11 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			// harness's rather than the operator's: the registry gives it to the
 			// harness, which resumes the roles when the limit resets.
 			`<span class="figure">0</span>`, `<span class="unit">things waiting on the operator</span>`, "Needs a human: nothing waiting on the operator; waiting on others: the harness's: 1.",
+			// Each item the page lists is named as the read model names it: its
+			// priority and labels, its title, and its id; one the tracker does not
+			// hold says so.
+			`data-item="yoyodyne-ifd.212">(P2, observability) Recurring tasks say when a firing was skipped (yoyodyne-ifd.212)</button>`,
+			`data-item="yoyodyne-ifd.230">yoyodyne-ifd.230 (not in the tracker)</button>`,
 		},
 		// A failed poll backs the page off: it says when it asks again, later
 		// than its ordinary clock.
@@ -866,7 +871,9 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		// The card: every field under a plain label, the run in the terminal's
 		// words, and a field the item has nothing in saying so.
 		"card": {
-			`<h2 id="card-heading" class="popup-title">Dashboard 3 of 3: the page, five sections, with its empty, loading, and error states</h2>`,
+			// The card is headed with the item in the operator's form, as the
+			// read model names it.
+			`<h2 id="card-heading" class="popup-title">(P1, dashboard) Dashboard 3 of 3: the page, five sections, with its empty, loading, and error states (yoyodyne-ifd.141.3)</h2>`,
 			"<dt>Id</dt>", "<dt>Title</dt>", "<dt>Status</dt>", "<dt>Priority</dt>", "<dt>Labels</dt>", "<dt>Parent</dt>", "<dt>Description</dt>", "<dt>Design</dt>", "<dt>Acceptance criteria</dt>", "<dt>Notes</dt>", "<dt>Run</dt>",
 			"<dd>in_progress</dd>", "<dd>P1 (0 is the most urgent, 4 the least)</dd>", "<dd>dashboard</dd>", "<dd>yoyodyne-ifd.141</dd>",
 			`<p class="card-run-flight">in flight — developing, 12m elapsed, $3.41 so far</p>`,

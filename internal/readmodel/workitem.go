@@ -89,8 +89,12 @@ type WorkItemSources struct {
 type WorkItem struct {
 	ObservedAt time.Time `json:"observed_at"`
 
-	ID                 string   `json:"id"`
-	Title              string   `json:"title"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// Named is the item in the operator's form, "(P1, reliability) Retry the
+	// merge (ex-7)", from the same reading as the fields beside it; the card is
+	// headed with it.
+	Named              string   `json:"named,omitempty"`
 	Status             string   `json:"status"`
 	Priority           int      `json:"priority"`
 	Labels             []string `json:"labels"`
@@ -188,6 +192,7 @@ func ReadWorkItem(ctx context.Context, sources WorkItemSources, id string) (Work
 		ObservedAt:         now,
 		ID:                 found.ID,
 		Title:              found.Title,
+		Named:              NewWorkItemTitles([]beads.WorkItem{found}).Name(found.ID),
 		Status:             found.Status,
 		Priority:           found.Priority,
 		Labels:             append([]string{}, found.Labels...),

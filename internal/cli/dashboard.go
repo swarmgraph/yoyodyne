@@ -503,7 +503,12 @@ func (r dashboardReader) Throughput(ctx context.Context) (readmodel.Throughput, 
 	if err != nil {
 		return readmodel.Throughput{}, err
 	}
-	return readmodel.ReadThroughput(ctx, throughputSources(stateRoot, productID)), nil
+	reading := readmodel.ReadThroughput(ctx, throughputSources(stateRoot, productID))
+	// The landed items are named from the tracker as the reading is made, as
+	// every item the page shows is; a tracker that cannot be listed marks them.
+	titles, _ := readmodel.ReadWorkItemTitles(ctx, standingSources(r.configPath))
+	reading.NameWorkItems(titles)
+	return reading, nil
 }
 
 // Spend is what the harness spent over the last twenty-four hours and the last

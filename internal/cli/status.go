@@ -602,6 +602,7 @@ func standingSources(configPath string) readmodel.Sources {
 		return sources
 	}
 	cfg := resolved.Config
+	sources.TrackerPrefixes = []string{string(cfg.Product.ID)}
 	sources.Capacity = cfg.Execution.MaxConcurrentDevelopers
 	sources.Slots = cfg.Execution.DeveloperSlots
 	sources.BrakeProbeOverdueAfter = cfg.Execution.BrakeProbeOverdueAfter.Duration()

@@ -16,7 +16,7 @@ import (
 // itself rather than a fake keyed on the empty status. Most items a report or a
 // sweep names have closed by the time anybody reads it, and bd's own listing
 // given no status leaves closed work out, so a resolution that read that
-// listing would show every one of them as unknown to the tracker. The item is
+// listing would show every one of them as not in the tracker. The item is
 // closed the way the harness closes one, through the client the surfaces are
 // handed, and the open one beside it is the control.
 func TestClosedWorkIsTitledFromTheRealListing(t *testing.T) {
@@ -52,7 +52,7 @@ func TestClosedWorkIsTitledFromTheRealListing(t *testing.T) {
 	}
 	if title, known := titles.Title(finished.ID); !known || title != finished.Title {
 		t.Fatalf("Title(%s) = %q (known = %v), want the closed item's title %q; a closed item a report names "+
-			"would read as unknown to the tracker", finished.ID, title, known, finished.Title)
+			"would read as not in the tracker", finished.ID, title, known, finished.Title)
 	}
 	if title, known := titles.Title(unfinished.ID); !known || title != unfinished.Title {
 		t.Fatalf("Title(%s) = %q (known = %v), want the open item's title %q", unfinished.ID, title, known, unfinished.Title)
@@ -60,11 +60,11 @@ func TestClosedWorkIsTitledFromTheRealListing(t *testing.T) {
 
 	text := "Blocked on " + finished.ID + " until it landed."
 	got := titles.Cite(text)
-	if want := finished.ID + " (" + finished.Title + ")"; !strings.Contains(got, want) {
-		t.Fatalf("Cite(%q) = %q, want the closed item shown as %q", text, got, want)
+	if want := ": " + finished.Title + ")"; !strings.Contains(got, finished.ID+" (P") || !strings.Contains(got, want) {
+		t.Fatalf("Cite(%q) = %q, want the closed item shown with its priority and title %q", text, got, finished.Title)
 	}
-	if strings.Contains(got, "unknown to the tracker") {
-		t.Fatalf("Cite(%q) = %q, shows a closed item as unknown to the tracker", text, got)
+	if strings.Contains(got, "not in the tracker") {
+		t.Fatalf("Cite(%q) = %q, shows a closed item as not in the tracker", text, got)
 	}
 }
 

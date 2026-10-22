@@ -36,6 +36,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 // LaneReportSchemaVersion is versioned on its own, because a lane report is
@@ -149,6 +150,17 @@ type LaneReportContent struct {
 	Summary         string                 `json:"summary"`
 	Remaining       []string               `json:"remaining"`
 	Blockers        []LaneReportBlocker    `json:"blockers"`
+	// SummaryReferences and RemainingReferences are the work items the summary
+	// and each remaining entry name, found when the report was written
+	// (internal/workref), so a short id the role wrote is shown as the item it
+	// named then. The text itself is never changed; a report written before
+	// references were kept carries none.
+	SummaryReferences   []workref.Reference   `json:"summary_references,omitempty"`
+	RemainingReferences [][]workref.Reference `json:"remaining_references,omitempty"`
+	// ReferencesKept says the report was searched for references against a
+	// listing of the tracker when it was written, which empty lists alone cannot
+	// say of a report that named nothing.
+	ReferencesKept bool `json:"references_kept,omitempty"`
 	// Refused names each Blocked on a human entry the turn wrote that was left
 	// out, and why. One bad entry does not refuse the report; the rest stands,
 	// and the refusals reach the pass record. It is never stored.
@@ -583,7 +595,12 @@ func (b LaneReportHumanBlock) label() string {
 // The mover is a closed token and is left alone; a citation is an identifier the
 // role chose and could carry anything, so it is redacted like the prose.
 func (s *LaneReportStore) redact(content LaneReportContent) LaneReportContent {
-	redacted := LaneReportContent{Summary: s.redactor.Redact(content.Summary), Refused: content.Refused}
+	// The references are kept as they were found; one whose bytes the
+	// redaction moved no longer covers its id and is shown as written
+	// (workref.Expand).
+	redacted := LaneReportContent{Summary: s.redactor.Redact(content.Summary), Refused: content.Refused,
+		SummaryReferences: content.SummaryReferences, RemainingReferences: content.RemainingReferences,
+		ReferencesKept: content.ReferencesKept}
 	if content.BlockedOnAHuman != nil {
 		redacted.BlockedOnAHuman = make([]LaneReportHumanBlock, len(content.BlockedOnAHuman))
 		for index, entry := range content.BlockedOnAHuman {
