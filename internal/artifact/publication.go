@@ -124,16 +124,24 @@ func (s Store) prepareCandidate(role domain.AgentRole, write Write, now time.Tim
 	}
 	var recorded Artifact
 	var err error
+	body := write.Body
 	switch write.Action {
 	case WriteCreate:
 		recorded, _, err = s.prepareCreate(role, write.Draft(), now)
 	default:
-		recorded, _, err = s.prepareAmend(role, write.ID, write.Amendment(), now)
+		var amended string
+		recorded, amended, err = s.prepareAmend(role, write.ID, write.Amendment(), now)
+		// A section revision is the document as the checkout holds it with one
+		// section replaced, which only the store's splice knows; a whole revision
+		// is the owner's body exactly as written.
+		if strings.TrimSpace(write.Section) != "" {
+			body = amended
+		}
 	}
 	if err != nil {
 		return Artifact{}, "", err
 	}
-	return recorded, write.Body, nil
+	return recorded, body, nil
 }
 
 // renderCandidate is the file a prepared document with its approval recorded

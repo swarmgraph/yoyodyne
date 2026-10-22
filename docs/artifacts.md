@@ -444,7 +444,20 @@ that round submits another refused document, its refusal waits in the durable
 conversation for the role's next turn instead of starting another round. The
 limit remains two waiting documents; a refusal confirms none of them.
 
-A revision is the same action, carrying the document whole:
+A revision is the same action, carrying the document whole — or, for a
+document longer than a role can read, carrying one section. A revision that
+names a `section`, by its heading as the document writes it, carries only the
+new text under that heading, its subsections included; the harness reads the
+rest of the document from the copy in the project's checkout when it confirms
+the revision, replaces that section, and leaves every other byte as it was. It
+is confirmed and lands through the same reviewed run as a whole revision, bound
+to the copy it was spliced into, so a target branch whose copy has changed since
+stops the run as any revision's would, as said below. A heading the document does not have, or has twice, is refused when the
+role writes it, and so is replacement text carrying a heading at the section's
+own level or above, because that would change the document's shape rather than
+one section of it.
+
+Asked of a conversation, a revision reads:
 
 ```sh
 ./bin/yoyo chat --message "revise the second goal to name the adoption path"

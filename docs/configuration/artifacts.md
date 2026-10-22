@@ -377,8 +377,8 @@ yoyo artifact show v1-goals         # one artifact, its revisions, and your appr
 
 There is no `yoyo artifact create` or `amend`, unlike the invariant commands: an
 artifact's content is written by the role that owns it — by hand, or from its
-conversation as a typed write you approve, which the harness files with the
-frontmatter generated ([writing a document from a
+conversation as a typed write, which the harness files with the frontmatter
+generated and confirms as the document's approval policy says ([writing a document from a
 conversation](../artifacts.md#writing-a-document-from-a-conversation)). What the harness owns is refusing a
 document whose identity is missing, malformed, or claimed by something else,
 [reporting a change recorded by a role that does not own it](#who-may-change-an-artifact),
@@ -574,12 +574,20 @@ It holds in two places, and both are live.
 **Writing.** The package that writes an artifact refuses a role that does not own
 the kind, on creating, amending, superseding, and retiring one, and records the
 role that did in the revision log. That is the path a document written from a
-conversation takes: the owning role emits a typed action, you approve it, and the
-harness performs the write through this boundary under that role's authority —
-see [writing a document from a
+conversation takes: the owning role emits a typed action, and the harness
+performs the write through this boundary under that role's authority. A document
+of a kind whose approval policy is automatic — a design, a specification, or a
+decision record under `approvals.designs: automatic` — is confirmed without
+asking you, records the harness and the policy as what confirmed it, and merges
+through a reviewed run with its own checks and an independent review. A
+document of the product's intent that the Lead Product Manager records as
+`intent: consistent` is approved by her the same way. A new or revised document
+of any other kind, and a change of the product's intent, still waits for your
+confirmation, and once you give it lands through the same reviewed run; nothing
+is left in your checkout for you to commit — see [writing a document from a
 conversation](../artifacts.md#writing-a-document-from-a-conversation). A role that
 names a kind it does not own, or a home its kind is not filed in, is refused
-before you are asked about it. There is still no `yoyo artifact create`: a
+before anything is confirmed and before you are asked about it. There is still no `yoyo artifact create`: a
 command would need the document's prose typed at a shell, which is the
 transcription the typed action exists to end.
 
