@@ -6310,11 +6310,13 @@ origin is drawn under "unknown: no origin recorded". An item whose filing or
 closing time the tracker did not record is left out of what that time decides,
 and the page says how many there are.
 
-The chart is drawn by Chart.js, checked into the dashboard's assets with a
-record of its version, source, checksum, and license, and served by the
-dashboard itself, so the page loads nothing from anywhere else. A build that
-does not carry the library shows the same figures as a table and says the
-chart library is not in this build; the table is under every chart either way.
+The page draws its chart with Chart.js once the library and a record of its
+version, source, checksum, and license are checked into
+`internal/dashboard/assets` (as `chart.umd.js` and `chartjs.md`), served by the
+dashboard itself, so the page loads nothing from anywhere else. The build does
+not carry them yet, so for now the page shows the figures as a table and says
+the chart library is not in this build. The table stays under the chart once
+the library is there.
 
 ### The dashboard under the product
 
@@ -6889,8 +6891,9 @@ plane, and work is still directed from the conversation and the commands above.
 - **It answers only on this machine.** It binds `127.0.0.1` and nothing else,
   so nothing off the machine can reach it, and being on the machine is not
   enough on its own: every request for the read model has to carry the token.
-  What is served without one is the page shell and its own script and
-  stylesheet — static text compiled into the binary, with nothing of the read
+  What is served without one is the page shell, the backlog page's shell at
+  `/backlog`, and their own scripts and stylesheet, the chart library included
+  once it is checked in — static text compiled into the binary, with nothing of the read
   model in it, which a browser needs before it can present a token at all.
   Everything that reads state is behind the token.
 - **The token is never in a URL, and never in a cookie.** A token in a URL
