@@ -186,9 +186,10 @@ func TestTheVendoredChartLibraryMatchesItsRecord(t *testing.T) {
 }
 
 // The counting the chart draws holds to worked examples, run by
-// testdata/backlog-count.test.js under Node in a zone that is not Pacific, so
-// a page that bucketed by the machine's zone would fail here. Node is found or
-// declared absent exactly as for the main page's renders.
+// testdata/backlog-count.test.js under Node with the machine set to Tokyo
+// time, so counting that ignored the zone it is given and used the machine's
+// would fail here. Node is found or declared absent exactly as for the main
+// page's renders.
 func TestTheBacklogCountsHoldUnderNode(t *testing.T) {
 	node := renderer(t)
 	command := exec.CommandContext(context.Background(), node, filepath.Join("testdata", "backlog-count.test.js"))

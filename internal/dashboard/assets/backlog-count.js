@@ -8,9 +8,12 @@
 //   - open: items filed by the window's end and not closed by it, counted as
 //     every filing up to that window less every closing up to it, so a window
 //     before the drawn range still counts what it left open.
-// Windows are hours, Pacific calendar days, or Pacific weeks starting Monday.
-// Hours are counted on the clock, since Pacific time moves by whole hours; the
-// hourly scale draws the last seven days, and the page says so.
+// Windows are hours, calendar days, or weeks starting Monday, in the zone the
+// caller names — the page names the reader's own, which is the operator's
+// local zone the dashboard design asks for. Each hour starts where the zone's
+// clock reads a whole hour, so an hour that is repeated when summer time ends
+// is drawn twice, each named by its zone abbreviation. The hourly scale draws
+// the last seven days, and the page says so.
 //
 // A part split from an existing item is counted under its parent by default,
 // as the dashboard design's backlog page rules: it is drawn as one series of
@@ -28,8 +31,8 @@
 var backlogCount = (function () {
   "use strict";
 
-  var zone = "America/Los_Angeles";
   var hour = 3600000;
+  var minute = 60000;
   var day = 86400000;
   var hourlyWindows = 7 * 24;
 
@@ -38,71 +41,97 @@ var backlogCount = (function () {
   var splitSeries = "split from an item";
   var unknownOrigin = "unknown: no origin recorded";
 
-  var civil = new Intl.DateTimeFormat("en-US", {
-    timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit"
-  });
-
-  // dayNumber is the Pacific calendar day an instant falls on, as days since
-  // 1 January 1970 on that calendar.
-  function dayNumber(ms) {
-    var parts = {};
-    civil.formatToParts(new Date(ms)).forEach(function (part) { parts[part.type] = part.value; });
-    return Math.floor(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day)) / day);
+  // localZone is the zone this browser or process runs in, which is what the
+  // page counts in.
+  function localZone() {
+    return new Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   }
 
-  // windowOf is the key of the window an instant falls in: an hour since the
-  // epoch, a Pacific day number, or the day number of that week's Monday.
-  function windowOf(ms, scale) {
-    if (scale === "hourly") {
-      return Math.floor(ms / hour);
-    }
-    var number = dayNumber(ms);
-    if (scale === "weekly") {
-      var weekday = new Date(number * day).getUTCDay();
-      return number - ((weekday + 6) % 7);
-    }
-    return number;
-  }
-
-  function step(scale) {
-    return scale === "weekly" ? 7 : 1;
+  function parts(format, ms) {
+    var found = {};
+    format.formatToParts(new Date(ms)).forEach(function (part) { found[part.type] = part.value; });
+    return found;
   }
 
   var dayParts = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" });
+  var yearLabel = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", year: "numeric" });
 
   // dayWords is a calendar day as "Mon 5 Oct", from the day-number instant.
   function dayWords(at) {
-    var parts = {};
-    dayParts.formatToParts(at).forEach(function (part) { parts[part.type] = part.value; });
-    return parts.weekday + " " + parts.day + " " + parts.month;
-  }
-  var yearLabel = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", year: "numeric" });
-  var hourOfDay = new Intl.DateTimeFormat("en-US", { timeZone: zone, hour: "2-digit", hourCycle: "h23" });
-
-  // label is a window in words: "Mon 5 Oct, 14:00 PDT", "Mon 5 Oct", or
-  // "week of Mon 5 Oct"; a day or week in another year than now names it.
-  function label(key, scale, nowYear) {
-    if (scale === "hourly") {
-      var ms = key * hour;
-      return dayWords(new Date(dayNumber(ms) * day)) + ", " + hourOfDay.format(new Date(ms)) + ":00 " + zoneName(ms);
-    }
-    var at = new Date(key * day);
-    var words = dayWords(at);
-    if (yearLabel.format(at) !== nowYear) {
-      words += " " + yearLabel.format(at);
-    }
-    return scale === "weekly" ? "week of " + words : words;
+    var found = parts(dayParts, at.getTime());
+    return found.weekday + " " + found.day + " " + found.month;
   }
 
-  // zoneName is what Pacific time is called at an instant: PDT or PST.
-  function zoneName(ms) {
-    var named = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "short" }).formatToParts(new Date(ms));
-    for (var index = 0; index < named.length; index++) {
-      if (named[index].type === "timeZoneName") {
-        return named[index].value;
+  // calendar is the counting's view of one zone: which day, week, and hour an
+  // instant falls in there, what a window is called, and what the zone is
+  // called at an instant.
+  function calendar(zone) {
+    var civil = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+    });
+    var named = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "short" });
+
+    // dayNumber is the calendar day an instant falls on in the zone, as days
+    // since 1 January 1970 on that calendar.
+    function dayNumber(ms) {
+      var found = parts(civil, ms);
+      return Math.floor(Date.UTC(Number(found.year), Number(found.month) - 1, Number(found.day)) / day);
+    }
+
+    // hourStart is the instant the zone's clock last read a whole hour, at or
+    // before ms: ms less the minutes the clock shows past the hour.
+    function hourStart(ms) {
+      var found = parts(civil, ms);
+      var floored = Math.floor(ms / minute) * minute;
+      return floored - Number(found.minute) * minute;
+    }
+
+    // windowOf is the key of the window an instant falls in: the instant its
+    // hour starts, the zone's day number, or the day number of that week's
+    // Monday.
+    function windowOf(ms, scale) {
+      if (scale === "hourly") {
+        return hourStart(ms);
       }
+      var number = dayNumber(ms);
+      if (scale === "weekly") {
+        var weekday = new Date(number * day).getUTCDay();
+        return number - ((weekday + 6) % 7);
+      }
+      return number;
     }
-    return "Pacific time";
+
+    // next is the key of the window after one.
+    function next(key, scale) {
+      if (scale === "hourly") {
+        return hourStart(key + hour + 30 * minute);
+      }
+      return key + (scale === "weekly" ? 7 : 1);
+    }
+
+    // zoneName is what the zone is called at an instant, such as PDT, and the
+    // zone's own name where the platform has no shorter one for it.
+    function zoneName(ms) {
+      var found = parts(named, ms);
+      return found.timeZoneName || zone;
+    }
+
+    // label is a window in words: "Mon 5 Oct, 14:00 PDT", "Mon 5 Oct", or
+    // "week of Mon 5 Oct"; a day or week in another year than now names it.
+    function label(key, scale, nowYear) {
+      if (scale === "hourly") {
+        var found = parts(civil, key);
+        return dayWords(new Date(dayNumber(key) * day)) + ", " + found.hour + ":" + found.minute + " " + zoneName(key);
+      }
+      var at = new Date(key * day);
+      var words = dayWords(at);
+      if (yearLabel.format(at) !== nowYear) {
+        words += " " + yearLabel.format(at);
+      }
+      return scale === "weekly" ? "week of " + words : words;
+    }
+
+    return { windowOf: windowOf, next: next, label: label, zoneName: zoneName };
   }
 
   // groupsOf is every series one item counts in, for the chosen split.
@@ -154,13 +183,17 @@ var backlogCount = (function () {
     return series;
   }
 
-  // series counts the items for one choice of the page's controls, at now.
+  // series counts the items for one choice of the page's controls, at now,
+  // in the zone choice.zone names, or this browser's own where it names none.
   // It returns the windows drawn, their labels, one series per group with a
   // value per window, and what had to be left out.
   function series(items, choice, now) {
     var scale = choice.scale, show = choice.show;
+    var zone = choice.zone || localZone();
+    var cal = calendar(zone);
+    var windowOf = cal.windowOf;
     var result = {
-      keys: [], labels: [], series: [], zone: zoneName(now),
+      keys: [], labels: [], series: [], zone: cal.zoneName(now), zoneId: zone,
       noFiled: 0, noClosed: 0, overlapping: choice.split === "label", hourly: scale === "hourly"
     };
     var last = windowOf(now, scale);
@@ -190,16 +223,23 @@ var backlogCount = (function () {
     if (first === null) {
       return result;
     }
-    var drawnFrom = scale === "hourly" ? Math.max(first, last - hourlyWindows + 1) : first;
-    var span = step(scale);
+    var drawnFrom = scale === "hourly" ? Math.max(first, windowOf(now - (hourlyWindows - 1) * hour, scale)) : first;
     var nowYear = yearLabel.format(new Date(now));
-    for (var key = drawnFrom; key <= last; key += span) {
+    var position = {};
+    for (var key = drawnFrom; key <= last; key = cal.next(key, scale)) {
+      position[key] = result.keys.length;
       result.keys.push(key);
-      result.labels.push(label(key, scale, nowYear));
+      result.labels.push(cal.label(key, scale, nowYear));
     }
 
-    // index is a window's position among the drawn ones, or -1 before them.
-    var index = function (key) { return key < drawnFrom ? -1 : Math.floor((key - drawnFrom) / span); };
+    // index is a window's position among the drawn ones, -1 before them, and
+    // past the end for one after now.
+    var index = function (key) {
+      if (key < drawnFrom) {
+        return -1;
+      }
+      return Object.prototype.hasOwnProperty.call(position, key) ? position[key] : result.keys.length;
+    };
     var byName = {};
     var groupNamed = function (name) {
       if (!byName[name]) {
@@ -262,7 +302,7 @@ var backlogCount = (function () {
     return result;
   }
 
-  return { series: series, zoneName: zoneName, windowOf: windowOf, splitSeries: splitSeries, unknownOrigin: unknownOrigin, hourlyWindows: hourlyWindows };
+  return { series: series, localZone: localZone, calendar: calendar, splitSeries: splitSeries, unknownOrigin: unknownOrigin, hourlyWindows: hourlyWindows };
 })();
 
 if (typeof module !== "undefined" && module.exports) {

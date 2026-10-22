@@ -172,7 +172,8 @@
       show: controls.show.value,
       split: controls.split.value,
       scale: controls.scale.value,
-      splitsAsFilings: controls.splits.checked
+      splitsAsFilings: controls.splits.checked,
+      zone: backlogCount.localZone()
     };
   }
 
@@ -182,7 +183,7 @@
   function draw() {
     show("ready");
     var observed = document.getElementById("observed-at");
-    observed.textContent = new Date(reading.observed_at).toLocaleString("en-US", { timeZone: "America/Los_Angeles", timeZoneName: "short" });
+    observed.textContent = new Date(reading.observed_at).toLocaleString("en-US", { timeZoneName: "short" });
     observed.setAttribute("datetime", reading.observed_at);
 
     var banner = document.getElementById("backlog-readiness");
@@ -198,7 +199,8 @@
     }
     var items = reading.items || [];
     var now = Date.now();
-    text("backlog-zone", "Every hour, day, and week is in Pacific time (" + backlogCount.zoneName(now) + "), and weeks start on Monday.");
+    var zone = backlogCount.localZone();
+    text("backlog-zone", "Every hour, day, and week is in your local time zone, " + zone + " (" + backlogCount.calendar(zone).zoneName(now) + "), as this browser reports it, and weeks start on Monday.");
     if (items.length === 0) {
       section("empty", "The tracker holds no work items yet, so there is nothing to chart.");
       dropChart();

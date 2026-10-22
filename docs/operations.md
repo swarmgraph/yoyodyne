@@ -6297,8 +6297,9 @@ Three controls choose what is drawn. **Show** is items filed in each window,
 items closed in each window, or items open at the end of each window. **Split
 by** is nothing (one total), priority, who does the work, label, ready or
 waiting, or who filed it. **Time scale** is hourly (the last seven days), daily,
-or weekly, with weeks starting Monday. Every window is in Pacific time and the
-page names PDT or PST. A part split from an existing item is counted under the
+or weekly, with weeks starting Monday. Every window is in your local time
+zone, the one your browser reports, and the page names it, for example
+`America/Los_Angeles (PDT)`. A part split from an existing item is counted under the
 item it came from, as one series of its own called "split from an item"; the
 check box beside the controls counts parts as new filings instead.
 
