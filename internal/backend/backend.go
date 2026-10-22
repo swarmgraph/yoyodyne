@@ -80,6 +80,13 @@ type RunRequest struct {
 	// sandbox instead and refuses any nonempty list. Empty is not a portable
 	// request for a tool-free session.
 	AllowedTools []string
+	// Subagents, where set, lets a developer invocation hand work to
+	// sub-agents on the model it names. Nil is an invocation with none, which
+	// is exactly the invocation there was before sub-agents existed. An adapter
+	// whose provider does not offer them refuses a request carrying it rather
+	// than dropping it: whether a run gets them is decided above the adapter,
+	// where the run's record can say so (see subagents.go).
+	Subagents *SubagentRequest
 	// Posture is the tool access this invocation is held to, and empty for the
 	// role's own. An agent filling a role definition that removed its role's
 	// worktree write is held read-only here; a posture wider than the role's own
@@ -411,6 +418,22 @@ type RunResult struct {
 	// invocation, in the order it reported them, and empty where it reported
 	// none. See compaction.go.
 	Compactions []ProviderCompaction
+	// ModelUsage is what the provider reported each model doing, and
+	// ModelUsageReported false where it reported usage only as a total or not
+	// at all: the split between models is then unknown, and nothing estimates
+	// it. See subagents.go.
+	ModelUsage         []ModelUsage
+	ModelUsageReported bool
+	// SubagentCalls are the calls to sub-agents the invocation's stream
+	// showed, in the order they started.
+	SubagentCalls []SubagentCall
+	// SubagentLimit is a usage limit the provider reported reached on a model
+	// family only the invocation's sub-agents run on, and nil otherwise. It is
+	// kept apart from UsageLimit because it asks the opposite of the run: the
+	// developer's own model still has capacity, so the run neither waits nor
+	// moves to another endpoint, and goes on without sub-agents until the limit
+	// resets (subagents.go).
+	SubagentLimit *UsageLimit
 }
 
 // maxFailureDetailBytes bounds the provider's own words in a described failure.

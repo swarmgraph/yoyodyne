@@ -230,6 +230,11 @@ func runConfigValidate(ctx context.Context, args []string, stdout, stderr io.Wri
 	// warning and never moves the exit code, for the reason the asides above do:
 	// the configuration is right, and what is behind is a process.
 	mismatches, mismatchProblem := configMismatches(resolved)
+	// Every provider a developer with sub-agents on could run on that will
+	// serve its runs without them, said once. It is not a refusal: a slot pair
+	// that mixes providers keeps its fallback, and each run's record says it
+	// went without them.
+	subagents := resolved.Config.SubagentNotices()
 
 	if *jsonOutput {
 		unreadableProblem := ""
@@ -257,6 +262,7 @@ func runConfigValidate(ctx context.Context, args []string, stdout, stderr io.Wri
 			// file now carries, with the part, its build, and the keys.
 			"unreadable_by_running": mismatches,
 			"unreadable_problem":    unreadableProblem,
+			"subagents_unavailable": subagents,
 		})
 	}
 	fmt.Fprintf(stdout, "configuration valid: %s (revision %s)\n", resolved.Path, resolved.Config.Revision())
@@ -273,6 +279,9 @@ func runConfigValidate(ctx context.Context, args []string, stdout, stderr io.Wri
 		fmt.Fprintln(stderr, notice)
 	}
 	if notice := describeConfigMismatches(mismatches, mismatchProblem); notice != "" {
+		fmt.Fprintln(stderr, notice)
+	}
+	for _, notice := range subagents {
 		fmt.Fprintln(stderr, notice)
 	}
 	return 0

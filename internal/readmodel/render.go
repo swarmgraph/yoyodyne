@@ -179,6 +179,9 @@ func (s Standing) renderRunning() string {
 		for _, run := range s.Running[:listed] {
 			fmt.Fprintf(&rendered, "  %s — %s%s, %s elapsed, %s%s\n",
 				s.named(run.WorkItemID, ""), phaseOf(run), atEffort(run.Model, run.Effort, run.EffortDescription), age(run.Elapsed), spendOf(run), slotOf(run))
+			if run.Subagents != "" {
+				fmt.Fprintf(&rendered, "    %s\n", run.Subagents)
+			}
 		}
 		rendered.WriteString(remainder(further, "developer run"))
 	}

@@ -248,10 +248,16 @@ func (f failingSettingsRunner) Run(ctx context.Context, command execution.Comman
 func TestEveryFlagTheAdapterPassesIsOneTheCheckConfirms(t *testing.T) {
 	t.Parallel()
 	help := readRecorded(t, recordedHelp)
-	for _, flag := range reliedFlags {
+	for _, flag := range append(append([]string(nil), reliedFlags...), subagentFlags...) {
 		if !helpNames(help, flag) {
 			t.Fatalf("%s is not in %s", flag, recordedHelp)
 		}
+	}
+	// A flag only a run with sub-agents passes is confirmed by the sub-agent
+	// check (subagentcheck.go) rather than this one, so a CLI that dropped it
+	// takes sub-agents away instead of holding every developer.
+	confirmed := func(arg string, subagents bool) bool {
+		return slices.Contains(reliedFlags, arg) || subagents && slices.Contains(subagentFlags, arg)
 	}
 	worktree := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(worktree, ".claude"), 0o755); err != nil {
@@ -261,21 +267,29 @@ func TestEveryFlagTheAdapterPassesIsOneTheCheckConfirms(t *testing.T) {
 		if !supportedRole(role) {
 			continue
 		}
-		for _, session := range []string{"", "session-1"} {
-			runner := &fakeRunner{results: claudeCompletedTurn()}
-			request := backendapi.RunRequest{
-				RunID: testRunID, Role: role, WorkingDirectory: worktree, Prompt: "do the work",
-				SystemPrompt: "the contract", SessionID: session, Model: "opus", Effort: "high",
+		for _, subagents := range []bool{false, true} {
+			if subagents && role != domain.RoleDeveloper {
+				continue
 			}
-			if role != domain.RoleDeveloper {
-				request.AllowedTools = []string{}
-			}
-			if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), request); err != nil {
-				t.Fatalf("%s: %v", role, err)
-			}
-			for _, arg := range runner.commands[0].Args {
-				if strings.HasPrefix(arg, "-") && !slices.Contains(reliedFlags, arg) {
-					t.Fatalf("%s passes %s, which the check does not confirm", role, arg)
+			for _, session := range []string{"", "session-1"} {
+				runner := &fakeRunner{results: claudeCompletedTurn()}
+				request := backendapi.RunRequest{
+					RunID: testRunID, Role: role, WorkingDirectory: worktree, Prompt: "do the work",
+					SystemPrompt: "the contract", SessionID: session, Model: "opus", Effort: "high",
+				}
+				if role != domain.RoleDeveloper {
+					request.AllowedTools = []string{}
+				}
+				if subagents {
+					request.Subagents = &backendapi.SubagentRequest{Model: "sonnet", Effort: "medium"}
+				}
+				if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), request); err != nil {
+					t.Fatalf("%s: %v", role, err)
+				}
+				for _, arg := range runner.commands[0].Args {
+					if strings.HasPrefix(arg, "-") && !confirmed(arg, subagents) {
+						t.Fatalf("%s (sub-agents %v) passes %s, which no check confirms", role, subagents, arg)
+					}
 				}
 			}
 		}

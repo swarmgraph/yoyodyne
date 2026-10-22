@@ -895,7 +895,10 @@ The same slot entries may also carry a `routing` endpoint pair and an optional
 `number` confirming their position. [Developer slot endpoints](../configuration.md#developer-slot-endpoints)
 states precedence, defaults, validation and reviewer selection. A developer run pulled into a slot with a pair starts on its
 primary and moves to its alternate once per operation on a usage limit, as that
-section describes. Label preferences keep their existing behavior.
+section describes. Label preferences keep their existing behavior. An entry may
+also carry `subagents`, which turns the developer's sub-agents on or off for
+that slot and names their model
+([developer sub-agents](../configuration.md#developer-sub-agents-on-a-cheaper-model)).
 
 ### Watching instead of draining
 

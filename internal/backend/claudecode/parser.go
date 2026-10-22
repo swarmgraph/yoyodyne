@@ -73,6 +73,14 @@ type streamParser struct {
 	// adds the increments on, since the provider charged for them either way.
 	reportedCostUSD  float64
 	duplicateCostUSD float64
+	// subagents follows the calls to sub-agents the stream shows. See
+	// subagents.go.
+	subagents subagentCalls
+	// model and subagentModel are the model the invocation asked for and the
+	// one its sub-agents run on, empty without sub-agents. A usage limit on a
+	// family only the sub-agents use is the sub-agents' rather than the
+	// invocation's (backend.SubagentsOnlyLimit).
+	model, subagentModel string
 }
 
 type streamEnvelope struct {
@@ -85,7 +93,16 @@ type streamEnvelope struct {
 	TerminalReason string          `json:"terminal_reason"`
 	TotalCostUSD   float64         `json:"total_cost_usd"`
 	Usage          json.RawMessage `json:"usage"`
-	Message        json.RawMessage `json:"message"`
+	// ModelUsage is a terminal's usage and cost for each model the session
+	// used, the developer's own and any sub-agent's.
+	ModelUsage map[string]providerModelUsage `json:"modelUsage"`
+	Message    json.RawMessage               `json:"message"`
+	// ParentToolUseID is set on what a sub-agent says and does: the call of
+	// the sub-agent tool it is answering.
+	ParentToolUseID string `json:"parent_tool_use_id"`
+	// ToolUseResult is what the provider says about a tool's result beside the
+	// result itself, which for the sub-agent tool includes its usage.
+	ToolUseResult  json.RawMessage `json:"tool_use_result"`
 	Model          string          `json:"model"`
 	PermissionMode string          `json:"permissionMode"`
 	Tools          []string        `json:"tools"`
@@ -206,7 +223,7 @@ func (p *streamParser) ParseLine(line string) error {
 	case systemEventType:
 		return p.parseSystem(envelope)
 	case "assistant", "user":
-		return p.parseMessage(envelope.Type, envelope.Message)
+		return p.parseMessage(envelope.Type, envelope.Message, envelope.ParentToolUseID, envelope.ToolUseResult)
 	case "result":
 		return p.parseResult(envelope)
 	case rateLimitEventType:
@@ -452,13 +469,20 @@ func (p *streamParser) observe(event backend.ProviderEvent) {
 	if !said {
 		return
 	}
+	// A limit on a model family only the sub-agents run on stops them and not
+	// the invocation: the developer's own model still has capacity, so it is
+	// recorded apart and the invocation's own limit is left as it was.
+	if observation.Answer == backend.AnswerLimitReached && backend.SubagentsOnlyLimit(observation.Kind, p.model, p.subagentModel) {
+		p.result.SubagentLimit = &backend.UsageLimit{Kind: observation.Kind, ResetsAt: observation.ResetsAt}
+		return
+	}
 	// Where the provider said it is the event's fact rather than the dialect's
 	// claim, so it is written here, after the answer and before the record.
 	observation.Channel = event.Channel
 	observation.Record(&p.result)
 }
 
-func (p *streamParser) parseMessage(messageType string, raw json.RawMessage) error {
+func (p *streamParser) parseMessage(messageType string, raw json.RawMessage, parent string, toolUseResult json.RawMessage) error {
 	if len(raw) == 0 {
 		return fmt.Errorf("%s event is missing message", messageType)
 	}
@@ -473,6 +497,18 @@ func (p *streamParser) parseMessage(messageType string, raw json.RawMessage) err
 		block.ToolUseID = p.redactor.Redact(block.ToolUseID)
 		switch block.Type {
 		case "text":
+			// A sub-agent's prose is its own account to the developer session, not
+			// the invocation's reply, so it is recorded as output and never taken as
+			// the final text or shown as the reply forming.
+			if messageType == "assistant" && parent != "" {
+				if err := p.emit(execution.EventProcessOutput, map[string]any{
+					"parent_tool_use_id": parent,
+					"text":               truncate(block.Text),
+				}); err != nil {
+					return err
+				}
+				continue
+			}
 			if messageType == "assistant" {
 				if !p.sawResult {
 					p.result.FinalText = block.Text
@@ -494,19 +530,41 @@ func (p *streamParser) parseMessage(messageType string, raw json.RawMessage) err
 				}
 			}
 		case "tool_use":
-			if err := p.emit(execution.EventCommandStarted, map[string]any{
+			payload := map[string]any{
 				"tool_use_id": block.ID,
 				"tool":        block.Name,
 				"input_bytes": len(block.Input),
-			}); err != nil {
+			}
+			switch {
+			case parent != "":
+				payload["parent_tool_use_id"] = parent
+				p.subagents.toolUse(parent)
+			case isSubagentTool(block.Name):
+				p.subagents.start(block.ID, block.Input, p.clock.Now())
+				call := p.subagents.calls[len(p.subagents.calls)-1]
+				payload["subagent"] = p.redactor.Redact(call.Agent)
+				payload["subagent_model"] = call.Model
+				payload["description"] = truncate(p.redactor.Redact(call.Description))
+			}
+			if err := p.emit(execution.EventCommandStarted, payload); err != nil {
 				return err
 			}
 		case "tool_result":
-			if err := p.emit(execution.EventCommandCompleted, map[string]any{
+			payload := map[string]any{
 				"tool_use_id":   block.ToolUseID,
 				"is_error":      block.IsError,
 				"content_bytes": len(block.Content),
-			}); err != nil {
+			}
+			if parent != "" {
+				payload["parent_tool_use_id"] = parent
+			} else if call, finished := p.subagents.finish(block.ToolUseID, block.IsError, toolUseResult, p.clock.Now()); finished {
+				payload["subagent_finished"] = true
+				payload["tool_uses"] = call.ToolUses
+				if call.UsageReported {
+					payload["total_tokens"] = call.TotalTokens
+				}
+			}
+			if err := p.emit(execution.EventCommandCompleted, payload); err != nil {
 				return err
 			}
 		}
@@ -630,6 +688,7 @@ func (p *streamParser) parseResult(envelope streamEnvelope) error {
 	// false, and what it spent is recorded as unknown rather than as nothing.
 	p.result.CostReported = true
 	p.result.Usage = append([]byte(nil), envelope.Usage...)
+	p.result.ModelUsage, p.result.ModelUsageReported = modelUsageOf(envelope.ModelUsage)
 	p.result.StopReason = envelope.TerminalReason
 	if p.result.StopReason == "" {
 		p.result.StopReason = envelope.StopReason
@@ -661,6 +720,7 @@ func (p *streamParser) parseResult(envelope streamEnvelope) error {
 		"result":          truncate(envelope.Result),
 		"total_cost_usd":  envelope.TotalCostUSD,
 		"usage":           json.RawMessage(envelope.Usage),
+		"model_usage":     p.result.ModelUsage,
 		"terminal_reason": envelope.TerminalReason,
 	})
 }
@@ -825,6 +885,7 @@ func (p *streamParser) emit(eventType execution.EventType, payload any) error {
 // the provider stopped there.
 func (p *streamParser) Result() backend.RunResult {
 	result := p.result
+	result.SubagentCalls = p.subagents.recorded()
 	// The figure the meter prices against the session's last one is the first
 	// terminal's plus what every later terminal added. Where the provider's total
 	// only rose, which is every duplicate recorded so far, that is exactly the

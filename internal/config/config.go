@@ -957,6 +957,10 @@ type AgentConfig struct {
 	// is the one alternate this agent names — see failover.go for why both halves
 	// are the agent's own rather than the harness's.
 	Failover Failover `yaml:"failover,omitempty" json:"failover,omitempty"`
+	// Subagents is whether this agent's runs may hand coding to sub-agents, and
+	// on which model and effort. It is a developer's alone and off unless this
+	// agent says otherwise; a developer slot may override it. See subagents.go.
+	Subagents Subagents `yaml:"subagents,omitempty" json:"subagents,omitempty"`
 	// Conversations is what this agent does with a question that arrives while
 	// its main thread is busy: queue it, which is what every agent did before this
 	// key existed and what an agent naming nothing still does, or hold it on a
@@ -1421,6 +1425,7 @@ func (c Config) Validate() error {
 	}
 	problems = append(problems, laneProblems(c.Agents)...)
 	problems = append(problems, c.slotRoutingProblems(providers)...)
+	problems = append(problems, c.subagentProblems(providers)...)
 	if developers == 0 {
 		problems = append(problems, "at least one developer agent is required")
 	}

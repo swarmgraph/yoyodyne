@@ -34,6 +34,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 )
@@ -158,6 +159,14 @@ type Spend struct {
 	// re-derives those on the way out, which is what lets a log written across the
 	// change be read as one thing.
 	ReportedTotalUSD float64 `json:"reported_total_usd,omitempty"`
+	// Models is what the provider reported each model doing, the developer's
+	// own and any sub-agent's, in the same terms as ReportedTotalUSD: on a
+	// resumed session they are the session's running figures, so what a model
+	// added in this invocation is what its figure moved by since the session's
+	// last line. It is absent where the provider reported usage only as a total,
+	// which leaves the split between models unknown rather than estimated. The
+	// amount above already includes every model's cost.
+	Models []backend.ModelUsage `json:"models,omitempty"`
 	// Unknown says why nobody knows what this invocation cost, and is empty on a
 	// line that names an amount.
 	Unknown string `json:"unknown,omitempty"`

@@ -547,6 +547,13 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	if len(request.AllowedTools) > 0 {
 		return backend.RunResult{}, errors.New("Codex runs cannot be granted a tool list; the permission profile is what scopes what an agent may do")
 	}
+	// Codex offers no sub-agents, so a request for them is refused rather than
+	// run without them unsaid: the run decides to go without them above this
+	// adapter, where its record can say so.
+	if request.Subagents != nil {
+		descriptor, _ := backend.BuiltInDescriptor(domain.BackendCodex)
+		return backend.RunResult{}, fmt.Errorf("Codex runs cannot be given sub-agents: %s", descriptor.SubagentsUnavailable())
+	}
 
 	descriptor, _ := backend.BuiltInDescriptor(domain.BackendCodex)
 	descriptor = descriptor.ForModel(request.Model)

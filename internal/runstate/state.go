@@ -2091,6 +2091,12 @@ func (s *State) recordedTexts() []recordedText {
 		return fmt.Sprintf("%s[%d].%s", prefix, index, field)
 	}
 
+	if s.Subagents != nil {
+		unstated("subagents.unavailable", "subagents.unavailable", &s.Subagents.Unavailable, MaxRecordedTextBytes)
+		if s.Subagents.Limit != nil {
+			unstated("subagents.limit.kind", "subagents.limit.kind", &s.Subagents.Limit.Kind, MaxRecordedTextBytes)
+		}
+	}
 	if s.HomeMigration != nil {
 		unstated("home_migration.by", "home_migration.by", &s.HomeMigration.By, MaxHomeMigrationByBytes)
 	}
@@ -3162,6 +3168,16 @@ type State struct {
 	// instruction files the last developer invocation was given beside its prompt, by name and source, and
 	// absent before one has been made. See backend.Loaded.
 	ProviderLoaded *backend.Loaded `json:"provider_loaded,omitempty"`
+	// Subagents is the run's sub-agent setting and why its last developer
+	// invocation went without them, and nil for a run that settled none, which
+	// is every run before sub-agents existed and reads as off. See
+	// subagents.go.
+	Subagents *SubagentRecord `json:"subagents,omitempty"`
+	// ProviderModelUsage is what the last served developer invocation's
+	// provider reported each model doing, the developer's own and any
+	// sub-agent's, as running figures for that session; it is empty where the
+	// provider reported a total only, and the split is then unknown.
+	ProviderModelUsage []backend.ModelUsage `json:"provider_model_usage,omitempty"`
 	// EffortSettled says ProviderEffort was settled when this run was reserved,
 	// so an empty one means the developer agent named no level then rather than
 	// that the run predates the field. It is what keeps an edit to the level from

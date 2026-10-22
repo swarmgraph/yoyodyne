@@ -5563,6 +5563,130 @@ notes, status lines, and dashboard cards use the Codex effort description,
 including its source and an unreported level. Claude Code lines whose record
 names no level read as they did before the key existed.
 
+### Developer sub-agents on a cheaper model
+
+A developer run can plan on its own model and hand bounded pieces of coding to
+sub-agents on a cheaper one, through the provider's own sub-agent tool. The
+developer session stays the one invocation the harness launched and stays
+accountable for the change: it reads what its sub-agents did and verifies it
+before handing the change over. Whether and when to hand work off is the
+session's own judgment; the harness does not split the work. The design is
+[developer sub-agents](designs/developer-sub-agents.md).
+
+Sub-agents are off unless the configuration turns them on. Off is a developer
+invoked exactly as before the setting existed: the same tools, the same
+command line, and nothing about sub-agents on the run's record.
+
+```yaml
+agents:
+  developer:
+    subagents:
+      enabled: true      # off when absent
+      model: sonnet      # the default when enabled and no model is named
+      effort: medium     # optional; absent leaves the provider's own default
+
+execution:
+  max_concurrent_developers: 2
+  developer_slots:
+    - subagents: {enabled: false}   # slot 1 runs without them
+    - subagents: {model: haiku}     # slot 2 uses the agent's setting on haiku
+```
+
+- **Where it belongs.** `subagents` sits in the developer agent's block. Any
+  other role naming it is refused when the file loads: reviewers do not use
+  sub-agents. A layer that states the block replaces an inherited one whole, as
+  `failover` does.
+- **Slots.** An entry of `execution.developer_slots` may carry its own
+  `subagents` with `enabled` and `model`. The slot's value wins where it states
+  one, then the agent's, then off. The effort is always the agent's.
+- **The model** is asked of the same provider and account as the endpoint
+  serving the run, and defaults to `sonnet`.
+- **The effort** is checked against the levels the provider can apply to a
+  sub-agent — for Claude Code, the same five as `effort` — and one it cannot
+  apply is refused when the file loads, never dropped.
+- **Providers.** Claude Code offers sub-agents and Codex does not. Whether a
+  provider offers them is its adapter's to say, and no configuration key can
+  change it; a provider a project declares on an adapter inherits that
+  adapter's answer. Sub-agents turned on where no provider the agent or slot
+  could run on offers them are refused when the file loads, because the
+  setting could never take effect. Where some do and some do not — a slot pair
+  with a Claude Code primary and a Codex alternate — the file loads, `yoyo
+  config validate` says once which provider will serve runs without them, and
+  a run on that provider goes without them and its record says so, for example
+  `sub-agents off for this run: Codex does not offer them`. Falling back to an
+  alternate never depends on sub-agents.
+- **When a change takes effect.** The setting a run uses is written on its
+  record before its first launch and read back by every attempt after,
+  repairs included, so an edit reaches runs that start after it. A run that
+  started with nothing configured keeps running without sub-agents.
+
+**What holds a sub-agent in.** On Claude Code the harness defines the only
+sub-agent a run may start, on the command line and named for the run, so no
+definition in the repository, the account's home, or the provider's own
+configuration is used. Its tools are the run's own allowed tools without the
+sub-agent tool, so it cannot start a sub-agent of its own. It runs inside the
+developer's process, in the worktree, under the developer's settings: the same
+sandbox and the same write rules. A hook refuses any other sub-agent type and
+any sub-agent asked to run in the background, and background work is switched
+off in a session with sub-agents — for its shell commands too — so nothing a
+sub-agent starts outlives the run. Stopping, timing out, or interrupting the
+invocation ends its sub-agents with it, and a restarted run never resumes one.
+
+**Checked before every invocation that would have them.** What a provider
+says it offers is not relied on alone, because the installed CLI can be
+upgraded under a running harness. Before each developer invocation that would
+be given sub-agents, the harness launches the installed Claude Code the way
+that invocation is launched, asks it questions over its control channel, and
+sends no prompt, so no model is called and nothing is spent. It confirms that
+the CLI names `--agents` and `--forward-subagent-text` (on any version other
+than 2.1.286, which they were read from), that it loaded the run's own
+sub-agent on the configured model, that it rejected none of the settings, and
+that it will run the hook that refuses every other sub-agent. Where any of that
+does not hold, or the check cannot be made, that invocation runs without
+sub-agents and the run's record says why in the check's own words — for
+example `sub-agents off for this run: the installed claude-code (2.2.0) did not
+confirm what sub-agents are launched with: the flag --forward-subagent-text is
+not in its help`. Nothing else about the run changes. Two things cannot be
+confirmed without running a sub-agent, and so rest on what was read from Claude
+Code 2.1.286: that a sub-agent runs inside the developer's own process, and that
+the provider reports usage for each model. A provider that stops reporting
+usage per model leaves the split unknown on the record rather than guessed.
+
+**A usage limit on the sub-agents' model alone.** Claude Code names some
+usage limits for one model family, such as its weekly Sonnet limit. Where the
+limit it reports is on a family the sub-agents run on and the developer does
+not — a weekly Sonnet limit on a run whose developer is on Opus — the run does
+not wait and does not move to its alternate endpoint: the developer carries on
+the work itself, and the run's later attempts go without sub-agents until the
+limit resets. Its record and status say so, for example `sub-agents off for
+this run: the provider's seven_day_sonnet usage limit for the sub-agents' model
+is reached, so the developer works without them until it resets at Jan 23
+09:00 PST`; a limit that names no reset time keeps them off for the rest of the
+run. A limit on the whole account, or on the developer's own model, is the
+run's, and is waited out or answered by the endpoint fallback as described
+under [waiting out a provider that refuses](#waiting-out-a-provider-that-refuses).
+
+**What it costs, and what is recorded.** A sub-agent's spend is the run's: it
+is inside the cost the provider reports for the invocation, so it counts in the
+run's and the work item's cost, the account's usage limits, and every spend
+limit, exactly as the developer's own use does. Each cost line also carries
+`models`, what the provider reported each model doing, and the run's record
+carries the last session's split as `provider_model_usage`; where the provider
+reports a total only, the split is left unknown rather than estimated. Each
+call to a sub-agent is in the run's event log on the events that start and end it: when,
+the model, the task as the developer described it, how many tools it used, and
+its usage where reported. A run's line in `yoyo status` and its dashboard card
+say whether sub-agents are on, which models did its work and what each cost,
+and how many sub-agent calls it has made, with any interrupted ones counted.
+Every event a sub-agent produces counts as output for the limit that ends a
+run after five minutes without any, and that limit is not lengthened for
+sub-agents; time a sub-agent spends counts in the run's own time limits.
+
+Turning sub-agents on by default, or changing the default model, is the
+development manager's decision about developer models, made after a trial
+comparing a slot with sub-agents against the others on cost per merged change
+and first-review approval.
+
 ### Skills and instruction files a Codex role is given
 
 A Codex role is given the skills and instruction files the project names in a
