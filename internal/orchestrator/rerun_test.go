@@ -83,7 +83,9 @@ type rerunHarness struct {
 	// that refuses the release.
 	released   []string
 	releaseErr error
-	started    []startedRun
+	// noted is each note the item was given without its status moving.
+	noted   []string
+	started []startedRun
 	// outcome is what the starter reports, and failure what it returns. A test
 	// that cares about what the action does after a run sets them.
 	outcome Outcome
@@ -143,6 +145,14 @@ func (h *rerunHarness) Release(_ context.Context, _ string, reason string) (bead
 	}
 	h.released = append(h.released, reason)
 	h.item.Status = "open"
+	return h.item, nil
+}
+
+// RecordOutcome is the note a re-run leaves when it gives back the claim of a
+// fresh run that never held the item. Each note is kept beside the released
+// ones so a test can read everything the item was told.
+func (h *rerunHarness) RecordOutcome(_ context.Context, _ string, notes string) (beads.WorkItem, error) {
+	h.noted = append(h.noted, notes)
 	return h.item, nil
 }
 
@@ -1560,6 +1570,104 @@ func TestARerunRefusedByThePipelineGivesTheClaimBackAndLaunchesLater(t *testing.
 	}
 }
 
+// A fresh run the pipeline reserved and whose claim of the item the tracker then
+// refused never held the item: no worktree, no agent, nothing the claim bought.
+// So the stoppage's re-run goes back rather than being spent on it, the item's
+// notes say so, and once the tracker takes the claim the same decision runs.
+func TestARerunWhoseFreshRunLostItsClaimGivesTheRerunBack(t *testing.T) {
+	t.Parallel()
+
+	pipelined := newPipelinedRerun(t, nil)
+	refused := true
+	pipelined.tracker.OnClaim = func() error {
+		if refused {
+			return errors.New("issue not claimable: status blocked")
+		}
+		return nil
+	}
+	result, err := pipelined.rerunner.Rerun(context.Background(), RerunRequest{Run: priorRunID})
+	if err == nil || !strings.Contains(err.Error(), "issue not claimable") {
+		t.Fatalf("Rerun() error = %v, want the refused claim reported as it was", err)
+	}
+	if !result.Started || result.Outcome.RunID == "" {
+		t.Fatalf("result = %#v, want the fresh run reserved and reported", result)
+	}
+	fresh, err := pipelined.runs.Load(result.Outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load(fresh run) error = %v", err)
+	}
+	if !fresh.DiedBeforeClaiming() {
+		t.Fatalf("fresh run = %#v, want a record saying it died before it took the item", fresh)
+	}
+	if invocations := len(pipelined.provider.RequestsForRole(domain.RoleDeveloper)); invocations != 0 {
+		t.Fatalf("developer invocations = %d, want none behind a run that never held the item", invocations)
+	}
+	if !result.ClaimGivenBack || !result.NeverHeldItem || result.RecordProblem != "" {
+		t.Fatalf("result = %#v, want the re-run given back cleanly for a run that never held the item", result)
+	}
+	if _, claimed, err := pipelined.reruns.Find(triage.Key(triage.ClassStoppedRun, priorRunID)); err != nil || claimed {
+		t.Fatalf("claimed = %t, error = %v, want the stoppage's re-run given back", claimed, err)
+	}
+	rendered := result.Render()
+	if !strings.Contains(rendered, "never held the item") || !strings.Contains(rendered, "keeps its one re-run") {
+		t.Fatalf("Render() = %q, want the run named as never having held the item and the re-run said to be kept", rendered)
+	}
+	var said string
+	for _, note := range pipelined.tracker.NoteRecords {
+		if strings.Contains(note, "gave back the development manager's re-run") {
+			said = note
+		}
+	}
+	if said == "" || !strings.Contains(said, result.Outcome.RunID) || !strings.Contains(said, priorRunID) || !strings.Contains(said, "issue not claimable") {
+		t.Fatalf("item notes = %q, want one naming the fresh run, the stoppage, and what refused the claim", pipelined.tracker.NoteRecords)
+	}
+
+	// The tracker takes the claim now, and the same decision is carried out by a
+	// run of its own.
+	refused = false
+	pipelined.pipeline.NewRunID = func() (string, error) { return "run-abababababababababababababababab", nil }
+	rerun, err := pipelined.rerunner.Rerun(context.Background(), RerunRequest{Run: priorRunID})
+	if err != nil {
+		t.Fatalf("Rerun() once the claim is taken error = %v", err)
+	}
+	if !rerun.Started || rerun.ClaimGivenBack || rerun.Outcome.Integration == nil {
+		t.Fatalf("result = %#v, want the fresh run started and landed on the same decision", rerun)
+	}
+	if _, claimed, _ := pipelined.reruns.Find(triage.Key(triage.ClassStoppedRun, priorRunID)); !claimed {
+		t.Fatal("the re-run that ran was not claimed against the stoppage")
+	}
+}
+
+// A fresh run that took the item and then failed keeps the claim: it held the
+// item, and a claim given back for it would let one decision start two runs.
+func TestAFreshRunThatFailedAfterTakingTheItemKeepsItsClaim(t *testing.T) {
+	t.Parallel()
+
+	harness := newRerunHarness(t, stoppedState())
+	freshRunID := "run-fedcba9876543210fedcba9876543210"
+	claimedAt := docketedNow
+	fresh := stoppedState()
+	fresh.RunID = freshRunID
+	fresh.Status = runstate.StatusFailed
+	fresh.WorkItemClaimedAt = &claimedAt
+	fresh.Failure = "create isolated worktree: the disk is full"
+	if err := harness.runs.Create(fresh); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	harness.failure = errors.New(fresh.Failure)
+	harness.outcome = Outcome{RunID: freshRunID, WorkItemID: docketedItem, Status: runstate.StatusFailed}
+	result, err := harness.rerunner().Rerun(context.Background(), rerunRequest())
+	if err == nil {
+		t.Fatal("Rerun() error = nil, want the failure reported")
+	}
+	if result.ClaimGivenBack || result.NeverHeldItem || len(harness.noted) != 0 {
+		t.Fatalf("result = %#v, notes = %q, want a run that held the item to keep its claim", result, harness.noted)
+	}
+	if _, claimed, _ := harness.reruns.Find(triage.Key(triage.ClassStoppedRun, docketedRunID)); !claimed {
+		t.Fatal("a re-run whose fresh run held the item gave its claim back")
+	}
+}
+
 // pipelinedRerun is the re-run action over the real pipeline: one repository,
 // one state root, and one intake hold record read by both the action and the
 // run it starts.
@@ -1578,6 +1686,9 @@ type pipelinedRerun struct {
 	// it claims anything, and the pipeline's, where it would start the work.
 	tracker *orchestratortest.Tracker
 	reruns  *runstate.RerunStore
+	// pipeline is the pipeline every fresh run is started through, so a test that
+	// starts two of them can give the second a run identifier of its own.
+	pipeline *Pipeline
 }
 
 // newPipelinedRerun builds it over a stopped, docketed, decided-about run.
@@ -1649,6 +1760,7 @@ func newPipelinedRerun(t *testing.T, beforeStart func()) *pipelinedRerun {
 		provider:   provider,
 		tracker:    tracker,
 		reruns:     reruns,
+		pipeline:   &pipeline,
 		rerunner: Rerunner{
 			Docket:    docket,
 			Runs:      store,
@@ -1825,6 +1937,10 @@ func (id openWorkItem) Show(context.Context, string) (beads.WorkItem, error) {
 }
 
 func (id openWorkItem) Release(context.Context, string, string) (beads.WorkItem, error) {
+	return beads.WorkItem{ID: string(id), Status: "open"}, nil
+}
+
+func (id openWorkItem) RecordOutcome(context.Context, string, string) (beads.WorkItem, error) {
 	return beads.WorkItem{ID: string(id), Status: "open"}, nil
 }
 

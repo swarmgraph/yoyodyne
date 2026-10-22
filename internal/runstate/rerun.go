@@ -140,9 +140,9 @@ const MaxRerunGiveBacks = 16
 // claim, recorded the way her triage decisions are: who, where, when, and why.
 //
 // It exists because the harness gives a claim back by itself only where it can
-// prove the fresh run bought nothing (Withdraw), and a fresh run that died
-// before it claimed its item, or one whose environment nothing classified, is
-// not provable that way. What that leaves is a judgement, and the judgement is
+// prove the fresh run bought nothing (Withdraw) — which includes a fresh run
+// that died before it claimed its item — and a fresh run that died after
+// taking the item, with nothing classifying why, is not provable that way. What that leaves is a judgement, and the judgement is
 // hers; the harness carries it out (orchestrator's ClaimGiver).
 type RerunClaimDecision struct {
 	Decision     string    `json:"decision"`
@@ -540,6 +540,9 @@ func (s *RerunStore) Settle(ctx context.Context, docketKey, runID string, preser
 // refusal is what keeps it sound: the fresh run's identifier is written here by
 // Settle, which a run refused that way never reaches, so the record this finds
 // still carries no run and the check below is still the whole of the condition.
+// A fresh run that ended before it took the work item is the same case for the
+// same reason: it never held the item, and its own record — no claim time, no
+// worktree — is what proves it (State.DiedBeforeClaiming).
 //
 // A stoppage nothing has claimed is already what this would leave behind, so
 // withdrawing one is not an error.

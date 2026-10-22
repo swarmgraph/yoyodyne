@@ -4,9 +4,10 @@ package chat
 //
 // A re-run decision is carried out once, by a claim the harness takes against
 // the stoppage before the fresh run starts. The harness gives a claim back by
-// itself only where it can prove the fresh run bought nothing. Where it cannot —
-// a fresh run that died at its tracker claim, or while its worktree was being
-// prepared, with nothing classifying why — the docket entry of that fresh run
+// itself only where it can prove the fresh run bought nothing, which includes a
+// fresh run that ended before it took the work item. Where it cannot — a fresh
+// run that died after taking the item, while its worktree was being prepared,
+// with nothing classifying why — the docket entry of that fresh run
 // says which claim it spent and what spending it cost, and the decision whether
 // the claim goes back is hers: "give-back-claim" or "leave-claim-spent", naming
 // the run the claim started (or, where none was recorded, the stopped run the
