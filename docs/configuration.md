@@ -4038,13 +4038,15 @@ execution:
   scheduling_wait_problem_after: 1h   # the default
 ```
 
-Every pass keeps, on each ready item it did not start and on each decided repair
+Every pass keeps, on each ready item it did not start, on each item the tracker
+does not offer because it waits on other work, and on each decided repair
 or re-run it left unstarted, the reason it gave, as one value in the item's
 tracker metadata that a changed reason replaces and the run starting the item
 clears. `yoyo status` and the dashboard read it back
 ([operations](operations.md#reading-why-the-scheduler-has-not-started-an-item)).
 `scheduling_wait_problem_after` is how long one reason may stand unchanged
-before the wait is shown as a problem, with whose move ends it. It must not be
+before the wait is shown as a problem, with whose move ends it; a wait on other
+work is never shown as a problem for its age. It must not be
 negative; zero takes the default. It changes no priority, reservation, budget,
 or scheduling rule: it says when a wait is reported, and nothing else.
 

@@ -10,8 +10,8 @@ import (
 
 const schedulingWaitKey = "yoyodyne_scheduling_wait"
 
-// SchedulingWait is the scheduler's current account of why a ready item has not
-// started, not an eligibility gate: nothing the scheduler decides reads it.
+// SchedulingWait is the scheduler's current account of why an admitted item has
+// not started, not an eligibility gate: nothing the scheduler decides reads it.
 // Class is the pass-over class the scheduler put the item in, which is what the
 // read model answers whose move it is from. FirstPassedOver survives a change of
 // reason; ReasonSince dates this reason.

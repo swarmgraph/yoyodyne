@@ -83,3 +83,38 @@ func TestRunningWorkSuppressesAnOldSchedulingReason(t *testing.T) {
 		t.Fatalf("running reading includes old reason: %s", encoded)
 	}
 }
+
+func TestAWaitOnOtherWorkIsSaidOnceAndNeverAProblemByStanding(t *testing.T) {
+	class := string(runstate.PassedOverWaitingOnOtherWork)
+	held := beads.WorkItem{ID: "yoyodyne-waiting", Title: "Waiting work", Status: "open",
+		Dependencies:   []beads.Dependency{{ID: "yoyodyne-blocker", Type: beads.BlocksDependency}},
+		SchedulingWait: &beads.SchedulingWait{Class: class, Reason: "waiting on yoyodyne-blocker", FirstPassedOver: moment.Add(-9 * time.Hour), ReasonSince: moment.Add(-9 * time.Hour)}}
+	blocker := beads.WorkItem{ID: "yoyodyne-blocker", Title: "Blocker", Status: "open"}
+	// Released since the last pull: the next pull clears it, and nothing says it meanwhile.
+	released := beads.WorkItem{ID: "yoyodyne-released", Title: "Released work", Status: "open",
+		SchedulingWait: &beads.SchedulingWait{Class: class, Reason: "waiting on yoyodyne-gone", FirstPassedOver: moment.Add(-time.Hour), ReasonSince: moment.Add(-time.Hour)}}
+	sources := quietSources()
+	sources.Tracker = statusTracker{fakeTracker{byStatus: map[string][]beads.WorkItem{"open": {held, blocker, released}}, ready: []beads.WorkItem{blocker, released}}}
+	standing := ReadStanding(context.Background(), sources)
+
+	var refusal string
+	for _, refused := range standing.NotStartable {
+		if refused.WorkItemID == held.ID {
+			refusal = refused.Reason
+		}
+	}
+	if strings.Count(refusal, "waiting on yoyodyne-blocker") != 1 || !strings.Contains(refusal, "first passed over at") || strings.Contains(refusal, "problem") {
+		t.Fatalf("refusal = %q", refusal)
+	}
+	if len(standing.SchedulingWaitProblems) != 0 {
+		t.Fatalf("problems = %+v", standing.SchedulingWaitProblems)
+	}
+	for _, ref := range append(standing.AdmittedItems, standing.StartableItems...) {
+		if ref.WorkItemID == released.ID && (ref.SchedulingWait != nil || ref.WaitReason != "") {
+			t.Fatalf("a released item still says its old wait: %+v", ref)
+		}
+	}
+	if rendered := standing.Render(); strings.Contains(rendered, "yoyodyne-gone") {
+		t.Fatalf("terminal says a cleared wait: %s", rendered)
+	}
+}
