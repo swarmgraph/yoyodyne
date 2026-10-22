@@ -123,7 +123,8 @@ func (c settableClock) Now() time.Time { return *c.at }
 
 // A pass that fails after saving a memory and a lane report keeps both: the
 // stores hold them, the pass's record names them as standing beside the
-// failure, and the pass run after it is told they are already saved.
+// failure, and the pass run after it is told they are already saved. It fails
+// because no turn gave an account: one that had would be kept as partial.
 func TestAPassThatFailsAfterSavingKeepsItsWritesAndTheNextPassIsToldOfThem(t *testing.T) {
 	t.Parallel()
 
@@ -146,13 +147,14 @@ func TestAPassThatFailsAfterSavingKeepsItsWritesAndTheNextPassIsToldOfThem(t *te
 	}
 	var prompts []string
 	backend := scriptedBackend{prompts: &prompts, replies: []string{
-		// The first pass's first turn saves a memory and a report and has more to do.
+		// The first pass's first turn saves a memory and a report and gives no
+		// account of itself.
 		"Half way down the line.\n\n```yoyodyne-memory\n" +
 			`{"memories":[{"action":"remember","memory":"line-stalls-at-review","text":"The line stalls at review when the reviewer is on the small model."}]}` +
 			"\n```\n\n```yoyodyne-lane-report\n" +
 			`{"summary":"half way down the line","remaining":[],"blockers":[]}` +
-			"\n```\n\n```yoyodyne-sweep\n" + `{"status":"more","summary":"half way"}` + "\n```\n",
-		// Its second turn fails.
+			"\n```\n",
+		// The request for its account fails at the provider.
 		"",
 		// The pass run after it completes.
 		"The rest of the line." + laneReportSweep,
@@ -213,7 +215,7 @@ func TestAPassThatFailsAfterSavingKeepsItsWritesAndTheNextPassIsToldOfThem(t *te
 	if len(failed.Saved) != len(wantSaved) || failed.Saved[0] != wantSaved[0] || failed.Saved[1] != wantSaved[1] {
 		t.Errorf("the record's saved writes = %+v, want %+v", failed.Saved, wantSaved)
 	}
-	for _, want := range []string{"turn 2 of the recurring task factory-watch failed", "saved 2 write(s), which stand and were not undone", `memory "line-stalls-at-review"`, "lane report version 1"} {
+	for _, want := range []string{"turn 1 of the recurring task factory-watch failed", "saved 2 write(s), which stand and were not undone", `memory "line-stalls-at-review"`, "lane report version 1"} {
 		if !strings.Contains(failed.Problem, want) {
 			t.Errorf("the record's problem = %q, want it to say %q", failed.Problem, want)
 		}
