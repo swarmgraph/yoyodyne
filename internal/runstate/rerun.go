@@ -540,6 +540,9 @@ func (s *RerunStore) Settle(ctx context.Context, docketKey, runID string, preser
 // refusal is what keeps it sound: the fresh run's identifier is written here by
 // Settle, which a run refused that way never reaches, so the record this finds
 // still carries no run and the check below is still the whole of the condition.
+// A fresh run that ended before it took the work item is the same case for the
+// same reason: it never held the item, and its own record — no claim time, no
+// worktree — is what proves it (State.DiedBeforeClaiming).
 //
 // A stoppage nothing has claimed is already what this would leave behind, so
 // withdrawing one is not an error.

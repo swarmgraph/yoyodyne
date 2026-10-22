@@ -1185,7 +1185,14 @@ development manager recorded all claim through it, so a re-run carried out
 against an item at `blocked` clears the status, confirms it, and claims the item
 on the pull that cleared it, under the same bound and with the same account on
 the item and the run. The carry-out reads the item before it claims its re-run,
-and accepts `blocked` there because the claim is what corrects it.
+and accepts `blocked` there because the claim is what corrects it. **A lost claim
+spends nothing.** A fresh run whose claim of the item still fails — refused by
+the tracker, or a clear no read confirmed — ends before it took the item, so it
+cut no worktree and asked no agent anything. The stoppage's re-run is given back
+rather than spent on a run that never held the item: the run's record says it
+died before claiming, the item's notes say the re-run was given back and the
+decision still stands, and the next carry-out of the same decision starts a
+fresh run.
 
 What still holds a blocked item back is a **hold**, which is the harness's own
 durable record rather than a field: a run that stopped on the item and whose

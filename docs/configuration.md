@@ -6558,7 +6558,8 @@ keeps a harness already held from spending anything, and this covers one that
 arrives while the claim is being taken.
 
 **A fresh run the environment refused before any agent of it ran gives the claim
-back as well**, and it is the one give-back on the far side of the reservation. A
+back as well**, and it is one of two give-backs on the far side of the
+reservation. A
 worktree whose checkout the harness's own budget ended is the case it was built
 for: the run was reserved and its record says what stopped it, but no developer
 was invoked and no change was delivered, so the claim bought nothing. Both halves
@@ -6570,6 +6571,14 @@ is settled like any other, whatever became of that run, including one whose roun
 the settle could not classify: a claim given back twice is one decision starting
 two runs.
 
+**A fresh run that ended before it took the work item gives the claim back
+too**, and it is the other. Its claim was refused by the tracker or never
+confirmed, so it cut no worktree and invoked no agent: it never held the item,
+and the claim bought nothing. The run's own record is what says so — it records
+no claim time, no worktree, and the failure that ended it — and the item is
+given a note saying the stoppage's re-run was given back and the decision still
+stands. A run that took the item and then failed keeps the claim.
+
 The re-run is recorded beside the counters, one file per docketed stoppage at
 `<state root>/projects/<product id>/state/reruns/`, and it carries what the stopped
 run preserved. Its branch and worktree are **kept** while the fresh run has not
@@ -6580,8 +6589,9 @@ uncommitted work and a branch whose work nothing promoted are both left exactly
 where they are, because nothing else records what they hold. Nothing automated
 deletes the record, for the reason nothing deletes a counter file — save the
 withdrawals above, which remove a claim that provably bought nothing: one whose
-fresh run the pipeline answered before it reserved anything, and one whose fresh
-run the environment refused before any agent of it ran. A claim the development
+fresh run the pipeline answered before it reserved anything, one whose fresh
+run the environment refused before any agent of it ran, and one whose fresh run
+ended before it took the work item. A claim the development
 manager decided to give back is not removed: the record says it was given back,
 on whose decision, why, and who carried it out, and it no longer counts as
 spent, so the stoppage may be claimed again — the new claim keeping every

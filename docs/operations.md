@@ -4358,9 +4358,10 @@ records a claim against the stoppage under
 `<state root>/projects/<product id>/state/reruns/` before the fresh run starts,
 and the claim counts as spent whatever the fresh run came to. The harness gives
 a claim back by itself only where it can prove the fresh run bought nothing —
-the run was refused before it was reserved, or the environment refused it before
-any agent of it ran ([triage thresholds](configuration.md#triage-thresholds)
-says which). A fresh run that died at its tracker claim, or while its worktree
+the run was refused before it was reserved, the environment refused it before
+any agent of it ran, or it ended before it took the work item, its tracker claim
+refused or never confirmed ([triage thresholds](configuration.md#triage-thresholds)
+says which). A fresh run that died after taking the item, while its worktree
 was being prepared, with nothing classifying why, is not provable that way, and
 neither is a give-back the harness tried and could not write. Such a claim stays
 spent, and her re-run decision reads as carried out by a run that did nothing.

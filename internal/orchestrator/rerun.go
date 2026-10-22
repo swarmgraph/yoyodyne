@@ -137,6 +137,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/humangate"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -222,7 +223,7 @@ type RerunGates interface {
 }
 
 // RerunItems is the work item the stoppage is about. It is read, and written in
-// exactly one case: what becomes of an item is the fresh run's to record, and a
+// exactly two cases: what becomes of an item is the fresh run's to record, and a
 // re-run that reopened what it wanted to run would be deciding the thing it is
 // here to carry out somebody else's decision about.
 //
@@ -238,10 +239,16 @@ type RerunGates interface {
 // status nothing is working behind, and it is given back with a note saying so
 // rather than left to refuse the decision. See supersedeStaleClaim.
 //
+// The other is RecordOutcome, a note and nothing else: a fresh run that ended
+// before it took the item had its claim given back, and the item says so, so a
+// reader of it is not left to work out whether the stoppage's re-run was spent.
+// See withdrawLostClaim.
+//
 // It is satisfied by beads.Client.
 type RerunItems interface {
 	Show(ctx context.Context, id string) (beads.WorkItem, error)
 	Release(ctx context.Context, id, reason string) (beads.WorkItem, error)
+	RecordOutcome(ctx context.Context, id, notes string) (beads.WorkItem, error)
 }
 
 // PreservedRetirer retires what the stopped run left behind, once the fresh run
@@ -346,6 +353,10 @@ type RerunResult struct {
 	// back and the stoppage keeps its re-run. The run itself happened and is
 	// reported below; what did not happen is anything the claim was spent on.
 	ClaimGivenBack bool `json:"claim_given_back,omitempty"`
+	// NeverHeldItem says the fresh run was reserved and then ended before it took
+	// the work item, which is why ClaimGivenBack is offered for it: a run that
+	// never held the item bought nothing with the claim.
+	NeverHeldItem bool `json:"never_held_item,omitempty"`
 	// SupersededClaim is the note the item was given when the claim the stopped
 	// run left on it was released so the fresh run could start, and empty where
 	// the item was not left claimed.
@@ -547,6 +558,13 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 	// else is settled, whatever the run came to.
 	if refusedBeforeAnythingRan(outcome) || stoppedByUsageWindow(outcome.Environmental) {
 		return r.withdrawEnvironmental(ctx, entry, outcome, result), runErr
+	}
+	// A fresh run that was reserved and then ended without ever taking the work
+	// item — its claim refused by the tracker, or never confirmed — never held the
+	// item, so it cut no worktree and invoked no agent. The claim bought nothing,
+	// so it goes back and the stoppage keeps its re-run, exactly as above.
+	if failed, never := r.neverHeldTheItem(outcome); never {
+		return r.withdrawLostClaim(ctx, entry, failed, outcome, result), runErr
 	}
 	result.Outcome = outcome
 	// A publication nothing ever asked the forge to merge is handed back by this
@@ -1094,6 +1112,13 @@ func (r Rerunner) withdrawEnvironmental(ctx context.Context, entry triage.Entry,
 	if stoppedByUsageWindow(outcome.Environmental) {
 		met = fmt.Sprintf("the fresh run of %s was stopped by the provider's usage limit before anything it produced was judged", entry.WorkItemID)
 	}
+	return r.giveBackPastTheReservation(ctx, entry, outcome, met, result)
+}
+
+// giveBackPastTheReservation gives back the claim taken for a fresh run that was
+// reserved and bought nothing, and records it as spent on that run where it
+// could not be given back. met names what the run met instead.
+func (r Rerunner) giveBackPastTheReservation(ctx context.Context, entry triage.Entry, outcome Outcome, met string, result RerunResult) RerunResult {
 	result.ClaimGivenBack = r.giveBack(ctx, entry, met, &result) == ""
 	// A claim that could not be given back is spent on this run, and is recorded
 	// as spent on it, so the run's docket entry names the claim and the
@@ -1105,6 +1130,54 @@ func (r Rerunner) withdrawEnvironmental(ctx context.Context, entry triage.Entry,
 	}
 	return result
 }
+
+// neverHeldTheItem reports the fresh run having been reserved and then failed
+// without ever taking its work item, and returns its record. It is asked of the
+// run's own record rather than of the error, because the record is what says
+// which side of the claim the run died on (runstate.State.DiedBeforeClaiming):
+// no claim time, no worktree, a failure recorded. That reading is ambiguous
+// only on records written before the claim time existed, and this record was
+// written by the run this carry-out has just started.
+//
+// A record that cannot be read is not one, so the claim stays spent and is
+// settled like any other: a claim given back on a guess is one decision
+// starting two runs.
+func (r Rerunner) neverHeldTheItem(outcome Outcome) (runstate.State, bool) {
+	if outcome.RunID == "" || outcome.Status != runstate.StatusFailed {
+		return runstate.State{}, false
+	}
+	fresh, err := r.Runs.Load(outcome.RunID)
+	if err != nil || fresh.WorkItemID != outcome.WorkItemID || !fresh.DiedBeforeClaiming() {
+		return runstate.State{}, false
+	}
+	return fresh, true
+}
+
+// withdrawLostClaim gives back the claim taken for a fresh run that ended before
+// it took the work item, and says so on the item. The fresh run's own record
+// already says it never claimed the item and why it failed; the note is what
+// tells a reader of the item that the stoppage's re-run was not spent on it, so
+// the decision still stands and the next carry-out of it starts a fresh run.
+func (r Rerunner) withdrawLostClaim(ctx context.Context, entry triage.Entry, fresh runstate.State, outcome Outcome, result RerunResult) RerunResult {
+	result.Outcome = outcome
+	result.NeverHeldItem = true
+	met := fmt.Sprintf("the fresh run %s of %s ended before it took the work item", outcome.RunID, entry.WorkItemID)
+	result = r.giveBackPastTheReservation(ctx, entry, outcome, met, result)
+	if !result.ClaimGivenBack {
+		return result
+	}
+	note := fmt.Sprintf(
+		"The harness gave back the development manager's re-run of the stoppage of run %s: the fresh run %s started for it ended before it took this item (%s), so it never held the item and the re-run was not spent on it. The decision still stands, and the next carry-out of it starts a fresh run.",
+		entry.RunID, outcome.RunID, oneline.Fold(fresh.Failure, maxLostClaimFailureBytes))
+	if _, err := r.Items.RecordOutcome(ctx, entry.WorkItemID, note); err != nil {
+		result.note(fmt.Sprintf("the re-run of the stoppage of run %s was given back, and %s could not be given a note saying so: %v", entry.RunID, entry.WorkItemID, err))
+	}
+	return result
+}
+
+// maxLostClaimFailureBytes bounds what the item's note quotes of the failure
+// that ended the fresh run. The run's record carries the whole of it.
+const maxLostClaimFailureBytes = 512
 
 // withdraw gives back the claim taken for a fresh run a full harness refused to
 // reserve, and reports the same waiting state a carry-out that met capacity
@@ -1583,7 +1656,11 @@ func (result RerunResult) Render() string {
 	if result.Outcome.RunID != "" {
 		fmt.Fprintf(&rendered, "fresh run: %s\n", result.Outcome.RunID)
 	}
-	if result.ClaimGivenBack {
+	switch {
+	case result.ClaimGivenBack && result.NeverHeldItem:
+		fmt.Fprintf(&rendered, "that run ended before it took %s, so it never held the item; the claim was given back and the stoppage of run %s keeps its one re-run, and the next carry-out of the same decision starts a fresh run\n",
+			result.WorkItemID, result.PriorRunID)
+	case result.ClaimGivenBack:
 		fmt.Fprintf(&rendered, "the environment refused that run before any agent of it ran, so the claim was given back and the stoppage of run %s keeps its one re-run; asking again once the machine is not what stops it carries out the same decision\n",
 			result.PriorRunID)
 	}
