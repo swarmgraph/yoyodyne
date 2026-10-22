@@ -844,6 +844,9 @@ func (p PendingWrite) recordedSummary() map[string]any {
 		"directory": strings.TrimSpace(p.Write.Directory),
 		"reason":    strings.TrimSpace(p.Write.Reason),
 		"bytes":     len(strings.TrimSpace(p.Write.Body)),
+		// Said apart from the size, because a section's few bytes and a whole
+		// document's look alike in a byte count.
+		"section": strings.TrimSpace(p.Write.Section),
 	}
 }
 
@@ -865,6 +868,7 @@ func (p PendingWrite) recorded() runstate.PendingWrite {
 		Supports:    p.Write.Supports,
 		Directory:   strings.TrimSpace(p.Write.Directory),
 		Body:        p.Write.Body,
+		Section:     strings.TrimSpace(p.Write.Section),
 		Reason:      strings.TrimSpace(p.Write.Reason),
 		Answers:     p.Write.Answers,
 		Hold:        p.Write.Hold,
@@ -891,6 +895,7 @@ func restoredWrite(conversationID string, recorded runstate.PendingWrite) Pendin
 			Supports:  recorded.Supports,
 			Directory: recorded.Directory,
 			Body:      recorded.Body,
+			Section:   recorded.Section,
 			Reason:    recorded.Reason,
 			Answers:   recorded.Answers,
 			Hold:      recorded.Hold,
