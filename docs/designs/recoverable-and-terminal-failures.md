@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-10-19T18:23:59.886625Z
       reason: 'yoyodyne-ifd.429.86 - the October 19 ruling on a check failure confined to tests the change does not touch: how the harness decides a test is untouched from paths alone, one rerun of only those tests on the same candidate commit before a repair attempt is spent, a second failure checked on the base commit so a change''s own failure is charged and a failure on main is held for the development manager, the reviewer and the dashboard shown every test that failed and then passed, and the build work it needs. Changes the checks boundary''s first sentence and adds one section, its orders and its checks; nothing else.'
+    - action: amended
+      by: architect
+      at: 2026-10-22T15:36:38.20726Z
+      reason: Replaces the retired phrase for a round refused from outside the work, in the Local Git boundary, with the terms register's own ordinary wording, as part of replacing the coined vocabulary in the governed documents (yoyodyne-ifd.437.21). One sentence changes; nothing else.
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -38,6 +42,11 @@ approvals:
       by: harness
       at: 2026-10-19T18:23:59.886625Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1296, for document-1296.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-10-22T15:36:38.20726Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1496, for document-1496.1 under the automatic approval policy
 ---
 # Recoverable and terminal failures: the boundary per failure class, and what a retry may never do
 
@@ -63,7 +72,7 @@ A failure whose class the harness does not recognize is treated as an answer and
 
 **The tracker.** Recoverable: a `bd` killed under load, a lock that timed out, a listing that did not return. Answers: a refusal by content — an unknown item, a status the tracker will not move, a claim it declines for a reason it states. The read a run makes at a gate boundary parks the run when its window is spent rather than ending it, because a busy store is not a verdict; the read a dispatch makes before any run exists refuses the dispatch and records nothing on a run, because there is none. A conversation's calls share one window per operator message.
 
-**Local Git.** A command the harness's own budget ended is an environmental refusal and is not retried in place: a replay it killed is abandoned and recorded as an integration stop the resume picks up, and a checkout it killed is refused with nothing charged. A conflict is an answer, to a person, with both sides preserved. Neither is a recoverable failure, because the identical command on the same machine at the same load is not a different request.
+**Local Git.** A command the harness's own budget ended was refused from outside the work and is not retried in place: a replay it killed is abandoned and recorded as an integration stop the resume picks up, and a checkout it killed is refused with nothing charged. A conflict is an answer, to a person, with both sides preserved. Neither is a recoverable failure, because the identical command on the same machine at the same load is not a different request.
 
 **The checks and the review.** A failing check and a repair verdict are answers to the developer and are never retried, with one bounded exception: a failure confined to tests the change does not touch, which the next section describes. A check stopped by its own time limit, or by the stage's limit, is not a failing check: it did not finish, so it is neither a pass nor a failure, and it earns no credit toward any gate. It is recovered within fixed bounds:
 
