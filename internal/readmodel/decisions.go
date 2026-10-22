@@ -7,17 +7,19 @@ package readmodel
 // projects, and never decided here: this list is the line's own entries whose
 // mover is the operator, narrowed to the ones a verb approves or declines and
 // opened into the records they carry, so the dashboard can put each to him one
-// at a time and carry out the same verb. Today that is the proposed changes the
-// line names as his — one whose entry names him, and each proposal in an owning
-// role's batch of recommendations — decided by `yoyo amendment approve` or
-// `decline`. An ordinary proposed change is the owning role's, as its entry on
-// the line says, and is not here.
+// at a time and carry out the same verb. Today that is two kinds. A proposed
+// change the line names as his — one whose entry names him, and each proposal
+// in an owning role's batch of recommendations — decided by `yoyo amendment
+// approve` or `decline`; an ordinary proposed change is the owning role's, as
+// its entry on the line says, and is not here. And a document waiting for
+// approval in a conversation, which the line carries where the ownership
+// resolver names him (pendingdocuments.go), decided by "approve document-4.1"
+// sent to that conversation.
 //
-// Two more kinds have a verb and are named below, so the dashboard can carry
-// them out the day the line names the operator for one: a document an owning
-// role wrote in its conversation, decided by "approve document-4.1" sent to
-// that conversation, and work proposed in one, decided by "approve 3.1". The
-// line has no entry for either today, so neither is listed.
+// A third kind has a verb and is named below, so the dashboard can carry it
+// out the day the line names the operator for one: work proposed in a
+// conversation, decided by "approve 3.1". The line has no entry for it today,
+// so none is listed.
 //
 // What is not here is everything on the line that no verb approves or
 // declines: a hold is released, a directive resolved, a step a person took
@@ -136,19 +138,29 @@ func (d OperatorDecision) Key() string {
 // carry. That is a proposed change whose entry names him, and every proposal in
 // an owning role's batch of recommendations, which is the operator-action
 // finding the line names as his; an ordinary proposal is the owning role's, as
-// its entry says, and is not here. A document or proposed work in a
+// its entry says, and is not here. Then the line's waiting documents whose
+// mover is the operator, opened into document decisions. Proposed work in a
 // conversation has no entry on the line naming him, so none is listed.
 // Proposals come oldest first, by the log's order. A source that could not be
 // read is named in the problem rather than read as an empty list.
 func ReadOperatorDecisions(sources Sources) ([]OperatorDecision, string) {
-	return readAmendments(sources, sources.now()).operatorDecisions()
+	documents, problem := readPendingDocuments(sources)
+	decisions, amendmentsProblem := readAmendments(sources, sources.now()).operatorDecisions(documents)
+	return decisions, joinProblems(amendmentsProblem, problem)
 }
 
-// operatorDecisions is the list from one reading of the proposed changes, which
-// the standing shares with the attention line it is derived from.
-func (reading amendmentReading) operatorDecisions() ([]OperatorDecision, string) {
+// operatorDecisions is the list from one reading of the proposed changes and
+// the waiting documents, which the standing shares with the attention line it
+// is derived from.
+func (reading amendmentReading) operatorDecisions(documents []Attention) ([]OperatorDecision, string) {
+	var decisions []OperatorDecision
+	for _, entry := range documents {
+		if entry.Mover == MoverOperator && entry.PendingDocument != nil {
+			decisions = append(decisions, documentDecision(entry.ID, *entry.PendingDocument))
+		}
+	}
 	if reading.problem != "" {
-		return nil, reading.problem
+		return decisions, reading.problem
 	}
 	recommended := map[string]RecommendedAmendment{}
 	for _, each := range reading.recommended {
@@ -170,7 +182,7 @@ func (reading amendmentReading) operatorDecisions() ([]OperatorDecision, string)
 			}
 		}
 	}
-	var decisions []OperatorDecision
+	var changes []OperatorDecision
 	for _, proposal := range amendment.Pending(reading.records) {
 		if !theirs[proposal.ID] {
 			continue
@@ -179,9 +191,21 @@ func (reading amendmentReading) operatorDecisions() ([]OperatorDecision, string)
 		if each, found := recommended[proposal.ID]; found {
 			decision.Recommendation = &each
 		}
-		decisions = append(decisions, decision)
+		changes = append(changes, decision)
 	}
-	return decisions, reading.sweepProblem
+	return append(changes, decisions...), reading.sweepProblem
+}
+
+// documentDecision is a waiting document as the dashboard puts it to the
+// operator: decided in its conversation, and asked about in the same one.
+func documentDecision(id string, document PendingDocument) OperatorDecision {
+	return OperatorDecision{
+		Kind: DecisionDocument, ID: id, Label: DecisionDocument.Label(),
+		Role: document.Role, Agent: document.Agent, Owner: document.Role, ConversationID: document.ConversationID,
+		Subject: document.Subject(), Detail: document.Body, Why: document.Reason,
+		AskRole: document.Role, AskAgent: document.Agent,
+		Says: document.Says(id),
+	}
 }
 
 // FindOperatorDecision is one decision by its kind, the agent whose

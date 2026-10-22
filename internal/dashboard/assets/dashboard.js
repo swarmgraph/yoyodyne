@@ -1794,6 +1794,19 @@ var standingWarningAgeSeconds = 5 * 60;
           add("Phase", entry.owed_step.phase || "none recorded");
         }
         break;
+      case "document-approval":
+        var waiting = entry.pending_document;
+        if (!waiting) {
+          break;
+        }
+        add("Document", waiting.artifact + (waiting.title ? " (" + waiting.title + ")" : ""), "card-field-id");
+        add("Written by", waiting.role + (waiting.agent ? " (agent " + waiting.agent + ")" : ""));
+        add("Conversation", waiting.conversation_id, "card-field-id");
+        add("Would", waiting.action === "create" ? "create it" : "revise it");
+        add("The document", waiting.body, "card-field-prose");
+        add("Why", waiting.reason, "card-field-prose");
+        add("Id", entry.id, "card-field-id");
+        break;
       case "conversation-carried-item":
         addItem("Work item", entry.work_item_id || entry.id);
         add("Executor", entry.executor, "card-field-id");

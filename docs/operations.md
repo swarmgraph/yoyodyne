@@ -4554,6 +4554,7 @@ they are not the labels a person reads:
 | `factory-stall` | nothing completing |
 | `tracker-unanswered` | tracker not answering |
 | `check-could-not-run` | check not running |
+| `document-approval` | document to approve |
 
 A line with nothing in it says `nothing` in words, and a line whose records could
 not be read says that instead — never `nothing`, which would be a confident
@@ -4791,13 +4792,14 @@ sentence about it: its `kind`, from a closed set — `amendment`,
 `publication`, `degraded-service`, `failing-task`, `config-mismatch`, `service-copies`, `hold`, `directive`,
 `outage`, `stall`, `held-work`, `operator-action`, `product-decision`,
 `human-gate`, `untraced-pass`, `factory-stall`, `tracker-unanswered`,
-`check-could-not-run` — the `id`
+`check-could-not-run`, `document-approval` — the `id`
 of the record it is about (an amendment's, a
 directive's, a run's, a work item's, a service's name, a recurring task's
 name, a human gate's name, which switch a hold is: `operator`, `intake`, or
 `capacity`, and for a `factory-stall` the moment the factory last did anything
 and for a `tracker-unanswered` the moment listings began failing, and for a
-`check-could-not-run` the check's command), the
+`check-could-not-run` the check's command, and for a `document-approval` the
+document's write id, such as `document-41.1`), the
 `mover` whose move it is, in the same closed vocabulary the
 page counts by (`operator`, a role such as `architect`,
 `development-manager`, or `program-manager`, `harness`, `forge`, `provider`, `nobody`, or
@@ -4806,7 +4808,7 @@ the record itself, whole, under a field named for the kind — `amendment`,
 `directive`, `outage`, `stall`, `reports`, `service`, `failing_task`, `config_mismatch`, `service_copies`,
 `owed_step`, `publication`, `held_work`, `amendment_queue`, `operator_action`,
 `product_decision`, `human_gate`, `untraced_pass`, `factory_stall`,
-`tracker_listings`, `unrun_check`, and for a hold `operator_hold`, `intake_hold`, or
+`tracker_listings`, `unrun_check`, `pending_document`, and for a hold `operator_hold`, `intake_hold`, or
 `capacity_hold`, whichever switch the `id` names. An `amendment` carries the
 target document, the proposer's role, agent, run, and work item, the proposed
 change, and why, none of it cut to a line. An entry about one admitted work
@@ -5863,6 +5865,10 @@ then the record the kind names, whole, under plain labels:
   `yoyo reconcile`;
 - a conversation-carried item's card shows the **Work item**, its **Executor**
   marker, and the **Role** the marker names;
+- a waiting document's card shows the **Document** and its title, who it was
+  **Written by** (the role, and the agent), the **Conversation** it waits in,
+  whether it **Would** create or revise the document, **The document** itself
+  and **Why** in full, and its **Id**;
 - the other kinds — a publication, a degraded service, a hold, a directive, an
   outage, a stall, the report pile, held work, a step reserved for a person — show their own record's fields
   the same way.
@@ -5883,18 +5889,35 @@ below; every other entry here is still acted on at the command line.
 What the attention line names as yours, and a verb approves or declines, is
 put to you on the page one thing at a time. Who owns each entry is the line's
 answer and never the page's: the page lists only the line's own entries whose
-mover is you, opened into the records they carry. Today those are changes
-proposed to documents — one whose entry names you, and each proposal in an
-owning role's [batch of recommendations](#where-a-finding-that-needs-your-hand-goes),
-which the line names as a finding for you — decided by `yoyo amendment
-approve` and `decline`. An ordinary proposed change is the owning role's to
-move, as its entry on the line says, and is not on the page's list; neither is
-a document or proposed work waiting in a conversation, for which the line names
-nobody. The standing carries the list under `standing.operator_decisions`,
-read from the same derivation the line is built from, and while anything is on
-it the band shows a **Your decisions** tile counting it. Anything on the line
-that no verb approves or declines — a hold, a directive, a step only a person
-can take — stays where it was.
+mover is you, opened into the records they carry. Today there are two kinds:
+
+- **A document waiting for your approval.** A document an owning role wrote in
+  its conversation, under an approval policy that is not automatic, waits there
+  until somebody approves or declines it. Where the ownership rules name you as
+  the one who decides it — a document the Lead Product Manager owns, in the
+  product home: the brief, the goals, the non-goals, the operating rules, any of
+  which says what the product is for — it is on the line as a
+  `document-approval` entry, `the Lead Product Manager wrote document-41.1,
+  which would revise v1-non-goals (V1 non-goals), in conversation chat-…, and it
+  waits for approval`, under `Needs a human` on `yoyo status` as well as on the
+  page. It is decided by `yoyo chat --message "approve document-41.1"`
+  (`yoyo agent chat <agent> --message` for another agent's), which the page's
+  buttons carry out. A document any other role owns is not routed to you, and
+  a document confirmed for publication or held for sending is not waiting on
+  anybody's approval, so neither is on the line.
+- **A change proposed to a document**, where the line names you: one whose
+  entry names you, and each proposal in an owning role's [batch of
+  recommendations](#where-a-finding-that-needs-your-hand-goes), which the line
+  names as a finding for you. It is decided by `yoyo amendment approve` and
+  `decline`. An ordinary proposed change is the owning role's to move, as its
+  entry on the line says, and is not on the page's list.
+
+Work an agent proposed in a conversation is not on the line naming you, so it
+is not on the page's list either. The standing carries the list under
+`standing.operator_decisions`, read from the same derivation the line is built
+from, and while anything is on it the band shows a **Your decisions** tile
+counting it. Anything on the line that no verb approves or declines — a hold, a
+directive, a step only a person can take — stays where it was.
 
 **Your decisions** opens a pop-up headed by what sort of decision it is, with
 `1 of 3` and when the standing was read under the heading, and the decision
@@ -5921,12 +5944,12 @@ raised it, the authority it is decided under, and its id. **Previous** and
 What came of each press is said under the buttons, in the verb's own words,
 and a decision carried out leaves the list at once. A decision is recorded
 exactly as the verb typed at the command line records it, as the operator's: the amendment
-log's decision by the operator under the owner's authority. Nothing the page
-does is something the command line cannot. The dashboard also knows how to
-carry out the conversation's own verb for a document or proposed work — "approve
-document-4.1" sent to that conversation — for the day the line names you for
-one; until then none is listed, and an act naming one is refused as not
-waiting.
+log's decision by the operator under the owner's authority, or, for a
+document, the conversation's own record of the approval, which writes the
+document and records your approval in it. Nothing the page does is something
+the command line cannot. A document whose conversation is taking a turn right
+now is refused with the reason, saying to decide again once the turn has ended,
+rather than holding the page for minutes.
 
 **Only a person acts, never a token.** The token the dashboard prints or reads
 from `services.dashboard.token` reads everything and resolves to nobody, so a
@@ -6041,7 +6064,9 @@ opened from it, and `report`, `report-blocked`, `report-unwritten`,
 `report-loading`, `report-missing`, `report-refused`, and `report-closed` for
 a program manager's report card, and `decide`, `decide-next`,
 `decide-approve`, `decide-decline`, `decide-ask`, `decide-unbound`,
-`decide-loading`, `decide-empty`, `decide-error`, and `decide-closed` for
+`decide-loading`, `decide-empty`, `decide-error`, `decide-closed`,
+`decide-document`, `decide-document-approve`, `decide-document-decline`,
+`decide-document-ask`, and `attention-document` for
 deciding from the page — the driver holding each act the page posts to the
 path, the body, and the bearer header the scenario expects — each opened by clicking what a reader would click on
 one of the pages and holding the pop-ups alone, over the page render it names

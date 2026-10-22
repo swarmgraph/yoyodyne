@@ -385,6 +385,26 @@
       "what": "yoyodyne-ifd.188 is admitted for \"conversation:product-manager\" rather than a developer run",
       "whose": "the Lead Product Manager's — in conversation; no run will ever be started for it",
       "label": "work in conversation"
+    },
+    {
+      "kind": "document-approval",
+      "id": "document-2328.1",
+      "mover": "operator",
+      "pending_document": {
+        "conversation_id": "chat-91253e0e070c17b0663651cc48602122",
+        "agent": "product-manager",
+        "role": "product-manager",
+        "turn": 2328,
+        "action": "revise",
+        "artifact": "v1-non-goals",
+        "kind": "non-goals",
+        "title": "V1 non-goals",
+        "body": "A reduced, local dashboard is in v1 scope, and it may take the operator's own decisions: approve and decline, starting with what waits on him.",
+        "reason": "The operator decided on October 11 that the dashboard may take his own decisions."
+      },
+      "label": "document to approve",
+      "what": "the Lead Product Manager wrote document-2328.1, which would revise v1-non-goals (V1 non-goals), in conversation chat-91253e0e070c17b0663651cc48602122, and it waits for approval",
+      "whose": "the operator's — it says what the product is for, so nothing is written until it is approved; `yoyo chat --message \"approve document-2328.1\"` or the dashboard's Approve writes it and records the approval in it, and a decline keeps it in the conversation's record"
     }
   ],
   "reports": {
@@ -580,6 +600,21 @@
       "ask_agent": "developer",
       "decline_needs_reason": true,
       "says": "the developer proposes a change to observability-and-dashboard, decided under the architect's authority"
+    },
+    {
+      "kind": "document",
+      "id": "document-2328.1",
+      "label": "document to approve",
+      "role": "product-manager",
+      "agent": "product-manager",
+      "owner": "product-manager",
+      "conversation_id": "chat-91253e0e070c17b0663651cc48602122",
+      "subject": "V1 non-goals",
+      "detail": "A reduced, local dashboard is in v1 scope, and it may take the operator's own decisions: approve and decline, starting with what waits on him.",
+      "why": "The operator decided on October 11 that the dashboard may take his own decisions.",
+      "ask_role": "product-manager",
+      "ask_agent": "product-manager",
+      "says": "the Lead Product Manager wrote document-2328.1, which would revise v1-non-goals (V1 non-goals), in conversation chat-91253e0e070c17b0663651cc48602122, and it waits for approval"
     }
   ]
 }

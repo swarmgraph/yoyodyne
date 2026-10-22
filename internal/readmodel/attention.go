@@ -125,6 +125,11 @@ const (
 	// window are the ID, and the wait is nobody's: the window lifts on the
 	// provider's clock.
 	AttentionCapacityDegraded AttentionKind = "capacity-degraded"
+	// AttentionPendingDocument is a document an owning role wrote in its
+	// conversation, waiting for approval before it is written, where the
+	// ownership resolver names the operator as the one who decides it. The
+	// write's id is the ID; the conversation is on the record.
+	AttentionPendingDocument AttentionKind = "document-approval"
 )
 
 // AttentionKinds is the whole vocabulary, so a test that has to cover every
@@ -154,6 +159,7 @@ func AttentionKinds() []AttentionKind {
 		AttentionTrackerUnanswered,
 		AttentionUnrunCheck,
 		AttentionCapacityDegraded,
+		AttentionPendingDocument,
 	}
 }
 
@@ -207,6 +213,7 @@ func (a Attention) Label() string {
 		AttentionTrackerUnanswered: "tracker not answering",
 		AttentionUnrunCheck:        "check not running",
 		AttentionCapacityDegraded:  "provider capacity degraded",
+		AttentionPendingDocument:   "document to approve",
 	}[a.Kind]
 }
 
@@ -381,6 +388,9 @@ type Attention struct {
 	// DegradedCapacity is the account, the window as the provider last reported
 	// it, and the threshold it is past, on an AttentionCapacityDegraded entry.
 	DegradedCapacity *DegradedCapacity `json:"degraded_capacity,omitempty"`
+	// PendingDocument is the document whole and the conversation it waits in,
+	// on an AttentionPendingDocument entry; the write's id is the ID.
+	PendingDocument *PendingDocument `json:"pending_document,omitempty"`
 
 	// titles is what the tracker calls each item, set by the reading that
 	// assembled the entry, so the line a person reads names every item beside
@@ -696,6 +706,10 @@ func (a Attention) What() string {
 		if a.DegradedCapacity != nil {
 			return a.DegradedCapacity.Says()
 		}
+	case AttentionPendingDocument:
+		if a.PendingDocument != nil {
+			return a.PendingDocument.Says(a.ID)
+		}
 	}
 	// An entry whose record is missing is still said rather than printed
 	// blank: a blank line on the attention line is the confident emptiness
@@ -842,6 +856,11 @@ func (a Attention) Whose() string {
 		return a.Mover.Possessive() + " — each listing its thirty-second bound killed is asked again, twice, before it is given up on, a pass carries on with what it could read and names what it could not, and the first listing that answers clears this"
 	case AttentionUnrunCheck:
 		return a.Mover.Possessive() + " — nothing the check would catch is being caught; give it what it lacks where the harness runs its checks, or change the check, and the first change it runs on clears this"
+	case AttentionPendingDocument:
+		if a.PendingDocument != nil {
+			return fmt.Sprintf("%s — it says what the product is for, so nothing is written until it is approved; %s or the dashboard's Approve writes it and records the approval in it, and a decline keeps it in the conversation's record",
+				a.Mover.Possessive(), a.PendingDocument.ApproveCommand(a.ID))
+		}
 	case AttentionCapacityDegraded:
 		return a.Mover.Possessive() + " — the limit lifts on the provider's clock at its reset; work carries on until the provider refuses it, the harness waits out a refusal by itself, and a reading below the threshold or the reset passing clears this"
 	}

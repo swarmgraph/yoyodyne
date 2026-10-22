@@ -463,7 +463,16 @@ const scenarios = pages.concat([
   over("decide-loading", "decisions", { acts: { "/api/session": pending }, open: [{ decide: "list" }] }),
   over("decide-empty", "decisions", { acts: { "/api/session": ok(boundSession) }, open: [{ decide: "list" }, { poll: { "/api/standing": ok(fixture("standing-busy")) } }] }),
   over("decide-error", "decisions-unreadable", { acts: { "/api/session": ok(boundSession) }, open: [{ decide: "list" }] }),
-  over("decide-closed", "decisions", { acts: { "/api/session": ok(boundSession) }, open: [{ decide: "list" }], escape: 1 })
+  over("decide-closed", "decisions", { acts: { "/api/session": ok(boundSession) }, open: [{ decide: "list" }], escape: 1 }),
+  // A document waiting for the operator's approval in the Lead Product
+  // Manager's conversation: its entry's card on the list of what is waiting,
+  // and the document put to him on the page — shown, approved, declined with
+  // no reason, and asked about first.
+  over("attention-document", "decisions", { open: [{ grouping: "attention" }, { entry: "document-approval:document-2328.1" }] }),
+  over("decide-document", "decisions", { acts: { "/api/session": ok(boundSession) }, open: [{ decide: "list" }, { act: "previous" }] }),
+  over("decide-document-approve", "decisions", { acts: { "/api/session": ok(boundSession), "/api/acts/decide": ok({ done: "You approved document-2328.1: the harness wrote docs/product/goals/v1-non-goals.md and recorded your approval in it", decided: true, person: "mason-bryant", decision: "document:product-manager:document-2328.1" }) }, open: [{ decide: "list" }, { act: "previous" }, { act: "approve" }] }),
+  over("decide-document-decline", "decisions", { acts: { "/api/session": ok(boundSession), "/api/acts/decide": ok({ done: "You declined document-2328.1, and nothing was written", decided: true, person: "mason-bryant", decision: "document:product-manager:document-2328.1" }) }, open: [{ decide: "list" }, { act: "previous" }, { act: "decline" }, { act: "decline-confirm" }] }),
+  over("decide-document-ask", "decisions", { acts: { "/api/session": ok(boundSession), "/api/acts/ask": ok({ done: "asked the Lead Product Manager about document to approve document-2328.1 in its conversation; its answer is recorded there and read with `yoyo chat`, and nothing was decided", decided: false, person: "mason-bryant", decision: "document:product-manager:document-2328.1" }) }, open: [{ decide: "list" }, { act: "previous" }, { act: "ask" }, { type: { "decide-question": "Does this change what v1 refuses?" } }, { act: "ask-send" }] })
 ]);
 
 function settle() {
@@ -747,7 +756,10 @@ async function main() {
       "decide-approve": ["/api/acts/decide", { kind: "amendment", agent: "", id: "amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c", verdict: "approve" }],
       "decide-unbound": ["/api/acts/decide", { kind: "amendment", agent: "", id: "amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c", verdict: "approve" }],
       "decide-decline": ["/api/acts/decide", { kind: "amendment", agent: "", id: "amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c", verdict: "decline", reason: "the invariant is cited already" }],
-      "decide-ask": ["/api/acts/ask", { kind: "amendment", agent: "", id: "amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c", question: "Which section would it change?" }]
+      "decide-ask": ["/api/acts/ask", { kind: "amendment", agent: "", id: "amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c", question: "Which section would it change?" }],
+      "decide-document-approve": ["/api/acts/decide", { kind: "document", agent: "product-manager", id: "document-2328.1", verdict: "approve" }],
+      "decide-document-decline": ["/api/acts/decide", { kind: "document", agent: "product-manager", id: "document-2328.1", verdict: "decline", reason: "" }],
+      "decide-document-ask": ["/api/acts/ask", { kind: "document", agent: "product-manager", id: "document-2328.1", question: "Does this change what v1 refuses?" }]
     };
     if (expectedActs[scenario.name]) {
       const [where, body] = expectedActs[scenario.name];

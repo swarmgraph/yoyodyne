@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>yoyodyne — yoyo dashboard</title>
+    <link rel="stylesheet" href="../../assets/dashboard.css">
+  </head>
+  <body>
+    <p class="render-note">Opened over the decisions render, which is not repeated here.</p>
+    <div id="grouping" class="popup" role="dialog" aria-modal="true" aria-labelledby="grouping-heading" data-state="ready">
+      <div id="grouping-backdrop" class="popup-backdrop"></div>
+      <div class="popup-card">
+        <div class="popup-head">
+          <div>
+            <h2 id="grouping-heading" class="popup-title">What is waiting, and on whom (9 things)</h2>
+            <p id="grouping-note" class="popup-note">what waits on the operator first, then what waits on each role, the harness, and the forge, each with its kind and who it is waiting on; each opens its card</p>
+          </div>
+          <button type="button" id="grouping-close" class="popup-close">Close</button>
+        </div>
+        <div class="section-ready">
+          <ol id="grouping-items" class="grouping-items">
+            <li class="grouping-item">
+              <button class="item-open grouping-title" type="button" data-entry="directive:directive-4f2c">directive directive-4f2c is unresolved: which branch does this land on?</button>
+              <span class="item-id">direction unresolved</span>
+              <span class="grouping-detail">the operator's — the work it affects waits until `yoyo directive resolve` settles it</span>
+            </li>
+            <li class="grouping-item">
+              <button class="item-open grouping-title" type="button" data-entry="document-approval:document-2328.1">the Lead Product Manager wrote document-2328.1, which would revise v1-non-goals (V1 non-goals), in conversation chat-91253e0e070c17b0663651cc48602122, and it waits for approval</button>
+              <span class="item-id">document to approve</span>
+              <span class="grouping-detail">the operator's — it says what the product is for, so nothing is written until it is approved; `yoyo chat --message "approve document-2328.1"` or the dashboard's Approve writes it and records the approval in it, and a decline keeps it in the conversation's record</span>
+            </li>
+            <li class="grouping-item">
+              <button class="item-open grouping-title" type="button" data-entry="report:">2 of 14 collected report(s) are unhandled, the oldest filed 8d ago, worst warning</button>
+              <span class="item-id">reports waiting</span>
+              <span class="grouping-detail">the Lead Product Manager's — reports are decided in conversation, and a pile this old says the schedule that works it is not keeping up</span>
+            </li>
+            <li class="grouping-item">
+              <button class="item-open grouping-title" type="button" data-entry="conversation-carried-item:yoyodyne-ifd.188">yoyodyne-ifd.188 is admitted for "conversation:product-manager" rather than a developer run</button>
+              <span class="item-id">work in conversation</span>
+              <span class="grouping-detail">the Lead Product Manager's — in conversation; no run will ever be started for it</span>
+            </li>
+            <li class="grouping-item">
+              <button class="item-open grouping-title" type="button" data-entry="amendment:amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c">a change to v1-harness-design is proposed and undecided (amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c)</button>
+              <span class="item-id">proposed document change</span>
+              <span class="grouping-detail">the architect's — nothing reaches the document until they or the operator decide it</span>
+            </li>
+            <li class="grouping-item">
+              <button class="item-open grouping-title" type="button" data-entry="amendment:amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d">a change to observability-and-dashboard is proposed and undecided (amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d)</button>
+              <span class="item-id">proposed document change</span>
+              <span class="grouping-detail">the architect's — nothing reaches the document until they or the operator decide it</span>
+            </li>
+            <li class="grouping-item">
+              <button class="item-open grouping-title" type="button" data-entry="held-work:decision">1 admitted item awaits the development manager's decision</button>
+              <span class="item-id">work waiting</span>
+              <span class="grouping-detail">the development manager's — nothing pulls a stopped item until she decides what happens to it</span>
+            </li>
+            <li class="grouping-item">
+              <button class="item-open grouping-title" type="button" data-entry="owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70">cleanup of the branch and worktree for yoyodyne-ifd.222 is not finished</button>
+              <span class="item-id">run not finished</span>
+              <span class="grouping-detail">the harness's — `yoyo reconcile` finishes the run's cleanup and records it</span>
+            </li>
+            <li class="grouping-item">
+              <button class="item-open grouping-title" type="button" data-entry="held-work:carry-out">1 admitted item awaits carry-out of a decision already recorded</button>
+              <span class="item-id">work waiting</span>
+              <span class="grouping-detail">the harness's — the decision is made, and what is outstanding is the harness acting on it</span>
+            </li>
+          </ol>
+        </div>
+      </div>
+    </div>
+    <div id="card" class="popup" role="dialog" aria-modal="true" aria-labelledby="card-heading" data-state="ready">
+      <div id="card-backdrop" class="popup-backdrop"></div>
+      <div class="popup-card">
+        <div class="popup-head">
+          <div>
+            <h2 id="card-heading" class="popup-title">document to approve</h2>
+            <p id="card-note" class="popup-note">document-2328.1 · read 14:05:09</p>
+          </div>
+          <button type="button" id="card-close" class="popup-close">Close</button>
+        </div>
+        <div class="section-ready">
+          <dl id="card-fields" class="card-fields">
+            <div class="card-field card-field-prose">
+              <dt>What</dt>
+              <dd>the Lead Product Manager wrote document-2328.1, which would revise v1-non-goals (V1 non-goals), in conversation chat-91253e0e070c17b0663651cc48602122, and it waits for approval</dd>
+            </div>
+            <div class="card-field card-field-prose">
+              <dt>Waiting on</dt>
+              <dd>the operator's — it says what the product is for, so nothing is written until it is approved; `yoyo chat --message "approve document-2328.1"` or the dashboard's Approve writes it and records the approval in it, and a decline keeps it in the conversation's record</dd>
+            </div>
+            <div class="card-field">
+              <dt>Kind</dt>
+              <dd>document to approve</dd>
+            </div>
+            <div class="card-field">
+              <dt>Mover</dt>
+              <dd>the operator's</dd>
+            </div>
+            <div class="card-field card-field-id">
+              <dt>Document</dt>
+              <dd>v1-non-goals (V1 non-goals)</dd>
+            </div>
+            <div class="card-field">
+              <dt>Written by</dt>
+              <dd>product-manager (agent product-manager)</dd>
+            </div>
+            <div class="card-field card-field-id">
+              <dt>Conversation</dt>
+              <dd>chat-91253e0e070c17b0663651cc48602122</dd>
+            </div>
+            <div class="card-field">
+              <dt>Would</dt>
+              <dd>revise it</dd>
+            </div>
+            <div class="card-field card-field-prose">
+              <dt>The document</dt>
+              <dd>A reduced, local dashboard is in v1 scope, and it may take the operator's own decisions: approve and decline, starting with what waits on him.</dd>
+            </div>
+            <div class="card-field card-field-prose">
+              <dt>Why</dt>
+              <dd>The operator decided on October 11 that the dashboard may take his own decisions.</dd>
+            </div>
+            <div class="card-field card-field-id">
+              <dt>Id</dt>
+              <dd>document-2328.1</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

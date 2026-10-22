@@ -165,6 +165,9 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 				", so each of them went on without it; latest reason: codex is not installed on this machine"},
 		AttentionCapacityDegraded: {degradedCapacityAttention(degradedFixture(moment)),
 			"the seven-day usage limit on account default is 93% used, past the 90% threshold, resets " + localMoment(moment.Add(48*time.Hour)) + "; read 1 hour ago"},
+		AttentionPendingDocument: {pendingDocumentAttention("chat-1", runstate.ConversationIdentity{Agent: "product-manager", Role: domain.RoleProductManager},
+			runstate.PendingWrite{ID: "document-41.1", Turn: 41, Action: "revise", Artifact: "v1-non-goals", Title: "V1 non-goals", Body: "the body", Reason: "the operator decided"}, MoverOperator),
+			"the Lead Product Manager wrote document-41.1, which would revise v1-non-goals (V1 non-goals), in conversation chat-1, and it waits for approval"},
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,
@@ -247,6 +250,7 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 		AttentionTrackerUnanswered: "2026-08-30T11:00:00Z",
 		AttentionUnrunCheck:        "make codex-resume",
 		AttentionCapacityDegraded:  "default:seven_day",
+		AttentionPendingDocument:   "document-41.1",
 	} {
 		if got := fixtures[kind].entry.ID; got != want {
 			t.Errorf("%s: id = %q, want %q", kind, got, want)

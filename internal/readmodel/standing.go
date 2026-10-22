@@ -901,10 +901,17 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	}
 	standing.AmendmentsProblem = joinProblems(amendments.problem, amendments.sweepProblem)
 	actions = append(actions, amendments.batchAttention()...)
-	standing.OperatorDecisions, standing.OperatorDecisionsProblem = amendments.operatorDecisions()
+	// A document waiting for approval in a conversation is on the line where
+	// the ownership resolver names who decides it, and the operator's are put
+	// to him on the page with the proposed changes that are his.
+	documents, documentsProblem := readPendingDocuments(sources)
+	standing.OperatorDecisions, standing.OperatorDecisionsProblem = amendments.operatorDecisions(documents)
+	standing.OperatorDecisionsProblem = joinProblems(standing.OperatorDecisionsProblem, documentsProblem)
 
 	needs, needsProblem := readNeedsHuman(sources, switches, actions, amendments)
 	needsProblem = joinProblems(needsProblem, actionsProblem)
+	needs = append(needs, documents...)
+	needsProblem = joinProblems(needsProblem, documentsProblem)
 	// The provider answering nobody is on the attention line whatever the queue
 	// holds, because what ends it is a person: it is added here where the stall
 	// did not already carry it, which is a stall over an empty queue.

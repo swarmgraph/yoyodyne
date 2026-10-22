@@ -1385,5 +1385,100 @@
       "report": "closed",
       "decide": "closed"
     }
+  },
+  "attention-document": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "ready",
+      "card": "ready",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
+  "decide-document": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
+    }
+  },
+  "decide-document-approve": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
+    }
+  },
+  "decide-document-decline": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
+    }
+  },
+  "decide-document-ask": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
+    }
   }
 }

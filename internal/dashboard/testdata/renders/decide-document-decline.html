@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>yoyodyne — yoyo dashboard</title>
+    <link rel="stylesheet" href="../../assets/dashboard.css">
+  </head>
+  <body>
+    <p class="render-note">Opened over the decisions render, which is not repeated here.</p>
+    <div id="decide" class="popup" role="dialog" aria-modal="true" aria-labelledby="decide-heading" data-state="ready">
+      <div id="decide-backdrop" class="popup-backdrop"></div>
+      <div class="popup-card">
+        <div class="popup-head">
+          <div>
+            <h2 id="decide-heading" class="popup-title">proposed document change</h2>
+            <p id="decide-note" class="popup-note">1 of 2 · read 14:05:09</p>
+          </div>
+          <button type="button" id="decide-close" class="popup-close">Close</button>
+        </div>
+        <div class="section-ready">
+          <p id="decide-session" class="decide-session">this session is mason-bryant, and an approve, decline, or ask from here is recorded as theirs</p>
+          <dl id="decide-fields" class="card-fields">
+            <div class="card-field card-field-prose">
+              <dt>What</dt>
+              <dd>the developer proposes a change to v1-harness-design, decided under the architect's authority</dd>
+            </div>
+            <div class="card-field card-field-prose">
+              <dt>Document</dt>
+              <dd>v1-harness-design</dd>
+            </div>
+            <div class="card-field card-field-prose">
+              <dt>Proposed change</dt>
+              <dd>The design should say that configuration selects sequence and never grants authority.</dd>
+            </div>
+            <div class="card-field card-field-prose">
+              <dt>Why</dt>
+              <dd>The invariant exists and the design does not cite it.</dd>
+            </div>
+            <div class="card-field card-field-prose">
+              <dt>The architect recommends</dt>
+              <dd>approve: The design should cite the invariant it already holds to.</dd>
+            </div>
+            <div class="card-field">
+              <dt>Raised by</dt>
+              <dd>developer</dd>
+            </div>
+            <div class="card-field">
+              <dt>Decided under</dt>
+              <dd>the architect's authority</dd>
+            </div>
+            <div class="card-field card-field-id">
+              <dt>Working on</dt>
+              <dd>yoyodyne-ifd.210</dd>
+            </div>
+            <div class="card-field">
+              <dt>Raised</dt>
+              <dd>2026-09-19 11:20:00</dd>
+            </div>
+            <div class="card-field card-field-id">
+              <dt>Id</dt>
+              <dd>amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c</dd>
+            </div>
+          </dl>
+          <div id="decide-actions" class="decide-actions">
+            <button class="decide-quiet" type="button" data-act="previous">Previous</button>
+            <button class="decide-quiet" type="button" data-act="next">Next</button>
+            <button type="button" data-act="approve">Approve</button>
+            <button class="decide-quiet" type="button" data-act="decline">Decline</button>
+            <button class="decide-quiet" type="button" data-act="ask">Ask first</button>
+          </div>
+          <p id="decide-outcome" class="decide-outcome" role="status">Done as mason-bryant: You declined document-2328.1, and nothing was written</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
