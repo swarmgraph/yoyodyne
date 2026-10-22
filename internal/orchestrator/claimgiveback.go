@@ -6,9 +6,10 @@ package orchestrator
 // stoppage before the fresh run starts, and a claim counts as spent whatever
 // the fresh run came to (runstate.RerunStore.Claimed). The harness gives a claim
 // back by itself only where it can prove the fresh run bought nothing — refused
-// before it was reserved, or refused by the environment before any agent of it
-// ran (Rerunner's withdraw paths). A fresh run that died at its tracker claim
-// or in preparing its worktree, with nothing classifying the cause, is not
+// before it was reserved, refused by the environment before any agent of it
+// ran, or ended before it took the work item (Rerunner's withdraw paths). A
+// fresh run that died after taking the item, in preparing its worktree, with
+// nothing classifying the cause, is not
 // provable that way, so its claim stays spent and the item's re-run decision
 // reads as carried out by a run that did nothing.
 //

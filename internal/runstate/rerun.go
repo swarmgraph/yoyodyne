@@ -140,9 +140,9 @@ const MaxRerunGiveBacks = 16
 // claim, recorded the way her triage decisions are: who, where, when, and why.
 //
 // It exists because the harness gives a claim back by itself only where it can
-// prove the fresh run bought nothing (Withdraw), and a fresh run that died
-// before it claimed its item, or one whose environment nothing classified, is
-// not provable that way. What that leaves is a judgement, and the judgement is
+// prove the fresh run bought nothing (Withdraw) — which includes a fresh run
+// that died before it claimed its item — and a fresh run that died after
+// taking the item, with nothing classifying why, is not provable that way. What that leaves is a judgement, and the judgement is
 // hers; the harness carries it out (orchestrator's ClaimGiver).
 type RerunClaimDecision struct {
 	Decision     string    `json:"decision"`

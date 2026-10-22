@@ -1118,8 +1118,9 @@ are two decisions and stay two.
 "give-back" carries out the development manager's decision to give back a
 spent re-run claim. A re-run is claimed once per docketed stoppage, and the
 claim stays spent whatever the fresh run came to unless the harness can prove
-that run bought nothing. A fresh run that died at its tracker claim or while
-its worktree was being prepared is not provable that way, so its docket entry
+that run bought nothing, which includes a fresh run that ended before it took
+the work item. A fresh run that died after taking the item, while its worktree
+was being prepared, is not provable that way, so its docket entry
 says which claim it spent and what that cost, and she records "give-back-claim"
 or "leave-claim-spent" about it in her conversation. A watching "yoyo work"
 session gives back every claim she decided to give back at its next pull; this
