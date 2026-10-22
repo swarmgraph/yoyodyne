@@ -106,6 +106,8 @@ func runArtifact(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		return approveArtifact(ctx, args[1:], stdout, stderr)
 	case "identify":
 		return identifyArtifact(args[1:], stdout, stderr)
+	case "check":
+		return checkGovernedDocuments(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown artifact command %q\n\n", args[0])
 		printArtifactUsage(stderr)
@@ -577,7 +579,7 @@ func artifactApprovals(artifacts []artifact.Artifact, policy artifact.Policy) ma
 }
 
 func printArtifactUsage(writer io.Writer) {
-	fmt.Fprintln(writer, `Usage: yoyo artifact <list|show|approve|identify> [options]
+	fmt.Fprintln(writer, `Usage: yoyo artifact <list|show|approve|identify|check> [options]
 
 The canonical documents upstream of a work item -- the product brief, the goals,
 the designs and specifications, and the decision records -- each carry a stable
@@ -637,11 +639,27 @@ admitted without asking you, and anything else is still put to you. That is why
 approve is a person's verb: a process the harness launched for a role -- an
 agent's shell, marked by YOYODYNE_AGENT_ROLE -- is refused it and told so.
 
+All of that is reported and none of it refuses anything, which is what a listing
+should do. "check" is the same reading with an exit code: it reads every governed
+document -- the artifacts, the goals stated in them, the invariants, the index at
+the door of each home, and the Markdown links written in any file a developer's
+change may not touch -- and exits 1 on a defect in one, naming the role that owns
+the file and the way to reach them. That is where a malformed governed document
+fails. It does not fail anybody else's build: the checks that read these documents
+escalate a defect in one to its owner instead, because every developer's diff
+refuses these paths and a build red for everybody over a file only one role may
+edit stops the work and fixes nothing. Run "check" after you edit one of these
+documents.
+
+A broken link written anywhere else is not this command's: it is a developer's to
+fix and it fails in the check that found it.
+
   list [--kind <kind>]   list the recorded artifacts, and name what is not one
   show <id>              print one artifact and its recorded revisions
   approve <id>           record your approval of a document as it now stands
   identify <id>          record a goals document's goals being given identifiers,
                          as the role that owns it; refused if any words change
+  check                  exit non-zero on a governed document that is malformed
 
 Options:
   --config <path>       configuration file (default: the nearest .yoyodyne/config.yaml)

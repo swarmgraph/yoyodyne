@@ -55,7 +55,7 @@ func TestEveryHomeSaysHowToTellItsOwnerWhatChanged(t *testing.T) {
 	t.Parallel()
 
 	for _, home := range Homes(defaults()) {
-		reach := conversationCommand(home.Owner)
+		reach := ConversationCommand(home.Owner)
 		if !strings.Contains(home.HandEdit, reach) {
 			t.Errorf("%s says nothing about telling the %s a hand edit happened; it should name `%s`",
 				home.Path(), home.Owner.Title(), reach)
@@ -63,8 +63,22 @@ func TestEveryHomeSaysHowToTellItsOwnerWhatChanged(t *testing.T) {
 	}
 	// And the two owners are reached differently, so a home that named the wrong
 	// command would be caught rather than passing on the substring alone.
-	if conversationCommand(domain.RoleProductManager) == conversationCommand(domain.RoleArchitect) {
+	if ConversationCommand(domain.RoleProductManager) == ConversationCommand(domain.RoleArchitect) {
 		t.Fatal("both owners are reached by the same command, so the check above proves nothing")
+	}
+}
+
+// The hand-edit answer has a third half, and it is the one an owner most needs:
+// what notices that the edit left the document malformed. The answer used to be
+// everybody's build, which is exactly what nobody could act on, so every home
+// states the command that checks it and states that no other run goes red.
+func TestEveryHomeSaysWhatChecksWhatWasEditedThere(t *testing.T) {
+	t.Parallel()
+
+	for _, home := range Homes(defaults()) {
+		if !strings.Contains(home.HandEdit, "yoyo artifact check") {
+			t.Errorf("%s does not name the command that checks an edit made here:\n%s", home.Path(), home.HandEdit)
+		}
 	}
 }
 

@@ -20,8 +20,15 @@ import (
 
 // slowPublicationFixture is a conversation whose architect writes one design
 // that publishes automatically, with a check that marks when it has started and
-// then runs for two seconds under a budget it never reaches. The returned path
-// exists once the check is running.
+// then runs until whenStarted has acted on that, under a budget it never
+// reaches. The returned path exists once the check is running.
+//
+// The check waits for the test rather than for a fixed time because a fixed
+// time is a race the test can lose: under the race detector on a loaded machine
+// the check finished before the test had recorded what it meant to do while the
+// check ran, and the run succeeded under a stop nobody had managed to ask for.
+// The wait has an end of its own, inside the run's one-minute check limit, so a
+// test that never acts still lets the check finish.
 func slowPublicationFixture(t *testing.T) (*orchestratortest.Backend, *runstate.Store, chat.Options, string) {
 	t.Helper()
 	_, _, provider, pipeline, runs := automaticFixture(t)
@@ -29,7 +36,9 @@ func slowPublicationFixture(t *testing.T) (*orchestratortest.Backend, *runstate.
 	started := filepath.Join(t.TempDir(), "started")
 	pipeline.Config.Execution.CheckTimeout = config.Duration(time.Minute)
 	pipeline.Checks = checks.Runner{Process: execution.OSProcessRunner{}, Timeout: time.Minute}
-	pipeline.Config.Checks = []string{fmt.Sprintf("touch %q; sleep 2", started)}
+	pipeline.Config.Checks = []string{fmt.Sprintf(
+		"touch %q; end=$(( $(date +%%s) + 50 )); while [ ! -e %q ] && [ \"$(date +%%s)\" -lt \"$end\" ]; do sleep 0.05; done",
+		started, released(started))}
 	options, _ := publicationConversation(t, pipeline, provider)
 	return provider, runs, options, started
 }
@@ -41,18 +50,23 @@ func slowPublicationFixture(t *testing.T) (*orchestratortest.Backend, *runstate.
 // check limit rather than near how long the test usually takes.
 const startWatchBound = 5 * time.Minute
 
-// whenStarted calls act once the slow check is running, and gives up after a
-// bound of its own so nothing it starts outlives the test.
+// whenStarted calls act once the slow check is running, then lets the check
+// finish, and gives up after a bound of its own so nothing it starts outlives
+// the test.
 func whenStarted(started string, act func()) {
 	go func() {
 		for end := time.Now().Add(startWatchBound); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
 			if _, err := os.Stat(started); err == nil {
 				act()
+				_ = os.WriteFile(released(started), nil, 0o600)
 				return
 			}
 		}
 	}()
 }
+
+// released is the file whose appearance lets the slow check finish.
+func released(started string) string { return started + ".released" }
 
 // passingDeadline is a message context whose deadline passes when the test says
 // so, which lets it pass while the run's check is running rather than at

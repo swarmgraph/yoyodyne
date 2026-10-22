@@ -9,11 +9,21 @@ package doclink
 // It runs under `make test`, which is one of this project's declared checks, so
 // it is checked on every verify pass of every run — including each repair — for
 // the same reason the artifact and goals gates beside it are.
+//
+// Where the broken link is decides what happens about it. Most of this
+// repository's Markdown is a developer's to edit, and a link broken there still
+// fails here. A link written inside an artifact home is in a document every
+// developer's diff refuses, so it is escalated to the role that owns that home
+// and fails `yoyo artifact check` instead — see internal/governeddoc.
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/governeddoc"
 )
 
 // repositoryRoot is the checkout these tests run in, reached from the package
@@ -37,11 +47,44 @@ func TestThisRepositoryOwnDocumentationLinksResolve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Check() error = %v", err)
 	}
+	// Reported one at a time rather than as a count: what a reader needs is the
+	// file, the line, and the target, and a tally sends them looking.
+	defects := make([]governeddoc.Defect, 0, len(problems))
 	for _, problem := range problems {
-		// Reported one at a time rather than as a count: what a reader needs is the
-		// file, the line, and the target, and a tally sends them looking.
-		t.Errorf("a link in this repository's documentation resolves to nothing: %s", problem)
+		detail := fmt.Sprintf("line %d: %s", problem.Line, problem.Reason)
+		defects = append(defects, governeddoc.Defect{Path: problem.Path, Detail: detail})
 	}
+	cfg, read := repositoryConfiguration()
+	if !read {
+		// Nothing here then knows which directories are artifact homes, so every
+		// broken link is reported as one to fix here. That is the stricter of the
+		// two answers, which is the right way to be wrong: a link this gate failed
+		// on and could have escalated costs one message, and the reverse costs a
+		// broken link nobody fails on. The configuration is itself a protected path,
+		// so it is not this check's to diagnose either.
+		t.Log("this repository's configuration could not be read; every broken link below is reported as one to fix here")
+	}
+	governeddoc.Report(cfg, defects, t.Errorf, governeddoc.Escalate)
+}
+
+// repositoryConfiguration is this repository's own configuration, discovered the
+// way the commands discover it. It is read rather than assumed for the reason
+// every other gate reads it: which directories are artifact homes is the
+// project's to say, and a hardcoded list would route a moved home to nobody.
+func repositoryConfiguration() (config.Config, bool) {
+	root, err := filepath.Abs(repositoryRoot)
+	if err != nil {
+		return config.Config{}, false
+	}
+	discovered, err := config.Discover(root)
+	if err != nil {
+		return config.Config{}, false
+	}
+	loaded, err := config.Load(discovered)
+	if err != nil {
+		return config.Config{}, false
+	}
+	return loaded, true
 }
 
 // releasePreamble is appended to every release's notes by scripts/release-body.sh

@@ -883,7 +883,7 @@ Commands:
   config show       print the effective configuration and value origins
   config drift      compare this project against the template it was generated from
   config baseline   record what that template supplies, for a project with no baseline
-  artifact          read the canonical artifacts, and record your approval of one
+  artifact          read the canonical artifacts, approve one, and check them all
   role              activate role definitions, and read their activation history
   amendment         read changes proposed to artifacts, and decide them
   evaluation        read what the Lead Product Manager made of the ideas you brought it

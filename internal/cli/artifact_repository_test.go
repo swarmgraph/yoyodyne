@@ -11,36 +11,47 @@ package cli
 // loader silently drops. A document that stops loading does not fail loudly: it
 // leaves the set, and what referred to it is reported as naming something nobody
 // wrote.
+//
+// Whether the artifacts could be read at all is about the reader, which is a
+// developer's to fix, so it fails here. What a successful read reported about
+// one document — a `supports` entry naming nothing, an artifact reaching no
+// brief, a revision recorded by a role that does not own the file — is about a
+// document in an artifact home, which every developer's diff refuses, so it is
+// escalated to its owner and fails `yoyo artifact check` instead.
+// internal/governeddoc says why.
 
 import (
 	"testing"
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/governeddoc"
 )
 
 func TestThisRepositoryOwnArtifactsAreReadableByTheHarness(t *testing.T) {
 	t.Parallel()
 
-	set := repositoryArtifacts(t)
+	set, cfg := repositoryArtifacts(t)
 	// A repository whose homes moved would otherwise pass this by recording
-	// nothing at all.
+	// nothing at all. That is the reader looking in the wrong place rather than
+	// any document being wrong, so it fails here.
 	if len(set.Artifacts) == 0 {
 		t.Fatal("this repository records no artifacts; the homes are wrong or nothing is governed")
 	}
-	for _, problem := range set.Problems {
-		t.Errorf("a governed document is not read as an artifact: %s", problem)
-	}
-	// Every reference problem is reported over documents that loaded rather than
-	// refusing them, so a green load is not on its own evidence that the chain
-	// holds. All three kinds fail here rather than only the unauthorized
-	// revision: a `supports` entry naming a document nobody wrote and a document
-	// nothing connects to the brief are the links this repository's own
-	// traceability rests on, and a warning nobody is made to read is what let one
-	// of them break unnoticed.
+	// A file the loader refuses is failed by the check beside
+	// this one, which exists to catch a loader that stopped accepting what this
+	// repository ships (governed_documents_repository_test.go). What is routed
+	// here is the rest: every reference problem is reported over documents that
+	// loaded rather than refusing them — a `supports` entry naming a document
+	// nobody wrote, a document nothing connects to the brief, a revision crossing
+	// the ownership boundary — and each is a file in an artifact home that only
+	// its owner may open.
+	defects := make([]governeddoc.Defect, 0, len(set.ReferenceProblems))
 	for _, problem := range set.ReferenceProblems {
-		t.Errorf("a governed document's place in the chain is wrong: %s", problem)
+		detail := string(problem.Kind) + " — " + problem.Reason
+		defects = append(defects, governeddoc.Defect{Path: problem.Path, Detail: detail})
 	}
+	governeddoc.Report(cfg, defects, t.Errorf, governeddoc.Escalate)
 }
 
 func TestThisRepositoryOwnArtifactsRecordAnOwnerForEveryKind(t *testing.T) {
@@ -50,7 +61,13 @@ func TestThisRepositoryOwnArtifactsRecordAnOwnerForEveryKind(t *testing.T) {
 	// place. A kind with no owner cannot be written through the harness at all,
 	// so finding one here means a governed document is outside the boundary
 	// rather than inside it.
-	for _, recorded := range repositoryArtifacts(t).Artifacts {
+	//
+	// This one is not routed anywhere, and deliberately: a document whose kind is
+	// unknown is refused by Validate and never reaches this loop, so a kind that
+	// loaded and has no owner is the table in internal/artifact disagreeing with
+	// itself. That is code, and it is a developer's to fix.
+	set, _ := repositoryArtifacts(t)
+	for _, recorded := range set.Artifacts {
 		if _, known := artifact.Owner(recorded.Kind); !known {
 			t.Errorf("%s is of kind %q, which no role owns", recorded.Path, recorded.Kind)
 		}
@@ -61,20 +78,13 @@ func TestThisRepositoryOwnArtifactsRecordAnOwnerForEveryKind(t *testing.T) {
 // them, through the configuration rather than a guessed set of homes: a test
 // that hardcoded the directories would keep passing after the project moved
 // them, which is one of the ways a gate quietly stops running.
-func repositoryArtifacts(t *testing.T) artifact.Set {
+func repositoryArtifacts(t *testing.T) (artifact.Set, config.Config) {
 	t.Helper()
 
-	resolved, err := loadConfiguration(repositoryConfigPath)
-	if err != nil {
-		t.Fatalf("loadConfiguration() error = %v", err)
-	}
-	repository, err := resolvePath(config.ProjectDirectory(resolved.Path), resolved.Config.Product.Repository)
-	if err != nil {
-		t.Fatalf("resolve product repository: %v", err)
-	}
-	set, err := artifactStore(repository, resolved.Config.Product).Load()
+	repository, cfg := repositoryConfiguration(t)
+	set, err := artifactStore(repository, cfg.Product).Load()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	return set
+	return set, cfg
 }
