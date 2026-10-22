@@ -49,14 +49,19 @@ func TestThisRepositoryOwnCoinedTermsAreRegistered(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatalf("%s carries no entries; a register nothing is in permits nothing and proves nothing", RegisterPath)
 	}
-	problems, err := Check(repositoryRoot)
+	problems, removable, err := CheckWithRemovable(repositoryRoot)
 	if err != nil {
-		t.Fatalf("Check() error = %v", err)
+		t.Fatalf("CheckWithRemovable() error = %v", err)
 	}
 	for _, problem := range problems {
 		// Reported one at a time rather than as a count: what a reader needs is the
 		// file, the line, and what to write instead.
 		t.Errorf("%s", problem)
+	}
+	// A row still naming a document that no longer carries its term is logged as
+	// ready to remove rather than failed; CheckWithRemovable says why.
+	for _, entry := range removable {
+		t.Logf("%s", entry)
 	}
 }
 

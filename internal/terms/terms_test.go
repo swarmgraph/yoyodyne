@@ -693,7 +693,8 @@ func TestAReplacedRowExcusesOnlyTheDocumentsItNames(t *testing.T) {
 }
 
 // The excuse ends with the amendment: a row naming a document that no longer
-// carries the term is reported, at the row, so the document comes off it.
+// carries the term is reported, at the row, as ready for the document to come
+// off it, and the change that stopped writing the term is not refused for it.
 func TestAReplacedRowExcusingADocumentThatNoLongerCarriesTheTermIsReported(t *testing.T) {
 	t.Parallel()
 
@@ -703,20 +704,89 @@ func TestAReplacedRowExcusingADocumentThatNoLongerCarriesTheTermIsReported(t *te
 	directory := root(t, registerBody, map[string]string{
 		"docs/decisions/invariants/README.md": "# Invariants\n\nA reviewer leaves it as it stands and proposes the amendment.\n",
 	})
-	problems, err := Check(directory)
+	problems, removable, err := CheckWithRemovable(directory)
 	if err != nil {
-		t.Fatalf("Check() error = %v", err)
+		t.Fatalf("CheckWithRemovable() error = %v", err)
 	}
-	if len(problems) != 2 {
-		t.Fatalf("Check() reported %d problems, want one per document the row names: %v", len(problems), problems)
+	if len(problems) != 0 {
+		t.Fatalf("CheckWithRemovable() refused %v, want nothing refused", problems)
 	}
-	for _, problem := range problems {
-		if problem.Path != RegisterPath || problem.Term != "in force" || !strings.Contains(problem.Reason, "take the document off the row") {
-			t.Errorf("Check() reported %+v, want the row itself refused", problem)
+	if len(removable) != 2 {
+		t.Fatalf("CheckWithRemovable() ready to remove = %v, want one per document the row names", removable)
+	}
+	for _, entry := range removable {
+		if entry.Path != RegisterPath || entry.Term != "in force" || !strings.Contains(entry.Reason, "ready to be taken off the row") {
+			t.Errorf("CheckWithRemovable() ready to remove %+v, want the row itself named", entry)
 		}
 	}
-	if problems[0].Line != problems[1].Line || problems[0].Line != strings.Count(registerBody[:strings.Index(registerBody, "| `in force`")], "\n")+1 {
-		t.Errorf("Check() reported lines %d and %d, want both at the row", problems[0].Line, problems[1].Line)
+	if removable[0].Line != removable[1].Line || removable[0].Line != strings.Count(registerBody[:strings.Index(registerBody, "| `in force`")], "\n")+1 {
+		t.Errorf("CheckWithRemovable() reported lines %d and %d, want both at the row", removable[0].Line, removable[1].Line)
+	}
+}
+
+// The case the item asks for: a design that takes out a retired term its row
+// names it for passes, because a run that may only write that design cannot
+// also take it off the row in the register. The row is named as ready to
+// remove instead. A retired term written in a document the row does not name,
+// and a coined compound nothing defines, are still refused, so the stale row
+// lets nothing new through.
+func TestRemovingATermFromADocumentItsRowNamesPasses(t *testing.T) {
+	t.Parallel()
+
+	const design = "docs/designs/management-and-supervision.md"
+	registerBody := registerReplacing([]string{
+		"| `usage window` | the provider's usage limit | `" + design + "` |",
+	})
+	before := root(t, registerBody, map[string]string{
+		design: "# Management\n\nA run waits out the usage window.\n",
+	})
+	problems, removable, err := CheckWithRemovable(before)
+	if err != nil {
+		t.Fatalf("CheckWithRemovable() error = %v", err)
+	}
+	if len(problems) != 0 || len(removable) != 0 {
+		t.Fatalf("CheckWithRemovable() before the edit = %v refused and %v ready to remove, want neither", problems, removable)
+	}
+
+	after := root(t, registerBody, map[string]string{
+		design: "# Management\n\nA run waits for the provider's usage limit to reset.\n",
+	})
+	problems, removable, err = CheckWithRemovable(after)
+	if err != nil {
+		t.Fatalf("CheckWithRemovable() error = %v", err)
+	}
+	if len(problems) != 0 {
+		t.Fatalf("CheckWithRemovable() refused %v after the term was removed, want nothing refused", problems)
+	}
+	row := strings.Count(registerBody[:strings.Index(registerBody, "| `usage window`")], "\n") + 1
+	if len(removable) != 1 || removable[0].Path != RegisterPath || removable[0].Line != row || removable[0].Term != "usage window" ||
+		!strings.Contains(removable[0].Reason, design) {
+		t.Fatalf("CheckWithRemovable() ready to remove = %v, want the usage window row at %s:%d naming %s", removable, RegisterPath, row, design)
+	}
+	if checked, err := Check(after); err != nil || len(checked) != 0 {
+		t.Fatalf("Check() = %v, %v, want nothing refused", checked, err)
+	}
+
+	coined := root(t, registerBody, map[string]string{
+		design:                "# Management\n\nA run waits in a quota-limbo for the limit to reset.\n",
+		"docs/designs/two.md": "# Two\n\nA run waits out the usage window.\n",
+	})
+	problems, removable, err = CheckWithRemovable(coined)
+	if err != nil {
+		t.Fatalf("CheckWithRemovable() error = %v", err)
+	}
+	if len(problems) != 1 || problems[0].Path != "docs/designs/two.md" || problems[0].Term != "usage window" {
+		t.Fatalf("CheckWithRemovable() refused %v, want usage window refused in the document the row does not name", problems)
+	}
+	if len(removable) != 1 || removable[0].Term != "usage window" {
+		t.Fatalf("CheckWithRemovable() ready to remove = %v, want the usage window row", removable)
+	}
+	compounds, _, err := compoundProblems(coined, nil)
+	if err != nil {
+		t.Fatalf("compoundProblems() error = %v", err)
+	}
+	if len(compounds) != 1 || compounds[0].Term != "quota-limbo" || compounds[0].Path != design {
+		t.Fatalf("compoundProblems() = %v, want quota-limbo refused in %s", compounds, design)
 	}
 }
 
