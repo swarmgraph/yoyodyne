@@ -197,9 +197,10 @@ func invariantsHome(directory string) Home {
 			"leaves a history that has stopped accounting for itself. Retiring one is " +
 			"`yoyo invariant retire` rather than deleting the file: the file stays, the " +
 			"constraint stops being delivered, and the reason it was lifted stays readable. " +
-			"Then say what you changed in `" + conversationCommand(domain.RoleArchitect) + "`, because a " +
+			"Then say what you changed in `" + ConversationCommand(domain.RoleArchitect) + "`, because a " +
 			"conversation that is already open is working from these constraints as they read " +
-			"when it opened — and every run started since is being handed the ones you edited.",
+			"when it opened — and every run started since is being handed the ones you edited. " +
+			checkedByParagraph,
 		Note: "These carry a scheme of their own rather than artifact identity frontmatter — " +
 			"the file name is the id — which is why this directory is skipped when the " +
 			"artifacts are loaded even though it usually sits inside the decisions home.",
@@ -227,13 +228,35 @@ func handEditParagraph(owner domain.AgentRole) string {
 		"rather than a refusal. And whatever downstream traced to what you changed is reported "+
 		"by `yoyo stale` until its own owner revises it. Then say what you changed in `%s`, "+
 		"because a conversation that is already open is working from these documents as they "+
-		"read when it opened.", owner.Title(), conversationCommand(owner))
+		"read when it opened. %s", owner.Title(), ConversationCommand(owner), checkedByParagraph)
 }
 
-// conversationCommand is how an operator reaches the role that owns a home.
+// checkedByParagraph is the sentence every home's hand-edit answer closes with,
+// because the question it answers is asked at the door of all of them: what
+// notices when an edit here leaves a document malformed.
+//
+// It is stated at all because the answer used to be "everybody's build", and
+// that is the one answer nobody could act on. A malformed governed document is
+// escalated by the checks that read it rather than failing them — no developer's
+// change can reach one of these files, so a red build over one stalls the whole
+// loop and fixes nothing (internal/governeddoc) — and `yoyo artifact check` is
+// where it does fail, run by whoever edited the document.
+const checkedByParagraph = "One command checks what you wrote: `yoyo artifact check` reads every governed " +
+	"document and exits non-zero on one that is malformed — a goal wrapped across two lines, a " +
+	"`supports` entry naming nothing, a document nothing connects to the brief. Run it after you " +
+	"edit here. Nobody else's build fails on what it finds: the checks that read these documents " +
+	"escalate a defect in one to its owner instead, because no developer's change may touch these " +
+	"paths and a build red for everybody over a file only you can edit stops the work and fixes nothing."
+
+// ConversationCommand is how an operator reaches the role that owns a home.
 // `yoyo chat` names no agent and so takes the one filling the product-manager
 // role, which is why that role's command is the short one.
-func conversationCommand(owner domain.AgentRole) string {
+//
+// It is exported because the indexes are not the only thing that has to route
+// somebody to an owner: a gate that meets a defect in one of these documents
+// says the same thing, and two spellings of "where the owner acts" would be two
+// answers to the same question.
+func ConversationCommand(owner domain.AgentRole) string {
 	if owner == domain.RoleProductManager {
 		return "yoyo chat"
 	}

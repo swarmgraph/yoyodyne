@@ -202,6 +202,46 @@ is asked to support anything. The
 [configuration guide](configuration.md#traceability-references-and-orphans)
 is the reference for the schema, the fields, and what is reported.
 
+### Where a defect in one of these documents fails
+
+Reported everywhere and refused nowhere leaves one question: what actually goes
+red when you leave one of these documents malformed. The answer is one command,
+and it is the one you run:
+
+```sh
+./bin/yoyo artifact check
+```
+
+It reads every governed document — the artifacts, the goals stated in them, the
+invariants, the index at the door of each home, and the Markdown links written in
+any file a developer's change may not touch — and exits non-zero on a defect in
+any: a goal hard-wrapped across two physical lines, a `supports` entry naming a
+document nobody wrote, an artifact reaching no brief, a revision recorded by a
+role that does not own the file, an index that has stopped saying what is filed
+there, a link that resolves to nothing. Each one is named with the role that owns
+the home it is in and the command that reaches that role: a defect under the
+designs or the decision records is the architect's, and one under the
+specifications or the goals is the Lead Product Manager's.
+
+A broken link written anywhere else in the repository is not this command's. It
+is a developer's to fix and it fails in the check that found it, which is the
+same rule the whole arrangement runs on: whether the change in hand may edit the
+file the defect is written in decides whose it is.
+
+**Nothing else goes red on what you wrote, and that is deliberate.** These
+documents live in directories every developer's change is refused in, so a
+malformed one used to stop every run in the project over a file no developer
+could open, with the only route out an amendment proposal made while every run
+stayed red. The checks a run makes still read these documents and still report
+what they find in full — they print it to stderr instead of failing, naming the
+owning role and the route. This command is where the same defect fails, run by
+whoever can put it right.
+
+The index each home carries is meant to say this at the door, and the generator
+that writes one now does. The committed indexes may not: an index that already
+answers its three questions is left exactly as it is, by `yoyo setup` as by
+`init`, so the sentence reaches an existing door only when its owner adds it.
+
 ### The index at the door of each home
 
 `yoyo init` puts a `README.md` at the door of every artifact home — the

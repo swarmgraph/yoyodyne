@@ -178,15 +178,8 @@ func TestEveryDuplicatedGoalIdentityInThisRepositoryIsReportedWithAPlaceToOpen(t
 func repositoryGoals(t *testing.T) goal.Set {
 	t.Helper()
 
-	resolved, err := loadConfiguration(repositoryConfigPath)
-	if err != nil {
-		t.Fatalf("loadConfiguration() error = %v", err)
-	}
-	repository, err := resolvePath(config.ProjectDirectory(resolved.Path), resolved.Config.Product.Repository)
-	if err != nil {
-		t.Fatalf("resolve product repository: %v", err)
-	}
-	goals, err := loadGoals(repository, resolved.Config.Product)
+	repository, cfg := repositoryConfiguration(t)
+	goals, err := loadGoals(repository, cfg.Product)
 	if err != nil {
 		t.Fatalf("loadGoals() error = %v", err)
 	}
@@ -203,4 +196,21 @@ func repositoryGoals(t *testing.T) goal.Set {
 		t.Logf("goals not read: %s", problem)
 	}
 	return goals
+}
+
+// repositoryConfiguration is this repository read the way every command reads
+// it: the configuration, and the repository the product's homes are relative
+// to.
+func repositoryConfiguration(t *testing.T) (string, config.Config) {
+	t.Helper()
+
+	resolved, err := loadConfiguration(repositoryConfigPath)
+	if err != nil {
+		t.Fatalf("loadConfiguration() error = %v", err)
+	}
+	repository, err := resolvePath(config.ProjectDirectory(resolved.Path), resolved.Config.Product.Repository)
+	if err != nil {
+		t.Fatalf("resolve product repository: %v", err)
+	}
+	return repository, resolved.Config
 }
