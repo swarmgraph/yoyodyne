@@ -14,12 +14,21 @@ revisions:
       by: architect
       at: 2026-10-21T02:49:08.793992Z
       reason: yoyodyne-ifd.437.14 - the owning role decides a proposed change to its own documents with the amendment action and reports afterwards; the operator decides only a goals or brief change that alters intent or does not say, and may override. Also folds in approved amendment-93e36b92 (the closed list under the names the code uses, and the escalated brake hold going to the Lead Product Manager with the operator told) and approved amendment-7f69c6ac (owners for the brake hold, a stalled queue, a provider's usage limit, and the harness's pause for capacity). The table keeps the entry kind 'usage window' as main writes it, because the terms register still names it for this document.
+    - action: amended
+      by: architect
+      at: 2026-10-22T07:15:18.422149Z
+      reason: 'Approved amendment-5fe0aad5: the table gains a row for a document waiting on approval, which the registry now has a rule for. A brief, goals, non-goals or operating rules document is the operator''s for fundamental intent; any other stays its owning role''s and carries hand while its approval policy needs him. The kind joins the list of kinds. Nothing else changes; ''usage window'' stays as main writes it because the terms register still names it for this document.'
 approvals:
     - policy: approvals.designs
       revision: 1
       by: harness
       at: 2026-10-21T02:49:08.793992Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1379, for document-1379.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-10-22T07:15:18.422149Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1473, for document-1473.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -47,11 +56,11 @@ named reason.
 
 A new package, `internal/ownership`, holds the registry. It is a table keyed by
 entry kind. The kinds are the ones the read model already names: amendment,
-directive, report, owed step, publication, degraded service, failing task,
-hold, outage, stall, held work, human gate, conversation-carried item,
-operator action, stoppage, escalation, diverged target, and the ages of the
-report pile and the amendment queue. Each kind has one rule. The rule reads the
-entry's record and returns:
+waiting document, directive, report, owed step, publication, degraded service,
+failing task, hold, outage, stall, held work, human gate, conversation-carried
+item, operator action, stoppage, escalation, diverged target, and the ages of
+the report pile and the amendment queue. Each kind has one rule. The rule reads
+the entry's record and returns:
 
 - `owner`, from the existing mover vocabulary: the operator, a role, the
   harness, or nobody where the entry lifts on a clock no one controls;
@@ -77,6 +86,7 @@ her pass, and she files it against the registry.
 | Kind | Owner |
 | --- | --- |
 | amendment | the role that owns the target document, which decides it as described under *Who decides a proposed change*; the operator only for an amendment to the brief or the goals recorded as `intent: fundamental` or recorded with no intent, reason `fundamental-intent` |
+| waiting document | for a brief, goals, non-goals or operating rules document waiting on approval, the operator, reason `fundamental-intent`, because a document filed under `docs/product` waits on him only when it changes what the goals admit or refuse, or does not say whether it does; for any other document waiting on approval, the role that owns it, with the operator's approval as the act that ends it, carried as `hand` while its kind's approval policy needs him (yoyodyne-ifd.433.21), and never with the operator as its owner |
 | directive | the Lead Product Manager, who ends it or carries it into a document or item; where settling it would change what the goals admit, what reaches the operator is her drafted change to the goals, as an amendment, not the directive |
 | report | the Lead Product Manager, who handles it; a critical whose remedy is a role's names that role; the operator only when her handling names a reason from the closed list |
 | owed step | the harness |
