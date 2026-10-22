@@ -8227,9 +8227,12 @@ reach the page, and a token printed to this terminal is exactly what that
 device cannot read, so a non-loopback bind has to name where its token is
 stored before it is accepted at all. What the opt-in keeps is every other rule:
 the token is still required on every request, Host and Origin are still checked
-against the configured address and hosts, and there is still no write path at
-any address — a wider bind widens who can read observability data and never who
-can direct work. Transport is plain HTTP in V1, so the opt-in is for a network
+against the configured address and hosts, and a wider bind widens who can read
+observability data and never who can act. The shared token acts on nothing at
+any address: the only acts the page takes are [the operator's own approve,
+decline, and ask](operations.md#deciding-from-the-page), and each still needs
+a person's own bound token and the grant the decision needs, wherever the page
+is reached from. Transport is plain HTTP in V1, so the opt-in is for a network
 you trust.
 
 `yoyo doctor` reports the dashboard under `service:dashboard`: off, on with a
