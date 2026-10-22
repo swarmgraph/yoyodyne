@@ -12,6 +12,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/governeddoc"
 )
 
 const goalsHome = "docs/product"
@@ -1171,17 +1172,22 @@ An introduction.
 // check carries it into a release assessment, where a goals document nobody can
 // read refuses the cut and a broken link upstream is a note beside it.
 //
-// Refused, because each is the harness's own record wrong rather than a
+// Refused, because each is the harness's own reading wrong rather than a
 // document part-way written:
 //
-//   - The store failing to load, a recorded document it could not read, a
-//     `supports:` naming an artifact nobody records, a revision under no
-//     authority. TestThisRepositoryOwnArtifactsAreReadableByTheHarness refuses
-//     these one layer up for the same reason, and the reason is written down
-//     there: the harness reports them and refuses nothing over one, so a warning
-//     nobody is made to read is how one of them breaks unnoticed. They are
-//     identity and authority the harness validates rather than anything the
-//     product manager writes in prose.
+//   - The store failing to load, and a recorded document it could not read: a
+//     loader that stopped accepting what this repository ships is code, which
+//     internal/cli's governed_documents_repository_test.go fails on as well.
+//
+// Escalated to the owning role rather than refused: a `supports:` naming an
+// artifact nobody records, an artifact nothing connects to the brief, and a
+// revision recorded under a role that does not own the file. Each is a defect
+// in a document in an artifact home, which no developer's change may edit, so
+// failing on it here turned every developer's build red over a file none of
+// them could open (internal/governeddoc). Each is written with its owner and
+// route, `make test` prints it after the suite (the Makefile's
+// GOVERNED_DOCUMENT_TESTS names this test), and `yoyo artifact check` fails on
+// it for whoever can put it right.
 //
 //   - A report of any of the tolerated states below that names no file to open,
 //     and a recorded brief the collected goals do not say where to find. A
@@ -1212,14 +1218,19 @@ func TestYoyodynesOwnArtifactsLoadAndItsGoalsAreReadFromThem(t *testing.T) {
 	t.Parallel()
 
 	root := repositoryRoot(t)
-	store := configuredStore(t, root)
-	artifacts, err := store.Load()
+	cfg := configuration(t, root)
+	artifacts, err := artifact.StoreFor(root, cfg.Product).Load()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if len(artifacts.Problems) != 0 || len(artifacts.ReferenceProblems) != 0 {
-		t.Fatalf("problems = %v, reference problems = %v", artifacts.Problems, artifacts.ReferenceProblems)
+	if len(artifacts.Problems) != 0 {
+		t.Fatalf("problems = %v", artifacts.Problems)
 	}
+	defects := make([]governeddoc.Defect, 0, len(artifacts.ReferenceProblems))
+	for _, problem := range artifacts.ReferenceProblems {
+		defects = append(defects, governeddoc.Defect{Path: problem.Path, Detail: string(problem.Kind) + " — " + problem.Reason})
+	}
+	governeddoc.Report(cfg, defects, t.Errorf, governeddoc.Escalate)
 
 	set := Collect(root, artifacts)
 	for _, problem := range set.Problems {
@@ -1339,15 +1350,7 @@ What the product is for.
 // from them, exactly as the commands assemble it.
 func configuredStore(t *testing.T, root string) artifact.Store {
 	t.Helper()
-	path, err := config.Discover(root)
-	if err != nil {
-		t.Fatalf("Discover() error = %v", err)
-	}
-	loaded, err := config.Load(path)
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	product := loaded.Product
+	product := configuration(t, root).Product
 	// The store is assembled through the same path the commands use, so a home
 	// added to the production assembly is covered here without this list being
 	// maintained by hand.
@@ -1366,6 +1369,21 @@ func configuredStore(t *testing.T, root string) artifact.Store {
 	// for the document itself, wherever it sits, instead of inferring one from an
 	// absent directory.
 	return artifact.StoreFor(root, product)
+}
+
+// configuration is this project's own configuration, discovered and loaded the
+// way the commands do it.
+func configuration(t *testing.T, root string) config.Config {
+	t.Helper()
+	path, err := config.Discover(root)
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	return loaded
 }
 
 // repositoryRoot is the checkout these tests run in, so the seeded artifacts are

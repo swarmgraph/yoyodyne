@@ -9,6 +9,12 @@ package governeddoc
 // rename a test, add a gate that escalates, or reword the prefix, and the step
 // would go on printing "no defect in a governed document was escalated" over
 // defects it can no longer see.
+//
+// The other half is that nothing reading this repository's own documents fails
+// on what those documents say about each other. A test that did would turn
+// every developer's build red over a file none of them may edit, which is the
+// failure internal/governeddoc exists to end; one such test was missed once,
+// in internal/goal, so the last test here looks for them.
 
 import (
 	"bytes"
@@ -168,4 +174,139 @@ func makeVariable(t *testing.T, makefile []byte, name string) string {
 		t.Fatalf("the Makefile sets no %s", name)
 	}
 	return strings.TrimSpace(string(match[1]))
+}
+
+// repositoryReaders are the names a test reaches this repository's own checkout
+// through. A test referring to one of them, or to the literal "../..", reads the
+// documents this repository ships rather than a fixture it wrote.
+var repositoryReaders = map[string]bool{
+	"repositoryRoot":          true,
+	"repositoryConfigPath":    true,
+	"repositoryConfiguration": true,
+	"repositoryArtifacts":     true,
+	"repositoryProduct":       true,
+	"thisRepository":          true,
+	"configuredStore":         true,
+}
+
+// A `supports` entry naming nothing, an artifact nothing connects to the brief,
+// and a revision under a role that does not own the file are defects in a
+// document only its owner may edit. A test over this repository's own
+// documents that fails on one of them stalls every developer's build, so each
+// such test has to route them through Report, or log them, instead.
+func TestNoTestOfThisRepositorysOwnDocumentsFailsOnTheirReferences(t *testing.T) {
+	t.Parallel()
+
+	var failing []string
+	err := filepath.WalkDir(filepath.Join(repositoryRoot, "internal"), func(file string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || !strings.HasSuffix(file, "_test.go") {
+			return nil
+		}
+		relative, err := filepath.Rel(repositoryRoot, file)
+		if err != nil {
+			return err
+		}
+		if filepath.ToSlash(filepath.Dir(relative)) == "internal/governeddoc" {
+			return nil
+		}
+		parsed, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
+		if err != nil {
+			return err
+		}
+		for _, declaration := range parsed.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Body == nil || !strings.HasPrefix(function.Name.Name, "Test") {
+				continue
+			}
+			if readsThisRepository(function.Body) && failsOnReferences(function.Body) {
+				failing = append(failing, filepath.ToSlash(relative)+": "+function.Name.Name)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk the tests: %v", err)
+	}
+	sort.Strings(failing)
+	for _, name := range failing {
+		t.Errorf("%s reads this repository's own documents and fails on their ReferenceProblems; "+
+			"route them through governeddoc.Report with governeddoc.Escalate, or log them", name)
+	}
+}
+
+func readsThisRepository(body *ast.BlockStmt) bool {
+	reads := false
+	ast.Inspect(body, func(node ast.Node) bool {
+		switch value := node.(type) {
+		case *ast.Ident:
+			reads = reads || repositoryReaders[value.Name]
+		case *ast.BasicLit:
+			reads = reads || (value.Kind == token.STRING && value.Value == `"../.."`)
+		}
+		return !reads
+	})
+	return reads
+}
+
+// failsOnReferences finds a test failing over ReferenceProblems: a t.Fatal or
+// t.Error under a condition or a loop that reads them, or one passed them.
+func failsOnReferences(body *ast.BlockStmt) bool {
+	fails := false
+	ast.Inspect(body, func(node ast.Node) bool {
+		switch statement := node.(type) {
+		case *ast.IfStmt:
+			fails = fails || (mentionsReferences(statement.Cond) && callsFail(statement.Body))
+		case *ast.RangeStmt:
+			fails = fails || (mentionsReferences(statement.X) && callsFail(statement.Body))
+		case *ast.CallExpr:
+			if isFail(statement) {
+				for _, argument := range statement.Args {
+					fails = fails || mentionsReferences(argument)
+				}
+			}
+		}
+		return !fails
+	})
+	return fails
+}
+
+func mentionsReferences(node ast.Node) bool {
+	mentions := false
+	ast.Inspect(node, func(inner ast.Node) bool {
+		if selector, ok := inner.(*ast.SelectorExpr); ok && selector.Sel.Name == "ReferenceProblems" {
+			mentions = true
+		}
+		return !mentions
+	})
+	return mentions
+}
+
+func callsFail(node ast.Node) bool {
+	calls := false
+	ast.Inspect(node, func(inner ast.Node) bool {
+		if call, ok := inner.(*ast.CallExpr); ok && isFail(call) {
+			calls = true
+		}
+		return !calls
+	})
+	return calls
+}
+
+func isFail(call *ast.CallExpr) bool {
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	receiver, ok := selector.X.(*ast.Ident)
+	if !ok || receiver.Name != "t" {
+		return false
+	}
+	switch selector.Sel.Name {
+	case "Fatal", "Fatalf", "Error", "Errorf":
+		return true
+	}
+	return false
 }

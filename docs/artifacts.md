@@ -232,7 +232,10 @@ file the defect is written in decides whose it is.
 documents live in directories every developer's change is refused in, so a
 malformed one used to stop every run in the project over a file no developer
 could open, with the only route out an amendment proposal made while every run
-stayed red. The checks a run makes still read these documents and still report
+stayed red. The one exception is a document the harness cannot read at all —
+frontmatter its loader refuses — which Yoyodyne's own build still fails on,
+because the same failure is what a loader change that stopped reading the
+documents looks like. The checks a run makes still read these documents and still report
 what they find in full — instead of failing, they report it with the owning role
 and the route, and Yoyodyne's own `make test` prints those reports after its
 suite, since `go test` hides what a passing test wrote. This command is where
