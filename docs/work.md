@@ -2202,7 +2202,8 @@ stopping each run it still hosts at a developer attempt, its checks, or a review
 where it is and preserving it whole for the session that comes back to re-adopt,
 with every counter as it was. A run it has stopped no longer counts as one it
 hosts, so nothing it stopped holds the restart back, and a recurring pass still
-taking its turns is stopped too and recorded as a missed pass. A run with a
+taking its turns is stopped too, not recorded as failed, and tried again at
+the first pull of the session that comes back. A run with a
 check running is the exception: it finishes that check, up to the check's own
 configured limit, and stops before its next one, so a new build never makes a
 check start over however many arrive while it runs. Each check that passed before

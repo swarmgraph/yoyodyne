@@ -69,6 +69,12 @@ type scriptedTurn struct {
 	// missing is a turn that still gave no closing account after the one
 	// request for it.
 	missing bool
+	// providerFailed is a turn whose error is the provider's rather than a
+	// refusal of the reply it gave.
+	providerFailed bool
+	// during is what happens while the turn runs, such as the session hosting
+	// the pass stopping it for a restart.
+	during func()
 }
 
 func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, model, message string, options RecurringTurnOptions) (Turn, error) {
@@ -85,12 +91,15 @@ func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, mod
 	}
 	answer := r.answers[0]
 	r.answers = r.answers[1:]
+	if answer.during != nil {
+		answer.during()
+	}
 	return Turn{
 		ConversationID: "chat-1", CostUSD: answer.cost, Model: answer.model, Result: answer.result, ResultProblem: answer.problem,
 		Effort: answer.effort, ResolvedEffort: answer.resolvedEffort, EffortReported: answer.effortReported, EffortDescription: answer.effortDescription,
 		Saved: answer.saved, ReportsFiled: answer.reports, Admitted: answer.admitted, Wording: answer.wording,
 		ActedOn: answer.actedOn, HeldForSending: answer.held, Compactions: answer.compactions,
-		MissingReport: answer.missing, ReportRetried: answer.missing,
+		MissingReport: answer.missing, ReportRetried: answer.missing, ProviderFailed: answer.providerFailed,
 	}, answer.err
 }
 
@@ -583,6 +592,132 @@ func TestAFollowUpWithoutAnAccountKeepsTheEarlierOne(t *testing.T) {
 	}
 	if !strings.Contains(pass.Problem, "turn 2") || !strings.Contains(pass.Problem, "even after the one request for it") {
 		t.Errorf("problem = %q, want it to say turn 2 gave no account", pass.Problem)
+	}
+}
+
+// A follow-up turn the provider failed on leaves the pass with the account its
+// earlier turn gave, recorded as partial rather than failed, exactly as a
+// follow-up that gave no account does. A follow-up whose reply was refused is
+// still a failed pass: what failed there is the role's own answer.
+func TestAFollowUpTheProviderFailedOnKeepsTheEarlierAccount(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		second scriptedTurn
+		kept   bool
+	}{
+		{"provider error", scriptedTurn{err: errors.New("codex exited with status 1: stream disconnected"), providerFailed: true}, true},
+		{"turn cut off", scriptedTurn{err: fmt.Errorf("the turn was cut off: %w", context.DeadlineExceeded)}, true},
+		{"refused reply", scriptedTurn{err: errors.New("the development manager asked for something its role may not do")}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			store := sweepStore(t)
+			saved := runstate.SavedWrite{Kind: runstate.SavedLaneReport, Revision: 3}
+			role := &wokenRole{answers: []scriptedTurn{
+				{result: &sweep.Result{Status: sweep.StatusMore, Summary: "one finding", Findings: []sweep.Finding{{Issue: "an import", Disposition: sweep.DispositionLeft, Detail: "in the lane report"}}}, saved: []runstate.SavedWrite{saved}},
+				test.second,
+			}}
+			trigger := Trigger{Tasks: hourlyTask("sweep"), Claims: store, Reports: store, Roles: role, Clock: recurringClock{}}
+			fired, err := trigger.Fire(context.Background())
+			if err != nil {
+				t.Fatalf("Fire() error = %v", err)
+			}
+			recorded, _, err := store.List()
+			if err != nil || len(recorded) != 1 {
+				t.Fatalf("List() = %+v, %v", recorded, err)
+			}
+			pass := recorded[0]
+			if pass.Result == nil || pass.Result.Summary != "one finding" || len(pass.Saved) != 1 || pass.Turns != 1 {
+				t.Fatalf("recorded = %+v, want the earlier account and its write on the record", pass)
+			}
+			if !test.kept {
+				if !pass.Failed || runstate.PassFailed(pass) == false {
+					t.Fatalf("recorded = %+v, want a refused reply to fail the pass", pass)
+				}
+				return
+			}
+			if pass.Failed || runstate.PassFailed(pass) || pass.Result.Status != sweep.StatusMore || !fired.Fired[0].Truncated {
+				t.Fatalf("recorded = %+v, fired = %+v; want the earlier account kept as partial", pass, fired.Fired[0])
+			}
+			if !strings.Contains(pass.Problem, "turn 2 of the recurring task a-sweep failed") || !strings.Contains(pass.Problem, "keeps the account its earlier turns gave and is recorded as partial rather than failed") {
+				t.Errorf("problem = %q, want it to say turn 2 failed and the earlier account was kept", pass.Problem)
+			}
+		})
+	}
+}
+
+// A pass the watch session stops part-way to restart into a new build is not a
+// failed pass. One whose earlier turn gave an account keeps it, recorded as
+// partial; one stopped before any account is a missed pass. Either way the
+// record says a restart stopped it, the program manager's failure finding does
+// not count it, and the task is due again at once so the new build tries it
+// again — and that next firing is an ordinary one.
+func TestAPassStoppedForARestartIsTriedAgainRatherThanFailed(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		kept bool
+	}{
+		{"after an account", true},
+		{"before any account", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			store := sweepStore(t)
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			restart := scriptedTurn{err: fmt.Errorf("codex: %w", context.Canceled), during: func() {
+				cancel(RedeployDrain{At: recurringNow, Bound: 15 * time.Minute, SessionID: "watch-1"})
+			}}
+			answers := []scriptedTurn{restart}
+			if test.kept {
+				answers = []scriptedTurn{{result: &sweep.Result{Status: sweep.StatusMore, Summary: "one finding", Findings: []sweep.Finding{{Issue: "an import", Disposition: sweep.DispositionLeft, Detail: "in the lane report"}}}}, restart}
+			}
+			role := &wokenRole{answers: answers}
+			trigger := Trigger{Tasks: hourlyTask("sweep"), Claims: store, Reports: store, Roles: role, Clock: recurringClock{}}
+			if _, err := trigger.Fire(ctx); err != nil {
+				t.Fatalf("Fire() error = %v", err)
+			}
+			recorded, _, err := store.List()
+			if err != nil || len(recorded) != 1 {
+				t.Fatalf("List() = %+v, %v", recorded, err)
+			}
+			pass := recorded[0]
+			if pass.Failed || !pass.StoppedForRestart || runstate.PassFailed(pass) || len(runstate.PassFailuresOf([]runstate.Sweep{pass, pass, pass})) != 0 {
+				t.Fatalf("recorded = %+v, want a pass stopped for a restart and not failed", pass)
+			}
+			if !strings.Contains(pass.Problem, "stopped turn") || !strings.Contains(pass.Problem, "to restart into the build deployed over it, after waiting 15m0s") || !strings.Contains(pass.Problem, "tried again once the new build is running") {
+				t.Errorf("problem = %q, want the restart and the retry said", pass.Problem)
+			}
+			if test.kept {
+				if pass.Result == nil || pass.Result.Status != sweep.StatusMore || pass.Missed != nil {
+					t.Fatalf("recorded = %+v, want the earlier account kept as partial", pass)
+				}
+			} else if pass.Result != nil || pass.Missed == nil || pass.Missed.How != runstate.MissCancelled {
+				t.Fatalf("recorded = %+v, want a missed pass", pass)
+			}
+			claim, found, err := store.Find("a-sweep")
+			if err != nil || !found || !claim.Owed || !claim.Settled() || !claim.Due(time.Hour, recurringNow) {
+				t.Fatalf("claim = %+v, %v, %v; want the task due again at once", claim, found, err)
+			}
+
+			// The new build's first pull takes it again, inside what would have
+			// been the task's interval.
+			role.answers = []scriptedTurn{{result: complete("looked again")}}
+			fired, err := trigger.Fire(context.Background())
+			if err != nil || len(fired.Fired) != 1 {
+				t.Fatalf("Fire() = %+v, %v; want the pass tried again", fired, err)
+			}
+			if again, _, _ := store.Find("a-sweep"); again.Owed {
+				t.Errorf("claim = %+v, want the retry to clear what was owed", again)
+			}
+			if fired, _ := trigger.Fire(context.Background()); len(fired.Fired) != 0 {
+				t.Errorf("Fire() = %+v, want nothing more until the next interval", fired)
+			}
+		})
 	}
 }
 

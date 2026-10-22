@@ -3125,7 +3125,7 @@ process is gone; the session waits only the seconds each stopped run takes to
 record its stop, up to two minutes for one that never reports back, which is
 then named in the restart's line and left to its own record. A recurring pass
 still taking its turns is stopped in the same step and waited for only while it
-records itself as a missed pass — unless one of its document landing runs is
+records how it was stopped — unless one of its document landing runs is
 still going, which is waited for first. Only a run at its promotion, a run with
 a check running, a document landing run, or a check stage a moment from
 recording its verdict is still hosted past the bound:
@@ -3222,11 +3222,17 @@ recording its verdict is still hosted past the bound:
   session that comes back at its first pull, because the cadence is claimed
   durably and the restart takes a minute. A pass already taking its turns is
   waited out like a run until the bound, and past it for as long as a
-  document landing run it started is going. The pass the drain costs is one still
-  taking its turns when the session restarts past the bound: it is stopped, and
-  recorded in `yoyo sweeps` as a missed pass cancelled before it completed, so
-  what it would have looked at waits for that task's next pass rather than
-  holding the restart past the bound.
+  document landing run it started is going. A pass still
+  taking its turns when the session restarts past the bound is stopped rather
+  than holding the restart, and is not recorded as failed: a restart is not a
+  limit on the pass's work. Where an earlier turn of it gave its closing
+  account, the pass keeps that account, recorded as partial; where none had,
+  it is recorded as a missed pass. Either way `yoyo sweeps` says it was stopped
+  part-way for a restart into a new build, the pass does not count toward the
+  repeated-failure finding, a program manager's event cursor stays where it
+  was, and the task is due again at once, so the session that comes back tries
+  the pass again at its first pull rather than a whole interval later, telling
+  it of any writes the stopped pass already saved.
 - A run the bound stops **before it recorded anything a continuation could pick
   up** — no developer session yet — is not held with a marker nothing can act
   on. It is recorded as cancelled, with its branch and worktree preserved and
@@ -7230,7 +7236,12 @@ earlier turn of the same pass gave a valid one, the pass keeps the account its
 earlier turns gave: it is marked as having more to do and recorded as partial
 rather than failed, what the later turn found is only in the conversation, and
 every write, report and admission stands. The listing says the pass kept the
-account its earlier turns gave. It does not count toward the repeated-failure
+account its earlier turns gave. The same holds where a later turn, or its
+request for the missing report, fails at the provider or is cut off rather
+than answering: the pass keeps the earlier account as partial, and the record
+names the turn that failed and why. A turn whose reply the harness refused to
+carry out still fails the pass, because what failed there is the role's own
+answer. It does not count toward the repeated-failure
 finding, and a program manager's event cursor moves past it as after any
 partial pass; it does count toward the bound below on opening a fresh conversation.
 
@@ -7457,7 +7468,9 @@ These outcomes look similar in a listing and are not the same thing:
   half an hour with no pass taken — both recorded under the instance's name,
   with the same causes, reported the same way. So is a pass that was **taken and
   cancelled before it completed**: one whose session was stopped under its turn
-  is recorded as a missed pass at once, and one whose process died carrying it —
+  is recorded as a missed pass at once — where what stopped it was a restart
+  into a new build, it is not counted as failed and is tried again at once —
+  and one whose process died carrying it —
   a watch session killed mid-pass, which writes nothing at all, as the
   factory-flow instance's first pass was on 2026-09-26 — is found by the next
   pull that considers the instance, once the claim has stood five minutes with

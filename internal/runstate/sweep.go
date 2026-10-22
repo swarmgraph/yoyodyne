@@ -205,6 +205,11 @@ type SweepClaim struct {
 	// instance — and is cleared by a firing the cadence claimed. It is what says
 	// which trigger a firing that never recorded its ending was taken by.
 	Summoned bool `json:"summoned,omitempty"`
+	// Owed marks a firing the watch session stopped part-way to restart into a
+	// build deployed over it. The task is due again at once rather than at its
+	// next interval, so the pass is tried again on the new build, and the next
+	// firing of any kind clears it.
+	Owed bool `json:"owed,omitempty"`
 }
 
 // Settled reports a firing whose ending has been written against its claim.
@@ -220,7 +225,7 @@ func (c SweepClaim) Settled() bool {
 // that produced nothing until ten would look broken for an hour, and the first
 // pass is the one most worth having.
 func (c SweepClaim) Due(every time.Duration, now time.Time) bool {
-	if c.FiredAt.IsZero() {
+	if c.FiredAt.IsZero() || c.Owed {
 		return true
 	}
 	return !now.Before(c.NextDue(every))
@@ -306,7 +311,13 @@ type Sweep struct {
 	// MissingReport marks a pass a turn of which still lacked its block after
 	// that request, or after it was already spent. Such a pass is failed unless
 	// an earlier turn's account was kept, in which case Result is that account.
-	MissingReport           bool                          `json:"missing_report,omitempty"`
+	MissingReport bool `json:"missing_report,omitempty"`
+	// StoppedForRestart marks a pass the watch session stopped part-way to
+	// restart into a build deployed over it. It is not a failed pass: it keeps
+	// the account its earlier turns gave where one did, recorded as partial, or
+	// is recorded as a missed pass where none did, and either way it is tried
+	// again once the new build is running.
+	StoppedForRestart       bool                          `json:"stopped_for_restart,omitempty"`
 	ConversationReplacement *SweepConversationReplacement `json:"conversation_replacement,omitempty"`
 	StartedAt               time.Time                     `json:"started_at"`
 	EndedAt                 time.Time                     `json:"ended_at"`
@@ -652,11 +663,12 @@ func (s Sweep) HarnessPass() bool {
 }
 
 // Unfinished reports a record of this task's that did not end the pass owed:
-// one whose turn failed, or a firing that took no turn at all — refused before
-// it, waited out on the provider, missed, or cancelled. The next pass is still
-// owed what this one was, so what it saved is what that pass is told of.
+// one whose turn failed, a firing that took no turn at all — refused before
+// it, waited out on the provider, missed, or cancelled — or one stopped
+// part-way for a restart into a new build. The next pass is still owed what
+// this one was, so what it saved is what that pass is told of.
 func (s Sweep) Unfinished() bool {
-	return s.Failed || s.Turns == 0
+	return s.Failed || s.Turns == 0 || s.StoppedForRestart
 }
 
 // PassTrigger is what fires a pass: the cadence, the events a program manager
@@ -921,8 +933,9 @@ func (s Sweep) Validate() error {
 		problems = append(problems, fmt.Errorf("turns is %d, and a pass cannot take a negative number of them", s.Turns))
 	}
 	// A pass whose later turn lacked its block keeps the account its earlier turns
-	// gave and is not failed for that alone; one with no account at all is.
-	if s.MissingReport && !s.Failed && s.Result == nil {
+	// gave and is not failed for that alone; one with no account at all is,
+	// unless a restart stopped it before it could give one.
+	if s.MissingReport && !s.Failed && s.Result == nil && !s.StoppedForRestart {
 		problems = append(problems, errors.New("a pass missing its closing report, with no earlier account kept, must be failed"))
 	}
 	if r := s.ConversationReplacement; r != nil {
@@ -1240,6 +1253,7 @@ func (s *SweepStore) Claim(ctx context.Context, task string, every time.Duration
 	// firing two cadences ago.
 	claimed.Problem = ""
 	claimed.Summoned = false
+	claimed.Owed = false
 	if err := claimed.Validate(); err != nil {
 		return SweepClaim{}, err
 	}
@@ -1287,6 +1301,7 @@ func (s *SweepStore) Summon(ctx context.Context, task string, now time.Time) (Sw
 	claimed.UpdatedAt = at
 	claimed.Problem = ""
 	claimed.Summoned = true
+	claimed.Owed = false
 	if err := claimed.Validate(); err != nil {
 		return SweepClaim{}, err
 	}
@@ -1325,6 +1340,40 @@ func (s *SweepStore) Settle(ctx context.Context, task, problem string) (SweepCla
 		return SweepClaim{}, err
 	}
 	return settled, nil
+}
+
+// Owe settles the firing that is claimed the way Settle does, and makes the
+// task due again at once. It is what a pass the watch session stopped part-way
+// to restart into a new build is settled with: the restart is not a limit on
+// the pass's work, so the pass is tried again on the new build rather than
+// waiting a whole interval. This is the one place the clock is moved back, and
+// only by marking the claim; when the last firing happened is kept as it was.
+func (s *SweepStore) Owe(ctx context.Context, task, problem string) (SweepClaim, error) {
+	name := strings.TrimSpace(task)
+	if err := domain.ValidateIdentifier("recurring task name", name); err != nil {
+		return SweepClaim{}, err
+	}
+
+	release, err := s.lock(ctx, name)
+	if err != nil {
+		return SweepClaim{}, err
+	}
+	defer release()
+
+	owed, found, err := s.load(name)
+	if err != nil {
+		return SweepClaim{}, err
+	}
+	if !found {
+		return SweepClaim{}, fmt.Errorf("no firing of the recurring task %s is recorded, so there is nothing to try again", name)
+	}
+	owed.Problem = boundedSweepText(problem)
+	owed.Owed = true
+	owed.UpdatedAt = time.Now().UTC()
+	if err := s.save(name, owed); err != nil {
+		return SweepClaim{}, err
+	}
+	return owed, nil
 }
 
 // Find reports one task's claim. A task that has never fired is the ordinary
