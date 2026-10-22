@@ -27,6 +27,10 @@ revisions:
       by: architect
       at: 2026-10-21T06:50:02.953263Z
       reason: 'Approves amendment-5e6136b8 and answers report-4cf5c3a6: a worker''s identity adds the time its program began, each program records its own start so readers in other processes can tell an earlier program in the same process from the current one, every reader applies one rule, and a starting program releases its earlier program''s leases through the ordinary lease path.'
+    - action: amended
+      by: architect
+      at: 2026-10-22T17:09:26.990337Z
+      reason: Replaces the retired phrase for the operator's pause in the preserved-run recovery section with the terms register's wording, as part of replacing the coined vocabulary in the governed documents (yoyodyne-ifd.437.21); nothing else in the design changes.
 approvals:
     - revision: 0
       by: operator
@@ -52,6 +56,11 @@ approvals:
       by: harness
       at: 2026-10-21T06:50:02.953263Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1397, for document-1397.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-10-22T17:09:26.990337Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1500, for document-1500.1 under the automatic approval policy
 ---
 # Purpose and scope
 
@@ -91,7 +100,7 @@ Scheduler selection, reconciliation, claim auditing, capacity reporting and mana
 
 Recover the same run, branch, worktree, provider session and counters. Preserve the recorded definition binding and interrupted phase. Development interrupted before completion resumes development; a dependency pause must not move it to checking. An interrupted review re-earns the gate from checks according to the existing delivery policy. No incomplete check or verdict receives credit.
 
-A recovery actor takes the existing run lease and strictly reloads its record. It then reads current dependencies, operator holds, directives and applicable gates before invoking a provider or advancing delivery. A pre-adoption refusal is not a durable dependency wait.
+A recovery actor takes the existing run lease and strictly reloads its record. It then reads current dependencies, the operator's pause (set by `yoyo pause`), directives and applicable gates before invoking a provider or advancing delivery. A pre-adoption refusal is not a durable dependency wait.
 
 If unfinished dependencies prevent continuation, record the dependency wait under the run lease without advancing the interrupted phase. Only a successfully established durable wait releases capacity. The duplicate-run reservation stays active. When dependencies clear, reacquire capacity and clear the wait under the same reservation lock used by fresh reservations, while retaining the run lease. A capacity refusal leaves the durable wait and interrupted phase intact.
 
@@ -335,3 +344,5 @@ Revised at commit 13841dbd, after reading this design and stopped-run-recovery w
 Revised at commit c84ec3fd, after reading this design whole at that commit, for the reviewer's report on the recovery tool (yoyodyne-06m) that in the current build a finished run holds no developer slot, claim or file reservation. The release action now applies only to a finished run that still holds one of those, and is refused otherwise; scenario (c) is an in-flight run with no worker, answered by a wait, a continuation or an unresolved hold. The same revision says the build and the run and attempt come from a record beside the run lease rather than from the process, and grants the four read capabilities to every instance of the program manager. No code was read for this revision; the report is the evidence for what a finished run holds.
 
 Revised at commit 7a0f0dfd, after reading this design whole at that commit, for the proposed change on how a worker is identified (amendment-5e6136b8) and the developer's warning beside it (report-4cf5c3a6). A worker's identity gains the time its program began, because a scheduler that replaces its own program keeps its process number and the operating system's start time. Each program records its own start where readers in other processes can compare a lease against it, every reader applies one rule, and a starting program releases its earlier program's leases. Scenario (k) checks it. The developer's account in the amendment and the warning is the evidence that the scheduler restarts this way and that the code records the program start time; no code was read for this revision.
+
+Revised at commit f081d385, after reading this design whole at that commit together with the terms register: the preserved-run recovery section now names the operator's pause, set by `yoyo pause`, in the register's own wording. No other sentence changed.
