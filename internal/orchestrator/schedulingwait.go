@@ -8,6 +8,9 @@ package orchestrator
 // beside the notes and never in them, so `yoyo status` and the dashboard can say
 // it (readmodel/schedulingwait.go). A changed reason replaces the value, and the
 // run that starts the item clears it. Nothing the scheduler decides reads it.
+//
+// An item the tracker leaves out of its ready set keeps one too, where all that
+// holds it is other work: see keepUnreadyWaits.
 
 import (
 	"context"
@@ -16,9 +19,62 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
+
+// keepUnreadyWaits keeps a reason on every entry the queue reads as unready only
+// because it waits on other work — its own dependency, its parent's change, or a
+// parent the tracker holds it back with — and clears a reason of that class from
+// an entry no longer waiting so, ready or held some other way. A slot never asks
+// about an unready entry, so this is read over the whole queue at every pull that
+// reads it. The other unready classes — work a conversation carries, work
+// somebody parked or is holding, a step only a person can take — are already
+// named on the entry itself, and nothing a pass decides would add to them.
+func keepUnreadyWaits(entries []backlog.Entry, items map[string]beads.WorkItem, keep func(string, runstate.PassedOverClass, string)) {
+	for _, entry := range entries {
+		switch {
+		case !entry.Ready && unreadyClass(entry) == runstate.PassedOverWaitingOnOtherWork:
+			keep(entry.ID, runstate.PassedOverWaitingOnOtherWork, unreadyWaitReason(entry, items))
+		case entry.SchedulingWait != nil && entry.SchedulingWait.Class == string(runstate.PassedOverWaitingOnOtherWork):
+			keep(entry.ID, runstate.PassedOverWaitingOnOtherWork, "")
+		}
+	}
+}
+
+// unreadyWaitReason is what holds an unready entry that waits on other work, in
+// the queue's own words (backlog.Entry.Hold) with each item named by title.
+//
+// One case the queue cannot say: an open item the tracker holds back with a
+// parent that has left the backlog because somebody is working it. The queue
+// reads ancestors from the backlog alone, so it says only that the tracker does
+// not offer the item. The pull has read the claimed work as well, so the parent
+// chain is walked again over everything it read, and the parent that waits is
+// named with what it waits on.
+func unreadyWaitReason(entry backlog.Entry, items map[string]beads.WorkItem) string {
+	kind := entry.HoldKind()
+	if entry.Status == "open" && (kind == backlog.HeldInherited || kind == backlog.HeldUnread) {
+		unfinished := make(map[string]struct{}, len(items))
+		for id := range items {
+			unfinished[id] = struct{}{}
+		}
+		lookup := func(id string) (beads.WorkItem, bool, error) {
+			item, found := items[id]
+			return item, found, nil
+		}
+		blocks, _ := beads.InheritedBlocks(items[entry.ID], lookup, func(item beads.WorkItem) []string { return item.WaitingOn(unfinished) })
+		if described := beads.DescribeInheritedBlocks(blocks); described != "" {
+			return described
+		}
+	}
+	if kind == backlog.HeldInherited {
+		// Already names each item by title, in quotes schedulingWaitReason does
+		// not recognise.
+		return entry.Hold()
+	}
+	return schedulingWaitReason(entry.Hold(), items)
+}
 
 type schedulingWaitRecorder interface {
 	RecordSchedulingWait(ctx context.Context, id, class, reason string, at time.Time) (beads.WorkItem, error)
