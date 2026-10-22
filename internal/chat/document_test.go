@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/documentcheck"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
@@ -869,5 +871,39 @@ func TestASavedSectionRevisionIsStillASectionRevisionWhenReadBack(t *testing.T) 
 	want := strings.Replace(body, "## Scope\n\nOld scope.\n", "## Scope\n\nNew scope.\n", 1)
 	if want == body || !strings.HasSuffix(candidate.Content, "\n---\n"+want) {
 		t.Fatal("the restored revision did not replace only that section")
+	}
+}
+
+// A section revision is checked as the whole document it leaves: its new text
+// may link to a heading elsewhere in that document, a link to a heading the
+// document does not have is still refused on the line of the text the role
+// wrote, and a link elsewhere in the document is not the revision's to answer.
+func TestASectionRevisionIsCheckedAgainstTheWholeDocumentItLeaves(t *testing.T) {
+	t.Parallel()
+
+	options, _ := documentOptions(t, &fakeBackend{})
+	store := options.Documents.(artifact.Store)
+	body := "# Design\n\n## Scope\n\nOld scope.\n\n## Limits\n\nWhat it will not do. See [an old link](#nowhere-at-all).\n"
+	if _, err := store.Create(domain.RoleArchitect, artifact.Draft{ID: "linked-design", Kind: artifact.KindDesign, Title: "Linked design", Directory: "docs/designs", Body: body, Reason: "owner decision"}, fixedClock{}.Now()); err != nil {
+		t.Fatal(err)
+	}
+	session := openTestSession(t, options)
+	revise := func(text string) artifact.Write {
+		return artifact.Write{Action: artifact.WriteRevise, ID: "linked-design", Section: "Scope", Body: text, Reason: "the scope narrows"}
+	}
+
+	if err := session.checkDocument(revise("New scope, bounded by [the limits](#limits).")); err != nil {
+		t.Fatalf("a link to a heading elsewhere in the document was refused: %v", err)
+	}
+	// Judged alone, the same text has no heading to link to, which is what a
+	// whole-document check of the section's text would have refused.
+	if err := session.checkDocument(artifact.Write{Action: artifact.WriteRevise, ID: "linked-design", Body: "New scope, bounded by [the limits](#limits).", Reason: "whole"}); err == nil {
+		t.Fatal("the comparison is empty: a whole revision without the heading was accepted")
+	}
+
+	err := session.checkDocument(revise("New scope.\n\nSee [what is gone](#no-such-heading)."))
+	var refused *documentcheck.Refusal
+	if !errors.As(err, &refused) || len(refused.Problems) != 1 || refused.Problems[0].Line != 3 || !strings.Contains(refused.Problems[0].Reason, "no-such-heading") {
+		t.Fatalf("a link to a missing heading in the section: %#v, %v", refused, err)
 	}
 }

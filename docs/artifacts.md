@@ -455,7 +455,10 @@ to the copy it was spliced into, so a target branch whose copy has changed since
 stops the run as any revision's would, as said below. A heading the document does not have, or has twice, is refused when the
 role writes it, and so is replacement text carrying a heading at the section's
 own level or above, because that would change the document's shape rather than
-one section of it.
+one section of it. As it is written, a section revision is checked for coined
+words and links as the whole document it leaves, so its new text may link to a
+heading elsewhere in the document; only what the new text holds refuses it,
+named by its line in the text the role wrote.
 
 Asked of a conversation, a revision reads:
 
