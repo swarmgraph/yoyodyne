@@ -494,6 +494,10 @@ type PendingWrite struct {
 	Intent      string               `json:"intent,omitempty"`
 	ID          string               `json:"id"`
 	Turn        int                  `json:"turn"`
+	// WrittenAt is when the role wrote it, which is since when a document put
+	// to the operator has waited on him. It is absent on a record written before
+	// it was kept.
+	WrittenAt time.Time `json:"written_at,omitzero"`
 	// Action is "create" or "revise", kept as text because this record says what
 	// was waiting rather than deciding what is legal; what is legal is the
 	// artifact package's, and it judges this again when the write is carried out.

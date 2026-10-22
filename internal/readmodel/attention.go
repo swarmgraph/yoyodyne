@@ -71,6 +71,7 @@ const (
 	AttentionCapacityDegraded  = ownership.KindCapacityDegraded
 	AttentionKeptHeavyCheck    = ownership.KindKeptHeavyCheck
 	AttentionLaneHumanBlock    = ownership.KindLaneHumanBlock
+	AttentionDocumentApproval  = ownership.KindDocumentApproval
 )
 
 // AttentionKinds is the whole vocabulary, so a test that has to cover every
@@ -120,6 +121,7 @@ func (a Attention) Label() string {
 		AttentionCapacityDegraded:  "provider capacity degraded",
 		AttentionKeptHeavyCheck:    "check place kept",
 		AttentionLaneHumanBlock:    "blocked on a human",
+		AttentionDocumentApproval:  "document waiting for approval",
 	}[a.Kind]
 }
 
@@ -319,6 +321,10 @@ type Attention struct {
 	// LaneHumanBlock is the program manager's entry and the instance that wrote
 	// it, on an AttentionLaneHumanBlock entry.
 	LaneHumanBlock *LaneHumanBlock `json:"blocked_on_a_human,omitempty"`
+	// DocumentApproval is the waiting document, the role and conversation that
+	// wrote it, and since when, on an AttentionDocumentApproval entry; the
+	// conversation and the document's identifier there are the ID.
+	DocumentApproval *DocumentApproval `json:"document_approval,omitempty"`
 
 	// titles is what the tracker calls each item, set by the reading that
 	// assembled the entry, so the line a person reads names every item beside
@@ -655,6 +661,10 @@ func (a Attention) What() string {
 		if a.LaneHumanBlock != nil {
 			return a.LaneHumanBlock.Says()
 		}
+	case AttentionDocumentApproval:
+		if a.DocumentApproval != nil {
+			return a.DocumentApproval.Says()
+		}
 	}
 	// An entry whose record is missing is still said rather than printed
 	// blank: a blank line on the attention line is the confident emptiness
@@ -831,6 +841,10 @@ func (a Attention) Whose() string {
 				return a.Mover.Possessive() + " — the entry names the operator for a reason that is not on the closed list, so it is a defect in the program manager's report rather than something waiting on him; the program manager's next report corrects it"
 			}
 			return a.Mover.Possessive() + " — only a person can act on this; it stays on the program manager's report, pass after pass, until the act that clears it is recorded on " + a.LaneHumanBlock.Entry.Cites
+		}
+	case AttentionDocumentApproval:
+		if a.DocumentApproval != nil {
+			return a.DocumentApproval.whose(a.Mover)
 		}
 	case AttentionCapacityDegraded:
 		return a.Mover.Possessive() + " — the limit lifts on the provider's clock at its reset; work carries on until the provider refuses it, the harness waits out a refusal by itself, and a reading below the threshold or the reset passing clears this"
@@ -1256,6 +1270,10 @@ func (a Attention) ownershipRecord() ownership.Record {
 	case AttentionLaneHumanBlock:
 		if a.LaneHumanBlock != nil {
 			record.Reason = a.LaneHumanBlock.Entry.Reason
+		}
+	case AttentionDocumentApproval:
+		if a.DocumentApproval != nil {
+			record.Role, record.FundamentalIntent = a.DocumentApproval.Owner, a.DocumentApproval.ProductIntent
 		}
 	}
 	return record

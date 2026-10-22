@@ -107,6 +107,10 @@ const (
 	// where it names none; the ownership registry names the mover from the
 	// entry's reason.
 	KindLaneHumanBlock Kind = "blocked-on-a-human"
+	// KindDocumentApproval is a document an owning role wrote in a
+	// conversation that waits for the operator to approve or decline it. The
+	// conversation and the document's identifier there are the ID.
+	KindDocumentApproval Kind = "document-approval"
 )
 
 // KindStoppage is a run that stopped and left its item for somebody: the
@@ -145,6 +149,7 @@ func AttentionKinds() []Kind {
 		KindCapacityDegraded,
 		KindKeptHeavyCheck,
 		KindLaneHumanBlock,
+		KindDocumentApproval,
 	}
 }
 

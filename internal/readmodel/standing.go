@@ -2072,6 +2072,10 @@ func summarizePile(reports []report.Report, handlings []report.Handling, problem
 // person, and it is on this line for exactly that reason: an operator scanning
 // for what is waiting on him has to be able to see which of it is not.
 //
+// A document a role wrote that waits for the operator's approval is on it too:
+// nothing reaches the repository until he decides it, and nothing else tells
+// him it is waiting outside the conversation it was written in.
+//
 // A finding only the operator can act on is named ahead of the undecided
 // proposals and is never folded into the remainder: the brake's hold, with the
 // runs that tripped it, and each report-derived finding by name. Those are the
@@ -2106,6 +2110,13 @@ func readNeedsHuman(sources Sources, held switches, actions []Attention, amendme
 	// the line is what a person reads.
 	problem = joinProblems(problem, joinProblems(amendments.problem, amendments.sweepProblem))
 	attention = append(attention, amendments.attention()...)
+
+	// The documents a role wrote that wait for the operator's approval, after
+	// the changes proposed to documents, since both are documents somebody has
+	// to decide.
+	documents, documentsProblem := readDocumentApprovals(sources)
+	attention = append(attention, documents...)
+	problem = joinProblems(problem, documentsProblem)
 
 	decisions, decisionsProblem := readProductDecisions(sources)
 	attention = append(attention, decisions...)
