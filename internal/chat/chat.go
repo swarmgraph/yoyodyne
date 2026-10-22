@@ -655,6 +655,7 @@ type Options struct {
 // it completes is recorded before the operator sees the reply.
 type Session struct {
 	failureOutput         string
+	providerFailed        bool
 	lastEffortRequested   string
 	lastEffortResolved    string
 	lastEffortReported    bool
@@ -1481,6 +1482,7 @@ func (s *Session) servedByAlternate() string {
 // part way still resumes from what was actually said.
 func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	s.failureOutput = ""
+	s.providerFailed = false
 	if err := s.PublishDocuments(ctx); err != nil {
 		return Reply{}, err
 	}
@@ -2545,6 +2547,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		s.stream.interrupted()
 	}
 	s.failureOutput = ""
+	s.providerFailed = err != nil || result.IsError
 	if err != nil || result.IsError {
 		if outputTail == "" {
 			outputTail = result.Process.Stdout + "\n" + result.Process.Stderr + "\n" + result.Process.OutputTruncation
@@ -5396,3 +5399,8 @@ func (s *Session) lastEffortDescriptionValue() string {
 
 // FailureOutput is the redacted end of the most recent failed invocation.
 func (s *Session) FailureOutput() string { return s.failureOutput }
+
+// ProviderFailed reports that the provider invocation of the most recent
+// message failed or was cut off, as opposed to a reply the provider gave that
+// the harness then refused, and whatever the provider printed or did not.
+func (s *Session) ProviderFailed() bool { return s.providerFailed }

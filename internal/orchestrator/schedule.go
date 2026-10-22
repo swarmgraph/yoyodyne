@@ -2228,7 +2228,8 @@ pulling:
 			// waits for, and nothing is pulled into it first. A firing still taking
 			// its turns is hosted too — a restart under it would cut its pass off
 			// part-way — so it is waited out, and past the bound it is stopped, which
-			// records it as a missed pass the next session owes.
+			// records it as stopped for the restart and makes it due again, so the
+			// next session tries it again (Trigger.run).
 			if running == 0 && firings.idle() && queuePasses.idle() {
 				schedule.Stopped = ScheduleRedeployed
 				break
@@ -3525,7 +3526,8 @@ collecting:
 	// the goroutine taking it, and what it cost is this session's spend. A
 	// session restarting past its drain bound stops the firings still taking
 	// their turns first, as it stopped its runs, so the restart waits only for
-	// each to record itself as a missed pass rather than for its turns to end.
+	// each to record itself as stopped for the restart rather than for its turns
+	// to end.
 	if schedule.Stopped == ScheduleRedeployed && drain.boundReached {
 		firings.cancel(RedeployDrain{At: s.now(), Bound: drain.limit, SessionID: s.SessionID})
 		queuePasses.cancel()

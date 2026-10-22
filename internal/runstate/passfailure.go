@@ -166,7 +166,8 @@ func PassFailed(pass Sweep) bool {
 
 // passFailedOrWorked says whether a pass failed, and whether it did its work.
 // A role's pass fails only where a turn's actions were not carried out, it
-// never started, it was stopped under it, or it gave no account at all. Its
+// never started, it was stopped under it other than for a restart into a new
+// build, or it gave no account at all. Its
 // account having come from the last of several report blocks, or saying more
 // work waits, is neither: the pass did its work. A pass that took no turn and
 // failed nothing — a wait on the provider — is neither either.
@@ -178,6 +179,13 @@ func passFailedOrWorked(pass Sweep) (bool, bool) {
 			}
 		}
 		return pass.Problem != "", pass.Problem == ""
+	}
+	// A pass stopped part-way for a restart into a new build was ended by
+	// neither the role nor a limit on its work, and is tried again on the new
+	// build: it is not a failure, and it did its work only as far as the
+	// account it kept.
+	if pass.StoppedForRestart {
+		return false, pass.Result != nil
 	}
 	if pass.Failed || pass.NotStarted != "" || pass.Missed != nil || (pass.Turns > 0 && pass.Result == nil) {
 		return true, false

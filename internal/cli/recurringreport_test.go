@@ -289,6 +289,49 @@ func TestAFollowUpTurnWithoutItsReportKeepsTheEarlierAccount(t *testing.T) {
 	}
 }
 
+// A follow-up turn that gives no account, and whose one request for it then
+// fails at the provider, leaves the pass with the account its first turn gave,
+// recorded as partial, exactly as a follow-up that answers the request without
+// an account does.
+func TestAFollowUpWhoseReportRequestTheProviderFailsKeepsTheEarlierAccount(t *testing.T) {
+	t.Parallel()
+	more := "```yoyodyne-sweep\n" + `{"status":"more","summary":"one finding kept","findings":[{"issue":"an import against the boundary","disposition":"left","detail":"kept in the lane report"}]}` + "\n```"
+	p := newReportRecoveryPass(t, more, "Prose about the rest.", "")
+	task := p.trigger.Tasks["architect-pass"]
+	task.MaxTurns = 3
+	p.trigger.Tasks["architect-pass"] = task
+	pass := p.fire(t)
+	if len(p.backend.requests) != 3 {
+		t.Fatalf("requests = %d, want the first turn, the follow-up, and its one request", len(p.backend.requests))
+	}
+	if pass.Failed || !pass.ReportRetried || pass.Unfinished() {
+		t.Fatalf("pass = %+v, want kept rather than failed", pass)
+	}
+	if pass.Result == nil || pass.Result.Summary != "one finding kept" || pass.Result.Status != sweep.StatusMore {
+		t.Fatalf("result = %+v, want the first turn's account, partial", pass.Result)
+	}
+	if !strings.Contains(pass.Problem, "the request for the missing closing report failed") || !strings.Contains(pass.Problem, "keeps the account its earlier turns gave and is recorded as partial rather than failed") {
+		t.Fatalf("problem = %q, want the failed request and the kept account said", pass.Problem)
+	}
+	if strings.Contains(renderSweep(pass), "FAILED PASS") {
+		t.Fatalf("the listing calls a kept pass failed: %s", renderSweep(pass))
+	}
+}
+
+// A pass stopped for a restart says so in the listing, and that it is tried
+// again on the new build.
+func TestTheListingSaysAPassWasStoppedForARestart(t *testing.T) {
+	t.Parallel()
+	kept := runstate.Sweep{Task: "architect-pass", Role: domain.RoleArchitect, Turns: 1, StoppedForRestart: true, Result: &sweep.Result{Status: sweep.StatusMore, Summary: "one finding"}}
+	if said := renderSweep(kept); !strings.Contains(said, "restart into a new build; it kept the account its earlier turns gave and is tried again on the new build") || strings.Contains(said, "FAILED PASS") {
+		t.Fatalf("listing = %s", said)
+	}
+	missed := runstate.Sweep{Task: "architect-pass", Role: domain.RoleArchitect, Turns: 1, StoppedForRestart: true, Missed: &runstate.MissedPass{Trigger: runstate.PassTriggerSchedule, How: runstate.MissCancelled}}
+	if said := renderSweep(missed); !strings.Contains(said, "before any turn gave its account; it is tried again on the new build") || strings.Contains(said, "FAILED PASS") {
+		t.Fatalf("listing = %s", said)
+	}
+}
+
 func TestReportRequestFailureKeepsTheFirstReplysCostAndWrites(t *testing.T) {
 	t.Parallel()
 	p := newReportRecoveryPass(t, rememberedRuling, "")

@@ -4273,7 +4273,8 @@ other duties. Once it hosts no run it starts no new pass, since a pass begun
 then would only hold the restart; the session that comes back takes it at its
 first pull. A pass already taking its turns is waited out like a run until the
 bound below; when the session restarts past the bound, every pass still taking
-its turns is stopped and recorded as a missed pass. A deploy is the whole of
+its turns is stopped, recorded as stopped for a restart rather than failed, and
+tried again at the first pull of the session that comes back. A deploy is the whole of
 the instruction; what is configured is only how long the wait may last:
 
 ```yaml
@@ -8334,7 +8335,8 @@ action. Every turn after a pass's first is told again what its report must
 hold. If a later turn still gives none and an earlier turn of the same pass gave
 a valid one, the pass keeps the earlier turns' account, marked as having more to
 do and recorded as partial rather than failed; only that turn's findings are
-left unrecorded. If no turn gave a valid report, the pass fails with its
+left unrecorded. A later turn, or its request for the report, that fails at the
+provider or is cut off keeps the earlier account the same way. If no turn gave a valid report, the pass fails with its
 findings unrecorded. Either way earlier writes and every reply's cost stand.
 This extra request spends no work-item budget and does not consume a work turn
 under `max_turns`. After consecutive passes still omit the report on some turn,
@@ -8390,7 +8392,10 @@ about the schedule. Once it hosts none it starts no new pass — the session tha
 comes back takes it at its first pull, since the cadence is claimed durably —
 and it waits for a pass still taking its turns before it restarts, until the
 drain bound: a session restarting past the bound stops every pass still taking
-its turns and records each as a missed pass.
+its turns, and none is recorded as failed. One that an earlier turn gave its
+account keeps it as partial, one with no account yet is recorded as a missed
+pass, and either way the task is due again at once, so the session that comes
+back tries the pass again at its first pull.
 
 **A task that goes a whole interval unfired is recorded as missed, with what
 kept it.** A task is missed once it is a whole interval past the time it fell
@@ -8467,7 +8472,8 @@ once a wake past its cursor has stood takeable — its streams settled, and the
 recurring minimum passed since its last pass — for half an hour with no pass
 taken. The causes and their severities are the ones above. A pass that was
 taken and cancelled before it completed is a missed pass too: one whose session
-was stopped under its turn is recorded as one at once, and one whose process
+was stopped under its turn is recorded as one at once — tried again at once
+where what stopped it was a restart into a new build — and one whose process
 died carrying it, which records nothing, is recorded by the next pull that
 considers the instance once the claim has stood five minutes with no ending and
 no turn in flight on its conversation. See

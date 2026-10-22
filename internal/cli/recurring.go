@@ -539,7 +539,8 @@ type roleConversation struct {
 //
 // An answer with no sweep block is asked once for the block alone, under the
 // same conversation hold. An unrecovered account fails the pass unless an
-// earlier turn's account is kept (Trigger.run).
+// earlier turn's account is kept (Trigger.run), and so does a request for it
+// the provider failed or was cut off on.
 //
 // A task that names its own model has this turn ask for it, and only this turn:
 // the conversation, its account, and its failover are the role's, and the next
@@ -610,6 +611,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 		Compactions: reply.ProviderCompactions,
 	}
 	if err != nil {
+		turn.ProviderFailed = session.ProviderFailed()
 		return turn, notWoken(err)
 	}
 	turn.Turns = 1
@@ -634,6 +636,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 			turn.Model = servingModel(session.Evidence())
 			if recoveryErr != nil {
 				turn.FailureOutput = session.FailureOutput()
+				turn.ProviderFailed = session.ProviderFailed()
 				return turn, fmt.Errorf("the request for the missing closing report failed; the preceding reply's findings remain unrecorded: %w", recoveryErr)
 			}
 			turn.Turns++
@@ -1017,8 +1020,15 @@ func renderSweep(recorded runstate.Sweep) string {
 	if recorded.ReportRetried {
 		rendered.WriteString("  requested the missing closing report once on this pass\n")
 	}
-	if recorded.MissingReport && !recorded.Failed && recorded.Result != nil {
+	if recorded.MissingReport && !recorded.Failed && recorded.Result != nil && !recorded.StoppedForRestart {
 		rendered.WriteString("  a later turn gave no closing report, so the pass kept the account its earlier turns gave\n")
+	}
+	if recorded.StoppedForRestart {
+		if recorded.Result != nil {
+			rendered.WriteString("  stopped part-way so the harness could restart into a new build; it kept the account its earlier turns gave and is tried again on the new build\n")
+		} else {
+			rendered.WriteString("  stopped part-way so the harness could restart into a new build, before any turn gave its account; it is tried again on the new build\n")
+		}
 	}
 	if replacement := recorded.ConversationReplacement; replacement != nil {
 		fmt.Fprintf(&rendered, "  replaced conversation %s with %s: %s\n", replacement.Previous, recorded.ConversationID, replacement.Reason)

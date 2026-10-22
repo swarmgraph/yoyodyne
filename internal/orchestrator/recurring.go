@@ -118,6 +118,10 @@ type RecurringClaims interface {
 	// for: the development manager's sweep now, rather than at its next pass.
 	Summon(ctx context.Context, task string, now time.Time) (runstate.SweepClaim, error)
 	Settle(ctx context.Context, task, problem string) (runstate.SweepClaim, error)
+	// Owe settles a firing the watch session stopped part-way to restart into a
+	// new build, and makes the task due again at once so the new build tries it
+	// again.
+	Owe(ctx context.Context, task, problem string) (runstate.SweepClaim, error)
 	// Find reads a cadence without claiming it, which a program manager's event
 	// wake asks before it summons a pass: when the instance last fired.
 	Find(task string) (runstate.SweepClaim, bool, error)
@@ -219,7 +223,11 @@ type RecurringTurnOptions struct {
 type Turn struct {
 	// FailureOutput is the end of what the session printed where the turn
 	// ended in an error, already redacted.
-	FailureOutput  string `json:"failure_output,omitempty"`
+	FailureOutput string `json:"failure_output,omitempty"`
+	// ProviderFailed marks a turn that ended in an error because the provider
+	// failed or was cut off, rather than because the harness refused the reply it
+	// gave. Where an earlier turn of the pass gave its account, the pass keeps it.
+	ProviderFailed bool   `json:"provider_failed,omitempty"`
 	ConversationID string `json:"conversation_id,omitempty"`
 	// Turns counts answered provider turns, including a recovered report. It
 	// retains the first reply when the report request fails afterwards.
@@ -1339,6 +1347,18 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			}
 		}
 		if err != nil {
+			// A restart into a new build is neither the role's doing nor a limit on
+			// the pass's work, so it fails nothing: the pass keeps what its earlier
+			// turns gave and is tried again once the new build is running.
+			if drained, restarted := drainedForRedeploy(ctx); restarted {
+				recorded.StoppedForRestart = true
+				if merged != nil {
+					merged.Status = sweep.StatusMore
+					fired.Truncated = true
+				}
+				problems = append(problems, describeRestartStop(name, task.Role, turn+1, drained, merged != nil))
+				break
+			}
 			if recorded.Turns == 0 && errors.Is(err, runstate.ErrConversationHeld) && f.trigger.Valid() {
 				recorded.Missed = &runstate.MissedPass{Trigger: f.trigger, How: runstate.MissConversationHeld}
 				problems = append(problems, fmt.Sprintf("the %s of %s missed its first turn because its wait for the conversation ended: %v; nothing was asked, and the next pass carries the work", f.trigger.Describe(), name, err))
@@ -1365,6 +1385,20 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 					"%v; this is a failed firing of the recurring task %s rather than a partial pass: %s before its first turn, nothing was asked of the %s, and the next firing meets the same refusal until its cause is fixed",
 					err, name, notStarted.Cause.Describe(), task.Role))
 				failed = true
+				break
+			}
+			// A later turn the provider did not answer — it failed, was cut off, or
+			// could not be reached — leaves the account the earlier turns gave
+			// standing, as a later turn that gave no account does: the pass is
+			// partial rather than failed, and only that turn's findings are
+			// missing from the record. A turn whose reply was refused is still a
+			// failure, because what failed there is the role's own answer.
+			if merged != nil && providerFailed(ctx, answered, err) {
+				merged.Status = sweep.StatusMore
+				fired.Truncated = true
+				problems = append(problems, fmt.Sprintf(
+					"%s; the pass keeps the account its earlier turns gave and is recorded as partial rather than failed: what turn %d found is only in the %s's conversation, and its saved writes, reports and admissions stand",
+					describeFailedTurn(name, task.Role, turn+1, err), turn+1, task.Role))
 				break
 			}
 			problems = append(problems, describeFailedTurn(name, task.Role, turn+1, err))
@@ -1492,7 +1526,9 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			name, task.Role))
 	}
 	if f.finish != nil {
-		problems = append(problems, f.finish(!failed && fired.Turns > 0))
+		// A pass stopped for a restart is tried again, so a program manager's
+		// cursor stays where it was and the retry is handed the same events.
+		problems = append(problems, f.finish(!failed && !recorded.StoppedForRestart && fired.Turns > 0))
 	}
 	if failed && len(recorded.Saved) > 0 {
 		problems = append(problems, describeSavedBeforeFailing(name, recorded.Saved))
@@ -1526,6 +1562,11 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		problems = append([]string{fmt.Sprintf(
 			"the %s of %s was cancelled before it completed (%v): the session carrying it stopped under it, so it is recorded as a missed pass and what it would have looked at waits for the next",
 			f.trigger.Describe(), name, cancelled)}, problems...)
+	}
+	// A pass stopped for a restart before any turn gave an account is a pass owed,
+	// said as one, and is not a failed pass: the new build takes it again.
+	if recorded.StoppedForRestart && recorded.Result == nil && f.trigger.Valid() {
+		recorded.Missed = &runstate.MissedPass{Trigger: f.trigger, How: runstate.MissCancelled}
 	}
 	// And the recommendations are checked against what was actually undecided,
 	// so an account that argued on a proposal nobody was waiting on says so
@@ -1861,7 +1902,11 @@ func (t Trigger) settle(ctx context.Context, fired *Fired, recorded runstate.Swe
 	if err := t.Reports.Append(recorded); err != nil {
 		fired.Problem = appendProblem(fired.Problem, t.recordWithoutTheAccount(recorded, err))
 	}
-	if _, err := t.Claims.Settle(write, recorded.Task, boundedProblem([]string{fired.Problem})); err != nil {
+	settle := t.Claims.Settle
+	if recorded.StoppedForRestart {
+		settle = t.Claims.Owe
+	}
+	if _, err := settle(write, recorded.Task, boundedProblem([]string{fired.Problem})); err != nil {
 		fired.Problem = appendProblem(fired.Problem, fmt.Sprintf(
 			"what became of this run of the recurring task %s could not be written against its schedule: %v", recorded.Task, err))
 	}
@@ -1951,6 +1996,29 @@ func describeFailedTurn(name string, role domain.AgentRole, turn int, err error)
 		return fmt.Sprintf("turn %d of the recurring task %s could not be put to the %s, so its pass is partial and carries only the turns before it: %v", turn, name, role, err)
 	}
 	return fmt.Sprintf("turn %d of the recurring task %s failed, so its pass is partial: %v", turn, name, err)
+}
+
+// describeRestartStop is the record's account of a pass the watch session
+// stopped part-way to restart into a build deployed over it, after waiting for
+// it as long as its drain bound allows.
+func describeRestartStop(name string, role domain.AgentRole, turn int, drained RedeployDrain, kept bool) string {
+	stopped := fmt.Sprintf(
+		"the watch session stopped turn %d of the recurring task %s part-way to restart into the build deployed over it, after waiting %s for the pass to finish; a restart is not a failure of the pass",
+		turn, name, drained.Bound)
+	if kept {
+		return stopped + fmt.Sprintf(", so it keeps the account its earlier turns gave, recorded as partial, and is tried again once the new build is running: what turn %d found is only in the %s's conversation, and its saved writes, reports and admissions stand", turn, role)
+	}
+	return stopped + ", and no turn had given its account yet, so it is recorded as a missed pass and tried again once the new build is running; any writes it saved stand, and the pass that tries again is told of them"
+}
+
+// providerFailed reports a turn the provider did not answer: one it failed,
+// one cut off by the pass's context or the turn's bound, and one put to a
+// provider that could not be reached. A turn whose reply the harness refused
+// to carry out is none of these: the provider answered, and what failed is the
+// role's own reply.
+func providerFailed(ctx context.Context, answered Turn, err error) bool {
+	return answered.ProviderFailed || ctx.Err() != nil || errors.Is(err, ErrRoleUnreachable) ||
+		errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // maxAlreadySavedListed bounds how many saved writes the message waking a pass
