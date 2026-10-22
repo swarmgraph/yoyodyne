@@ -498,9 +498,11 @@ stands — in the hourly message, in a message about a stopped line, and in the
 answer to an @mention — reach it already rendered by the read model, and are
 posted as they are. What it renders itself is only text no rendering has
 passed through: a record's own words and the sentences recorded about it in a
-notification, before the message is composed; what the Lead Product Manager
-answered in a thread; the answer to a decision and a question put to a person
-directly; and a work item's thread heading. For those it lists the tracker at
+notification, before the message is composed; every answer the conversation
+gives in a thread, whether the Lead Product Manager's own words or the
+harness's account of a decision carried out there, which names the item the
+decision created; the answer to a decision asked of a person and a question put
+to a person directly; and a work item's thread heading. For those it lists the tracker at
 most once a minute rather than once a message, so an item admitted in the last
 minute can reach the channel marked as not in the tracker until the next
 listing. A posted message is not edited when the tracker changes later.

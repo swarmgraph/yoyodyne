@@ -298,13 +298,12 @@ func (s *steering) reply(ctx context.Context, message inboundMessage, answer Ans
 	if answer.Harness {
 		speaker = notify.Harness()
 	}
-	// What the Lead Product Manager answered is a role's own words, which no
-	// rendering has passed through, so each work item it names is shown with
-	// its state. What the harness answered for a command is the read model's
-	// rendering already, and is posted as it is.
-	if !answer.Harness {
-		text = s.sink.citing.cite(ctx, text)
-	}
+	// No rendering has passed through an answer from the conversation, whoever
+	// gave it: the Lead Product Manager's own words, or the harness's answer for
+	// a decision or a refused command, which names the work item a decision
+	// created. So each work item it names is shown with its state here, once.
+	// The lines saying where the harness stands never come this way.
+	text = s.sink.citing.cite(ctx, text)
 	if err := s.sink.answerAs(ctx, speaker, message, text, conversationElsewhere); err != nil {
 		if ctx.Err() != nil {
 			return
