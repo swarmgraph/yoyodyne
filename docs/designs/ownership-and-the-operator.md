@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-10-22T14:53:28.714302Z
       reason: 'Replacing the coined vocabulary in the governed documents, first document (part of yoyodyne-ifd.437.21): the table''s entry kind for a provider''s usage limit is now written in the register''s ordinary words, since the terms-check fix (yoyodyne-ifd.437.48) lets a document drop a retired term its register row names. Nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-10-22T23:20:08.098546Z
+      reason: 'Approved amendment-d1664063: the section names every case the registry carries the operator''s hand for (the two it named, the development manager''s raise past her own five, and a proposed change whose owning role cannot decide it), says a hand with no closing item is shown as a missing capability, and says which two roles may record a hand and only for a missing capability. Nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -38,6 +42,11 @@ approvals:
       by: harness
       at: 2026-10-22T14:53:28.714302Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1494, for document-1494.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-10-22T23:20:08.098546Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1519, for document-1519.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -179,12 +188,36 @@ never a code change on its own.
 ## A role's decision that needs the operator's hand
 
 Some remedies are a role's to decide, but the harness cannot yet perform them
-for that role. Today these are applying operational configuration, which
-waits on configuration applied through a run (yoyodyne-ifd.434.8), and
-committing a document written from a conversation where its kind's approval
-policy is not automatic (yoyodyne-ifd.433.21). Such an entry keeps the role as
-its owner and carries `hand`: the operator, the capability that is missing,
-and the item that closes the gap. It never sets the owner to the operator.
+for that role. Such an entry keeps the role as its owner and carries `hand`:
+the operator, the capability that is missing, what the operator types, and the
+item that closes the gap. It never sets the owner to the operator. The
+registry carries a hand for these four cases, and for no other:
+
+- **Applying operational configuration**, which waits on configuration
+  applied through a run (yoyodyne-ifd.434.8).
+- **Committing a document written from a conversation** where its kind's
+  approval policy is not automatic (yoyodyne-ifd.433.21).
+- **Raising an item's limit once the development manager has used the five
+  raises she may grant herself.** She decides it; the operator types it with
+  `yoyo triage override`. No item that lets her apply it herself is admitted
+  yet.
+- **Deciding a proposed change whose owning role holds no capability to
+  decide it.** The owning role decides; the operator types its decision with
+  `yoyo amendment approve` or `yoyo amendment decline`.
+
+A hand names the item that ends the need for it. Where no item is admitted
+yet, the hand says so, and the entry is also shown to the Lead Product Manager
+as a missing capability, which she admits a defect for as the escalation
+ladder below requires. Adding a case to this list is an amendment to this
+section, never a code change on its own.
+
+Two roles may record a hand themselves rather than the registry deriving it:
+the Lead Product Manager when she handles a report, and the development
+manager when she escalates. Either records it in place of a reason from the
+closed list, and only for a capability the harness lacks, naming the role that
+decided, the capability, what the operator types, and the item. A hand never
+stands in for a decision of the operator's: the role has decided, and his
+part is the typing.
 
 The needs-a-human line prints two heads from this:
 
