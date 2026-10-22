@@ -5524,6 +5524,19 @@ held-back lists. Each reason names what is in its way by what it is, with its
 identifier after it, and says when the item was first passed over and since when
 the current reason has stood.
 
+An item the tracker does not offer as ready at all keeps a reason too, where
+all that holds it is other work: an unfinished item it depends on, its
+parent's change that has not landed, or a parent it was broken out of that
+waits on unfinished work, in which case the reason names that parent and what
+it waits on, each by title with its identifier after it. The parent is named
+even while somebody is working it and it has left the backlog. Every pass that
+reads the queue writes this reason for the whole queue, not only for the items
+a free developer slot reached, and the first such pass that finds the item no
+longer held that way clears it; until then `yoyo status` stops saying it as soon as the item reads
+as ready. Work a conversation carries, work somebody parked or is holding, and
+a step only a person can take keep no such reason, because the item already
+says what holds it.
+
 The reason is one value per item in the tracker's metadata,
 `yoyodyne_scheduling_wait`, beside the item's notes and never in them: a pass
 whose reason is unchanged writes nothing, a changed reason replaces the value
@@ -5547,7 +5560,9 @@ and the stall alarm already give for the same kind of wait — "nobody's" for a
 wait behind a run in flight or a slot's preference, the harness's for a decision
 recorded and not yet carried out, the development manager's for a prerequisite
 the tree does not have, the operator's for a directive only he can resolve —
-and not an owner decided here. The JSON reading carries the same items as
+and not an owner decided here. A wait on other work is never shown as a
+problem for how long it has stood: it lasts as long as the work it names, and
+that work is where a problem shows. The JSON reading carries the same items as
 `scheduling_waits` and the problems among them as `scheduling_wait_problems`.
 
 ## When nothing happened at all

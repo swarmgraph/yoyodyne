@@ -1771,8 +1771,11 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 	}
 	for i := range refused {
 		for _, entry := range queue.Entries {
-			if entry.ID == refused[i].WorkItemID && entry.SchedulingWait != nil {
-				refused[i].Reason += "; " + waitingWorkReason(entry, now, sources.SchedulingWaitProblemAfter)
+			if entry.ID != refused[i].WorkItemID {
+				continue
+			}
+			if kept := waitingWorkReason(entry, refused[i].Reason, now, sources.SchedulingWaitProblemAfter); kept != "" {
+				refused[i].Reason += "; " + kept
 			}
 		}
 	}

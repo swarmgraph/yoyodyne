@@ -1552,9 +1552,9 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// pull's, set once the queue is read.
 	var waitTracker ScheduleTracker
 	var waitItems map[string]beads.WorkItem
-	keepWait := func(workItemID string, class runstate.PassedOverClass, reason string) {
-		passOver(workItemID, reason)
-		reason = schedulingWaitReason(reason, waitItems)
+	// keepReason is the tracker half of keepWait, for a reason already worded;
+	// an empty reason clears the value.
+	keepReason := func(workItemID string, class runstate.PassedOverClass, reason string) {
 		// The queue was read with each item's kept reason, so a reason that has
 		// not changed costs no tracker write and no read.
 		if item, read := waitItems[workItemID]; read {
@@ -1565,6 +1565,10 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		if err := recordSchedulingWait(ctx, waitTracker, workItemID, class, reason, s.now()); err != nil {
 			schedule.CarryOutReadProblem = joinProblem(schedule.CarryOutReadProblem, fmt.Sprintf("record why %s has not started: %v", workItemID, err))
 		}
+	}
+	keepWait := func(workItemID string, class runstate.PassedOverClass, reason string) {
+		passOver(workItemID, reason)
+		keepReason(workItemID, class, schedulingWaitReason(reason, waitItems))
 	}
 	// sequencedEarlier is the items this pass passed over because starting them
 	// would have raced work already in flight, against the conflict that held
@@ -3067,6 +3071,10 @@ pulling:
 		waitTracker = pull.Tracker
 		waitItems = read.items
 		queue.Entries = s.land(ctx, &schedule, pull, queue.Entries)
+		// Work the tracker leaves out of its ready set is never asked about by a
+		// slot, so its reason is kept here, over the whole queue; see
+		// keepUnreadyWaits.
+		keepUnreadyWaits(queue.Entries, read.items, keepReason)
 		schedule.Admitted = len(queue.Entries)
 		schedule.Pullable = queue.Ready()
 		schedule.BacklogRead = true
