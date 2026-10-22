@@ -357,7 +357,7 @@ func TestALimitOnTheSubagentsModelLeavesTheRunOnItsEndpointWithoutThem(t *testin
 	if state.Subagents == nil || state.Subagents.Limit == nil || state.Subagents.Limit.Kind != "seven_day_sonnet" || !state.Subagents.Limit.ResetsAt.Equal(resets) {
 		t.Fatalf("recorded sub-agents %+v", state.Subagents)
 	}
-	want := "sub-agents off for this run: the provider's seven_day_sonnet usage limit for the sub-agents' model is reached, so the developer works without them until it resets at " + resets.Local().Format("Jan 2 15:04 MST")
+	want := "sub-agents off for this run: the sub-agents' model has reached the provider's Sonnet weekly limit, so the developer works without them until it resets at " + resets.Local().Format("Jan 2 15:04 MST")
 	if says := state.SubagentsSays(); !strings.Contains(says, want) {
 		t.Fatalf("the run says %q, want %q", says, want)
 	}

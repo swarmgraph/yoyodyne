@@ -71,6 +71,19 @@ func TestARunSaysWhatItsSubagentsAndModelsDid(t *testing.T) {
 	if says := unknown.SubagentsSays(); !strings.Contains(says, "which model did what is unknown") {
 		t.Fatalf("says %q", says)
 	}
+	resets := time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC)
+	limited := State{Subagents: &SubagentRecord{Enabled: true, Model: "sonnet",
+		Unavailable: "the provider's seven_day_sonnet usage limit for the sub-agents' model is reached",
+		Limit:       &SubagentLimit{Kind: "seven_day_sonnet", ResetsAt: &resets}}}
+	want := "sub-agents off for this run: the sub-agents' model has reached the provider's Sonnet weekly limit, so the developer works without them until it resets at " + resets.Local().Format("Jan 2 15:04 MST")
+	if says := limited.SubagentsSays(); says != want {
+		t.Fatalf("a run under a known limit says %q, want %q", says, want)
+	}
+	unrecognized := State{Subagents: &SubagentRecord{Enabled: true, Model: "sonnet", Limit: &SubagentLimit{Kind: "monthly_sonnet"}}}
+	want = `sub-agents off for this run: the sub-agents' model has reached the provider's unrecognized usage limit (named "monthly_sonnet") and it named no reset time, so the developer works without them for the rest of this run`
+	if says := unrecognized.SubagentsSays(); says != want {
+		t.Fatalf("a run under an unrecognized limit says %q, want %q", says, want)
+	}
 	reported := State{Subagents: &SubagentRecord{Enabled: true, Model: "sonnet"}, ProviderModelUsage: []backend.ModelUsage{{Model: "claude-sonnet-5-5", CostUSD: 0.25}}}
 	if says := reported.SubagentsSays(); !strings.Contains(says, "sub-agents on sonnet") || !strings.Contains(says, "claude-sonnet-5-5 $0.25") {
 		t.Fatalf("says %q", says)
