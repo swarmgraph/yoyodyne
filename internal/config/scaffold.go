@@ -646,15 +646,20 @@ func renderScaffoldReporting(builder *strings.Builder) {
 # is derived from this rather than authored beside it -- the humans granted
 # direct-work who have bound a member id, and nobody else -- so until somebody is
 # named here, every reply in a thread is answered saying it was not acted on.
+# "dashboard_token" names where your own dashboard token is kept, keychain or
+# file, so the dashboard can take your approve and decline; "decide-amendments"
+# lets you decide proposed changes to documents there.
 #
 # operators:
 #   your-name:
 #     git_email: you@example.com
 #     forge_account: your-account
 #     slack_member_id: U0123456789   # your Slack profile -> "Copy member ID"
+#     dashboard_token: keychain
 #     grants:
 #       - own-intent
 #       - direct-work
+#       - decide-amendments
 `, slackGuide)
 }
 

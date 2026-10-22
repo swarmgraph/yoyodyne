@@ -713,6 +713,12 @@ type Standing struct {
 	// says they could not be read.
 	DocumentsWaitingForSlot []DocumentSlotWait `json:"documents_waiting_for_slot,omitempty"`
 	DocumentsWaitingProblem string             `json:"documents_waiting_problem,omitempty"`
+	// OperatorDecisions is what the attention line names as the operator's
+	// that a verb approves or declines, opened into the records it carries,
+	// which the dashboard puts to him one at a time; see ReadOperatorDecisions.
+	// OperatorDecisionsProblem says a source of them could not be read.
+	OperatorDecisions        []OperatorDecision `json:"operator_decisions,omitempty"`
+	OperatorDecisionsProblem string             `json:"operator_decisions_problem,omitempty"`
 	// Admitted is the whole backlog this reading saw, so a short not-startable
 	// list is legible: two refusals out of three admitted items and two out of
 	// forty are different states of the same machine.
@@ -1034,8 +1040,15 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	}
 	standing.AmendmentsProblem = joinProblems(amendments.problem, amendments.sweepProblem)
 	actions = append(actions, amendments.batchAttention()...)
+	// The documents waiting for approval are read once and used twice, like
+	// the switches: they are on the line, and the ones it names as the
+	// operator's are put to him on the page with the proposed changes that are
+	// his, so the page and the line cannot disagree about one conversation.
+	documents := readDocuments(sources)
+	standing.OperatorDecisions, standing.OperatorDecisionsProblem = amendments.operatorDecisions(documents.attention)
+	standing.OperatorDecisionsProblem = joinProblems(standing.OperatorDecisionsProblem, documents.problem)
 
-	needs, needsProblem := readNeedsHuman(sources, switches, actions, amendments)
+	needs, needsProblem := readNeedsHuman(sources, switches, actions, amendments, documents)
 	needsProblem = joinProblems(needsProblem, actionsProblem)
 	// The provider answering nobody is on the attention line whatever the queue
 	// holds, because what ends it is a person, and it is the first thing on it:
@@ -2150,7 +2163,7 @@ func summarizePile(reports []report.Report, handlings []report.Handling, problem
 // proposals and is never folded into the remainder: the brake's hold, with the
 // runs that tripped it, and each report-derived finding by name. Those are the
 // entries whose wait was measured in weeks before they were named here.
-func readNeedsHuman(sources Sources, held switches, actions []Attention, amendments amendmentReading) ([]Attention, string) {
+func readNeedsHuman(sources Sources, held switches, actions []Attention, amendments amendmentReading, documents documentReading) ([]Attention, string) {
 	attention := make([]Attention, 0, 4+len(actions))
 	if held.operatorHeld {
 		attention = append(attention, operatorHoldAttention(held.operator))
@@ -2184,9 +2197,8 @@ func readNeedsHuman(sources Sources, held switches, actions []Attention, amendme
 	// The documents a role wrote that wait for the operator's approval, after
 	// the changes proposed to documents, since both are documents somebody has
 	// to decide.
-	documents, documentsProblem := readDocumentApprovals(sources)
-	attention = append(attention, documents...)
-	problem = joinProblems(problem, documentsProblem)
+	attention = append(attention, documents.attention...)
+	problem = joinProblems(problem, documents.problem)
 
 	decisions, decisionsProblem := readProductDecisions(sources)
 	attention = append(attention, decisions...)

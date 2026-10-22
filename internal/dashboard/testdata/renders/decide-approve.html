@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>yoyodyne — yoyo dashboard</title>
+    <link rel="stylesheet" href="../../assets/dashboard.css">
+  </head>
+  <body>
+    <p class="render-note">Opened over the decisions render, which is not repeated here.</p>
+    <div id="decide" class="popup" role="dialog" aria-modal="true" aria-labelledby="decide-heading" data-state="ready">
+      <div id="decide-backdrop" class="popup-backdrop"></div>
+      <div class="popup-card">
+        <div class="popup-head">
+          <div>
+            <h2 id="decide-heading" class="popup-title">document to approve</h2>
+            <p id="decide-note" class="popup-note">1 of 1 · read 14:05:09</p>
+          </div>
+          <button type="button" id="decide-close" class="popup-close">Close</button>
+        </div>
+        <div class="section-ready">
+          <p id="decide-session" class="decide-session">this session is mason-bryant, and an approve, decline, or ask from here is recorded as theirs</p>
+          <dl id="decide-fields" class="card-fields">
+            <div class="card-field card-field-prose">
+              <dt>What</dt>
+              <dd>document document-2328.1, a revision of v1-non-goals ("V1 non-goals") written by the Lead Product Manager in conversation chat-91253e0e070c17b0663651cc48602122, waits for the operator's approval, since 2026-10-11 21:20 PDT</dd>
+            </div>
+            <div class="card-field card-field-prose">
+              <dt>Document written</dt>
+              <dd>V1 non-goals</dd>
+            </div>
+            <div class="card-field card-field-prose">
+              <dt>The document</dt>
+              <dd>A reduced, local dashboard is in v1 scope, and it may take the operator's own decisions: approve and decline, starting with what waits on him.</dd>
+            </div>
+            <div class="card-field card-field-prose">
+              <dt>Why</dt>
+              <dd>The operator decided on October 11 that the dashboard may take his own decisions.</dd>
+            </div>
+            <div class="card-field">
+              <dt>Raised by</dt>
+              <dd>product-manager (agent product-manager)</dd>
+            </div>
+            <div class="card-field card-field-id">
+              <dt>Conversation</dt>
+              <dd>chat-91253e0e070c17b0663651cc48602122</dd>
+            </div>
+            <div class="card-field card-field-id">
+              <dt>Id</dt>
+              <dd>document-2328.1</dd>
+            </div>
+          </dl>
+          <div id="decide-actions" class="decide-actions">
+            <button type="button" data-act="approve">Approve</button>
+            <button class="decide-quiet" type="button" data-act="decline">Decline</button>
+            <button class="decide-quiet" type="button" data-act="ask">Ask first</button>
+          </div>
+          <p id="decide-outcome" class="decide-outcome" role="status">Done as mason-bryant: approved the proposed change amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d to v1-goals, under the Lead Product Manager's authority; nothing was written to v1-goals, and the Lead Product Manager makes the change</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
