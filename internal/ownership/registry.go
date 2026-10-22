@@ -33,6 +33,10 @@ type Answer struct {
 	// Capability is the command, registered action, or tool the remedy needs,
 	// and empty where the entry ends by itself.
 	Capability string `json:"capability,omitempty"`
+	// Hand is present only where the owner is a role whose decision the harness
+	// cannot yet carry out for it, so the operator has to type it (hand.go). It
+	// never makes the entry his: the owner stays the role.
+	Hand *Hand `json:"hand,omitempty"`
 }
 
 // ReasonSays is why the entry is the operator's, in words, and empty where it
@@ -128,6 +132,14 @@ type Record struct {
 	// DocumentRun is a stopped run that was writing a document; Role is the
 	// document's owner.
 	DocumentRun bool
+
+	// Hand is the capability the harness lacks that the record itself names: a
+	// report handling's or a development manager's escalation's, recorded for a
+	// decision of a role's that needs the operator's hand. Command is what a
+	// person types to carry that decision out, where the record names it more
+	// exactly than the gap's own words do.
+	Hand    HandNeed
+	Command string
 }
 
 // HoldSwitch is which of the three switches a hold entry is about.
@@ -188,7 +200,10 @@ func HasRule(kind Kind) bool {
 // a defect in the registry, and she files it. A rule's answer naming the
 // operator without a reason from the closed list is treated the same way,
 // because naming him for any other reason is the defect this registry exists
-// to end; a reason on an answer naming anybody else is dropped.
+// to end; a reason on an answer naming anybody else is dropped. A hand is kept
+// only on an answer naming a role: an entry the operator owns is his to decide
+// rather than a role's needing his hand, and one the harness, the forge, or
+// nobody moves needs no person at all.
 func Resolve(kind Kind, record Record) Answer {
 	rule, ok := registry[kind]
 	if !ok {
@@ -202,9 +217,13 @@ func Resolve(kind Kind, record Record) Answer {
 		if !answer.Reason.Valid() {
 			return unclassified()
 		}
+		answer.Hand = nil
 		return answer
 	}
 	answer.Reason = ""
+	if answer.Hand != nil && (!domain.AgentRole(answer.Owner).Valid() || !answer.Hand.Need.Valid()) {
+		answer.Hand = nil
+	}
 	return answer
 }
 
@@ -231,9 +250,25 @@ func roleOwned(role domain.AgentRole, remedy, capability string) (Answer, bool) 
 	return owned(MoverOf(role), remedy, capability)
 }
 
+// withHand is a role's answer carrying the operator's hand for one gap.
+func withHand(answer Answer, ok bool, need HandNeed, command string) (Answer, bool) {
+	if ok {
+		answer.Hand = handFor(need, command)
+	}
+	return answer, ok
+}
+
+// amendmentRule is the owning role, which decides the change from its
+// conversation. Where the owner holds no capability to decide it, the decision
+// is still the owner's, and the operator's command is the hand that carries it
+// out until the role is given one.
 func amendmentRule(r Record) (Answer, bool) {
 	if r.FundamentalIntent {
 		return operator(OperatorFundamentalIntent, "approve or decline the change", "yoyo amendment approve|decline")
+	}
+	if r.Role.Valid() && !decidesAmendments(r.Role) {
+		answer, ok := roleOwned(r.Role, "decide the proposed change and have the operator record it", "yoyo amendment approve|decline")
+		return withHand(answer, ok, HandAmendmentDecision, r.Command)
 	}
 	return roleOwned(r.Role, "decide the proposed change from its conversation", "amendment action")
 }
@@ -241,6 +276,10 @@ func amendmentRule(r Record) (Answer, bool) {
 func amendmentQueueRule(r Record) (Answer, bool) {
 	if r.FundamentalIntent {
 		return operator(OperatorFundamentalIntent, "decide the oldest proposed change", "yoyo amendment approve|decline")
+	}
+	if r.Role.Valid() && !decidesAmendments(r.Role) {
+		answer, ok := roleOwned(r.Role, "decide the queue of proposed changes and have the operator record each decision", "yoyo amendment approve|decline")
+		return withHand(answer, ok, HandAmendmentDecision, r.Command)
 	}
 	return roleOwned(r.Role, "work the queue of proposed changes from its conversation", "amendment action")
 }
@@ -455,6 +494,23 @@ func operatorActionRule(r Record) (Answer, bool) {
 	if r.Reason.Valid() {
 		return operator(r.Reason, "do what the finding asks", "the step the finding names")
 	}
+	// A finding recorded as a role's decision needing the operator's hand stays
+	// with the role that decided it: the development manager for her escalation,
+	// and the role that handled the report, or the Lead Product Manager where the
+	// handling names none, for a handling.
+	if r.Hand.Valid() {
+		switch {
+		case r.FromEscalation:
+			return withHand(Answer{Owner: MoverDevelopmentManager, Remedy: "have the operator carry out her decision", Capability: "the command the hand names"}, true, r.Hand, r.Command)
+		case r.FromReport:
+			role := r.Role
+			if !role.Valid() {
+				role = domain.RoleProductManager
+			}
+			answer, ok := roleOwned(role, "have the operator carry out the decision the handling records", "the command the hand names")
+			return withHand(answer, ok, r.Hand, r.Command)
+		}
+	}
 	switch {
 	case r.FromEscalation:
 		// An escalation naming the operator for no reason on the list goes back
@@ -522,5 +578,6 @@ func documentApprovalRule(r Record) (Answer, bool) {
 	if r.FundamentalIntent {
 		return operator(OperatorFundamentalIntent, "approve or decline the document", "yoyo agent chat approve|decline")
 	}
-	return roleOwned(r.Role, "have the operator approve or decline the document, as the project's approval setting for its kind asks", "yoyo agent chat approve|decline")
+	answer, ok := roleOwned(r.Role, "have the operator approve or decline the document, as the project's approval setting for its kind asks", "yoyo agent chat approve|decline")
+	return withHand(answer, ok, HandDocumentConfirmation, r.Command)
 }

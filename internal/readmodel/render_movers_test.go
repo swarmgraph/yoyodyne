@@ -19,7 +19,7 @@ func TestTheFourthLineNamesEachMoverAndSaysAHumanOnlyOfTheOperator(t *testing.T)
 	t.Parallel()
 
 	wants := map[Mover]string{
-		ownership.MoverOperator: "Needs a human (1):\n",
+		ownership.MoverOperator: "Needs a human (1):\n  " + YoursToDecide + " (1):\n",
 		MoverProductManager:     "Waiting on the Lead Product Manager (1):\n",
 		MoverArchitect:          "Waiting on the architect (1):\n",
 		MoverDevelopmentManager: "Waiting on the development manager (1):\n",
@@ -58,6 +58,10 @@ func TestTheFourthLineNamesEachMoverAndSaysAHumanOnlyOfTheOperator(t *testing.T)
 		}
 		at = found
 		entry := "  cleanup of the branch and worktree for item-" + string(mover) + " is not finished — " + mover.Possessive()
+		if mover.IsOperator() {
+			// Under the head beneath the line, one level further in.
+			entry = "  " + entry
+		}
 		if !strings.Contains(rendered[found:], head+entry) {
 			t.Fatalf("rendered:\n%s\nthe entry %s moves is not under its head %q", rendered, mover, head)
 		}
@@ -79,7 +83,8 @@ func TestTheFourthLineNamesEachMoverAndSaysAHumanOnlyOfTheOperator(t *testing.T)
 	// The brief rendering keeps every head and drops the entries.
 	brief := Standing{NeedsHuman: entries}.RenderBriefLines()
 	for _, mover := range Movers() {
-		head := strings.TrimSuffix(wants[mover], ":\n") + "\n"
+		// The line's own head, without the heads indented beneath it.
+		head := strings.TrimSuffix(strings.SplitAfter(wants[mover], "\n")[0], ":\n") + "\n"
 		if !strings.Contains(brief, head) {
 			t.Fatalf("brief:\n%s\nmissing the head %q", brief, head)
 		}
@@ -143,7 +148,7 @@ func TestEachOfTheOperatorsEntriesNamesTheReasonThatMakesItHis(t *testing.T) {
 	if err := json.Unmarshal(encoded, &wire); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if wire.Ownership != gate.Ownership || wire.Ownership.Remedy == "" || wire.Ownership.Capability == "" || wire.OwnerReason != gate.Ownership.ReasonSays() {
+	if !wire.Ownership.Equal(gate.Ownership) || wire.Ownership.Remedy == "" || wire.Ownership.Capability == "" || wire.OwnerReason != gate.Ownership.ReasonSays() {
 		t.Fatalf("JSON carries %+v and %q, want the registry's answer %+v and its reason", wire.Ownership, wire.OwnerReason, gate.Ownership)
 	}
 }

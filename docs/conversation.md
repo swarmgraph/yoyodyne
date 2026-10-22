@@ -2785,7 +2785,12 @@ only for a reason on your closed list**, given as `"operator_reason"`:
 `fundamental-intent`, `credential`, `repository-setting`, or `protected-file`.
 One that names you without one of them — and one that leaves out `"to"`, which
 names you — is refused with the rung to use instead: nothing is recorded and the
-item is not blocked. **An escalation is a durable blocker on the item and a
+item is not blocked. A cap crossing past the five the development manager may
+record herself is hers to decide and only your keyboard can record, so she
+escalates it with `"to": "operator", "hand": "cap-crossing"` in place of a
+reason of yours: it stays her decision, and `yoyo status` lists it under **A
+role's decision that needs your hand** with the `yoyo triage override` to type.
+**An escalation is a durable blocker on the item and a
 report at `warning` severity or above**, in the same reply, addressed with
 `"for"` to the role it goes to, which puts it on that role's list and in front
 of its next pass; one to you reaches [the pile you

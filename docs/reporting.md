@@ -858,7 +858,12 @@ do. A handling that names you for anything else is refused, records nothing,
 and names the rung to use instead: a report whose remedy is a role's stays that
 role's, whatever its severity, and an acknowledgement is not a reason. That record is [a finding that needs your hand](#a-finding-that-needs-your-hand):
 said to you once, directly, and named on `yoyo status` until a later handling of
-the same report records the change made. It is a field the harness reads rather
+the same report records the change made. A report whose answer is the Lead
+Product Manager's own decision that only your keyboard can carry out — a
+configuration value she decided for `.yoyodyne/config.yaml` — is handled with
+`"hand": "operational-configuration"` instead: it is said to you the same way,
+but it stays hers, listed under **A role's decision that needs your hand**
+rather than as yours to decide. It is a field the harness reads rather
 than a sentence in the reason, because a sentence is what six such reports were
 for a month. A report filed at `critical` is the same kind of finding on its
 own, until somebody handles it. A report handled as yours counts as handled and

@@ -393,7 +393,7 @@ func (s *Session) renderOperatorFindings() string {
 	handled := report.Handled(handlings)
 	var standing []report.Report
 	for _, reported := range report.ByFiling(reports) {
-		if handling, done := handled[reported.ID]; done && handling.NeedsOperator {
+		if handling, done := handled[reported.ID]; done && (handling.NeedsOperator || handling.Hand != "") {
 			standing = append(standing, reported)
 		}
 	}
@@ -402,7 +402,7 @@ func (s *Session) renderOperatorFindings() string {
 	}
 	var rendered strings.Builder
 	rendered.WriteString("# Reports you handled as needing the operator's hand\n")
-	rendered.WriteString("Each of these stands as a finding for the operator — named on `yoyo status` and said to him directly once — until you handle the same report again without \"needs\", which is what records the change made. They are listed here because a handled report is not offered to you again, and ending one means naming it. Do not handle one again until the operator has made the change; ask him where you do not know.\n\n")
+	rendered.WriteString("Each of these stands as a finding for the operator — named on `yoyo status` and said to him directly once — until you handle the same report again without \"needs\" or \"hand\", which is what records the change made. They are listed here because a handled report is not offered to you again, and ending one means naming it. Do not handle one again until the operator has made the change; ask him where you do not know.\n\n")
 	listed := standing
 	if len(listed) > maxRenderedFindings {
 		listed = listed[:maxRenderedFindings]
@@ -506,6 +506,7 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 		NeedsOperator:  strings.TrimSpace(outcome.Action.Needs) == handleNeedsOperator,
 		PersonOnly:     outcome.Action.PersonOnly,
 		OperatorReason: operatorReason,
+		Hand:           outcome.Action.Hand,
 	}
 	if err := s.options.Reports.Handle(handling); err != nil {
 		outcome.fail(err)
@@ -525,6 +526,14 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 		// what the operator is told and what `yoyo status` names is this record.
 		outcome.applied("recorded that %s, reported at %q by the %s%s, needs the operator's hand; it is named on `yoyo status` and said to him directly until a later handling records the change made%s",
 			subject.ID, subject.Severity, RoleTitle(subject.Role), reportedOn(subject), mappingClause(requests))
+		return
+	}
+	if handling.Hand != "" {
+		// Her decision stands and stays hers; what the operator is handed is the
+		// keyboard the harness does not yet have, and the line says so under its
+		// own head rather than as his to decide.
+		outcome.applied("recorded that %s, reported at %q by the %s%s, is your decision that needs the operator's hand, because the harness has no way yet of %s; it is named on `yoyo status` as a role's decision that needs his hand and said to him directly until a later handling records it carried out%s",
+			subject.ID, subject.Severity, RoleTitle(subject.Role), reportedOn(subject), handling.Hand.Missing(), mappingClause(requests))
 		return
 	}
 	outcome.applied("recorded what became of %s, reported at %q by the %s%s%s",

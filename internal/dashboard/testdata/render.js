@@ -425,6 +425,10 @@ const scenarios = pages.concat([
   over("attention-owed-step", "busy", { open: [{ grouping: "attention" }, { entry: "owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70" }] }),
   over("attention-carried-item", "busy", { open: [{ grouping: "attention" }, { entry: "conversation-carried-item:yoyodyne-ifd.188" }] }),
   over("attention-human-gate", "busy", { open: [{ grouping: "attention" }, { entry: "human-gate:signing-key" }] }),
+  // A role's decision that needs the operator's hand: its own head in the
+  // list, and on its card what the harness has no way yet of doing, what to
+  // type, and the item that ends the need.
+  over("attention-hand", "busy", { open: [{ grouping: "attention" }, { entry: "document-approval:chat-a06587022b9caf04cbbb20d8f6fe8c13/document-412.1" }] }),
   over("attention-carried-item-card", "busy", { items: items("yoyodyne-ifd.188"), open: [{ grouping: "attention" }, { entry: "conversation-carried-item:yoyodyne-ifd.188" }, { item: "yoyodyne-ifd.188" }] }),
   over("attention-settled", "busy", { open: [{ grouping: "attention" }, { entry: "owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70" }, { poll: { "/api/standing": ok(fixture("standing-settled")) } }] }),
   over("attention-unreadable", "busy", { open: [{ grouping: "attention" }, { entry: "owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70" }, { poll: { "/api/standing": ok(fixture("standing-degraded")) } }] }),

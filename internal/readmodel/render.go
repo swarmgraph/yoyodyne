@@ -410,30 +410,57 @@ func (s Standing) renderDocumentWaits() string {
 // waits on a role, the harness, the forge, or nobody is printed under it, one
 // headed line per mover in the movers' order, each head counting its entries,
 // so every entry is still printed and none of them is said to need a person.
+//
+// Under the line come two heads. "Yours to decide" is what the operator owns,
+// each entry with the reason from his closed list; its count is the line's.
+// "A role's decision that needs your hand" is what a role owns and the harness
+// cannot yet carry out for it, each entry naming the role that decided, what
+// to type, and the item that ends the need. Those are counted as the harness's
+// missing capability, apart from his count, and are printed there rather than
+// under their role's head, so each is printed once and none under the first
+// (ownership.Answer.NeedsHand).
 func (s Standing) renderNeedsHuman() string {
 	if s.NeedsHumanProblem != "" && len(s.NeedsHuman) == 0 {
 		return unreadable("Needs a human", s.NeedsHumanProblem)
 	}
 	byMover := map[Mover][]Attention{}
 	order := Movers()
+	var operator, hand []Attention
 	for _, waiting := range s.NeedsHuman {
+		switch {
+		case waiting.Mover.IsOperator():
+			operator = append(operator, waiting)
+			continue
+		case waiting.Ownership.NeedsHand():
+			hand = append(hand, waiting)
+			continue
+		}
 		if _, seen := byMover[waiting.Mover]; !seen && !waiting.Mover.Valid() {
 			order = append(order, waiting.Mover)
 		}
 		byMover[waiting.Mover] = append(byMover[waiting.Mover], waiting)
 	}
 	var rendered strings.Builder
-	var operator []Attention
-	for mover, entries := range byMover {
-		if mover.IsOperator() {
-			operator = entries
-		}
-	}
-	if len(operator) == 0 {
+	switch {
+	case len(operator) == 0 && len(hand) == 0:
 		rendered.WriteString("Needs a human: nothing\n")
-	} else {
+	case len(hand) == 0:
 		fmt.Fprintf(&rendered, "Needs a human (%d):\n", len(operator))
-		rendered.WriteString(renderWaiting(operator))
+	default:
+		fmt.Fprintf(&rendered, "Needs a human (%d, and %s, counted as the harness's missing capability):\n",
+			len(operator), handCounted(len(hand)))
+	}
+	if len(operator) > 0 || len(hand) > 0 {
+		if len(operator) == 0 {
+			rendered.WriteString("  " + YoursToDecide + ": nothing\n")
+		} else {
+			fmt.Fprintf(&rendered, "  %s (%d):\n", YoursToDecide, len(operator))
+			rendered.WriteString(indent(renderWaiting(operator)))
+		}
+		if len(hand) > 0 {
+			fmt.Fprintf(&rendered, "  %s (%d), each the harness's missing capability rather than yours to decide:\n", NeedsYourHand, len(hand))
+			rendered.WriteString(indent(renderHand(hand)))
+		}
 	}
 	// A partial reading qualifies the whole line, every mover's head as well as
 	// the operator's, so it is said once under the line's own head and says so.
@@ -447,6 +474,50 @@ func (s Standing) renderNeedsHuman() string {
 		}
 		fmt.Fprintf(&rendered, "%s (%d):\n", mover.WaitingOn(), len(entries))
 		rendered.WriteString(renderWaiting(entries))
+	}
+	return rendered.String()
+}
+
+// The two heads under the needs-a-human line, worded once here so the
+// terminal, the channel, and the dashboard's list name them alike.
+const (
+	YoursToDecide = "Yours to decide"
+	NeedsYourHand = "A role's decision that needs your hand"
+)
+
+// handCounted is how many of a role's decisions need the operator's hand, in
+// the words the line's head says it.
+func handCounted(number int) string {
+	if number == 1 {
+		return "1 role's decision that needs your hand"
+	}
+	return count(number, "role's decision") + " that need your hand"
+}
+
+// indent puts one more level of indentation on every line, so the entries
+// under a head beneath the line sit under that head.
+func indent(rendered string) string {
+	if rendered == "" {
+		return ""
+	}
+	lines := strings.SplitAfter(rendered, "\n")
+	var indented strings.Builder
+	for _, line := range lines {
+		if line != "" {
+			indented.WriteString("  " + line)
+		}
+	}
+	return indented.String()
+}
+
+// renderHand is the entries under the head for a role's decision that needs
+// the operator's hand: each entry, then the role that decided, what to type,
+// and the item whose landing ends the need. Each is named wherever it falls,
+// because what he has to type is in the entry and nowhere else on the line.
+func renderHand(entries []Attention) string {
+	var rendered strings.Builder
+	for _, waiting := range entries {
+		fmt.Fprintf(&rendered, "  %s — %s\n", waiting.CitedWhat(), waiting.Ownership.Hand.Says(waiting.Mover))
 	}
 	return rendered.String()
 }

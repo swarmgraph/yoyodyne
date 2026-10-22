@@ -469,6 +469,37 @@
       "what": "yoyodyne-ifd.436.1 waits on the gate \"signing-key\": load the release signing key into the keychain",
       "whose": "the operator's — nothing machinery does passes it, closing an item included; `yoyo gate record signing-key --for yoyodyne-ifd.436.1` is the act",
       "owner_reason": "a step the work item reserves for a person"
+    },
+    {
+      "kind": "document-approval",
+      "id": "chat-a06587022b9caf04cbbb20d8f6fe8c13/document-412.1",
+      "mover": "architect",
+      "ownership": {
+        "owner": "architect",
+        "remedy": "have the operator approve or decline the document, as the project's approval setting for its kind asks",
+        "capability": "yoyo agent chat approve|decline",
+        "hand": {
+          "who": "operator",
+          "need": "document-confirmation",
+          "missing": "confirming a document written from a conversation as its kind's approval setting says, without a person",
+          "types": "yoyo agent chat architect --message \"approve document-412.1\"",
+          "closed_by": "yoyodyne-ifd.433.21"
+        }
+      },
+      "document_approval": {
+        "write_id": "document-412.1",
+        "conversation_id": "chat-a06587022b9caf04cbbb20d8f6fe8c13",
+        "agent": "architect",
+        "owner": "architect",
+        "action": "revise",
+        "document": "ownership-and-the-operator",
+        "reason": "the hand field and the two heads on the needs-a-human line",
+        "turn": 412
+      },
+      "label": "document waiting for approval",
+      "what": "document document-412.1, a revision of ownership-and-the-operator written by the architect in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, waits for the operator's approval, since a time its record does not hold",
+      "whose": "the architect's — the project's approval setting for this kind of document asks for a person's approval, which no role may give, so it waits for the operator: `yoyo agent chat architect --message \"approve document-412.1\"` approves it and `yoyo agent chat architect --message \"decline document-412.1 <reason>\"` declines it, and it leaves this line once he has",
+      "hand_says": "the architect's decision, which needs your hand because the harness has no way yet of confirming a document written from a conversation as its kind's approval setting says, without a person: type `yoyo agent chat architect --message \"approve document-412.1\"`; the need ends once yoyodyne-ifd.433.21 lands"
     }
   ],
   "reports": {

@@ -28,7 +28,7 @@ func TestEveryEntryCarriesTheRegistrysAnswer(t *testing.T) {
 	for kind, fixture := range attentionOfEveryKind(t) {
 		entry := fixture.entry
 		want := ownership.Resolve(entry.Kind, entry.ownershipRecord())
-		if entry.Ownership != want || entry.Mover != want.Owner {
+		if !entry.Ownership.Equal(want) || entry.Mover != want.Owner {
 			t.Errorf("%s: carries %+v with mover %s, want the registry's %+v", kind, entry.Ownership, entry.Mover, want)
 		}
 		if strings.TrimSpace(entry.Ownership.Remedy) == "" {
@@ -49,7 +49,7 @@ func TestEveryEntryCarriesTheRegistrysAnswer(t *testing.T) {
 		if err := json.Unmarshal(encoded, &wire); err != nil {
 			t.Fatalf("%s: %v", kind, err)
 		}
-		if wire.Ownership != want || wire.Mover != string(want.Owner) || wire.OwnerReason != want.ReasonSays() {
+		if !wire.Ownership.Equal(want) || wire.Mover != string(want.Owner) || wire.OwnerReason != want.ReasonSays() {
 			t.Errorf("%s: JSON = %s, want the registry's answer carried", kind, encoded)
 		}
 	}

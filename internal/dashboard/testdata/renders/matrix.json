@@ -973,6 +973,24 @@
       "report": "closed"
     }
   },
+  "attention-hand": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "ready",
+      "card": "ready",
+      "report": "closed"
+    }
+  },
   "attention-carried-item-card": {
     "page": "ready",
     "sections": {

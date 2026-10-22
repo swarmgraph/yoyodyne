@@ -545,6 +545,15 @@ type Handling struct {
 	// that needs him was recorded for. A handling recorded before the list was
 	// enforced carries none.
 	OperatorReason ownership.OperatorReason `json:"operator_reason,omitempty"`
+	// Hand says the handling found the report's answer is the handling role's
+	// own decision, which the harness cannot yet carry out for it, so the
+	// operator has to type it: a configuration value the role recommends is the
+	// case today. It names the capability the harness lacks, from the closed set
+	// (ownership.HandNeeds). Like NeedsOperator it makes the handling a finding
+	// rather than a decision that closes the report, and a later handling records
+	// it done; unlike NeedsOperator, the finding stays the role's and is never
+	// his to decide.
+	Hand ownership.HandNeed `json:"hand,omitempty"`
 }
 
 // MaxRequestsPerHandling bounds how many requests one handling maps, and
@@ -644,6 +653,14 @@ func (h Handling) Validate() error {
 			problems = append(problems, errors.New("operator_reason requires needs_operator"))
 		}
 		if err := h.OperatorReason.Check(); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	if h.Hand != "" {
+		if h.NeedsOperator {
+			problems = append(problems, errors.New("hand is a role's decision that needs the operator's hand, and needs_operator makes it his; a handling records one or the other"))
+		}
+		if err := h.Hand.Check(); err != nil {
 			problems = append(problems, err)
 		}
 	}
