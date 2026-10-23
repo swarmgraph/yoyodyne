@@ -10,6 +10,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
@@ -110,6 +111,11 @@ func TestTheDeveloperContractDecidesAndReportsRatherThanRoutingApprovals(t *test
 
 	if !strings.Contains(developerContract(scratchForTest, nil), terms.DecideAndReport) {
 		t.Fatal("the developer contract does not carry the rule against routing approvals to the operator")
+	}
+	// What only a person can act on is named by a reason on the operator's
+	// closed list, and the developer is told every reason the resolver takes.
+	if !strings.Contains(developerContract(scratchForTest, nil), ownership.OperatorReasonsInContract) {
+		t.Fatal("the developer contract does not name the operator's closed list of reasons")
 	}
 }
 

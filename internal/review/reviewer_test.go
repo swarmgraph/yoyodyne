@@ -15,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -1862,6 +1863,11 @@ func TestTheContractDecidesAndReportsRatherThanRoutingApprovals(t *testing.T) {
 	for _, scope := range []Scope{ScopeWorkItem, ScopeBranch} {
 		if !strings.Contains(reviewSystemPrompt(scope, ""), terms.DecideAndReport) {
 			t.Errorf("the %v contract does not carry the rule against routing approvals to the operator", scope)
+		}
+		// What only a person can act on is named by a reason on the operator's
+		// closed list, and the reviewer is told every reason the resolver takes.
+		if !strings.Contains(reviewSystemPrompt(scope, ""), ownership.OperatorReasonsInContract) {
+			t.Errorf("the %v contract does not name the operator's closed list of reasons", scope)
 		}
 	}
 }

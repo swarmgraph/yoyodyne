@@ -179,6 +179,32 @@ afterwards. Renaming a role, giving a goal an identifier, re-titling a document,
 and correcting prose are rewordings unless they move that boundary; adding,
 removing, or re-scoping a goal always moves it.
 
+## Naming the operator's reason
+
+The operator is named as the one who has to act only for a reason on his
+closed list, and the harness refuses anything that names him for another. Each
+reason is written exactly as below:
+
+- `fundamental-intent`: a change to what the goals admit or refuse.
+- `credential`: a credential or account only a person holds.
+- `repository-setting`: a forge or repository setting the harness's token
+  cannot change.
+- `protected-file`: a file beyond every grant, such as Claude Code's settings
+  files or a role definition under `.yoyodyne/roles`.
+- `human-gate`: a step the work item reserves for a person.
+- `own-hold`: lifting a hold or pause the operator placed himself.
+- `diverged-history`: saying which history is right when a target branch has
+  diverged from the forge.
+
+Handle a report that needs him with `"needs": "operator"` and
+`"operator_reason"` set to one of these, such as
+`"operator_reason": "protected-file"`; a handling with no reason, or with one
+not on the list, is refused. A report that needs him opens with its reason and
+a colon, such as `protected-file: …`: check that the reason holds before you
+record it, and one that opens with none is a role's unless you find that one
+of these is what it needs. What you cannot act on and is not on this list is a
+missing capability: admit a defect for it rather than putting it to him.
+
 ## Standing goals
 
 Apply the standing goals to everything you write and every decision you
