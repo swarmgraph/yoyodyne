@@ -26,6 +26,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/goal"
 	"github.com/mason-bryant/yoyodyne/internal/invariant"
+	"github.com/mason-bryant/yoyodyne/internal/outsidefile"
 	"github.com/mason-bryant/yoyodyne/internal/landing"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
@@ -470,6 +471,10 @@ type Pipeline struct {
 	// have, and a report it cannot keep is named on the outcome rather than
 	// disappearing quietly.
 	Reports ReportCollector
+	// OutsideFiles fetches what a pinned outside file's record declares
+	// (outsidefilelanding.go). It is nil in production, which fetches with
+	// outsidefile.Fetcher; a test supplies one that reaches its own server.
+	OutsideFiles OutsideFileFetcher
 	// Amendments is where changes this run's agents propose to documents they do
 	// not own are kept, so the argument outlives the run that made it. It is
 	// optional in the same way as the reports and for the same reason: a proposal
@@ -649,6 +654,14 @@ func (p Pipeline) reserveRun(ctx context.Context, state runstate.State) (runstat
 		// or waits on a developer slot (runstate.State.HoldsDocumentLanding).
 		reserving = "reserve document landing"
 		lease, err = p.Store.ReserveDocumentLanding(ctx, state, p.Config.Execution.DocumentLandingLimit())
+	} else if state.OutsideFile != nil {
+		// So is a run that brings a file in (runstate.State.HoldsOutsideFileLanding).
+		reserving = "reserve the run that brings a file in"
+		store, ok := p.Store.(OutsideFileStore)
+		if !ok {
+			return runstate.State{}, nil, errors.New("this run store cannot reserve a run that brings a file in")
+		}
+		lease, err = store.ReserveOutsideFileLanding(ctx, state)
 	} else {
 		lease, err = p.Store.Reserve(ctx, state, p.Config.Execution.MaxConcurrentDevelopers)
 	}
@@ -1870,6 +1883,9 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	if state.Document != nil {
 		return Outcome{}, errors.New("a document run is resumed from its owning conversation")
 	}
+	if state.OutsideFile != nil {
+		return Outcome{}, errors.New("a run that brings a file in is continued by the scheduler's next look at its record")
+	}
 	retired, handled, err := (RunRetirer{Runs: p.Store, Tracker: p.Tracker, Now: p.clock().Now(), ReadItem: p.readWorkItem}).Retire(ctx, state)
 	if handled {
 		if retired.Retirement == nil {
@@ -2715,7 +2731,7 @@ func appendUnique(values []string, value string) []string {
 // either kind of failure to the developer, and then integration and cleanup of
 // a change an attempt actually got approved.
 func (a *activeRun) verifyReviewAndFinish(ctx context.Context) (Outcome, error) {
-	if a.state.Document != nil {
+	if a.state.HarnessAuthored() {
 		return a.reviewDocument(ctx)
 	}
 	// A run whose integration a human still approves has no repair loop to
@@ -3147,7 +3163,7 @@ func (a *activeRun) blockOnChargedReplay(stop string) error {
 // what this always did, and carries the conflict on its record so a repair
 // triage grants afterwards hands the same developer the same disagreement.
 func (a *activeRun) continueOnRebaseConflict(ctx context.Context, cause error) (bool, error) {
-	if a.state.Document != nil {
+	if a.state.HarnessAuthored() {
 		a.recordReplayConflict(recordedReplayConflict(a.worktree, cause, a.state.Phase, a.pipeline.clock().Now().UTC()))
 		return false, cause
 	}
@@ -4049,6 +4065,9 @@ func (a *activeRun) blockOnRefusedPaths(refused pathRefusal, limit int) error {
 func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error {
 	if a.state.Document != nil {
 		return errors.New("a document publication has no developer; its owning conversation must revise it")
+	}
+	if a.state.OutsideFile != nil {
+		return errors.New("a run that brings a file in has no developer")
 	}
 	// A change this developer proposed that the harness refused opens the prompt,
 	// ahead of the contract and of whatever this invocation is actually for. It is
@@ -5528,7 +5547,7 @@ func (a *activeRun) recordDirectivePause(paused directive.Directive) error {
 	// included — hands that developer back its attempt rather than starting the
 	// checks on unfinished work. A document run invokes no developer, and keeps
 	// the move to checking it always had.
-	if a.state.Document != nil && a.state.Phase == runstate.PhaseDeveloping {
+	if a.state.HarnessAuthored() && a.state.Phase == runstate.PhaseDeveloping {
 		a.state.Phase = runstate.PhaseChecking
 	}
 	a.state.DirectivePause = &runstate.DirectivePause{
@@ -5624,7 +5643,7 @@ func (p Pipeline) waitInFlightOnDependencies(ctx context.Context, workItemID str
 	// recorded, is not waiting on anything: its change may already be on the
 	// target, and what it is owed is reconciliation's settlement of that step,
 	// which a wait would hide from it for as long as the dependency stays open.
-	if inFlight.Document != nil || integrationOwed(inFlight) || (inFlight.DependencyPause != nil && slices.Equal(inFlight.DependencyPause.Blockers, blockers)) {
+	if inFlight.HarnessAuthored() || integrationOwed(inFlight) || (inFlight.DependencyPause != nil && slices.Equal(inFlight.DependencyPause.Blockers, blockers)) {
 		return paused, nil
 	}
 	waiting := inFlight
@@ -6170,6 +6189,13 @@ func (a *activeRun) verify(ctx context.Context) error {
 	if err := a.gateCandidateVerification(ctx); err != nil {
 		return err
 	}
+	// Then every pinned outside file against its record, which costs a listing
+	// and a checksum of each pinned file, and fails the checks naming the file
+	// or the record before the suite is spent on a change that cannot stand
+	// (gatePinnedFiles).
+	if err := a.gatePinnedFiles(ctx, changed); err != nil {
+		return err
+	}
 	// What the change touches is worked out once, here, and told to every check:
 	// a check the operator wrote to narrow itself reads it, and one that did not
 	// is unaffected. The stage's record is written before the first check runs
@@ -6430,6 +6456,12 @@ var ErrIntegrationUnearned = errors.New("integration refused: the record does no
 // over, and the question is whether that is what is about to be promoted.
 func (a *activeRun) integrationEarned(ctx context.Context) error {
 	state := a.state
+	if state.OutsideFile != nil {
+		// The paths are settled again at the promotion, as a document's are.
+		if _, err := a.gateProtectedPaths(ctx); err != nil {
+			return err
+		}
+	}
 	if state.Document != nil {
 		changed, err := a.gateProtectedPaths(ctx)
 		if err != nil {
@@ -6685,12 +6717,21 @@ func (a *activeRun) gateProtectedPaths(ctx context.Context) ([]string, error) {
 			return nil, err
 		}
 	}
+	if a.state.OutsideFile != nil {
+		if err := a.gateOutsideFile(changed); err != nil {
+			return nil, err
+		}
+	}
 	protected := protectedpath.Protect(a.pipeline.Config, a.pipeline.Worktrees.CurrentExports()...)
 	granted := protectedpath.Grants(grantEvidence(a.item)...)
 	if a.state.Document != nil {
 		// The harness grants only its confirmed file. Absolute refusals such as
 		// role definitions and held tracker exports still apply below.
 		granted = []string{a.state.Document.Candidate.Artifact.Path}
+	}
+	if landing := a.state.OutsideFile; landing != nil {
+		// Likewise the pinned file and its record, and nothing else.
+		granted = []string{outsidefile.PinnedPath(landing.Record), landing.Record}
 	}
 	refused := protected.Refused(changed, granted)
 	if len(refused) == 0 {
@@ -8861,6 +8902,13 @@ func (a *activeRun) developerSummaryForReview(ctx context.Context) (string, stri
 	if a.state.Document != nil {
 		return a.context, "The owning role wrote this document in its conversation. The harness confirmed and copied it unchanged; there is no developer.", nil
 	}
+	if a.state.OutsideFile != nil {
+		account, err := a.outsideFileAccount()
+		if err != nil {
+			return "", "", err
+		}
+		return account, "The harness fetched this file and wrote it and its record's harness fields; there is no developer. The account is the harness's own.", nil
+	}
 	summary := a.state.DeveloperSummary
 	if summary == nil {
 		return "", "No final account is saved in this run's durable record. The record may predate summary retention, or no developer invocation returned a final account.", nil
@@ -8885,7 +8933,7 @@ func (a *activeRun) developerSummaryForReview(ctx context.Context) (string, stri
 // attempt's account, as the review request carries it. A document landing has
 // no developer, so it has none.
 func (a *activeRun) earlierDeveloperSummariesForReview() []review.AttemptSummary {
-	if a.state.Document != nil {
+	if a.state.HarnessAuthored() {
 		return nil
 	}
 	var earlier []review.AttemptSummary

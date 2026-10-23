@@ -993,7 +993,11 @@ func (a *activeRun) reviewDocument(ctx context.Context) (Outcome, error) {
 			return a.stop(ctx, err)
 		}
 		if verdict != review.DecisionApprove {
-			return a.fail(stoppedBy(runstate.StopReview, errors.New("the independent reviewer refused the document: "+a.state.ReviewSummary)), runstate.StatusFailed)
+			what := "the document"
+			if a.state.OutsideFile != nil {
+				what = "the outside file"
+			}
+			return a.fail(stoppedBy(runstate.StopReview, errors.New("the independent reviewer refused "+what+": "+a.state.ReviewSummary)), runstate.StatusFailed)
 		}
 		// Where integration is not automatic the reviewed document is left on its
 		// branch, and on its pull request where the project publishes, for the
@@ -1009,6 +1013,12 @@ func (a *activeRun) reviewDocument(ctx context.Context) (Outcome, error) {
 }
 
 func (a *activeRun) validateIndependentReview() error {
+	if a.state.OutsideFile != nil {
+		if a.outcome.ReviewSessionID == "" || a.outcome.ReviewModel == "" {
+			return errors.New("bringing a file in requires a recorded independent reviewer invocation")
+		}
+		return nil
+	}
 	if a.state.Document == nil {
 		return validateIndependentInvocations(a.outcome)
 	}
@@ -1026,9 +1036,9 @@ func (a *activeRun) validateIndependentReview() error {
 }
 
 func (a *activeRun) gateCandidateVerification(ctx context.Context) error {
-	if a.state.Document != nil {
+	if a.state.HarnessAuthored() {
 		return nil
-	} // The owning conversation has no execution tools; configured checks still run.
+	} // No developer ran anything to record; the configured checks still run.
 	return a.gateSelfVerification(ctx)
 }
 
@@ -1101,10 +1111,11 @@ func (a *activeRun) gateDocument(ctx context.Context, changed []string) error {
 	return nil
 }
 
-// A document run uses the same publication recovery as other runs, with its
-// durable run record taking the place of backlog bookkeeping.
+// A document run, and a run that brings a file in, use the same publication
+// recovery as other runs, with the durable run record taking the place of
+// backlog bookkeeping.
 func (r Reconciler) forDocument(state runstate.State) Reconciler {
-	if state.Document != nil {
+	if state.HarnessAuthored() {
 		r.Tracker = &documentTracker{item: beads.WorkItem{ID: state.WorkItemID, Title: state.WorkItemTitle, Status: "in_progress"}}
 		r.Docket = nil
 	}

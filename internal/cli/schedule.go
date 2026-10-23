@@ -874,6 +874,11 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// next message. The run store holds the wait, and the pipeline built from
 		// this pull's configuration lands it exactly as the conversation would.
 		Documents: waitingDocuments{parts: parts},
+		// A pinned outside file whose record on the target branch is due, fetched
+		// by the harness in this process and landed through a reviewed run of its
+		// own (docs/designs/pinned-outside-files.md). With no host listed under
+		// outside_files.hosts, nothing is ever due.
+		OutsideFiles: outsideFiles{parts: parts},
 		// How long a session that has found a build deployed over it waits out the
 		// runs it hosts before it restarts anyway, with those runs stopped and
 		// preserved for the session that comes back.
@@ -914,6 +919,18 @@ func (d waitingDocuments) DocumentWaits() ([]runstate.DocumentWait, error) {
 
 func (d waitingDocuments) Publish(ctx context.Context, document runstate.DocumentPublication) (orchestrator.Outcome, error) {
 	return pipelineFrom(d.parts).PublishWaitingDocument(ctx, document)
+}
+
+type outsideFiles struct {
+	parts components
+}
+
+func (o outsideFiles) Next(ctx context.Context) (runstate.OutsideFileLanding, bool, error) {
+	return pipelineFrom(o.parts).NextOutsideFile(ctx)
+}
+
+func (o outsideFiles) BringIn(ctx context.Context, landing runstate.OutsideFileLanding) (orchestrator.Outcome, error) {
+	return pipelineFrom(o.parts).BringInOutsideFile(ctx, landing)
 }
 
 // repositoryStaleness reads what changed upstream of the admitted work, from the
