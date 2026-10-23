@@ -120,7 +120,7 @@ func (s Service) Price(call Call) Figure {
 	if call.ReportedUSD != nil {
 		return Figure{Kind: KindReported, USD: *call.ReportedUSD}
 	}
-	billing := call.Billing.Resolved()
+	billing := call.Billing.OrNotRecorded()
 	if billing == usage.BillingNotRecorded {
 		return unknown("the account's billing mode is not recorded, so a figure at API prices could be money spent or only a comparison")
 	}

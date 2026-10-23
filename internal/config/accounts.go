@@ -204,7 +204,7 @@ func (c Config) AccountProvider(alias string) domain.Backend {
 // AccountBilling is how the named account is paid for, and not recorded where
 // its configuration does not say or names no such account.
 func (c Config) AccountBilling(alias string) usage.BillingMode {
-	return c.Accounts[strings.TrimSpace(alias)].Billing.Resolved()
+	return c.Accounts[strings.TrimSpace(alias)].Billing.OrNotRecorded()
 }
 
 // accountHasOwnHome reports an alias the harness points a provider at a home of

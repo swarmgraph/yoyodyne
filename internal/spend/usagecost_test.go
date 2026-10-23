@@ -165,7 +165,7 @@ func TestTheBillingModeDecidesWhatAComputedCostIs(t *testing.T) {
 	}
 	for billing, want := range cases {
 		line := runOnce(t, codexMetered(t, testStore(t), billing, codexTurn("thread-1", 10, 0, 1, 0), nil))
-		if line.Cost.Kind != want || line.Billing != billing.Resolved() {
+		if line.Cost.Kind != want || line.Billing != billing.OrNotRecorded() {
 			t.Fatalf("%q: cost = %+v, billing = %q", billing, line.Cost, line.Billing)
 		}
 	}

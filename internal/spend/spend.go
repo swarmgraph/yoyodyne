@@ -259,7 +259,7 @@ func (m Metered) line(request backend.RunRequest, result backend.RunResult, err 
 		SessionID:          result.SessionID,
 		Usage:              result.Usage,
 		Build:              processBuild,
-		Billing:            m.Attribution.Billing.Resolved(),
+		Billing:            m.Attribution.Billing.OrNotRecorded(),
 		EventSchemaVersion: execution.EventSchemaVersion,
 		EventSequence:      result.LastEvent,
 	}

@@ -221,8 +221,8 @@ func BillingModes() []BillingMode {
 	return []BillingMode{BillingAPIKey, BillingSubscription, BillingCredits, BillingNotRecorded}
 }
 
-// Resolved is the mode with an unstated one said as not recorded.
-func (m BillingMode) Resolved() BillingMode {
+// OrNotRecorded is the mode, with an unstated one said as not recorded.
+func (m BillingMode) OrNotRecorded() BillingMode {
 	if strings.TrimSpace(string(m)) == "" {
 		return BillingNotRecorded
 	}
@@ -233,7 +233,7 @@ func (m BillingMode) Resolved() BillingMode {
 // recorded.
 func (m BillingMode) Valid() bool {
 	for _, candidate := range BillingModes() {
-		if m.Resolved() == candidate {
+		if m.OrNotRecorded() == candidate {
 			return true
 		}
 	}
@@ -242,7 +242,7 @@ func (m BillingMode) Valid() bool {
 
 // Words is the mode as a person reads it.
 func (m BillingMode) Words() string {
-	switch m.Resolved() {
+	switch m.OrNotRecorded() {
 	case BillingAPIKey:
 		return "API key"
 	case BillingSubscription:
@@ -263,5 +263,5 @@ func ParseBillingMode(text string) (BillingMode, error) {
 		}
 		return "", fmt.Errorf("billing mode %q must be one of %s", text, strings.Join(names, ", "))
 	}
-	return mode.Resolved(), nil
+	return mode.OrNotRecorded(), nil
 }
