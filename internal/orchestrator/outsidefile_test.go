@@ -16,6 +16,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/outsidefile"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -398,5 +399,155 @@ func TestAPinnedFileChangedByHandAndHarnessFieldsWrittenByAnotherChangeFailTheCh
 	}
 	if saved, _ := store.Load(outcome.RunID); saved.Status != runstate.StatusSucceeded {
 		t.Fatalf("an unrelated change ended %s: %s", saved.Status, saved.Failure)
+	}
+}
+
+// queuedOutsideFile is outsideFileFixture with the merge queue switched on,
+// and the driver that works the queue reading the run's bookkeeping item as
+// the command line wires it.
+func queuedOutsideFile(t *testing.T) (string, *orchestratortest.Tracker, *orchestratortest.Backend, Pipeline, *runstate.Store, *collectedReports, *runstate.MergeQueueStore, func() MergeQueueDriver) {
+	t.Helper()
+	repository, tracker, provider, pipeline, store, reports, _ := outsideFileFixture(t, nil)
+	queue, err := runstate.NewMergeQueueStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipeline.MergeQueue = queue
+	pipeline.Config.Execution.MergeQueue = true
+	driver := func() MergeQueueDriver {
+		queued := pipeline
+		items := OutsideFileItems{WorkTracker: pipeline.Tracker, Runs: store}
+		queued.Tracker = items
+		worktrees := queued.Worktrees.(*gitworktree.Manager)
+		return MergeQueueDriver{
+			Worker: MergeQueueWorker{Pipeline: &queued, Queue: queue, Candidates: worktrees, Events: queue.AppendEvent, Waiting: MergeQueueWaiting(queue)},
+			Promoter: MergeQueuePromoter{
+				Pipeline: &queued, Queue: queue, Lander: worktrees,
+				Completion: MergeQueueRunCompletion{Store: store, Tracker: items},
+				Repair:     MergeQueueRunHandback{Store: store, Tracker: items},
+			},
+			Queues: queue,
+		}
+	}
+	return repository, tracker, provider, pipeline, store, reports, queue, driver
+}
+
+// With the merge queue on, the run that brings a file in is admitted to it like
+// any approved change, and the queue lands it and tells the item the record is
+// for.
+func TestWithTheQueueOnARunThatBringsAFileInIsAdmittedAndLandedByTheQueue(t *testing.T) {
+	repository, tracker, _, pipeline, store, _, _, driver := queuedOutsideFile(t)
+	ctx := context.Background()
+	landing, due, err := pipeline.NextOutsideFile(ctx)
+	if err != nil || !due {
+		t.Fatalf("NextOutsideFile() = %v, %v", due, err)
+	}
+	if _, err := pipeline.BringInOutsideFile(ctx, landing); err != nil {
+		t.Fatalf("BringInOutsideFile() error = %v", err)
+	}
+	saved, err := store.Load(landing.RunID())
+	if err != nil || !saved.AwaitingMergeQueue() || saved.HoldsDeveloperSlot() {
+		t.Fatalf("run = %s %+v, %v; want it waiting in the merge queue and holding no slot", saved.Status, saved.MergeQueue, err)
+	}
+	if !strings.Contains(tracker.Notes, "admitted to the merge queue") {
+		t.Fatalf("the item the record is for was told %q", tracker.Notes)
+	}
+	// Waiting in the queue, the record is not started again.
+	if again, err := pipeline.BringInOutsideFile(ctx, landing); err != nil || again.RunID != landing.RunID() {
+		t.Fatalf("BringInOutsideFile() while queued = %+v, %v", again, err)
+	}
+	pass := driver().Pass(ctx, saved.MergeQueue.Key())
+	if pass.Outcome != runstate.MergeQueuePassLanded {
+		t.Fatalf("Pass() = %#v, want the candidate landed", pass)
+	}
+	if strings.TrimSpace(publicationGit(t, repository, "show", "main:"+pinnedFile)) != strings.TrimSpace(pinnedContent) {
+		t.Fatal("main does not carry the file the queue landed")
+	}
+	if !strings.Contains(tracker.Notes, "the file is brought in") {
+		t.Fatalf("the item the record is for was not told the file landed: %q", tracker.Notes)
+	}
+}
+
+// A combined change the queue refuses ends the run with its reason on the item
+// the record is for, hands nothing to a developer, and a later pull starts a
+// fresh run.
+func TestAQueueRefusalEndsTheRunAndALaterPullStartsAFreshOne(t *testing.T) {
+	_, tracker, provider, pipeline, store, reports, _, driver := queuedOutsideFile(t)
+	approve := provider.Respond
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		result, err := approve(request)
+		if request.Role == domain.RoleReviewer && len(provider.RequestsForRole(domain.RoleReviewer)) > 1 {
+			result.FinalText = repairVerdict
+		}
+		return result, err
+	}
+	ctx := context.Background()
+	landing, _, _ := pipeline.NextOutsideFile(ctx)
+	if _, err := pipeline.BringInOutsideFile(ctx, landing); err != nil {
+		t.Fatalf("BringInOutsideFile() error = %v", err)
+	}
+	saved, _ := store.Load(landing.RunID())
+	pass := driver().Pass(ctx, saved.MergeQueue.Key())
+	if pass.Outcome != runstate.MergeQueuePassHandedBack {
+		t.Fatalf("Pass() = %#v, want the candidate refused", pass)
+	}
+	if got := len(provider.RequestsForRole(domain.RoleDeveloper)); got != 0 {
+		t.Fatalf("a developer was invoked %d times", got)
+	}
+	if handed, _ := store.Load(landing.RunID()); !queueRefused(handed) {
+		t.Fatalf("handed back run = %s, queue %v, integration %v; want it ended by the queue", handed.Status, handed.MergeQueue != nil, handed.Integration != nil)
+	}
+	if !strings.Contains(tracker.Notes, "The merge queue handed this change back") {
+		t.Fatalf("the item the record is for was not told why: %q", tracker.Notes)
+	}
+	// The next pull settles the refused run and counts it; the one after starts
+	// a fresh run.
+	next, due, err := pipeline.NextOutsideFile(ctx)
+	if err != nil || !due || next.RunID() != landing.RunID() {
+		t.Fatalf("NextOutsideFile() = %+v, %v, %v", next, due, err)
+	}
+	if _, err := pipeline.BringInOutsideFile(ctx, next); err != nil {
+		t.Fatalf("BringInOutsideFile() settling the refusal error = %v", err)
+	}
+	attempt, _, _ := store.OutsideFileAttempt(pinnedRecord)
+	if attempt.Attempt != 1 || len(attempt.QueueFailures) != 1 || attempt.Stopped != "" || len(reports.reported) != 0 {
+		t.Fatalf("attempt = %+v, reports %d; want one refusal counted and nothing stopped", attempt, len(reports.reported))
+	}
+	fresh, due, err := pipeline.NextOutsideFile(ctx)
+	if err != nil || !due || fresh.Attempt != 1 || fresh.RunID() == landing.RunID() {
+		t.Fatalf("NextOutsideFile() after the refusal = %+v, %v, %v; want a fresh run", fresh, due, err)
+	}
+}
+
+// Three refusals in a row for one record stop it and file one report naming
+// the record and the three reasons.
+func TestThreeQueueRefusalsInARowStopTheRecordAndReportOnce(t *testing.T) {
+	_, _, _, pipeline, store, reports, _, _ := queuedOutsideFile(t)
+	landing, _, _ := pipeline.NextOutsideFile(context.Background())
+	for attempt, why := range []string{"the first reason", "the second reason", "the third reason"} {
+		landing.Attempt = attempt
+		if err := pipeline.queueRefusedOutsideFile(store, landing, why); err != nil {
+			t.Fatal(err)
+		}
+		// The same run's refusal read twice is counted once.
+		if err := pipeline.queueRefusedOutsideFile(store, landing, why); err != nil {
+			t.Fatal(err)
+		}
+	}
+	attempt, _, _ := store.OutsideFileAttempt(pinnedRecord)
+	if attempt.Stopped == "" || !attempt.Reported || len(reports.reported) != 1 {
+		t.Fatalf("attempt = %+v, reports %d; want the record stopped and one report", attempt, len(reports.reported))
+	}
+	message := reports.reported[0].Message
+	for _, want := range []string{pinnedRecord, "the first reason", "the second reason", "the third reason"} {
+		if !strings.Contains(message, want) {
+			t.Errorf("the report does not name %q: %s", want, message)
+		}
+	}
+	if reports.reported[0].Addressee() != domain.RoleDevelopmentManager {
+		t.Fatalf("the report is for %s", reports.reported[0].Addressee())
+	}
+	if _, due, _ := pipeline.NextOutsideFile(context.Background()); due {
+		t.Fatal("a stopped record was due again")
 	}
 }

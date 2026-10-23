@@ -35,6 +35,19 @@ const OutsideFileLandings = 1
 // machine's heavy checks on it without end.
 const MaxOutsideFileAttempts = 3
 
+// MaxOutsideFileQueueFailures is how many runs in a row for one record, as the
+// target branch holds it, may have their change refused by the merge queue —
+// the queue's combined change failing its checks or its review, or not
+// applying to the target as it then stood — before the record is stopped and
+// reported. Each such run ends, nothing is handed to a developer, and a later
+// pull starts a fresh run from the record as the target branch then holds it.
+const MaxOutsideFileQueueFailures = 3
+
+// MaxOutsideFileRuns bounds the runs one record's content is given in all: its
+// stops that judged nothing and its merge queue failures, which stop the
+// record when either count is spent.
+const MaxOutsideFileRuns = MaxOutsideFileAttempts + MaxOutsideFileQueueFailures
+
 // MaxOutsideFileFieldBytes bounds each text a run that brings a file in
 // records about its record: a path, an address, a version, a work item.
 const MaxOutsideFileFieldBytes = 2048
@@ -90,7 +103,21 @@ func OutsideFileRunID(record, digest string, attempt int) string {
 // run's own rather than the record's for item, so nothing that reads a run
 // as its item's latest mistakes it for a developer's.
 func (o OutsideFileLanding) WorkItemID() string {
-	return "outsidefile-" + strings.TrimPrefix(o.RunID(), "run-")
+	return OutsideFileItemPrefix + strings.TrimPrefix(o.RunID(), "run-")
+}
+
+// OutsideFileItemPrefix opens the bookkeeping item of every run that brings a
+// file in, and no work item the tracker holds.
+const OutsideFileItemPrefix = "outsidefile-"
+
+// OutsideFileRunOfItem is the run a bookkeeping item names, and false for a
+// work item the tracker holds.
+func OutsideFileRunOfItem(id string) (string, bool) {
+	rest, ok := strings.CutPrefix(id, OutsideFileItemPrefix)
+	if !ok || !runIDPattern.MatchString("run-"+rest) {
+		return "", false
+	}
+	return "run-" + rest, true
 }
 
 func (o OutsideFileLanding) Validate() error {
@@ -107,8 +134,8 @@ func (o OutsideFileLanding) Validate() error {
 	if strings.TrimSpace(o.For) == "" {
 		problems = append(problems, "the landing must name the work item its record is for")
 	}
-	if o.Attempt < 0 || o.Attempt >= MaxOutsideFileAttempts {
-		problems = append(problems, fmt.Sprintf("attempt %d is outside 0 to %d", o.Attempt, MaxOutsideFileAttempts-1))
+	if o.Attempt < 0 || o.Attempt >= MaxOutsideFileRuns {
+		problems = append(problems, fmt.Sprintf("attempt %d is outside 0 to %d", o.Attempt, MaxOutsideFileRuns-1))
 	}
 	for name, value := range map[string]string{"record": o.Record, "for": o.For, "url": o.URL, "version": o.Version} {
 		if len(value) > MaxOutsideFileFieldBytes {
@@ -186,13 +213,20 @@ type OutsideFileAttempt struct {
 	SchemaVersion int    `json:"schema_version"`
 	Record        string `json:"record"`
 	RecordDigest  string `json:"record_digest"`
-	// Attempt is the attempt the next run makes, counted from zero.
+	// Attempt is the run the next try makes, counted from zero; every run that
+	// ends without bringing the file in moves it on.
 	Attempt int `json:"attempt,omitempty"`
+	// Unjudged counts the runs that stopped without anything judging the file:
+	// a check stopped by a time limit, the forge, the machine.
+	Unjudged int `json:"unjudged,omitempty"`
+	// QueueFailures is why each run in a row had its change refused by the
+	// merge queue, oldest first.
+	QueueFailures []string `json:"queue_failures,omitempty"`
 	// RetryFrom is when the last try that judged nothing about the record ended
 	// — a fetch the network stopped, or a run stopped by a time limit, the
 	// forge, or the machine — and Waited is what stopped it. The record is tried
 	// again once outsidefile.RetryAfter has passed. A network failure is never
-	// counted in Attempt.
+	// counted.
 	RetryFrom *time.Time `json:"retry_from,omitempty"`
 	Waited    string     `json:"waited,omitempty"`
 	// Stopped is why the record is stopped: a failure about the record, which no
@@ -224,8 +258,11 @@ func (a OutsideFileAttempt) Validate() error {
 	if len(a.RecordDigest) != 64 {
 		problems = append(problems, "record digest must be a SHA-256")
 	}
-	if a.Attempt < 0 || a.Attempt > MaxOutsideFileAttempts {
-		problems = append(problems, fmt.Sprintf("attempt %d is outside 0 to %d", a.Attempt, MaxOutsideFileAttempts))
+	if a.Attempt < 0 || a.Attempt > MaxOutsideFileRuns {
+		problems = append(problems, fmt.Sprintf("attempt %d is outside 0 to %d", a.Attempt, MaxOutsideFileRuns))
+	}
+	if a.Unjudged < 0 || a.Unjudged > MaxOutsideFileAttempts || len(a.QueueFailures) > MaxOutsideFileQueueFailures {
+		problems = append(problems, "more runs are counted than one record is given")
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("what is kept about a pinned record: %s", strings.Join(problems, "; "))
@@ -265,6 +302,9 @@ func (s *Store) SaveOutsideFileAttempt(attempt OutsideFileAttempt) error {
 	attempt.SchemaVersion = OutsideFileAttemptSchemaVersion
 	attempt.Waited = boundRecordedText(attempt.Waited, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	attempt.Stopped = boundRecordedText(attempt.Stopped, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	for i := range attempt.QueueFailures {
+		attempt.QueueFailures[i] = boundRecordedText(attempt.QueueFailures[i], MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	}
 	if err := attempt.Validate(); err != nil {
 		return err
 	}

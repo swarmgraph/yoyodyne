@@ -6565,8 +6565,15 @@ no credentials are sent; and the file is never unpacked or run. What the fetch
 brought is landed by a run of the harness's own: one at a time, holding no
 developer slot, changing only the file and the record's four fields, with the
 full checks and an independent review shown the record, the final address, the
-size, the checksum, and the license file. It is not admitted to the merge
-queue, as a document landing is not.
+size, the checksum, and the license file. It merges through its pull request,
+and through the merge queue when `execution.merge_queue` is on, like any
+approved change. Where the queue's combined change fails its checks or its
+review, or will not apply to the target as it then stands, the run ends with the
+reason written on the work item the record names, nothing is handed to a
+developer, and a later pull starts a fresh run from the record as the target
+branch then holds it. Three such refusals in a row for one record stop it and
+file one warning report for the development manager naming the record and the
+three reasons.
 
 **Every run compares.** Before its checks, every run compares each pinned file
 with its record. A file whose checksum does not match, or a record whose four
