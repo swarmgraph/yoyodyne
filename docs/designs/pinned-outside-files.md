@@ -10,12 +10,21 @@ revisions:
       by: architect
       at: 2026-10-22T01:56:39.214836Z
       reason: 'yoyodyne-9bic: rules how a pinned outside file, first the dashboard''s Chart.js, reaches the repository. The harness fetches only records already on main, from listed hosts under fixed limits, and lands the file through a reviewed run of its own. No developer run gains network reach. Chart.js is kept, as the dashboard design already decided. Resent with one joined word the word check refused written as ordinary words.'
+    - action: amended
+      by: architect
+      at: 2026-10-23T18:20:32.353535Z
+      reason: 'Answers the developer''s proposal on the build of pinned outside files (yoyodyne-ifd.429.90), which I declined: the run that brings a file in goes through the merge queue when it is switched on, and step 8 now says what happens when the queue''s combined change fails, since no developer can take it back.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-10-22T01:56:39.214836Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1457, for document-1457.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-10-23T18:20:32.353535Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1573, for document-1573.1 under the automatic approval policy
 ---
 # Pinned outside files
 
@@ -95,7 +104,22 @@ At each pull, the scheduler reads main's records. A record is due when its file 
 5. **The write.** The harness writes the file and the record's harness fields through the confined writer of [repository-confined writes](repository-confined-writes.md), with the run's worktree as the root. The candidate changes only those paths. A candidate that changes anything else is refused before any check runs.
 6. **Checks.** The project's full checks run on the exact candidate, and the evidence is bound to it, as for any change.
 7. **Review.** An independent reviewer judges the candidate. The reviewer is shown the record, the final address, the size, the checksum, whether the checksum was given or recorded on this fetch, the license file, and the first 2 KiB of the file where it is text. The reviewer refuses where the version the file names for itself differs from the record, where the license file is missing, or where the file is not what the record says it is.
-8. **The merge.** It goes through the pull request, and through the merge queue when that is switched on.
+8. **The merge.** It goes through the pull request. When the merge queue is switched on, the run is admitted to the queue like any approved change, and the queue's combined change on the current main gets the checks and the independent review the [merge queue design](integration-through-a-merge-queue.md) requires before it lands. It is never kept out of the queue: with the queue switched on the harness no longer replays a change onto main, so nothing else would stop it landing on a main its checks never saw.
+
+   This run has no developer to hand a failed change back to. So when the queue's combined change fails its checks or its review, or cannot be applied to the current main:
+
+   - the run ends, and the reason is recorded on the item named in `for`;
+   - nothing is handed to a developer and nothing is put to the operator;
+   - the record is still due, because its file is still missing or its `sha256` still empty on main, so a later pull starts a fresh run from the record as main then holds it;
+   - when three such runs in a row end this way for one record, with neither the record nor its file changed on main between them, the record is stopped as a failure about the record is, and the harness files one warning report for the development manager naming the record and the three reasons. It is tried again only after the record changes on main.
+
+   A failure that is about the record itself is handled as [When a fetch fails](#when-a-fetch-fails) says.
+
+A reviewer checks step 8 by switching the queue on and confirming three things:
+
+- the run that brings a file in is admitted to it;
+- a failed combined change ends the run with its reason on the item, and starts a fresh run at a later pull;
+- three failures in a row stop the record and file exactly one warning report, for the development manager.
 
 ## Every run checks every pinned file
 
