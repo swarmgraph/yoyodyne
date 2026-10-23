@@ -43,6 +43,19 @@ func TokenSecret(productID domain.ProductID) string {
 	return "yoyo-dashboard." + string(productID)
 }
 
+// PersonTokenSecret names one person's own dashboard token in the keychain:
+// the product's item name with the person's entry in the operators mapping
+// after it, so it is never the shared token's item.
+func PersonTokenSecret(productID domain.ProductID, operator string) string {
+	return TokenSecret(productID) + "." + operator
+}
+
+// PersonTokenFile is where one person's file-sourced token lives, beside the
+// shared one under the product's state directory.
+func PersonTokenFile(stateRoot string, productID domain.ProductID, operator string) string {
+	return filepath.Join(home.ProductDirectory(stateRoot, string(productID)), "dashboard."+operator+".token")
+}
+
 // TokenFileName is the file a token is kept in under the product's state
 // directory, on a machine with no keychain or by an operator's choice.
 const TokenFileName = "dashboard.token"
@@ -59,7 +72,11 @@ func TokenFile(stateRoot string, productID domain.ProductID) string {
 // with no value makes the keychain prompt for it, so the token never reaches a
 // shell history.
 func KeychainStoreCommand(productID domain.ProductID) string {
-	return fmt.Sprintf("security add-generic-password -s %s -a %s -w", TokenSecret(productID), TokenAccount)
+	return keychainStoreCommand(TokenSecret(productID))
+}
+
+func keychainStoreCommand(secret string) string {
+	return fmt.Sprintf("security add-generic-password -s %s -a %s -w", secret, TokenAccount)
 }
 
 // FileStoreCommand is the command that makes the token file where there is
@@ -110,30 +127,42 @@ var ErrTokenUnavailable = errors.New("the dashboard's token could not be read")
 // `generated` source names no store and is refused here: the caller generates
 // that one, and asking this for it would be a caller that misread the entry.
 func (s TokenStores) Read(ctx context.Context, source config.DashboardTokenSource, productID domain.ProductID) (SuppliedToken, error) {
-	switch source {
-	case config.DashboardTokenKeychain:
-		return s.readKeychain(ctx, productID)
-	case config.DashboardTokenFile:
-		return s.readFile(productID)
-	}
-	return SuppliedToken{}, fmt.Errorf("%w: services.dashboard.token %q names no store to read it from", ErrTokenUnavailable, source)
+	return s.read(ctx, source, "services.dashboard.token", TokenSecret(productID), TokenFile(s.StateRoot, productID))
 }
 
-func (s TokenStores) readKeychain(ctx context.Context, productID domain.ProductID) (SuppliedToken, error) {
-	secret := TokenSecret(productID)
+// ReadPerson produces one person's own token from the store their entry in
+// the operators mapping names, under the names PersonTokenSecret and
+// PersonTokenFile give it. A refusal carries the command that stores it, as
+// the shared token's does.
+func (s TokenStores) ReadPerson(ctx context.Context, source config.DashboardTokenSource, productID domain.ProductID, operator string) (SuppliedToken, error) {
+	key := "operators." + operator + "." + string(config.NamespaceDashboardToken)
+	return s.read(ctx, source, key, PersonTokenSecret(productID, operator), PersonTokenFile(s.StateRoot, productID, operator))
+}
+
+func (s TokenStores) read(ctx context.Context, source config.DashboardTokenSource, key, secret, file string) (SuppliedToken, error) {
+	switch source {
+	case config.DashboardTokenKeychain:
+		return s.readKeychain(ctx, key, secret, file)
+	case config.DashboardTokenFile:
+		return s.readFile(file)
+	}
+	return SuppliedToken{}, fmt.Errorf("%w: %s %q names no store to read it from", ErrTokenUnavailable, key, source)
+}
+
+func (s TokenStores) readKeychain(ctx context.Context, key, secret, file string) (SuppliedToken, error) {
 	if s.Keychain == nil {
-		return SuppliedToken{}, fmt.Errorf("%w: services.dashboard.token is %q and this platform (%s) has no keychain; a file under the state root is the store this platform has, so set services.dashboard.token to %q and store the token with: %s",
-			ErrTokenUnavailable, config.DashboardTokenKeychain, s.Platform, config.DashboardTokenFile, FileStoreCommand(TokenFile(s.StateRoot, productID)))
+		return SuppliedToken{}, fmt.Errorf("%w: %s is %q and this platform (%s) has no keychain; a file under the state root is the store this platform has, so set %s to %q and store the token with: %s",
+			ErrTokenUnavailable, key, config.DashboardTokenKeychain, s.Platform, key, config.DashboardTokenFile, FileStoreCommand(file))
 	}
 	value, err := s.Keychain.Secret(ctx, secret)
 	if err != nil {
 		return SuppliedToken{}, fmt.Errorf("%w: the keychain item %s under the account %s is not there or could not be read (%v); store it with: %s",
-			ErrTokenUnavailable, secret, TokenAccount, err, KeychainStoreCommand(productID))
+			ErrTokenUnavailable, secret, TokenAccount, err, keychainStoreCommand(secret))
 	}
 	token, err := oneLine(value)
 	if err != nil {
 		return SuppliedToken{}, fmt.Errorf("%w: the keychain item %s under the account %s %v; store a usable one with: %s",
-			ErrTokenUnavailable, secret, TokenAccount, err, KeychainStoreCommand(productID))
+			ErrTokenUnavailable, secret, TokenAccount, err, keychainStoreCommand(secret))
 	}
 	return SuppliedToken{
 		Value:  token,
@@ -141,8 +170,7 @@ func (s TokenStores) readKeychain(ctx context.Context, productID domain.ProductI
 	}, nil
 }
 
-func (s TokenStores) readFile(productID domain.ProductID) (SuppliedToken, error) {
-	file := TokenFile(s.StateRoot, productID)
+func (s TokenStores) readFile(file string) (SuppliedToken, error) {
 	contents, err := os.ReadFile(file)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

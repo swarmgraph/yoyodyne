@@ -39,6 +39,14 @@ type Operator struct {
 	// into. It lives here rather than in the environment for the reason the rest
 	// of this does: a member id is identity, not a secret.
 	SlackMemberID string `yaml:"slack_member_id,omitempty" json:"slack_member_id,omitempty"`
+	// DashboardToken is where this human's own dashboard token is kept: the
+	// keychain or the file under the state root, named for the product and this
+	// entry. It is a reference and never the token, because this file is
+	// committed. A dashboard session presenting that token is this human while
+	// the tab holds it, which is what lets the page record a decision as theirs;
+	// the shared token the dashboard serves under resolves to nobody and reads
+	// only. `generated` is not a store and is refused here.
+	DashboardToken DashboardTokenSource `yaml:"dashboard_token,omitempty" json:"dashboard_token,omitempty"`
 	// Grants is what this human may do, whichever namespace they arrive through.
 	// It defaults to empty, so binding somebody's identifiers records who they
 	// are without giving them anything: recognizing a human and authorizing one
@@ -60,11 +68,12 @@ const (
 	// conflict with itself — several humans amending goals concurrently is
 	// conflict machinery nobody has designed (docs/team-mode-scope.md).
 	//
-	// Nothing checks it. `yoyo artifact approve` records `by: operator` on the
-	// strength of whoever ran the command, and a terminal carries no identifier to
-	// resolve against the mapping, so this grant is the project's record of who
-	// owns intent rather than a gate an act passes through — the duplicate-holder
-	// refusal below is the whole of what reads it. What actually keeps an agent
+	// Only the dashboard checks it, on the human a session's own token resolves
+	// to, before it approves or declines anything there. `yoyo artifact approve`
+	// records `by: operator` on the strength of whoever ran the command, and a
+	// terminal carries no identifier to resolve against the mapping, so at the
+	// terminal this grant is the project's record of who owns intent rather than
+	// a gate an act passes through. What actually keeps an agent
 	// out of the goals is stated in internal/chat/admission.go and rests on two
 	// other enforcements: a conversation runs with no tools, and a run's change is
 	// refused at the protected homes before any check or reviewer sees it.
@@ -76,16 +85,22 @@ const (
 	// as directives. Every collaborator who runs their own harness
 	// holds it; owning intent is the narrower thing.
 	GrantDirectWork Grant = "direct-work"
+	// GrantDecideAmendments is the authority to decide a change proposed to a
+	// document from the dashboard. It is checked there, on the human the session's
+	// token resolves to; a proposed change to a document in the product home needs
+	// own-intent beside it. `yoyo amendment` at a terminal carries no identifier
+	// to check it against, so it reads nothing there.
+	GrantDecideAmendments Grant = "decide-amendments"
 )
 
 // Grants lists every grant the harness knows, in a stable order.
 func Grants() []Grant {
-	return []Grant{GrantOwnIntent, GrantDirectWork}
+	return []Grant{GrantOwnIntent, GrantDirectWork, GrantDecideAmendments}
 }
 
 func (g Grant) Valid() bool {
 	switch g {
-	case GrantOwnIntent, GrantDirectWork:
+	case GrantOwnIntent, GrantDirectWork, GrantDecideAmendments:
 		return true
 	default:
 		return false
@@ -103,6 +118,35 @@ const (
 	NamespaceForgeAccount Namespace = "forge_account"
 	NamespaceSlackMember  Namespace = "slack_member_id"
 )
+
+// NamespaceDashboardToken is the fourth namespace, and the one that is not an
+// identifier: what is bound is where the human's dashboard token is kept, and
+// a session is resolved by the token it presents rather than by anything this
+// file holds. So it is not among Namespaces, which ResolveOperator matches by
+// value; DashboardBindings is how it is read.
+const NamespaceDashboardToken Namespace = "dashboard_token"
+
+// DashboardBinding is one human who bound a dashboard token, and the store it
+// is kept in.
+type DashboardBinding struct {
+	Operator string
+	Source   DashboardTokenSource
+	Grants   []Grant
+}
+
+// DashboardBindings lists every human who bound a dashboard token, in the
+// mapping's stable order.
+func (c Config) DashboardBindings() []DashboardBinding {
+	var bindings []DashboardBinding
+	for _, name := range c.OperatorNames() {
+		operator := c.Operators[name]
+		if operator.DashboardToken == "" {
+			continue
+		}
+		bindings = append(bindings, DashboardBinding{Operator: name, Source: operator.DashboardToken, Grants: append([]Grant(nil), operator.Grants...)})
+	}
+	return bindings
+}
 
 // Namespaces lists every namespace an operator may bind, in a stable order.
 func Namespaces() []Namespace {
@@ -142,10 +186,10 @@ func (c Config) ResolveOperator(namespace Namespace, identifier string) (string,
 // An unbound identifier holds nothing, so the check defaults closed.
 //
 // It is what an authority check would be rather than one anything makes yet.
-// SlackOperators below is the only reading of a grant that reaches an
-// enforcement point, and a thread reply is the only act carrying an identifier
-// this could be asked about; every other arrival is a command line, which says
-// nothing about who typed at it.
+// SlackOperators below and the dashboard's acts, which read a binding's grants
+// through DashboardBindings, are the readings of a grant that reach an
+// enforcement point; every other arrival is a command line, which says nothing
+// about who typed at it.
 func (c Config) OperatorHolds(namespace Namespace, identifier string, grant Grant) bool {
 	_, operator, found := c.ResolveOperator(namespace, identifier)
 	return found && operator.Holds(grant)
@@ -321,6 +365,21 @@ func (c Config) operatorProblems() []string {
 				continue
 			}
 			bound[namespace][folded] = name
+		}
+		if source := operator.DashboardToken; source != "" {
+			namespacesBound++
+			if source != DashboardTokenKeychain && source != DashboardTokenFile {
+				problems = append(problems, fmt.Sprintf("operators.%s.%s is %q; it names where this human's own token is kept, %q or %q",
+					name, NamespaceDashboardToken, source, DashboardTokenKeychain, DashboardTokenFile))
+			}
+			// For now the page acts for the operator alone, and the operator is
+			// the one human holding own-intent (the duplicate-holder refusal
+			// below keeps it to one); see "Acting from the dashboard" in the
+			// observability-and-dashboard design.
+			if !operator.Holds(GrantOwnIntent) {
+				problems = append(problems, fmt.Sprintf("operators.%s.%s binds a dashboard token for a human who does not hold %s; for now only the operator, the one human holding it, acts from the dashboard",
+					name, NamespaceDashboardToken, GrantOwnIntent))
+			}
 		}
 		// A human bound to nothing is authority attached to nobody: no act can
 		// arrive carrying an identifier that reaches them, so whatever they were

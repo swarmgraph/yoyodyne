@@ -668,6 +668,10 @@ var standingWarningAgeSeconds = 5 * 60;
     });
     tiles.appendChild(landedTile());
     tiles.appendChild(costTile());
+    var deciding = decideTile();
+    if (deciding) {
+      tiles.appendChild(deciding);
+    }
     listProblems("band-problems", unreadable.map(function (line) { return standing[line.problem]; }));
     section("band", "ready");
   }
@@ -1468,7 +1472,7 @@ var standingWarningAgeSeconds = 5 * 60;
   var openGrouping = null;
   var openCard = null;
   var openEntry = null;
-  var openers = { grouping: null, card: null, report: null };
+  var openers = { grouping: null, card: null, report: null, decide: null };
   // openersByKey is every opener on the page by the key it opens, newest last,
   // kept only while it is on the page: what close() gives focus back to when
   // the opener it remembered has been redrawn.
@@ -2440,12 +2444,342 @@ var standingWarningAgeSeconds = 5 * 60;
     close(reportPopup, "report");
   }
 
+  // ---- deciding
+
+  // The pop-up the band's "Your decisions" tile opens: what the attention line
+  // names as the operator's and a verb approves or declines, from the
+  // standing's operator_decisions, one at a time. Approve and Decline post the act to
+  // /api/acts/decide and Ask first posts the question to /api/acts/ask; the
+  // dashboard checks who the session is and carries each out with the
+  // command-line verb's own code, so the page says what came back and nothing
+  // of its own. Who the session is comes from /api/session when the pop-up is
+  // opened. A poll redraws the decision only when the one shown has gone from
+  // the list, so a reason or a question being typed is not wiped by the page
+  // asking again.
+
+  var decidePopup = document.getElementById("decide");
+  var openDecide = false;
+  // decideShown is the key of the decision on screen and decideDrawn the key
+  // last drawn; decideForm is "" or the form open under it, "decline" or
+  // "ask"; decideBusy is an act in flight; decideOutcome is what the last act
+  // came to, and decideRefused whether it was refused.
+  var decideShown = "";
+  var decideDrawn = "";
+  var decideForm = "";
+  var decideBusy = false;
+  var decideOutcome = "";
+  var decideRefused = false;
+  // decidedHere is every decision this page decided, left out of the list
+  // until the standing stops naming it: a snapshot taken before the act still
+  // lists it, and offering it again would ask for a second decision.
+  var decidedHere = {};
+  var session = null;
+
+  function decisionKey(decision) {
+    return decision.kind + ":" + (decision.agent || "") + ":" + decision.id;
+  }
+
+  function waitingDecisions() {
+    var standing = model.standing;
+    var listed = (standing && standing.operator_decisions) || [];
+    var keys = {};
+    listed.forEach(function (decision) { keys[decisionKey(decision)] = true; });
+    Object.keys(decidedHere).forEach(function (key) {
+      if (!keys[key]) {
+        delete decidedHere[key];
+      }
+    });
+    return listed.filter(function (decision) { return !decidedHere[decisionKey(decision)]; });
+  }
+
+  // decideTile is the band's tile for the decisions, drawn only where any wait
+  // or their records could not be read, so a page with nothing to decide reads
+  // as it always has.
+  function decideTile() {
+    var standing = model.standing;
+    var waiting = waitingDecisions();
+    if (waiting.length === 0 && !standing.operator_decisions_problem) {
+      return null;
+    }
+    var item = el("div", "tile" + (waiting.length > 0 ? " tile-attention" : " tile-unreadable"));
+    var head = el("dt");
+    var button = opener("data-decide", "list", el("button", "grouping-open tile-label", "Your decisions"));
+    button.addEventListener("click", function () { showDecide({ element: button, kind: "data-decide", key: "list" }); });
+    head.appendChild(button);
+    item.appendChild(head);
+    var value = el("dd");
+    value.appendChild(el("span", "figure", String(waiting.length)));
+    value.appendChild(el("span", "unit", plural(waiting.length, "thing") + " waiting on your approve or decline"));
+    if (standing.operator_decisions_problem) {
+      value.appendChild(el("span", "detail", "not fully read: " + standing.operator_decisions_problem));
+    }
+    item.appendChild(value);
+    return item;
+  }
+
+  function actButton(act, text, quiet) {
+    var button = el("button", quiet ? "decide-quiet" : null, decideBusy ? text + " (waiting…)" : text);
+    button.setAttribute("type", "button");
+    button.setAttribute("data-act", act);
+    if (decideBusy) {
+      button.setAttribute("disabled", "");
+    }
+    button.addEventListener("click", function () { onAct(act); });
+    return button;
+  }
+
+  function decisionFields(decision) {
+    var fields = document.getElementById("decide-fields");
+    clear(fields);
+    var add = function (label, value, className) { fields.appendChild(field(label, value, className)); };
+    add("What", decision.says, "card-field-prose");
+    add(decision.kind === "amendment" ? "Document" : decision.kind === "document" ? "Document written" : "Work proposed", decision.subject, "card-field-prose");
+    add(decision.kind === "amendment" ? "Proposed change" : decision.kind === "document" ? "The document" : "Description", decision.detail, "card-field-prose");
+    add("Why", decision.why, "card-field-prose");
+    if (decision.asking) {
+      add("Why it waits on you", decision.asking, "card-field-prose");
+    }
+    if (decision.recommendation) {
+      var recommendation = decision.recommendation;
+      add("The " + recommendation.owner + " recommends", recommendation.verdict + (recommendation.into ? " into " + recommendation.into : "") + ": " + recommendation.reason, "card-field-prose");
+    }
+    add("Raised by", decision.role + (decision.agent ? " (agent " + decision.agent + ")" : ""));
+    if (decision.owner && decision.kind === "amendment") {
+      add("Decided under", "the " + decision.owner + "'s authority");
+    }
+    if (decision.conversation_id) {
+      add("Conversation", decision.conversation_id, "card-field-id");
+    }
+    if (decision.work_item_id) {
+      add("Working on", decision.work_item_id, "card-field-id");
+    }
+    if (decision.raised_at && named(decision.raised_at)) {
+      add("Raised", dayAndClock(decision.raised_at));
+    }
+    add("Id", decision.id, "card-field-id");
+  }
+
+  function decisionActions(decision, index, total) {
+    var actions = document.getElementById("decide-actions");
+    clear(actions);
+    if (total > 1) {
+      actions.appendChild(actButton("previous", "Previous", true));
+      actions.appendChild(actButton("next", "Next", true));
+    }
+    actions.appendChild(actButton("approve", "Approve"));
+    actions.appendChild(actButton("decline", "Decline", true));
+    actions.appendChild(actButton("ask", "Ask first", true));
+    if (decideForm === "decline") {
+      var reason = el("div", "decide-form");
+      var label = el("label", null, decision.decline_needs_reason ? "Why you are declining it (the record keeps the reason, and a decline without one is refused)" : "Why you are declining it (optional)");
+      label.setAttribute("for", "decide-reason");
+      reason.appendChild(label);
+      var text = el("textarea");
+      text.setAttribute("id", "decide-reason");
+      reason.appendChild(text);
+      reason.appendChild(actButton("decline-confirm", "Decline it"));
+      actions.appendChild(reason);
+    }
+    if (decideForm === "ask") {
+      var ask = el("div", "decide-form");
+      var whom = el("label", null, "Your question for the " + decision.ask_role + " (agent " + decision.ask_agent + "); nothing is decided by asking");
+      whom.setAttribute("for", "decide-question");
+      ask.appendChild(whom);
+      var question = el("textarea");
+      question.setAttribute("id", "decide-question");
+      ask.appendChild(question);
+      ask.appendChild(actButton("ask-send", "Send the question"));
+      actions.appendChild(ask);
+    }
+  }
+
+  function renderOutcome() {
+    var outcome = document.getElementById("decide-outcome");
+    outcome.textContent = decideOutcome;
+    outcome.className = "decide-outcome" + (decideRefused ? " decide-refused" : "");
+    setHidden(outcome, decideOutcome === "");
+  }
+
+  // renderDecide draws the pop-up from the standing in hand. force redraws the
+  // decision shown even where it is the one already drawn, which is what a
+  // press does; a poll does not.
+  function renderDecide(force) {
+    if (!openDecide) {
+      return;
+    }
+    var standing = model.standing;
+    var heading = document.getElementById("decide-heading");
+    var note = document.getElementById("decide-note");
+    document.getElementById("decide-session").textContent = session ? session.says : "Reading who this session is…";
+    renderOutcome();
+    // Nothing is offered until the page knows who would be acting, so a
+    // session that reads only is told so before it presses anything.
+    if (!standing || session === null) {
+      heading.textContent = "Your decisions";
+      note.textContent = "";
+      decideDrawn = "";
+      section("decide", model.standingError ? "error" : "loading", model.standingError, whatToDoAboutTheStanding());
+      return;
+    }
+    var waiting = waitingDecisions();
+    if (waiting.length === 0) {
+      heading.textContent = "Your decisions";
+      note.textContent = "read " + clock(standing.observed_at);
+      decideDrawn = "";
+      if (standing.operator_decisions_problem) {
+        section("decide", "error", standing.operator_decisions_problem, whatToDoAboutTheStanding());
+        return;
+      }
+      section("decide", "empty", "Nothing the attention line names as yours waits on your approve or decline, as of " + clock(standing.observed_at) + ".");
+      return;
+    }
+    var index = 0;
+    waiting.forEach(function (decision, at) {
+      if (decisionKey(decision) === decideShown) {
+        index = at;
+      }
+    });
+    var decision = waiting[index];
+    var key = decisionKey(decision);
+    note.textContent = (index + 1) + " of " + waiting.length + " · read " + clock(standing.observed_at);
+    if (!force && key === decideDrawn) {
+      return;
+    }
+    if (key !== decideShown) {
+      decideForm = "";
+    }
+    decideShown = key;
+    decideDrawn = key;
+    heading.textContent = decision.label;
+    decisionFields(decision);
+    decisionActions(decision, index, waiting.length);
+    section("decide", "ready");
+  }
+
+  function shownDecision() {
+    var waiting = waitingDecisions();
+    for (var at = 0; at < waiting.length; at += 1) {
+      if (decisionKey(waiting[at]) === decideShown) {
+        return { decision: waiting[at], index: at, waiting: waiting };
+      }
+    }
+    return null;
+  }
+
+  function onAct(act) {
+    var shown = shownDecision();
+    if (!shown || decideBusy) {
+      return;
+    }
+    var decision = shown.decision;
+    switch (act) {
+      case "previous":
+      case "next":
+        var step = act === "next" ? 1 : shown.waiting.length - 1;
+        decideShown = decisionKey(shown.waiting[(shown.index + step) % shown.waiting.length]);
+        decideForm = "";
+        decideOutcome = "";
+        renderDecide(true);
+        return;
+      case "decline":
+      case "ask":
+        decideForm = decideForm === act ? "" : act;
+        renderDecide(true);
+        var focus = document.getElementById(act === "decline" ? "decide-reason" : "decide-question");
+        if (focus) {
+          focus.focus();
+        }
+        return;
+      case "approve":
+        send("/api/acts/decide", { kind: decision.kind, agent: decision.agent || "", id: decision.id, verdict: "approve" }, decision);
+        return;
+      case "decline-confirm":
+        send("/api/acts/decide", { kind: decision.kind, agent: decision.agent || "", id: decision.id, verdict: "decline", reason: document.getElementById("decide-reason").value.trim() }, decision);
+        return;
+      case "ask-send":
+        send("/api/acts/ask", { kind: decision.kind, agent: decision.agent || "", id: decision.id, question: document.getElementById("decide-question").value.trim() }, null);
+        return;
+    }
+  }
+
+  // send posts one act and says what came back: the verb's own account where
+  // it was carried out, and the refusal's reason where it was not. A decision
+  // carried out leaves the list here at once, and the standing is asked for
+  // again so the list catches up.
+  function send(path, body, decided) {
+    var current = token();
+    decideBusy = true;
+    decideOutcome = "";
+    renderDecide(true);
+    var finish = function (said, refusedAct) {
+      decideBusy = false;
+      decideOutcome = said;
+      decideRefused = refusedAct;
+      if (!refusedAct) {
+        decideForm = "";
+        if (decided) {
+          decidedHere[decisionKey(decided)] = true;
+        }
+      }
+      render();
+      renderDecide(true);
+    };
+    fetch(path, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: "Bearer " + current },
+      cache: "no-store",
+      body: JSON.stringify(body)
+    })
+      .then(function (response) {
+        return response.json().then(function (answer) {
+          if (!response.ok) {
+            finish("Refused: " + ((answer && answer.error) || (response.status + " " + response.statusText)), true);
+            return;
+          }
+          finish((answer.decided ? "Done as " + answer.person + ": " : "Asked as " + answer.person + ": ") + answer.done, false);
+        }, function () {
+          finish("Refused: " + response.status + " " + response.statusText + ", and the answer was not JSON", true);
+        });
+      })
+      .catch(function (error) {
+        finish("The dashboard could not be reached (" + error.message + "), so nothing was done.", true);
+      });
+  }
+
+  function showDecide(from) {
+    openDecide = true;
+    openers.decide = from || null;
+    decideForm = "";
+    decideOutcome = "";
+    decideDrawn = "";
+    session = null;
+    renderDecide(true);
+    open(decidePopup);
+    document.getElementById("decide-close").focus();
+    read("/api/session", token(), function (answer) {
+      session = answer;
+      renderDecide(false);
+    }, function (reason) {
+      session = { says: "Who this session is could not be read: " + reason };
+      renderDecide(false);
+    });
+  }
+
+  function closeDecide() {
+    openDecide = false;
+    decideShown = "";
+    decideDrawn = "";
+    close(decidePopup, "decide");
+  }
+
   document.getElementById("grouping-close").addEventListener("click", closeGrouping);
   document.getElementById("grouping-backdrop").addEventListener("click", closeGrouping);
   document.getElementById("card-close").addEventListener("click", closeCard);
   document.getElementById("card-backdrop").addEventListener("click", closeCard);
   document.getElementById("report-close").addEventListener("click", closeReport);
   document.getElementById("report-backdrop").addEventListener("click", closeReport);
+  document.getElementById("decide-close").addEventListener("click", closeDecide);
+  document.getElementById("decide-backdrop").addEventListener("click", closeDecide);
   // Escape closes the pop-up on top: a lane report where one is open, else the
   // card where one is open, on an item or an entry, else the grouping.
   document.addEventListener("keydown", function (event) {
@@ -2454,6 +2788,8 @@ var standingWarningAgeSeconds = 5 * 60;
     }
     if (openReport !== null) {
       closeReport();
+    } else if (openDecide) {
+      closeDecide();
     } else if (openCard !== null || openEntry !== null) {
       closeCard();
     } else if (openGrouping !== null) {
@@ -2510,6 +2846,7 @@ var standingWarningAgeSeconds = 5 * 60;
     // reading just taken, so each stays as live as what it was opened from.
     renderGrouping();
     renderEntry();
+    renderDecide(false);
   }
 
   // ---- the token ------------------------------------------------------------
@@ -2626,8 +2963,13 @@ var standingWarningAgeSeconds = 5 * 60;
     openCard = null;
     openEntry = null;
     openReport = null;
-    openers = { grouping: null, card: null, report: null };
+    openers = { grouping: null, card: null, report: null, decide: null };
     openersByKey = {};
+    openDecide = false;
+    decideShown = "";
+    decideDrawn = "";
+    decidedHere = {};
+    setHidden(decidePopup, true);
     setHidden(groupingPopup, true);
     setHidden(cardPopup, true);
     setHidden(reportPopup, true);

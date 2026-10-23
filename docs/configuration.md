@@ -7880,6 +7880,15 @@ nobody, since no act can arrive carrying an identifier that reaches them.
 - `slack_member_id` — their member id in the reporting workspace, from their
   profile → "Copy member ID". It is identity rather than a secret, which is why
   it is checked in here with the rest.
+- `dashboard_token` — where their own dashboard token is kept, `keychain` (the
+  item `yoyo-dashboard.<product id>.<name>` under the account `yoyo`) or `file`
+  (`<state root>/projects/<product id>/state/dashboard.<name>.token`). It names
+  a store and never holds the token. A dashboard tab signed in with that token
+  is this person, which is what lets [the page take their own approve and
+  decline](operations.md#deciding-from-the-page); the dashboard's shared token resolves to nobody. For now only the
+  operator — the one human holding `own-intent` — may bind one; a
+  `dashboard_token` on anybody else's entry is refused when the configuration
+  loads.
 
 Addresses and forge accounts are matched without regard to case, because they
 are case-insensitive where they live; a member id is matched exactly, because it
@@ -7897,16 +7906,21 @@ person.
 | --- | --- |
 | `own-intent` | stating and approving what the product is for: the brief, the goals, and the non-goals. **At most one human may hold it** — several people amending goals concurrently is conflict machinery nobody has designed. |
 | `direct-work` | steering work already in flight: the directives that reach a run, the thread replies the Slack sink acts on, and the decisions it asks for directly when the line has stopped. |
+| `decide-amendments` | deciding a change proposed to a document from the dashboard. A change to a document the Lead Product Manager owns needs `own-intent` beside it. `yoyo amendment` at a terminal carries no identifier to check it against. |
 
-**One grant is checked today, and it is worth being exact about which.** The
-Slack sink's allow-list is derived from the `direct-work` holders who bound a
+**Grants are checked in two places, and it is worth being exact about which.**
+The Slack sink's allow-list is derived from the `direct-work` holders who bound a
 member id, so a thread reply is acted on or refused by asking this mapping who
-sent it. That is a grant checked where the act arrives, and it is the only one —
-a thread reply is also the only act that carries an identifier the harness can
-resolve, because the workspace issued that identifier and put it on the message.
+sent it. And the dashboard resolves a tab to the person whose own
+`dashboard_token` it presents, and approves or declines from the page only for
+a person holding `own-intent` — for a document or proposed work — or
+`decide-amendments`, with `own-intent` beside it for a change to a document the
+Lead Product Manager owns. Those are the two acts that carry something the
+harness can resolve to a person: a member id the workspace put on the message,
+and a token the person stored.
 
-**`own-intent` is checked by nothing, and `by: operator` proves only that a
-command was run.** A terminal carries no identifier at all, so `yoyo artifact
+**At a terminal `own-intent` is checked by nothing, and `by: operator` proves
+only that a command was run.** A terminal carries no identifier at all, so `yoyo artifact
 approve` records `by: operator` on the strength of whoever ran it, and so do
 `yoyo amendment approve`, `yoyo directive record`, and the `--by` on `yoyo triage
 override`, which is a string somebody types. Nothing in any of those records
@@ -7930,8 +7944,10 @@ rather than on who an approval says gave it, which is what
 `internal/chat/admission.go` says in its own words. If either is ever loosened,
 this is what was resting on them.
 
-Making an approval name the resolved human, and refusing one from anybody who
-does not hold `own-intent`, is designed and not built.
+At a terminal, making an approval name the resolved human, and refusing one
+from anybody who does not hold `own-intent`, is designed and not built. The
+dashboard refuses a person without the grant, and records what it decides as
+the operator's, exactly as the terminal's verb does.
 [Operator identity, designed once](team-mode-coordination.md#operator-identity-designed-once)
 is where it is specified, and what it would and would not close.
 
@@ -8115,7 +8131,7 @@ has; a fifth is refused when the file loads, and the refusal names the four.
 | Service | What it is | Default |
 | --- | --- | --- |
 | `slack` | the reporting sink, the `yoyo slack` process that holds this product's two tokens | off |
-| `dashboard` | the read-only projection of the read model, served to a browser | off |
+| `dashboard` | the read model served to a browser, which also takes the operator's own approve, decline, and ask from a person's own token ([deciding from the page](operations.md#deciding-from-the-page)) | off |
 | `scheduler` | the watch loop — `yoyo work --watch` — that reads the queue and starts what is ready | on |
 | `maintenance` | the periodic pass that keeps the installation converged: reconciling interrupted runs, catching the checkout up, restarting what stopped | on |
 
@@ -8228,9 +8244,12 @@ reach the page, and a token printed to this terminal is exactly what that
 device cannot read, so a non-loopback bind has to name where its token is
 stored before it is accepted at all. What the opt-in keeps is every other rule:
 the token is still required on every request, Host and Origin are still checked
-against the configured address and hosts, and there is still no write path at
-any address — a wider bind widens who can read observability data and never who
-can direct work. Transport is plain HTTP in V1, so the opt-in is for a network
+against the configured address and hosts, and a wider bind widens who can read
+observability data and never who can act. The shared token acts on nothing at
+any address: the only acts the page takes are [the operator's own approve,
+decline, and ask](operations.md#deciding-from-the-page), and each still needs
+a person's own bound token and the grant the decision needs, wherever the page
+is reached from. Transport is plain HTTP in V1, so the opt-in is for a network
 you trust.
 
 `yoyo doctor` reports the dashboard under `service:dashboard`: off, on with a
