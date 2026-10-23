@@ -1757,15 +1757,15 @@ func (h *testHarness) handle(t *testing.T, id, reason string, needsOperator bool
 func (h *testHarness) handleFor(t *testing.T, id, reason string, needsOperator bool, operatorReason ownership.OperatorReason, at time.Time) {
 	t.Helper()
 	if err := h.reports.Handle(report.Handling{
-		SchemaVersion: report.HandlingSchemaVersion,
-		ReportID:      id,
-		Role:          domain.RoleProductManager,
-		Agent:         "product-manager",
-		RunID:         "chat-0123456789abcdef0123456789abcdef",
-		ProductID:     "yoyodyne",
-		RepositoryID:  "yoyodyne",
-		Reason:        reason,
-		RecordedAt:    at,
+		SchemaVersion:  report.HandlingSchemaVersion,
+		ReportID:       id,
+		Role:           domain.RoleProductManager,
+		Agent:          "product-manager",
+		RunID:          "chat-0123456789abcdef0123456789abcdef",
+		ProductID:      "yoyodyne",
+		RepositoryID:   "yoyodyne",
+		Reason:         reason,
+		RecordedAt:     at,
 		NeedsOperator:  needsOperator,
 		OperatorReason: operatorReason,
 	}); err != nil {
