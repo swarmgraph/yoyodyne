@@ -3,6 +3,7 @@ package console
 import (
 	"context"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -164,6 +165,7 @@ func TestWhatAPasteKeeps(t *testing.T) {
 		{name: "an escape is dropped as it is when typed", pasted: "a\x1b[31mb", want: "a[31mb"},
 		{name: "a byte that is not text is dropped", pasted: "a\xffb", want: "ab"},
 		{name: "text outside ASCII is kept", pasted: "café — naïve", want: "café — naïve"},
+		{name: "a rune that would read as a held paste is dropped", pasted: "a" + string(firstPasteMarker) + "b", want: "ab"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -197,5 +199,141 @@ func TestAPasteIsDecodedWhole(t *testing.T) {
 	// Anything that is not a paste is left to the escape decoding as before.
 	if pressed, _, _ := decodeKey([]byte("\x1b[13;2u")); pressed.code != keyNewline {
 		t.Fatalf("shift-return was not decoded: %+v", pressed)
+	}
+}
+
+// longPasted is a block of n numbered lines, as a terminal brackets it.
+func longPasted(n int) (pasted, text string) {
+	lines := make([]string, n)
+	for index := range lines {
+		lines[index] = "line " + strconv.Itoa(index+1)
+	}
+	return pasteBegin + strings.Join(lines, "\r") + pasteEnd, strings.Join(lines, "\n")
+}
+
+// TestALongPasteIsShownAsOneLineAndSentWhole is how a long paste reads: the
+// prompt shows one label naming it and how many lines it holds, typing before
+// and after it works as around any other character, and the message sent
+// carries the whole of what was pasted where the label stood.
+func TestALongPasteIsShownAsOneLineAndSentWhole(t *testing.T) {
+	t.Parallel()
+
+	console, keys, out := terminalUnderTest(t, 80)
+	lines := prompting(context.Background(), console, "you> ", nil)
+	pasted, text := longPasted(42)
+	keys.Write([]byte("before " + pasted + " after"))
+	out.await(t, "the label", func(s *screen) bool {
+		return s.lastLine() == "you> before [Pasted text #1 +42 lines] after"
+	})
+	if got := out.screen().text(); strings.Contains(got, "line 1") {
+		t.Fatalf("the pasted text was drawn in the prompt:\n%s", got)
+	}
+
+	// The cursor steps over the label as one character: back past " after" and
+	// the label, and what is typed there lands before the paste.
+	keys.Write([]byte(strings.Repeat("\x1b[D", len(" after")+1) + "!"))
+	out.await(t, "the typing before the label", func(s *screen) bool {
+		return s.lastLine() == "you> before ![Pasted text #1 +42 lines] after"
+	})
+
+	keys.Write([]byte("\r"))
+	if line := lines.line(t); line != "before !"+text+" after" {
+		t.Fatalf("line = %q", line)
+	}
+}
+
+// TestAShortPasteIsShownAsItIs keeps a paste of a few lines in the prompt as it
+// was pasted: there is nothing on screen to save by hiding it.
+func TestAShortPasteIsShownAsItIs(t *testing.T) {
+	t.Parallel()
+
+	console, keys, out := terminalUnderTest(t, 80)
+	lines := prompting(context.Background(), console, "you> ", nil)
+	pasted, text := longPasted(shownPasteLines)
+	keys.Write([]byte(pasted))
+	out.await(t, "the pasted lines", func(s *screen) bool {
+		return strings.HasSuffix(s.text(), "you> line 1\nline 2\nline 3")
+	})
+	if got := out.screen().text(); strings.Contains(got, "Pasted text") {
+		t.Fatalf("a short paste was shown as a label:\n%s", got)
+	}
+	keys.Write([]byte("\r"))
+	if line := lines.line(t); line != text {
+		t.Fatalf("line = %q", line)
+	}
+}
+
+// TestBackspaceRemovesALongPasteWhole is the other half of the label being one
+// character: one backspace takes all of it, and none of it is sent.
+func TestBackspaceRemovesALongPasteWhole(t *testing.T) {
+	t.Parallel()
+
+	console, keys, out := terminalUnderTest(t, 80)
+	lines := prompting(context.Background(), console, "you> ", nil)
+	pasted, _ := longPasted(10)
+	keys.Write([]byte("keep " + pasted))
+	out.await(t, "the label", func(s *screen) bool {
+		return s.lastLine() == "you> keep [Pasted text #1 +10 lines]"
+	})
+	keys.Write([]byte("\x7f"))
+	out.await(t, "the label gone", func(s *screen) bool { return s.lastLine() == "you> keep" })
+	keys.Write([]byte("this\r"))
+	if line := lines.line(t); line != "keep this" {
+		t.Fatalf("line = %q", line)
+	}
+}
+
+// TestLongPastesAreNumberedAndCountedOnTheirOwn covers the label itself: two
+// pastes in one message are told apart by their numbers, one long line is
+// counted in characters rather than called one line, and the numbering starts
+// again for the next message.
+func TestLongPastesAreNumberedAndCountedOnTheirOwn(t *testing.T) {
+	t.Parallel()
+
+	console, keys, out := terminalUnderTest(t, 120)
+	lines := prompting(context.Background(), console, "you> ", nil)
+	first, firstText := longPasted(5)
+	wide := strings.Repeat("x", shownPasteRunes+1)
+	keys.Write([]byte(first + " and " + pasteBegin + wide + pasteEnd))
+	out.await(t, "both labels", func(s *screen) bool {
+		return s.lastLine() == "you> [Pasted text #1 +5 lines] and [Pasted text #2 +1001 characters]"
+	})
+	keys.Write([]byte("\r"))
+	if line := lines.line(t); line != firstText+" and "+wide {
+		t.Fatalf("line = %q", line)
+	}
+
+	lines = prompting(context.Background(), console, "you> ", nil)
+	keys.Write([]byte(first))
+	out.await(t, "the next message's label", func(s *screen) bool {
+		return s.lastLine() == "you> [Pasted text #1 +5 lines]"
+	})
+	keys.Write([]byte("\r"))
+	lines.line(t)
+}
+
+// TestALongPasteCutFromOneMessageCanBePutIntoTheNext keeps a held paste alive
+// as long as Ctrl-Y can put it back, so cutting a message with one in it loses
+// nothing.
+func TestALongPasteCutFromOneMessageCanBePutIntoTheNext(t *testing.T) {
+	t.Parallel()
+
+	console, keys, out := terminalUnderTest(t, 80)
+	lines := prompting(context.Background(), console, "you> ", nil)
+	pasted, text := longPasted(8)
+	keys.Write([]byte("a " + pasted))
+	out.await(t, "the label", func(s *screen) bool {
+		return s.lastLine() == "you> a [Pasted text #1 +8 lines]"
+	})
+	// Ctrl-U cuts the line, a message is sent without it, and Ctrl-Y in the
+	// next puts the paste back whole.
+	keys.Write([]byte("\x15other\r"))
+	if line := lines.line(t); line != "other" {
+		t.Fatalf("line = %q", line)
+	}
+	lines = prompting(context.Background(), console, "you> ", nil)
+	keys.Write([]byte("\x19\r"))
+	if line := lines.line(t); line != "a "+text {
+		t.Fatalf("line = %q", line)
 	}
 }

@@ -15,6 +15,7 @@ package console
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"unicode/utf8"
 )
@@ -69,7 +70,7 @@ func decodePaste(buffer []byte) (key, int, bool, bool) {
 // the terminal decides, so kept as it was it would leave the erase a row short.
 // Other control characters, and the escape that would start a sequence, are
 // dropped as they are when typed, and a byte that is not text at all is dropped
-// with them.
+// with them, as is a rune that would read as a held paste's marker.
 func pastedText(pasted []byte) string {
 	var text strings.Builder
 	text.Grow(len(pasted))
@@ -88,9 +89,119 @@ func pastedText(pasted []byte) string {
 			text.WriteByte(' ')
 		case character < 0x20, character == 0x7f:
 		case character == utf8.RuneError && size == 1:
+		case pasteMarker(character):
 		default:
 			text.WriteRune(character)
 		}
 	}
 	return text.String()
+}
+
+// A long paste is shown in the line being composed as one label, such as
+// [Pasted text #1 +42 lines], rather than drawn in full, which would fill the
+// screen with text the operator already has and push what they are typing
+// around it out of sight. The text is held aside and the line carries a single
+// marker rune where it goes, so every edit treats the paste as one character:
+// the cursor steps over it, backspace removes it whole, and a kill and Ctrl-Y
+// carry it like any other rune. The message sent is the line with each marker
+// replaced by the text it holds, so what the conversation receives and records
+// is the whole of what was pasted, in place.
+//
+// A short paste is not worth hiding, and is inserted as it was typed.
+const (
+	// shownPasteLines and shownPasteRunes are the most a paste can be and still
+	// be drawn as it is: a few lines, and no more text than a few lines of a
+	// wide window hold.
+	shownPasteLines = 3
+	shownPasteRunes = 1000
+	// firstPasteMarker and lastPasteMarker bound the runes that stand for a held
+	// paste. They are the last private-use plane, which no keyboard sends and no
+	// text the operator could mean carries, and a rune from there that arrives
+	// typed or pasted is dropped (pastedText, apply) so it can never be mistaken
+	// for one.
+	firstPasteMarker rune = 0x100000
+	lastPasteMarker  rune = 0x10FFFD
+)
+
+// pasteMarker reports whether a rune is one that stands for a held paste.
+func pasteMarker(value rune) bool {
+	return value >= firstPasteMarker && value <= lastPasteMarker
+}
+
+// pastedLines is how many lines a paste holds. A newline at its very end ends
+// its last line rather than starting one more, which is how an editor counts.
+func pastedLines(text string) int {
+	return strings.Count(strings.TrimSuffix(text, "\n"), "\n") + 1
+}
+
+// longPaste reports whether a paste is shown as a label rather than as itself.
+func longPaste(text string) bool {
+	return pastedLines(text) > shownPasteLines || utf8.RuneCountInString(text) > shownPasteRunes
+}
+
+// pasteLabel is what a held paste is drawn as: which paste it is, counted from
+// one, and how much it holds, in lines where it has more than one and in
+// characters where it is one long line.
+func pasteLabel(marker rune, text string) string {
+	number := int(marker-firstPasteMarker) + 1
+	if lines := pastedLines(text); lines > 1 {
+		return fmt.Sprintf("[Pasted text #%d +%d lines]", number, lines)
+	}
+	return fmt.Sprintf("[Pasted text #%d +%d characters]", number, utf8.RuneCountInString(text))
+}
+
+// holdPaste keeps a long paste aside and returns the marker that stands for it
+// in the line. It reports false for a paste short enough to insert as it is,
+// and for one arriving when every marker is taken, which is inserted as it is
+// too rather than lost.
+func (t *terminal) holdPaste(text string) (rune, bool) {
+	if !longPaste(text) {
+		return 0, false
+	}
+	marker := firstPasteMarker + rune(len(t.pastes))
+	if marker > lastPasteMarker {
+		return 0, false
+	}
+	t.pastes = append(t.pastes, text)
+	return marker, true
+}
+
+// shown is the line as it is drawn, each held paste as its label.
+func (t *terminal) shown(line []rune) string {
+	return t.expand(line, pasteLabel)
+}
+
+// sent is the line as it is sent, each held paste as the whole of its text.
+func (t *terminal) sent(line []rune) string {
+	return t.expand(line, func(_ rune, text string) string { return text })
+}
+
+func (t *terminal) expand(line []rune, held func(rune, string) string) string {
+	var text strings.Builder
+	for _, value := range line {
+		if !pasteMarker(value) {
+			text.WriteRune(value)
+			continue
+		}
+		if index := int(value - firstPasteMarker); index < len(t.pastes) {
+			text.WriteString(held(value, t.pastes[index]))
+		}
+	}
+	return text.String()
+}
+
+// releasePastes lets go of the held pastes once nothing can bring one back:
+// the line is empty, and neither what Ctrl-Y puts back nor the message up
+// would return to carries a marker. Numbering starts again from one then. Until
+// then they are kept, so a paste cut out of one message can be put into the
+// next.
+func (t *terminal) releasePastes() {
+	for _, held := range [][]rune{t.line, t.killed, t.draft} {
+		for _, value := range held {
+			if pasteMarker(value) {
+				return
+			}
+		}
+	}
+	t.pastes = nil
 }

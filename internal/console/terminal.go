@@ -114,6 +114,9 @@ type terminal struct {
 	// applied was one of them, so the next one adds to it rather than replacing it.
 	killed  []rune
 	killing bool
+	// pastes is the text of each long paste the line shows as a label, which a
+	// marker rune in line, killed, or draft stands for (paste.go).
+	pastes []string
 
 	// recall is the messages sent earlier in the conversation, oldest first,
 	// which up and down step through (recall.go). recalled is which of them is
@@ -438,13 +441,13 @@ func (t *terminal) drawRegion() string {
 		t.drawnCursor = 0
 		return out.String()
 	}
-	composed := t.promptText + string(t.line)
+	composed := t.promptText + t.shown(t.line)
 	// Where the cursor is in the composed text, counted in runes, because that is
 	// what `place` steps through. It is not the same as the columns the prompt
 	// occupies: a prompt with colour in it carries runes that take no room at
 	// all, and counting those as columns would put the cursor past the end of
 	// what the operator can see.
-	cursor := utf8.RuneCountInString(t.promptText) + t.cursor
+	cursor := utf8.RuneCountInString(t.promptText) + utf8.RuneCountInString(t.shown(t.line[:t.cursor]))
 	// A message with more lines than the window has rows is drawn as the part of
 	// it that fits. Everything after this point measures the text that is drawn
 	// rather than the whole message, so the erase climbs back over rows the
@@ -900,14 +903,16 @@ func (t *terminal) endPrompt(cause error) error {
 	defer t.mu.Unlock()
 	// The prompt and anything composed under it are written into the scrollback
 	// rather than erased with the region: the operator typed it, and the screen
-	// is the only place it exists.
-	composed := t.promptText + string(t.line)
+	// is the only place it exists. A long paste is written in full for the same
+	// reason.
+	composed := t.promptText + t.sent(t.line)
 	t.prompting = false
 	t.entering = false
 	t.line = nil
 	t.cursor = 0
 	t.ending = time.Time{}
 	t.forget()
+	t.releasePastes()
 	t.render([]string{composed})
 	return cause
 }
@@ -996,6 +1001,7 @@ func (t *terminal) consume(data []byte, late bool) (string, bool, []signalKey, e
 		t.line = nil
 		t.cursor = 0
 		t.forget()
+		t.releasePastes()
 		t.redraw()
 		return "", false, raised, fmt.Errorf("the operator sent more than %d bytes without ending the message", MaxLineBytes)
 	}
@@ -1039,6 +1045,8 @@ func (t *terminal) consume(data []byte, late bool) (string, bool, []signalKey, e
 		}
 		t.killing = false
 		t.menuOpen = false
+		// The line is read with any long paste still a marker, so a backslash at
+		// the end of one is not taken for the operator carrying on.
 		line := string(t.line)
 		// A message whose last character is a backslash is one the operator is
 		// carrying on: the newline that asks the terminal for nothing at all, and
@@ -1050,12 +1058,16 @@ func (t *terminal) consume(data []byte, late bool) (string, bool, []signalKey, e
 			t.cursor = len(t.line)
 			continue
 		}
+		// What is sent and echoed carries every long paste in full: the label is
+		// how the line is drawn while it is composed, not what was said.
+		line = t.sent(t.line)
 		t.line = nil
 		t.cursor = 0
 		// A recalled message that is sent is sent as it now reads, and the next
 		// prompt starts from a message of its own rather than from where up had
 		// got to in the earlier ones.
 		t.forget()
+		t.releasePastes()
 		t.prompting = false
 		// Whatever the message was answering is answered. A choice the operator
 		// left to say it in their own words has been said.
@@ -1094,13 +1106,20 @@ func (t *terminal) apply(pressed key) {
 	t.killing = false
 	switch pressed.code {
 	case keyRune:
-		t.insert(pressed.value)
+		if !pasteMarker(pressed.value) {
+			t.insert(pressed.value)
+		}
 	case keyNewline:
 		t.insert('\n')
 	case keyPaste:
 		// A paste lands where the cursor is, whole, its newlines composed in the
 		// region exactly as typed ones are. Nothing in it sends: return after it
-		// is what sends, as it always was.
+		// is what sends, as it always was. A long one goes in as one marker,
+		// drawn as a label naming it (paste.go).
+		if marker, held := t.holdPaste(pressed.text); held {
+			t.insert(marker)
+			break
+		}
 		for _, value := range pressed.text {
 			t.insert(value)
 		}
