@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-10-20T02:11:47.339332Z
       reason: 'Answers the reviewer''s report-40dbc3db on the fix counting unrecognised stop causes toward the hold on new work (yoyodyne-ifd.428.99.12): step 1 now names the usage limit, a provider session ending after its retries, an unusable provider account and a stop by the operator or the development manager as outside the work, and rules that a dead process, a cancellation with no recorded origin, and a publishing failure other than the two named count toward the hold. Adds slice 1 tests, one reviewer check and two rejected alternatives; nothing else.'
+    - action: amended
+      by: architect
+      at: 2026-10-23T00:04:59.548363Z
+      reason: 'yoyodyne-ifd.432.25.12: rules who may raise an item''s limit on attempts once the development manager''s own five raises are used. Past her five she asks the Lead Product Manager, who may grant up to five more, each recorded with the item''s cost so far; after ten no role raises it again and the item is rewritten, split or closed; the operator is told afterwards in his summary and is never asked. Adds one subsection to step 3 and corrects its ''widen a budget'' line; nothing else changes. The ownership design''s hand case for this raise follows in its own revision.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-10-20T02:11:47.339332Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1318, for document-1318.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-10-23T00:04:59.548363Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1522, for document-1522.1 under the automatic approval policy
 ---
 # Stopped run recovery: every step from the stop to the run going on, and what each step may never do
 
@@ -123,9 +132,26 @@ Writes: one decision on the run record, bound to the entry's stop and to the run
 - **Record an unresolved hold,** naming its owner, its next step and when it will be looked at again.
 - **Ask the Lead Product Manager,** when the decision needs a priority or a scope she owns.
 
-A grant is taken from the item's recovery budget when the decision is recorded. A decision that asks for more than the budget holds is refused at once, naming what is left. The development manager is the only role that decides, as fresh-factory-health-and-preserved-run-recovery already says.
+A grant is taken from the item's recovery budget when the decision is recorded. A decision that asks for more than the budget holds is refused at once, naming what is left. The development manager is the only role that decides, as fresh-factory-health-and-preserved-run-recovery already says, with the one exception for raises past her own five below.
 
-Must never: decide on an entry whose stop a later stop has replaced (refused as state moved); widen a budget; be taken by a program manager, by the architect, or by a person on a role's behalf.
+### Raising an item's limit on attempts
+
+Ruled on October 22 for the item asking who may let a work item go past its limit on attempts once the development manager's five raises are used (yoyodyne-ifd.432.25.12). The development manager may raise an item's limit on attempts herself five times for one item, as `yoyo triage override` does today. This design did not state that before, and this ruling does not change the size of one raise. Each raise is a decision recorded on the run record like those above, with her reason. The rest of this subsection says what happens after her five.
+
+- **Past her five, she asks the Lead Product Manager.** Whether one item is worth more spending is a judgment of its value against the other work waiting, and that judgment is the Lead Product Manager's; the escalation ladder in [who owns what](ownership-and-the-operator.md#the-escalation-ladder) already sends an item's intent to her. The ask names the item, the attempts spent, what the item has cost so far as the provider reports it, and why another raise would succeed where the earlier ones did not.
+- **The Lead Product Manager may grant up to five more raises for that item,** one at a time, each the same size as one of the development manager's, each recorded on the run record with her reason and the item's cost so far. She may refuse instead, and the development manager then takes one of the other decisions above, most often giving the item back.
+- **After ten raises in all, no role raises the limit again.** The item is not working as written. The development manager rewrites or splits it into new items, or the Lead Product Manager closes it, and the stopped run is retired with its change kept. Ten is the bound because every raise is paid for on the operator's behalf, and an item that has failed through ten raises is more likely wrong than unlucky.
+- **The operator is told afterwards, never asked.** Every raise the Lead Product Manager grants, and every item that reaches ten raises, appears in the regular summary he reads, with the item's cost. He may still raise or lower an item's limit himself with `yoyo triage override`; that is an override, never part of the ordinary loop.
+
+When this is built, a raise past the development manager's five stops being one of the cases needing the operator's hand in [who owns what](ownership-and-the-operator.md#a-roles-decision-that-needs-the-operators-hand), and that case is removed from that design. Until it is built, the Lead Product Manager decides the raise and the operator types it, and the hand names the build the development manager admits from this ruling.
+
+Alternatives rejected:
+
+- **Leaving raises past five to the operator as a safeguard on spending.** A limit on one item's spending is not a reason on the operator's closed list: it is a judgment about the item's worth, which the goals delegate to the roles, and the operator already sees what each item costs. Making it his would route a routine decision to him.
+- **Letting the development manager raise without a bound.** She wrote the item and decides its runs, so a second role judges whether it is worth more; and with no bound an item that cannot succeed keeps spending.
+- **Letting the Lead Product Manager raise without a bound.** For the same reason: something has to say that the item itself is wrong.
+
+Must never: decide on an entry whose stop a later stop has replaced (refused as state moved); widen a budget except by a raise of the limit on attempts within the bounds above; grant a raise past ten for one item; be taken by a program manager, by the architect, or by a person on a role's behalf.
 
 ## Step 4: carrying out the decision
 
