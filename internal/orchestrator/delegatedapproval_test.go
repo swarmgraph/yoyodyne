@@ -224,3 +224,37 @@ func withApprovals(recorded artifact.Artifact, approvals []artifact.Approval) ar
 	recorded.Approvals = approvals
 	return recorded
 }
+
+// A document marked consistent whose reason names no work item waits for the
+// operator as before, but the Lead Product Manager is not told to take it to
+// him: the gap is in her own record and is hers to put right.
+func TestAConsistentMarkShortOfADirectingItemIsNotSentToTheOperator(t *testing.T) {
+	_, _, provider, pipeline, runs := automaticFixture(t)
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		return backend.RunResult{Backend: domain.BackendClaudeCode, SessionID: "author-session", FinalText: fmt.Sprintf("Recorded.\n%s\n{\"documents\":[{\"action\":\"create\",\"id\":\"operating-rules\",\"kind\":\"rules\",\"title\":\"Operating rules\",\"directory\":\"docs/product\",\"body\":%q,\"reason\":\"the standing rules the operator already gave\",\"intent\":\"consistent\"}]}\n```",
+			artifact.WriteFence, "# Operating rules\n\n## Rules\n\n- A work item's notes are append-only.")}, nil
+	}
+	options, store := publicationConversation(t, pipeline, provider)
+	options.Role, options.Agent = domain.RoleProductManager, "product-manager"
+	options.DocumentPolicy = artifact.Policy{Brief: domain.ApprovalHuman, Goals: domain.ApprovalHuman, Designs: domain.ApprovalAutomatic, SpecificationsHome: pipeline.Config.Product.Specifications}
+	session, err := chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Send(context.Background(), "Record the operating rules."); err != nil {
+		t.Fatal(err)
+	}
+	if len(session.Writes()) != 1 {
+		t.Fatalf("waiting = %+v", session.Writes())
+	}
+	if records, err := runs.Recorded(); err != nil || len(records) != 0 {
+		t.Fatalf("runs = %v, %v", records, err)
+	}
+	saved, err := store.Load(runstate.ConversationIdentity{Agent: "product-manager", Role: domain.RoleProductManager})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(saved.PendingTrackerResults, "Tell the operator") || strings.Contains(saved.PendingTrackerResults, "all the same") {
+		t.Fatalf("the Lead Product Manager was told to take her own gap to the operator: %q", saved.PendingTrackerResults)
+	}
+}

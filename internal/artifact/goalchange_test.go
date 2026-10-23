@@ -151,3 +151,31 @@ func TestAConsistentRevisionThatAddsOrRemovesAGoalWaitsForTheOperator(t *testing
 		})
 	}
 }
+
+// A consistent rewording held back only because its record is short — its
+// reason names no work item — is the Lead Product Manager's to put right, not
+// the operator's to decide, so it is not offered as a reason the operator must
+// be asked.
+func TestARecordShortOfADirectingItemIsNotTheOperatorsToDecide(t *testing.T) {
+	store := generatedStore(t.TempDir())
+	if _, err := store.Create(domain.RoleProductManager, Draft{ID: "the-goals", Kind: KindGoals, Title: "Goals", Directory: productHome, Body: twoGoals, Reason: "created by owner"}, moment()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Approve("the-goals", "approved by the operator in conversation", moment().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	reworded := Write{Action: WriteRevise, ID: "the-goals", Body: strings.Replace(twoGoals, "and say so", "and say plainly", 1), Reason: "reworded for clarity", Intent: IntentConsistent}
+	if _, approved, err := store.PrepareConfirmation(domain.RoleProductManager, reworded, Policy{Goals: domain.ApprovalHuman, SpecificationsHome: productHome}, "confirmed under policy", moment().Add(time.Hour)); err != nil || approved {
+		t.Fatalf("a rewording naming no work item was approved as hers: %v, %v", approved, err)
+	}
+	if why, err := store.ConsistentMarkOverruled(domain.RoleProductManager, reworded, moment().Add(time.Hour)); err != nil || why != "" {
+		t.Fatalf("ConsistentMarkOverruled() = %q, %v, want nothing for a gap in her own record", why, err)
+	}
+	// The same rewording that also adds a goal is the operator's however its
+	// record reads.
+	widened := reworded
+	widened.Body = strings.Replace(reworded.Body, "## Non-goals", "- Ship on Fridays.\n\n## Non-goals", 1)
+	if why, err := store.ConsistentMarkOverruled(domain.RoleProductManager, widened, moment().Add(time.Hour)); err != nil || !strings.Contains(why, `adds the goal "Ship on Fridays."`) {
+		t.Fatalf("ConsistentMarkOverruled() = %q, %v", why, err)
+	}
+}

@@ -81,10 +81,12 @@ func (s Store) PrepareConfirmation(role domain.AgentRole, write Write, policy Po
 }
 
 // ConsistentMarkOverruled says why a write its owner marked consistent with
-// intent still waits for the operator, in a clause a person reads, and is empty
-// for a write that is not so marked and for one whose mark is taken. It is what
-// PrepareConfirmation decides by, offered apart so whoever is left waiting can
-// be told why.
+// intent waits for the operator however it is marked, in a clause a person
+// reads: it creates the goals or the brief, or adds or removes a goal. It is
+// empty for any other write, including one held back only because its own
+// record is short — no directing item named, say — which is the owner's to put
+// right rather than the operator's to decide. It is offered apart from
+// PrepareConfirmation so whoever is left waiting can be told why.
 func (s Store) ConsistentMarkOverruled(role domain.AgentRole, write Write, now time.Time) (string, error) {
 	if write.Intent != IntentConsistent {
 		return "", nil
@@ -96,19 +98,13 @@ func (s Store) ConsistentMarkOverruled(role domain.AgentRole, write Write, now t
 	if !IntentKind(recorded.Kind) {
 		return "", nil
 	}
-	return s.markOverruled(role, write, recorded, body)
+	return s.goalsChanged(write, recorded, body)
 }
 
 // markOverruled is why a prepared revision of the product's intent is not the
-// Lead Product Manager's to approve, or empty where it is. Beyond what the
-// revision records (Rewording), it reads what the revision does to the goals:
-// creating a document that states them, or adding or removing one, is a change
-// of what the goals admit whatever the mark says.
-//
-// The write's own action is read as well as the revision's, because a creation
-// that was already transcribed by hand is recorded as an amendment of the copy
-// on disk (prepareCandidate), and that copy is one the operator has not
-// approved either.
+// Lead Product Manager's to approve, or empty where it is: a record short of
+// what makes it hers (Rewording), or a change to the goals no mark can make hers
+// (goalsChanged).
 func (s Store) markOverruled(role domain.AgentRole, write Write, recorded Artifact, body string) (string, error) {
 	revision := recorded.Revisions[len(recorded.Revisions)-1]
 	if delegated, why := recorded.Rewording(revision); !delegated {
@@ -117,10 +113,23 @@ func (s Store) markOverruled(role domain.AgentRole, write Write, recorded Artifa
 	if role != domain.RoleProductManager {
 		return fmt.Sprintf("it was written by the %s, and only the %s's own change is approved as hers", role.Title(), domain.RoleProductManager.Title()), nil
 	}
+	return s.goalsChanged(write, recorded, body)
+}
+
+// goalsChanged says why a creation or revision of a document that states goals
+// is the operator's whatever it is marked, or is empty where it is not one of
+// those: creating the goals or the brief, and a revision that adds or removes a
+// goal, change what the goals admit by definition.
+//
+// The write's own action is read as well as the revision's, because a creation
+// that was already transcribed by hand is recorded as an amendment of the copy
+// on disk (prepareCandidate), and that copy is one the operator has not
+// approved either.
+func (s Store) goalsChanged(write Write, recorded Artifact, body string) (string, error) {
 	if !StatesGoals(recorded.Kind) {
 		return "", nil
 	}
-	if write.Action == WriteCreate {
+	if write.Action == WriteCreate || recorded.Revisions[len(recorded.Revisions)-1].Action == ActionCreated {
 		return createdGoalsReason(recorded.Kind), nil
 	}
 	_, before, err := s.loadOne(recorded.ID)
