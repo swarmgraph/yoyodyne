@@ -49,6 +49,21 @@ func OperatorReasons() []OperatorReason {
 	}
 }
 
+// OperatorReasonsInContract is the list as the role contracts state it: each
+// reason as the "operator_reason" field takes it, and what it is for in plain
+// words. Every contract that tells a role how to name the operator embeds this
+// rather than spelling the list itself, and a test holds it to OperatorReasons,
+// so a reason added there and not here fails rather than going untaught. The
+// shipped personas carry the same list in Markdown, held to OperatorReasons by
+// a test in internal/config.
+const OperatorReasonsInContract = `"fundamental-intent" for a change to what the goals admit or refuse, ` +
+	`"credential" for a credential or account only a person holds, ` +
+	`"repository-setting" for a forge or repository setting the harness's token cannot change, ` +
+	`"protected-file" for a file beyond every grant — Claude Code's settings files, or a role definition under .yoyodyne/roles — ` +
+	`"human-gate" for a step the work item reserves for a person, ` +
+	`"own-hold" for lifting a hold or pause the operator placed himself, or ` +
+	`"diverged-history" for saying which history is right when a target branch has diverged from the forge`
+
 // Valid reports whether a reason is on the list.
 func (r OperatorReason) Valid() bool {
 	for _, known := range OperatorReasons() {

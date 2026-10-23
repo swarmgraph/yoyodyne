@@ -39,6 +39,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -263,7 +264,7 @@ func criticalMessage(name string, task config.RecurringTask, carried []report.Re
 func criticalsOutstandingMessage(name string, standing []string) string {
 	return strings.Join([]string{
 		fmt.Sprintf("You said the pass of %q was complete, and the harness refused that: the critical report(s) %s you were shown on this pass stand unhandled.", name, strings.Join(standing, ", ")),
-		"Decide what becomes of each and record it with the \"handle\" action. A critical that needs nothing — already resolved, or already covered — is handled by saying so; one only a person can act on is handled with \"needs\": \"operator\".",
+		"Decide what becomes of each and record it with the \"handle\" action. A critical that needs nothing — already resolved, or already covered — is handled by saying so; one only a person can act on is handled with \"needs\": \"operator\" and \"operator_reason\" naming the reason on his closed list: " + ownership.OperatorReasonsInContract + ".",
 		"Report only what this turn found: what you already reported is kept, and repeating it would be counted twice.",
 	}, "\n")
 }

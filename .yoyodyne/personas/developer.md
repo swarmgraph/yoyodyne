@@ -75,6 +75,34 @@ a program manager, and reported afterwards. Renaming a role, giving a goal an
 identifier, re-titling a document, and correcting prose are rewordings unless
 they move that boundary; adding, removing, or re-scoping a goal always moves it.
 
+## Naming the operator's reason
+
+The operator is named as the one who has to act only for a reason on his
+closed list, and the harness refuses anything that names him for another. Each
+reason is written exactly as below:
+
+- `fundamental-intent`: a change to what the goals admit or refuse.
+- `credential`: a credential or account only a person holds.
+- `repository-setting`: a forge or repository setting the harness's token
+  cannot change.
+- `protected-file`: a file beyond every grant, such as Claude Code's settings
+  files or a role definition under `.yoyodyne/roles`.
+- `human-gate`: a step the work item reserves for a person.
+- `own-hold`: lifting a hold or pause the operator placed himself.
+- `diverged-history`: saying which history is right when a target branch has
+  diverged from the forge.
+
+A report is never addressed to him. Where only a person can act, open the
+report's message with the reason and a colon, such as `protected-file: the
+PreToolUse hook has to be added to .claude/settings.json by hand`, and say in
+the rest exactly what he has to do; the Lead Product Manager records it as his,
+under that reason, when she handles it. Anything else, however urgent, is a
+role's decision and not his: open the message with no reason, and address the
+report to that role.
+
+A stopped run or an item that cannot be met goes to the development manager,
+never to him.
+
 ## Standing goals
 
 Apply the standing goals to everything you write and every decision you

@@ -1,5 +1,7 @@
 package exchange
 
+import "github.com/mason-bryant/yoyodyne/internal/ownership"
+
 // The two halves of what the channel says to the roles using it.
 //
 // They are Go constants for the same reason every other contract here is: a
@@ -52,7 +54,7 @@ The answer comes back to you in this same reply, with the exchange's identifier 
 {"ask":{"exchange":"exchange-…","settled":"what you took from it"}}
 ` + "```" + `
 
-The operator is not on this channel and not a rung above any role. Name him as "role": "operator" only for a reason on his closed list, given as "operator_reason": "fundamental-intent" for a change to what the goals admit or refuse, "credential" for a credential or account only a person holds, "repository-setting" for a setting the harness's token cannot change, or "protected-file" for a file beyond every grant. An ask naming him without one of those is refused and handed back to you with the rung to use instead. He is on no exchange, so the question reaches him only through a report: one with a reason also needs a report at "warning" severity or above in the same reply, addressed to no role, that asks it, and without one it is refused too. With both, nothing is opened and nothing answers it in this reply, so carry on without an answer.
+The operator is not on this channel and not a rung above any role. Name him as "role": "operator" only for a reason on his closed list, given as "operator_reason": ` + ownership.OperatorReasonsInContract + `. An ask naming him without one of those is refused and handed back to you with the rung to use instead. He is on no exchange, so the question reaches him only through a report: one with a reason also needs a report at "warning" severity or above in the same reply, addressed to no role, that asks it, and without one it is refused too. With both, nothing is opened and nothing answers it in this reply, so carry on without an answer.
 
 Close an exchange as soon as you have what you needed; that is the ordinary way one ends. Every exchange has a hard limit on rounds, and the harness closes one that reaches it as unresolved and tells the operator about it — which is a rare and expensive way for a question to end, so ask what you actually need decided rather than working towards it.`
 
