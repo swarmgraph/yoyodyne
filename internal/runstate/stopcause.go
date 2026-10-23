@@ -117,7 +117,7 @@ func StopRecognised(class StopClass) bool {
 
 func stopSideListed(class StopClass) (StopSide, bool) {
 	switch class {
-	case StopChecks, StopReview, StopIntegration, StopIntegrationPolicy, StopEscalated:
+	case StopChecks, StopReview, StopIntegration, StopIntegrationPolicy, StopEscalated, StopNeedsDesign:
 		return StopSideWork, true
 	case StopCheckTimeout, StopProviderBudget, StopRelaunchBudget, StopRepairBudget,
 		StopIntegrationBudget, StopPromotionWait, StopContextBound, StopStateBound,
@@ -297,6 +297,7 @@ var stopSays = map[StopClass]string{
 	StopDeveloperAccount:  "the developer's provider account could not be used",
 	StopReviewAccount:     "the reviewer's provider account could not be used",
 	StopEscalated:         "the item was raised as one that cannot be met as written",
+	StopNeedsDesign:       "the item was raised as waiting on the architect's design",
 	StopContextBound:      "what the AI session is sent grew past its size limit",
 	StopStateBound:        "the run's record grew past its size limit",
 	StopEventBound:        "the run's event log grew past its size limit",

@@ -63,6 +63,15 @@ type Authority struct {
 	// authority beyond reading. Such an action is permitted on an item inside the
 	// role's own lane and nowhere else.
 	LaneActions []string
+	// RemovesDesignHold is whether this role may take the needs-design label off
+	// an item: the architect's work-item.needs-design.remove, and nobody else's.
+	// Every other role that labels is refused that one removal
+	// (docs/designs/needs-design-gate.md).
+	RemovesDesignHold bool
+	// LabelsOnlyDesignHold is a role whose only route to "label" is that
+	// removal: it holds neither the unscoped nor the lane-scoped label, so any
+	// label action but removing needs-design is refused whole.
+	LabelsOnlyDesignHold bool
 	// ParentRequired refuses a creation or a reparenting that names no parent.
 	// It is what separates decomposing admitted work from admitting work: a role
 	// with it may build structure underneath something the product manager
@@ -236,12 +245,15 @@ func authorityFrom(role domain.AgentRole, owns string, holds []capability.Capabi
 	}
 	contract += "\n\n" + toolcatalog.ContractHeld(holds)
 	return Authority{
-		Role:             role,
-		Title:            role.Title(),
-		Owns:             owns,
-		Contract:         contract,
-		TrackerActions:   trackerActionsFor(has),
-		LaneActions:      laneActionsFor(has),
+		Role:              role,
+		Title:             role.Title(),
+		Owns:              owns,
+		Contract:          contract,
+		TrackerActions:    trackerActionsFor(has),
+		LaneActions:       laneActionsFor(has),
+		RemovesDesignHold: has(capability.WorkItemDesignHoldRemove),
+		LabelsOnlyDesignHold: has(capability.WorkItemDesignHoldRemove) &&
+			!has(trackerCapabilities[actionLabel]) && !holdsLaneScoped(has, actionLabel),
 		ParentRequired:   has(capability.WorkDecompose) && !has(capability.BacklogAdmit),
 		Proposals:        has(capability.ProposalRaise),
 		Concerns:         has(capability.ConcernRaise),
@@ -275,7 +287,8 @@ func authorityFrom(role domain.AgentRole, owns string, holds []capability.Capabi
 func trackerActionsFor(has func(capability.Capability) bool) []string {
 	var permitted []string
 	for _, action := range trackerActionNames {
-		if has(trackerCapabilities[action]) || holdsLaneScoped(has, action) {
+		if has(trackerCapabilities[action]) || holdsLaneScoped(has, action) ||
+			(action == actionLabel && has(capability.WorkItemDesignHoldRemove)) {
 			permitted = append(permitted, action)
 		}
 	}
@@ -517,6 +530,12 @@ func (s *Session) authorize(parsed parsedReply) error {
 				Refused: fmt.Sprintf("the %q tracker action", action.Action),
 				Reason:  "this role may ask for " + renderActions(authority.TrackerActions),
 			}
+		}
+		// Who may put the needs-design label on and who may take it off is decided
+		// from the block alone; whether the design is readable yet is asked as the
+		// removal runs. See designhold.go.
+		if err := refuseDesignHoldLabel(authority, action); err != nil {
+			return err
 		}
 		// What the block alone shows is outside the lane is refused here, whole;
 		// what depends on the item is refused as the action runs. See lane.go.
@@ -771,17 +790,20 @@ const readOnlyTrackerClause = itemReadClause + "\n\n" + `The state you were give
 // architectTrackerClause is the architect's tracker authority: the two
 // operations that only read, and deciding a change proposed to a document she
 // owns, which writes to the amendment log and to nothing in the tracker.
-const architectTrackerClause = itemReadClause + "\n\n" + `The state you were given lists work items by title only, and it is a snapshot: it was gathered when this conversation opened and it does not move. You can look at the tracker as it stands now, and looking is the whole of what you may do to it; the one other action the block carries for you decides a proposed change to one of your documents and changes nothing in the tracker. To ask for either, end your reply with exactly one block, after the prose:
+const architectTrackerClause = itemReadClause + "\n\n" + `The state you were given lists work items by title only, and it is a snapshot: it was gathered when this conversation opened and it does not move. You can look at the tracker as it stands now, and looking is nearly the whole of what you may do to it. One action changes an item: taking the ` + domain.NeedsDesignLabel + ` label off it. Another decides a proposed change to one of your documents and changes nothing in the tracker. To ask for any of them, end your reply with exactly one block, after the prose:
 
 ` + "```" + `yoyodyne-tracker
 {"actions":[
   {"action":"read","id":"beads-id"},
   {"action":"survey"},
+  {"action":"label","id":"beads-id","remove":"` + domain.NeedsDesignLabel + `","reason":"what the design decided and where it is"},
   {"action":"amendment","amendment":"amendment-id","decision":"approve|decline","reason":"why"}
 ]}
 ` + "```" + `
 
-"read" returns one bounded part of an item and "survey" returns the open queue as the tracker holds it right now. Those three are the only actions you may ask for; any other is refused and nothing in the block is carried out. Ask for at most ` + maxTrackerActionsPerTurnText + ` in one block, never invent an identifier, and leave the block out entirely when you need none of them. "reason" is required on "amendment". The harness performs them, records them, tells the operator, and tells you what came back before you finish answering.`
+"read" returns one bounded part of an item and "survey" returns the open queue as the tracker holds it right now. Those four are the only actions you may ask for; any other is refused and nothing in the block is carried out. Ask for at most ` + maxTrackerActionsPerTurnText + ` in one block, never invent an identifier, and leave the block out entirely when you need none of them. "reason" is required on "label" and on "amendment".
+
+An item labelled ` + domain.NeedsDesignLabel + ` is held from every developer run the harness would start until you take the label off, because somebody decided it cannot be built well until a design question is answered; its notes say who and what the question is. Remove the label only once the developer who pulls the item can read the answer: either it is in the item's own design field, up to 8 KiB, or it is a design landed in the designs home whose revision reason names the item. The harness checks which, refuses the removal while neither is true, and records on the item which of the two it was. A ruling you wrote only in prose, or a design written and not yet landed, does not lift the label. You may take only that label off, and put no label on. The harness performs them, records them, tells the operator, and tells you what came back before you finish answering.`
 
 // reportClause closes every contract but the product manager's, which states
 // the same thing in its own words. What it adds to the shared report contract is
@@ -865,7 +887,7 @@ Work you carve out of a run that failed or was deferred is written against that 
 
 "executor" says what carries a piece of work where a developer run does not, and it names whose conversation carries it: "conversation:architect", "conversation:product-manager", "conversation:development-manager", "conversation:developer", or "conversation:reviewer". It means the work happens in a conversation with that role — a document the architect owns, a decision recorded with the Lead Product Manager — rather than in a run with a worktree, a diff, and a reviewer. Name the role rather than the bare word "conversation", which is refused: until whoever holds the work starts on it, the role you named is the only thing that says who has it. Decomposition is where this is usually noticed: a child that is somebody's judgement rather than somebody's diff carries it, and a child that is a change to the repository does not. "update" takes it as well, for a piece of work already broken out before you saw it that way. An item carrying it keeps its place in the order and is never selected for a developer run; an item left without one that a run cannot execute spends a run and two review rounds producing an empty diff, and those rounds count against its cap. It also closes by itself: when a revision of a document that role owns lands whose reason opens with the item's identifier — "yoyodyne-ifd.330 - side conversations designed" in a design's revision log — the harness closes the item citing that revision, so a design-only item is not closed by hand after the fact. Say what lands in the done-means, naming the design where you can, since that is the clause the landing answers. Work that names no executor is a developer run, which is nearly all of it.
 
-A label is a word the tracker keeps on an item and filters on, and it is how an admission practice is written down where it can be checked: the operator's practice is that every item admitted under a directive, every bug, and every stall or mistake fix carries one, and a seat that watches for the label has work only where the label is there. "labels" on a "create" applies them in the same write as the creation, so a child never exists without them; a child carved out of a labelled parent ordinarily carries its parent's label, so read the parent before you decompose it. "label" puts one label on an item that already exists or takes one off: "add" names the label to put on and "remove" the one to take off, exactly one of the two, and the reason is recorded on the item beside the change. A label is an identifier — one word of letters, digits, dots, underscores, and hyphens, such as "reliability" — and an action naming anything else is refused whole. Labels are shown beside each item wherever the queue is listed.
+A label is a word the tracker keeps on an item and filters on, and it is how an admission practice is written down where it can be checked: the operator's practice is that every item admitted under a directive, every bug, and every stall or mistake fix carries one, and a seat that watches for the label has work only where the label is there. "labels" on a "create" applies them in the same write as the creation, so a child never exists without them; a child carved out of a labelled parent ordinarily carries its parent's label, so read the parent before you decompose it. "label" puts one label on an item that already exists or takes one off: "add" names the label to put on and "remove" the one to take off, exactly one of the two, and the reason is recorded on the item beside the change. A label is an identifier — one word of letters, digits, dots, underscores, and hyphens, such as "reliability" — and an action naming anything else is refused whole. Labels are shown beside each item wherever the queue is listed. ` + needsDesignLabelClause + `
 
 One parent is not decomposed twice into the same children. Before anything is created, the harness compares the child you are creating against the children the parent already has, open and closed alike, and where one already carries this scope nothing is created and the result names it. Read that child rather than rewording the title: if the work is already carved out, act on the item that carves it out, and if the parent has genuinely been decomposed into the wrong pieces, say so to the operator. A parent decomposed twice is what this is for — the second decomposition of one item cost a full run, both of its repair attempts, and a review that demanded code already merged, because a diff against the target branch cannot contain work that branch already carries.
 

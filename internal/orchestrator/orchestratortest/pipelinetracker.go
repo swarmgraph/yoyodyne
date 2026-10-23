@@ -69,6 +69,18 @@ func (h *PipelineTracker) Reopen(_ context.Context, id, _ string, parking domain
 	return h.SetStatus(id, "open")
 }
 
+// ReturnForDesign returns an item to the queue labelled needs-design.
+func (h *PipelineTracker) ReturnForDesign(_ context.Context, id, _ string) (beads.WorkItem, error) {
+	h.Queue.Mu.Lock()
+	for index := range h.Queue.Items {
+		if h.Queue.Items[index].ID == id && !domain.NeedsDesign(h.Queue.Items[index].Labels) {
+			h.Queue.Items[index].Labels = append(h.Queue.Items[index].Labels, domain.NeedsDesignLabel)
+		}
+	}
+	h.Queue.Mu.Unlock()
+	return h.SetStatus(id, "open")
+}
+
 func (h *PipelineTracker) AddBlocker(_ context.Context, id, blockerID string) error {
 	h.Queue.Mu.Lock()
 	defer h.Queue.Mu.Unlock()

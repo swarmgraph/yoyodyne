@@ -264,7 +264,14 @@ func (o Outcome) EscalationReason() string {
 // ApprovalDischarges the reviewer's. They are separate because what a surface
 // says about an item left open depends on which of the two readers said so.
 func (o Outcome) LandingDischarges() bool {
-	return o.Landing != landing.OutcomeEvidence && o.Landing != landing.OutcomeEscalate && o.LandingProblem == ""
+	return o.Landing != landing.OutcomeEvidence && o.Landing != landing.OutcomeEscalate &&
+		o.Landing != landing.OutcomeNeedsDesign && o.LandingProblem == ""
+}
+
+// RaisedForDesign is the outcome's half of runstate.State.RaisedForDesign: the
+// developer raised that the item waits on the architect's design.
+func (o Outcome) RaisedForDesign() bool {
+	return o.Landing == landing.OutcomeNeedsDesign
 }
 
 func (o Outcome) ApprovalDischarges() bool {
@@ -286,6 +293,10 @@ func (o Outcome) UndischargedAccount() string {
 	// An escalation is answered for first, because it is a different statement
 	// from the two below it: they say this change is not the work, and it says no
 	// change would be until somebody decides about the item.
+	if o.RaisedForDesign() {
+		return "its developer raised that this item waits on the architect's design, with the question: " +
+			strings.Join(strings.Fields(o.LandingReason), " ")
+	}
 	if o.Escalated() {
 		return "its " + o.EscalatedBy().Title() + " raised this item as one that cannot be met as it stands, for the development manager to decide: " +
 			strings.Join(strings.Fields(o.EscalationReason()), " ")
@@ -302,6 +313,9 @@ func (o Outcome) UndischargedAccount() string {
 // surface because the two dispositions are what an operator acts on differently:
 // a parking waits for a person, and a dependency releases itself.
 func (o Outcome) UndischargedDisposition() string {
+	if o.RaisedForDesign() {
+		return "is labelled " + domain.NeedsDesignLabel + " until the architect's design for it is readable and she removes the label"
+	}
 	if o.Escalated() {
 		return "is parked until the development manager decides what happens to it"
 	}
@@ -324,6 +338,10 @@ func renderLandingNote(outcome Outcome) string {
 	if outcome.Landing == landing.OutcomeEscalate {
 		return "Landing claim: escalate — " + strings.Join(strings.Fields(outcome.LandingReason), " ") +
 			" (raised to the development manager to decide; nothing was integrated)"
+	}
+	if outcome.Landing == landing.OutcomeNeedsDesign {
+		return "Landing claim: needs-design — " + strings.Join(strings.Fields(outcome.LandingReason), " ") +
+			" (returned labelled " + domain.NeedsDesignLabel + " for the architect's design; nothing was integrated)"
 	}
 	line := fmt.Sprintf("Landing claim: %s — %s", outcome.Landing,
 		strings.Join(strings.Fields(outcome.LandingReason), " "))
@@ -353,6 +371,12 @@ func renderLandingNote(outcome Outcome) string {
 // is a developer's landing that the review agreed with rather than a second
 // decision.
 func undischargedLandingReason(state runstate.State) string {
+	// A raise for design is answered first, in the words of the question the
+	// architect is to answer, because that question is the item's state now.
+	if state.RaisedForDesign() {
+		return fmt.Sprintf("Yoyodyne run %s raised that this item waits on the architect's design, so nothing was integrated and the item is labelled %s until her design for it is readable — in the item's design field, or landed in the designs home naming the item — and she removes the label. What the developer had changed is on branch %s. The developer's question: %s",
+			state.RunID, domain.NeedsDesignLabel, state.Branch, state.LandingReason)
+	}
 	// The escalation is answered for before either of the two below, because it is
 	// the only one of the three where nothing was integrated and where what the
 	// item is waiting for is a person rather than a release. A reader told this in

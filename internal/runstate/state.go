@@ -175,6 +175,10 @@ const (
 	// above: the item cannot be met as it stands, and what the run produced is a
 	// decision for the development manager rather than a change.
 	LandingEscalate = "escalate"
+	// LandingNeedsDesign is the developer raising that the item waits on the
+	// architect's design: the run ends with nothing integrated, and the item goes
+	// back labelled needs-design rather than parked.
+	LandingNeedsDesign = "needs-design"
 )
 
 // What a developer recorded of its own executions is duplicated here for the
@@ -220,7 +224,7 @@ var (
 	// finding may carry and most do: it is the ordinary finding, one this change
 	// has to act on.
 	findingDispositions = []string{DispositionOutOfScope}
-	landingOutcomes     = []string{LandingDischarged, LandingEvidence, LandingEscalate}
+	landingOutcomes     = []string{LandingDischarged, LandingEvidence, LandingEscalate, LandingNeedsDesign}
 
 	verificationOutcomes = []string{VerificationPassed, VerificationFailed, VerificationRefused}
 )
@@ -5113,12 +5117,24 @@ func RaisedBy(parking string) (string, bool) {
 // LandingDischarges is the developer's half of the question above: whether what
 // this run claimed about its own change closes the item.
 //
-// It answers no in exactly three cases: a claim of evidence, a claim that the
-// item cannot be met as it stands, and a claim that arrived unreadable.
-// Everything else discharges, which is every run that claimed nothing and every
-// run recorded before this channel existed.
+// It answers no in exactly four cases: a claim of evidence, a claim that the
+// item cannot be met as it stands, a raise that it waits on the architect's
+// design, and a claim that arrived unreadable. Everything else discharges, which
+// is every run that claimed nothing and every run recorded before this channel
+// existed.
 func (s State) LandingDischarges() bool {
-	return s.LandingOutcome != LandingEvidence && s.LandingOutcome != LandingEscalate && s.LandingProblem == ""
+	return s.LandingOutcome != LandingEvidence && s.LandingOutcome != LandingEscalate &&
+		s.LandingOutcome != LandingNeedsDesign && s.LandingProblem == ""
+}
+
+// RaisedForDesign reports a run its developer ended by raising that the item
+// waits on the architect's design (docs/designs/needs-design-gate.md). Nothing
+// is integrated on such a run, and the item goes back open and labelled
+// needs-design with the developer's question, which is LandingReason, rather
+// than parked. It is not an escalation: nothing is put to the development
+// manager, and the label is what holds the item.
+func (s State) RaisedForDesign() bool {
+	return s.LandingOutcome == LandingNeedsDesign
 }
 
 // ApprovalDischarges is the reviewer's half: whether the approval this change
@@ -5164,7 +5180,7 @@ func (s State) LandingImpediment() string {
 // by contract: the parking is what holds it while the development manager
 // decides, and her decision is what releases it.
 func (s State) Parks() bool {
-	return !s.Discharges() && s.LandingImpediment() == ""
+	return !s.Discharges() && !s.RaisedForDesign() && s.LandingImpediment() == ""
 }
 
 // validateIndependentInvocations enforces what an integrated change claims: two

@@ -37,6 +37,10 @@ const (
 	StopDeveloperAccount  StopClass = "developer-account"
 	StopReviewAccount     StopClass = "review-account"
 	StopEscalated         StopClass = "work-item-escalated"
+	// StopNeedsDesign is a run its developer ended by raising that the item
+	// waits on the architect's design. Like an escalation it is a successful
+	// account rather than a failure, with nothing integrated.
+	StopNeedsDesign       StopClass = "work-item-needs-design"
 	StopContextBound      StopClass = "context-bound"
 	StopStateBound        StopClass = "state-bound"
 	StopEventBound        StopClass = "event-bound"
@@ -101,7 +105,7 @@ var stopClasses = []StopClass{
 	StopUsagePause, StopOperator, StopManager, StopRedeploy, StopDeadClaim,
 	StopDeveloperAccount, StopReviewAccount, StopEscalated, StopContextBound,
 	StopStateBound, StopEventBound, StopIntegrationPolicy, StopRecoveryWindow,
-	StopReviewBound,
+	StopReviewBound, StopNeedsDesign,
 }
 
 // StopClasses is the stop vocabulary as a caller outside this package reads it,

@@ -219,6 +219,22 @@ func (f *Tracker) Reopen(_ context.Context, _ string, reason string, parking dom
 	return f.Item, nil
 }
 
+func (f *Tracker) ReturnForDesign(_ context.Context, _ string, reason string) (beads.WorkItem, error) {
+	f.Calls = append(f.Calls, "return-for-design")
+	if f.ReopenErr != nil {
+		return beads.WorkItem{}, f.ReopenErr
+	}
+	f.Reopened = true
+	f.ReopenReason = reason
+	f.Notes += reason
+	f.NoteRecords = append(f.NoteRecords, reason)
+	f.Item.Status = "open"
+	if !domain.NeedsDesign(f.Item.Labels) {
+		f.Item.Labels = append(f.Item.Labels, domain.NeedsDesignLabel)
+	}
+	return f.Item, nil
+}
+
 func (f *Tracker) AddBlocker(_ context.Context, _ string, blockerID string) error {
 	f.Calls = append(f.Calls, "blocker")
 	if f.BlockerErr != nil {

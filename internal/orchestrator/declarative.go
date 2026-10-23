@@ -510,9 +510,15 @@ func parksTheRun(err error) bool {
 // observed for it and the instance is left standing where the run left it. The
 // gap is recorded as a divergence at the ending, which is what observeUnfinished
 // is for.
+//
+// A developer's raise that the item waits on the architect's design is the same
+// kind of ending and is answered the same way.
 func raisesAnEscalation(err error) bool {
-	var raised escalationRaised
-	return errors.As(err, &raised)
+	var (
+		raised    escalationRaised
+		forDesign designRaised
+	)
+	return errors.As(err, &raised) || errors.As(err, &forDesign)
 }
 
 // observeDevelopEnded records what the developer's state produced when an

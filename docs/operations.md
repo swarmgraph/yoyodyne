@@ -6026,7 +6026,7 @@ without landing. It uses the existing closed list, extended with the bounds in
 `provider-idle`, `provider-budget`, `repair-budget`, `integration-budget`,
 `relaunch-budget`, `promotion-wait`, `usage-pause`, `operator-stop`, `manager-stop`,
 `redeploy-drain`, `dead-claim`, `developer-account`, `review-account`,
-`work-item-escalated`, `integration-policy`, `recovery-window`, `context-bound`,
+`work-item-escalated`, `work-item-needs-design`, `integration-policy`, `recovery-window`, `context-bound`,
 `state-bound`, `event-bound`, `review-bound`, and the
 inventory's causes outside the work. Other refusals retain their gate names.
 The refusal record still controls refunds; a stop class changes no budget

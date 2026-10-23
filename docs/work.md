@@ -1032,6 +1032,34 @@ another work item has the evidence landing above for exactly that; this verb is
 the answer for when nothing in the backlog is what the item is waiting on, and
 the parking is what holds it while the decision is pending.
 
+A developer has one more way to end the run in the round it is working in: an
+item that can be met, but whose conditions for done turn on a choice about
+behaviour nobody has made and that is the architect's to make
+([the design](designs/needs-design-gate.md)):
+
+````
+```yoyodyne-landing
+{"outcome":"needs-design","why":"should a replacement interrupted mid-write leave the old file or nothing at all?"}
+```
+````
+
+It costs what an escalation costs — no checks, no review, no repair attempt,
+nothing integrated, the branch and worktree kept — and the run is recorded as
+having succeeded, with the stop recorded as `work-item-needs-design`. What
+differs is where the item goes. It is not parked and nothing is docketed for the
+development manager: it goes back open, labelled `needs-design`, with the
+developer's question on its notes, and the label holds it from every start the
+harness chooses until the architect's design is readable and she removes the
+label. A later run starts from the target branch, not from the kept change.
+
+The same label is put on in conversation by the Lead Product Manager, the
+development manager, and a program manager inside its lane, with the question
+as the reason. Only the architect takes it off, and the harness refuses her
+removal until the design is either in the item's own design field (at most
+8 KiB) or in a design committed in the designs home whose revision reason names
+the item; the removal records which of the two it was. Any other role's
+attempt to remove it is refused whole.
+
 It is not the answer for a run that could not finish. That is a failure and is
 reported as one. Nor is it an alternative to repair: a change that has work left
 to do is a repair however much of it there is, and an escalation says that no
