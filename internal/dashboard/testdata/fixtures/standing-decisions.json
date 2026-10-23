@@ -419,11 +419,10 @@
         "title": "V1 non-goals",
         "reason": "The operator decided on October 11 that the dashboard may take his own decisions.",
         "product_intent": true,
-        "turn": 2328,
-        "written_at": "2026-10-12T04:20:00Z"
+        "turn": 2328
       },
       "label": "document waiting for approval",
-      "what": "document document-2328.1, a revision of v1-non-goals (\"V1 non-goals\") written by the Lead Product Manager in conversation chat-91253e0e070c17b0663651cc48602122, waits for the operator's approval, since 2026-10-11 21:20 PDT",
+      "what": "document document-2328.1, a revision of v1-non-goals (\"V1 non-goals\") written by the Lead Product Manager in conversation chat-91253e0e070c17b0663651cc48602122, waits for the operator's approval, since a time its record does not hold",
       "whose": "the operator's — it states the product's intent, and a change to it is his to approve; `yoyo chat --message \"approve document-2328.1\"` approves it and `yoyo chat --message \"decline document-2328.1 <reason>\"` declines it, and it leaves this line once he has",
       "owner_reason": "a change to the fundamental goals, which only the operator decides"
     }
@@ -610,7 +609,7 @@
       "why": "The operator decided on October 11 that the dashboard may take his own decisions.",
       "ask_role": "product-manager",
       "ask_agent": "product-manager",
-      "says": "document document-2328.1, a revision of v1-non-goals (\"V1 non-goals\") written by the Lead Product Manager in conversation chat-91253e0e070c17b0663651cc48602122, waits for the operator's approval, since 2026-10-11 21:20 PDT"
+      "says": "document document-2328.1, a revision of v1-non-goals (\"V1 non-goals\") written by the Lead Product Manager in conversation chat-91253e0e070c17b0663651cc48602122, waits for the operator's approval, since a time its record does not hold"
     }
   ]
 }
