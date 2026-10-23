@@ -458,9 +458,12 @@ suite's own race binaries do to a Git command started beside them. And those
 tests are about what Git and the harness do, never about how long Git took, so
 the tests in `internal/gitworktree` and `internal/orchestrator` give every
 manager they build a budget of their own, `testGitBudget`, ten minutes, and so
-does a Git command a test runs beside one. The tracker's conformance checks in
-`internal/beads` bound each `bd` command the same way, in
-`conformanceTimeout`. Ten minutes catches a command that has hung, which any
+does a Git command a test runs beside one. So does the Git manager
+`internal/review` builds, in a `testGitBudget` of its own. The tracker's
+conformance checks in `internal/beads`, and its client tests that run a stub
+`bd`, bound each command the same way, in `conformanceTimeout`, and the tests in
+`internal/execution` that run a real process for what it saw or printed give
+it `testProcessBudget`. Ten minutes catches a command that has hung, which any
 figure does, and it sits under `TEST_TIMEOUT`, so the hang is reported as the
 command it was. [The record](diagnoses/yoyodyne-ifd-429-11-git-budget-under-load.md)
 has the reports this came from and the suite passing with the load between 34

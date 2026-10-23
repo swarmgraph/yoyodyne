@@ -21,7 +21,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestAProcessTheRunnerStartsCannotTriggerGitMaintenance(t *testing.T) {
@@ -52,7 +51,7 @@ func TestTheFenceReachesAProcessTheLaunchedProcessStartsItself(t *testing.T) {
 		Name:    "/bin/sh",
 		Args:    []string{"-c", "git -C " + repository + " config --get gc.auto"},
 		Env:     unfencedEnvironment(),
-		Timeout: 30 * time.Second,
+		Timeout: testProcessBudget,
 	}, nil)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -201,7 +200,7 @@ func gitConfigThroughRunner(t *testing.T, repository, setting string) string {
 		Name:    "git",
 		Args:    []string{"-C", repository, "config", "--get", setting},
 		Env:     unfencedEnvironment(),
-		Timeout: 30 * time.Second,
+		Timeout: testProcessBudget,
 	}, nil)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)

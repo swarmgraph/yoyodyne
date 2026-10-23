@@ -110,7 +110,7 @@ until [ -f '%[1]s/started.one' ] && [ -f '%[1]s/started.two' ] && [ -f '%[1]s/st
 	result, err := (OSProcessRunner{}).Run(context.Background(), Command{
 		Name:    "/bin/sh",
 		Args:    []string{"-c", script},
-		Timeout: 30 * time.Second,
+		Timeout: testProcessBudget,
 	}, nil)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)

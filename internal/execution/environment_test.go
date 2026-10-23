@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestExplicitEnvironmentCarriesOnlyWhatTheAllowlistAdmits(t *testing.T) {
@@ -99,7 +98,7 @@ func TestAChildGivenAnExplicitEnvironmentDoesNotSeeTheSlackTokens(t *testing.T) 
 		Name:    "/bin/sh",
 		Args:    []string{"-c", "env"},
 		Env:     ExplicitEnvironment(nil),
-		Timeout: 30 * time.Second,
+		Timeout: testProcessBudget,
 	}, nil)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)

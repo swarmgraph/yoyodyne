@@ -33,6 +33,11 @@ import (
 // Makefile's TEST_TIMEOUT is, and kept under that figure so a hung bd is still
 // ended here and reported as the command it was rather than by the test
 // binary's own timeout.
+//
+// The client tests that run a stub bd as a real process use it for the same
+// reason: they are about what the client does with the answer, never about how
+// long the answer took, and a loaded suite has taken longer than the thirty
+// seconds they once gave it to start a process at all.
 const conformanceTimeout = 10 * time.Minute
 
 // TestSyncRemoteConformance checks the two things about bd this adapter assumes

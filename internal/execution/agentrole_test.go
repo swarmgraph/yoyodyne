@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
@@ -53,7 +52,7 @@ func TestAChildLaunchedForARoleSeesTheRoleItWasLaunchedFor(t *testing.T) {
 		Name:    "/bin/sh",
 		Args:    []string{"-c", "env"},
 		Env:     WithAgentRole(ExplicitEnvironment(nil), domain.RoleDeveloper),
-		Timeout: 30 * time.Second,
+		Timeout: testProcessBudget,
 	}, nil)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)

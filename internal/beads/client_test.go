@@ -449,7 +449,7 @@ func TestClientListsWithoutTheLimitFlagWhereBDRefusesIt(t *testing.T) {
 	if err := os.WriteFile(bd, []byte(script), 0o700); err != nil {
 		t.Fatalf("WriteFile(bd) error = %v", err)
 	}
-	client := Client{Runner: execution.OSProcessRunner{}, Binary: bd, Dir: directory, Timeout: 30 * time.Second}
+	client := Client{Runner: execution.OSProcessRunner{}, Binary: bd, Dir: directory, Timeout: conformanceTimeout}
 
 	items, err := client.List(context.Background(), "open")
 	if err == nil || !strings.Contains(err.Error(), "read 1 work item(s)") || !strings.Contains(err.Error(), "work may be missing") {

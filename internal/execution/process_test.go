@@ -583,7 +583,7 @@ func TestOSProcessRunnerTruncatesAnOversizedLineInsteadOfFailingTheProcess(t *te
 	t.Parallel()
 
 	command := helperCommand("oversized-line", "")
-	command.Timeout = 30 * time.Second
+	command.Timeout = testProcessBudget
 	var observed []Output
 	result, err := (OSProcessRunner{}).Run(context.Background(), command, func(output Output) {
 		observed = append(observed, output)
@@ -623,7 +623,7 @@ func TestOSProcessRunnerDoesNotCutThroughASecret(t *testing.T) {
 
 	secret := "sk-cut-straddling-credential"
 	command := helperCommand("straddling-secret", secret)
-	command.Timeout = 30 * time.Second
+	command.Timeout = testProcessBudget
 	result, err := (OSProcessRunner{}).Run(context.Background(), command, nil)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -749,6 +749,18 @@ func TestRedactorReplacesOverlappingSecretsLongestFirst(t *testing.T) {
 		t.Fatalf("Redact() = %q", got)
 	}
 }
+
+// testProcessBudget is the total budget a test here gives a real process whose
+// running out is not what the test asserts. Those tests are about what the
+// process did — what it saw, what it printed, what it left behind — never about
+// how long it took, so the only thing the budget has to catch is a process that
+// has hung, and any figure catches that. Thirty seconds also caught processes
+// that were working, because under a loaded suite Git has taken sixty-six. Ten
+// minutes sits under the Makefile's TEST_TIMEOUT, so a hung process is still
+// ended by the runner and reported as the command it was rather than by the
+// binary's own timeout. The tests whose subject is the budget hold it through
+// the runner's seam instead.
+const testProcessBudget = 10 * time.Minute
 
 func helperCommand(mode, secret string) Command {
 	return Command{
