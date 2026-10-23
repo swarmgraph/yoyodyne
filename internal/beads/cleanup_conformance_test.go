@@ -318,9 +318,12 @@ func TestTimeoutHolderConformance(t *testing.T) {
 	if err == nil || !timedOut(err) {
 		t.Fatalf("Show() behind a held lock error = %v, want it stopped at its limit", err)
 	}
-	want := fmt.Sprintf("when it was stopped, the tracker's store was held open by process %d (this one)", os.Getpid())
-	if !strings.Contains(err.Error(), want) {
-		t.Fatalf("Show() error = %q, want it to say %q", err, want)
+	// Holders are named in process-number order, so another process that has
+	// the store open at the same moment may be named ahead of this one; what is
+	// held to is that this one is named among them.
+	said, want := "when it was stopped, the tracker's store was held open by ", fmt.Sprintf("process %d (this one)", os.Getpid())
+	if at := strings.Index(err.Error(), said); at < 0 || !strings.Contains(err.Error()[at:], want) {
+		t.Fatalf("Show() error = %q, want it to say %q naming %q", err, said, want)
 	}
 	// Since when is ps's to say, and a sandbox may refuse ps; then the account
 	// says that instead, which is the other answer the record may give.
