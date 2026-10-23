@@ -328,5 +328,9 @@ run of its own — `runstate.State.OutsideFile`, reserved by
 becomes of the record. `pinnedfiles.go` is `gatePinnedFiles`, the comparison
 `verify` makes of every pinned file with its record before the checks.
 `runstate.State.HarnessAuthored` is what the places that treat a document
-landing specially ask, so they treat this run the same way.
+landing specially ask, so they treat this run the same way — except the merge
+queue, which admits this run like any approved change: `outsidefilequeue.go`
+is `OutsideFileItems`, the tracker the queue is given, which answers for the
+run's bookkeeping item and writes onto the item its record names, and a
+hand-back ends the run for `queueRefusedOutsideFile` to count.
 

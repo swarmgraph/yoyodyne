@@ -15,7 +15,8 @@ package orchestrator
 // (BringInOutsideFile): at most one at a time, holding no developer slot, which
 // writes the file and the record's harness fields through the confined writer
 // and nothing else, runs the full checks, and is reviewed independently before
-// it merges through its pull request. A failure that is about the record stops
+// it merges through its pull request, and through the merge queue when that is
+// switched on (outsidefilequeue.go). A failure that is about the record stops
 // the record until it changes on the target branch, and files one warning
 // report for the development manager; a network that fails is waited out and
 // counts for nothing.
@@ -161,7 +162,7 @@ func (p Pipeline) dueOutsideFile(ctx context.Context, store OutsideFileStore, tr
 	if !record.Due(present) {
 		return none, false, nil
 	}
-	if attempt.Waiting(now) || attempt.Attempt >= runstate.MaxOutsideFileAttempts {
+	if attempt.Waiting(now) || attempt.Attempt >= runstate.MaxOutsideFileRuns {
 		return none, false, nil
 	}
 	if _, err := policy.CheckAddress(recordPath, record.URL, record.Version); err != nil {
@@ -252,11 +253,48 @@ func (p Pipeline) waitOutOutsideFile(store OutsideFileStore, landing runstate.Ou
 	attempt.RetryFrom, attempt.Waited = &now, why
 	if counted && attempt.Attempt <= landing.Attempt {
 		attempt.Attempt = landing.Attempt + 1
+		attempt.Unjudged++
 	}
-	if attempt.Attempt >= runstate.MaxOutsideFileAttempts {
+	if attempt.Unjudged >= runstate.MaxOutsideFileAttempts {
 		return p.stopOutsideFile(store, attempt, landing.For, fmt.Sprintf("%d runs in a row stopped without anything judging the file, the last because %s", runstate.MaxOutsideFileAttempts, why))
 	}
 	return store.SaveOutsideFileAttempt(attempt)
+}
+
+// queueRefusedOutsideFile records a run whose change the merge queue refused:
+// the queue's combined change failed its checks or its review, or would not
+// apply to the target as it then stood. Nothing is handed to a developer; the
+// next pull starts a fresh run from the record as the target branch then holds
+// it. After MaxOutsideFileQueueFailures such runs in a row for one record's
+// content, the record is stopped and reported once with every reason.
+func (p Pipeline) queueRefusedOutsideFile(store OutsideFileStore, landing runstate.OutsideFileLanding, why string) error {
+	attempt, found, err := store.OutsideFileAttempt(landing.Record)
+	if err != nil {
+		return err
+	}
+	if !found || !attempt.For(landing.RecordDigest) {
+		attempt = runstate.OutsideFileAttempt{Record: landing.Record, RecordDigest: landing.RecordDigest}
+	}
+	if attempt.Attempt > landing.Attempt {
+		// This run's refusal is already counted.
+		return nil
+	}
+	attempt.Attempt = landing.Attempt + 1
+	attempt.QueueFailures = append(attempt.QueueFailures, why)
+	if len(attempt.QueueFailures) >= runstate.MaxOutsideFileQueueFailures {
+		reasons := make([]string, len(attempt.QueueFailures))
+		for i, reason := range attempt.QueueFailures {
+			reasons[i] = fmt.Sprintf("(%d) %s", i+1, strings.TrimSuffix(oneline.Fold(reason, 700), "."))
+		}
+		return p.stopOutsideFile(store, attempt, landing.For, fmt.Sprintf("the merge queue refused the change of %d runs in a row: %s", len(attempt.QueueFailures), strings.Join(reasons, "; ")))
+	}
+	return store.SaveOutsideFileAttempt(attempt)
+}
+
+// queueRefused reports a run that brings a file in whose change was admitted
+// to the merge queue and handed back by it, rather than landed.
+func queueRefused(state runstate.State) bool {
+	return state.OutsideFile != nil && state.MergeQueue != nil && state.Integration == nil && state.Status.Terminal() && state.Status != runstate.StatusSucceeded
 }
 
 // BringInOutsideFile fetches the file a due record declares and lands it
@@ -372,6 +410,11 @@ func (p Pipeline) BringInOutsideFile(ctx context.Context, landing runstate.Outsi
 // attempt fetches again.
 func (p Pipeline) continueOutsideFile(ctx context.Context, store OutsideFileStore, existing runstate.State, record outsideFileRecorder) (Outcome, error) {
 	if existing.Status.Terminal() {
+		if existing.Status == runstate.StatusSucceeded {
+			// Landed, or waiting in the merge queue: the run said so as it ended,
+			// and nothing more is owed until the record changes.
+			return Outcome{RunID: existing.RunID, WorkItemID: existing.WorkItemID, Status: existing.Status, Phase: existing.Phase, PullRequest: existing.PullRequest}, nil
+		}
 		return p.settleOutsideFile(ctx, store, existing.RunID, record, nil)
 	}
 	state, lease, err := p.Store.AdoptRun(ctx, existing.RunID)
@@ -592,6 +635,16 @@ func (p Pipeline) settleOutsideFile(ctx context.Context, store OutsideFileStore,
 	pinnedPath := outsidefile.PinnedPath(landing.Record)
 	stop := runstate.StopReason(saved.RecordedStopClass(), saved.Failure)
 	switch {
+	case saved.Status == runstate.StatusSucceeded && saved.MergeQueue != nil && saved.Integration == nil:
+		record.note(ctx, fmt.Sprintf("Yoyodyne's run %s fetched %s from %s (%d bytes, SHA-256 %s); its checks and an independent review passed and the change is admitted to the merge queue, which lands it once the queue's combined change passes its own checks and review.", saved.RunID, pinnedPath, landing.Fetched.FinalURL, landing.Fetched.Size, landing.Fetched.SHA256))
+		outcome.Summary = fmt.Sprintf("Admitted %s to the merge queue through run %s.", pinnedPath, saved.RunID)
+	case queueRefused(saved):
+		why := nonEmpty(oneline.Fold(strings.TrimPrefix(saved.Failure, "the merge queue handed the change back: "), 900), "the merge queue refused it")
+		record.note(ctx, fmt.Sprintf("The merge queue did not land %s from run %s: %s. No developer is asked to repair it; a later pull starts a fresh run from the record as the target branch then holds it.", pinnedPath, saved.RunID, why))
+		if queueErr := p.queueRefusedOutsideFile(store, landing, why); queueErr != nil {
+			return outcome, queueErr
+		}
+		outcome.Summary = fmt.Sprintf("The merge queue refused run %s: %s", saved.RunID, why)
 	case saved.Status == runstate.StatusSucceeded:
 		where := "it merged"
 		if saved.Integration == nil {
