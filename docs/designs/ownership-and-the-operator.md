@@ -26,6 +26,10 @@ revisions:
       by: architect
       at: 2026-10-22T23:20:08.098546Z
       reason: 'Approved amendment-d1664063: the section names every case the registry carries the operator''s hand for (the two it named, the development manager''s raise past her own five, and a proposed change whose owning role cannot decide it), says a hand with no closing item is shown as a missing capability, and says which two roles may record a hand and only for a missing capability. Nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-10-23T00:50:09.273218Z
+      reason: 'yoyodyne-ifd.432.25.12: the hand case for raising an item''s limit past the development manager''s own five now says the Lead Product Manager decides it, up to five more, with no raise past ten, matching the stopped-run recovery ruling on main at 788f6ce5. Answers the reviewer''s report-46aa3d00 that the two designs disagreed. Nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -47,6 +51,11 @@ approvals:
       by: harness
       at: 2026-10-22T23:20:08.098546Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1519, for document-1519.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-10-23T00:50:09.273218Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1524, for document-1524.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -198,9 +207,14 @@ registry carries a hand for these four cases, and for no other:
 - **Committing a document written from a conversation** where its kind's
   approval policy is not automatic (yoyodyne-ifd.433.21).
 - **Raising an item's limit once the development manager has used the five
-  raises she may grant herself.** She decides it; the operator types it with
-  `yoyo triage override`. No item that lets her apply it herself is admitted
-  yet.
+  raises she may grant herself.** The Lead Product Manager decides it, up to
+  five more raises for that item, as
+  [stopped-run recovery](stopped-run-recovery.md#raising-an-items-limit-on-attempts)
+  states; the operator types each raise she grants with
+  `yoyo triage override`. After ten raises in all no role may raise the limit,
+  so no hand is carried past ten. The need ends with the build the development
+  manager admits from that ruling (yoyodyne-ifd.432.25.12); until it is
+  admitted, the hand says so.
 - **Deciding a proposed change whose owning role holds no capability to
   decide it.** The owning role decides; the operator types its decision with
   `yoyo amendment approve` or `yoyo amendment decline`.
