@@ -33,6 +33,7 @@ type configDocument struct {
 	// measurement is not something a layer opts into, only something it times.
 	Conversation *conversationDocument `yaml:"conversation"`
 	Research     *researchDocument     `yaml:"research"`
+	OutsideFiles *outsideFilesDocument `yaml:"outside_files"`
 	Intent       *intentDocument       `yaml:"intent"`
 	Approvals    *approvalsDocument    `yaml:"approvals"`
 	Checks       *[]string             `yaml:"checks"`
@@ -190,6 +191,15 @@ type researchDocument struct {
 	Sources           *[]research.Source `yaml:"sources"`
 	MaxQueriesPerTurn *int               `yaml:"max_queries_per_turn"`
 	Timeout           *Duration          `yaml:"timeout"`
+}
+
+// outsideFilesDocument is absent from every file written before pinned outside
+// files existed, which leaves those projects fetching nothing.
+type outsideFilesDocument struct {
+	// Hosts replaces an inherited list wholesale, for the reason research
+	// sources do.
+	Hosts    *[]string `yaml:"hosts"`
+	MaxBytes *int64    `yaml:"max_bytes"`
 }
 
 type approvalsDocument struct {

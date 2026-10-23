@@ -2985,6 +2985,9 @@ type ReconcileFinding struct {
 
 type State struct {
 	Document *DocumentPublication `json:"document,omitempty"`
+	// OutsideFile is set on a run that brings a pinned outside file in. See
+	// OutsideFileLanding.
+	OutsideFile *OutsideFileLanding `json:"outside_file,omitempty"`
 	// DocumentRetry is what a document run stopped by something that judged
 	// nothing says about the attempt after it. See DocumentRetry.
 	DocumentRetry *DocumentRetry `json:"document_retry,omitempty"`
@@ -3971,6 +3974,16 @@ func (s State) Validate() error {
 	if s.Document != nil {
 		if err := s.Document.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("document publication: %w", err))
+		}
+	}
+	if s.OutsideFile != nil {
+		if s.Document != nil {
+			problems = append(problems, errors.New("a run cannot both publish a document and bring a file in"))
+		}
+		if err := s.OutsideFile.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("outside file: %w", err))
+		} else if s.RunID != s.OutsideFile.RunID() {
+			problems = append(problems, errors.New("a run that brings a file in has the run id its record and attempt name"))
 		}
 	}
 	if s.DocumentConflict != nil {
@@ -5190,6 +5203,14 @@ func (s State) validateIndependentInvocations() []error {
 		}
 		return nil
 	}
+	if s.OutsideFile != nil {
+		// The harness fetched and wrote the change; the reviewer's session is the
+		// only invocation there is.
+		if strings.TrimSpace(s.ReviewSessionID) == "" || strings.TrimSpace(s.ReviewModel) == "" {
+			return []error{errors.New("bringing a file in requires an independent reviewer session and model")}
+		}
+		return nil
+	}
 	var problems []error
 	// Compare the normalized identifiers: two sessions that differ only in
 	// surrounding whitespace are one session, and must not read as independent.
@@ -5310,8 +5331,10 @@ func (s Status) InFlight() bool {
 // A confirmed document's landing holds no developer slot either: it is counted
 // against execution.document_landings instead (HoldsDocumentLanding), so a
 // landing never waits on development and development never waits on a landing.
+// Nor does a run that brings a file in, which is counted on its own
+// (HoldsOutsideFileLanding).
 func (s State) HoldsDeveloperSlot() bool {
-	return s.Status.InFlight() && s.DependencyPause == nil && s.Document == nil
+	return s.Status.InFlight() && s.DependencyPause == nil && !s.HarnessAuthored()
 }
 
 // HoldsDocumentLanding reports a run counted against

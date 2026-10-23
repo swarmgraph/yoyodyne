@@ -107,3 +107,22 @@ func documentReason(wait runstate.DocumentWait) string {
 	return fmt.Sprintf("%s was confirmed and has waited for a document landing to free since %s; the harness is landing it through its reviewed run now that one has, without taking a developer slot",
 		documentNamed(wait), wait.Since.Local().Format("2006-01-02 15:04 MST"))
 }
+
+// ScheduleOutsideFiles is how a pull brings in pinned outside files: the record
+// on the target branch that is due, and the run that brings its file in. It is
+// optional, and a pull wired without it brings nothing in.
+type ScheduleOutsideFiles interface {
+	// Next is the record due now, and false where none is; see
+	// Pipeline.NextOutsideFile.
+	Next(ctx context.Context) (runstate.OutsideFileLanding, bool, error)
+	// BringIn fetches its file and lands it through the harness's own run, and
+	// waits it out; see Pipeline.BringInOutsideFile.
+	BringIn(ctx context.Context, landing runstate.OutsideFileLanding) (Outcome, error)
+}
+
+// outsideFileReason is why a run that brings a file in was started, as its
+// schedule entry records it.
+func outsideFileReason(landing runstate.OutsideFileLanding) string {
+	return fmt.Sprintf("the record %s on the target branch is due, so the harness fetches %s at version %s for %s and lands it through its own reviewed run, without taking a developer slot",
+		landing.Record, landing.URL, landing.Version, landing.For)
+}

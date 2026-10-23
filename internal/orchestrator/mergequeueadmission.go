@@ -57,7 +57,7 @@ type MergeQueueAdmissions interface {
 // the merge queue rather than being promoted by the run.
 func (a *activeRun) admitsToMergeQueue() bool {
 	p := a.pipeline
-	return p.Config.Execution.MergeQueue && p.MergeQueue != nil && a.state.Document == nil
+	return p.Config.Execution.MergeQueue && p.MergeQueue != nil && !a.state.HarnessAuthored()
 }
 
 // admitToMergeQueue admits the run's approved change to its target's queue and
