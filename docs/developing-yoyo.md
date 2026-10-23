@@ -337,8 +337,31 @@ admits; it grants no write to the rest of `.git`. See
 [the environment a check runs in](configuration/runs.md#the-environment-a-check-runs-in)
 for the native sandbox regression and its execution requirements.
 
-Nothing sets it for an environment the harness did not make, so redirect it
-yourself in one:
+For Claude Code developers nothing in the harness grants the write to that
+cache: the CLI's own sandbox admits the repository's Git directory, and yoyo
+depends on it without controlling it. It depends on a second thing the same way — that a
+developer run can read absolute paths outside its worktree, the primary
+checkout's tracker export among them. A Claude Code release that took either
+away would break runs with nothing going red, so both are probed against the
+installed CLI by
+`TestLocalConformanceARunWritesInsideItsRepositorysGitDirectory` and
+`TestLocalConformanceARunReadsAnAbsolutePathOutsideItsWorktree` in
+`internal/backend/claudecode`. The write probe also writes once beside `.git`,
+and fails if that is not refused, so a pass means the Git directory is granted
+rather than that nothing is confined. Each spends a provider invocation, so like
+the rest of that suite they are opt-in:
+
+```sh
+YOYODYNE_CLAUDE_CONFORMANCE=1 go test ./internal/backend/claudecode -run Conformance -count=1
+```
+
+Run them after upgrading the CLI, from a shell outside any agent's sandbox. What
+the declared checks cover on their own is the fixture the probes stand on: that
+each target really is outside the worktree the run works in, so a green probe
+means a grant rather than a place the run could reach anyway.
+
+Nothing sets `GOCACHE` for an environment the harness did not make, so
+redirect it yourself in one:
 
 ```sh
 export GOCACHE="${TMPDIR:-/tmp}/go-build"
