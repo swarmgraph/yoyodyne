@@ -9,6 +9,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
+	"github.com/mason-bryant/yoyodyne/internal/usage"
 )
 
 // Capabilities is what a backend can do, stated by the backend rather than
@@ -380,9 +381,22 @@ type RunResult struct {
 	// an amount, whatever the amount was and however the invocation ended.
 	CostReported bool
 	Usage        []byte
-	Process      execution.ProcessResult
-	LastEvent    uint64
-	StopReason   string
+	// UsageReading is what the provider reported this invocation using, in the
+	// shared shape every adapter hands over (internal/usage): five counters that
+	// never overlap, marked as a running session total or this invocation's own
+	// amount. It is nil where the provider reported no usage at all, which is
+	// never the same as a reading of nothing. Turning it into what the
+	// invocation itself used is the meter's, through usage.Settle, and never the
+	// adapter's.
+	UsageReading *usage.Reading
+	// UsagePartial says the invocation ended without the provider's own ending,
+	// so UsageReading is what it reported before it was cut off. UsageRepeated
+	// counts final events the provider repeated, which were counted once.
+	UsagePartial  bool
+	UsageRepeated int
+	Process       execution.ProcessResult
+	LastEvent     uint64
+	StopReason    string
 	// UsageLimit is set when the provider reported an exhausted usage limit
 	// during this invocation. It is separate from IsError because the two call
 	// for opposite responses: a failure ends the run, an exhausted limit asks

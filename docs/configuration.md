@@ -7765,6 +7765,18 @@ accounts:
   account is stood down while it stays in the mapping and keeps its login. A
   negative budget is refused, because it says nothing the zero does not say more
   plainly.
+- **`billing`** is how the account is paid for: `api_key` (per token at the
+  provider's API prices), `subscription`, or `credits` (purchased credits), and
+  `not_recorded` where it is left out. It is the one place the harness learns
+  this, and it is never inferred from a model or a provider. It decides what a
+  cost the harness works out for a call the provider did not price is: on an
+  `api_key` account it is an estimate of money spent; on a `subscription` or
+  `credits` account it is what the same use would cost at API prices, shown as
+  a comparison and never as money spent, with credits shown apart where the rate
+  data prices them; and on an account that does not say, the cost is shown as
+  unknown. A provider's own reported cost is shown as reported whatever this
+  says. Any account may carry it, including a single `default` one. See
+  [the provider usage and cost design](designs/provider-usage-and-cost.md).
 
 **The rotation's cursor is the run records.** Each run already writes down the
 account it spent, so the pool takes the first active alias after the one the last

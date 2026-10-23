@@ -261,6 +261,7 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 			ConfigRevision: v.config.Revision(),
 			Backend:        agent.Backend,
 			ExchangeID:     question.ExchangeID,
+			Billing:        v.config.AccountBilling(account.Alias),
 		},
 	}
 	// The round is served by the answering agent's permitted alternate where its
@@ -441,6 +442,7 @@ func (v exchangeVoice) failoverPolicy(question exchange.Question, name string, e
 				ConfigRevision: v.config.Revision(),
 				Backend:        crossing.Endpoint.Provider,
 				ExchangeID:     question.ExchangeID,
+				Billing:        v.config.AccountBilling(crossing.Account.Alias),
 			},
 		}
 		policy.Rebuild = func(request backend.RunRequest) (backend.RunRequest, error) { return request, nil }

@@ -149,6 +149,7 @@ func (v sideVoice) Answer(ctx context.Context, question sidestream.Question) (si
 			ConfigRevision: v.config.Revision(),
 			Backend:        agent.Backend,
 			SideStreamID:   question.StreamID,
+			Billing:        v.config.AccountBilling(account.Alias),
 		},
 	}
 	// The turn is served by the agent's permitted alternate where its own model
