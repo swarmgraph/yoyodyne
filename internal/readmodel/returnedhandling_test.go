@@ -71,7 +71,7 @@ func TestAHandlingNamingTheOperatorWithNoReasonIsListedWithTheRoleThatHandledIt(
 		!strings.Contains(what, "about yoyodyne-ifd.383") || strings.Contains(what, "needs your hand") {
 		t.Fatalf("unreasoned handling says %q, want it open for the architect to finish and not asking for the operator's hand", what)
 	}
-	if whose := architects.Whose(); !strings.HasPrefix(whose, "the architect's — the finding names the operator for no reason on his closed list, so it is not his: handle the report again") {
+	if whose := architects.Whose(); !strings.HasPrefix(whose, "the architect's — the finding names the operator, but it was handled before a handling had to say why a person must act, and it gives no such reason, so it is not his: handle the report again") || strings.Contains(whose, "closed list") {
 		t.Fatalf("unreasoned handling is %q, want the architect's move", whose)
 	}
 

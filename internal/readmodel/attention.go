@@ -838,7 +838,7 @@ func (a Attention) Whose() string {
 				return a.Mover.Possessive() + " — the decision is made and is not the operator's; the harness has no way yet of " + hand.Missing + ", so his hand carries it out: `" + hand.Types + "`; " + a.OperatorAction.Ends
 			}
 			if !a.Mover.IsOperator() {
-				return a.Mover.Possessive() + " — the finding names the operator for no reason on his closed list, so it is not his: " + a.Ownership.Remedy + "; " + a.OperatorAction.Ends
+				return a.Mover.Possessive() + " — the finding names the operator, but it was handled before a handling had to say why a person must act, and it gives no such reason, so it is not his: " + a.Ownership.Remedy + "; " + a.OperatorAction.Ends
 			}
 			if says := a.Ownership.ReasonSays(); says != "" {
 				return a.Mover.Possessive() + " — only a person can act on this, for " + says + "; " + a.OperatorAction.Ends
