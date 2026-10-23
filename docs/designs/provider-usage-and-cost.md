@@ -11,12 +11,21 @@ revisions:
       by: architect
       at: 2026-10-21T06:41:42.550824Z
       reason: 'yoyodyne-y3p: the usage and cost rules, first written on October 13 as a section of the provider adapters design (document-887.1), whose publication was dropped from the forge''s merge queue and never reached main. Filed as a design of its own so the provider adapters design stays small enough to read and revise whole. The rules are unchanged from that confirmed text; this adds the two corrections its reviewer asked for (attribution kept apart from the kind of cost, and the Codex stream item named by what it is), a list of what is reused, and the limits of what was read.'
+    - action: amended
+      by: architect
+      at: 2026-10-23T22:52:53.276366Z
+      reason: 'amendment-63e0d451, approved: the design said every total already comes from the ledger, but `yoyo cost` and `yoyo status --spend` still add up their price columns from the event logs. This says how the two figures are shown side by side until those commands move onto the ledger, and keeps the end state unchanged.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-10-21T06:41:42.550824Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1394, for document-1394.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-10-23T22:52:53.276366Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1583, for document-1583.1 under the automatic approval policy
 ---
 # Provider usage and cost
 
@@ -79,6 +88,14 @@ An estimate is appended and never rewritten. When a rate entry is corrected, a r
 ## What the surfaces show
 
 The read model in [observability and the dashboard](observability-and-dashboard.md) computes every total from the ledger, and `yoyo cost`, `yoyo status`, the dashboard's spend box, and Slack present it. Per work item, per run, and in total, each figure shows its reported subtotal, its estimated subtotal, its comparison figure apart, and its unknown share as a count of calls and a percentage. That design's cost entry, which still calls estimates reserved for future sources and lists a class for figures that cannot be attributed, is revised to match this design.
+
+**Until the commands move onto the ledger.** Today the price columns that `yoyo cost` and `yoyo status --spend` print are still added up from the run and conversation event logs, not from the ledger. Cost by kind is added up from the ledger and shown beside those columns, under its own label, until those commands are moved onto the ledger. While both are shown:
+
+- each figure is labelled with where it was added up from, so a reader never takes one for the other;
+- the two are never added together, never compared as though they should match, and never folded into one total;
+- the figures from the event logs are not a fifth kind of cost; they are what the commands showed before this design, kept so that nothing the operator already reads disappears.
+
+Moving those commands onto the ledger, and removing the columns added up from the event logs, is build work still to do. When it lands, this paragraph is removed and every figure comes from the ledger alone. Until then, a reviewer checks that every price figure these commands show carries a label naming where it was added up from.
 
 ## What this reuses
 
