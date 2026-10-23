@@ -1078,6 +1078,7 @@ var notAStep = map[string]string{
 	"attemptReview":              "one provider invocation inside candidate.review",
 	"recordReviewVerdict":        "records a verdict against the item, charging a round where it sent the work back, inside candidate.review",
 	"gateProtectedPaths":         "the scope refusal candidate.check makes before it spends a suite",
+	"gatePinnedFiles":            "the comparison of pinned outside files with their records candidate.check makes before it spends a suite",
 	"gateReviewBound":            "the review-bound refusal candidate.check makes before it spends a suite or a review",
 	"integrationEarned":          "the reading of the gate off the record that candidate.integrate makes before it takes anything",
 	"gateCandidateVerification":  "the execution-evidence refusal candidate.check makes; a conversation author has no execution tools, so its document still receives the configured checks",
