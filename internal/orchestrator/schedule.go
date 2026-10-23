@@ -1232,7 +1232,7 @@ type Schedule struct {
 	// could not be read. Like a continuation problem it stops nothing else the pass does,
 	// and the waits are read again at the next pull.
 	DocumentProblem string `json:"document_problem,omitempty"`
-	// OutsideFileProblem says the target branch's outside-file records could
+	// OutsideFileProblem says the target branch's records of pinned outside files could
 	// not all be read. It stops nothing else the pass does, and they are read
 	// again at the next pull.
 	OutsideFileProblem string `json:"outside_file_problem,omitempty"`

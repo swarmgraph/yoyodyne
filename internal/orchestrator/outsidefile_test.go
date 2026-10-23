@@ -222,9 +222,13 @@ func TestARecordNotOnMainAndAnEmptyHostListAreNeverFetched(t *testing.T) {
 // to the development manager rather than the operator.
 func TestARefusedRecordIsStoppedAndReportedOnceToTheDevelopmentManager(t *testing.T) {
 	for name, edit := range map[string]func(string) string{
-		"plain http":           func(text string) string { return strings.Replace(text, "url: https://", "url: http://", 1) },
-		"host not listed":      func(text string) string { return strings.Replace(text, "url: https://", "url: https://cdn.example.invalid/", 1) },
-		"query string":         func(text string) string { return strings.Replace(text, "chart.umd.js\nversion", "chart.umd.js?x=1\nversion", 1) },
+		"plain http": func(text string) string { return strings.Replace(text, "url: https://", "url: http://", 1) },
+		"host not listed": func(text string) string {
+			return strings.Replace(text, "url: https://", "url: https://cdn.example.invalid/", 1)
+		},
+		"query string": func(text string) string {
+			return strings.Replace(text, "chart.umd.js\nversion", "chart.umd.js?x=1\nversion", 1)
+		},
 		"version not in path":  func(text string) string { return strings.Replace(text, "version: 4.4.1", "version: 4.4.2", 1) },
 		"for names no item":    func(text string) string { return strings.Replace(text, "for: "+pinnedFor, "for: yoyodyne-ifd.0", 1) },
 		"field does not parse": func(text string) string { return text + "\ncolour: blue\n" },
