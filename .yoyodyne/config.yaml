@@ -68,9 +68,16 @@ operators:
     git_email: hamneggs@gmail.com
     forge_account: mason-bryant
     slack_member_id: U0BR9M2EKKP # from your profile → "Copy member ID"
+    # Mason decided on 2026-10-11 that for now only he acts from the dashboard,
+    # so his entry alone binds a token of his own and may decide proposed
+    # changes there (yoyodyne-ifd.432.39). "file" names dashboard.mason-bryant.token
+    # beside the shared dashboard.token below, the same store that one uses; this
+    # line is the reference, never the token, and he stores the token himself.
+    dashboard_token: file
     grants:
       - own-intent
       - direct-work
+      - decide-amendments
 
 slack:
   enabled: true
@@ -268,8 +275,8 @@ recurring_tasks:
   # The architect acts only when spoken to, so work carried in her conversation
   # and proposals to her documents sat for days: on 2026-09-25 eleven items
   # waited on her and her last turn was five days old. The operator added this
-  # pass that day. What she rules still needs transcribing into the repository
-  # until yoyodyne-ifd.100 gives her a write action, so she says what needs landing.
+  # pass that day. She decides proposed changes to her own documents herself
+  # and reports each decision afterwards.
   architect-pass:
     role: architect
     # 45m, down from 1h, at the operator's direction of 2026-10-04. In her
