@@ -303,6 +303,27 @@ func TestAFindingForTheOperatorIsSaidToHimOnceDirectly(t *testing.T) {
 	harness.poll(t, cursors)
 }
 
+// A handling recorded before the closed list was required, naming the operator
+// with no reason from it, is not his: nothing is said to him about it, and the
+// one beside it that gives a reason is said as before.
+func TestAHandlingNamingTheOperatorWithNoReasonIsNotSaidToHim(t *testing.T) {
+	t.Parallel()
+
+	harness := newTestHarness(t, time.Time{})
+	harness.file(t, "report-0123456789abcdef0123456789abcde0", report.SeverityWarning, moment)
+	harness.file(t, "report-0123456789abcdef0123456789abcde1", report.SeverityWarning, moment.Add(time.Minute))
+	cursors := harness.poll(t, harness.start(), notify.KindReportFiled, notify.KindReportFiled)
+
+	harness.handleFor(t, "report-0123456789abcdef0123456789abcde0", "the operator has to look at the flaky test", true, "", moment.Add(time.Hour))
+	harness.handle(t, "report-0123456789abcdef0123456789abcde1", "add the PreToolUse hook to .claude/settings.json by hand", true, moment.Add(time.Hour))
+	cursors = harness.poll(t, cursors, notify.KindOperatorAction)
+	marks := cursors.Streams[operatorActionStream]
+	if marks.Has(findingMark+"report:report-0123456789abcdef0123456789abcde0") || !marks.Has(findingMark+"report:report-0123456789abcdef0123456789abcde1") {
+		t.Fatalf("cursor = %#v, want only the handling with a closed-list reason said", marks)
+	}
+	harness.poll(t, cursors)
+}
+
 // A run stopping on a condition only a person can clear is recorded as the
 // development manager's escalation of that stoppage, and it is said to the
 // operator once, directly and tagged, the pass after the decision is recorded.
@@ -1723,17 +1744,30 @@ func (h *testHarness) fileAs(t *testing.T, id, workItemID string, severity repor
 // whether that decision is a finding for the operator.
 func (h *testHarness) handle(t *testing.T, id, reason string, needsOperator bool, at time.Time) {
 	t.Helper()
+	var operatorReason ownership.OperatorReason
+	if needsOperator {
+		operatorReason = ownership.OperatorProtectedFile
+	}
+	h.handleFor(t, id, reason, needsOperator, operatorReason, at)
+}
+
+// handleFor records a handling naming the reason from the operator's closed
+// list it gives, which a handling recorded before the list was required may
+// leave empty.
+func (h *testHarness) handleFor(t *testing.T, id, reason string, needsOperator bool, operatorReason ownership.OperatorReason, at time.Time) {
+	t.Helper()
 	if err := h.reports.Handle(report.Handling{
-		SchemaVersion: report.HandlingSchemaVersion,
-		ReportID:      id,
-		Role:          domain.RoleProductManager,
-		Agent:         "product-manager",
-		RunID:         "chat-0123456789abcdef0123456789abcdef",
-		ProductID:     "yoyodyne",
-		RepositoryID:  "yoyodyne",
-		Reason:        reason,
-		RecordedAt:    at,
-		NeedsOperator: needsOperator,
+		SchemaVersion:  report.HandlingSchemaVersion,
+		ReportID:       id,
+		Role:           domain.RoleProductManager,
+		Agent:          "product-manager",
+		RunID:          "chat-0123456789abcdef0123456789abcdef",
+		ProductID:      "yoyodyne",
+		RepositoryID:   "yoyodyne",
+		Reason:         reason,
+		RecordedAt:     at,
+		NeedsOperator:  needsOperator,
+		OperatorReason: operatorReason,
 	}); err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}

@@ -95,6 +95,9 @@ func (a Attention) Label() string {
 		}
 		return "merge waiting"
 	}
+	if a.Kind == AttentionOperatorAction && a.OperatorAction != nil && a.OperatorAction.Returned {
+		return "report to handle again"
+	}
 	return map[AttentionKind]string{
 		AttentionAmendment:         "proposed document change",
 		AttentionCarriedItem:       "work in conversation",

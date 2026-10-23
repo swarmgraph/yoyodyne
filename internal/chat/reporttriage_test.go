@@ -399,6 +399,42 @@ func TestHandlingAReportAsNeedingTheOperatorIsRecordedAsAFinding(t *testing.T) {
 	}
 }
 
+// A handling this role recorded before the closed list was required, naming the
+// operator with no reason from it, is listed to the role as its own to finish,
+// and not as a finding standing with the operator.
+func TestAHandlingNamingTheOperatorWithNoReasonIsListedAsTheRolesToFinish(t *testing.T) {
+	t.Parallel()
+
+	reports := &fakeReports{}
+	seedReports(t, reports,
+		collectedReport("report-00000000000000000000000000000002", report.SeverityWarning, "the flaky test needs looking at", 2),
+	)
+	reports.handled = []report.Handling{{
+		SchemaVersion: report.HandlingSchemaVersion, ReportID: "report-00000000000000000000000000000002",
+		Role: domain.RoleProductManager, RunID: "chat-old", Reason: "Mason should look at the flaky test",
+		RecordedAt: time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC), NeedsOperator: true,
+	}}
+	provider := &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: "Noted."}}}
+	options := testOptions(t, provider)
+	options.Reports = reports
+	options.Tracker = &fakeTracker{}
+	session, err := Open(options)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if _, err := session.Send(context.Background(), "anything waiting?"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	prompt := provider.requests[len(provider.requests)-1].Prompt
+	if !strings.Contains(prompt, "Reports you handled as the operator's that are yours to finish") ||
+		!strings.Contains(prompt, "- report-00000000000000000000000000000002: Mason should look at the flaky test") {
+		t.Fatalf("the returned handling was not listed as the role's to finish:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Reports you handled as needing the operator's hand") {
+		t.Fatalf("the returned handling was listed as standing with the operator:\n%s", prompt)
+	}
+}
+
 // An identifier is 32 hex characters copied out of a listing by a provider, so
 // one that names nothing is a plausible mistake. A handling recorded against it
 // would take no report out of anybody's view while reading as though it had.

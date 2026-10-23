@@ -517,7 +517,14 @@ func operatorActionRule(r Record) (Answer, bool) {
 		// to the development manager who decided it.
 		return owned(MoverDevelopmentManager, "decide the stopped run again", "triage decision")
 	case r.FromReport:
-		return owned(MoverProductManager, "handle the report again", "report handling")
+		// A handling naming him for no reason on the list goes back to the role
+		// that handled it, or to the Lead Product Manager, who handles the pile,
+		// where the handling names none.
+		role := r.Role
+		if !role.Valid() {
+			role = domain.RoleProductManager
+		}
+		return roleOwned(role, "handle the report again", "report handling")
 	}
 	return Answer{}, false
 }

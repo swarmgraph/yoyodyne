@@ -377,7 +377,9 @@ const maxRenderedFindings = 20
 // them is what lets the role record the change made without the operator
 // pasting an id out of a message. Nothing here is the operator's checklist:
 // what needs him is named on `yoyo status` and said to him directly, and this
-// is the role's view of what it has already handed over.
+// is the role's view of what it has already handed over. A handling that named
+// him with no reason from his closed list and no hand is listed apart, under
+// its own head, as the role's to finish (renderReturnedHandlings).
 func (s *Session) renderOperatorFindings() string {
 	if s.options.Reports == nil || !s.authority().MayAct(actionHandle) {
 		return ""
@@ -391,16 +393,32 @@ func (s *Session) renderOperatorFindings() string {
 		return ""
 	}
 	handled := report.Handled(handlings)
+	// A handling that named the operator with no reason from his closed list and
+	// no hand is not his, and is listed apart as this role's to finish.
+	returned := map[string]bool{}
+	var yours []readmodel.OperatorAction
+	for _, action := range readmodel.ReturnedHandlings(reports, handlings) {
+		returned[action.ReportID] = true
+		if action.DecidedBy == s.state.Role {
+			yours = append(yours, action)
+		}
+	}
 	var standing []report.Report
 	for _, reported := range report.ByFiling(reports) {
-		if handling, done := handled[reported.ID]; done && (handling.NeedsOperator || handling.Hand != "") {
+		if handling, done := handled[reported.ID]; done && (handling.NeedsOperator || handling.Hand != "") && !returned[reported.ID] {
 			standing = append(standing, reported)
 		}
 	}
-	if len(standing) == 0 {
+	if len(standing) == 0 && len(yours) == 0 {
 		return ""
 	}
 	var rendered strings.Builder
+	if len(yours) > 0 {
+		rendered.WriteString(renderReturnedHandlings(yours))
+	}
+	if len(standing) == 0 {
+		return rendered.String()
+	}
 	rendered.WriteString("# Reports you handled as needing the operator's hand\n")
 	rendered.WriteString("Each of these stands as a finding for the operator — named on `yoyo status` and said to him directly once — until you handle the same report again without \"needs\" or \"hand\", which is what records the change made. They are listed here because a handled report is not offered to you again, and ending one means naming it. Do not handle one again until the operator has made the change; ask him where you do not know.\n\n")
 	listed := standing
@@ -412,6 +430,27 @@ func (s *Session) renderOperatorFindings() string {
 	}
 	if len(standing) > len(listed) {
 		fmt.Fprintf(&rendered, "\n%d further finding(s) stand and are not listed here; `yoyo status` names every one of them.\n", len(standing)-len(listed))
+	}
+	rendered.WriteString("\n")
+	return rendered.String()
+}
+
+// renderReturnedHandlings is the reports this role handled as the operator's
+// without a reason from his closed list, which are its own to finish: they
+// are listed under it on `yoyo status` and never said to him.
+func renderReturnedHandlings(returned []readmodel.OperatorAction) string {
+	var rendered strings.Builder
+	rendered.WriteString("# Reports you handled as the operator's that are yours to finish\n")
+	rendered.WriteString("Each of these was handled as needing the operator before a handling had to give a reason only he can act on, and gives none, so it is not his: it is listed under you on `yoyo status` and is not said to him. Handle each one again: record what became of it, or, where only a person can act on it, handle it with \"needs\": \"operator\" and an \"operator_reason\" from his closed list.\n\n")
+	listed := returned
+	if len(listed) > maxRenderedFindings {
+		listed = listed[:maxRenderedFindings]
+	}
+	for _, action := range listed {
+		fmt.Fprintf(&rendered, "- %s: %s\n", action.ReportID, action.Needs)
+	}
+	if len(returned) > len(listed) {
+		fmt.Fprintf(&rendered, "\n%d further report(s) are yours to finish and are not listed here; `yoyo status` names every one of them.\n", len(returned)-len(listed))
 	}
 	rendered.WriteString("\n")
 	return rendered.String()

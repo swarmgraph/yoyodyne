@@ -271,6 +271,7 @@ func TestTheRulesFollowTheDesignsTable(t *testing.T) {
 		{"a first silent-stream stall is the harness's", KindStoppage, Record{HarnessContinues: true}, MoverHarness, ""},
 		{"an escalation without a reason goes back to the development manager", KindOperatorAction, Record{FromEscalation: true}, MoverDevelopmentManager, ""},
 		{"a handling without a reason goes back to the Lead Product Manager", KindOperatorAction, Record{FromReport: true}, MoverProductManager, ""},
+		{"a handling without a reason goes back to the role that handled it", KindOperatorAction, Record{FromReport: true, Role: domain.RoleArchitect}, MoverArchitect, ""},
 		{"a finding with a credential is the operator's", KindOperatorAction, Record{FromReport: true, Reason: OperatorCredential}, MoverOperator, OperatorCredential},
 		{"a human gate is the operator's", KindHumanGate, Record{}, MoverOperator, OperatorHumanGate},
 		{"a carried item is the role its marker names", KindCarriedItem, Record{Role: domain.RoleArchitect}, MoverArchitect, ""},
