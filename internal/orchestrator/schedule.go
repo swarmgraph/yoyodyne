@@ -1025,8 +1025,16 @@ type Started struct {
 	// or spent, so what happened is a start that never became a run. What the gate
 	// said is the whole of the text, and the same account is on the item's own
 	// triage record where it outlives this pass.
+	//
+	// So is an item the pipeline would not start because it was labelled
+	// needs-design between this pull and the reservation (NeedsDesignError):
+	// nothing was reserved, and the next pull reads the label and passes the item
+	// over in the queue's own words.
 	Declined string `json:"declined,omitempty"`
-	Failure  string `json:"failure,omitempty"`
+	// heldForDesign marks a Declined that is the needs-design label rather than
+	// another process, so the exclusion says which.
+	heldForDesign bool
+	Failure       string `json:"failure,omitempty"`
 	// NoteProblem is a run that paused and made its pause durable, and whose note
 	// saying so on its work item could not be written (PauseNoteError). It is not
 	// a Failure: the run is exactly as paused and resumable as one whose note was
@@ -3798,6 +3806,8 @@ func excludedBecause(started Started) string {
 			started.Outcome.RunID, started.Outcome.Environmental.ResetSays())
 	}
 	switch {
+	case started.heldForDesign:
+		return "this session chose it and did not start it: " + started.Declined
 	case started.Declined != "":
 		return "this session started it and the work went to another process: " + started.Declined
 	case unstartedAttempt(started):
@@ -5666,9 +5676,10 @@ func conversationExecutedReason(executor domain.WorkItemExecutor) string {
 }
 
 // passedOverReason says why an unready entry is being named rather than counted,
-// and says nothing for the entries that are counted. Four kinds are named: work
-// no run can carry, work somebody parked, work somebody is holding, and work held
-// by a step only a person can take. None of the four is a wait on anything the
+// and says nothing for the entries that are counted. Five kinds are named: work
+// no run can carry, work somebody parked, work labelled as waiting on the
+// architect's design, work somebody is holding, and work held by a step only a
+// person can take. None of the five is a wait on anything the
 // harness will finish, and the order between them is the order the queue's own
 // account gives — an item in more than one is told the thing that would still
 // hold once the others lifted.
@@ -5678,6 +5689,8 @@ func passedOverReason(entry backlog.Entry) (string, bool) {
 		return conversationExecutedReason(entry.Executor), true
 	case entry.Parking.Parked():
 		return parkedReason(entry.Parking), true
+	case entry.NeedsDesign:
+		return needsDesignReason(), true
 	case entry.Awaiting != "" && !entry.AwaitingLanding:
 		return heldReason(entry.Awaiting, entry.AwaitingCarryOut), true
 	case entry.HumanGates.Holds():
@@ -5689,7 +5702,8 @@ func passedOverReason(entry backlog.Entry) (string, bool) {
 
 // unreadyClass is which class an unready entry is passed over in, and it makes
 // the same distinction passedOverReason does and in the same order: work no run
-// can carry, then work somebody parked, then work somebody is holding, then work
+// can carry, then work somebody parked, then work waiting on the architect's
+// design, then work somebody is holding, then work
 // held by a step only a person can take, then everything that is genuinely
 // waiting for something. An item in more than one is told the thing that would
 // still hold once the others lifted.
@@ -5707,6 +5721,8 @@ func unreadyClass(entry backlog.Entry) runstate.PassedOverClass {
 		return runstate.PassedOverCarriedInConversation
 	case entry.Parking.Parked():
 		return runstate.PassedOverParked
+	case entry.NeedsDesign:
+		return runstate.PassedOverWaitingOnDesign
 	case entry.AwaitingCarryOut:
 		return runstate.PassedOverAwaitingCarryOut
 	case entry.Awaiting != "" && !entry.AwaitingLanding:
@@ -5757,6 +5773,13 @@ func heldReason(awaiting string, carryOut bool) string {
 func parkedReason(parking domain.WorkItemParking) string {
 	return fmt.Sprintf("it is parked, so no pull selects it however far the queue drains and this is not a wait for anything: %s. Releasing it is the Lead Product Manager's, and until they do it is passed over at every pull",
 		singleLine(parking.Reason(), maxScheduleReasonBytes))
+}
+
+// needsDesignReason says that the item carries the needs-design label, in the
+// queue's own words, and that this is not a wait the queue drains towards: like
+// a parking, nothing clears it but somebody acting, here the architect.
+func needsDesignReason() string {
+	return "it is " + backlog.NeedsDesignHold + ". It is passed over at every pull until the label is removed, however far the queue drains"
 }
 
 // unreadyReason says that the item asks for something the tree does not have,
@@ -6727,9 +6750,13 @@ func (s *Started) record(done completed) {
 	var capacity runstate.CapacityError
 	var existing ExistingRunError
 	var note PauseNoteError
+	var design NeedsDesignError
 	switch {
 	case done.outcome.Paused && errors.As(done.err, &note):
 		s.NoteProblem = done.err.Error()
+	case errors.As(done.err, &design):
+		s.Declined = done.err.Error()
+		s.heldForDesign = true
 	case errors.As(done.err, &capacity) && capacity.Landings:
 		s.Declined = fmt.Sprintf("the last free document landing went to another document before this one was reserved (%d landing, limit %d)",
 			capacity.Active, capacity.Limit)

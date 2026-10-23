@@ -3556,12 +3556,12 @@ A replay that conflicts is handed back to the change's own developer to
 reconcile on top of the target, as a repair attempt that is checked and reviewed
 again, and the run blocks only once a budget is spent. Nothing is ever forced.
 
-Twelve things keep an item out of a pass, reported at two different grains. The
-first nine are named against the item, because nothing else would report that
+Thirteen things keep an item out of a pass, reported at two different grains. The
+first ten are named against the item, because nothing else would report that
 this item was passed over; the last three are facts about the pass rather than
 about any one item.
 [How work flows](work.md#letting-the-harness-choose-the-work) lists the same
-twelve in the same order, and a test fails when the two lists differ:
+thirteen in the same order, and a test fails when the two lists differ:
 
 <!-- selection-rules: the same names, in the same order, as docs/work.md and docs/configuration/runs.md; internal/doclink/selectionrules_test.go holds them together -->
 1. **An unresolved directive** withholds the item until a person resolves the
@@ -3578,27 +3578,31 @@ twelve in the same order, and a test fails when the two lists differ:
    moves the item is somebody opening the conversation it names.
 5. **Parking** withholds an item the Lead Product Manager parked however far the
    queue drains, and only her `unpark` releases it.
-6. **A hold** withholds an item whose stopped run left its change on a branch,
+6. **The needs-design label** withholds an item labelled `needs-design` from
+   every start the harness chooses until the architect's design for it is
+   readable, and only the architect's removal of the label releases it; a run
+   already going on the item carries on, and one you name is not held.
+7. **A hold** withholds an item whose stopped run left its change on a branch,
    or whose publication did not finish, until the development manager's
    decision is carried out, the escalation is answered, or `yoyo reconcile`
    settles the publication.
-7. **A step only a person can take** withholds an item that declares a
+8. **A step only a person can take** withholds an item that declares a
    `human-gate:` nobody has recorded taking, and only a person's
    `yoyo gate record <name> --for <item>` releases it; closing an item never does.
-8. **A prerequisite the tree does not meet** withholds an item that pinpoints
+9. **A prerequisite the tree does not meet** withholds an item that pinpoints
    code the repository no longer has, or says in its own words that something
    must land first; a pinpoint releases it when the code lands, and a sentence
    when the item is amended or the dependency recorded.
-9. **A label another slot prefers** withholds an item every free developer slot
-   walked past for its preferred label, and the next slot with no preference to
-   come free — or the preferring slot, once its label's work is exhausted —
-   releases it. A priority-0 item is never walked past for a label.
-10. **The tracker not calling it ready** withholds an item with unfinished
+10. **A label another slot prefers** withholds an item every free developer slot
+    walked past for its preferred label, and the next slot with no preference to
+    come free — or the preferring slot, once its label's work is exhausted —
+    releases it. A priority-0 item is never walked past for a label.
+11. **The tracker not calling it ready** withholds an item with unfinished
     dependencies or a status that is not open, and the tracker's own readiness
     releases it.
-11. **A run already in flight for it** withholds the item while that run lasts,
+12. **A run already in flight for it** withholds the item while that run lasts,
     and the run ending releases it.
-12. **No free developer slot** withholds everything once the slots are taken,
+13. **No free developer slot** withholds everything once the slots are taken,
     and any run ending releases one.
 <!-- /selection-rules -->
 
@@ -3673,7 +3677,7 @@ stopped for it.
 [How work flows](work.md#letting-the-harness-choose-the-work) has the whole
 rule; it changes no gate and nothing a decision costs.
 
-A thirteenth thing deliberately keeps nothing out: an item whose goal was amended
+A fourteenth thing deliberately keeps nothing out: an item whose goal was amended
 after it was admitted is pulled exactly as it would have been, and what changed
 goes into the run's recorded reason instead. See
 [what a change upstream leaves stale](#what-a-change-upstream-leaves-stale) for

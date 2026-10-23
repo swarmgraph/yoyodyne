@@ -298,6 +298,10 @@ type Entry struct {
 	// not in the queue is a parking the queue's readers do not share, and what
 	// they do instead is pull the work.
 	Parking domain.WorkItemParking `json:"parking,omitempty"`
+	// NeedsDesign reports an item carrying the needs-design label: it is not to
+	// be started until the architect's design for it is readable. It is on the
+	// entry for the reason the parking is, and holds the item as a parking does.
+	NeedsDesign bool `json:"needs_design,omitempty"`
 	// Landing is the revision the harness already closed this item on, where it
 	// did and somebody has since reopened it, and is empty for everything else.
 	// It is on the entry because the sweep that closes conversation-carried work
@@ -507,8 +511,9 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 			since = &began
 		}
 		gates := humangate.Of(item).Pending(discharged[item.ID])
+		needsDesign := domain.NeedsDesign(item.Labels)
 		ready := startable(item, reportedReady, waiting, held) && awaiting == "" &&
-			item.Executor.DeveloperRun() && !item.Parking.Parked() && !gates.Holds()
+			item.Executor.DeveloperRun() && !item.Parking.Parked() && !needsDesign && !gates.Holds()
 		var inheritedBlocks []beads.InheritedBlock
 		if !ready {
 			inheritedBlocks = inherited(item)
@@ -522,6 +527,7 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 			Status:         item.Status,
 			Executor:       item.Executor,
 			Parking:        item.Parking,
+			NeedsDesign:    needsDesign,
 			Landing:        item.Landing,
 			Awaiting:       awaiting,
 			SchedulingWait: item.SchedulingWait,
@@ -549,6 +555,10 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 			// person's recorded act and by nothing else, so an item carrying one is
 			// not pullable however ready the tracker calls it and however many of the
 			// items it depends on have been closed.
+			//
+			// The needs-design label is held the way a parking is: somebody decided
+			// the item is not to be started yet, here until the architect's design for
+			// it is readable, and nothing about the tracker's state clears that.
 			Ready:           ready,
 			HumanGates:      gates,
 			WaitingOn:       waiting,
@@ -749,6 +759,9 @@ func (q Queue) Render() string {
 		if entry.Parking.Parked() {
 			parked = " parked"
 		}
+		if entry.NeedsDesign {
+			parked += " " + domain.NeedsDesignLabel
+		}
 		fmt.Fprintf(&rendered, "  %d. [%s] p%d%s %s\n", entry.Position, entry.ID, entry.Priority, parked,
 			singleLine(entry.Title, maxRenderedTitleBytes))
 		if len(entry.RelevantGoals) > 0 {
@@ -770,9 +783,11 @@ func (q Queue) Render() string {
 	return rendered.String()
 }
 
-// Hold says what is keeping an unready entry from being pulled. The eight
+// Hold says what is keeping an unready entry from being pulled. The nine
 // answers are different things to act on: an executor no run can be, a parking
-// somebody decided, a hold somebody has to release, a step only a person can
+// somebody decided, a design the item is labelled as waiting on (answered beside
+// the parking and for the same reasons, since it is held as a parking is), a
+// hold somebody has to release, a step only a person can
 // take, named work it waits for, a blocked item whose holds nothing could read,
 // work an item it was broken out of waits for, and the tracker simply not
 // offering it, which is what a dependency the listing did not carry looks like
@@ -844,6 +859,11 @@ const (
 	HeldForAGate HoldKind = "gated"
 	// HeldParked is an item somebody deliberately took out of reach.
 	HeldParked HoldKind = "parked"
+	// HeldForDesign is an item carrying the needs-design label: held as a parked
+	// item is, until the architect's design for it is readable. It is a pile of
+	// its own rather than part of the parked one because its mover is the
+	// architect, who removes the label, and not whoever releases a parking.
+	HeldForDesign HoldKind = "design"
 	// HeldWaitingOn is an item waiting on other unfinished work, which clears on
 	// its own as that work lands.
 	HeldWaitingOn HoldKind = "waiting"
@@ -874,6 +894,13 @@ const (
 	HeldByStall HoldKind = "stalled"
 )
 
+// NeedsDesignHold is what holds an item carrying the needs-design label, in the
+// words every place that refuses to start one uses: the queue, the scheduler's
+// passed-over reasons, the re-run carry-out, and the pipeline's own start. It is
+// one sentence for the reason Hold is one derivation, so the development manager
+// reads the same refusal wherever she meets it.
+const NeedsDesignHold = "labelled " + domain.NeedsDesignLabel + ", so nothing the harness chooses starts it until the architect's design for it is readable — written into the item's design field, or landed in docs/designs naming the item — and the architect removes the label. A run already going on it carries on, and a run the operator names is not held"
+
 // HoldKind is the kind of the refusal Hold returns, from the same reading.
 func (e Entry) HoldKind() HoldKind {
 	kind, _ := e.hold()
@@ -888,6 +915,8 @@ func (e Entry) hold() (HoldKind, string) {
 		return HeldByConversation, fmt.Sprintf("its executor is %q rather than a developer run, so no run carries it out; the item says which conversation does", e.Executor)
 	case e.Parking.Parked():
 		return HeldParked, "parked, so no pull selects it however far the queue drains: " + e.Parking.Reason()
+	case e.NeedsDesign:
+		return HeldForDesign, NeedsDesignHold
 	case e.Awaiting != "" && e.AwaitingLanding:
 		// A wait rather than a hold for a person: nobody decides anything, and it
 		// clears as the parent's change lands.

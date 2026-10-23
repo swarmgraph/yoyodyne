@@ -42,7 +42,9 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    `pausingDirectives`, `blockingDependencies` (an item that waits gives a
    workerless run in flight a durable wait, `waitInFlightOnDependencies`), `Store.Adopt` (resume an
    in-flight run via `resumeRun`, or refuse with `ExistingRunError`),
-   `holdIntake`, `refuseSubstitutedHandback`, `validateReadyItem`,
+   `holdIntake`, `refuseNeedsDesign` (an item labelled needs-design is refused
+   for every selection but the operator's, `NeedsDesignError`, and an operator's
+   run records the override), `refuseSubstitutedHandback`, `validateReadyItem`,
    `refuseUngrantedCondition`, `loadInvariants`, `Worktrees.ValidateReady`,
    `requireBackendReady`, `requireLaunchSettings`, `reserveRun`, `beginDeliveryTrial`, `claim`,
    `Worktrees.Create`, `liftPreserved`, `prepareScratch`, then `develop` and

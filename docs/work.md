@@ -1317,12 +1317,12 @@ had in flight; …; 1 developer slot freed since the last poll: run-… over
 yoyodyne-ifd.12, another process's run` — so a slot left empty is visible there
 rather than inferred from the silence.
 
-Twelve things keep an item out of a pass, and the pass accounts for them at two
-different grains. The first nine are named against the item, because nothing
+Thirteen things keep an item out of a pass, and the pass accounts for them at two
+different grains. The first ten are named against the item, because nothing
 else would report that this particular item was passed over; the last three are
 facts about the pass rather than about any one item. The
 [configuration guide](configuration.md#scheduling-ready-work) lists the same
-twelve in the same order, and a test fails when the two lists differ:
+thirteen in the same order, and a test fails when the two lists differ:
 
 <!-- selection-rules: the same names, in the same order, as docs/configuration.md and docs/configuration/runs.md; internal/doclink/selectionrules_test.go holds them together -->
 1. **An unresolved directive** withholds the item until a person resolves the
@@ -1339,27 +1339,31 @@ twelve in the same order, and a test fails when the two lists differ:
    moves the item is somebody opening the conversation it names.
 5. **Parking** withholds an item the Lead Product Manager parked however far the
    queue drains, and only her `unpark` releases it.
-6. **A hold** withholds an item whose stopped run left its change on a branch,
+6. **The needs-design label** withholds an item labelled `needs-design` from
+   every start the harness chooses until the architect's design for it is
+   readable, and only the architect's removal of the label releases it; a run
+   already going on the item carries on, and one you name is not held.
+7. **A hold** withholds an item whose stopped run left its change on a branch,
    or whose publication did not finish, until the development manager's
    decision is carried out, the escalation is answered, or `yoyo reconcile`
    settles the publication.
-7. **A step only a person can take** withholds an item that declares a
+8. **A step only a person can take** withholds an item that declares a
    `human-gate:` nobody has recorded taking, and only a person's
    `yoyo gate record <name> --for <item>` releases it; closing an item never does.
-8. **A prerequisite the tree does not meet** withholds an item that pinpoints
+9. **A prerequisite the tree does not meet** withholds an item that pinpoints
    code the repository no longer has, or says in its own words that something
    must land first; a pinpoint releases it when the code lands, and a sentence
    when the item is amended or the dependency recorded.
-9. **A label another slot prefers** withholds an item every free developer slot
-   walked past for its preferred label, and the next slot with no preference to
-   come free — or the preferring slot, once its label's work is exhausted —
-   releases it. A priority-0 item is never walked past for a label.
-10. **The tracker not calling it ready** withholds an item with unfinished
+10. **A label another slot prefers** withholds an item every free developer slot
+    walked past for its preferred label, and the next slot with no preference to
+    come free — or the preferring slot, once its label's work is exhausted —
+    releases it. A priority-0 item is never walked past for a label.
+11. **The tracker not calling it ready** withholds an item with unfinished
     dependencies or a status that is not open, and the tracker's own readiness
     releases it.
-11. **A run already in flight for it** withholds the item while that run lasts,
+12. **A run already in flight for it** withholds the item while that run lasts,
     and the run ending releases it.
-12. **No free developer slot** withholds everything once the slots are taken,
+13. **No free developer slot** withholds everything once the slots are taken,
     and any run ending releases one.
 <!-- /selection-rules -->
 
@@ -1587,6 +1591,18 @@ rather than what you may ask for. Parking is not retroactive either: it covers
 exactly the items that carry it, so a queue parked by convention stays selectable
 until each is parked in fact, one `park` each.
 
+**Work waiting on a design is held the way parked work is.** An item labelled
+`needs-design` is held from every start the harness chooses — the pull, a
+re-run the development manager decided, and the pipeline's own start, which
+catches a label applied after a pull chose the item — until the architect's
+design for it is readable and she removes the label
+([the design](designs/needs-design-gate.md)). The queue marks it on its line and
+says what it waits on, and a pull passes it over as **waiting on the architect's
+design**, naming her as the one to move. Labelling an item whose run is already
+going holds only new starts: that run carries on as it would have. Naming the
+item yourself is not held either, and the run records in why it was started that
+your naming overrode the label.
+
 **An item the tree cannot serve is not dispatched, and the read that says so is
 free.** Four items in a fortnight were handed to a developer that could not do
 them, and each cost a full run to establish why: one asked for machinery that was
@@ -1767,7 +1783,7 @@ is what delivers. Nothing shipped declares a gate on a state today, so there is
 no such instance to miss; a definition that declares the first one wants that
 surface, and the executor performing, with it.
 
-A thirteenth thing deliberately keeps nothing out: an item whose goal was amended
+A fourteenth thing deliberately keeps nothing out: an item whose goal was amended
 after it was admitted is pulled exactly as it would have been, because
 [staleness reports rather than decides](artifacts.md#what-a-change-upstream-leaves-stale),
 and what changed goes into the run's recorded reason instead.

@@ -55,7 +55,9 @@ package orchestrator
 // choosing the work, which is why the intake hold applies, and the same
 // classification is why the gate does. The scheduler refuses a gated item at the
 // pull; this refuses it before the claim. What is left is the operator's own
-// route, which is left open on purpose.
+// route, which is left open on purpose. The needs-design label is refused here on
+// the same footing (docs/designs/needs-design-gate.md), and the pipeline refuses
+// it too for every selection but the operator's (refuseNeedsDesign).
 //
 // # Why a full harness is a state rather than a refusal
 //
@@ -133,7 +135,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/humangate"
@@ -947,6 +951,12 @@ func (r Rerunner) itemCanBeRun(ctx context.Context, workItemID string) (beads.Wo
 	if gates := humangate.Of(item).Pending(discharged[item.ID]); gates.Holds() {
 		return beads.WorkItem{}, fmt.Errorf("work item %s is %s; nothing was claimed, so the stoppage keeps its re-run — a re-run is the harness choosing work, and no decision of the development manager's passes a step reserved for a person",
 			item.ID, gates.Describe(item.ID))
+	}
+	// The needs-design label holds a re-run for the reason the gate does: a
+	// re-run is a fresh start the harness chose, and the label holds every one.
+	if domain.NeedsDesign(item.Labels) {
+		return beads.WorkItem{}, fmt.Errorf("work item %s is %s; nothing was claimed, so the stoppage keeps its re-run for once the label is removed",
+			item.ID, backlog.NeedsDesignHold)
 	}
 	return item, nil
 }
