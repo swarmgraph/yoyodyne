@@ -818,6 +818,10 @@ type Pull struct {
 	// free, which a pull starts as landings free whatever the developer slots
 	// hold. Optional; see ScheduleDocuments.
 	Documents ScheduleDocuments
+	// OutsideFiles is the pinned outside files the harness brings in, at most
+	// one at a time and holding no developer slot. Optional; see
+	// ScheduleOutsideFiles.
+	OutsideFiles ScheduleOutsideFiles
 	// DocumentLandings is execution.document_landings as this pull read it: how
 	// many confirmed documents may be landing at once, counted apart from
 	// Capacity. Zero reads as the configuration's default.
@@ -1228,6 +1232,10 @@ type Schedule struct {
 	// could not be read. Like a continuation problem it stops nothing else the pass does,
 	// and the waits are read again at the next pull.
 	DocumentProblem string `json:"document_problem,omitempty"`
+	// OutsideFileProblem says the target branch's records of pinned outside files could
+	// not all be read. It stops nothing else the pass does, and they are read
+	// again at the next pull.
+	OutsideFileProblem string `json:"outside_file_problem,omitempty"`
 	// Fired is the recurring tasks this pass woke a role for, and what came back.
 	// It is on the schedule for the reason the escalations are: a pass that woke a
 	// role and spent turns doing it is a pass that did something, and an operator
@@ -1699,6 +1707,10 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// the document landings rather than a developer slot before its run is
 	// recorded.
 	myDocuments := map[string]bool{}
+	// myOutsideFile is the run that brings a file in this session started and
+	// that has not come back, so a pull starts no second one beside it before
+	// its run is recorded.
+	myOutsideFile := ""
 
 	// settle takes one finished run into the schedule: what became of it, what it
 	// cost, and what it does to the storm the brake is counting.
@@ -1709,8 +1721,11 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		// the machine, so it is recorded and priced and counts toward no storm and
 		// no item's exclusion. A start that failed is left for continuationRetry; one
 		// that lost the slot to another run is tried at the next pull.
-		if done.document {
+		if done.document || done.outsideFile {
 			delete(myDocuments, started.WorkItemID)
+			if done.outsideFile {
+				myOutsideFile = ""
+			}
 			started.record(done)
 			if cancel, live := hosted[done.index]; live {
 				cancel(nil)
@@ -2654,6 +2669,9 @@ pulling:
 			// A run this session started and that has not reserved yet is in flight
 			// with no identifier to name; one that has reserved is already here under
 			// the identifier the store gave it.
+			if id == myOutsideFile {
+				continue
+			}
 			if myDocuments[id] {
 				if _, recorded := landing[id]; !recorded {
 					landing[id] = runstate.State{WorkItemID: id}
@@ -2712,6 +2730,36 @@ pulling:
 					outcome, err := pull.Documents.Publish(runCtx, document)
 					deliver(completed{index: index, outcome: outcome, err: err, document: true})
 				}(wait.Document)
+			}
+		}
+
+		// A pinned outside file whose record on the target branch is due is
+		// brought in by a run of the harness's own, one at a time and holding no
+		// developer slot, under the same switches a document is
+		// (outsidefilelanding.go). Its record is read here and fetched by the run;
+		// one already in flight in another process, or left in flight by a
+		// session that stopped, is what the run continues instead.
+		if _, declining := drain.declinesStarts(pull.Poll, s.now()); pull.OutsideFiles != nil && !paused && !held && !declining &&
+			myOutsideFile == "" && (s.Limit <= 0 || len(schedule.Started) < s.Limit) {
+			next, due, err := pull.OutsideFiles.Next(ctx)
+			if err != nil {
+				schedule.OutsideFileProblem = err.Error()
+			} else {
+				schedule.OutsideFileProblem = ""
+			}
+			if due {
+				id := next.WorkItemID()
+				index := len(schedule.Started)
+				schedule.Started = append(schedule.Started, Started{WorkItemID: id, Reason: outsideFileReason(next)})
+				mine[id] = index
+				myOutsideFile = id
+				running++
+				runCtx, cancel := hostedContext(session.dispatching(ctx, id), index, landings)
+				hosted[index] = cancel
+				go func(landing runstate.OutsideFileLanding) {
+					outcome, err := pull.OutsideFiles.BringIn(runCtx, landing)
+					deliver(completed{index: index, outcome: outcome, err: err, outsideFile: true})
+				}(next)
 			}
 		}
 
@@ -6313,7 +6361,7 @@ func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted m
 		// limits, and one stopped part-way was cancelled and run again from the
 		// start, which a deploy on nearly every landing turned into a document
 		// that never landed.
-		if state.Document != nil {
+		if state.HarnessAuthored() {
 			drain.publishing++
 			continue
 		}
@@ -6735,6 +6783,9 @@ type completed struct {
 	// document marks the run of a confirmed document that waited for a landing;
 	// see nextDocuments.
 	document bool
+	// outsideFile marks a run that brings a pinned outside file in; see
+	// ScheduleOutsideFiles. It is settled the way a document's run is.
+	outsideFile bool
 }
 
 // record takes a finished run into its schedule entry. A refusal that means the
@@ -7195,6 +7246,9 @@ func (s Schedule) Render() string {
 	}
 	if s.DocumentProblem != "" {
 		fmt.Fprintf(&rendered, "a confirmed document waiting for a document landing to free was not started: %s\n", s.DocumentProblem)
+	}
+	if s.OutsideFileProblem != "" {
+		fmt.Fprintf(&rendered, "the pinned outside files' records were not all read: %s\n", s.OutsideFileProblem)
 	}
 	// And what the pass woke on a cadence, said beside both: a session that spent
 	// turns on a sweep is a session that did something, and the whole account of

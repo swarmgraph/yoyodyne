@@ -26,6 +26,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
+	"github.com/mason-bryant/yoyodyne/internal/outsidefile"
 	"github.com/mason-bryant/yoyodyne/internal/research"
 	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
 )
@@ -73,6 +74,10 @@ type Config struct {
 	// something a project opts into.
 	Conversation Conversation `yaml:"conversation" json:"conversation"`
 	Research     Research     `yaml:"research,omitempty" json:"research,omitempty"`
+	// OutsideFiles is where a pinned outside file may be fetched from and how
+	// large it may be. It is empty unless the project fills it, and with no
+	// host listed the harness fetches nothing.
+	OutsideFiles OutsideFiles `yaml:"outside_files,omitempty" json:"outside_files,omitempty"`
 	// Intent says which repository holds the governed documents. It is absent
 	// from a project whose own repository holds them, which is the default.
 	Intent    Intent    `yaml:"intent,omitempty" json:"intent,omitempty"`
@@ -834,6 +839,53 @@ func (r Research) Policy() research.Policy {
 	}
 }
 
+// OutsideFiles is what a project allows the harness to fetch on its behalf as
+// a pinned outside file (docs/designs/pinned-outside-files.md): the hosts a file
+// may come from, and its size limit. It names and narrows and never relaxes:
+// https, no credentials, no query string, the version in the path, the redirect
+// bound, and the 50 MiB ceiling are the capability's own, in
+// internal/outsidefile, and hold whatever is written here.
+type OutsideFiles struct {
+	// Hosts are host names, each written as the address names it: a host, or a
+	// host and port where the address carries one. An empty list fetches
+	// nothing. It replaces an inherited list wholesale, like the research
+	// sources, because what the harness may reach is one statement.
+	Hosts []string `yaml:"hosts,omitempty" json:"hosts,omitempty"`
+	// MaxBytes is the largest file fetched. Zero takes the 5 MiB default, and
+	// anything above the 50 MiB ceiling is refused.
+	MaxBytes int64 `yaml:"max_bytes,omitempty" json:"max_bytes,omitempty"`
+}
+
+// Policy is this configuration as the capability that brings in pinned outside files reads it.
+func (o OutsideFiles) Policy() outsidefile.Policy {
+	return outsidefile.Policy{Hosts: append([]string(nil), o.Hosts...), MaxBytes: o.MaxBytes}
+}
+
+// problems reports everything wrong with the settings for pinned outside files at once.
+func (o OutsideFiles) problems() []string {
+	var problems []string
+	seen := map[string]bool{}
+	for _, host := range o.Hosts {
+		parsed, err := url.Parse("https://" + host)
+		switch {
+		case host == "" || host != strings.ToLower(strings.TrimSpace(host)):
+			problems = append(problems, fmt.Sprintf("outside_files.hosts entry %q must be a lowercase host name", host))
+		case err != nil || parsed.Host != host || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "":
+			problems = append(problems, fmt.Sprintf("outside_files.hosts entry %q must be a host name, or a host name and port, with no scheme or path", host))
+		case seen[host]:
+			problems = append(problems, fmt.Sprintf("outside_files.hosts names %q twice", host))
+		}
+		seen[host] = true
+	}
+	if o.MaxBytes < 0 {
+		problems = append(problems, "outside_files.max_bytes cannot be negative")
+	}
+	if o.MaxBytes > outsidefile.CeilingBytes {
+		problems = append(problems, fmt.Sprintf("outside_files.max_bytes is %d, above the %d-byte (50 MiB) ceiling no project may raise", o.MaxBytes, outsidefile.CeilingBytes))
+	}
+	return problems
+}
+
 type Approvals struct {
 	// Brief, Goals, and Designs decide which canonical documents the operator's
 	// approval is asked for. `human` means the operator approves the document and
@@ -1288,6 +1340,7 @@ func (c Config) Validate() error {
 		problems = append(problems, fmt.Sprintf("conversation.refresh_after_landings must be at most %d; the threshold times the re-read and cannot turn it off", MaxRefreshAfterLandings))
 	}
 	problems = append(problems, c.Research.problems()...)
+	problems = append(problems, c.OutsideFiles.problems()...)
 
 	approvalValues := []struct {
 		name string

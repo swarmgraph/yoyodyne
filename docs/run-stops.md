@@ -229,6 +229,15 @@ describes the pass that applies those rules.
 ```text
 | File | Declaration | Signal | Count | Meaning |
 | --- | --- | --- | --- | --- |
+| `internal/orchestrator/outsidefilelanding.go` | `(Pipeline).BringInOutsideFile` | `call:fail` | 2 | Ends the run that brings a pinned outside file in where its checkout could not be cut or the fetched file could not be written and committed; no developer slot is held, and the record is tried again after a wait or stopped and reported. |
+| `internal/orchestrator/outsidefilelanding.go` | `(Pipeline).BringInOutsideFile` | `classified-stop` | 1 | Classifies a checkout that could not be cut for that run as a harness stop. |
+| `internal/orchestrator/outsidefilelanding.go` | `(Pipeline).BringInOutsideFile` | `status-write` | 1 | Marks the run that brings a file in as running once its checkout is cut; changes no backlog item. |
+| `internal/orchestrator/outsidefilelanding.go` | `(Pipeline).continueOutsideFile` | `call:fail` | 1 | Ends a run that brings a file in, left in flight with nothing of its fetch committed, so the next attempt fetches again. |
+| `internal/orchestrator/outsidefilelanding.go` | `(Pipeline).continueOutsideFile` | `classified-stop` | 1 | Classifies that ending as a stop outside the work. |
+| `internal/orchestrator/outsidefilelanding.go` | `(Pipeline).continueOutsideFile` | `status-write` | 1 | Copies the status the run already recorded into the answer the scheduler reads; writes nothing. |
+| `internal/orchestrator/outsidefilelanding.go` | `(Pipeline).continueOutsideFile` | `call:finish` | 2 | Completes an already recorded integration of a run that brings a file in through ordinary settlement. |
+| `internal/orchestrator/outsidefilelanding.go` | `(*activeRun).writeOutsideFile` | `classified-stop` | 1 | Classifies a record that changed on the target branch after it was chosen as a stop outside the work; the changed record is looked at afresh. |
+| `internal/orchestrator/pinnedfiles.go` | `(*activeRun).gatePinnedFiles` | `classified-stop` | 2 | Classifies a comparison of pinned outside files that could not list or read the candidate as a check-stage stop; a comparison that ran and found a mismatch is a failing check instead. |
 | `internal/orchestrator/documentpublication.go` | `(Pipeline).publishDocumentAttempt` | `call:fail` | 2 | Ends one attempt at a document whose checkout could not be cut or whose preparation failed; a stop that judged nothing is tried again with the same text, and one that judged the document returns its cause to the owning conversation. |
 | `internal/orchestrator/documentpublication.go` | `(Pipeline).publishDocumentAttempt` | `call:finish` | 1 | Completes an already recorded document integration through ordinary settlement. |
 | `internal/orchestrator/documentpublication.go` | `(*activeRun).reviewDocument` | `call:fail` | 1 | Returns an independent review refusal to the document owner without invoking a developer. |
@@ -358,6 +367,7 @@ describes the pass that applies those rules.
 | File | Declaration | Signal | Count | Meaning |
 | --- | --- | --- | --- | --- |
 | `internal/orchestrator/documentpublication.go` | `(Pipeline).publishDocumentAttempt` | `status-write` | 2 | Marks the document run and its temporary bookkeeping as running; changes no backlog item. |
+| `internal/orchestrator/outsidefilequeue.go` | `(OutsideFileItems).item` | `status-write` | 1 | Sets the status the merge queue reads on the bookkeeping item of a run that brings a file in, built from the run's record; it writes no run and no backlog item. |
 | `internal/orchestrator/documentpublication.go` | `(Pipeline).PublishWaitingDocument` | `status-write` | 1 | Copies the status the document run already recorded into the answer the scheduler reads after starting a document that waited for a document landing; writes nothing. |
 | `internal/orchestrator/documentpublication.go` | `(*documentTracker).Block` | `status-write` | 1 | Changes temporary document bookkeeping; ordinary durable run state records the failure. |
 | `internal/orchestrator/documentpublication.go` | `(*documentTracker).Claim` | `status-write` | 1 | Changes temporary document bookkeeping; creates no backlog claim. |

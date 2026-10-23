@@ -571,6 +571,13 @@ func (r *resolution) apply(applied layer) error {
 		setValue(r.origins, "research.max_queries_per_turn", evidence.MaxQueriesPerTurn, &r.config.Research.MaxQueriesPerTurn, applied.origin)
 		setValue(r.origins, "research.timeout", evidence.Timeout, &r.config.Research.Timeout, applied.origin)
 	}
+	if outside := document.OutsideFiles; outside != nil {
+		if outside.Hosts != nil {
+			r.config.OutsideFiles.Hosts = append([]string(nil), (*outside.Hosts)...)
+			r.origins["outside_files.hosts"] = applied.origin
+		}
+		setValue(r.origins, "outside_files.max_bytes", outside.MaxBytes, &r.config.OutsideFiles.MaxBytes, applied.origin)
+	}
 	if intent := document.Intent; intent != nil {
 		setValue(r.origins, "intent.repository", intent.Repository, &r.config.Intent.Repository, applied.origin)
 	}

@@ -57,6 +57,10 @@ type MergeQueueAdmissions interface {
 // the merge queue rather than being promoted by the run.
 func (a *activeRun) admitsToMergeQueue() bool {
 	p := a.pipeline
+	// A confirmed document lands by its own route. A run that brings a file in
+	// goes through the queue like any approved change: with the queue on,
+	// nothing replays a change onto a target that moved, so one kept out could
+	// land on a target its checks never saw (outsidefilequeue.go).
 	return p.Config.Execution.MergeQueue && p.MergeQueue != nil && a.state.Document == nil
 }
 

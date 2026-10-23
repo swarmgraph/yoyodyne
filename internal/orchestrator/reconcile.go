@@ -448,6 +448,15 @@ func (r Reconciler) reconcileRun(ctx context.Context, recorded runstate.State) R
 
 // settle decides one run from its durable state and what the repository shows.
 func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconciliation, error) {
+	if state.OutsideFile != nil {
+		r.Tracker = &documentTracker{item: beads.WorkItem{ID: state.WorkItemID, Title: state.WorkItemTitle, Status: "in_progress"}}
+		r.Docket = nil
+		if state.Integration == nil {
+			result := reconciliationOf(state, ActionResumable)
+			result.Detail = "the scheduler continues this run that brings a file in at its next look at the record; no developer is invoked"
+			return result, nil
+		}
+	}
 	if state.Document != nil {
 		r.Tracker = &documentTracker{item: beads.WorkItem{ID: state.WorkItemID, Title: state.WorkItemTitle, Status: "in_progress"}}
 		r.Docket = nil

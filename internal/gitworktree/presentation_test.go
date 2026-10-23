@@ -191,6 +191,38 @@ func TestManagerUnifiedChangesPresentsSourceThenTestsThenFixtures(t *testing.T) 
 	}
 }
 
+// A pinned outside file is content the harness fetched, judged by the record
+// beside it and the checksum every run compares, so it is presented as
+// generated content: kept out by the bound, it is listed whole with its digest
+// rather than refusing an approval as source would.
+func TestAPinnedOutsideFileIsPresentedAsGeneratedContent(t *testing.T) {
+	t.Parallel()
+
+	repository := newRepository(t)
+	manager := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+	worktree, err := manager.Create(context.Background(), CreateRequest{RunID: testRunID, WorkItemID: "yoyodyne-pinned", BaseRef: "HEAD"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	writeFile(t, worktree.Path, "assets/chart.umd.js", strings.Repeat("var chart = 1;\n", 400))
+	writeFile(t, worktree.Path, "assets/chart.umd.js.yoyodyne-source.yaml", "file: chart.umd.js\n")
+	writeFile(t, worktree.Path, "assets/other.js", strings.Repeat("var other = 1;\n", 400))
+	bounded, err := manager.UnifiedChanges(context.Background(), worktree, DiffLimits{MaxTotalBytes: 1024})
+	if err != nil {
+		t.Fatalf("UnifiedChanges() error = %v", err)
+	}
+	classes := map[string]FileClass{}
+	for _, omitted := range bounded.OmittedFiles {
+		classes[omitted.Path] = omitted.Class
+		if omitted.Path == "assets/chart.umd.js" && !omitted.ListedWhole() {
+			t.Errorf("the pinned file is not listed whole: %#v", omitted)
+		}
+	}
+	if classes["assets/chart.umd.js"] != FileClassFixture || classes["assets/other.js"] != FileClassSource {
+		t.Fatalf("omitted classes = %v, want the pinned file generated and the other source", classes)
+	}
+}
+
 // The accumulated change on a branch is presented in the same order, for the
 // same reason: the reviewer must not have to care which of the two it was
 // handed.

@@ -653,7 +653,7 @@ func (s *Store) Price(workItemID string) (ItemPrice, error) {
 	if id == "" {
 		return ItemPrice{}, errors.New("a work item is required to price it")
 	}
-	states, err := s.scan("recorded", func(state State) bool { return state.WorkItemID == id })
+	states, err := s.scan("recorded", func(state State) bool { return state.PricedAgainst() == id })
 	if err != nil {
 		return ItemPrice{}, err
 	}
@@ -672,7 +672,7 @@ func (s *Store) Prices() ([]ItemPrice, error) {
 	}
 	byItem := make(map[string][]State)
 	for _, state := range states {
-		byItem[state.WorkItemID] = append(byItem[state.WorkItemID], state)
+		byItem[state.PricedAgainst()] = append(byItem[state.PricedAgainst()], state)
 	}
 	items := make([]string, 0, len(byItem))
 	for item := range byItem {
