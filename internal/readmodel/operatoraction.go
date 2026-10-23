@@ -87,6 +87,12 @@ type OperatorAction struct {
 	// DecidedBy.
 	Hand      ownership.HandNeed `json:"hand,omitempty"`
 	DecidedBy domain.AgentRole   `json:"decided_by,omitempty"`
+	// Returned marks a handling that names the operator with neither a reason
+	// from his closed list nor a hand, as every one recorded before the list was
+	// required may: it is not his, so it is never said to him, and it is listed
+	// as open for the role that handled it, DecidedBy, to finish
+	// (ReturnedHandlings).
+	Returned bool `json:"returned,omitempty"`
 	// RecordedIn says where the finding is recorded, so the operator can go and
 	// read the whole of it.
 	RecordedIn string `json:"recorded_in"`
@@ -110,15 +116,46 @@ func escalationKey(runID string) string { return "run:" + runID }
 // branch and worktree are both gone.
 const (
 	reportFindingEnds     = "a later handling of the report records it done"
+	returnedHandlingEnds  = "a later handling of the report recording what became of it ends it"
 	escalationFindingEnds = "a later triage decision on the run, the item being run again, parked, retired, or closed, or the run's branch and worktree both being gone ends it"
 )
 
 // OperatorActions is every finding that needs the operator, read from the pile
 // and what became of it, oldest first: each report a handling recorded as
-// needing his hand. It is the one derivation of the report-derived shape;
+// needing him for a reason on his closed list, or as a role's decision needing
+// his hand. It is the one derivation of the report-derived shape;
 // EscalatedOperatorActions is the stoppages', and readOperatorActions puts them
-// together for the attention line.
+// together for the attention line. A handling naming him with neither is not
+// among them; ReturnedHandlings lists it.
 func OperatorActions(reports []report.Report, handlings []report.Handling) []OperatorAction {
+	var actions []OperatorAction
+	for _, action := range reportFindings(reports, handlings) {
+		if !action.Returned {
+			actions = append(actions, action)
+		}
+	}
+	return actions
+}
+
+// ReturnedHandlings is every handling that names the operator and gives no
+// reason from his closed list and no hand, oldest first. Every one recorded
+// before a handling naming him had to give a reason may be one. It was never
+// his: it is listed as open for the role that handled it to finish, by
+// handling the report again, and is never said to him.
+func ReturnedHandlings(reports []report.Report, handlings []report.Handling) []OperatorAction {
+	var returned []OperatorAction
+	for _, action := range reportFindings(reports, handlings) {
+		if action.Returned {
+			returned = append(returned, action)
+		}
+	}
+	return returned
+}
+
+// reportFindings is every handling standing as the latest on its report that
+// names the operator or his hand, as findings oldest first, each marked
+// Returned where it gives neither a closed-list reason nor a hand.
+func reportFindings(reports []report.Report, handlings []report.Handling) []OperatorAction {
 	handled := report.Handled(handlings)
 	var actions []OperatorAction
 	for _, reported := range report.ByFiling(reports) {
@@ -142,8 +179,17 @@ func OperatorActions(reports []report.Report, handlings []report.Handling) []Ope
 				Ends:    reportFindingEnds,
 				Since:   handling.RecordedAt,
 			}
-			if !handling.NeedsOperator {
+			switch {
+			case !handling.NeedsOperator:
 				action.Hand, action.DecidedBy = handling.Hand, handling.Role
+			case !handling.OperatorReason.Valid() && !handling.Hand.Valid():
+				// A handling recording no role is the Lead Product Manager's, who
+				// handles the pile, as the registry reads one.
+				action.Returned, action.DecidedBy = true, handling.Role
+				if !action.DecidedBy.Valid() {
+					action.DecidedBy = domain.RoleProductManager
+				}
+				action.Ends = returnedHandlingEnds
 			}
 			actions = append(actions, action)
 		}
@@ -348,10 +394,15 @@ func (a OperatorAction) Whose() string {
 }
 
 // Says is the finding as the attention line names it: what it is about, what
-// is needed, who found it, and where it is recorded.
+// is needed, who found it, and where it is recorded. A returned handling says
+// whose it is instead of asking for his hand.
 func (a OperatorAction) Says() string {
 	what := fmt.Sprintf("%s needs your hand: %s (found by %s; recorded in %s",
 		a.Subject, singleLine(a.Needs, maxRefusalBytes), a.FoundBy, a.RecordedIn)
+	if a.Returned {
+		what = fmt.Sprintf("%s is open for the %s to finish: it was handled as needing the operator with no reason only he can act on, so it is not his: %s (recorded in %s",
+			a.Subject, a.DecidedBy.Title(), singleLine(a.Needs, maxRefusalBytes), a.RecordedIn)
+	}
 	if item := strings.TrimSpace(a.WorkItemID); item != "" && item != a.Subject {
 		what += ", about " + item
 	}
@@ -368,7 +419,9 @@ func (a OperatorAction) Says() string {
 func readOperatorActions(reports []report.Report, handlings []report.Handling, pileProblem string, sources Sources, items EscalatedItems, look Look) ([]Attention, string) {
 	var actions []OperatorAction
 	if pileProblem == "" {
-		actions = OperatorActions(reports, handlings)
+		// The returned handlings are listed with the rest, and the ownership
+		// registry puts each under the role that handled it.
+		actions = reportFindings(reports, handlings)
 	}
 	var problem string
 	if sources.Stoppages == nil || sources.Decisions == nil {

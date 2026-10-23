@@ -1257,14 +1257,19 @@ for a reason on your closed list — `fundamental-intent`, `credential`,
 `repository-setting`, `protected-file`, `human-gate`, `own-hold`, or
 `diverged-history` — and `yoyo status` prints that reason beside each entry that
 is yours. A finding recorded with no such reason is not yours: the registry
-gives it back to the role that raised it, the Lead Product Manager for a
-handling and the development manager for an escalation.
+gives it back to the role that raised it, the role that handled the report for
+a handling and the development manager for an escalation.
 
 - **The Lead Product Manager handling a report as yours.** Her `handle` action takes
   `"needs": "operator"` for a report whose answer is yours for a reason on your
   closed list, named in `"operator_reason"` or by a `person_only` remedy, with
   the reason saying what you have to do. A handling that names you without one
-  is refused and records nothing. That handling does not close the
+  is refused and records nothing. One recorded before that was refused may
+  still name you with no reason: it was never yours, so it is not said to you
+  in the channel, and `yoyo status` and the dashboard list it under the role
+  that handled it, labelled `report to handle again`, as open for that role to
+  finish; that role's turns list it as its own until a later handling records
+  what became of the report. That handling does not close the
   report; it records the finding, and a later handling of the same report
   without `needs` is what records the change made. She is not handed the report
   again as unhandled, so her turns list the findings she has handed you, with
@@ -5162,7 +5167,7 @@ they are not the labels a person reads:
 | `outage` | provider unavailable |
 | `stall` | work not starting |
 | `held-work` | work waiting |
-| `operator-action` | person needed |
+| `operator-action` | person needed, or report to handle again |
 | `product-decision` | work decision waiting |
 | `human-gate` | person's step waiting |
 | `untraced-pass` | findings not recorded |
