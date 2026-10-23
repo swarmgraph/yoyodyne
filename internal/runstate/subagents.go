@@ -40,6 +40,8 @@ type SubagentRecord struct {
 // SubagentLimit is a usage limit on the sub-agents' model alone.
 type SubagentLimit struct {
 	// Kind is the provider's own name for the limit, such as seven_day_sonnet.
+	// It is kept as the provider said it and shown to a person only through
+	// backend.LimitName.
 	Kind string `json:"kind"`
 	// ResetsAt is when the provider said it resets, and nil where it said
 	// nothing usable.
@@ -55,7 +57,7 @@ func (l *SubagentLimit) Stands(now time.Time) bool {
 // Says is why a standing limit leaves the run without sub-agents, with the
 // reset in the reader's own zone.
 func (l SubagentLimit) Says() string {
-	said := fmt.Sprintf("the provider's %s usage limit for the sub-agents' model is reached", l.Kind)
+	said := "the sub-agents' model has reached the provider's " + backend.LimitName(l.Kind)
 	if l.ResetsAt == nil {
 		return said + " and it named no reset time, so the developer works without them for the rest of this run"
 	}
@@ -69,6 +71,11 @@ func (s State) SubagentsSays() string {
 	var parts []string
 	if record := s.Subagents; record != nil && record.Enabled {
 		switch {
+		case record.Limit != nil:
+			// Said afresh from the limit rather than read off Unavailable, which
+			// a record written before the limit was named in words still carries
+			// with the provider's key in it.
+			parts = append(parts, "sub-agents off for this run: "+record.Limit.Says())
 		case record.Unavailable != "":
 			parts = append(parts, "sub-agents off for this run: "+record.Unavailable)
 		default:

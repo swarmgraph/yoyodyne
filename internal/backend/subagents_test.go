@@ -23,3 +23,26 @@ func TestOnlyALimitOnAFamilyTheSubagentsAloneUseIsTheirs(t *testing.T) {
 		}
 	}
 }
+
+// A usage limit is named in the words a person reads, never by the provider's
+// key; one the harness does not recognize says so first and gives the key
+// after.
+func TestALimitIsNamedInOrdinaryWords(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct{ kind, named string }{
+		{"seven_day_sonnet", "Sonnet weekly limit"},
+		{"seven_day_opus", "Opus weekly limit"},
+		{"seven_day", "weekly usage limit"},
+		{"five_hour", "five-hour usage limit"},
+		{"seven_day_overage_included", "weekly limit with paid usage beyond the plan counted in"},
+		{"overage", "limit on paid usage beyond the plan"},
+		{"", "usage limit the provider did not name"},
+		{"monthly_sonnet", `unrecognized usage limit (named "monthly_sonnet")`},
+		{"daily_tokens", `unrecognized usage limit (named "daily_tokens")`},
+	} {
+		if got := LimitName(test.kind); got != test.named {
+			t.Fatalf("LimitName(%q) = %q, want %q", test.kind, got, test.named)
+		}
+	}
+}

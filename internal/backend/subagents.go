@@ -194,6 +194,39 @@ func LimitFamily(kind string) string {
 	return ""
 }
 
+// limitWindows are the usage-limit windows a provider names, in the words a
+// person reads them in.
+var limitWindows = map[string]string{
+	UsageWindowFiveHour: "five-hour",
+	UsageWindowSevenDay: "weekly",
+}
+
+// LimitName is a usage limit's kind in the words a person reads, such as
+// "Sonnet weekly limit" for seven_day_sonnet, so no surface shows the
+// provider's own key. A kind the harness does not recognize is said to be
+// unrecognized, with the provider's key given after those words so it can
+// still be looked up.
+func LimitName(kind string) string {
+	key := strings.ToLower(strings.TrimSpace(kind))
+	switch key {
+	case "":
+		return "usage limit the provider did not name"
+	case usageWindowOverageIncluded:
+		return "weekly limit with paid usage beyond the plan counted in"
+	case "overage":
+		return "limit on paid usage beyond the plan"
+	}
+	family := LimitFamily(key)
+	window, known := limitWindows[strings.TrimSuffix(key, "_"+family)]
+	switch {
+	case !known:
+		return fmt.Sprintf("unrecognized usage limit (named %q)", strings.TrimSpace(kind))
+	case family == "":
+		return window + " usage limit"
+	}
+	return strings.ToUpper(family[:1]) + family[1:] + " " + window + " limit"
+}
+
 // SubagentsOnlyLimit reports a usage limit of kind that stops only an
 // invocation's sub-agents: it names a model family the sub-agent model is in
 // and the invocation's own model is not. A limit on the whole account, one on

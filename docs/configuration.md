@@ -5659,10 +5659,11 @@ not — a weekly Sonnet limit on a run whose developer is on Opus — the run do
 not wait and does not move to its alternate endpoint: the developer carries on
 the work itself, and the run's later attempts go without sub-agents until the
 limit resets. Its record and status say so, for example `sub-agents off for
-this run: the provider's seven_day_sonnet usage limit for the sub-agents' model
-is reached, so the developer works without them until it resets at Jan 23
-09:00 PST`; a limit that names no reset time keeps them off for the rest of the
-run. A limit on the whole account, or on the developer's own model, is the
+this run: the sub-agents' model has reached the provider's Sonnet weekly limit,
+so the developer works without them until it resets at Jan 23 09:00 PST`; a
+limit that names no reset time keeps them off for the rest of the run. A limit
+the harness does not recognize is called an unrecognized usage limit, with the
+provider's own name for it after those words. A limit on the whole account, or on the developer's own model, is the
 run's, and is waited out or answered by the endpoint fallback as described
 under [waiting out a provider that refuses](#waiting-out-a-provider-that-refuses).
 
