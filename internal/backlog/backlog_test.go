@@ -557,6 +557,35 @@ func TestHeldEntriesCountApartByWhoseMoveTheyAreWaitingOn(t *testing.T) {
 	}
 }
 
+// An item labelled needs-design is admitted work in the order and never the
+// next thing to pull, whatever the tracker says about it; without the label the
+// same item is the next thing to pull.
+func TestANeedsDesignItemIsNeverReadyUntilTheLabelIsRemoved(t *testing.T) {
+	t.Parallel()
+
+	labelled := beads.WorkItem{ID: "item", Title: "Item", Status: statusOpen, Labels: []string{"reliability", domain.NeedsDesignLabel}}
+	queue := Order([]beads.WorkItem{labelled}, []string{labelled.ID}, ReadHolds(nil), nil)
+	entry := queue.Entries[0]
+	if entry.Ready || !entry.NeedsDesign {
+		t.Fatalf("entry = %#v, want a labelled item unready and marked", entry)
+	}
+	if _, ok := queue.Next(); ok {
+		t.Fatal("the queue offered an item labelled needs-design")
+	}
+	if kind := entry.HoldKind(); kind != HeldForDesign {
+		t.Fatalf("kind = %q, want %q", kind, HeldForDesign)
+	}
+	if rendered := queue.Render(); !strings.Contains(rendered, "p0 "+domain.NeedsDesignLabel+" Item") || !strings.Contains(rendered, "architect's design") {
+		t.Fatalf("rendered = %q, want the label on the item's line and the reason beneath it", rendered)
+	}
+
+	labelled.Labels = []string{"reliability"}
+	queue = Order([]beads.WorkItem{labelled}, []string{labelled.ID}, ReadHolds(nil), nil)
+	if next, ok := queue.Next(); !ok || next.ID != labelled.ID {
+		t.Fatalf("Next() = %#v, %v, want the item once its label is removed", next, ok)
+	}
+}
+
 // The kind of a hold and the sentence that explains it come from one reading,
 // so a surface counting piles by kind counts the piles the sentences describe:
 // the executor answers first, then the parking, then the hold, then the wait,
@@ -571,6 +600,8 @@ func TestHoldKindNamesThePileTheHoldSentenceDescribes(t *testing.T) {
 	}{
 		{Entry{Executor: domain.ConversationWith(domain.RoleArchitect), Parking: "parked"}, HeldByConversation, "its executor is"},
 		{Entry{Parking: "the design is being reworked", Awaiting: "a decision"}, HeldParked, "parked, so no pull selects it"},
+		{Entry{Parking: "the design is being reworked", NeedsDesign: true}, HeldParked, "parked, so no pull selects it"},
+		{Entry{NeedsDesign: true, Awaiting: "run run-b stopped on it", WaitingOn: []string{"x"}}, HeldForDesign, "labelled needs-design"},
 		{Entry{Awaiting: "run run-b stopped on it", WaitingOn: []string{"x"}}, HeldForAPerson, "run run-b stopped on it"},
 		{Entry{ID: "yoyodyne-ifd.209.7", HumanGates: humangate.Read(humangate.DeclareMarker + " soak-reviewed — the operator has judged the soak"), WaitingOn: []string{"x"}}, HeldForAGate, "waiting on a person"},
 		{Entry{WaitingOn: []string{"yoyodyne-ifd.1", "yoyodyne-ifd.2"}}, HeldWaitingOn, "waiting on yoyodyne-ifd.1, yoyodyne-ifd.2"},

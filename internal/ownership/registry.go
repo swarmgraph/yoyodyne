@@ -110,10 +110,12 @@ type Record struct {
 	// Held work: awaiting the harness carrying out a recorded decision, or
 	// admitted work the development manager decided to wait on, and otherwise
 	// her decision. The groups of not-startable work add what else an item can be
-	// held behind: a parking, other work landing, or a reason nothing could read.
+	// held behind: a parking, the needs-design label, other work landing, or a
+	// reason nothing could read.
 	AwaitingCarryOut bool
 	AwaitingWork     bool
 	Parked           bool
+	NeedsDesign      bool
 	WaitsOnWork      bool
 	Unread           bool
 
@@ -472,6 +474,10 @@ func heldWorkRule(r Record) (Answer, bool) {
 		return owned(MoverHarness, "put the stoppage back on the development manager's docket once the work it waits on closes", "watch session")
 	case r.Parked:
 		return owned(MoverProductManager, "release each item once what it was parked for is settled", "tracker")
+	case r.NeedsDesign:
+		// docs/designs/needs-design-gate.md: only the architect removes the label,
+		// once the design is readable by the developer who will pull the item.
+		return owned(MoverArchitect, "make the design each item waits on readable and remove the needs-design label", "design")
 	case r.WaitsOnWork:
 		return owned(MoverHarness, "pull each item once the work it waits on lands", "watch session")
 	case r.Unread:

@@ -15,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/checks"
@@ -1350,6 +1351,13 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	// already under way carries on while intake is held.
 	if outcome, held, err := p.holdIntake(workItemID); err != nil || held {
 		return outcome, err
+	}
+	// The needs-design label is asked at the same point and for the same reason:
+	// it holds new starts only, so a run adopted above carries on whatever the
+	// item has been labelled since. The operator's own selection passes it, and
+	// says so in the reason the run records.
+	if err := p.refuseNeedsDesign(item, workItemID); err != nil {
+		return Outcome{}, err
 	}
 	// And what follows would start it clean, which for an item whose last run
 	// stopped owing a repair is starting over on work that is waiting to be
@@ -5951,6 +5959,49 @@ func (p Pipeline) holdIntake(workItemID string) (Outcome, bool, error) {
 		PausedByIntake: &hold,
 	}, true, nil
 }
+
+// NeedsDesignError is the pipeline declining to start an item labelled
+// needs-design for a selection the harness made. Nothing was reserved or
+// claimed, so a caller treats it as a start that never became a run rather than
+// as a failure: the scheduler as a declined start, and a re-run by keeping the
+// stoppage's re-run.
+type NeedsDesignError struct {
+	WorkItemID string
+	// SelectedBy is who chose the work, as the selection names it.
+	SelectedBy string
+}
+
+func (e NeedsDesignError) Error() string {
+	by := strings.TrimSpace(e.SelectedBy)
+	if by == "" {
+		by = "nobody named"
+	}
+	return fmt.Sprintf("%s was not started for the selection by %s: it is %s", e.WorkItemID, by, backlog.NeedsDesignHold)
+}
+
+// refuseNeedsDesign holds an item carrying the needs-design label from every
+// start but one the operator named (docs/designs/needs-design-gate.md). The
+// scheduler never selects such an item, so this is reached by a label applied
+// after a pull chose the item, and by the harness's other routes to a fresh
+// run, which are refused here in one place rather than each remembering to.
+//
+// Naming the item is the operator deciding it is the exception, as with the
+// intake hold, and the override is written into the selection the run records
+// rather than passing silently.
+func (p *Pipeline) refuseNeedsDesign(item beads.WorkItem, workItemID string) error {
+	if !domain.NeedsDesign(item.Labels) {
+		return nil
+	}
+	if p.Selection.SelectedByHarness() {
+		return NeedsDesignError{WorkItemID: workItemID, SelectedBy: p.Selection.By}
+	}
+	p.Selection.Reason = strings.TrimSpace(p.Selection.Reason) + " " + needsDesignOverride
+	return nil
+}
+
+// needsDesignOverride is what an operator-named run of a needs-design item adds
+// to the reason it records.
+const needsDesignOverride = "The item is labelled " + domain.NeedsDesignLabel + ", which holds it from every start the harness chooses; the operator named it, which overrides that hold for this run."
 
 // stopRequested reports the operator asking this run to stop, and nothing at all
 // in the ordinary case. It is asked at the boundaries where the operator's hold

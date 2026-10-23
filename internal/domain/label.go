@@ -46,6 +46,24 @@ func ValidateLabel(label string) error {
 	return nil
 }
 
+// NeedsDesignLabel marks an item that is not to be started until the architect's
+// design for it is readable (docs/designs/needs-design-gate.md). The harness
+// holds such an item from every start it chooses for itself, exactly as it holds
+// a parked one; a run already going on it carries on, and a run the operator
+// names is not held, because naming one is an override.
+const NeedsDesignLabel = "needs-design"
+
+// NeedsDesign reports labels carrying NeedsDesignLabel, compared exactly as the
+// tracker stores it, as every label is.
+func NeedsDesign(labels []string) bool {
+	for _, label := range labels {
+		if strings.TrimSpace(label) == NeedsDesignLabel {
+			return true
+		}
+	}
+	return false
+}
+
 // DeveloperSlot is what one of the configured developer slots prefers. A slot is
 // one unit of execution.max_concurrent_developers — the capacity one developer
 // run takes — and a slot that prefers a label pulls the backlog's ready work

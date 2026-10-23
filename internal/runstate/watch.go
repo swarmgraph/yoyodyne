@@ -135,6 +135,10 @@ type PassedOverClass string
 const (
 	PassedOverCarriedInConversation PassedOverClass = "carried in conversation"
 	PassedOverParked                PassedOverClass = "parked"
+	// PassedOverWaitingOnDesign is an item carrying the needs-design label. It is
+	// passed over as a parked item is, and named apart from one because its next
+	// mover is the architect, whose design and removal of the label release it.
+	PassedOverWaitingOnDesign PassedOverClass = "waiting on the architect's design"
 	// PassedOverHeldForAPerson is the class no pull records any more. It said two
 	// states at once — a stoppage nobody has decided about, and a decision nobody
 	// has carried out — and on 2026-09-07 that cost days of the operator's
@@ -196,6 +200,7 @@ func PassedOverClasses() []PassedOverClass {
 	return []PassedOverClass{
 		PassedOverCarriedInConversation,
 		PassedOverParked,
+		PassedOverWaitingOnDesign,
 		PassedOverHeldForAPerson,
 		PassedOverAwaitingDecision,
 		PassedOverAwaitingCarryOut,

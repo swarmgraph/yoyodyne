@@ -118,13 +118,14 @@ var waitGroupRank = map[backlog.HoldKind]int{
 	backlog.HeldForAPerson:     0,
 	backlog.HeldByDirective:    1,
 	backlog.HeldForAGate:       2,
-	backlog.HeldByStall:        3,
-	backlog.HeldWaitingOn:      4,
-	backlog.HeldInherited:      5,
-	backlog.HeldByConversation: 6,
-	backlog.HeldParked:         7,
-	backlog.HeldCovered:        8,
-	backlog.HeldUnread:         9,
+	backlog.HeldForDesign:      3,
+	backlog.HeldByStall:        4,
+	backlog.HeldWaitingOn:      5,
+	backlog.HeldInherited:      6,
+	backlog.HeldByConversation: 7,
+	backlog.HeldParked:         8,
+	backlog.HeldCovered:        9,
+	backlog.HeldUnread:         10,
 }
 
 // waitGroups gathers not-startable items into their groups as the reading
@@ -232,6 +233,11 @@ func (w *waitGroups) shape(entry backlog.Entry, kind backlog.HoldKind) WaitGroup
 			WaitsOn: "are parked by the " + domain.RoleProductManager.Title(),
 			Next:    "she releases each once what it was parked for is settled"},
 			ownership.KindHeldWork, ownership.Record{Parked: true})
+	case backlog.HeldForDesign:
+		return ownedGroup(WaitGroup{Kind: kind,
+			WaitsOn: "wait on the " + domain.RoleArchitect.Title() + "'s design, labelled " + domain.NeedsDesignLabel,
+			Next:    "she makes each design readable to the developer who will pull the item and removes the label"},
+			ownership.KindHeldWork, ownership.Record{NeedsDesign: true})
 	case backlog.HeldCovered:
 		return ownedGroup(WaitGroup{Kind: kind,
 			WaitsOn: "are covered by other work: their own unfinished children",
