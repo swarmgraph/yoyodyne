@@ -520,6 +520,18 @@ ignored. What is checked is the shape of the identifier the reason opens with an
 not that the tracker holds it; the reason is the record you follow to the
 decision.
 
+Two changes are yours however they are marked, because they always change what
+the goals admit: creating a goals document or the brief, and a revision of
+either that adds or removes a statement under its `Goals` heading. A creation
+carrying the mark says so on `list` and `show`. A revision is compared with the
+document it replaces, matching goals by identifier, then by wording, then by
+place, so a goal reworded where it stands is still the Lead Product Manager's;
+one added or removed is put to you, and she is told which statement it was. The
+independent reviewer of the run that lands any change she marked consistent is
+told to test the mark against what the goals admit and refuse, and to refuse the
+change where it is wrong, because that review is the only other check on her
+claim.
+
 **Your `approvals` configuration decides what is asked of you.** `approvals.brief`
 and `approvals.goals` are `human` by default and `approvals.designs` is
 `automatic`, deliberately rather than by inheritance: the brief and the goals are
@@ -581,9 +593,10 @@ decision record under `approvals.designs: automatic` — is confirmed without
 asking you, records the harness and the policy as what confirmed it, and merges
 through a reviewed run with its own checks and an independent review. A
 document of the product's intent that the Lead Product Manager records as
-`intent: consistent` is approved by her the same way. A new or revised document
-of any other kind, and a change of the product's intent, still waits for your
-confirmation, and once you give it lands through the same reviewed run; nothing
+`intent: consistent` is approved by her the same way, save a new goals document
+or brief, or a revision of either that adds or removes a goal, which waits for
+you however it is marked. A new or revised document of any other kind, and a
+change of the product's intent, still waits for your confirmation, and once you give it lands through the same reviewed run; nothing
 is left in your checkout for you to commit — see [writing a document from a
 conversation](../artifacts.md#writing-a-document-from-a-conversation). A role that
 names a kind it does not own, or a home its kind is not filed in, is refused

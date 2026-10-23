@@ -37,6 +37,12 @@ type confirmationPreparer interface {
 	PrepareConfirmation(domain.AgentRole, artifact.Write, artifact.Policy, string, time.Time) (artifact.ConfirmedDocument, bool, error)
 }
 
+// markOverruler says why a document its owner marked consistent with intent
+// still waits for the operator (artifact.Store.ConsistentMarkOverruled).
+type markOverruler interface {
+	ConsistentMarkOverruled(domain.AgentRole, artifact.Write, time.Time) (string, error)
+}
+
 // PublishDocuments also handles documents saved by an older build. Confirmation
 // and its complete candidate are saved before any delivery work can start, and a
 // second waiting copy of one document is released first (see releaseCopies), so
@@ -216,10 +222,13 @@ func (s *Session) confirmDocument(record *writeRecord, publishes, landsDecided b
 	if err != nil {
 		return false, s.returnUnconfirmed(record, fmt.Sprintf("Document %s (%s) could not be confirmed: %v. The %s must correct this saved submission in this conversation.\n", record.pending.ID, record.pending.Write.ID, err, s.state.Role.Title()))
 	}
+	if !automatic {
+		return false, s.tellMarkOverruled(record)
+	}
 	// A confirmation saved where nothing can land it would hold the document
 	// out of the operator's reach with no run to settle it, so the integration
 	// setting is decided before anything is confirmed.
-	if !automatic || !publishes && !(landsDecided && candidate.ProductManagerApproved()) {
+	if !publishes && !(landsDecided && candidate.ProductManagerApproved()) {
 		return false, nil
 	}
 	// The document checks are applied when a document is written
@@ -245,6 +254,26 @@ func (s *Session) confirmDocument(record *writeRecord, publishes, landsDecided b
 		return false, err
 	}
 	return true, nil
+}
+
+// tellMarkOverruled tells the owning role, once in this process, why a document
+// it marked consistent with intent waits for the operator all the same: it
+// creates the goals or the brief, or adds or removes a goal, which is his
+// however it is marked. Without it the mark would read as ignored, and the role
+// would tell the operator the change was its own to make. A reason that cannot
+// be read leaves the document waiting and says nothing; the operator is asked
+// either way.
+func (s *Session) tellMarkOverruled(record *writeRecord) error {
+	overruler, ok := s.options.Documents.(markOverruler)
+	if !ok || record.overruledTold || record.pending.Write.Intent != artifact.IntentConsistent {
+		return nil
+	}
+	why, err := overruler.ConsistentMarkOverruled(s.state.Role, record.pending.Write, s.options.clock().Now())
+	if err != nil || why == "" {
+		return nil
+	}
+	record.overruledTold = true
+	return s.carryResults(fmt.Sprintf("Document %s (%s) is marked consistent with intent and waits for the operator's approval all the same: %s. Tell the operator it is theirs to decide.\n", record.pending.ID, record.pending.Write.ID, why))
 }
 
 // returnUnconfirmed settles a waiting document that is not to be confirmed and

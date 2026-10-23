@@ -503,13 +503,13 @@ func renderArtifactApproval(recorded artifact.Artifact, policy artifact.Policy) 
 			return "approved as it stands, " + given + rewordedSince(recorded)
 		}
 		return fmt.Sprintf("approved and amended since — %s, and %s recorded after it, so the document as it now reads is not what was approved%s%s",
-			given, laterRevisions(recorded.RevisionsSinceApproval()), rewordedSince(recorded), undelegated(recorded, latest.Revision))
+			given, laterRevisions(recorded.RevisionsSinceApproval()), rewordedSince(recorded), undelegated(recorded, latest.Revision, "still counts"))
 	}
 	switch {
 	case policy.RequiresFor(recorded) && artifact.IntentPolicy(setting) && mode != domain.ApprovalHuman:
-		return fmt.Sprintf("none recorded; this document is the product's intent, so it is yours to approve although %s is %s — only a change the %s records as consistent with intent is approved as hers", setting, mode, domain.RoleProductManager.Title())
+		return fmt.Sprintf("none recorded; this document is the product's intent, so it is yours to approve although %s is %s — only a change the %s records as consistent with intent is approved as hers%s", setting, mode, domain.RoleProductManager.Title(), undelegated(recorded, -1, "is still yours"))
 	case policy.RequiresFor(recorded):
-		return fmt.Sprintf("none recorded, and %s is %s, so this document is yours to approve", setting, mode)
+		return fmt.Sprintf("none recorded, and %s is %s, so this document is yours to approve%s", setting, mode, undelegated(recorded, -1, "is still yours"))
 	case governed:
 		return fmt.Sprintf("none recorded; %s is %s, so none is asked for", setting, mode)
 	default:
@@ -529,10 +529,13 @@ func rewordedSince(recorded artifact.Artifact) string {
 		domain.RoleProductManager.Title(), plural(len(rewordings), "rewording", "rewordings"))
 }
 
-// undelegated says why an amendment labelled consistent with intent still
-// counts against the approval, so the label does not read as ignored: what the
-// record is missing is what whoever recorded it has to supply.
-func undelegated(recorded artifact.Artifact, approvedRevision int) string {
+// undelegated says why a revision labelled consistent with intent still counts
+// against the approval, or is still the operator's to approve where nothing has
+// been approved, so the label does not read as ignored: what the record is
+// missing is what whoever recorded it has to supply, and a goals document or a
+// brief created under the label is the operator's whatever it says. consequence
+// is what the label failed to prevent, said after the revision it labels.
+func undelegated(recorded artifact.Artifact, approvedRevision int, consequence string) string {
 	var missing []string
 	for index := approvedRevision + 1; index < len(recorded.Revisions); index++ {
 		revision := recorded.Revisions[index]
@@ -540,7 +543,7 @@ func undelegated(recorded artifact.Artifact, approvedRevision int) string {
 			continue
 		}
 		if delegated, why := recorded.Rewording(revision); !delegated {
-			missing = append(missing, fmt.Sprintf("revision %d is labelled consistent and still counts, because %s", index, why))
+			missing = append(missing, fmt.Sprintf("revision %d is labelled consistent and %s, because %s", index, consequence, why))
 		}
 	}
 	if len(missing) == 0 {
@@ -611,7 +614,11 @@ work they did, so that change is delegated rather than yours: your approval
 stands through it, and one written from her conversation is recorded as
 approved by her, naming her and that item, whether it creates the document or
 revises it. A change recorded as fundamental, or one that does not say, is put
-to you whatever approvals.brief or approvals.goals says.
+to you whatever approvals.brief or approvals.goals says. So are two changes the
+label cannot be true of, however they are marked: creating a goals document or
+the brief, and a revision of either that adds or removes a statement under its
+Goals heading, which is named when she is told it waits for you. Rewording a
+goal in place is still hers.
 
 What needs your approval is your configuration's to say: approvals.brief and
 approvals.goals default to human, approvals.designs to automatic, and a decision record is the

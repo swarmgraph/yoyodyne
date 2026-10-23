@@ -182,7 +182,9 @@ rendered by `renderDocumentRefusal` and handed back to the role with
 `recordWrites`. `documentpublication.go` confirms automatic-policy writes
 (`confirmDocument`, which holds a waiting document to `checkDocument` again,
 since it may have been written by a build without the check, and returns a
-refused one to its owner with no run), saves the complete
+refused one to its owner with no run, and with `tellMarkOverruled` tells the
+owner once why a write it marked consistent with intent still waits for the
+operator), saves the complete
 candidate, and calls the ordinary delivery pipeline before any prompt, under
 the message's cancellation but not its deadline (`withoutDeadline`). Its
 `PublishDocuments` also resumes saved handoffs and carries failures to the owner,

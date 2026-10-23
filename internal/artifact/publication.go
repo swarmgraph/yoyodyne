@@ -44,7 +44,9 @@ func DocumentIdentity(content []byte) string {
 // to the operator however approvals.goals or approvals.brief is set. Any other
 // revision of one, marked fundamental or not marked at all, is the operator's,
 // however those settings are set: an automatic setting is not a way to approve a
-// change of what the goals admit without him.
+// change of what the goals admit without him. Nor is the mark, where it cannot
+// be right: creating the goals or the brief, and a revision of either that adds
+// or removes a goal, are his however they are marked (markOverruled).
 func (s Store) PrepareConfirmation(role domain.AgentRole, write Write, policy Policy, reason string, now time.Time) (ConfirmedDocument, bool, error) {
 	recorded, body, err := s.prepareCandidate(role, write, now)
 	if err != nil {
@@ -53,7 +55,11 @@ func (s Store) PrepareConfirmation(role domain.AgentRole, write Write, policy Po
 	name, mode, governed := policy.SettingFor(recorded)
 	if IntentPolicy(name) {
 		revision := len(recorded.Revisions) - 1
-		if delegated, _ := recorded.Rewording(recorded.Revisions[revision]); !delegated || role != domain.RoleProductManager {
+		overruled, err := s.markOverruled(role, write, recorded, body)
+		if err != nil {
+			return ConfirmedDocument{}, false, err
+		}
+		if overruled != "" {
 			return ConfirmedDocument{}, false, nil
 		}
 		recorded.Approvals = append(recorded.Approvals, Approval{Revision: revision, By: ApproverProductManager, At: now.UTC(), Reason: DelegatedApprovalReason(recorded.Revisions[revision])})
@@ -72,6 +78,68 @@ func (s Store) PrepareConfirmation(role domain.AgentRole, write Write, policy Po
 		return ConfirmedDocument{}, false, err
 	}
 	return confirmed, true, nil
+}
+
+// ConsistentMarkOverruled says why a write its owner marked consistent with
+// intent waits for the operator however it is marked, in a clause a person
+// reads: it creates the goals or the brief, or adds or removes a goal. It is
+// empty for any other write, including one held back only because its own
+// record is short — no directing item named, say — which is the owner's to put
+// right rather than the operator's to decide. It is offered apart from
+// PrepareConfirmation so whoever is left waiting can be told why.
+func (s Store) ConsistentMarkOverruled(role domain.AgentRole, write Write, now time.Time) (string, error) {
+	if write.Intent != IntentConsistent {
+		return "", nil
+	}
+	recorded, body, err := s.prepareCandidate(role, write, now)
+	if err != nil {
+		return "", err
+	}
+	if !IntentKind(recorded.Kind) {
+		return "", nil
+	}
+	return s.goalsChanged(write, recorded, body)
+}
+
+// markOverruled is why a prepared revision of the product's intent is not the
+// Lead Product Manager's to approve, or empty where it is: a record short of
+// what makes it hers (Rewording), or a change to the goals no mark can make hers
+// (goalsChanged).
+func (s Store) markOverruled(role domain.AgentRole, write Write, recorded Artifact, body string) (string, error) {
+	revision := recorded.Revisions[len(recorded.Revisions)-1]
+	if delegated, why := recorded.Rewording(revision); !delegated {
+		return why, nil
+	}
+	if role != domain.RoleProductManager {
+		return fmt.Sprintf("it was written by the %s, and only the %s's own change is approved as hers", role.Title(), domain.RoleProductManager.Title()), nil
+	}
+	return s.goalsChanged(write, recorded, body)
+}
+
+// goalsChanged says why a creation or revision of a document that states goals
+// is the operator's whatever it is marked, or is empty where it is not one of
+// those: creating the goals or the brief, and a revision that adds or removes a
+// goal, change what the goals admit by definition.
+//
+// The write's own action is read as well as the revision's, because a creation
+// that was already transcribed by hand is recorded as an amendment of the copy
+// on disk (prepareCandidate), and that copy is one the operator has not
+// approved either.
+func (s Store) goalsChanged(write Write, recorded Artifact, body string) (string, error) {
+	if !StatesGoals(recorded.Kind) {
+		return "", nil
+	}
+	if write.Action == WriteCreate || recorded.Revisions[len(recorded.Revisions)-1].Action == ActionCreated {
+		return createdGoalsReason(recorded.Kind), nil
+	}
+	_, before, err := s.loadOne(recorded.ID)
+	if err != nil {
+		return "", err
+	}
+	if change := GoalChange(before, body); change != "" {
+		return change + ", and adding or removing a goal changes what the goals admit, so it is the operator's to approve whatever it is marked", nil
+	}
+	return "", nil
 }
 
 // PrepareApproval renders the candidate an operator approved, with their
