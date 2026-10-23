@@ -105,10 +105,10 @@ func (p Pipeline) NextOutsideFile(ctx context.Context) (runstate.OutsideFileLand
 	}
 	listing, err := tree.FilesAtCommit(ctx, commit, maxPinnedListingFiles, maxPinnedListingBytes)
 	if err != nil {
-		return runstate.OutsideFileLanding{}, false, fmt.Errorf("list %s at %s for outside-file records: %w", branch, commit, err)
+		return runstate.OutsideFileLanding{}, false, fmt.Errorf("list %s at %s for the records of pinned outside files: %w", branch, commit, err)
 	}
 	if listing.Omitted > 0 {
-		return runstate.OutsideFileLanding{}, false, fmt.Errorf("the listing of %s at %s omitted %d path(s), so not every outside-file record could be found", branch, commit, listing.Omitted)
+		return runstate.OutsideFileLanding{}, false, fmt.Errorf("the listing of %s at %s omitted %d path(s), so not every record of a pinned outside file could be found", branch, commit, listing.Omitted)
 	}
 	now := p.clock().Now()
 	var problems []error
@@ -202,7 +202,7 @@ func (p Pipeline) stopOutsideFile(store OutsideFileStore, attempt runstate.Outsi
 	attempt.Stopped, attempt.StoppedAt, attempt.Reported = why, &now, false
 	attempt.RetryFrom, attempt.Waited = nil, ""
 	if err := store.SaveOutsideFileAttempt(attempt); err != nil {
-		return fmt.Errorf("record that outside-file record %s is stopped: %w", attempt.Record, err)
+		return fmt.Errorf("record that the record %s is stopped: %w", attempt.Record, err)
 	}
 	return p.reportStoppedOutsideFile(store, attempt)
 }
@@ -219,17 +219,17 @@ func (p Pipeline) reportStoppedOutsideFile(store OutsideFileStore, attempt runst
 		attempt.Record, oneline.Fold(strings.TrimSuffix(attempt.Stopped, "."), report.MaxMessageBytes*3/4))
 	collected, err := report.Collect([]report.Entry{{Severity: report.SeverityWarning, Message: message, For: domain.RoleDevelopmentManager}}, report.Attribution{
 		Role:         report.HarnessReporter,
-		RunID:        "outside-file@" + attempt.RecordDigest[:16],
+		RunID:        "outsidefile@" + attempt.RecordDigest[:16],
 		Build:        p.Build,
 		ProductID:    p.Config.Product.ID,
 		RepositoryID: string(p.Config.Product.RepositoryID),
 	}, p.clock().Now())
 	if err != nil {
-		return fmt.Errorf("report the stopped outside-file record %s: %w", attempt.Record, err)
+		return fmt.Errorf("report the stopped record %s: %w", attempt.Record, err)
 	}
 	for _, reported := range collected {
 		if err := p.Reports.Append(reported); err != nil {
-			return fmt.Errorf("report the stopped outside-file record %s: %w", attempt.Record, err)
+			return fmt.Errorf("report the stopped record %s: %w", attempt.Record, err)
 		}
 	}
 	attempt.Reported = true

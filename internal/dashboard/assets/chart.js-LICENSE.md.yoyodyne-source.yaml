@@ -1,0 +1,10 @@
+# Chart.js's license text, from the same package and version as chart.umd.js,
+# brought in by the harness from this record once it is on main
+# (docs/designs/pinned-outside-files.md). The harness alone writes sha256,
+# size, fetched_from and fetched_at.
+file: chart.js-LICENSE.md
+url: https://cdn.jsdelivr.net/npm/chart.js@4.4.1/LICENSE.md
+version: 4.4.1
+license: MIT
+license_file: chart.js-LICENSE.md
+for: yoyodyne-ifd.432.33

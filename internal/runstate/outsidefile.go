@@ -35,6 +35,10 @@ const OutsideFileLandings = 1
 // machine's heavy checks on it without end.
 const MaxOutsideFileAttempts = 3
 
+// MaxOutsideFileFieldBytes bounds each text a run that brings a file in
+// records about its record: a path, an address, a version, a work item.
+const MaxOutsideFileFieldBytes = 2048
+
 // OutsideFileLanding is what a run that brings a file in is for: one record, as
 // one commit of the target branch held it.
 type OutsideFileLanding struct {
@@ -69,14 +73,16 @@ type OutsideFileFetch struct {
 }
 
 // RunID is the run that makes this landing's attempt.
-func (o OutsideFileLanding) RunID() string { return OutsideFileRunID(o.Record, o.RecordDigest, o.Attempt) }
+func (o OutsideFileLanding) RunID() string {
+	return OutsideFileRunID(o.Record, o.RecordDigest, o.Attempt)
+}
 
 // OutsideFileRunID is the run that makes one attempt at bringing in the file one
 // record declares, as one content of the record says it. It is derived rather
 // than drawn, so a scheduler pass and a restarted one name the same run and the
 // reservation refuses the second.
 func OutsideFileRunID(record, digest string, attempt int) string {
-	sum := sha256.Sum256(fmt.Appendf(nil, "outside-file\x00%s\x00%s\x00%d", record, digest, attempt))
+	sum := sha256.Sum256(fmt.Appendf(nil, "outside file\x00%s\x00%s\x00%d", record, digest, attempt))
 	return fmt.Sprintf("run-%x", sum[:16])
 }
 
@@ -84,7 +90,7 @@ func OutsideFileRunID(record, digest string, attempt int) string {
 // run's own rather than the record's for item, so nothing that reads a run
 // as its item's latest mistakes it for a developer's.
 func (o OutsideFileLanding) WorkItemID() string {
-	return "outside-file-" + strings.TrimPrefix(o.RunID(), "run-")
+	return "outsidefile-" + strings.TrimPrefix(o.RunID(), "run-")
 }
 
 func (o OutsideFileLanding) Validate() error {
@@ -103,6 +109,14 @@ func (o OutsideFileLanding) Validate() error {
 	}
 	if o.Attempt < 0 || o.Attempt >= MaxOutsideFileAttempts {
 		problems = append(problems, fmt.Sprintf("attempt %d is outside 0 to %d", o.Attempt, MaxOutsideFileAttempts-1))
+	}
+	for name, value := range map[string]string{"record": o.Record, "for": o.For, "url": o.URL, "version": o.Version} {
+		if len(value) > MaxOutsideFileFieldBytes {
+			problems = append(problems, fmt.Sprintf("%s is %d bytes, more than %d", name, len(value), MaxOutsideFileFieldBytes))
+		}
+	}
+	if f := o.Fetched; f != nil && len(f.FinalURL) > MaxOutsideFileFieldBytes {
+		problems = append(problems, fmt.Sprintf("final address is %d bytes, more than %d", len(f.FinalURL), MaxOutsideFileFieldBytes))
 	}
 	if f := o.Fetched; f != nil && (f.FinalURL == "" || len(f.SHA256) != 64 || f.Size <= 0 || f.At.IsZero()) {
 		problems = append(problems, "a fetch records its final address, checksum, size and time")
@@ -214,7 +228,7 @@ func (a OutsideFileAttempt) Validate() error {
 		problems = append(problems, fmt.Sprintf("attempt %d is outside 0 to %d", a.Attempt, MaxOutsideFileAttempts))
 	}
 	if len(problems) > 0 {
-		return fmt.Errorf("outside-file attempt: %s", strings.Join(problems, "; "))
+		return fmt.Errorf("what is kept about a pinned record: %s", strings.Join(problems, "; "))
 	}
 	return nil
 }
@@ -227,20 +241,20 @@ func (s *Store) OutsideFileAttempt(record string) (OutsideFileAttempt, bool, err
 		return OutsideFileAttempt{}, false, nil
 	}
 	if err != nil {
-		return OutsideFileAttempt{}, false, fmt.Errorf("open what is kept about outside-file record %s: %w", record, err)
+		return OutsideFileAttempt{}, false, fmt.Errorf("open what is kept about the record %s: %w", record, err)
 	}
 	defer file.Close()
 	var attempt OutsideFileAttempt
 	decoder := json.NewDecoder(io.LimitReader(file, maxEncodedStateBytes))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&attempt); err != nil {
-		return OutsideFileAttempt{}, false, fmt.Errorf("read what is kept about outside-file record %s: %w", record, err)
+		return OutsideFileAttempt{}, false, fmt.Errorf("read what is kept about the record %s: %w", record, err)
 	}
 	if err := attempt.Validate(); err != nil {
 		return OutsideFileAttempt{}, false, err
 	}
 	if attempt.Record != record {
-		return OutsideFileAttempt{}, false, fmt.Errorf("what is kept for outside-file record %s names %s", record, attempt.Record)
+		return OutsideFileAttempt{}, false, fmt.Errorf("what is kept for the record %s names %s", record, attempt.Record)
 	}
 	return attempt, true, nil
 }
@@ -256,33 +270,33 @@ func (s *Store) SaveOutsideFileAttempt(attempt OutsideFileAttempt) error {
 	}
 	directory := s.outsideFileAttemptDirectory()
 	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("create the outside-file attempt directory: %w", err)
+		return fmt.Errorf("create directory of what is kept about pinned records: %w", err)
 	}
-	temporary, err := os.CreateTemp(directory, ".outside-file-*.tmp")
+	temporary, err := os.CreateTemp(directory, ".outsidefile-*.tmp")
 	if err != nil {
-		return fmt.Errorf("create the temporary record of an outside-file attempt: %w", err)
+		return fmt.Errorf("create the temporary record of what is kept about a pinned record: %w", err)
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
 	if err := temporary.Chmod(0o600); err != nil {
 		temporary.Close()
-		return fmt.Errorf("secure the temporary record of an outside-file attempt: %w", err)
+		return fmt.Errorf("secure the temporary record of what is kept about a pinned record: %w", err)
 	}
-	if err := writeJSONFile(temporary, "outside-file attempt", attempt); err != nil {
+	if err := writeJSONFile(temporary, "pinned record attempt", attempt); err != nil {
 		temporary.Close()
 		return err
 	}
 	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close the temporary record of an outside-file attempt: %w", err)
+		return fmt.Errorf("close the temporary record of what is kept about a pinned record: %w", err)
 	}
 	if err := os.Rename(temporaryPath, s.outsideFileAttemptPath(attempt.Record)); err != nil {
-		return fmt.Errorf("record the outside-file attempt: %w", err)
+		return fmt.Errorf("record what is kept about a pinned record: %w", err)
 	}
 	return syncDirectory(directory)
 }
 
 func (s *Store) outsideFileAttemptDirectory() string {
-	return filepath.Join(s.root, "outside-files")
+	return filepath.Join(s.root, "outsidefiles")
 }
 
 // outsideFileAttemptPath names a record's file by a digest of its path, so a

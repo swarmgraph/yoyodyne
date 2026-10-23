@@ -856,12 +856,12 @@ type OutsideFiles struct {
 	MaxBytes int64 `yaml:"max_bytes,omitempty" json:"max_bytes,omitempty"`
 }
 
-// Policy is this configuration as the outside-file capability reads it.
+// Policy is this configuration as the capability that brings in pinned outside files reads it.
 func (o OutsideFiles) Policy() outsidefile.Policy {
 	return outsidefile.Policy{Hosts: append([]string(nil), o.Hosts...), MaxBytes: o.MaxBytes}
 }
 
-// problems reports everything wrong with the outside-file settings at once.
+// problems reports everything wrong with the settings for pinned outside files at once.
 func (o OutsideFiles) problems() []string {
 	var problems []string
 	seen := map[string]bool{}

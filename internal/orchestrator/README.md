@@ -316,3 +316,17 @@ packages of their own so they run as separate test binaries —
 `publicationtests/` first — with the helpers they share exported in
 `testharness/`. `go run ./scripts/movetests` lists which tests can move, and
 moves a group.
+
+## Pinned outside files
+
+`outsidefilelanding.go` is the harness bringing in a pinned outside file:
+`NextOutsideFile` reads the target branch's records and decides which is due,
+`BringInOutsideFile` fetches it (internal/outsidefile) and lands it through a
+run of its own — `runstate.State.OutsideFile`, reserved by
+`ReserveOutsideFileLanding`, holding no developer slot, reviewed through
+`reviewDocument` like a document landing — and `settleOutsideFile` decides what
+becomes of the record. `pinnedfiles.go` is `gatePinnedFiles`, the comparison
+`verify` makes of every pinned file with its record before the checks.
+`runstate.State.HarnessAuthored` is what the places that treat a document
+landing specially ask, so they treat this run the same way.
+
