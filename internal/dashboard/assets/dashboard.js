@@ -386,6 +386,9 @@ var standingWarningAgeSeconds = 5 * 60;
   function byMover(entries) {
     var counted = {};
     entries.forEach(function (entry) {
+      if (needsHand(entry)) {
+        return;
+      }
       counted[entry.mover] = (counted[entry.mover] || 0) + 1;
     });
     var counts = [];
@@ -397,6 +400,29 @@ var standingWarningAgeSeconds = 5 * 60;
     });
     return counts;
   }
+
+  // needsHand is an entry the read model carries as a role's decision that
+  // needs the operator's hand: the registry's answer names a role as its owner
+  // and carries the hand. It is counted apart, as the harness's missing
+  // capability, and never in the operator's figure or under its role.
+  function needsHand(entry) {
+    return !!(entry.ownership && entry.ownership.hand) && entry.mover !== "operator";
+  }
+
+  // handCount is how many of the entries need the operator's hand.
+  function handCount(entries) {
+    return entries.filter(needsHand).length;
+  }
+
+  // handCounted is how many decisions roles made need the operator's hand, in
+  // the terminal's words.
+  function handCounted(number) {
+    return number === 1 ? "1 decision a role made that needs your hand" : number + " decisions roles made that need your hand";
+  }
+
+  // The two heads under the needs-a-human line, in the terminal's words.
+  var yoursToDecide = "Yours to decide";
+  var needsYourHand = "A role's decision that needs your hand";
 
   // moverCounts says the counts as a clause: "the operator's: 3, the
   // architect's: 44, the harness's: 1".
@@ -660,7 +686,15 @@ var standingWarningAgeSeconds = 5 * 60;
     var counts = byMover(entries);
     var operator = counts[0];
     var others = counts.slice(1);
-    var detail = others.length ? "of " + count(entries.length, "thing") + " waiting in all; " + moverCounts(others) : null;
+    var hands = handCount(entries);
+    var parts = [];
+    if (hands > 0) {
+      parts.push(handCounted(hands) + ", counted as the harness's missing capability");
+    }
+    if (others.length) {
+      parts.push(moverCounts(others));
+    }
+    var detail = parts.length ? "of " + count(entries.length, "thing") + " waiting in all; " + parts.join("; ") : null;
     return tile(label, String(operator.number), plural(operator.number, "thing") + " waiting on the operator", detail, operator.number > 0 ? "tile-attention" : null, "attention");
   }
 
@@ -980,6 +1014,10 @@ var standingWarningAgeSeconds = 5 * 60;
       // of that needs a human.
       var counts = byMover(standing.needs_human);
       attention = (counts[0].number === 0 ? "nothing" : count(counts[0].number, "thing")) + " waiting on the operator";
+      var hands = handCount(standing.needs_human);
+      if (hands > 0) {
+        attention += "; " + handCounted(hands) + ", counted as the harness's missing capability";
+      }
       if (counts.length > 1) {
         attention += "; waiting on others: " + moverCounts(counts.slice(1));
       }
@@ -1655,14 +1693,50 @@ var standingWarningAgeSeconds = 5 * 60;
   // its card.
   function attentionGrouping(standing) {
     var entries = (standing.needs_human_problem ? [] : standing.needs_human).map(function (entry, at) { return { entry: entry, at: at }; });
+    // The operator's first, then the roles' decisions that need his hand, then
+    // everybody else's in the movers' order.
+    var rank = function (entry) {
+      if (entry.mover === "operator") {
+        return -2;
+      }
+      return needsHand(entry) ? -1 : moverRank(entry.mover);
+    };
     entries.sort(function (a, b) {
-      return (moverRank(a.entry.mover) - moverRank(b.entry.mover)) || (a.at - b.at);
+      return (rank(a.entry) - rank(b.entry)) || (a.at - b.at);
     });
-    return listing("What is waiting, and on whom", "what waits on the operator first, then what waits on each role, the harness, and the forge, each with its kind and who it is waiting on; each opens its card",
+    var items = [];
+    var operators = entries.filter(function (each) { return each.entry.mover === "operator"; });
+    var hands = entries.filter(function (each) { return needsHand(each.entry); });
+    if (operators.length > 0 || hands.length > 0) {
+      items.push({ heading: yoursToDecide + (operators.length ? " (" + operators.length + ")" : ": nothing") });
+    }
+    var others = false;
+    entries.forEach(function (each) {
+      if (hands.length > 0 && each === hands[0]) {
+        items.push({ heading: needsYourHand + " (" + hands.length + "), each the harness's missing capability rather than yours to decide" });
+      }
+      if (!others && items.length > 0 && rank(each.entry) >= 0) {
+        others = true;
+        items.push({ heading: "Waiting on others" });
+      }
+      var detail = needsHand(each.entry) ? handSays(each.entry) : saidWhose(each.entry);
+      items.push({ entry: entryKey(each.entry), label: each.entry.label, title: saidWhat(each.entry), detail: detail });
+    });
+    var listed = items.filter(function (item) { return !item.heading; });
+    var described = listing("What is waiting, and on whom", "what is yours to decide first, then each role's decision that needs your hand, then what waits on each role, the harness, and the forge, each with its kind and who it is waiting on; each opens its card",
       standing.needs_human_problem, whatToDoAboutTheStanding(), "Nothing waits on the operator or anybody else.",
-      entries.map(function (each) {
-        return { entry: entryKey(each.entry), label: each.entry.label, title: saidWhat(each.entry), detail: saidWhose(each.entry) };
-      }), "thing");
+      items, "thing");
+    if (described.state === "ready") {
+      described.counted = listed.length;
+    }
+    return described;
+  }
+
+  // handSays is a role's decision that needs the operator's hand, in the read
+  // model's words: the role that decided, what to type, and the item whose
+  // landing ends the need.
+  function handSays(entry) {
+    return entry.said_hand || entry.hand_says || saidWhose(entry);
   }
 
   // listing folds a grouping's readings into one of the four states: error
@@ -1684,7 +1758,7 @@ var standingWarningAgeSeconds = 5 * 60;
       return;
     }
     var described = groupingOf(openGrouping);
-    document.getElementById("grouping-heading").textContent = described.title + (described.state === "ready" ? " (" + count(described.items.length, described.noun) + ")" : "");
+    document.getElementById("grouping-heading").textContent = described.title + (described.state === "ready" ? " (" + count(described.counted === undefined ? described.items.length : described.counted, described.noun) + ")" : "");
     document.getElementById("grouping-note").textContent = described.note || "";
     // What a grouping is waiting for is its own source's: the runs, the month
     // of spend, or where the harness stands.
@@ -1693,6 +1767,12 @@ var standingWarningAgeSeconds = 5 * 60;
     var list = document.getElementById("grouping-items");
     clear(list);
     (described.items || []).forEach(function (item) {
+      // A head names the rows under it rather than being one: the needs-a-human
+      // line's two heads, and where everybody else's waiting begins.
+      if (item.heading) {
+        list.appendChild(el("li", "grouping-head", item.heading));
+        return;
+      }
       var entry = el("li", "grouping-item" + (item.className ? " " + item.className : ""));
       // A row is a work item, opening its card by id, or an entry of the
       // attention line, opening its card by key with its kind where the id
@@ -1893,6 +1973,14 @@ var standingWarningAgeSeconds = 5 * 60;
     }
     add("What ends it", answer.remedy || "", "card-field-prose");
     add("What that needs", answer.capability || "");
+    // A role's decision that needs the operator's hand: what the harness
+    // cannot yet do, what he types, and the item whose landing ends the need.
+    if (needsHand(entry)) {
+      add("Needs your hand", handSays(entry), "card-field-prose");
+      add("What the harness cannot yet do", answer.hand.missing, "card-field-prose");
+      add("What to type", answer.hand.types, "card-field-id");
+      add("Ends once this lands", entry.hand_ends || answer.hand.closed_by || "no work item is admitted yet", "card-field-prose");
+    }
     switch (entry.kind) {
       case "amendment":
         var proposal = entry.amendment;

@@ -67,14 +67,25 @@ func (d DocumentApproval) Says() string {
 		d.WriteID, what, d.Owner.Title(), d.ConversationID, since)
 }
 
+// reach is the command that reaches the conversation the document waits in.
+func (d DocumentApproval) reach() string {
+	if d.Owner == domain.RoleProductManager && d.Agent == string(domain.RoleProductManager) {
+		return "yoyo chat"
+	}
+	return "yoyo agent chat " + d.Agent
+}
+
 // command is what the operator types to approve or decline it, as the
 // conversation it waits in is reached.
 func (d DocumentApproval) command() string {
-	reach := "yoyo agent chat " + d.Agent
-	if d.Owner == domain.RoleProductManager && d.Agent == string(domain.RoleProductManager) {
-		reach = "yoyo chat"
-	}
+	reach := d.reach()
 	return fmt.Sprintf("`%s --message \"approve %s\"` approves it and `%s --message \"decline %s <reason>\"` declines it", reach, d.WriteID, reach, d.WriteID)
+}
+
+// approveCommand is what the operator types to approve it, the hand a waiting
+// document of a role's own carries.
+func (d DocumentApproval) approveCommand() string {
+	return fmt.Sprintf("%s --message \"approve %s\"", d.reach(), d.WriteID)
 }
 
 // whose is whose move the waiting document is and what settles it.

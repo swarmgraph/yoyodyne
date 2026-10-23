@@ -1323,6 +1323,22 @@ handling and the development manager for an escalation.
   recommends, then the reasons. A proposal you decide drops out of it, and the
   finding ends when the last one in it is decided.
 
+A finding of the first two shapes can also be a role's own decision that only
+your keyboard can carry out, which is not yours to decide: the Lead Product
+Manager's handling recorded with `"hand"` in place of `"needs"` — a
+configuration value she decided that only a person can write into
+`.yoyodyne/config.yaml` — and the development manager's escalation recorded
+with `"hand": "cap-crossing"` in place of `"operator_reason"`, for a cap
+crossing past her own five that only `yoyo triage override` records. It is
+sent to you the same way and stands until the same records end it, but it
+stays the deciding role's: `yoyo status` lists it under **A role's decision
+that needs your hand**, with what to type and the work item that ends the
+need, counted as the harness's missing capability rather than in your count
+([the four lines](#where-the-harness-stands-the-four-lines)). An escalation
+recorded with a hand is not sent back to the development manager for giving
+no reason, since it names a capability the harness lacks rather than one of
+yours.
+
 The failure-storm brake's hold is not one of them, escalated or not. The hold
 names the runs it counted — each with its item and what stopped it. The trip is
 sent to you directly once, tagged, the moment it is recorded, naming those runs
@@ -2195,7 +2211,8 @@ The provider is not authenticated; the operator must log in: every role is waiti
 Running: nothing
 ...
 Needs a human (1):
-  The provider is not authenticated; the operator must log in: … — the operator's — log in to the provider by running `claude auth login` on the machine the harness runs on; the harness resumes on its own once it answers, and nothing is released or restarted (the operator's because it is a credential or account only a person holds)
+  Yours to decide (1):
+    The provider is not authenticated; the operator must log in: … — the operator's — log in to the provider by running `claude auth login` on the machine the harness runs on; the harness resumes on its own once it answers, and nothing is released or restarted (the operator's because it is a credential or account only a person holds)
 ```
 
 A provider that cannot be reached at all is nobody's to act on rather than the
@@ -4605,7 +4622,8 @@ section as what settles it:
 
 ```text
 Needs a human (1):
-  the target branch main will not catch up to the remote's, so the harness chooses no work for it: main on origin is at 9f1c2ab, which does not contain the local main at 4d7e805; only a person can say which history is right; 1 promotion refused since 2026-09-21T08:00:00Z — the operator's — follow "Unwedging a target branch that diverged from the forge" in docs/operations.md, and the next `yoyo reconcile` that finds the branches converged lifts it; nothing needs releasing (the operator's because it is saying which history is right on a target branch that diverged from the forge, which needs rights on the protected branch no role holds)
+  Yours to decide (1):
+    the target branch main will not catch up to the remote's, so the harness chooses no work for it: main on origin is at 9f1c2ab, which does not contain the local main at 4d7e805; only a person can say which history is right; 1 promotion refused since 2026-09-21T08:00:00Z — the operator's — follow "Unwedging a target branch that diverged from the forge" in docs/operations.md, and the next `yoyo reconcile` that finds the branches converged lifts it; nothing needs releasing (the operator's because it is saying which history is right on a target branch that diverged from the forge, which needs rights on the protected branch no role holds)
 ```
 
 Every ready item on the "Not startable" line is refused for it in the same words,
@@ -4969,7 +4987,41 @@ has the rule.
   thirty-three items read as a decision backlog for days while the development
   manager had decided every one of them and the gap was the carry-out.
 - **Needs a human** is always present, and says either `nothing` or the list of
-  what waits on the operator, the one human the line is named for. Everything
+  what waits on the operator, the one human the line is named for, under two
+  heads:
+
+  ```text
+  Needs a human (1, and 1 decision a role made that needs your hand, counted as the harness's missing capability):
+    Yours to decide (1):
+      intake is held, since …: the operator placed it — … — the operator's
+    A role's decision that needs your hand (1), each the harness's missing capability rather than yours to decide:
+      document document-412.1, a revision of ownership-and-the-operator written by the architect in conversation chat-a065…, waits for the operator's approval, … — the architect's decision, which needs your hand because the harness has no way yet of confirming a document written from a conversation as its kind's approval setting says, without a person: type `yoyo agent chat architect --message "approve document-412.1"`; the need ends once yoyodyne-ifd.433.21 (P1: …) lands
+  ```
+
+  **Yours to decide** is what you own: an entry the
+  [ownership registry](#who-owns-each-kind-of-entry) names you for, which it
+  does only for a reason on your closed list, and each entry ends on that
+  reason. The line's count is this head's count and no other. **A role's
+  decision that needs your hand** is what a role decided and owns, where the
+  harness has no way yet of carrying the decision out for it, so your keyboard
+  has to: each names the role that decided, what to type, and the work item
+  whose landing ends the need — named, like every other item on the line, with its priority, labels, and title — or says no item is admitted yet. Those are the
+  harness's missing capability rather than your queue: they are counted apart
+  from your count, in the line's head, never under *Yours to decide*, and not
+  again under the deciding role's own head below. The head is printed only
+  where there is one, and *Yours to decide* says `nothing` when the only
+  entries are the second kind. Four gaps make one today, each a closed value
+  carried as `hand` in the registry's answer: a change proposed to a document
+  whose owning role cannot decide it (`amendment-decision`; with the roles the
+  harness ships, every owner decides its own, so none carries it), a
+  configuration value a role decided that only a person can write into
+  `.yoyodyne/config.yaml` (`operational-configuration`, until
+  yoyodyne-ifd.434.8's build lands), a document a role wrote from a
+  conversation whose kind's approval setting asks for a person
+  (`document-confirmation`, until yoyodyne-ifd.433.21), and the development
+  manager's crossing of an item's cap once she has used her own five
+  (`cap-crossing`, typed with `yoyo triage override`; no item is admitted yet
+  to close it). Everything
   else that is waiting is printed under it, one line per mover — `Waiting on the
   development manager (2):`, `Waiting on the harness (1):`, `Waiting on the
   forge (1):` — in the order the Lead Product Manager, the architect, the
@@ -5052,8 +5104,9 @@ the product's intent — the brief, the goals and non-goals, the operating
 rules — is under **Waiting on the operator**, for a change of fundamental
 intent. Any other document waits on you only because the project's approval
 setting for its kind asks for a person, which is no reason on the operator's
-closed list, so it is under its owning role's head — **Waiting on the
-architect** for a design — and its words say you are who decides it. Either way the entry names the command that decides
+closed list, so it stays its owning role's and is listed under **A role's
+decision that needs your hand** — the architect's, for a design — naming
+`yoyodyne-ifd.433.21` as the item whose landing ends the need. Either way the entry names the command that decides
 it, `yoyo agent chat <agent> --message "approve document-<turn>.<n>"` or
 `"decline document-<turn>.<n> <reason>"` (`yoyo chat` for the Lead Product
 Manager), and it leaves the line once you have: an approved document is
@@ -5119,6 +5172,47 @@ they are not the labels a person reads:
 | `heavy-check-kept` | check place kept |
 | `blocked-on-a-human` | blocked on a human |
 | `document-approval` | document waiting for approval |
+
+### Who owns each kind of entry
+
+Who owns an entry is the ownership registry's answer (`internal/ownership`),
+one rule per kind, resolved once as the standing is read and carried on the
+entry as `ownership`; no surface works it out for itself. You are the owner
+only for a reason on your closed list, and an entry no rule can classify is
+the Lead Product Manager's to classify, never yours. Where a role owns the
+decision and the harness has no way yet of carrying it out, the role stays the
+owner and the answer carries `hand` — under **A role's decision that needs
+your hand**, never under **Yours to decide**.
+
+| Kind | Who owns it |
+| --- | --- |
+| `amendment`, `amendment-queue` | the role that owns the document; yours only for a change to the brief or the goals that does not say it is consistent with their intent (`fundamental-intent`); with your hand where the owning role cannot decide it |
+| `conversation-carried-item` | the role the item's executor marker names |
+| `report` | the Lead Product Manager, who works the pile |
+| `addressed-report` | the role the report is addressed to |
+| `owed-step` | the harness; the development manager where reconcile cannot settle it without her deciding what becomes of the run's work |
+| `publication` | the harness while it can look up, re-read, re-run, or wait on a red target; the forge while it holds the merge; the development manager for a merge dropped or never asked for |
+| `degraded-service`, `config-mismatch`, `tracker-unanswered`, `factory-stall` | the harness |
+| `failing-task` | the harness for a firing refused before its first turn; for a repeatedly failing pass, the role that resolves its failures, and yours only for a recorded person-only step |
+| `service-copies`, `check-could-not-run`, `heavy-check-kept`, `product-decision` | the development manager |
+| `hold` | yours for your own pause or intake hold (`own-hold`); for the brake's hold, the development manager, the harness while it carries her decision out, and the Lead Product Manager once it is escalated; the harness for the provider holding every role |
+| `directive` | the Lead Product Manager |
+| `outage` | yours for a lapsed login (`credential`); nobody's for a provider nobody can reach |
+| `stall` | by its reason: yours for a target branch that diverged (`diverged-history`) or your own hold; the harness for a session to start or a read to retry; nobody's for waits that clear by themselves |
+| `held-work` | the development manager for a decision, the harness for a carry-out or named work, the Lead Product Manager for parked work |
+| `operator-action` | yours for the closed-list reason it was recorded with; the role that decided it, with your hand, where it was recorded with a hand; otherwise back to the Lead Product Manager or the development manager who raised it |
+| `human-gate` | yours (`human-gate`); the Lead Product Manager for a declaration nothing could read |
+| `untraced-pass` | the role whose pass it was |
+| `capacity-degraded` | nobody's |
+| `blocked-on-a-human` | yours for the closed-list reason the program manager gave; otherwise the Lead Product Manager's to correct |
+| `document-approval` | yours for a document stating the product's intent (`fundamental-intent`); otherwise the owning role's, with your hand |
+
+A role records a decision that needs your hand with `hand` in place of a
+reason of yours: the Lead Product Manager's report handling with
+`"hand": "operational-configuration"`, and the development manager's
+escalation with `"to": "operator", "hand": "cap-crossing"`. Either is said to
+you directly once, like any finding, and stands until a later handling, or a
+later decision on the run, ends it.
 
 A line with nothing in it says `nothing` in words, and a line whose records could
 not be read says that instead — never `nothing`, which would be a confident
@@ -6594,7 +6688,9 @@ slowly or not at all`.
    anything held back is the operator's — the model's one sentence — then how
    many things wait on the operator, and then how many wait on each other mover
    — `Needs a human: 1 thing waiting on the operator; waiting on others: the
-   development manager's: 30, the harness's: 4.` Nothing a role or the harness
+   development manager's: 30, the harness's: 4.` — with a role's decision that
+   needs your hand counted between the two, apart from both, as the harness's
+   missing capability. Nothing a role or the harness
    moves is said to need a person. The Not startable tile counts the held-back work and names
    the slot wait beside the figure rather than in it. Every stage's label
    and every pile's label is a button that opens [the list of the items in it](#opening-a-work-item).
@@ -6795,7 +6891,15 @@ prints for it, with its `kind` under it and the terminal's second sentence
 beside — who it is waiting on and what settles it, `the architect's — nothing
 reaches the document until they or the operator decide it` — in the movers'
 order, the operator's first, so the list opens on what the tile's figure
-counted; within one mover the entries are in the terminal's order. It has the
+counted; within one mover the entries are in the terminal's order. The list
+carries the terminal's heads: **Yours to decide** over the operator's
+entries, **A role's decision that needs your hand** over each role's decision
+the harness cannot yet carry out — each with the role that decided, what to
+type, and the item that ends the need beside it, and on its card the same
+under *Needs your hand*, *What the harness cannot yet do*, *What to type*, and
+*Ends once this lands* — and **Waiting on others** over the rest. An entry
+carrying a hand is never under the first head, and the tile's figure never
+counts it; the tile's detail counts it apart. It has the
 four states the grouping list has: **empty**
 saying `Nothing waits on the operator or anybody else.`, **error** with the reason the line could
 not be read — the tile showing a dash still opens it, so the reason is

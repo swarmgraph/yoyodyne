@@ -159,6 +159,12 @@ type TriageDecision struct {
 	// OperatorReason is the closed-list reason an escalation to the operator was
 	// made for. An escalation recorded before the list was enforced carries none.
 	OperatorReason ownership.OperatorReason `json:"operator_reason,omitempty"`
+	// Hand is the capability the harness lacks, on an escalation that hands the
+	// operator's keyboard her own decision rather than a decision of his: a cap
+	// crossing past the ones she may record herself is the case today. It is
+	// taken instead of OperatorReason, never beside it, and the finding it makes
+	// stays hers (ownership.HandNeeds).
+	Hand ownership.HandNeed `json:"hand,omitempty"`
 }
 
 // EscalatesToOperator reports an escalate decision that handed the entry to the
@@ -221,11 +227,19 @@ func (d TriageDecision) Validate() error {
 		problems = append(problems, fmt.Errorf("the item waited on is %d bytes, limit is %d", len(waitsOn), MaxTriageDecisionSupersededBytes))
 	}
 	switch {
-	case d.EscalatedTo == "" && d.OperatorReason == "":
+	case d.EscalatedTo == "" && d.OperatorReason == "" && d.Hand == "":
 	case d.Decision != TriageDecisionEscalate:
 		problems = append(problems, fmt.Errorf("only a %q decision names whom it escalates to, and this one is %q", TriageDecisionEscalate, d.Decision))
 	case d.EscalatedTo != "" && d.OperatorReason != "":
 		problems = append(problems, fmt.Errorf("an escalation to the %s carries no operator reason; that is for an escalation to the operator", d.EscalatedTo.Title()))
+	case d.EscalatedTo != "" && d.Hand != "":
+		problems = append(problems, fmt.Errorf("an escalation to the %s carries no hand; that is for her own decision handed to the operator's keyboard", d.EscalatedTo.Title()))
+	case d.OperatorReason != "" && d.Hand != "":
+		problems = append(problems, errors.New("an escalation gives the operator a reason of his own or hands him her decision, and this one does both"))
+	case d.Hand != "":
+		if err := d.Hand.Check(); err != nil {
+			problems = append(problems, err)
+		}
 	case d.EscalatedTo != "" && !slices.Contains(ownership.EscalatesTo(domain.RoleDevelopmentManager), d.EscalatedTo):
 		problems = append(problems, fmt.Errorf("%q is not a role triage escalates to", d.EscalatedTo))
 	case d.OperatorReason != "":
@@ -264,6 +278,8 @@ func (d TriageDecision) Describe() string {
 		described += "; escalated to the " + d.EscalatedTo.Title()
 	case d.OperatorReason != "":
 		described += "; escalated to the operator for " + d.OperatorReason.Says()
+	case d.Hand != "":
+		described += "; handed to the operator's hand, because the harness has no way yet of " + d.Hand.Missing()
 	}
 	return described
 }

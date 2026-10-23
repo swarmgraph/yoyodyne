@@ -788,8 +788,8 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			`<button class="grouping-open tile-label" type="button" data-grouping="attention">Needs a human</button>`,
 			`<span class="figure">1</span>`,
 			`<span class="unit">thing waiting on the operator</span>`,
-			`<span class="detail">of 9 things waiting in all; the Lead Product Manager's: 3, the architect's: 2, the development manager's: 1, the harness's: 2</span>`,
-			"Needs a human: 1 thing waiting on the operator; waiting on others: the Lead Product Manager's: 3, the architect's: 2, the development manager's: 1, the harness's: 2.",
+			`<span class="detail">of 10 things waiting in all; 1 decision a role made that needs your hand, counted as the harness's missing capability; the Lead Product Manager's: 3, the architect's: 2, the development manager's: 1, the harness's: 2</span>`,
+			"Needs a human: 1 thing waiting on the operator; 1 decision a role made that needs your hand, counted as the harness's missing capability; waiting on others: the Lead Product Manager's: 3, the architect's: 2, the development manager's: 1, the harness's: 2.",
 			"22 runs reached the target branch",
 			// A stopped run is said as what it ended as, never as a wait it is
 			// still in.
@@ -913,7 +913,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		// words, with its kind and who it is waiting on, the operator's first, and
 		// each a button that opens its card.
 		"attention": {
-			`<h2 id="grouping-heading" class="popup-title">What is waiting, and on whom (9 things)</h2>`,
+			`<h2 id="grouping-heading" class="popup-title">What is waiting, and on whom (10 things)</h2>`,
 			`data-entry="human-gate:signing-key"`,
 			`<button class="item-open grouping-title" type="button" data-entry="directive:directive-4f2c">directive directive-4f2c is unresolved: which branch does this land on?</button>`,
 			`<button class="item-open grouping-title" type="button" data-entry="owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70">cleanup of the branch and worktree for yoyodyne-ifd.222 is not finished</button>`,
@@ -1028,8 +1028,21 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 	// one the list carries: the attention render names each key once as an
 	// opener, and the amendment card names the item its proposer was working
 	// on as an opener of its own.
-	if strings.Count(page("attention"), `data-entry="`) != 9 {
-		t.Errorf("the attention render does not open a card on each of the 9 entries")
+	if strings.Count(page("attention"), `data-entry="`) != 10 {
+		t.Errorf("the attention render does not open a card on each of the 10 entries")
+	}
+	// The list carries the needs-a-human line's two heads, the operator's own
+	// first and a role's decision that needs his hand after it, and the entry
+	// carrying a hand is under the second and never under the first.
+	attention := page("attention")
+	yours := strings.Index(attention, `<li class="grouping-head">Yours to decide (1)</li>`)
+	hand := strings.Index(attention, `<li class="grouping-head">A role's decision that needs your hand (1)`)
+	handEntry := strings.Index(attention, `data-entry="document-approval:chat-a06587022b9caf04cbbb20d8f6fe8c13/document-412.1"`)
+	if yours < 0 || hand < yours || handEntry < hand {
+		t.Errorf("the attention render does not put the hand entry under its own head after the operator's")
+	}
+	if !strings.Contains(page("attention-hand"), "(P1) Confirm a conversation's document as its kind's approval setting says (yoyodyne-ifd.433.21)") || !strings.Contains(page("attention-hand"), "What to type") {
+		t.Errorf("the hand entry's card does not say what to type and the item that ends the need")
 	}
 	if !strings.Contains(page("attention-amendment"), `data-item="yoyodyne-ifd.210"`) {
 		t.Errorf("the amendment card does not open the item its proposer was working on")

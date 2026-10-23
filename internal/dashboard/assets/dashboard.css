@@ -1051,6 +1051,11 @@ input:focus-visible {
   gap: 0.5rem;
 }
 
+.grouping-head {
+  padding: 0.5rem 0 0.1rem;
+  font-weight: 600;
+}
+
 .grouping-item {
   display: grid;
   gap: 0.15rem;

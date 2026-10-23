@@ -499,9 +499,24 @@ func (a TrackerAction) escalationProblems() []error {
 		if a.OperatorReason != "" {
 			problems = append(problems, fmt.Errorf("only the %q decision and a handling name \"operator_reason\", and this is %q", decisionEscalate, strings.TrimSpace(a.Decision)))
 		}
+		if a.Hand != "" {
+			problems = append(problems, fmt.Errorf("only the %q decision and a handling name \"hand\", and this is %q", decisionEscalate, strings.TrimSpace(a.Decision)))
+		}
 		return problems
 	}
 	if to == "" || ownership.NamesOperator(to) {
+		// Her own decision handed to the operator's keyboard, because the harness
+		// cannot yet carry it out for her: it names a capability the harness lacks
+		// rather than a reason of his, and stays hers.
+		if a.Hand != "" {
+			if a.OperatorReason != "" {
+				return []error{fmt.Errorf("escalating %s: \"hand\" hands the operator your own decision and \"operator_reason\" makes it his; an escalation takes one or the other", strings.TrimSpace(a.ID))}
+			}
+			if err := a.Hand.Check(); err != nil {
+				return []error{fmt.Errorf("escalating %s: %w", strings.TrimSpace(a.ID), err)}
+			}
+			return nil
+		}
 		if err := ownership.CheckOperatorRouting(domain.RoleDevelopmentManager, a.OperatorReason); err != nil {
 			return []error{fmt.Errorf("escalating %s: %w", strings.TrimSpace(a.ID), err)}
 		}
@@ -514,6 +529,9 @@ func (a TrackerAction) escalationProblems() []error {
 	}
 	if a.OperatorReason != "" {
 		return []error{fmt.Errorf("an escalation to the %s carries no \"operator_reason\"; that is for an escalation to the operator", domain.AgentRole(to).Title())}
+	}
+	if a.Hand != "" {
+		return []error{fmt.Errorf("an escalation to the %s carries no \"hand\"; that is for your own decision handed to the operator's keyboard", domain.AgentRole(to).Title())}
 	}
 	return nil
 }
@@ -541,6 +559,9 @@ func (a TrackerAction) escalationTarget() string {
 func (a TrackerAction) escalationVerb() string {
 	if a.escalatedTo() != "" {
 		return "Escalated to " + a.escalationTarget() + " by triage"
+	}
+	if a.Hand.Valid() {
+		return triageVerbs[decisionEscalate] + ", as the development manager's own decision that needs the operator's hand, because the harness has no way yet of " + a.Hand.Missing()
 	}
 	return triageVerbs[decisionEscalate] + ", for " + a.OperatorReason.Says()
 }
@@ -849,6 +870,7 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 		WaitsOn:        waitsOn,
 		EscalatedTo:    escalatedTo(action, decision),
 		OperatorReason: operatorReasonOf(action, decision),
+		Hand:           handOf(action, decision),
 	})
 	if err != nil {
 		outcome.refused(refusedPastCap(err))
@@ -916,6 +938,13 @@ func operatorReasonOf(action TrackerAction, decision string) ownership.OperatorR
 		return ""
 	}
 	return action.OperatorReason
+}
+
+func handOf(action TrackerAction, decision string) ownership.HandNeed {
+	if decision != decisionEscalate || action.escalatedTo() != "" {
+		return ""
+	}
+	return action.Hand
 }
 
 // carryOutRunlessTriage records a decision about an attempt that never became a
@@ -1337,7 +1366,7 @@ func refusedPastCap(err error) error {
 	if !errors.Is(err, runstate.ErrTriageCapReached) {
 		return err
 	}
-	return fmt.Errorf("%w. Nothing written into the item's notes crosses that cap — no guard reads prose. What crosses it from here is %s, up to %d times per item and only with the reason it is being crossed for, which is recorded on the item and reported to the operator as you record it; once the crossing is recorded, asking for this same decision again records it. Past those %d, or for a ceiling beyond the one that permits it, escalate and the operator crosses it themselves with %s",
+	return fmt.Errorf("%w. Nothing written into the item's notes crosses that cap — no guard reads prose. What crosses it from here is %s, up to %d times per item and only with the reason it is being crossed for, which is recorded on the item and reported to the operator as you record it; once the crossing is recorded, asking for this same decision again records it. Past those %d, or for a ceiling beyond the one that permits it, the crossing is still your decision and only the operator's keyboard can record it: escalate with \"to\": \"operator\" and \"hand\": \"cap-crossing\", and he types %s",
 		err, crossingDecisions(err), runstate.MaxDelegatedCapCrossings, runstate.MaxDelegatedCapCrossings, overrideCommands(err))
 }
 

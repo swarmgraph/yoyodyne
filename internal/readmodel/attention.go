@@ -344,6 +344,35 @@ func (a Attention) CitedWhose() string {
 	return a.wording.Render(a.titles.CiteKnowing(a.Whose(), a.WorkItemID))
 }
 
+// HandSays is a role's decision that needs the operator's hand as the line
+// under its head says it — the role that decided, what to type, and the item
+// that ends the need — and empty on every other entry.
+func (a Attention) HandSays() string {
+	if !a.Ownership.NeedsHand() {
+		return ""
+	}
+	return a.Ownership.Hand.Says(a.Mover)
+}
+
+// CitedHand is HandSays with the item that ends the need, and every other
+// work item it names, shown with its priority, labels, and title.
+func (a Attention) CitedHand() string {
+	says := a.HandSays()
+	if says == "" {
+		return ""
+	}
+	return a.wording.Render(a.titles.CiteKnowing(says, a.WorkItemID, a.Ownership.Hand.ClosedBy))
+}
+
+// HandEnds is the item whose landing ends the need, named in the operator's
+// form, and empty where the entry carries no hand or no item closes the gap.
+func (a Attention) HandEnds() string {
+	if !a.Ownership.NeedsHand() || a.Ownership.Hand.ClosedBy == "" {
+		return ""
+	}
+	return a.titles.Name(a.Ownership.Hand.ClosedBy)
+}
+
 // Named reports an entry the attention line prints by name wherever it falls
 // and never counts into "and N things not named here": a finding only the
 // operator can act on, a critical report waiting on a role, a repeatedly
@@ -802,6 +831,9 @@ func (a Attention) Whose() string {
 		return a.Mover.Possessive() + " — in conversation; no run will ever be started for it"
 	case AttentionOperatorAction:
 		if a.OperatorAction != nil {
+			if hand := a.Ownership.Hand; a.Ownership.NeedsHand() {
+				return a.Mover.Possessive() + " — the decision is made and is not the operator's; the harness has no way yet of " + hand.Missing + ", so his hand carries it out: `" + hand.Types + "`; " + a.OperatorAction.Ends
+			}
 			if !a.Mover.IsOperator() {
 				return a.Mover.Possessive() + " — the finding names the operator for no reason on his closed list, so it is not his: " + a.Ownership.Remedy + "; " + a.OperatorAction.Ends
 			}
@@ -871,6 +903,15 @@ type attentionWire struct {
 	// OwnerReason is the closed-list reason the entry is the operator's, in
 	// words, and absent where it is not his.
 	OwnerReason string `json:"owner_reason,omitempty"`
+	// HandSays is a role's decision that needs the operator's hand, in the words
+	// the needs-a-human line prints under its head for them, and absent on every
+	// other entry.
+	HandSays string `json:"hand_says,omitempty"`
+	// SaidHand is the same sentence with the item that ends the need shown with
+	// its priority, labels, and title, and HandEnds that item in the operator's
+	// form; both are absent where they change nothing. The dashboard shows them.
+	SaidHand string `json:"said_hand,omitempty"`
+	HandEnds string `json:"hand_ends,omitempty"`
 }
 
 // MarshalJSON writes the fields and, beside them, the two sentences derived
@@ -880,6 +921,14 @@ type attentionWire struct {
 // anywhere but the fields.
 func (a Attention) MarshalJSON() ([]byte, error) {
 	wire := attentionWire{attentionFields: attentionFields(a), Label: a.Label(), What: a.What(), Whose: a.Whose(), OwnerReason: a.Ownership.ReasonSays()}
+	if wire.HandSays = a.HandSays(); wire.HandSays != "" {
+		if said := a.CitedHand(); said != wire.HandSays {
+			wire.SaidHand = said
+		}
+		if ends := a.HandEnds(); ends != a.Ownership.Hand.ClosedBy {
+			wire.HandEnds = ends
+		}
+	}
 	if said := a.CitedWhat(); said != wire.What {
 		wire.SaidWhat = said
 	}
@@ -927,11 +976,14 @@ func (a *Attention) UnmarshalJSON(data []byte) error {
 	// An entry that carries the registry's answer is held to it, as its
 	// sentences are: the answer and the mover are the registry's for the record
 	// beside them, and the reason in words is that answer's.
-	if decoded.Ownership != (ownership.Answer{}) {
+	if !decoded.Ownership.IsZero() {
 		answer := ownership.Resolve(decoded.Kind, decoded.ownershipRecord())
-		if decoded.Ownership != answer || decoded.Mover != answer.Owner {
+		if !decoded.Ownership.Equal(answer) || decoded.Mover != answer.Owner {
 			return fmt.Errorf("attention entry %s %s: its owner %q and answer %+v disagree with the ownership registry, which answers %+v", decoded.Kind, decoded.ID, decoded.Mover, decoded.Ownership, answer)
 		}
+	}
+	if wire.HandSays != "" && (!decoded.Ownership.NeedsHand() || wire.HandSays != decoded.Ownership.Hand.Says(decoded.Mover)) {
+		return fmt.Errorf("attention entry %s %s: its hand %q disagrees with its answer", decoded.Kind, decoded.ID, wire.HandSays)
 	}
 	if wire.OwnerReason != "" && wire.OwnerReason != decoded.Ownership.ReasonSays() {
 		return fmt.Errorf("attention entry %s %s: its owner reason %q disagrees with its answer, which says %q", decoded.Kind, decoded.ID, wire.OwnerReason, decoded.Ownership.ReasonSays())
@@ -1200,10 +1252,12 @@ func (a Attention) ownershipRecord() ownership.Record {
 	case AttentionAmendment:
 		if a.Amendment != nil {
 			record.Role, record.FundamentalIntent = a.Amendment.Owner, a.Amendment.ReservedForOperator()
+			record.Command = amendmentCommand(a.Amendment.ID)
 		}
 	case AttentionAmendmentQueue:
 		if a.OldestProposal != nil {
 			record.Role, record.FundamentalIntent = a.OldestProposal.Owner, a.OldestProposal.ReservedForOperator()
+			record.Command = amendmentCommand(a.OldestProposal.ID)
 		}
 	case AttentionCarriedItem:
 		record.Role = a.Executor.Role()
@@ -1261,6 +1315,10 @@ func (a Attention) ownershipRecord() ownership.Record {
 		if action := a.OperatorAction; action != nil {
 			record.Reason = action.Reason
 			record.FromReport, record.FromEscalation = action.ReportID != "", action.RunID != ""
+			record.Hand, record.Role = action.Hand, action.DecidedBy
+			if action.Hand == ownership.HandCapCrossing && action.WorkItemID != "" {
+				record.Command = "yoyo triage override --budget <budget> --cap <n> --by \"<you>\" --reason \"<why>\" " + action.WorkItemID
+			}
 		}
 	case AttentionHumanGate:
 		if a.HumanGate != nil {
@@ -1273,9 +1331,16 @@ func (a Attention) ownershipRecord() ownership.Record {
 	case AttentionDocumentApproval:
 		if a.DocumentApproval != nil {
 			record.Role, record.FundamentalIntent = a.DocumentApproval.Owner, a.DocumentApproval.ProductIntent
+			record.Command = a.DocumentApproval.approveCommand()
 		}
 	}
 	return record
+}
+
+// amendmentCommand is what a person types to record a decision on one
+// proposed change.
+func amendmentCommand(id string) string {
+	return "yoyo amendment approve|decline " + id + " --reason \"<why>\""
 }
 
 // intakeHoldRecord is what the registry's hold rule reads of the intake hold.

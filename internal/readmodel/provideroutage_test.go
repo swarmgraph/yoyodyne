@@ -108,7 +108,7 @@ func TestALapsedLoginIsFirstAmongWhatNeedsAPersonWithTheCommandToRun(t *testing.
 	}
 	rendered := standing.Render()
 	line := rendered[strings.Index(rendered, "Needs a human"):]
-	if entries := strings.SplitN(line, "\n", 3); len(entries) < 2 || !strings.Contains(entries[1], "`claude auth login`") {
+	if entries := strings.SplitN(line, "\n", 4); len(entries) < 3 || entries[1] != "  "+YoursToDecide+" (1):" || !strings.Contains(entries[2], "`claude auth login`") {
 		t.Fatalf("render = %q, want the command on the first entry under Needs a human", rendered)
 	}
 	encoded, err := json.Marshal(first)

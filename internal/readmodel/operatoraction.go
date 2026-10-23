@@ -47,6 +47,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -79,6 +80,13 @@ type OperatorAction struct {
 	// the list was required is, is not his; the ownership registry gives it back
 	// to the role that raised it.
 	Reason ownership.OperatorReason `json:"reason,omitempty"`
+	// Hand is the capability the harness lacks, on a finding recorded as a
+	// role's own decision that needs the operator's hand rather than as his:
+	// the handling's or the escalation's. It is taken instead of Reason, and the
+	// ownership registry keeps such a finding with the role that decided it,
+	// DecidedBy.
+	Hand      ownership.HandNeed `json:"hand,omitempty"`
+	DecidedBy domain.AgentRole   `json:"decided_by,omitempty"`
 	// RecordedIn says where the finding is recorded, so the operator can go and
 	// read the whole of it.
 	RecordedIn string `json:"recorded_in"`
@@ -120,8 +128,8 @@ func OperatorActions(reports []report.Report, handlings []report.Handling) []Ope
 			continue
 		}
 		handling, done := handled[reported.ID]
-		if done && handling.NeedsOperator {
-			actions = append(actions, OperatorAction{
+		if done && (handling.NeedsOperator || handling.Hand.Valid()) {
+			action := OperatorAction{
 				Key:        operatorActionKey(reported.ID),
 				Subject:    reported.ID,
 				ReportID:   reported.ID,
@@ -133,7 +141,11 @@ func OperatorActions(reports []report.Report, handlings []report.Handling) []Ope
 				FoundBy: fmt.Sprintf("the %s, handling the report", handling.Role.Title()),
 				Ends:    reportFindingEnds,
 				Since:   handling.RecordedAt,
-			})
+			}
+			if !handling.NeedsOperator {
+				action.Hand, action.DecidedBy = handling.Hand, handling.Role
+			}
+			actions = append(actions, action)
 		}
 	}
 	return actions
@@ -242,7 +254,7 @@ func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItem
 			ended = append(ended, EndedEscalation{RunID: run.RunID, WorkItemID: workItemID, Why: why, Recorded: recorded, DecidedAt: decision.DecidedAt, ReturnedTo: returnedTo})
 			continue
 		}
-		actions = append(actions, OperatorAction{
+		action := OperatorAction{
 			Key:        escalationKey(run.RunID),
 			Subject:    workItemID,
 			RunID:      run.RunID,
@@ -254,7 +266,12 @@ func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItem
 			FoundBy: "the development manager, escalating the stopped run to the operator",
 			Ends:    escalationFindingEnds,
 			Since:   decision.DecidedAt,
-		})
+		}
+		if decision.Hand.Valid() {
+			action.Hand, action.DecidedBy = decision.Hand, domain.RoleDevelopmentManager
+			action.FoundBy = "the development manager, handing her decision about the stopped run to the operator's hand"
+		}
+		actions = append(actions, action)
 	}
 	sortOperatorActions(actions)
 	sort.Slice(ended, func(i, j int) bool { return ended[i].RunID < ended[j].RunID })
@@ -290,7 +307,10 @@ func escalationEnding(run runstate.State, decision runstate.TriageDecision, item
 			return runstate.BoundEscalationEnding(fmt.Sprintf("run %s's branch and worktree are both gone, so there is no change of it left for anybody to act on: %s", run.RunID, found.Describe())), false, ""
 		}
 	}
-	if !decision.OperatorReason.Valid() {
+	// An escalation handing her own decision to the operator's hand stays hers
+	// rather than going back to her: it names no reason because the decision is
+	// not his.
+	if !decision.OperatorReason.Valid() && !decision.Hand.Valid() {
 		return unreasonedEscalationEnding(run.RunID), false, MoverDevelopmentManager
 	}
 	return "", false, ""

@@ -257,9 +257,9 @@ var trackerActionArguments = map[string][]string{
 	actionRepair:       {"state", "depends_on", "goal"},
 	actionClose:        {},
 	actionRetire:       {},
-	actionTriage:       {"run", "decision", "budget", "superseded_by", "waits_on", "to", "operator_reason"},
+	actionTriage:       {"run", "decision", "budget", "superseded_by", "waits_on", "to", "operator_reason", "hand"},
 	actionInFlight:     {"decision", "superseded_by"},
-	actionHandle:       {"report", "requests", "needs", "person_only", "operator_reason"},
+	actionHandle:       {"report", "requests", "needs", "person_only", "operator_reason", "hand"},
 	actionBrake:        {"decision"},
 	actionWithdraw:     {"proposal"},
 	actionDirective:    {"directive", "decision", "became"},
@@ -539,6 +539,13 @@ type TrackerAction struct {
 	// (`docs/designs/ownership-and-the-operator.md`, under "The escalation
 	// ladder").
 	OperatorReason ownership.OperatorReason `json:"operator_reason,omitempty"`
+	// Hand is the capability the harness lacks (ownership.HandNeeds), on a
+	// handling or an escalation whose answer is the role's own decision that only
+	// the operator's keyboard can carry out today: a configuration value the
+	// role recommends, or a cap crossing past the development manager's own. It
+	// is taken instead of "needs" and "operator_reason", and what it records
+	// stays the role's rather than becoming his.
+	Hand ownership.HandNeed `json:"hand,omitempty"`
 	// State is which kind of stale backlog state a repair corrects, from the
 	// vocabulary internal/backlogrepair declares. It is required there and taken
 	// by nothing else: the three are found in different records and corrected by
@@ -1287,6 +1294,14 @@ func (a TrackerAction) validateArguments() []error {
 				problems = append(problems, err)
 			}
 		}
+		if hand := a.Hand; hand != "" {
+			if strings.TrimSpace(a.Needs) != "" || a.PersonOnly != nil {
+				problems = append(problems, errors.New("handle \"hand\" records your own decision that needs the operator's hand, and \"needs\" makes it his; a handling takes one or the other"))
+			}
+			if err := hand.Check(); err != nil {
+				problems = append(problems, err)
+			}
+		}
 	case actionBrake:
 		switch decision := runstate.IntakeBrakeDecision(strings.TrimSpace(a.Decision)); {
 		case decision == "":
@@ -1501,6 +1516,9 @@ func (a TrackerAction) arguments() []string {
 	}
 	if strings.TrimSpace(string(a.OperatorReason)) != "" {
 		carried = append(carried, "operator_reason")
+	}
+	if strings.TrimSpace(string(a.Hand)) != "" {
+		carried = append(carried, "hand")
 	}
 	return carried
 }
