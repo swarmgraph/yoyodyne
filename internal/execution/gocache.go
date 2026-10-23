@@ -8,7 +8,9 @@ import (
 
 // A run's sandbox grants writes to its worktree and temporary directory. The
 // provider must also admit the declared cache and scratch paths under Git;
-// Codex gets explicit, confined roots rather than the whole Git directory. The Go
+// Codex gets explicit, confined roots rather than the whole Git directory;
+// Claude Code's own sandbox grants the Git directory, which nothing here
+// controls, so internal/backend/claudecode's conformance suite probes it. The Go
 // toolchain's build cache defaults to none of those -- it is under the user's
 // home -- so the first Go command a run makes dies at setup with "operation not
 // permitted" before it compiles anything. What that reads like is a broken
