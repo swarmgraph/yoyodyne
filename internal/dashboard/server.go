@@ -48,11 +48,15 @@
 // the read model's projections of it, served here like the rest.
 //
 // It is a projection, never an engine: it owns no workflow, conversation,
-// provider, or configuration state, and offers no write of any kind. What it
-// holds is the token and the latest snapshot of each polled reading, in
-// memory, for exactly as long as the process runs. Restarting it changes
-// nothing about the harness and loses no history, because the history is in
-// the durable records it reads.
+// provider, or configuration state. The one thing it takes besides reads is
+// the operator's own approve, decline, and ask on what waits on his decision,
+// at /api/acts/decide and /api/acts/ask, from a session holding a person's own
+// token rather than the shared one; acts.go says how, and every act is carried
+// out by the same code the command-line verb runs. What it holds is the tokens
+// and the latest snapshot of each polled reading, in memory, for exactly as
+// long as the process runs. Restarting it changes nothing about the harness
+// and loses no history, because the history is in the durable records it
+// reads.
 package dashboard
 
 import (
@@ -182,6 +186,10 @@ type Server struct {
 	readyOnce     sync.Once
 	readyListener net.Listener
 	readyHosts    map[string]bool
+	// people is every person's own token and who it resolves to, and actor
+	// what carries out their acts; see acts.go. Both are fixed before Serve.
+	people []personToken
+	actor  Actor
 }
 
 // New makes a server holding a fresh token for the read model it is handed. The
@@ -396,9 +404,14 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 		refuse(writer, request, http.StatusForbidden, "this dashboard refuses requests from any other origin")
 		return
 	}
-	// Read-only means read-only at the protocol: there is nothing to post.
-	if request.Method != http.MethodGet && request.Method != http.MethodHead {
-		refuse(writer, request, http.StatusMethodNotAllowed, "this dashboard is read-only")
+	// Reads are GET and HEAD, and the operator's acts are POST to the two act
+	// paths; there is nothing else to send.
+	if request.Method != http.MethodGet && request.Method != http.MethodHead && request.Method != http.MethodPost {
+		refuse(writer, request, http.StatusMethodNotAllowed, "this dashboard reads, and takes nothing but the operator's approve, decline, and ask")
+		return
+	}
+	if request.Method == http.MethodPost && request.URL.Path != decidePath && request.URL.Path != askPath {
+		refuse(writer, request, http.StatusMethodNotAllowed, "this dashboard takes nothing but approve and decline at "+decidePath+" and ask at "+askPath)
 		return
 	}
 
@@ -416,6 +429,16 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 		refuse(writer, request, http.StatusServiceUnavailable, s.notReady())
 		return
 	}
+	// An act is taken only once the dashboard is ready, like any read.
+	if request.Method == http.MethodPost {
+		person, accepted := s.presenter(request)
+		if !accepted {
+			refuse(writer, request, http.StatusUnauthorized, "this dashboard requires the token it printed when it started, as a bearer token")
+			return
+		}
+		s.serveAct(writer, request, person)
+		return
+	}
 
 	switch {
 	case request.URL.Path == "/":
@@ -424,13 +447,17 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 		s.serveBacklogPage(writer)
 	case strings.HasPrefix(request.URL.Path, "/assets/"):
 		s.serveAsset(writer, request)
-	case request.URL.Path == "/api/standing", request.URL.Path == "/api/throughput", request.URL.Path == "/api/spend", request.URL.Path == "/api/backlog", request.URL.Path == "/api/delivery", strings.HasPrefix(request.URL.Path, "/api/items/"), strings.HasPrefix(request.URL.Path, "/api/program-managers/"):
-		// The routes that read state, and so the ones the token guards.
-		if !s.presented(request) {
+	case request.URL.Path == "/api/standing", request.URL.Path == "/api/throughput", request.URL.Path == "/api/spend", request.URL.Path == "/api/backlog", request.URL.Path == "/api/delivery", request.URL.Path == sessionPath, strings.HasPrefix(request.URL.Path, "/api/items/"), strings.HasPrefix(request.URL.Path, "/api/program-managers/"):
+		// The routes that read state, and so the ones the token guards. A
+		// person's own token reads everything the shared one does.
+		person, accepted := s.presenter(request)
+		if !accepted {
 			refuse(writer, request, http.StatusUnauthorized, "this dashboard requires the token it printed when it started, as a bearer token")
 			return
 		}
 		switch {
+		case request.URL.Path == sessionPath:
+			s.serveSession(writer, request, person)
 		case request.URL.Path == "/api/throughput":
 			s.serveSnapshot(writer, request, s.throughput)
 		case request.URL.Path == "/api/spend":
@@ -451,10 +478,12 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 	}
 }
 
-// presented says whether the request carries the token in the Authorization
-// header, which is the one place it is accepted from: not a query string, and
-// not a cookie. The comparison is constant-time, because a comparison that stops
-// at the first wrong byte says how many bytes were right.
+// The token is accepted from the Authorization header alone: not a query
+// string, and not a cookie. presented compares the shared token, and presenter
+// in acts.go a person's as well, in constant time, because a comparison that
+// stops at the first wrong byte says how many bytes were right. The readiness
+// request takes the shared token alone: it is the supervisor's, and no person
+// is the supervisor.
 func (s *Server) presented(request *http.Request) bool {
 	candidate, found := strings.CutPrefix(request.Header.Get("Authorization"), "Bearer ")
 	if !found {

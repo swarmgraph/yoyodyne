@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>yoyodyne — yoyo dashboard</title>
+    <link rel="stylesheet" href="../../assets/dashboard.css">
+  </head>
+  <body>
+    <p class="render-note">Opened over the decisions render, which is not repeated here.</p>
+    <div id="decide" class="popup" role="dialog" aria-modal="true" aria-labelledby="decide-heading" data-state="loading">
+      <div id="decide-backdrop" class="popup-backdrop"></div>
+      <div class="popup-card">
+        <div class="popup-head">
+          <div>
+            <h2 id="decide-heading" class="popup-title">Your decisions</h2>
+            <p id="decide-note" class="popup-note"></p>
+          </div>
+          <button type="button" id="decide-close" class="popup-close">Close</button>
+        </div>
+        <div class="section-loading">
+          <p class="waiting">
+            <span class="pulse" aria-hidden="true"></span>
+            Reading what waits on your decision…
+          </p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

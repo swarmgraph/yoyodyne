@@ -294,6 +294,11 @@ function aged(reading, snapshot) {
 }
 
 const pending = { pending: true };
+
+// Who a session is, as /api/session answers: one bound to a person, and one
+// holding the shared token, which reads only.
+const boundSession = { person: { name: "mason-bryant", grants: ["own-intent", "direct-work", "decide-amendments"] }, says: "this session is mason-bryant, and an approve, decline, or ask from here is recorded as theirs", acts: true };
+const unboundSession = { says: "this session is bound to nobody: the dashboard's shared token reads and acts on nothing. To approve, decline, or ask from here, sign in with your own token, bound to you under operators.<your name>.dashboard_token in the configuration", acts: false };
 const unreachable = { unreachable: true };
 
 // items answers /api/items/<id> for the ids named, from the item fixtures.
@@ -365,6 +370,11 @@ const pages = [
   // read took, and not marked stale.
   { name: "snapshot-slow", token: "t", standing: ok(aged(fixture("standing-busy"), { age_seconds: 92, build_seconds: 58 })), throughput: ok(aged(fixture("throughput-busy"), { age_seconds: 20, interval_seconds: 60 })), spend: ok(fixture("spend-busy")) },
   { name: "snapshot-failed", token: "t", standing: ok(aged(fixture("standing-busy"), { age_seconds: 34, failure: "bd list timed out after 30s" })), throughput: ok(aged(fixture("throughput-busy"), { age_seconds: 95, interval_seconds: 60, failure: "the state root could not be resolved" })), spend: ok(fixture("spend-busy")) },
+  // A standing with things waiting on the operator's own approve or decline,
+  // which puts the band's "Your decisions" tile on the page; and one whose
+  // record of them could not be read, which puts it there saying so.
+  { name: "decisions", token: "t", standing: ok(fixture("standing-decisions")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
+  { name: "decisions-unreadable", token: "t", standing: ok(fixture("standing-decisions-unreadable")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "spend-stale", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), then: { "/api/spend": refused(503, "the state root could not be resolved") } }
 ];
 
@@ -448,7 +458,33 @@ const scenarios = pages.concat([
   over("report-loading", "busy", { reports: { "/api/program-managers/factory-pgm": pending }, open: [{ report: "factory-pgm" }] }),
   over("report-missing", "busy", { reports: { "/api/program-managers/docs-pgm": refused(404, "no program manager instance is recorded under that name") }, open: [{ report: "docs-pgm" }] }),
   over("report-refused", "busy", { reports: { "/api/program-managers/writing-pgm": refused(503, "the state root could not be resolved: open /Users/somebody/Library/Application Support/Yoyodyne/state: permission denied") }, open: [{ report: "writing-pgm" }] }),
-  over("report-closed", "busy", { reports: reports("factory-pgm"), open: [{ report: "factory-pgm" }], escape: 1 })
+  over("report-closed", "busy", { reports: reports("factory-pgm"), open: [{ report: "factory-pgm" }], escape: 1 }),
+  // Deciding, opened from the band's "Your decisions" tile: the first thing
+  // waiting, to a session bound to a person; the next one; each act and what
+  // came back from it — an approval, a decline with its reason, and a question
+  // asked first — and an act from a session bound to nobody, refused with the
+  // reason. Then the pop-up while it is still asking who the session is; with
+  // everything decided by the next poll; over a record of the decisions that
+  // could not be read; and closed with Escape.
+  over("decide", "decisions", { acts: { "/api/session": ok(boundSession) }, open: [{ decide: "list" }] }),
+  over("decide-next", "decisions", { acts: { "/api/session": ok(boundSession) }, open: [{ decide: "list" }, { act: "next" }] }),
+  over("decide-approve", "decisions", { acts: { "/api/session": ok(boundSession), "/api/acts/decide": ok({ done: "approved the proposed change amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d to v1-goals, under the Lead Product Manager's authority; nothing was written to v1-goals, and the Lead Product Manager makes the change", decided: true, person: "mason-bryant", decision: "amendment::amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d" }) }, open: [{ decide: "list" }, { act: "approve" }] }),
+  over("decide-decline", "decisions", { acts: { "/api/session": ok(boundSession), "/api/acts/decide": ok({ done: "declined the proposed change amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d to v1-goals, under the Lead Product Manager's authority, because: the goal already says this", decided: true, person: "mason-bryant", decision: "amendment::amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d" }) }, open: [{ decide: "list" }, { act: "decline" }, { type: { "decide-reason": "the goal already says this" } }, { act: "decline-confirm" }] }),
+  over("decide-ask", "decisions", { acts: { "/api/session": ok(boundSession), "/api/acts/ask": ok({ done: "asked the developer about proposed document change amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d in its conversation; its answer is recorded there and read with `yoyo agent chat developer`, and nothing was decided", decided: false, person: "mason-bryant", decision: "amendment::amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d" }) }, open: [{ decide: "list" }, { act: "ask" }, { type: { "decide-question": "Which goal would it change?" } }, { act: "ask-send" }] }),
+  over("decide-unbound", "decisions", { acts: { "/api/session": ok(unboundSession), "/api/acts/decide": refused(403, unboundSession.says) }, open: [{ decide: "list" }, { act: "approve" }] }),
+  over("decide-loading", "decisions", { acts: { "/api/session": pending }, open: [{ decide: "list" }] }),
+  over("decide-empty", "decisions", { acts: { "/api/session": ok(boundSession) }, open: [{ decide: "list" }, { poll: { "/api/standing": ok(fixture("standing-busy")) } }] }),
+  over("decide-error", "decisions-unreadable", { acts: { "/api/session": ok(boundSession) }, open: [{ decide: "list" }] }),
+  over("decide-closed", "decisions", { acts: { "/api/session": ok(boundSession) }, open: [{ decide: "list" }], escape: 1 }),
+  // A document waiting for the operator's approval in the Lead Product
+  // Manager's conversation: its entry's card on the list of what is waiting,
+  // and the document put to him on the page — shown, approved, declined with
+  // no reason, and asked about first.
+  over("attention-document", "decisions", { open: [{ grouping: "attention" }, { entry: "document-approval:chat-91253e0e070c17b0663651cc48602122/document-2328.1" }] }),
+  over("decide-document", "decisions", { acts: { "/api/session": ok(boundSession) }, open: [{ decide: "list" }, { act: "previous" }] }),
+  over("decide-document-approve", "decisions", { acts: { "/api/session": ok(boundSession), "/api/acts/decide": ok({ done: "You approved document-2328.1: it is not written to your checkout and nothing is yours to commit: run doc-2328-1 takes it through its own checks and an independent review to the target branch. Its reviewed run has been started; `yoyo status` shows it until it merges, and the Lead Product Manager's conversation says how it went.", decided: true, person: "mason-bryant", decision: "document:product-manager:document-2328.1" }) }, open: [{ decide: "list" }, { act: "previous" }, { act: "approve" }] }),
+  over("decide-document-decline", "decisions", { acts: { "/api/session": ok(boundSession), "/api/acts/decide": ok({ done: "You declined document-2328.1, and nothing was written", decided: true, person: "mason-bryant", decision: "document:product-manager:document-2328.1" }) }, open: [{ decide: "list" }, { act: "previous" }, { act: "decline" }, { act: "decline-confirm" }] }),
+  over("decide-document-ask", "decisions", { acts: { "/api/session": ok(boundSession), "/api/acts/ask": ok({ done: "asked the Lead Product Manager about document to approve document-2328.1 in its conversation; its answer is recorded there and read with `yoyo chat`, and nothing was decided", decided: false, person: "mason-bryant", decision: "document:product-manager:document-2328.1" }) }, open: [{ decide: "list" }, { act: "previous" }, { act: "ask" }, { type: { "decide-question": "Does this change what v1 refuses?" } }, { act: "ask-send" }] })
 ]);
 
 function settle() {
@@ -473,11 +509,11 @@ async function run(scenario) {
     timeouts.clear();
     due.forEach((callback) => callback());
   };
-  let answers = Object.assign({ "/api/standing": scenario.standing, "/api/throughput": scenario.throughput, "/api/spend": scenario.spend }, scenario.items || {}, scenario.reports || {});
+  let answers = Object.assign({ "/api/standing": scenario.standing, "/api/throughput": scenario.throughput, "/api/spend": scenario.spend }, scenario.items || {}, scenario.reports || {}, scenario.acts || {});
   const requests = [];
 
   const fetch = (url, options) => {
-    requests.push({ url, authorization: options && options.headers && options.headers.Authorization });
+    requests.push({ url, authorization: options && options.headers && options.headers.Authorization, method: (options && options.method) || "GET", contentType: options && options.headers && options.headers["Content-Type"], body: options && options.body });
     const answer = answers[url];
     if (!answer) {
       return Promise.reject(new Error("no fixture answers " + url));
@@ -543,7 +579,25 @@ async function run(scenario) {
       }
       continue;
     }
-    const opener = step.item ? ["data-item", step.item] : step.entry ? ["data-entry", step.entry] : step.report ? ["data-report", step.report] : ["data-grouping", step.grouping];
+    // Typing is a value set on the field named, as a reader's typing leaves it.
+    if (step.type) {
+      Object.keys(step.type).forEach((id) => {
+        const field = document.getElementById(id);
+        if (!field) {
+          throw new Error(`${scenario.name}: there is no field ${id} to type into`);
+        }
+        field.value = step.type[id];
+      });
+      continue;
+    }
+    // A press on one of the decision's buttons acts on what is open rather
+    // than opening something, so it is not an opener focus goes back to.
+    if (step.act) {
+      openerFor("data-act", step.act).dispatch("click", {});
+      await settle();
+      continue;
+    }
+    const opener = step.item ? ["data-item", step.item] : step.entry ? ["data-entry", step.entry] : step.report ? ["data-report", step.report] : step.decide ? ["data-decide", step.decide] : ["data-grouping", step.grouping];
     opened.push(opener);
     clicked.push(openerFor(...opener));
     clicked[clicked.length - 1].dispatch("click", {});
@@ -566,7 +620,7 @@ async function run(scenario) {
   // the render and the matrix while it is hidden, so a page without it renders
   // exactly as it did before the section existed.
   const shownWhenPresent = ["queues"];
-  const popups = ["grouping", "card", "report"];
+  const popups = ["grouping", "card", "report", "decide"];
   const matrix = { page: page.getAttribute("data-state"), sections: {}, popups: {} };
   sections.forEach((id) => {
     matrix.sections[id] = document.getElementById(id).getAttribute("data-state");
@@ -661,7 +715,7 @@ async function run(scenario) {
     .join("\n")
     .replace('href="/assets/dashboard.css"', 'href="../../assets/dashboard.css"')
     .replace('src="/assets/dashboard.js"', 'src="about:blank" data-note="the script ran once to produce this render; it is not loaded again here"');
-  return { matrix, html: "<!doctype html>\n" + html + "\n", standingWarningAgeSeconds: context.standingWarningAgeSeconds };
+  return { matrix, html: "<!doctype html>\n" + html + "\n", standingWarningAgeSeconds: context.standingWarningAgeSeconds, requests };
 }
 
 // Exercise the standing's warning boundary through the page itself, reading
@@ -728,6 +782,29 @@ async function main() {
           assert(rendered.html.includes(`<h2 id="card-heading" class="popup-title">${entry.label}</h2>`));
         }
       }
+    }
+    // An act goes to its one path as JSON with the token, carrying exactly the
+    // decision shown and what was typed, and nothing goes anywhere else.
+    const posted = rendered.requests.filter((request) => request.method !== "GET");
+    const expectedActs = {
+      "decide-approve": ["/api/acts/decide", { kind: "amendment", agent: "", id: "amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d", verdict: "approve" }],
+      "decide-unbound": ["/api/acts/decide", { kind: "amendment", agent: "", id: "amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d", verdict: "approve" }],
+      "decide-decline": ["/api/acts/decide", { kind: "amendment", agent: "", id: "amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d", verdict: "decline", reason: "the goal already says this" }],
+      "decide-ask": ["/api/acts/ask", { kind: "amendment", agent: "", id: "amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d", question: "Which goal would it change?" }],
+      "decide-document-approve": ["/api/acts/decide", { kind: "document", agent: "product-manager", id: "document-2328.1", verdict: "approve" }],
+      "decide-document-decline": ["/api/acts/decide", { kind: "document", agent: "product-manager", id: "document-2328.1", verdict: "decline", reason: "" }],
+      "decide-document-ask": ["/api/acts/ask", { kind: "document", agent: "product-manager", id: "document-2328.1", question: "Does this change what v1 refuses?" }]
+    };
+    if (expectedActs[scenario.name]) {
+      const [where, body] = expectedActs[scenario.name];
+      assert.strictEqual(posted.length, 1, `${scenario.name} posts one act`);
+      assert.strictEqual(posted[0].method, "POST");
+      assert.strictEqual(posted[0].url, where);
+      assert.strictEqual(posted[0].contentType, "application/json");
+      assert.strictEqual(posted[0].authorization, "Bearer t");
+      assert.deepStrictEqual(JSON.parse(posted[0].body), body);
+    } else {
+      assert.strictEqual(posted.length, 0, `${scenario.name} posts nothing`);
     }
     const file = path.join(out, scenario.name + ".html");
     if (check) {

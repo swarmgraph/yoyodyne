@@ -31,6 +31,10 @@ type DocumentApproval struct {
 	Title     string `json:"title,omitempty"`
 	Directory string `json:"directory,omitempty"`
 	Reason    string `json:"reason"`
+	// Body is the document's text as the role wrote it. The line says what
+	// waits rather than holding it, so it is not in the line's JSON; the
+	// decision the dashboard opens from this entry carries it.
+	Body string `json:"-"`
 	// ProductIntent is a document stating the product's intent: the brief, the
 	// goals and non-goals, and the operating rules.
 	ProductIntent bool `json:"product_intent,omitempty"`
@@ -106,6 +110,18 @@ func documentApprovalAttention(waiting DocumentApproval) Attention {
 	})
 }
 
+// documentReading is one reading of the waiting documents, as the line
+// carries them, and what could not be read.
+type documentReading struct {
+	attention []Attention
+	problem   string
+}
+
+func readDocuments(sources Sources) documentReading {
+	attention, problem := readDocumentApprovals(sources)
+	return documentReading{attention: attention, problem: problem}
+}
+
 // readDocumentApprovals is every document waiting for the operator's approval,
 // across every recorded conversation, longest waiting first. A document the
 // conversation keeps is waiting on him unless a reviewed run is carrying it,
@@ -134,7 +150,7 @@ func readDocumentApprovals(sources Sources) ([]Attention, string) {
 				WriteID: write.ID, ConversationID: conversation.ConversationID, Agent: agent, Owner: conversation.Role,
 				Action: write.Action, Document: strings.TrimSpace(write.Artifact), Kind: write.Kind,
 				Title: strings.TrimSpace(write.Title), Directory: strings.TrimSpace(write.Directory),
-				Reason: strings.TrimSpace(write.Reason), ProductIntent: productIntent(conversation.Role, write),
+				Reason: strings.TrimSpace(write.Reason), Body: write.Body, ProductIntent: productIntent(conversation.Role, write),
 				Turn: write.Turn, WrittenAt: write.WrittenAt,
 			})
 		}

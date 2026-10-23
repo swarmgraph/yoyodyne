@@ -14,7 +14,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "pass-failures-unreadable": {
@@ -32,7 +33,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "queues": {
@@ -51,7 +53,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "queues-unreadable": {
@@ -70,7 +73,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "run-steps": {
@@ -88,7 +92,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "signin": {
@@ -106,7 +111,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "loading": {
@@ -124,7 +130,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "quiet": {
@@ -142,7 +149,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "busy": {
@@ -160,7 +168,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "held": {
@@ -178,7 +187,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "roles": {
@@ -196,7 +206,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "degraded": {
@@ -214,7 +225,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "unreadable": {
@@ -232,7 +244,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "throughput-pending": {
@@ -250,7 +263,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "throughput-refused": {
@@ -268,7 +282,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "spend-pending": {
@@ -286,7 +301,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "refused": {
@@ -304,7 +320,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "unreachable": {
@@ -322,7 +339,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "wrong-token": {
@@ -340,7 +358,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "stale": {
@@ -358,7 +377,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "throughput-stale": {
@@ -376,7 +396,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "snapshot": {
@@ -394,7 +415,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "snapshot-old": {
@@ -412,7 +434,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "snapshot-slow": {
@@ -430,7 +453,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "snapshot-failed": {
@@ -448,7 +472,46 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
+  "decisions": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
+  "decisions-unreadable": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "spend-stale": {
@@ -466,7 +529,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-run-steps": {
@@ -484,7 +548,8 @@
     "popups": {
       "grouping": "ready",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-run-queued": {
@@ -502,7 +567,8 @@
     "popups": {
       "grouping": "ready",
       "card": "ready",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-run-cleanup": {
@@ -520,7 +586,8 @@
     "popups": {
       "grouping": "ready",
       "card": "ready",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-run-dropped-cleanup": {
@@ -538,7 +605,8 @@
     "popups": {
       "grouping": "ready",
       "card": "ready",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-run-dropped": {
@@ -556,7 +624,8 @@
     "popups": {
       "grouping": "ready",
       "card": "ready",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "card": {
@@ -574,7 +643,8 @@
     "popups": {
       "grouping": "closed",
       "card": "ready",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "card-loading": {
@@ -592,7 +662,8 @@
     "popups": {
       "grouping": "closed",
       "card": "loading",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "card-missing": {
@@ -610,7 +681,8 @@
     "popups": {
       "grouping": "closed",
       "card": "empty",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "card-refused": {
@@ -628,7 +700,8 @@
     "popups": {
       "grouping": "closed",
       "card": "error",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "grouping": {
@@ -646,7 +719,8 @@
     "popups": {
       "grouping": "ready",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "grouping-landed": {
@@ -664,7 +738,8 @@
     "popups": {
       "grouping": "ready",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "grouping-empty": {
@@ -682,7 +757,8 @@
     "popups": {
       "grouping": "empty",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "grouping-error": {
@@ -700,7 +776,8 @@
     "popups": {
       "grouping": "error",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "grouping-loading": {
@@ -718,7 +795,8 @@
     "popups": {
       "grouping": "loading",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "spend-days": {
@@ -736,7 +814,8 @@
     "popups": {
       "grouping": "ready",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "spend-days-empty": {
@@ -754,7 +833,8 @@
     "popups": {
       "grouping": "empty",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "spend-days-error": {
@@ -772,7 +852,8 @@
     "popups": {
       "grouping": "error",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "spend-days-loading": {
@@ -790,7 +871,8 @@
     "popups": {
       "grouping": "loading",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "grouping-card": {
@@ -808,7 +890,8 @@
     "popups": {
       "grouping": "ready",
       "card": "ready",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "closed": {
@@ -826,7 +909,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "closed-after-poll": {
@@ -844,7 +928,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention": {
@@ -862,7 +947,8 @@
     "popups": {
       "grouping": "ready",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-empty": {
@@ -880,7 +966,8 @@
     "popups": {
       "grouping": "empty",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-error": {
@@ -898,7 +985,8 @@
     "popups": {
       "grouping": "error",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-amendment": {
@@ -916,7 +1004,8 @@
     "popups": {
       "grouping": "ready",
       "card": "ready",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-owed-step": {
@@ -934,7 +1023,8 @@
     "popups": {
       "grouping": "ready",
       "card": "ready",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-carried-item": {
@@ -952,7 +1042,8 @@
     "popups": {
       "grouping": "ready",
       "card": "ready",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-human-gate": {
@@ -970,7 +1061,8 @@
     "popups": {
       "grouping": "ready",
       "card": "ready",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-hand": {
@@ -988,7 +1080,8 @@
     "popups": {
       "grouping": "ready",
       "card": "ready",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-carried-item-card": {
@@ -1006,7 +1099,8 @@
     "popups": {
       "grouping": "ready",
       "card": "ready",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-settled": {
@@ -1024,7 +1118,8 @@
     "popups": {
       "grouping": "empty",
       "card": "empty",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-unreadable": {
@@ -1042,7 +1137,8 @@
     "popups": {
       "grouping": "error",
       "card": "error",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "attention-closed": {
@@ -1060,7 +1156,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
     }
   },
   "report": {
@@ -1078,7 +1175,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "ready"
+      "report": "ready",
+      "decide": "closed"
     }
   },
   "report-blocked": {
@@ -1096,7 +1194,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "ready"
+      "report": "ready",
+      "decide": "closed"
     }
   },
   "report-unwritten": {
@@ -1114,7 +1213,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "ready"
+      "report": "ready",
+      "decide": "closed"
     }
   },
   "report-loading": {
@@ -1132,7 +1232,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "loading"
+      "report": "loading",
+      "decide": "closed"
     }
   },
   "report-missing": {
@@ -1150,7 +1251,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "empty"
+      "report": "empty",
+      "decide": "closed"
     }
   },
   "report-refused": {
@@ -1168,7 +1270,8 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "error"
+      "report": "error",
+      "decide": "closed"
     }
   },
   "report-closed": {
@@ -1186,7 +1289,293 @@
     "popups": {
       "grouping": "closed",
       "card": "closed",
-      "report": "closed"
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
+  "decide": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
+    }
+  },
+  "decide-next": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
+    }
+  },
+  "decide-approve": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
+    }
+  },
+  "decide-decline": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
+    }
+  },
+  "decide-ask": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
+    }
+  },
+  "decide-unbound": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
+    }
+  },
+  "decide-loading": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "loading"
+    }
+  },
+  "decide-empty": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "empty"
+    }
+  },
+  "decide-error": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "error"
+    }
+  },
+  "decide-closed": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
+  "attention-document": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "ready",
+      "card": "ready",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
+  "decide-document": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
+    }
+  },
+  "decide-document-approve": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
+    }
+  },
+  "decide-document-decline": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
+    }
+  },
+  "decide-document-ask": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
     }
   }
 }
