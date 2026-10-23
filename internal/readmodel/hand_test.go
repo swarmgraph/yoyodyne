@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -66,7 +67,7 @@ func TestAnEntryCarryingAHandNeverRendersUnderYoursToDecide(t *testing.T) {
 
 	yours := strings.Index(rendered, "  "+YoursToDecide+" (1):\n")
 	hand := strings.Index(rendered, "  "+NeedsYourHand+" (3)")
-	if !strings.HasPrefix(rendered, "Needs a human (1, and 3 role's decisions that need your hand, counted as the harness's missing capability):\n") || yours < 0 || hand < yours {
+	if !strings.HasPrefix(rendered, "Needs a human (1, and 3 decisions roles made that need your hand, counted as the harness's missing capability):\n") || yours < 0 || hand < yours {
 		t.Fatalf("rendered:\n%s\nwant the operator's count alone on the line, then the two heads in order", rendered)
 	}
 	underYours := rendered[yours:hand]
@@ -107,11 +108,11 @@ func TestHandEntriesAreNotCountedAsTheOperators(t *testing.T) {
 	_, hands := handEntries(t)
 	standing := Standing{NeedsHuman: hands}
 	rendered := standing.renderNeedsHuman()
-	if !strings.HasPrefix(rendered, "Needs a human (0, and 3 role's decisions that need your hand, counted as the harness's missing capability):\n  "+YoursToDecide+": nothing\n") {
+	if !strings.HasPrefix(rendered, "Needs a human (0, and 3 decisions roles made that need your hand, counted as the harness's missing capability):\n  "+YoursToDecide+": nothing\n") {
 		t.Fatalf("rendered:\n%s\nwant nothing of the operator's counted, and the hands counted apart", rendered)
 	}
 	brief := brief(rendered)
-	if brief != "Needs a human (0, and 3 role's decisions that need your hand, counted as the harness's missing capability)\n" {
+	if brief != "Needs a human (0, and 3 decisions roles made that need your hand, counted as the harness's missing capability)\n" {
 		t.Fatalf("brief = %q, want the head with both counts and no entries", brief)
 	}
 	for _, entry := range hands {
@@ -149,5 +150,48 @@ func TestTheHandTravelsInTheEntrysJSON(t *testing.T) {
 		if err := json.Unmarshal([]byte(forged), &decoded); err == nil {
 			t.Fatalf("a hand sentence disagreeing with its answer was read back: %s", forged)
 		}
+	}
+}
+
+// The item that ends the need is named as every other item on the line is:
+// with its priority, labels, and title, on the terminal and in the JSON the
+// dashboard shows, and never as a bare identifier.
+func TestTheItemThatEndsTheNeedIsNamedWithItsTitle(t *testing.T) {
+	t.Parallel()
+	_, hands := handEntries(t)
+	titles := NewWorkItemTitles([]beads.WorkItem{
+		{ID: "yoyodyne-ifd.433.21", Title: "Confirm a conversation's document as its kind's approval setting says", Priority: 1},
+		{ID: "yoyodyne-ifd.434.8", Title: "Apply recommended configuration through a run", Priority: 2},
+	})
+	for i := range hands {
+		hands[i].titles = titles
+	}
+	rendered := Standing{NeedsHuman: hands}.renderNeedsHuman()
+	for _, want := range []string{
+		"yoyodyne-ifd.433.21 (P1: Confirm a conversation's document as its kind's approval setting says) lands",
+		"yoyodyne-ifd.434.8 (P2: Apply recommended configuration through a run) lands",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered:\n%s\nwant the item that ends the need named as %q", rendered, want)
+		}
+	}
+	design := hands[2]
+	encoded, err := json.Marshal(design)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		SaidHand string `json:"said_hand"`
+		HandEnds string `json:"hand_ends"`
+	}
+	if err := json.Unmarshal(encoded, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(wire.SaidHand, "Confirm a conversation's document") || wire.HandEnds != "(P1) Confirm a conversation's document as its kind's approval setting says (yoyodyne-ifd.433.21)" {
+		t.Fatalf("JSON %s does not carry the ending item with its title for the dashboard", encoded)
+	}
+	var decoded Attention
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("reading %s back: %v", encoded, err)
 	}
 }

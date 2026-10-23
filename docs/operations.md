@@ -4991,11 +4991,11 @@ has the rule.
   heads:
 
   ```text
-  Needs a human (1, and 1 role's decision that needs your hand, counted as the harness's missing capability):
+  Needs a human (1, and 1 decision a role made that needs your hand, counted as the harness's missing capability):
     Yours to decide (1):
       intake is held, since …: the operator placed it — … — the operator's
     A role's decision that needs your hand (1), each the harness's missing capability rather than yours to decide:
-      document document-412.1, a revision of ownership-and-the-operator written by the architect in conversation chat-a065…, waits for the operator's approval, … — the architect's decision, which needs your hand because the harness has no way yet of confirming a document written from a conversation as its kind's approval setting says, without a person: type `yoyo agent chat architect --message "approve document-412.1"`; the need ends once yoyodyne-ifd.433.21 lands
+      document document-412.1, a revision of ownership-and-the-operator written by the architect in conversation chat-a065…, waits for the operator's approval, … — the architect's decision, which needs your hand because the harness has no way yet of confirming a document written from a conversation as its kind's approval setting says, without a person: type `yoyo agent chat architect --message "approve document-412.1"`; the need ends once yoyodyne-ifd.433.21 (P1: …) lands
   ```
 
   **Yours to decide** is what you own: an entry the
@@ -5005,7 +5005,7 @@ has the rule.
   decision that needs your hand** is what a role decided and owns, where the
   harness has no way yet of carrying the decision out for it, so your keyboard
   has to: each names the role that decided, what to type, and the work item
-  whose landing ends the need, or says no item is admitted yet. Those are the
+  whose landing ends the need — named, like every other item on the line, with its priority, labels, and title — or says no item is admitted yet. Those are the
   harness's missing capability rather than your queue: they are counted apart
   from your count, in the line's head, never under *Yours to decide*, and not
   again under the deciding role's own head below. The head is printed only

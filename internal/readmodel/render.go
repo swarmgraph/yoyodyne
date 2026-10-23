@@ -489,9 +489,9 @@ const (
 // the words the line's head says it.
 func handCounted(number int) string {
 	if number == 1 {
-		return "1 role's decision that needs your hand"
+		return "1 decision a role made that needs your hand"
 	}
-	return count(number, "role's decision") + " that need your hand"
+	return fmt.Sprintf("%d decisions roles made that need your hand", number)
 }
 
 // indent puts one more level of indentation on every line, so the entries
@@ -517,7 +517,7 @@ func indent(rendered string) string {
 func renderHand(entries []Attention) string {
 	var rendered strings.Builder
 	for _, waiting := range entries {
-		fmt.Fprintf(&rendered, "  %s — %s\n", waiting.CitedWhat(), waiting.Ownership.Hand.Says(waiting.Mover))
+		fmt.Fprintf(&rendered, "  %s — %s\n", waiting.CitedWhat(), waiting.CitedHand())
 	}
 	return rendered.String()
 }

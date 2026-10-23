@@ -414,6 +414,12 @@ var standingWarningAgeSeconds = 5 * 60;
     return entries.filter(needsHand).length;
   }
 
+  // handCounted is how many decisions roles made need the operator's hand, in
+  // the terminal's words.
+  function handCounted(number) {
+    return number === 1 ? "1 decision a role made that needs your hand" : number + " decisions roles made that need your hand";
+  }
+
   // The two heads under the needs-a-human line, in the terminal's words.
   var yoursToDecide = "Yours to decide";
   var needsYourHand = "A role's decision that needs your hand";
@@ -683,7 +689,7 @@ var standingWarningAgeSeconds = 5 * 60;
     var hands = handCount(entries);
     var parts = [];
     if (hands > 0) {
-      parts.push(count(hands, "role's decision") + (hands === 1 ? " that needs" : " that need") + " your hand, counted as the harness's missing capability");
+      parts.push(handCounted(hands) + ", counted as the harness's missing capability");
     }
     if (others.length) {
       parts.push(moverCounts(others));
@@ -1010,7 +1016,7 @@ var standingWarningAgeSeconds = 5 * 60;
       attention = (counts[0].number === 0 ? "nothing" : count(counts[0].number, "thing")) + " waiting on the operator";
       var hands = handCount(standing.needs_human);
       if (hands > 0) {
-        attention += "; " + count(hands, "role's decision") + (hands === 1 ? " that needs" : " that need") + " your hand, counted as the harness's missing capability";
+        attention += "; " + handCounted(hands) + ", counted as the harness's missing capability";
       }
       if (counts.length > 1) {
         attention += "; waiting on others: " + moverCounts(counts.slice(1));
@@ -1730,7 +1736,7 @@ var standingWarningAgeSeconds = 5 * 60;
   // model's words: the role that decided, what to type, and the item whose
   // landing ends the need.
   function handSays(entry) {
-    return entry.hand_says || saidWhose(entry);
+    return entry.said_hand || entry.hand_says || saidWhose(entry);
   }
 
   // listing folds a grouping's readings into one of the four states: error
@@ -1973,7 +1979,7 @@ var standingWarningAgeSeconds = 5 * 60;
       add("Needs your hand", handSays(entry), "card-field-prose");
       add("What the harness cannot yet do", answer.hand.missing, "card-field-prose");
       add("What to type", answer.hand.types, "card-field-id");
-      add("Ends once this lands", answer.hand.closed_by || "no work item is admitted yet", "card-field-id");
+      add("Ends once this lands", entry.hand_ends || answer.hand.closed_by || "no work item is admitted yet", "card-field-prose");
     }
     switch (entry.kind) {
       case "amendment":

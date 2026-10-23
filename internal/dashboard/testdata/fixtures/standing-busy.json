@@ -499,7 +499,9 @@
       "label": "document waiting for approval",
       "what": "document document-412.1, a revision of ownership-and-the-operator written by the architect in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, waits for the operator's approval, since a time its record does not hold",
       "whose": "the architect's — the project's approval setting for this kind of document asks for a person's approval, which no role may give, so it waits for the operator: `yoyo agent chat architect --message \"approve document-412.1\"` approves it and `yoyo agent chat architect --message \"decline document-412.1 <reason>\"` declines it, and it leaves this line once he has",
-      "hand_says": "the architect's decision, which needs your hand because the harness has no way yet of confirming a document written from a conversation as its kind's approval setting says, without a person: type `yoyo agent chat architect --message \"approve document-412.1\"`; the need ends once yoyodyne-ifd.433.21 lands"
+      "hand_says": "the architect's decision, which needs your hand because the harness has no way yet of confirming a document written from a conversation as its kind's approval setting says, without a person: type `yoyo agent chat architect --message \"approve document-412.1\"`; the need ends once yoyodyne-ifd.433.21 lands",
+      "said_hand": "the architect's decision, which needs your hand because the harness has no way yet of confirming a document written from a conversation as its kind's approval setting says, without a person: type `yoyo agent chat architect --message \"approve document-412.1\"`; the need ends once yoyodyne-ifd.433.21 (P1: Confirm a conversation's document as its kind's approval setting says) lands",
+      "hand_ends": "(P1) Confirm a conversation's document as its kind's approval setting says (yoyodyne-ifd.433.21)"
     }
   ],
   "reports": {

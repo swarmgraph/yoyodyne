@@ -788,8 +788,8 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			`<button class="grouping-open tile-label" type="button" data-grouping="attention">Needs a human</button>`,
 			`<span class="figure">1</span>`,
 			`<span class="unit">thing waiting on the operator</span>`,
-			`<span class="detail">of 10 things waiting in all; 1 role's decision that needs your hand, counted as the harness's missing capability; the Lead Product Manager's: 3, the architect's: 2, the development manager's: 1, the harness's: 2</span>`,
-			"Needs a human: 1 thing waiting on the operator; 1 role's decision that needs your hand, counted as the harness's missing capability; waiting on others: the Lead Product Manager's: 3, the architect's: 2, the development manager's: 1, the harness's: 2.",
+			`<span class="detail">of 10 things waiting in all; 1 decision a role made that needs your hand, counted as the harness's missing capability; the Lead Product Manager's: 3, the architect's: 2, the development manager's: 1, the harness's: 2</span>`,
+			"Needs a human: 1 thing waiting on the operator; 1 decision a role made that needs your hand, counted as the harness's missing capability; waiting on others: the Lead Product Manager's: 3, the architect's: 2, the development manager's: 1, the harness's: 2.",
 			"22 runs reached the target branch",
 			// A stopped run is said as what it ended as, never as a wait it is
 			// still in.
@@ -1041,7 +1041,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 	if yours < 0 || hand < yours || handEntry < hand {
 		t.Errorf("the attention render does not put the hand entry under its own head after the operator's")
 	}
-	if !strings.Contains(page("attention-hand"), "yoyodyne-ifd.433.21") || !strings.Contains(page("attention-hand"), "What to type") {
+	if !strings.Contains(page("attention-hand"), "(P1) Confirm a conversation's document as its kind's approval setting says (yoyodyne-ifd.433.21)") || !strings.Contains(page("attention-hand"), "What to type") {
 		t.Errorf("the hand entry's card does not say what to type and the item that ends the need")
 	}
 	if !strings.Contains(page("attention-amendment"), `data-item="yoyodyne-ifd.210"`) {
