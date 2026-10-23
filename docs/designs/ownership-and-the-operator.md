@@ -30,6 +30,10 @@ revisions:
       by: architect
       at: 2026-10-23T00:50:09.273218Z
       reason: 'yoyodyne-ifd.432.25.12: the hand case for raising an item''s limit past the development manager''s own five now says the Lead Product Manager decides it, up to five more, with no raise past ten, matching the stopped-run recovery ruling on main at 788f6ce5. Answers the reviewer''s report-46aa3d00 that the two designs disagreed. Nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-10-23T10:45:03.369948Z
+      reason: 'Answers the reviewer''s report-d208cf81: the report row now says that a handling recorded before such handlings were refused, which names the operator without a reason from the closed list, goes back to the role that recorded it, as the fix for old report handlings (yoyodyne-ifd.432.25.9) does. Nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -56,6 +60,11 @@ approvals:
       by: harness
       at: 2026-10-23T00:50:09.273218Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1524, for document-1524.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-10-23T10:45:03.369948Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1551, for document-1551.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -115,7 +124,7 @@ her pass, and she files it against the registry.
 | amendment | the role that owns the target document, which decides it as described under *Who decides a proposed change*; the operator only for an amendment to the brief or the goals recorded as `intent: fundamental` or recorded with no intent, reason `fundamental-intent` |
 | waiting document | for a brief, goals, non-goals or operating rules document waiting on approval, the operator, reason `fundamental-intent`, because a document filed under `docs/product` waits on him only when it changes what the goals admit or refuse, or does not say whether it does; for any other document waiting on approval, the role that owns it, with the operator's approval as the act that ends it, carried as `hand` while its kind's approval policy needs him (yoyodyne-ifd.433.21), and never with the operator as its owner |
 | directive | the Lead Product Manager, who ends it or carries it into a document or item; where settling it would change what the goals admit, what reaches the operator is her drafted change to the goals, as an amendment, not the directive |
-| report | the Lead Product Manager, who handles it; a critical whose remedy is a role's names that role; the operator only when her handling names a reason from the closed list |
+| report | the Lead Product Manager, who handles it; a critical whose remedy is a role's names that role; the operator only when her handling names a reason from the closed list; a handling recorded before such handlings were refused, which names the operator without a reason from the closed list, goes back to the role that recorded it, to handle again (yoyodyne-ifd.432.25.9), and never to the operator |
 | owed step | the harness |
 | publication | the harness while it can replay, re-arm, or wait on a red target; the development manager for a merge handed back; the operator only where the forge refuses the harness's token, reason `repository-setting` |
 | degraded service, failing task | the harness or the supervisor; the task's role where the task failed on its own work; the operator only where the remedy is a credential, reason `credential` |
