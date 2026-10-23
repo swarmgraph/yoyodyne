@@ -361,9 +361,32 @@ func triedAgain(document runstate.DocumentPublication) string {
 	return "It is tried again at the next message in its conversation and does not need writing again."
 }
 
-// documentItem is the bookkeeping item one attempt's run is recorded under.
+// documentItem is the bookkeeping item one attempt's run is recorded under. Its
+// description is the work-item context the reviewer judges the document
+// against, so what the reviewer of a document run is told to check beyond the
+// document's own words is said there (consistentMarkReview).
 func documentItem(document runstate.DocumentPublication, attempt int) beads.WorkItem {
-	return beads.WorkItem{ID: document.RunIDFor(attempt), Title: "Publishing " + document.Candidate.Artifact.Title, Status: "open", Description: "Publish exactly the document confirmed in its owning conversation.\nprotected-path grant: " + document.Candidate.Artifact.Path}
+	return beads.WorkItem{ID: document.RunIDFor(attempt), Title: "Publishing " + document.Candidate.Artifact.Title, Status: "open", Description: "Publish exactly the document confirmed in its owning conversation." + consistentMarkReview(document.Candidate) + "\nprotected-path grant: " + document.Candidate.Artifact.Path}
+}
+
+// consistentMarkReview tells the reviewer of a document of the product's intent
+// whose last revision is marked consistent with intent, and which the operator
+// did not approve himself, to test the mark. The mark is the Lead Product
+// Manager's claim that the goals admit and refuse exactly the work they did
+// before, it is why the operator was not asked, and this review is the only
+// check on it besides the one the harness makes for a goal added or removed
+// (artifact.GoalChange): a goal reworded so it covers more or less is a change
+// only a reader can find. It is empty for any other document.
+func consistentMarkReview(candidate artifact.ConfirmedDocument) string {
+	recorded := candidate.Artifact
+	if !artifact.IntentKind(recorded.Kind) || len(recorded.Revisions) == 0 || candidate.OperatorApproved() {
+		return ""
+	}
+	if recorded.Revisions[len(recorded.Revisions)-1].Intent != artifact.IntentConsistent {
+		return ""
+	}
+	return fmt.Sprintf("\n\nThis document states the product's intent, and its last revision is marked consistent with intent: the %s's claim that, after it, the goals admit and refuse exactly the work they did before. The operator was not asked to approve it because of that mark, so test the mark against the change. A change after which the goals would admit work they refused before, or refuse work they admitted, is a change of fundamental intent, which only the operator approves: adding or removing a goal always is one, and so is rewording a goal, a non-goal, or a statement of what the product is for so that it covers more or less than it did. Where the mark is wrong, refuse the change, with a finding at major severity or higher that names the statement and says what work it newly admits or refuses; the document then goes back to the %s, to be marked fundamental and put to the operator.",
+		domain.RoleProductManager.Title(), domain.RoleProductManager.Title())
 }
 
 // retryable reports a document run that ended without landing and without

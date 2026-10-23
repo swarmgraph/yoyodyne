@@ -1724,3 +1724,45 @@ func TestAnUnresolvedAttributionReportsItsOwnReasonAsTheApprovalGap(t *testing.T
 		}
 	}
 }
+
+// The artifact package reads a document's goals for itself, to find a revision
+// marked consistent with intent that adds or removes one (artifact.GoalChange),
+// because it cannot import this package. Its reading has to be this one, or a
+// goal this package resolves attributions to could be added without the
+// harness seeing it. The repository's own goals and brief, and documents
+// written in the shapes this package handles, are read both ways.
+func TestGoalStatementsAgreeWithTheGoalsPackage(t *testing.T) {
+	documents := map[string]string{
+		"wrapped with trailers": "# The goals\n\n## Goals\n\n- One goal\n  wrapped onto two lines.\n  *Supports: the brief\n  wrapped too.*\n- [an-identity] Another goal.\n  - a nested note\n\n### A subsection\n\n- A goal under a subsection.\n\n## Non-goals\n\n- Not a goal.\n",
+		"non-goals nested":      "## Goals\n\n- A goal.\n\n### Non-goals\n\n- Not a goal.\n",
+		"fenced":                "## Goals\n\n```\n- not a goal\n```\n\n- A goal.\n* Another, with a star.\n",
+		"emphasis then prose":   "## Goals\n\n- A goal that\n  *wraps* into more words.\n",
+		"no goals heading":      "# Goals for V1\n\n- Not under a heading named Goals.\n",
+	}
+	paths, err := filepath.Glob(filepath.Join("..", "..", "docs", "product", "goals", "*.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths = append(paths, filepath.Join("..", "..", "docs", "product", "brief.md"))
+	for _, path := range paths {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		documents[path] = string(content)
+	}
+	for name, content := range documents {
+		entries, _ := statements(content)
+		var want []string
+		for _, entry := range entries {
+			want = append(want, entry.statement)
+		}
+		if strings.HasSuffix(name, "v1-goals.md") && len(want) == 0 {
+			t.Fatalf("%s states no goals, so nothing here was compared", name)
+		}
+		got := artifact.GoalStatements(content)
+		if strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Errorf("%s: artifact.GoalStatements() = %q, the goals package reads %q", name, got, want)
+		}
+	}
+}

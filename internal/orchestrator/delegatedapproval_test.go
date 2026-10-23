@@ -69,6 +69,17 @@ func TestARulesDocumentMarkedConsistentIsNotPutToTheOperator(t *testing.T) {
 	if state.Selection == nil || !strings.Contains(state.Selection.Reason, "approved by the Lead Product Manager") {
 		t.Fatalf("selection does not say whose approval it carries: %+v", state.Selection)
 	}
+	// Her mark is why the operator was not asked, so the reviewer is told to
+	// test it and to refuse the change where it is wrong.
+	reviews := provider.RequestsForRole(domain.RoleReviewer)
+	if len(reviews) == 0 {
+		t.Fatal("no review was asked for")
+	}
+	for _, want := range []string{"its last revision is marked consistent with intent", "so test the mark against the change", "adding or removing a goal always is one", "Where the mark is wrong, refuse the change"} {
+		if !strings.Contains(reviews[len(reviews)-1].Prompt, want) {
+			t.Errorf("the reviewer was not told %q", want)
+		}
+	}
 	content := publicationGit(t, repository, "show", "main:docs/product/operating-rules.md")
 	if !strings.Contains(content, "by: product-manager") || strings.Contains(content, "by: operator") || strings.Contains(content, "by: harness") ||
 		!strings.Contains(content, "reason: yoyodyne-ifd.433.17 - approved by the Lead Product Manager") || !strings.Contains(content, "intent: consistent") {
@@ -146,4 +157,70 @@ func TestARulesDocumentNotMarkedConsistentWaitsForTheOperator(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A goals document is the operator's to approve however the Lead Product
+// Manager marks it: every goal it states is new. Created marked consistent, it
+// waits for him under an automatic approvals.goals, no run is opened for it, and
+// she is told why so she can tell him it is his to decide.
+func TestAGoalsDocumentCreatedConsistentWaitsForTheOperator(t *testing.T) {
+	_, _, provider, pipeline, runs := automaticFixture(t)
+	pipeline.Config.Approvals.Goals = domain.ApprovalAutomatic
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		return backend.RunResult{Backend: domain.BackendClaudeCode, SessionID: "author-session", FinalText: fmt.Sprintf("Recorded.\n%s\n{\"documents\":[{\"action\":\"create\",\"id\":\"v2-goals\",\"kind\":\"goals\",\"title\":\"V2 goals\",\"directory\":\"docs/product\",\"body\":%q,\"reason\":\"yoyodyne-ifd.500 - the goals the operator described\",\"intent\":\"consistent\"}]}\n```",
+			artifact.WriteFence, "# V2 goals\n\n## Goals\n\n- Ship on Fridays.")}, nil
+	}
+	options, store := publicationConversation(t, pipeline, provider)
+	options.Role, options.Agent = domain.RoleProductManager, "product-manager"
+	options.DocumentPolicy = artifact.Policy{Brief: domain.ApprovalAutomatic, Goals: domain.ApprovalAutomatic, Designs: domain.ApprovalAutomatic, SpecificationsHome: pipeline.Config.Product.Specifications}
+	session, err := chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Send(context.Background(), "Write the v2 goals."); err != nil {
+		t.Fatal(err)
+	}
+	if len(session.Writes()) != 1 {
+		t.Fatalf("the goals were not put to the operator: %+v", session.Writes())
+	}
+	if records, err := runs.Recorded(); err != nil || len(records) != 0 {
+		t.Fatalf("runs = %v, %v", records, err)
+	}
+	saved, err := store.Load(runstate.ConversationIdentity{Agent: "product-manager", Role: domain.RoleProductManager})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"(v2-goals) is marked consistent with intent and waits for the operator's approval all the same", "it creates a goals document"} {
+		if !strings.Contains(saved.PendingTrackerResults, want) {
+			t.Errorf("the Lead Product Manager was told %q, want it to say %q", saved.PendingTrackerResults, want)
+		}
+	}
+}
+
+// The reviewer is told to test the mark only where the mark is why the operator
+// was not asked: a design is not product intent, and a revision the operator
+// approved himself, or one not marked consistent, is his already.
+func TestTheReviewerTestsTheConsistentMarkOnlyWhereItStandsInForTheOperator(t *testing.T) {
+	marked := artifact.Artifact{Kind: artifact.KindGoals, Revisions: []artifact.Revision{{Action: artifact.ActionAmended, Intent: artifact.IntentConsistent}}}
+	approval := func(by artifact.Approver) []artifact.Approval {
+		return []artifact.Approval{{Revision: 0, By: by}}
+	}
+	for name, test := range map[string]struct {
+		candidate artifact.ConfirmedDocument
+		told      bool
+	}{
+		"goals approved as hers":      {artifact.ConfirmedDocument{Artifact: withApprovals(marked, approval(artifact.ApproverProductManager))}, true},
+		"goals the operator approved": {artifact.ConfirmedDocument{Artifact: withApprovals(marked, approval(artifact.ApproverOperator))}, false},
+		"goals marked fundamental":    {artifact.ConfirmedDocument{Artifact: artifact.Artifact{Kind: artifact.KindGoals, Revisions: []artifact.Revision{{Action: artifact.ActionAmended, Intent: artifact.IntentFundamental}}}}, false},
+		"a design":                    {artifact.ConfirmedDocument{Artifact: artifact.Artifact{Kind: artifact.KindDesign, Revisions: marked.Revisions}}, false},
+	} {
+		if told := consistentMarkReview(test.candidate) != ""; told != test.told {
+			t.Errorf("%s: told = %v, want %v", name, told, test.told)
+		}
+	}
+}
+
+func withApprovals(recorded artifact.Artifact, approvals []artifact.Approval) artifact.Artifact {
+	recorded.Approvals = approvals
+	return recorded
 }

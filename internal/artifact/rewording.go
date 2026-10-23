@@ -36,6 +36,14 @@ package artifact
 // and one that says nothing at all, is the operator's to approve exactly as
 // before, whatever the approval setting for its kind says: the default is the
 // operator's, and it takes a recorded claim to move off it.
+//
+// Two changes are the operator's whatever they are marked, because the claim
+// cannot be true of them. Creating the goals or the brief states goals nothing
+// admitted work under before, so a creation of either kind is never delegated.
+// And a revision of one that adds or removes a goal changes what the goals
+// admit by definition; that needs the document's words before and after, which
+// a revision log does not hold, so it is found where a revision is written
+// (goalchange.go, publication.go) rather than here.
 
 import (
 	"fmt"
@@ -112,6 +120,8 @@ func (a Artifact) Rewording(revision Revision) (bool, string) {
 		return false, "it does not say whether it is consistent with intent, and a change that says nothing is the operator's to approve"
 	case !IntentKind(a.Kind):
 		return false, fmt.Sprintf("it changes a %s document, and what is delegated is a change to the product's intent", a.Kind)
+	case revision.Action == ActionCreated && StatesGoals(a.Kind):
+		return false, createdGoalsReason(a.Kind)
 	case revision.By != domain.RoleProductManager:
 		return false, fmt.Sprintf("it was recorded by the %s, and a consistent change to the product's intent is the %s's to record", revision.By.Title(), domain.RoleProductManager.Title())
 	}
@@ -119,4 +129,15 @@ func (a Artifact) Rewording(revision Revision) (bool, string) {
 		return false, "its reason does not open with the work item that directed it"
 	}
 	return true, ""
+}
+
+// createdGoalsReason is why creating a document that states goals is the
+// operator's whatever it is marked: every goal it states is one the goals did
+// not admit work under before, so the mark cannot be right.
+func createdGoalsReason(kind Kind) string {
+	what := "a goals document"
+	if kind == KindBrief {
+		what = "the brief, which states what the product is for"
+	}
+	return fmt.Sprintf("it creates %s, and every goal a new one states admits work nothing admitted before, so it is the operator's to approve whatever it is marked", what)
 }

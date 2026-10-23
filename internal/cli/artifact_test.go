@@ -665,3 +665,28 @@ func TestAProductDocumentSaysWhetherItsApprovalIsTheOperatorsOrTheLeadProductMan
 		t.Fatalf("listed = %+v", listed)
 	}
 }
+
+// A goals document whose creation is marked consistent with intent is still the
+// operator's to approve, and a listing says why rather than leaving the mark to
+// read as ignored.
+func TestACreatedGoalsDocumentMarkedConsistentSaysWhyItIsTheOperatorsToApprove(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	goals := artifact.Artifact{
+		ID: "v2-goals", Kind: artifact.KindGoals, Title: "V2 goals", Status: artifact.StatusActive, Path: "docs/product/goals/v2-goals.md", Supports: []string{"brief"},
+		Revisions: []artifact.Revision{{Action: artifact.ActionCreated, By: domain.RoleProductManager, At: createdAt,
+			Reason: "yoyodyne-ifd.500 - goals the operator described", Intent: artifact.IntentConsistent}},
+	}
+	if err := goals.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []domain.ApprovalMode{domain.ApprovalHuman, domain.ApprovalAutomatic} {
+		rendered := renderArtifactApproval(goals, artifact.Policy{Goals: mode, SpecificationsHome: "docs/product"})
+		for _, want := range []string{"none recorded", "revision 0 is labelled consistent and is still yours, because it creates a goals document"} {
+			if !strings.Contains(rendered, want) {
+				t.Fatalf("under %s, rendered = %q, want it to contain %q", mode, rendered, want)
+			}
+		}
+	}
+}

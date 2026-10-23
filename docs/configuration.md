@@ -1402,7 +1402,8 @@ confirm instead. A document governed by `approvals.brief` or `approvals.goals`
 directory included — is never confirmed by the harness, whatever those settings
 say: it is approved by the Lead Product Manager where she records the creation
 or revision as consistent with intent with its directing work item, and is yours
-to approve otherwise, as below. [Writing a document from a conversation](artifacts.md#writing-a-document-from-a-conversation)
+to approve otherwise, as below — a new goals document or brief, and a revision
+of either that adds or removes a goal, among them however it is marked. [Writing a document from a conversation](artifacts.md#writing-a-document-from-a-conversation)
 describes restart recovery and failures returned to the owner.
 
 `at` is when the approval was **recorded**, which is not always when it was given
@@ -1520,6 +1521,18 @@ those is said on `show` with what it is missing, so the label does not read as
 ignored. What is checked is the shape of the identifier the reason opens with and
 not that the tracker holds it; the reason is the record you follow to the
 decision.
+
+Two changes are yours however they are marked, because they always change what
+the goals admit: creating a goals document or the brief, and a revision of
+either that adds or removes a statement under its `Goals` heading. A creation
+carrying the mark says so on `list` and `show`. A revision is compared with the
+document it replaces, matching goals by identifier, then by wording, then by
+place, so a goal reworded where it stands is still the Lead Product Manager's;
+one added or removed is put to you, and she is told which statement it was. The
+independent reviewer of the run that lands any change she marked consistent is
+told to test the mark against what the goals admit and refuse, and to refuse the
+change where it is wrong, because that review is the only other check on her
+claim.
 
 **Your `approvals` configuration decides what is asked of you.** `approvals.brief`
 and `approvals.goals` are `human` by default and `approvals.designs` is

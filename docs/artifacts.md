@@ -108,8 +108,14 @@ that is how a document recording rules you already gave is created approved.
 One recorded as `intent: fundamental`, and one that does not say which it is,
 reads as amended-since — or, as a creation, as unapproved — and is put to you,
 whatever `approvals.brief` or `approvals.goals` says: the default is yours, and
-it takes the Lead Product Manager's recorded claim to move off it. `yoyo
-artifact list` and `show` say which, naming whose approval a document carries.
+it takes the Lead Product Manager's recorded claim to move off it. Two changes
+are put to you however they are marked, because they always change what the
+goals admit: creating a goals document or the brief, and a revision of either
+that adds or removes a goal; she is told which goal, and a goal reworded where
+it stands is still hers. The reviewer of the run that lands a change she marked
+consistent is told to test the mark and to refuse the change where it is wrong.
+`yoyo artifact list` and `show` say which, naming whose approval a document
+carries.
 The [configuration guide](configuration.md#approving-a-document) says what else
 the record has to carry for the claim to count.
 
@@ -375,7 +381,8 @@ put to you: it is recorded as approved by her, naming her and that item, and
 lands through a reviewed run as a confirmed document does — left on its branch
 for you to merge where `approvals.integration` is not `automatic`, as every
 change there is. Any other creation or revision of one is put to you, however
-those settings are set.
+those settings are set, and so is a new goals document or brief, or a revision
+of either that adds or removes a goal, whatever it is marked.
 For the documents put to you, you are shown what would happen and the document itself,
 and asked:
 

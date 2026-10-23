@@ -96,7 +96,9 @@ func TestOnlyARewordingRecordedAsConsistentLeavesTheGoalsApproved(t *testing.T) 
 // Lead Product Manager's delegated decision. The same label recorded under
 // another role, or on a document that is not the product's intent, is the
 // operator's again, and says why. Every document of the product's intent is
-// covered, a creation as well as an amendment.
+// covered, a creation as well as an amendment, save the creation of a document
+// that states goals: the goals or the brief, created, state goals nothing
+// admitted work under before, so that is the operator's however it is marked.
 func TestAChangeIsDelegatedOnlyToTheLeadProductManagerOverTheProductsIntent(t *testing.T) {
 	t.Parallel()
 
@@ -107,8 +109,11 @@ func TestAChangeIsDelegatedOnlyToTheLeadProductManagerOverTheProductsIntent(t *t
 			revision := consistent
 			revision.Action = action
 			delegated, why := Artifact{Kind: kind}.Rewording(revision)
-			if delegated != IntentKind(kind) {
+			if delegated != (IntentKind(kind) && !(action == ActionCreated && StatesGoals(kind))) {
 				t.Fatalf("%s of a %s document: %v, %q", action, kind, delegated, why)
+			}
+			if action == ActionCreated && StatesGoals(kind) && !strings.Contains(why, "operator's to approve whatever it is marked") {
+				t.Fatalf("a created %s document does not say why it is the operator's: %q", kind, why)
 			}
 		}
 	}

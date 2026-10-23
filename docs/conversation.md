@@ -309,7 +309,10 @@ write a file, so it hands the harness the document instead. A change it records
 as consistent with intent, naming the work item that directed it — a rewording,
 or rules you already gave — is approved as its own and sent through a reviewed
 run without asking you, whatever your approval settings say, and the document
-records that approval as the Lead Product Manager's, naming that item. Anything
+records that approval as the Lead Product Manager's, naming that item. A new
+goals document or brief, and a revision of either that adds or removes a goal,
+are not among those however they are marked: they always change what the goals
+admit, and the Lead Product Manager is told so. Anything
 else is yours to approve: you are shown what would be written and asked; your `y` records the Lead Product Manager's revision and your
 approval in it and sends its exact content through the same isolated run,
 checks, and independent review a document confirmed under an automatic policy

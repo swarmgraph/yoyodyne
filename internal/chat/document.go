@@ -114,6 +114,9 @@ type writeRecord struct {
 	// holdLifted is a hold on sending this process saw lifted, so the document
 	// goes on to confirmation and publication as any other does.
 	holdLifted bool
+	// overruledTold is the owning role told in this process why the document,
+	// marked consistent with intent, waits for the operator all the same.
+	overruledTold bool
 }
 
 // WriteOutcome is what became of one document the operator decided. It is what
