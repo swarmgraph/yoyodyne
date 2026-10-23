@@ -7013,9 +7013,16 @@ What came of each press is said under the buttons, in the verb's own words,
 and a decision carried out leaves the list at once. A decision is recorded
 exactly as the verb typed at the command line records it, as the operator's: the amendment
 log's decision by the operator under the owner's authority, or, for a
-document, the conversation's own record of the approval, which writes the
-document and records your approval in it. Nothing the page does is something
-the command line cannot. A document whose conversation is taking a turn right
+document, the conversation's own record of the approval, which records your
+approval in the document. An approved document then goes where the same
+approval at the command line sends it: where a reviewed run can carry it, the
+page starts that run straight away, as `yoyo chat --message "approve …"` does,
+and says so — nothing is written into your checkout, `yoyo status` shows the
+run until it merges, and the owning role's conversation says how it went;
+where no run can carry it, the approval writes it into the checkout. The run
+takes as long as its checks and review do, so the page does not wait for it,
+and the conversation stays held until it has finished. Nothing the page does
+is something the command line cannot. A document whose conversation is taking a turn right
 now is refused with the reason, saying to decide again once the turn has ended,
 rather than holding the page for minutes.
 

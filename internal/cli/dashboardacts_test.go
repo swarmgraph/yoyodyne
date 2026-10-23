@@ -16,6 +16,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/dashboard"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -157,7 +158,7 @@ func TestADocumentDeclinedFromThePageLeavesTheListAndTheSavedRecord(t *testing.T
 	// A second process holding nothing but the record, as the dashboard is.
 	deciding := &recordingChatBackend{}
 	session := openTestDocumentSession(t, root, repository, deciding, tracker)
-	said, err := decideInSession(context.Background(), session, found, "decline document-1.1 not what we agreed")
+	said, _, err := decideInSession(context.Background(), session, found, "decline document-1.1 not what we agreed")
 	if err != nil {
 		t.Fatalf("decideInSession() error = %v", err)
 	}
@@ -185,9 +186,109 @@ func TestADocumentDeclinedFromThePageLeavesTheListAndTheSavedRecord(t *testing.T
 	}
 
 	again := openTestDocumentSession(t, root, repository, &recordingChatBackend{}, tracker)
-	if _, err := decideInSession(context.Background(), again, found, "decline document-1.1 twice"); err == nil {
+	if _, _, err := decideInSession(context.Background(), again, found, "decline document-1.1 twice"); err == nil {
 		t.Fatal("a second decline of the same document was not refused")
 	}
+}
+
+// A document approved from the page is handed to its reviewed run and the run
+// is asked for straight after, as the command line asks for it: the approval
+// says it waits on a run, and publishing the conversation's documents then
+// hands that run the document the operator approved. Nothing is written into
+// the checkout, and the document leaves the operator's list.
+func TestADocumentApprovedFromThePageStartsItsReviewedRun(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	repository := t.TempDir()
+	tracker := &recordingChatTracker{created: beads.WorkItem{ID: "yoyodyne-ifd.200", Title: "Pause on a usage limit"}}
+	writing := &recordingChatBackend{result: backendapi.RunResult{SessionID: "session-1", FinalText: proposalAndDocumentReply}}
+	publisher := &recordingDocumentPublisher{}
+	var stdout, stderr bytes.Buffer
+	wrote := openTestPublishingSession(t, root, repository, writing, tracker, publisher)
+	if code := runChatMessage(context.Background(), wrote, domain.RoleProductManager, "write the goals up", false, &stdout, &stderr); code != 0 {
+		t.Fatalf("runChatMessage() code = %d, stderr = %q", code, stderr.String())
+	}
+	if len(publisher.published) != 0 {
+		t.Fatalf("a run was asked for before anybody approved the document: %+v", publisher.published)
+	}
+	store, err := runstate.NewConversationStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources := readmodel.Sources{Conversations: store}
+	found, ok, _ := readmodel.FindOperatorDecision(sources, readmodel.DecisionDocument, "product-manager", "document-1.1")
+	if !ok {
+		t.Fatal("the written goals document is not on the operator's list before it is decided")
+	}
+
+	session := openTestPublishingSession(t, root, repository, &recordingChatBackend{}, tracker, publisher)
+	said, publish, err := decideInSession(context.Background(), session, found, "approve document-1.1")
+	if err != nil {
+		t.Fatalf("decideInSession() error = %v", err)
+	}
+	if !publish {
+		t.Fatalf("an approval handed to a reviewed run did not ask for the run; said %q", said)
+	}
+	var logged bytes.Buffer
+	publishFromDashboard(context.Background(), session, found, &logged)
+	if len(publisher.published) != 1 || publisher.published[0].Candidate.Artifact.ID != "v2-goals" {
+		t.Fatalf("the reviewed run was handed %+v, want the approved goals document", publisher.published)
+	}
+	if logged.Len() != 0 {
+		t.Fatalf("publishing said %q", logged.String())
+	}
+	if _, err := os.Stat(filepath.Join(repository, "docs", "product", "v2-goals.md")); !os.IsNotExist(err) {
+		t.Fatalf("the approved document was written into the checkout instead of handed to a run: %v", err)
+	}
+	if _, ok, _ := readmodel.FindOperatorDecision(sources, readmodel.DecisionDocument, "product-manager", "document-1.1"); ok {
+		t.Fatal("the approved document is still on the operator's list")
+	}
+	if !strings.Contains(publishingStarted(found), "yoyo status") {
+		t.Fatalf("the page is not told how to follow the run: %q", publishingStarted(found))
+	}
+}
+
+// recordingDocumentPublisher stands in for the reviewed run that lands a
+// document: it records what it was handed and reports the run landed.
+type recordingDocumentPublisher struct {
+	mu        sync.Mutex
+	published []runstate.DocumentPublication
+}
+
+func (p *recordingDocumentPublisher) PublishesDocuments() bool     { return true }
+func (p *recordingDocumentPublisher) LandsApprovedDocuments() bool { return true }
+func (p *recordingDocumentPublisher) PublishDocument(_ context.Context, publication runstate.DocumentPublication) (runstate.DocumentDelivery, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.published = append(p.published, publication)
+	return runstate.DocumentDelivery{RunID: publication.RunID(), Settled: true, Landed: true, Detail: "Document landed.\n"}, nil
+}
+
+// openTestPublishingSession is openTestDocumentSession with a publisher behind
+// it, so an approved document goes to a reviewed run as it does in a project
+// that integrates automatically.
+func openTestPublishingSession(t *testing.T, root, repository string, provider chat.Backend, tracker chat.Tracker, publisher chat.DocumentPublisher) *chat.Session {
+	t.Helper()
+	store, err := runstate.NewConversationStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := chat.Open(chat.Options{
+		Role: domain.RoleProductManager, Agent: "product-manager", Backend: provider, Store: store, Tracker: tracker,
+		Documents: artifactStore(repository, config.Product{
+			Specifications: config.DefaultSpecifications, Designs: config.DefaultDesigns,
+			Decisions: config.DefaultDecisions, Invariants: config.DefaultInvariants,
+		}),
+		DocumentPublisher: publisher,
+		Model:             "opus", Provider: domain.BackendClaudeCode, AccountAlias: config.DefaultAccountAlias,
+		Repository: repository, ProductID: "yoyodyne", RepositoryID: "yoyodyne",
+		Briefing: chat.Briefing{Text: "the product is a harness", GatheredAt: time.Now().UTC()},
+	})
+	if err != nil {
+		t.Fatalf("chat.Open() error = %v", err)
+	}
+	return session
 }
 
 // Asking first sends the question to the conversation of the role that raised

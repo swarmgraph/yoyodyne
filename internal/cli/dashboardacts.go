@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 
@@ -63,7 +64,10 @@ var _ dashboard.Actor = (*dashboardActor)(nil)
 func newDashboardActor(lifetime context.Context, configPath string, stderr io.Writer) *dashboardActor {
 	return &dashboardActor{
 		configPath: configPath, lifetime: lifetime, stderr: stderr, asking: map[string]bool{},
-		converse: converse, decideInConversation: decideInConversation,
+		converse: converse,
+		decideInConversation: func(ctx context.Context, configPath string, decision readmodel.OperatorDecision, message string, stderr io.Writer) (string, error) {
+			return decideInConversation(ctx, lifetime, configPath, decision, message, stderr)
+		},
 	}
 }
 
@@ -129,7 +133,13 @@ func (a *dashboardActor) decideAmendment(decision readmodel.OperatorDecision, ap
 // decision message there, as `yoyo agent chat <agent> --message` does before
 // it would speak to the agent. A conversation taking a turn is not waited
 // for: the page is told to try again, rather than held open for minutes.
-func decideInConversation(ctx context.Context, configPath string, decision readmodel.OperatorDecision, message string, stderr io.Writer) (string, error) {
+//
+// An approval that hands a document to a reviewed run is followed by that
+// run's publication, as the command line follows it (reportChatWriteDecisions).
+// The run takes as long as its checks and review do, so it is started in the
+// background under the dashboard's own lifetime, still holding the
+// conversation, and the page is answered at once with what was started.
+func decideInConversation(ctx, lifetime context.Context, configPath string, decision readmodel.OperatorDecision, message string, stderr io.Writer) (string, error) {
 	prepared, err := prepareChat(ctx, decision.Role, decision.Agent, configPath, stderr)
 	if err != nil {
 		return "", err
@@ -141,45 +151,75 @@ func decideInConversation(ctx context.Context, configPath string, decision readm
 	if err != nil {
 		return "", err
 	}
-	defer hold.Release()
+	held := true
+	defer func() {
+		if held {
+			hold.Release()
+		}
+	}()
 	session, err := prepared.open(ctx, hold, false, true, stderr)
 	if err != nil {
 		return "", err
 	}
-	return decideInSession(ctx, session, decision, message)
+	said, publish, err := decideInSession(ctx, session, decision, message)
+	if err != nil || !publish {
+		return said, err
+	}
+	held = false
+	go func() {
+		defer hold.Release()
+		publishFromDashboard(lifetime, session, decision, stderr)
+	}()
+	return said + " " + publishingStarted(decision), nil
 }
 
-// decideInSession carries out one decision message in an open conversation.
-// A document is decided by DecideWrites, which saves the conversation's record
+// decideInSession carries out one decision message in an open conversation,
+// and says whether a document it approved waits on its reviewed run, which
+// whoever took the decision starts straight after (publishFromDashboard). A
+// document is decided by DecideWrites, which saves the conversation's record
 // as it decides, so a declined document leaves the record and with it the
 // attention line and the page.
-func decideInSession(ctx context.Context, session *chat.Session, decision readmodel.OperatorDecision, message string) (string, error) {
-	// What a message carries out before anything else, as runChatMessage does.
-	if err := session.PublishDocuments(ctx); err != nil {
-		return "", err
-	}
+func decideInSession(ctx context.Context, session *chat.Session, decision readmodel.OperatorDecision, message string) (string, bool, error) {
 	if decision.Kind == readmodel.DecisionDocument {
 		outcomes, decided, err := session.DecideWrites(message)
 		if !decided {
-			return "", dashboard.ErrNotWaiting
+			return "", false, dashboard.ErrNotWaiting
 		}
 		var rendered strings.Builder
 		for _, outcome := range outcomes {
 			rendered.WriteString(outcome.Render())
 		}
 		if err != nil {
-			return "", fmt.Errorf("%w%s", err, prefixed(rendered.String()))
+			return "", false, fmt.Errorf("%w%s", err, prefixed(rendered.String()))
 		}
-		return strings.TrimSpace(rendered.String()), nil
+		publish := slices.ContainsFunc(outcomes, func(outcome chat.WriteOutcome) bool { return outcome.Publishing != "" })
+		return strings.TrimSpace(rendered.String()), publish, nil
 	}
 	decided, settled, err := session.Decide(ctx, message)
 	if !settled {
-		return "", dashboard.ErrNotWaiting
+		return "", false, dashboard.ErrNotWaiting
 	}
 	if err != nil {
-		return "", fmt.Errorf("%w%s", err, prefixed(renderDecisions(decided)))
+		return "", false, fmt.Errorf("%w%s", err, prefixed(renderDecisions(decided)))
 	}
-	return strings.TrimSpace(renderDecisions(decided)), nil
+	return strings.TrimSpace(renderDecisions(decided)), false, nil
+}
+
+// publishFromDashboard publishes the conversation's approved documents, as
+// the command line does after an approval, and says where what came of it is
+// recorded when it could not finish: the owning role is told in its
+// conversation either way.
+func publishFromDashboard(lifetime context.Context, session *chat.Session, decision readmodel.OperatorDecision, stderr io.Writer) {
+	if _, err := session.PublishApproved(lifetime); err != nil {
+		fmt.Fprintf(stderr, "the reviewed run for document %s, approved from the dashboard, could not start or finish: %v; it is kept and tried again at the next message to the %s\n",
+			decision.ID, err, decision.Role.Title())
+	}
+}
+
+// publishingStarted is what the page is told once the reviewed run is asked
+// for.
+func publishingStarted(decision readmodel.OperatorDecision) string {
+	return fmt.Sprintf("Its reviewed run has been started; `yoyo status` shows it until it merges, and the %s's conversation says how it went.", decision.Role.Title())
 }
 
 func prefixed(rendered string) string {
