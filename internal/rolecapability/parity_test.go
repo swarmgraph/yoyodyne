@@ -231,9 +231,14 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // each with the architect's recommendation attached, as needing his hand
 // (yoyodyne-i92, under the architect's ruling for yoyodyne-ifd.437.14). It is
 // held under amendment.decide, and a change to the brief or the goals that does not say it is consistent with their intent stays his.
+//
+// The architect's `label` takes the needs-design label off an item once the
+// design it waits on is readable by its developer, and does nothing else: it is
+// the ruling of 2026-10-11 recorded in docs/designs/needs-design-gate.md, held
+// under work-item.needs-design.remove rather than the unscoped label.
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
 	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment"},
-	domain.RoleArchitect:          {"amendment"},
+	domain.RoleArchitect:          {"label", "amendment"},
 	domain.RoleDevelopmentManager: {"brake", "label"},
 }
 

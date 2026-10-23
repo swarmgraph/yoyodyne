@@ -1912,6 +1912,34 @@ func (c Client) Reopen(ctx context.Context, id, reason string, parking domain.Wo
 	return c.confirmWritten(ctx, item, appendedNote(reason))
 }
 
+// ReturnForDesign returns a claimed item to the backlog open and carrying the
+// needs-design label, with the reason appended to its notes, in one write. The
+// harness uses it when a developer raised that the item waits on the
+// architect's design (docs/designs/needs-design-gate.md): the label is what
+// holds the item from the next start, so it goes on in the same write that
+// opens the item rather than after it, and the parking is left as it was.
+func (c Client) ReturnForDesign(ctx context.Context, id, reason string) (WorkItem, error) {
+	if err := validateIssueID(id); err != nil {
+		return WorkItem{}, err
+	}
+	if strings.TrimSpace(reason) == "" {
+		return WorkItem{}, errors.New("the reason for returning an item for design is required")
+	}
+	item, err := c.writeItem(ctx, id, func(item WorkItem) bool {
+		return statusAndNoteLanded(statusOpen, reason)(item) && domain.NeedsDesign(item.Labels)
+	}, "update", id, "--status=open", "--append-notes="+reason, "--add-label="+domain.NeedsDesignLabel, "--json")
+	if err != nil {
+		return WorkItem{}, err
+	}
+	if item.Status != statusOpen {
+		return WorkItem{}, fmt.Errorf("work item %s status is %q after being returned for design, want open", item.ID, item.Status)
+	}
+	if !domain.NeedsDesign(item.Labels) {
+		return WorkItem{}, fmt.Errorf("work item %s does not carry the %s label after being returned for design", item.ID, domain.NeedsDesignLabel)
+	}
+	return c.confirmWritten(ctx, item, appendedNote(reason))
+}
+
 // maxBDOutputBytes is how much of one bd invocation's output this client keeps.
 // It is far above the process runner's general default of 8 MiB because a bd
 // listing is one JSON document that has to be read whole, and it grows with the

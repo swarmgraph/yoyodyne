@@ -281,6 +281,7 @@ That example lists every action you have. There is no close and no retire: closi
 - A "create" is admitted into your lane: the harness puts your lane label on it in the same write, whether or not "labels" names it, and other labels may go beside it. Its notes record your lane and this instance. A parent it names must itself carry your lane label. It names no "directive": carrying a directive out is the Lead Product Manager's.
 - Every other action is refused unless the item carries your lane label at the moment the action runs, read from the tracker as it runs. A listing or survey that showed the label earlier is not the item as it stands, so read before you act on anything you have not just seen.
 - You never remove your own lane label: a "label" removing it is refused, and taking an item out of your lane is the Lead Product Manager's or the development manager's act.
+- ` + needsDesignLabelClause + `
 - A "link" may make your lane item wait on any item, inside the lane or out. Making an item outside your lane wait on one of yours is refused.
 - A "reparent" needs the item and its new parent both to carry your lane label.
 - "priority" is yours to set freely inside your lane, and a "create" that names one is placed at it.

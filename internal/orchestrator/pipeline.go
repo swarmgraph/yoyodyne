@@ -74,6 +74,10 @@ type WorkTracker interface {
 	// the item open waiting on it, which selection honours and which releases
 	// itself when the impediment closes.
 	AddBlocker(ctx context.Context, id, blockerID string) error
+	// ReturnForDesign returns a claimed item to the backlog open and labelled
+	// needs-design, with the reason appended to its notes. The harness uses it
+	// when a developer raised that the item waits on the architect's design.
+	ReturnForDesign(ctx context.Context, id, reason string) (beads.WorkItem, error)
 }
 
 // Pricer records what a work item has cost across every run made for it. The
@@ -4799,6 +4803,11 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 	if a.state.LandingOutcome == runstate.LandingEscalate {
 		return escalationRaised{}
 	}
+	// A raise that the item waits on the architect's design ends the run here for
+	// the same reasons, and returns the item labelled rather than escalated.
+	if a.state.LandingOutcome == runstate.LandingNeedsDesign {
+		return designRaised{}
+	}
 	if !providerResult.IsError {
 		// An invocation that ended cleanly and said nothing about the work is
 		// handed back to the caller as that, rather than as a finished attempt.
@@ -7601,6 +7610,10 @@ func (a *activeRun) stop(ctx context.Context, cause error) (Outcome, error) {
 	if errors.As(cause, &raised) {
 		return a.escalate(ctx)
 	}
+	var forDesign designRaised
+	if errors.As(cause, &forDesign) {
+		return a.returnForDesign(ctx)
+	}
 	// A stop the hosting watch session made to restart into a build deployed
 	// over it is the harness's own clock again, and is read off the context's
 	// cause rather than the error: every step between the cancelled process and
@@ -7725,6 +7738,71 @@ func (a *activeRun) escalate(ctx context.Context) (Outcome, error) {
 			return a.fail(fmt.Errorf("docket the escalation this run raised: %w", err), runstate.StatusFailed)
 		}
 	}
+	return a.outcome, nil
+}
+
+// designRaised is a developer having raised that the work item waits on the
+// architect's design (docs/designs/needs-design-gate.md). Like escalationRaised
+// it only unwinds the run, and what was said is on the record as the landing.
+type designRaised struct{}
+
+func (designRaised) Error() string {
+	return "the developer raised this work item as waiting on the architect's design"
+}
+
+// returnForDesign ends a run whose developer raised that the item waits on the
+// architect's design: the item goes back to the backlog open and labelled
+// needs-design with the developer's question in its notes, and the run is
+// recorded as having succeeded at what it was for.
+//
+// It is escalate's ending with a different disposition. The steps it shares are
+// taken in the same order — the outcome onto the item, the item's disposition,
+// the price — and nothing is closed, integrated, or cleaned up. It parks nothing
+// and dockets nothing: the label is what holds the item, the architect is the
+// one to move, and only her removal of the label releases it. No repair attempt
+// was spent, because the raise ended the round it was made in.
+//
+// What it leaves standing is the worktree and the branch, as escalate does, so
+// what the developer had changed is kept for whoever picks the item up once the
+// design is readable; the sweep that retires an unintegrated run's artifacts
+// settles them afterwards.
+func (a *activeRun) returnForDesign(ctx context.Context) (Outcome, error) {
+	p := a.pipeline
+	if err := a.recordOutcomeOnce(ctx, func() string { return renderOutcomeNotes(a.outcome) }); err != nil {
+		return a.fail(fmt.Errorf("record the outcome of the run raised for design: %w", err), runstate.StatusFailed)
+	}
+	reason := undischargedLandingReason(a.state)
+	tracker := p.Tracker
+	if _, err := recoveringTrackerWrite(ctx, a,
+		itemLanded(tracker, a.state.WorkItemID, func(item beads.WorkItem) bool {
+			return item.Status == "open" && domain.NeedsDesign(item.Labels) && beads.NotesEndWith(item.Notes, reason)
+		}),
+		func(ctx context.Context) (beads.WorkItem, error) {
+			return tracker.ReturnForDesign(ctx, a.state.WorkItemID, reason)
+		}); err != nil {
+		return a.fail(fmt.Errorf("return the work item labelled %s: %w", domain.NeedsDesignLabel, err), runstate.StatusFailed)
+	}
+	a.recordPrice()
+	completedAt := p.clock().Now()
+	a.state.ProviderStop = ""
+	a.state.RedeployStop = nil
+	a.state.OperatorHeldSince = nil
+	a.state.StopClass = runstate.StopNeedsDesign
+	a.outcome.StopClass = a.state.StopClass
+	a.state.Status = runstate.StatusSucceeded
+	a.state.Phase = runstate.PhaseComplete
+	a.state.UpdatedAt = completedAt
+	a.state.CompletedAt = &completedAt
+	a.observeUnfinished()
+	if err := p.Store.Save(a.state); err != nil {
+		return a.fail(fmt.Errorf("save the state of the run raised for design: %w", err), runstate.StatusFailed)
+	}
+	a.outcome.Status = a.state.Status
+	a.outcome.Phase = a.state.Phase
+	a.outcome.Branch = a.state.Branch
+	a.outcome.WorktreePath = a.state.WorktreePath
+	a.outcome.BaseCommit = a.state.BaseCommit
+	a.outcome.ProviderSessionID = a.state.ProviderSessionID
 	return a.outcome, nil
 }
 
@@ -10347,6 +10425,12 @@ func renderOutcomeNotes(outcome Outcome) string {
 			headline = "Yoyodyne run passed checks and " + integrated + "; the independent reviewer approved the change as evidence rather than as the work this item asked for, so the item " +
 				outcome.UndischargedDisposition() + "."
 		}
+	}
+	// A run raised for design integrated nothing either, and what it leaves is a
+	// question for the architect rather than a decision for anybody else.
+	if outcome.RaisedForDesign() {
+		headline = "Yoyodyne run's developer raised that this item waits on the architect's design. Nothing was integrated and no repair attempt was spent; the item " +
+			outcome.UndischargedDisposition() + "."
 	}
 	// An escalated run integrated nothing, so it takes neither headline above. It
 	// is said in the words the item is actually left in: nothing landed, and what

@@ -988,6 +988,9 @@ func (t *documentTracker) Complete(context.Context, string, string) (beads.WorkI
 func (t *documentTracker) Reopen(context.Context, string, string, domain.WorkItemParking) (beads.WorkItem, error) {
 	return t.item, nil
 }
+func (t *documentTracker) ReturnForDesign(context.Context, string, string) (beads.WorkItem, error) {
+	return beads.WorkItem{}, errors.New("a document publication has no developer to raise a design question")
+}
 func (t *documentTracker) AddBlocker(context.Context, string, string) error {
 	return errors.New("a document publication cannot add a backlog dependency")
 }

@@ -177,6 +177,14 @@ const (
 	// not WorkItemMutate: a decision nobody can find is the state triage exists to
 	// leave behind.
 	WorkTriage Capability = "work.triage"
+	// WorkItemDesignHoldRemove is taking the needs-design label off an item,
+	// and nothing else: not putting it on, not any other label, not any other
+	// field. It is the architect's one write to items she does not own
+	// (docs/designs/needs-design-gate.md), and it is apart from WorkItemMutate
+	// because that would hand her every item's every field. The act is refused
+	// where the item's design is not yet readable by the developer who will pull
+	// it, which is state read as the act runs rather than anything a bundle says.
+	WorkItemDesignHoldRemove Capability = "work-item.needs-design.remove"
 	// ArtifactProductMutate and ArtifactDesignMutate are authorship of the
 	// canonical documents, split the way ownership is: the brief, the goals and the
 	// non-goals are the product manager's, and the designs, the specifications and
@@ -350,6 +358,7 @@ var declared = []Capability{
 	WorkItemRepairState,
 	WorkDecompose,
 	WorkTriage,
+	WorkItemDesignHoldRemove,
 	ArtifactProductMutate,
 	ArtifactDesignMutate,
 	InvariantMutate,

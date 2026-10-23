@@ -4881,6 +4881,19 @@ func (h *realScheduleHarness) Reopen(_ context.Context, id, _ string, parking do
 	return h.setStatus(id, "open")
 }
 
+// ReturnForDesign puts the item back in the backlog labelled needs-design, which
+// is what holds it from the next pull.
+func (h *realScheduleHarness) ReturnForDesign(_ context.Context, id, _ string) (beads.WorkItem, error) {
+	h.mu.Lock()
+	for index := range h.Items {
+		if h.Items[index].ID == id && !domain.NeedsDesign(h.Items[index].Labels) {
+			h.Items[index].Labels = append(h.Items[index].Labels, domain.NeedsDesignLabel)
+		}
+	}
+	h.mu.Unlock()
+	return h.setStatus(id, "open")
+}
+
 func (h *realScheduleHarness) AddBlocker(_ context.Context, id, blockerID string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()

@@ -2200,6 +2200,17 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			remove := strings.TrimSpace(action.Remove)
 			change.RemoveLabels = []string{remove}
 			change.AppendNotes = s.trackerProvenance("Label "+remove+" removed", action.Reason)
+			// The needs-design label comes off only once the design is readable by
+			// the developer who will pull the item, and the removal records which
+			// of the two forms it took (designhold.go).
+			if remove == domain.NeedsDesignLabel {
+				readable, refusal := s.designHoldLifted(ctx, id, outcome.target, outcome.TargetUnread)
+				if refusal != "" {
+					outcome.Failure = refusal
+					return
+				}
+				change.AppendNotes = s.trackerProvenance("Label "+remove+" removed: "+readable, action.Reason)
+			}
 		}
 		labelled, err := s.options.Tracker.Update(ctx, id, change)
 		if err != nil {

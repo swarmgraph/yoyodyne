@@ -184,6 +184,16 @@ var expresses = map[string]expression{
 		},
 		gap: "which items are inside a lane is state — the label read off the item, and off a named parent, as the action runs — and no bundle carries state",
 	},
+	"conversation.design-hold": {
+		question: "does the role hold the removal of the needs-design label, and is that its only route to labelling?",
+		asks:     []capability.Capability{capability.WorkItemDesignHoldRemove, capability.WorkItemMutate, capability.WorkItemLabel},
+		gap:      "that the label named is needs-design, and that the action removes rather than adds it, is a shape of what was asked rather than a capability",
+	},
+	"conversation.design-hold-readable": {
+		question: "does the role hold the removal of the needs-design label?",
+		asks:     []capability.Capability{capability.WorkItemDesignHoldRemove},
+		gap:      "whether the design is readable — in the item's design field, or landed naming the item — is state read as the act runs, and no bundle carries state",
+	},
 	"conversation.admission-gate": {
 		question: "does the role hold admission?",
 		asks:     []capability.Capability{capability.BacklogAdmit},

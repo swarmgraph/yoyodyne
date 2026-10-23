@@ -64,6 +64,7 @@ func Default() (action.Registry[Call], error) {
 		}
 		actions = append(actions, declaration(id, "yoyodyne-tracker", action.ToolAct, "Change the tracker in the ways this tool allows.", "Tracker actions; which ones you may take, and how each is checked, is set by the tracker's own list of actions.", scope, "(*Session).performTrackerActions", write))
 	}
+	actions = append(actions, declaration(capability.WorkItemDesignHoldRemove, "yoyodyne-tracker", action.ToolAct, "Take the needs-design label off an item once its design is readable.", `Each request is a tracker action label naming the item, "remove":"needs-design", and the reason.`, "the needs-design label on any item and nothing else about it; refused while the design is neither in the item's design field nor in a committed design whose revision names the item", "(*Session).performTrackerActions", write))
 	for _, id := range []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate} {
 		actions = append(actions, declaration(id, strings.TrimPrefix(artifact.WriteFence, "```"), action.ToolAct, "Draft a document through the harness's checked way of writing one.", "Each write is checked for who owns the document, where it is filed, and its shape before it is recorded.", "only the kinds of document your role owns; a write still needs approval, as it always has", "(*Session).recordWrites", write))
 	}
