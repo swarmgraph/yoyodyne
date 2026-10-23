@@ -81,9 +81,11 @@ const (
 	// the item's work is in the document, which is what the product manager read
 	// by hand before yoyodyne-ifd.367.
 	kindRecordedLanding closureKind = "recorded-landing"
-	// kindUnrelated is a call the sweep's shape catches that closes no work item.
-	// There are none today, and the row exists so that the next one is excluded by
-	// somebody writing down why rather than by the sweep quietly not seeing it.
+	// kindUnrelated is a call the sweep's shape catches that decides no closure of
+	// its own: one that closes no work item, or a tracker wrapper that passes on a
+	// closure its caller decided, unchanged. The row exists so that each one is
+	// excluded by somebody writing down why rather than by the sweep quietly not
+	// seeing it.
 	kindUnrelated closureKind = "unrelated"
 )
 
@@ -142,6 +144,11 @@ var auditedClosures = []closureSite{
 		File: "internal/orchestrator/mergequeuepromotion.go", Declaration: "(MergeQueueRunCompletion) RecordWorkItem", Calls: 1,
 		ConsultsDischarge: true, Kind: kindSettlement,
 		Why: "the merge queue settling the item of a change it landed, once the landing is confirmed on the target. The candidate's own checks and review authorized the landing and say nothing about whether the change finishes the item, so the developer's claim and the reviewer's approval are read back from the run's durable record, as the sweep reads them for a merge the forge performed; anything that does not discharge goes to settleUndischarged instead.",
+	},
+	{
+		File: "internal/orchestrator/outsidefilequeue.go", Declaration: "(OutsideFileItems) Complete", Calls: 1,
+		ConsultsDischarge: false, Kind: kindUnrelated,
+		Why: "the tracker the merge queue is given, passing a closure on unchanged. For a work item the tracker holds it forwards exactly the closure its caller decided, and the merge queue's only caller is MergeQueueRunCompletion.RecordWorkItem, which reads the run's discharge first; for the bookkeeping item of a run that brings a file in it closes nothing and writes a note on the item the record names. It decides no closure of its own.",
 	},
 	{
 		File: "internal/orchestrator/conversationlanding.go", Declaration: "(ConversationLander) Settle", Calls: 1,
