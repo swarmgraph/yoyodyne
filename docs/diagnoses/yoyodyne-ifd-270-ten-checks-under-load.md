@@ -296,3 +296,16 @@ checked for whether its budget is what it is about. The seven-second budgets
 in `internal/gitworktree`'s load tests are the scaled Git budget under test,
 and `internal/research`'s five seconds is a figure in a message from a fake
 process.
+
+**Done, by yoyodyne-ifd.429.36.** Each of the nine was checked, and in none of
+them is the budget what the test is about: each asserts what a process saw,
+printed, or left behind. A tenth of the same class was added to them:
+`TestAChangeDeletingAFileLargerThanTheBoundIsApprovable` in `internal/review`,
+whose one-file checkout ran past the Git manager's load-scaled thirty seconds
+under a full suite and passed in under a second on its own. All ten were
+converted as `internal/gitworktree` and `internal/orchestrator` were by
+[yoyodyne-ifd.429.11](yoyodyne-ifd-429-11-git-budget-under-load.md): a budget
+of ten minutes, which catches only a process that has hung and sits under the
+Makefile's `TEST_TIMEOUT`, so the hang is still reported as the command it was.
+That is `testProcessBudget` in `internal/execution`, `conformanceTimeout` in
+`internal/beads`, and `testGitBudget` in `internal/review`.

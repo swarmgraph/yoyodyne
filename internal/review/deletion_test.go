@@ -9,10 +9,21 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 )
+
+// testGitBudget is the local Git budget the manager here is given. Left to the
+// manager, it is an idle thirty seconds scaled by the one-minute load, and a
+// full suite's race binaries have run this test's one-file checkout past that
+// with Git working. The test is about what the review is shown, never about how
+// long Git took, so the budget has only a hung command to catch, which any
+// figure does; ten minutes sits under the Makefile's TEST_TIMEOUT, so the hang
+// is reported as the command it was. internal/gitworktree holds the scaled
+// budget to its own behaviour, where it is the thing under test.
+const testGitBudget = 10 * time.Minute
 
 // A change that deletes a file larger than the patch bound is approvable. The
 // deletion diff of such a file outgrew the 262,144-byte bound, was named as an
@@ -53,6 +64,7 @@ func TestAChangeDeletingAFileLargerThanTheBoundIsApprovable(t *testing.T) {
 
 	manager, err := gitworktree.New(gitworktree.Options{
 		Runner: execution.OSProcessRunner{}, RepositoryRoot: repository, WorktreeRoot: filepath.Join(t.TempDir(), "worktrees"),
+		Timeout: testGitBudget,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
