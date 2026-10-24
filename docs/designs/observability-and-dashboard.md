@@ -54,6 +54,10 @@ revisions:
       by: architect
       at: 2026-10-21T19:48:00.693684Z
       reason: 'Approved amendment-77180439 from the developer building how work items are shown to a person: the work item references section now passes over text in backticks, link targets, paths and names joined by underscores; treats a full id with no digit and no dot as a reference only when the tracker holds it or the harness recorded it as a work item id; and cuts a shown title at 200 bytes. The paragraph on the parent item''s wording is replaced to match the Lead Product Manager''s narrowing of 21 October. Everything else is unchanged from main at 5825a633.'
+    - action: amended
+      by: architect
+      at: 2026-10-24T20:50:34.368986Z
+      reason: 'Approved amendment-c85bf4cf from the developer building the loopback-only dashboard (yoyodyne-ifd.434.33): the web-security section now says the dashboard listens only on a loopback address and refuses any other, with allowed_hosts naming further host names for that same listener, matching the Lead Product Manager''s ruling that the dashboard stays on this machine (yoyodyne-ifd.432.40). Only this section changes; written from main at 4efea121. Resent after the word check refused one joined word.'
 approvals:
     - policy: approvals.designs
       revision: 7
@@ -80,6 +84,11 @@ approvals:
       by: harness
       at: 2026-10-21T19:48:00.693684Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1436, for document-1436.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 12
+      by: harness
+      at: 2026-10-24T20:50:34.368986Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1644, for document-1644.1 under the automatic approval policy
 ---
 # One observability read model, and the local dashboard that projects it and takes the operator's own decisions
 
@@ -256,13 +265,17 @@ Beside the backlog page, sharing its chart library and layout, a page of the fac
 
 ## Web security *(the repository's web-service conventions, established here)*
 
-The bind address and the allowed hosts are configuration; the defaults are loopback and the loopback Host, and a project that says nothing gets exactly the behavior it had. An explicit non-loopback bind is an operator opt-in that keeps every other rule intact:
+The dashboard listens only on a loopback address, such as 127.0.0.1 or ::1. The address is configuration, and the default is loopback. A configured address that is not loopback, including a wildcard that reaches every interface, is refused when the configuration is loaded, and the refusal names this section. The page takes the operator's own decisions, and [the v1 non-goals](../product/goals/v1-non-goals.md) keep it local and not hosted. The Lead Product Manager ruled that it therefore stays on this machine (yoyodyne-ifd.432.40). Reaching it from another device is not offered in v1.
 
-- **A token is required on every request**, presented in a header or cookie and never in a URL or a log; a request without one, or with a wrong one, fails closed. Under the loopback default the token is generated per start and reaches the operator as described under the generated token below. **Under a non-loopback bind the token must be supplied** — from the per-project secret store or the environment, never from `.yoyodyne` — because a generated token printed to one terminal is unusable from another device; a non-loopback bind with no supplied token, or a supplied token below the minimum entropy, is refused at load.
-- **Host and Origin are validated against the configured address and allowed hosts**, not hard-wired to loopback. A request naming a host outside the configured set fails closed exactly as it did before.
-- The content-security policy stays restrictive and CDN-free; the vendored chart library, served by the dashboard itself, keeps it so. All user-, model-, repository-, and Slack-supplied text stays untrusted and escaped; nothing secret, credential, or private-identifier enters the read model or the page.
-- **A wider bind widens who can read, never who can act.** The shared token reads and acts on nothing. An act needs the operator's own bound token, described below, and the grant the act requires, at any bind address; a request to act that carries only the shared token is refused.
-- **Transport is plain HTTP in V1.** A non-loopback bind sends the token and the page in clear over the operator's network; TLS termination is deferred, and the opt-in is for networks the operator trusts. Binding to a specific interface address is preferred over a wildcard, which reaches every interface the machine has.
+- **A token is required on every request**, presented in a header or cookie and never in a URL or a log. A request without one, or with a wrong one, fails closed. The token is generated each start and reaches the operator as described under the generated token below.
+- **Host and Origin are validated against the loopback address and `allowed_hosts`.** `allowed_hosts` names further host names under which the same loopback listener is reached, such as a name the machine maps to 127.0.0.1. It never changes the address the dashboard listens on. A request naming a host outside that set fails closed.
+- The content-security policy stays restrictive and loads nothing from a CDN; the vendored chart library, served by the dashboard itself, keeps it so. All user-, model-, repository-, and Slack-supplied text stays untrusted and escaped; nothing secret, credential, or private-identifier enters the read model or the page.
+- **The shared token reads and acts on nothing.** An act needs the operator's own bound token, described below, and the grant the act requires. A request to act that carries only the shared token is refused.
+- **Transport is plain HTTP on the loopback interface.** Nothing the page sends leaves the machine, so no encryption is added in v1.
+
+**Alternatives rejected.** Keeping the setting, added on 19 September, that let the operator bind an address other machines can reach. A page that takes the operator's decisions, reachable over plain HTTP from a network, would send his token in clear and amount to the hosted control plane the non-goals exclude. Making it safe would need encryption and a way to prove who is connecting from another machine, which v1 does not take on. A configurable list of trusted networks has the same problem.
+
+**What a reviewer can check.** A configured address that is not loopback is refused at load, naming this section. `allowed_hosts` changes which Host and Origin values are accepted and never the listening address. A request naming a host outside the set fails closed. A request to act that carries only the shared token is refused.
 
 ## Acting from the dashboard
 
