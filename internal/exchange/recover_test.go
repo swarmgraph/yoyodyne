@@ -168,11 +168,11 @@ func TestTheProcessTakingARoundIsNamedOnItBeforeTheProviderIsReached(t *testing.
 	}
 }
 
-// What an exchange was asked against is recorded when it opens, and a follow-up
-// is asked against what the thread already names. A thread whose references
-// changed half way through would be two questions wearing one identifier, and
-// staleness derived over it could no longer say which had gone stale.
-func TestWhatAnExchangeRestsOnIsFixedWhenItOpens(t *testing.T) {
+// What an exchange was asked against is recorded when it opens, and that is
+// what its staleness is judged against for its whole life. A follow-up names
+// the records its own round rests on, which are recorded on that round and
+// attached to it, and change nothing about what the thread was opened against.
+func TestWhatAnExchangeRestsOnIsFixedWhenItOpensAndEachRoundNamesItsOwn(t *testing.T) {
 	t.Parallel()
 
 	store := &recordingStore{}
@@ -195,9 +195,21 @@ func TestWhatAnExchangeRestsOnIsFixedWhenItOpens(t *testing.T) {
 		t.Fatalf("Refers = %#v, want what the asker read carried onto the record", opened.Refers)
 	}
 
-	follow := Ask{Exchange: opened.ID, Question: "and now?", Refers: refers}
-	if err := follow.Validate(); err == nil || !strings.Contains(err.Error(), "recorded when an exchange opens") {
-		t.Errorf("Validate() = %v, want a follow-up refused for restating what the thread rests on", err)
+	later := []Reference{{What: "run", ID: "run-1"}}
+	followed, err := conductor.Put(context.Background(),
+		Ask{Exchange: opened.ID, Question: "and now?", Refers: later},
+		Party{Role: domain.RoleProductManager, Conversation: "chat-1"})
+	if err != nil {
+		t.Fatalf("Put() follow-up = %v", err)
+	}
+	if len(followed.Refers) != 1 || followed.Refers[0].ID != "autonomy" {
+		t.Errorf("Refers = %#v, want what the thread opened against unchanged by a follow-up", followed.Refers)
+	}
+	if round := followed.Rounds[1]; len(round.Refers) != 1 || round.Refers[0].ID != "run-1" || len(round.Evidence) != 1 {
+		t.Errorf("round 2 = refers %#v, evidence %#v; want the follow-up's own record named and accounted for", round.Refers, round.Evidence)
+	}
+	if round := followed.Rounds[0]; len(round.Evidence) != 1 || round.Evidence[0].ID != "autonomy" {
+		t.Errorf("round 1 evidence = %#v, want only what the opening named", round.Evidence)
 	}
 }
 

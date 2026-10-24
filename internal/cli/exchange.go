@@ -501,6 +501,13 @@ func renderQuestion(question exchange.Question) string {
 	if context := strings.TrimSpace(question.Context); context != "" {
 		fmt.Fprintf(&rendered, "\nTheir framing, which is what they think rather than evidence: %s\n", context)
 	}
+	// The records this round names, as the harness read them for it. They are
+	// rendered by the exchange package, which renders the asker's copy too, so
+	// both parties read the same attachments whichever provider answers; records
+	// named only in earlier rounds are not carried again.
+	if attached := exchange.RenderEvidence(question.Evidence); attached != "" {
+		rendered.WriteString("\n" + attached)
+	}
 	rendered.WriteString("\nAnswer it in prose. Nothing else you write will be carried out.\n")
 	return rendered.String()
 }
@@ -539,7 +546,10 @@ func conversationExchanges(parts components, authority chat.Authority, provider 
 			stateRoot:    parts.stateRoot,
 			redactValues: parts.redactValues,
 		},
-		Reports:      parts.reports,
+		Reports: parts.reports,
+		// The records a round names, read from this product's own stores when the
+		// round is delivered and attached for both parties.
+		Evidence:     exchangeEvidence(parts),
 		MaxRounds:    parts.config.Exchange.MaxRounds,
 		ProductID:    parts.config.Product.ID,
 		RepositoryID: string(parts.config.Product.RepositoryID),
