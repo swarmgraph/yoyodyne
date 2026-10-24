@@ -127,7 +127,8 @@ execution:
     # how the chat and dashboard behave for the operator, product features,
     # and delivery metrics, which P0 fixes would otherwise crowd out.
     - prefer: [usability, product, performance]
-    # slot 3 is not named, so it prefers nothing
+    # Slot 3 prefers nothing. It is the sub-agent trial slot for yoyodyne-wj4l, decided by the development manager on October 22.
+    - subagents: {enabled: true}
   repair_attempts_before_replan: 2
   # A promotion that loses a race -- to another run, or to whoever moved the
   # target branch while this one was working -- is replayed onto where the
