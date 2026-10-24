@@ -77,6 +77,10 @@ type Question struct {
 	MaxRounds int
 	Question  string
 	Context   string
+	// Evidence is the records this round named, as the harness read them for
+	// it. The answering side is shown them through RenderEvidence, which is also
+	// what the asker is shown, so both read the same thing on any provider.
+	Evidence []Attachment
 	// Earlier is what has already been said in this exchange, oldest first. It is
 	// supplied on every round; a voice that continues a provider session may
 	// ignore it, and one that cannot has everything it needs to render the thread.
@@ -167,6 +171,10 @@ type Conductor struct {
 	Leases  Leases
 	Voice   Voice
 	Reports Reports
+	// Evidence reads the records a round names, from the harness's own stores,
+	// when the round is delivered. A conductor wired without one still takes the
+	// round, and every record named is attached as one nothing here could read.
+	Evidence Evidence
 	// MaxRounds is the cap a newly opened exchange is given. An exchange already
 	// in flight is held to what it recorded when it opened rather than to this,
 	// so changing the configuration cannot lengthen a thread that is already
@@ -270,11 +278,23 @@ func (c Conductor) Put(ctx context.Context, ask Ask, asker Party) (Exchange, err
 	// direction every durable budget here fails in: a process that dies between
 	// the two has spent a round it did not take, rather than taken one it did not
 	// count. A cap that a crash could reset is not a cap.
+	//
+	// The records the round names are read first, so the round written down
+	// carries exactly what both parties are about to be shown. Reading them
+	// changes nothing, fails nothing, and never stops the round: a record that
+	// could not be supplied is attached as saying so.
+	evidence := c.Evidence.Resolve(ctx, ask.Refers, EvidenceScope{
+		ProductID: recorded.ProductID,
+		Asker:     recorded.Asker,
+		Answerer:  recorded.Answerer,
+	})
 	asked := c.now()
 	recorded.Rounds = append(recorded.Rounds, Round{
 		Number:   recorded.Spent() + 1,
 		Question: strings.TrimSpace(ask.Question),
 		Context:  strings.TrimSpace(ask.Context),
+		Refers:   ask.Refers,
+		Evidence: evidence,
 		// The process taking the round is named on it before the provider is
 		// reached, for the same reason the round itself is written first: what a
 		// later pass needs to know about a round nobody answered is who was
@@ -285,6 +305,13 @@ func (c Conductor) Put(ctx context.Context, ask Ask, asker Party) (Exchange, err
 	recorded.UpdatedAt = asked
 	if err := c.save(recorded); err != nil {
 		return Exchange{}, err
+	}
+	// A store this exchange has now failed to read in two rounds is one somebody
+	// has to look at, and the development manager is who looks after a harness
+	// that cannot read its own records. Telling them is best-effort: the round
+	// goes either way, and its own attachments already say what was missing.
+	for _, store := range recorded.unreadableAgain(evidence) {
+		_ = c.reportUnreadable(recorded, store, asked)
 	}
 
 	round := &recorded.Rounds[len(recorded.Rounds)-1]
@@ -568,6 +595,36 @@ func (c Conductor) escalate(recorded Exchange, at time.Time) error {
 	return nil
 }
 
+// reportUnreadable files a warning to the development manager naming a store
+// this exchange could not read in two rounds.
+func (c Conductor) reportUnreadable(recorded Exchange, store string, at time.Time) error {
+	if c.Reports == nil {
+		return errors.New("no report collection is wired to this exchange")
+	}
+	message := fmt.Sprintf("%s could not be read in two rounds of %s, so the records named from it were not attached to the %s's question to the %s. Look at why that store cannot be read; the exchange went on without those records, and `yoyo exchange show %s` shows what each round was missing.",
+		orUnnamed(store), recorded.ID, recorded.Asker.Role.Title(), recorded.Answerer.Role.Title(), recorded.ID)
+	collected, err := report.Collect(
+		[]report.Entry{{Severity: report.SeverityWarning, Message: message, For: domain.RoleDevelopmentManager}},
+		report.Attribution{
+			Role:         recorded.Asker.Role,
+			Agent:        recorded.Asker.Agent,
+			RunID:        recorded.ID,
+			Build:        recorded.lastBuild(),
+			ProductID:    recorded.ProductID,
+			RepositoryID: recorded.RepositoryID,
+			References:   c.findReferences(),
+		}, at)
+	if err != nil {
+		return err
+	}
+	for _, reported := range collected {
+		if err := c.Reports.Append(reported); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // speak takes one round to the answering role and checks what came back. The
 // check is here rather than in the voice so that every provider is held to the
 // same boundary: an answer carrying a harness block is refused whole, and the
@@ -588,6 +645,7 @@ func (c Conductor) speak(ctx context.Context, recorded Exchange, round Round) (S
 		MaxRounds:           recorded.MaxRounds,
 		Question:            round.Question,
 		Context:             round.Context,
+		Evidence:            round.Evidence,
 		Earlier:             earlier,
 		SessionID:           recorded.AnswererSessionID,
 		SessionBackend:      sessionBackend,

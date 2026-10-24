@@ -166,6 +166,9 @@ func (e Exchange) RenderThread() string {
 		if context := strings.TrimSpace(round.Context); context != "" {
 			rendered.WriteString(indent("context: " + context))
 		}
+		for _, attachment := range round.Evidence {
+			rendered.WriteString(indent("record " + attachment.Line()))
+		}
 		switch {
 		case strings.TrimSpace(round.Answer) != "":
 			rendered.WriteString(indent(e.Answerer.Role.Title() + ": " + strings.TrimSpace(round.Answer)))
@@ -203,12 +206,21 @@ func (e Exchange) Delivery() string {
 	switch {
 	case strings.TrimSpace(last.Answer) != "":
 		rendered.WriteString(strings.TrimSpace(last.Answer) + "\n\n")
+		// The records the answer was given against follow it, exactly as the
+		// answering role was shown them, so the asker reads what the answer stood
+		// on rather than taking the answer's word for it.
+		if attached := RenderEvidence(last.Evidence); attached != "" {
+			rendered.WriteString(attached + "\n")
+		}
 	default:
 		problem := strings.TrimSpace(last.Problem)
 		if problem == "" {
 			problem = "nothing came back"
 		}
 		fmt.Fprintf(&rendered, "The question went unanswered: %s. The round is spent either way. Say so to the operator rather than describing an answer you did not get.\n\n", problem)
+		if attached := RenderEvidence(last.Evidence); attached != "" {
+			rendered.WriteString(attached + "\n")
+		}
 	}
 	switch remaining := e.RoundsRemaining(); {
 	case remaining > 0:
@@ -218,6 +230,25 @@ func (e Exchange) Delivery() string {
 		fmt.Fprintf(&rendered, "That was the last round %s is allowed. Close it with \"settled\", saying what you did and did not get; asking again closes it as unresolved and puts it to the operator.\n", e.ID)
 	}
 	return rendered.String()
+}
+
+// Line is one attachment on a line, for the operator's reading of a thread:
+// what was named, what became of it, and where and when it was read.
+func (a Attachment) Line() string {
+	line := fmt.Sprintf("%s %s: %s", a.Kind, a.ID, a.statusWords())
+	switch a.Status {
+	case EvidenceAttached:
+		line += ", from " + orUnnamed(a.Source)
+		if a.Revision != "" {
+			line += " at " + a.Revision
+		}
+		if a.Moved {
+			line += " (named at " + a.NamedRevision + ")"
+		}
+	default:
+		line += ": " + a.Why
+	}
+	return line + ", observed " + LocalTime(a.ObservedAt)
 }
 
 // indent puts provider text under the harness's own line and never at the
