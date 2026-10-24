@@ -357,4 +357,12 @@ func TestTheLedgerExcusesNothingInAProjectItDoesNotDescribe(t *testing.T) {
 	if !Describes([]string{"make fmtcheck", "make test", "make race", "make vet"}) {
 		t.Fatal("the ledger does not describe the project it was written for")
 	}
+	// A check named with what it passes is still that check, and a longer name
+	// that only begins with one is not.
+	if !Describes([]string{"make fmtcheck", `make test CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"`, `make race CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"`, "make vet"}) {
+		t.Fatal("the ledger does not describe the project once its checks pass the packages a change touches")
+	}
+	if Describes([]string{"make fmtcheck", "make testall", "make race", "make vet"}) {
+		t.Fatal("the ledger took make testall for make test")
+	}
 }

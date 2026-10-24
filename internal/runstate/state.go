@@ -1134,7 +1134,13 @@ type ChecksPassed struct {
 	// why: the gate let the change on without them, and this is where the
 	// evidence says which checks it is short of.
 	CouldNotRun []CheckCouldNotRun `json:"could_not_run,omitempty"`
-	At          time.Time          `json:"at"`
+	// Narrowed is what the checks were told the change touches where that was
+	// less than the whole module, in the words the stage recorded it in, and
+	// empty where they were told the whole module. Evidence from narrowed checks
+	// does not promote a change: the merge candidate is checked whole first, and
+	// that check's evidence replaces this.
+	Narrowed string    `json:"narrowed,omitempty"`
+	At       time.Time `json:"at"`
 }
 
 // Validate rejects evidence that cannot describe checks that actually ran.
@@ -2244,6 +2250,9 @@ func (s *State) recordedTexts() []recordedText {
 		for index := range s.ChecksPassed.CouldNotRun {
 			unstated("checks_passed.could_not_run[].reason", at("checks_passed.could_not_run", index, "reason"), &s.ChecksPassed.CouldNotRun[index].Reason, MaxRecordedTextBytes)
 		}
+		// The package list a gate was narrowed to grows with the change, so it is
+		// held to the bound the stage's own record of it is.
+		unstated("checks_passed.narrowed", "checks_passed.narrowed", &s.ChecksPassed.Narrowed, MaxRecordedTextBytes)
 	}
 	own("check_stage_continuation_refused", &s.CheckStageContinuationRefused, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))
 	own("check_stage_continuation_wait_noted", &s.CheckStageContinuationWaitNoted, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))

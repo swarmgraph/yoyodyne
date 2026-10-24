@@ -2534,6 +2534,9 @@ type activeRun struct {
 	// state.KeptChecks holds for the same candidate (keptchecks.go). It is
 	// spent by that stage, whichever way it goes.
 	keptChecksOwed bool
+	// checkingCandidate is set while verify runs over the approved merge
+	// candidate, whose checks are told the whole module (verifyCandidate).
+	checkingCandidate bool
 	// resumedAtPromotion is a run a repair put back at its promotion after it
 	// gave back its slot for losing races (resumedAfterLostRace): whatever the
 	// target branch did while it was stopped happened before this process tried
@@ -2738,7 +2741,9 @@ func (a *activeRun) verifyReviewAndFinish(ctx context.Context) (Outcome, error) 
 		if err := a.holdForDependency(ctx); err != nil {
 			return a.stop(ctx, err)
 		}
-		if err := a.verify(ctx); err != nil {
+		// The change waits for a person to promote it, so its checks are the merge
+		// candidate's and run whole: there is no later stage to check it whole in.
+		if err := a.verifyCandidate(ctx); err != nil {
 			// The three ways this gate stops a run under a person's approval are one
 			// error out of one call, and the definition that expresses this path
 			// sends all three to the same ending. Nothing on this path is ever handed
@@ -3473,7 +3478,11 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 		}
 		if decision == review.DecisionApprove {
 			a.observeReviewEnded(ctx, decision, nil, stillRepairable)
-			return nil
+			handedBack, err := a.checkCandidateWhole(ctx, limit)
+			if err != nil || !handedBack {
+				return err
+			}
+			continue
 		}
 		// An escalation ends the loop where it was raised. There is nothing to hand
 		// back — the reviewer's whole verdict is that no change to this change would
@@ -3500,6 +3509,58 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 			return err
 		}
 	}
+}
+
+// checkCandidateWhole runs the checks once more over an approved change whose
+// checks were narrowed to the packages it touches, this time told the whole
+// module, and reports whether a failure was handed back to the developer.
+//
+// A narrowed check sees the packages a change touches and none of the ones that
+// depend on them, so it is a quick answer for the attempts before an approval
+// and never the verdict a change is promoted on: the change about to be
+// promoted is the merge candidate, and it is checked whole here, on this
+// machine, before it is promoted or handed to the forge. A gate that was
+// already told the whole module — a change to the module files, a repository
+// that is no Go module, a confirmed document — has nothing to add and runs
+// nothing here. The approval stands, because the change it approved is the one
+// checked: the promotion still refuses evidence for any other content.
+//
+// A failure here is the change's, found in a package it did not touch, and is
+// repair input exactly as a failing check before review is. The approval is
+// cleared with it, so the repaired change is checked and reviewed again. The
+// definition was standing at the promotion, so the promotion is observed as
+// superseded — back to the check, as a replay's is — and the check as having
+// ended the way it did here.
+func (a *activeRun) checkCandidateWhole(ctx context.Context, limit int) (bool, error) {
+	if a.state.ChecksPassed == nil || a.state.ChecksPassed.Narrowed == "" {
+		return false, nil
+	}
+	err := a.verifyCandidate(ctx)
+	if err == nil {
+		return false, nil
+	}
+	if !parksTheRun(err) {
+		a.observe(ctx, deliveryIntegrate, "superseded")
+	}
+	var failing checkFailure
+	if !errors.As(err, &failing) {
+		a.observeCheckEnded(ctx, err, stillRepairable)
+		return false, err
+	}
+	a.recordCheckFailure(failing.result)
+	if a.state.RepairAttempts >= limit {
+		a.observeCheckEnded(ctx, err, budgetSpent)
+		return false, a.blockOnFailingCheck(limit)
+	}
+	if spent, chargeErr := a.chargeReplayStop(); chargeErr != nil || spent {
+		a.observeCheckEnded(ctx, err, budgetSpent)
+		return false, a.replayStopEnds(chargeErr, err.Error())
+	}
+	a.observeCheckEnded(ctx, err, stillRepairable)
+	if err := a.repair(ctx, checkRepairPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, *a.state.CheckFailure, a.state.RepairAttempts+1, limit)); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // replayStopEnds is how a repair loop ends on a replay charged past the
@@ -6180,11 +6241,6 @@ func (p Pipeline) sleep(ctx context.Context, duration time.Duration) error {
 	}
 }
 
-// verify puts the change through the two deterministic gates in front of the
-// reviewer: what it was allowed to touch, and then the configured checks over
-// what it did. Every attempt runs both again: no attempt inherits an earlier
-// attempt's verification, and review and integration are only reachable through
-// a change that passed both on the change being judged.
 // stageVerdictClear reports a check stage none of whose checks failed or was
 // stopped: each passed, or said it could not run.
 func stageVerdictClear(results []checks.Result) bool {
@@ -6196,8 +6252,34 @@ func stageVerdictClear(results []checks.Result) bool {
 	return true
 }
 
+// candidateCheckedWhole is why the checks over a merge candidate are told the
+// whole module, as the stage's record and the item's notes say it.
+const candidateCheckedWhole = "the merge candidate is checked whole before it is promoted"
+
+// verifyCandidate is verify over the merge candidate, with every check told the
+// whole module: the same gates and the same checks, on the change exactly as it
+// would be promoted. It is what the checks before review were narrowed against
+// — a narrowed check sees only the packages a change touches, never the ones
+// that depend on them — so nothing is promoted on narrowed checks alone
+// (checkCandidateWhole).
+func (a *activeRun) verifyCandidate(ctx context.Context) error {
+	a.checkingCandidate = true
+	defer func() { a.checkingCandidate = false }()
+	return a.verify(ctx)
+}
+
+// verify puts the change through the two deterministic gates in front of the
+// reviewer: what it was allowed to touch, and then the configured checks over
+// what it did. Every attempt runs both again: no attempt inherits an earlier
+// attempt's verification, and review and integration are only reachable through
+// a change that passed both on the change being judged. The checks are told the
+// Go packages the change touches, so a check written to narrow itself runs over
+// those alone, except over the merge candidate (verifyCandidate),
+// where they are told the whole module.
 func (a *activeRun) verify(ctx context.Context) error {
 	p := a.pipeline
+	whole := a.checkingCandidate
+	before := a.state.ChecksPassed
 	a.state.Phase = runstate.PhaseChecking
 	// Scope is settled before the suite runs, because it costs a listing of names
 	// against a handful of prefixes and the suite costs whatever the project's
@@ -6241,13 +6323,36 @@ func (a *activeRun) verify(ctx context.Context) error {
 	//
 	// A confirmed document's landing runs the project's document checks in place
 	// of all of that where it declares any (documentChecks).
+	//
+	// The merge candidate's checks are told the whole module instead, and their
+	// record keeps what the checks before review were narrowed to beside it.
 	narrowing := checks.NarrowGoPackages(a.worktree.Path, changed)
+	if whole && !narrowing.Whole {
+		narrowing = checks.Narrowing{Whole: true, Reason: candidateCheckedWhole}
+	}
 	added := pathChecksFor(a.worktree.Path, p.Config.PathChecks, changed)
-	narrowed := narrowing.Describe() + describePathChecks(p.Config.PathChecks, added)
+	narrowed := narrowing.Describe()
+	if whole && before != nil && before.Narrowed != "" {
+		narrowed += "; before review: " + before.Narrowed
+	}
+	narrowed += describePathChecks(p.Config.PathChecks, added)
+	// What the evidence records as narrowed: empty where every check was told the
+	// whole module, which the promotion reads as checks a candidate may land on.
+	evidenceNarrowed := ""
+	if !narrowing.Whole {
+		evidenceNarrowed = narrowing.Describe()
+	}
 	stageCommands, providerCLIs := withPathChecks(p.Config.Checks, added)
 	if commands, declared := a.documentChecks(); declared {
 		stageCommands, providerCLIs = commands, nil
 		narrowed = "the document checks, in place of the configured checks, because the change is a confirmed document"
+		evidenceNarrowed = ""
+	}
+	priority := heavyCheckPriority(a.state)
+	if whole {
+		// A merge candidate's checks are a promotion's, so its heavy checks are
+		// let start ahead of every run's gate (heavychecks.go).
+		priority = domain.HeavyCheckForLanding
 	}
 	// A run picked up after a restart onto a new build stopped it at its checks
 	// runs only the checks that had not already passed over this same candidate,
@@ -6325,7 +6430,7 @@ func (a *activeRun) verify(ctx context.Context) error {
 			Permit: checks.PermitRequest{
 				WorkItemID: a.state.WorkItemID,
 				Commit:     a.state.BaseCommit,
-				Priority:   heavyCheckPriority(a.state),
+				Priority:   priority,
 				Waiting: func(check string, since time.Time) {
 					if stage.PermitWait == nil {
 						stage.PermitWait = &runstate.HeavyCheckWait{}
@@ -6444,6 +6549,7 @@ func (a *activeRun) verify(ctx context.Context) error {
 		Commit:      a.state.HarnessCommit,
 		Commands:    commands,
 		CouldNotRun: stage.CouldNotRun,
+		Narrowed:    evidenceNarrowed,
 		At:          p.clock().Now().UTC(),
 	}
 	if a.state.Document != nil {
@@ -6510,6 +6616,9 @@ func (a *activeRun) integrationEarned(ctx context.Context) error {
 	case state.ChecksPassed.Commit != state.HarnessCommit:
 		return fmt.Errorf("%w: the checks passed at commit %q and the change being promoted is at %q",
 			ErrIntegrationUnearned, state.ChecksPassed.Commit, state.HarnessCommit)
+	case state.ChecksPassed.Narrowed != "":
+		return fmt.Errorf("%w: the checks passed narrowed to %s, and the merge candidate has not been checked whole",
+			ErrIntegrationUnearned, state.ChecksPassed.Narrowed)
 	case state.ReviewDecision != runstate.ReviewApprove:
 		return fmt.Errorf("%w: the recorded review decision is %q rather than an approval",
 			ErrIntegrationUnearned, state.ReviewDecision)
