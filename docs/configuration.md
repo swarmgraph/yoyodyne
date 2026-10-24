@@ -7919,7 +7919,10 @@ nobody, since no act can arrive carrying an identifier that reaches them.
   (`<state root>/projects/<product id>/state/dashboard.<name>.token`). It names
   a store and never holds the token. A dashboard tab signed in with that token
   is this person, which is what lets [the page take their own approve and
-  decline](operations.md#deciding-from-the-page); the dashboard's shared token resolves to nobody. For now only the
+  decline](operations.md#deciding-from-the-page); the dashboard's shared token resolves to nobody. A running
+  dashboard reads the operators and their tokens again every ten seconds, so a
+  person bound, or a token stored, changed, or removed, is applied without
+  restarting it. For now only the
   operator — the one human holding `own-intent` — may bind one; a
   `dashboard_token` on anybody else's entry is refused when the configuration
   loads.
@@ -8244,23 +8247,32 @@ web-security conventions made configuration:
   another device. It must be between 1 and 65535; `8765` is the default, the
   same port the operations guide has used as its example of one worth
   bookmarking.
-- **`bind`** is the address it binds, as an IP literal. `127.0.0.1` is the
-  default — the IPv4 loopback address by number rather than as `localhost`,
-  which on some machines resolves to the IPv6 loopback first — and a project
-  that says nothing gets exactly the loopback-only behaviour the standalone
-  command had. Writing an interface address instead is the opt-in that lets
-  another device on your network open the page. A specific interface address is
-  preferred over a wildcard, which reaches every interface the machine has, and
-  neither is refused.
+- **`bind`** is the address the product's dashboard listens on, as an IP
+  literal, and it must be a loopback address: the dashboard listens only on
+  this machine. `127.0.0.1` is the default — the IPv4 loopback address by
+  number rather than as `localhost`, which on some machines resolves to the
+  IPv6 loopback first — and `::1` is the other address most machines have. An
+  address that is not loopback, an interface address or a wildcard, loads,
+  and the dashboard refuses it: the supervisor starts no dashboard on it and
+  says why on `yoyo status` and `yoyo doctor`. A change to it is applied by the
+  supervisor replacing the dashboard, as a change to `port` is. A dashboard
+  started by hand binds `127.0.0.1` whatever this says.
 - **`allowed_hosts`** are the names, beyond the bound address itself, a request
-  may carry as its Host and Origin. Empty is the bound address alone — with
-  `localhost` beside it under the loopback default, which the standalone
-  command already accepted. Each entry is a host name or an IP address written
-  without a scheme, a port, or a path, because a request's Host header is
-  compared against it exactly and an entry with a port in it would match
-  nothing a browser sends. The list is replaced wholesale rather than merged,
-  as `checks` is.
+  to the product's dashboard may carry as its Host and Origin — a name in
+  `/etc/hosts` that points at the loopback address, say. Empty is the bound
+  address alone, with `localhost` beside it. Each entry is a host name or an IP
+  address written without a scheme, a port, or a path, because a request's
+  Host header is compared against it with the dashboard's port added, and an
+  entry with a port in it would match nothing a browser sends. The list is
+  replaced wholesale rather than merged, as `checks` is. The running dashboard
+  reads it again every ten seconds, so a name added or taken out is answered or
+  refused with no restart. A dashboard started by hand answers to `127.0.0.1`
+  and `localhost` alone.
 - **`token`** is where the bearer token every request has to carry comes from.
+  A change to which source it names is applied by the supervisor replacing the
+  dashboard; a change to the token inside the store is read by the running
+  dashboard every ten seconds, and a token taken out of its store is refused
+  until it is stored again.
   It is a reference and never the token: this file is committed, and a secret
   in it would be a secret in the repository. `generated` is the default and the
   loopback arrangement — a token made at each start and printed once where you
@@ -8273,13 +8285,12 @@ web-security conventions made configuration:
   not hold it refuses to start with the command that stores it.
 
 **A bind outside loopback with a generated token is refused when the file
-loads**, with the reason. The opt-in exists so a browser on another device can
-reach the page, and a token printed to this terminal is exactly what that
-device cannot read, so a non-loopback bind has to name where its token is
-stored before it is accepted at all. What the opt-in keeps is every other rule:
-the token is still required on every request, Host and Origin are still checked
-against the configured address and hosts, and a wider bind widens who can read
-observability data and never who can act. The shared token acts on nothing at
+loads**, with the reason, because a token printed to this terminal is exactly
+what another device cannot read. With a stored token such a bind loads, and the
+dashboard refuses to listen on it, since it listens only on this machine.
+Every other rule holds at every address: the token is required on every
+request, Host and Origin are checked against the bound address and the allowed
+hosts, and the shared token reads and never acts. The shared token acts on nothing at
 any address: the only acts the page takes are [the operator's own approve,
 decline, and ask](operations.md#deciding-from-the-page), and each still needs
 a person's own bound token and the grant the decision needs, wherever the page
@@ -8312,9 +8323,10 @@ section and starts every enabled part: the Slack sink as `yoyo slack ensure`
 starts it, the dashboard as `yoyo dashboard` on this entry's `port`, and the
 scheduler as `yoyo work --watch` under its own watch lease
 ([the dashboard under the product](operations.md#the-dashboard-under-the-product)
-says how the dashboard is confirmed and where its token is). The dashboard,
-supervised or started by hand, still binds loopback rather than reading this
-entry's `bind` or `allowed_hosts`; `token` it reads whether or not the entry is
+says how the dashboard is confirmed, where its token is, and which of these
+settings it applies while it runs). The product's dashboard listens on this
+entry's `bind` and answers to its `allowed_hosts`; one started by hand binds
+`127.0.0.1` and reads neither. `token` it reads whether or not the entry is
 enabled, so that
 [a stored token outlives a restart](operations.md#watching-from-a-browser-the-dashboard).
 Declaring the whole section now is what lets that command and the resident that

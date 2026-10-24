@@ -155,6 +155,10 @@ type SupervisedChild struct {
 	SettingsRestarts    int       `json:"settings_restarts,omitempty"`
 	SettingsRestartedAt time.Time `json:"settings_restarted_at,omitempty"`
 	SettingsApplied     string    `json:"settings_applied,omitempty"`
+	// SettingsRefused marks a changed setting the child cannot be started on,
+	// such as a dashboard address that is not loopback: it is left serving on
+	// what it started with, and Settings says why.
+	SettingsRefused bool `json:"settings_refused,omitempty"`
 	// URL is where a child that serves is served, Health how its own health
 	// answer stood at the supervisor's last look, and TokenFile the file a
 	// person reads its token from. They are the dashboard's, and the token's

@@ -6276,8 +6276,12 @@ With the entry enabled, [`yoyo start`](#starting-the-product-and-stopping-it)
 starts the dashboard with the rest of the product, on the entry's port, and
 `yoyo stop` stops it; [the dashboard under the
 product](#the-dashboard-under-the-product) is how. Started by hand, as below, it
-still binds loopback and serves on `--port`; the one thing it reads from the
-entry is `token`, and it reads that whether or not the entry is enabled.
+still binds 127.0.0.1 and serves on `--port`, and answers to that address and
+`localhost` alone; the one thing it reads from the entry is `token`, and it
+reads that whether or not the entry is enabled. Whichever way it was started,
+who it accepts — each person's own token, and a stored shared token — is read
+again every ten seconds while it runs ([who the dashboard accepts is applied
+while it runs](#the-dashboard-under-the-product)).
 
 With `services.dashboard.token` at its `generated` default, started by hand, it
 prints the token to your terminal when it starts:
@@ -6289,13 +6293,14 @@ the page asks for the token and keeps it in the tab's session storage; a tool se
 a restarted dashboard prints a new one; stop with ctrl-c
 it is also in …/projects/yoyodyne/state/dashboard/token while this dashboard runs, and `yoyo dashboard token` prints it
 mason approves, declines, and asks from the page with their own token, read from the keychain item yoyo-dashboard.yoyodyne.mason under the account yoyo and not printed
+who it accepts is read again every 10s, so a person bound or a token stored, changed, or removed is applied without a restart
 ```
 
 It also writes the token to the token file described below, except while the
 product's own dashboard is running, whose token the file then keeps; it says
 so in place of the last line.
 
-The last line is one per person who [binds a token of their
+The line before the last is one per person who [binds a token of their
 own](#deciding-from-the-page); with nobody bound it says the page reads only
 and refuses every approve, decline, and ask.
 
@@ -6538,13 +6543,55 @@ its port, is stopped first where the new one's log says the port is held, and
 the new one is started again once; that is the one move with a moment of no
 dashboard, and it happens once, as the product takes the dashboard over.
 
-**A changed port or token source is applied by the supervisor, with no new
-build.** The dashboard reads `services.dashboard.port` and
+**It listens only on this machine.** The dashboard the supervisor starts
+listens on `services.dashboard.bind` where that is a loopback address —
+`127.0.0.1` unless the entry names another — and answers to that address,
+`localhost` beside it, and the names `services.dashboard.allowed_hosts` adds.
+An address that is not loopback is refused: the supervisor starts no dashboard
+on it, and leaves the part down as degraded at once with the reason, `services.dashboard.bind "…" is not a loopback
+address, and the dashboard listens only on this machine`, on `yoyo status`'s
+fourth line rather than starting it into the same refusal five times.
+
+**Who the dashboard accepts is applied while it runs, every ten seconds, with
+no restart.** Every ten seconds a running dashboard — the product's or one
+started by hand — reads the configuration and the token stores again and
+replaces whole who it accepts:
+
+- **the people bound under `operators`** — an entry with a `dashboard_token`
+  added, taken out, or given other grants;
+- **each one's own token** — the file `dashboard.<name>.token` under the
+  product's state directory, or the keychain item
+  `yoyo-dashboard.<product id>.<name>`, appearing, changing, or removed;
+- **its own shared token**, where `services.dashboard.token` is `keychain` or
+  `file`, changing or removed in that store;
+- **`services.dashboard.allowed_hosts`**, for the product's dashboard.
+
+So an operator bound in the configuration, and whose token is stored, is
+accepted within ten seconds of the later of the two, and an old token — one
+changed, removed, or no longer bound — is refused within ten seconds of the
+change. A token that cannot be read is not accepted until it can be: a person
+whose token is missing is left unbound, and a shared token taken out of its
+store is refused until it is stored again, with a person's own token still
+reading and acting. None of this restarts the dashboard, so a generated shared
+token a tab holds goes on working throughout. A configuration that does not
+load leaves who it accepts as it was. Each change is said in the dashboard's
+log, and what it could not apply — the person, and why, with the command that
+stores a missing token — is recorded on its own record (`access_problems`),
+said on its line under **Services** on `yoyo status` beside its health, and
+given by `yoyo doctor` as a `dashboard-access` warning, until a later re-read
+applies it. Until yoyodyne-ifd.434.33 all of this was read once, as the
+dashboard started, and an operator bound after that was refused until somebody
+restarted it by hand.
+
+**A changed port, address, or token source is applied by the supervisor, with
+no new build.** These are what a dashboard holds from its start, because a
+new one is a new listener or a new shared token. The dashboard reads
+`services.dashboard.port`, `services.dashboard.bind`, and
 `services.dashboard.token` once, as it starts, and records the values it
 started on beside the configuration keys it reads (under
 `projects/<product>/state/config-readers/`). Every thirty seconds, on the same
 look at builds, the supervisor reads the configuration again and compares it
-with what the dashboard it runs started on. Where either has changed, it
+with what the dashboard it runs started on. Where one has changed, it
 replaces the dashboard exactly as a deploy does — a new one started on the
 configuration as it stands now and confirmed ready, and only then the old one
 stopped — so a port change moves the dashboard to the new port within thirty
@@ -6553,7 +6600,12 @@ to the rules a deploy is held to: one part at a time, not while the provider
 cannot be reached or is not logged in, and never the scheduler, since stopping
 it cancels the runs it hosts. A replacement that cannot be made ready on the
 new value — a port another process holds — leaves the old dashboard serving
-and is tried again at the next look. Each such restart is recorded on the
+and is tried again at the next look. A change to an address that is not
+loopback cannot be applied at all, so no replacement is started for it: the
+dashboard goes on serving where it is, the supervisor's record marks the
+change as one it cannot apply (`settings_refused`), and `yoyo status` and
+`yoyo doctor` say which setting and why until the configuration names a
+loopback address again. Each such restart is recorded on the
 dashboard's record apart from its deaths and its deploys, as
 `settings_restarts`, `settings_restarted_at`, and `settings_applied`, the
 last naming the setting, its new value, and the one it started with, and the
@@ -6567,8 +6619,10 @@ the part started on, and what becomes of it — that the supervisor restarts it
 at its next look, what it is waiting on (`settings` in `--json`), that no
 supervisor is running and `yoyo start` is what applies it, or that it is a
 dashboard somebody started by hand, which the supervisor leaves running, with
-the process to stop. A dashboard started by hand serves on the port it was
-given, so only its token source is compared. The Slack sink and the scheduler
+the process to stop — or that the change cannot be applied and why, which
+`yoyo doctor` gives as a warning naming the configuration to edit. A dashboard
+started by hand serves on the port it was given and binds loopback, so only
+its token source is compared. The Slack sink and the scheduler
 record no such settings yet, so a change to a setting either of them holds
 from its start is not compared with anything.
 
@@ -7059,7 +7113,10 @@ yoyo-dashboard.<product id>.<name> -a yoyo -w` for the keychain, or `mkdir -p
 <state root>/projects/<product id>/state/dashboard.<name>.token)` for the
 file. `yoyo dashboard` reads each person's token as it starts and says, in a
 line per person, which were bound and which could not be read, with the
-command that stores the missing one; a token shorter than sixty-four
+command that stores the missing one, and reads them all again every ten
+seconds while it runs, so a token stored after it started is accepted and one
+changed or removed is refused without a restart ([who the dashboard accepts is
+applied while it runs](#the-dashboard-under-the-product)); a token shorter than sixty-four
 characters, the shared token itself, or a token two people bound binds nobody.
 For now only the operator binds a token: a `dashboard_token` on the entry of
 anybody who does not hold `own-intent`, which one human at most may hold, is

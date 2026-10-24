@@ -158,9 +158,9 @@ const (
 // hosts are the observability-and-dashboard design's web-security conventions
 // made configuration: the defaults are loopback and the loopback Host, and a
 // project that says nothing gets exactly the behaviour the standalone command
-// had. An explicit non-loopback bind is an operator opt-in that keeps every
-// other rule — the token on every request, Host and Origin checked against the
-// configured set, no write path at any address — exactly as it was.
+// had. A bind outside loopback loads where its token is stored, and the
+// dashboard refuses to listen on it (dashboard.LoopbackBind): it listens only
+// on this machine.
 type DashboardService struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
 	// Port is the TCP port the dashboard serves on. It is a fixed number rather
@@ -170,10 +170,8 @@ type DashboardService struct {
 	Port int `yaml:"port" json:"port"`
 	// Bind is the address the listener binds, as an IP literal. The default is
 	// the IPv4 loopback address by name rather than "localhost", which on some
-	// machines resolves to the IPv6 loopback first. Binding an interface address
-	// is the opt-in that lets another device on the operator's network reach the
-	// page; a specific interface address is preferred over a wildcard, which
-	// reaches every interface the machine has.
+	// machines resolves to the IPv6 loopback first. An address that is not
+	// loopback is refused when the dashboard starts.
 	Bind string `yaml:"bind" json:"bind"`
 	// AllowedHosts are the hosts, beyond the bound address itself, a request may
 	// name in its Host header and Origin. Empty means the bound address alone —
@@ -304,22 +302,29 @@ func (s Services) EnabledServices() []ServiceName {
 // The settings a part reads once, as it starts, and holds for as long as it
 // runs, by their key in the configuration. A change to one reaches the part only
 // when it is started again, which is what the supervisor does when it finds one
-// changed (internal/supervise/settings.go).
+// changed (internal/supervise/settings.go). What a running dashboard re-reads
+// for itself — who it accepts: the people bound under operators, their tokens,
+// its own stored token, and services.dashboard.allowed_hosts — is not among
+// them, because a change to any of those is applied without a restart.
 const (
 	SettingDashboardPort  = "services.dashboard.port"
+	SettingDashboardBind  = "services.dashboard.bind"
 	SettingDashboardToken = "services.dashboard.token"
 )
 
 // StartSettings is each setting the named part records as held from its start,
 // with its value here as the part would read it. The dashboard binds its port
-// and reads where its token comes from once, and records both. The sink and the
-// scheduler record none yet, so a change to a setting either holds from its
-// start is not compared with anything.
+// and address and reads where its token comes from once, and records all three;
+// one started by hand records only its token source, because it serves on the
+// port it was given and binds loopback. The sink and the scheduler record none
+// yet, so a change to a setting either holds from its start is not compared
+// with anything.
 func (s Services) StartSettings(name ServiceName) map[string]string {
 	switch name {
 	case ServiceDashboard:
 		return map[string]string{
 			SettingDashboardPort:  strconv.Itoa(s.Dashboard.Port),
+			SettingDashboardBind:  strings.TrimSpace(s.Dashboard.Bind),
 			SettingDashboardToken: string(s.Dashboard.Token),
 		}
 	}

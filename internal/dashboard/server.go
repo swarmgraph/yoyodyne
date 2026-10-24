@@ -5,7 +5,9 @@
 // design establishes the conventions it holds to here, so that the next web
 // surface starts from them rather than rediscovering each one:
 //
-//   - It binds loopback only, and loopback alone is not trusted: every request
+//   - It binds loopback only — the configured services.dashboard.bind where
+//     that is a loopback address, and a refusal where it is not — and loopback
+//     alone is not trusted: every request
 //     for the read model carries a bearer token — one the process generated at
 //     start and printed once, or one read from the store the configuration
 //     names and never printed — in the Authorization header and never in a URL, where
@@ -16,7 +18,8 @@
 //     this machine. The page keeps it in the browser's session storage, which
 //     is scoped to this origin, port included.
 //   - The Host and Origin headers are validated against the address it bound,
-//     and anything else is refused. A page on some other origin that scripts a
+//     and the names services.dashboard.allowed_hosts adds for a dashboard the
+//     supervisor starts, and anything else is refused. A page on some other origin that scripts a
 //     request at this port is refused on the Origin; a DNS name a browser is
 //     pointed at that resolves here is refused on the Host.
 //   - Every response carries a content-security policy that allows nothing but
@@ -46,6 +49,13 @@
 // tracker holds, open and closed, at /api/backlog, which is what the backlog
 // page charts. The page never reads the tracker; the card and the backlog are
 // the read model's projections of it, served here like the rest.
+//
+// Who it accepts can change while it runs: the people bound to their own
+// tokens, the stored shared token, and the allowed hosts are replaced whole by
+// the process that started it, which re-reads them (internal/cli, the
+// dashboard's access), and every request is checked against the set as it
+// stands when the request arrives. The address and port it listens on are
+// fixed for its life; a new one is a new dashboard.
 //
 // It is a projection, never an engine: it owns no workflow, conversation,
 // provider, or configuration state. The one thing it takes besides reads is
@@ -78,6 +88,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 )
 
@@ -96,6 +107,14 @@ var backlogShell = template.Must(template.ParseFS(assets, "assets/backlog.html")
 // guess on a loopback port could ever cover, and it renders as sixty-four hex
 // characters, which is short enough to paste.
 const tokenBytes = 32
+
+// AccessEvery is how often a running dashboard re-reads who it accepts: the
+// people bound to their own tokens, its own stored token, and the allowed
+// hosts. Each re-read is a configuration load and one store read per bound
+// person, which is cheap; ten seconds is the page's own polling interval, so a
+// person whose token was just stored is accepted by the time the page asks
+// again.
+const AccessEvery = 10 * time.Second
 
 // shutdownGrace bounds how long a stop waits for requests in flight. A reading
 // is bounded by the tracker timeout, so anything still open past this is stuck
@@ -160,7 +179,12 @@ type Server struct {
 	// text and is escaped like everything else.
 	Product string
 	reader  Reader
-	token   string
+
+	// access guards who the server accepts, which the process that started it
+	// replaces while it runs: the shared token, every person's own token, and
+	// the allowed hosts. An empty token accepts nothing.
+	access sync.RWMutex
+	token  string
 
 	listener net.Listener
 	// standing, throughput, spend, and delivery are the readings the pages
@@ -170,10 +194,15 @@ type Server struct {
 	throughput *snapshot
 	spend      *snapshot
 	delivery   *snapshot
-	// hosts is every Host header that names the bound address, and origins every
-	// Origin header that does. Both are fixed at Listen and read on every request.
-	hosts   map[string]bool
-	origins map[string]bool
+	// hosts is every Host header that names the bound address or an allowed
+	// host, and origins every Origin header that does, lower-cased. The bound
+	// address is fixed at Listen; the allowed hosts (allowed) are replaced by
+	// AllowHosts, and both maps with them, under access.
+	boundHost string
+	boundPort int
+	allowed   []string
+	hosts     map[string]bool
+	origins   map[string]bool
 
 	// The supervisor's readiness, which a dashboard it starts holds to
 	// (readiness.go). A dashboard started by hand is ready from the start.
@@ -186,8 +215,9 @@ type Server struct {
 	readyOnce     sync.Once
 	readyListener net.Listener
 	readyHosts    map[string]bool
-	// people is every person's own token and who it resolves to, and actor
-	// what carries out their acts; see acts.go. Both are fixed before Serve.
+	// people is every person's own token and who it resolves to, replaced under
+	// access, and actor what carries out their acts, fixed before Serve; see
+	// acts.go.
 	people []personToken
 	actor  Actor
 }
@@ -236,17 +266,52 @@ func withSnapshots(s *Server) *Server {
 // Token is the credential every request for the read model has to present. It
 // is for the process that started the server to print once where the token was
 // generated, and never where it was supplied; nothing here writes it anywhere.
-func (s *Server) Token() string { return s.token }
+func (s *Server) Token() string {
+	s.access.RLock()
+	defer s.access.RUnlock()
+	return s.token
+}
+
+// SetToken replaces the shared token, for a token read from a store that has
+// since changed. An empty token is one that could not be read, and the server
+// then accepts no shared token at all until it is set again: a token taken
+// out of its store is refused rather than left working.
+func (s *Server) SetToken(token string) {
+	s.access.Lock()
+	defer s.access.Unlock()
+	s.token = strings.TrimSpace(token)
+}
+
+// LoopbackBind refuses a bind address that is not on this machine's loopback
+// interface, in the words the dashboard, the supervisor, and the status
+// surfaces all say it in. The dashboard listens only on this machine: it is
+// local and unhosted, and it takes the operator's own decisions.
+func LoopbackBind(bind string) error {
+	ip := net.ParseIP(strings.TrimSpace(bind))
+	if ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("services.dashboard.bind %q is not a loopback address, and the dashboard listens only on this machine; set it to %s, or another loopback address", bind, config.DefaultDashboardBind)
+	}
+	return nil
+}
 
 // Listen binds loopback on the port asked for, or on one the operating system
 // chooses when the port is zero, and returns the URL a browser is pointed at.
-// It binds 127.0.0.1 by name rather than "localhost", which on some machines
+// It binds 127.0.0.1 by number rather than "localhost", which on some machines
 // resolves to an IPv6 address the listener is not on.
 func (s *Server) Listen(port int) (string, error) {
+	return s.ListenOn(config.DefaultDashboardBind, port)
+}
+
+// ListenOn binds the loopback address asked for on the port asked for, and
+// refuses any address that is not loopback (LoopbackBind).
+func (s *Server) ListenOn(bind string, port int) (string, error) {
 	if port < 0 || port > 65535 {
 		return "", fmt.Errorf("dashboard: port %d is not a port", port)
 	}
-	listener, err := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err := LoopbackBind(bind); err != nil {
+		return "", fmt.Errorf("dashboard: %w", err)
+	}
+	listener, err := net.Listen(network(bind), net.JoinHostPort(strings.TrimSpace(bind), strconv.Itoa(port)))
 	if err != nil {
 		return "", fmt.Errorf("dashboard: bind loopback: %w", err)
 	}
@@ -258,29 +323,101 @@ func (s *Server) Listen(port int) (string, error) {
 // the new one serves before the old one stops (listen_unix.go). A port held by
 // any process that did not share it is refused exactly as Listen refuses it.
 func (s *Server) ListenShared(port int) (string, error) {
+	return s.ListenSharedOn(config.DefaultDashboardBind, port)
+}
+
+// ListenSharedOn is ListenShared on the loopback address asked for, refusing
+// any address that is not loopback.
+func (s *Server) ListenSharedOn(bind string, port int) (string, error) {
 	if port <= 0 || port > 65535 {
 		return "", fmt.Errorf("dashboard: port %d is not a port a supervised dashboard can share", port)
 	}
-	listener, err := listenShared(net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err := LoopbackBind(bind); err != nil {
+		return "", fmt.Errorf("dashboard: %w", err)
+	}
+	listener, err := listenShared(network(bind), net.JoinHostPort(strings.TrimSpace(bind), strconv.Itoa(port)))
 	if err != nil {
 		return "", fmt.Errorf("dashboard: bind loopback: %w", err)
 	}
 	return s.listening(listener), nil
 }
 
+// network is the listener's network for an address: IPv4 for an IPv4 address,
+// so 127.0.0.1 is never widened to the IPv6 loopback, and IPv6 otherwise.
+func network(bind string) string {
+	if ip := net.ParseIP(strings.TrimSpace(bind)); ip != nil && ip.To4() == nil {
+		return "tcp6"
+	}
+	return "tcp4"
+}
+
 func (s *Server) listening(listener net.Listener) string {
 	s.listener = listener
-	s.bound(listener.Addr().(*net.TCPAddr).Port)
+	address := listener.Addr().(*net.TCPAddr)
+	s.boundOn(address.IP.String(), address.Port)
 	return s.URL()
 }
 
-// bound fixes the Host and Origin values that name this server, from the port
-// it is on. It is what Listen calls, and what a test calls in place of a
+// bound fixes the Host and Origin values that name this server on the loopback
+// default, from the port it is on. It is what a test calls in place of a
 // listener the sandbox it runs in will not grant.
 func (s *Server) bound(port int) {
-	bound := strconv.Itoa(port)
-	s.hosts = map[string]bool{"127.0.0.1:" + bound: true, "localhost:" + bound: true}
-	s.origins = map[string]bool{"http://127.0.0.1:" + bound: true, "http://localhost:" + bound: true}
+	s.boundOn(config.DefaultDashboardBind, port)
+}
+
+// boundOn fixes the address the server is on, and with it every Host and
+// Origin value that names it: the address itself, `localhost` beside a
+// loopback address, and the allowed hosts.
+func (s *Server) boundOn(host string, port int) {
+	s.access.Lock()
+	defer s.access.Unlock()
+	s.boundHost, s.boundPort = host, port
+	s.deriveHosts()
+}
+
+// AllowHosts replaces the names, beyond the bound address, a request may carry
+// as its Host and Origin, on the port the server is bound to. It is the
+// configuration's services.dashboard.allowed_hosts, re-read while the server
+// runs, so a name taken out of the list is refused from the next request on.
+func (s *Server) AllowHosts(hosts []string) {
+	s.access.Lock()
+	defer s.access.Unlock()
+	s.allowed = s.allowed[:0]
+	for _, host := range hosts {
+		if trimmed := strings.TrimSpace(host); trimmed != "" {
+			s.allowed = append(s.allowed, trimmed)
+		}
+	}
+	s.deriveHosts()
+}
+
+// deriveHosts rebuilds the Host and Origin sets from the bound address and the
+// allowed hosts. It is called with access held.
+func (s *Server) deriveHosts() {
+	if s.boundHost == "" {
+		return
+	}
+	names := []string{s.boundHost}
+	if ip := net.ParseIP(s.boundHost); ip != nil && ip.IsLoopback() {
+		names = append(names, "localhost")
+	}
+	names = append(names, s.allowed...)
+	port := strconv.Itoa(s.boundPort)
+	s.hosts = make(map[string]bool, len(names))
+	s.origins = make(map[string]bool, len(names))
+	for _, name := range names {
+		address := strings.ToLower(net.JoinHostPort(name, port))
+		s.hosts[address] = true
+		s.origins["http://"+address] = true
+	}
+}
+
+// accepts reports whether a request's Host names this server, and its Origin,
+// where it carries one, this server's origin.
+func (s *Server) accepts(host, origin string) (hostAccepted, originAccepted bool) {
+	s.access.RLock()
+	defer s.access.RUnlock()
+	return s.hosts[strings.ToLower(host)], origin == "" || s.origins[strings.ToLower(origin)]
 }
 
 // Port is the port the server is listening on, once it is.
@@ -392,7 +529,8 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 	// or a rebinding attack that relies on exactly that. The refusal reflects
 	// nothing back, because the one thing known about the request is that it
 	// came from somewhere it should not have.
-	if !s.hosts[request.Host] {
+	hostAccepted, originAccepted := s.accepts(request.Host, request.Header.Get("Origin"))
+	if !hostAccepted {
 		refuse(writer, request, http.StatusForbidden, "this dashboard answers only to the address it was started on")
 		return
 	}
@@ -400,7 +538,7 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 	// any origin but this one is a page elsewhere scripting requests at this
 	// port. A request with no Origin is a navigation or a tool, and the token
 	// decides those.
-	if origin := request.Header.Get("Origin"); origin != "" && !s.origins[origin] {
+	if !originAccepted {
 		refuse(writer, request, http.StatusForbidden, "this dashboard refuses requests from any other origin")
 		return
 	}
@@ -489,7 +627,16 @@ func (s *Server) presented(request *http.Request) bool {
 	if !found {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(strings.TrimSpace(candidate)), []byte(s.token)) == 1
+	s.access.RLock()
+	defer s.access.RUnlock()
+	return sharedToken(strings.TrimSpace(candidate), s.token)
+}
+
+// sharedToken compares a presented token with the shared one. A shared token
+// that could not be read is empty and matches nothing, an empty presentation
+// included.
+func sharedToken(candidate, token string) bool {
+	return token != "" && subtle.ConstantTimeCompare([]byte(candidate), []byte(token)) == 1
 }
 
 // servePage is the shell: the page with its states — asking for the token,

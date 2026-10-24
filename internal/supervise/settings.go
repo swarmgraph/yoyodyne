@@ -34,6 +34,14 @@ type HoldsSettings interface {
 	ChangedSettings(ctx context.Context) ([]runstate.SettingChange, error)
 }
 
+// RefusesSettings is a child that can say, before it is restarted, that the
+// configuration as it stands is one it cannot start on — the dashboard over
+// an address that is not loopback. RefusedSettings says why, and is empty
+// where it can start.
+type RefusesSettings interface {
+	RefusedSettings(ctx context.Context) string
+}
+
 // settings is one running child against the configuration: a restart begun
 // where a setting it holds has changed and nothing stops it, and otherwise the
 // record saying which setting and why it waits.
@@ -42,6 +50,7 @@ func (s *Supervisor) settings(ctx context.Context, child Child, state *runstate.
 	if !ok || !s.deployLook || state.SettingsRestarting {
 		return
 	}
+	state.SettingsRefused = false
 	if state.RestartingInto != "" {
 		// A part being moved onto a deployed build is started from the
 		// configuration as it stands, so the move applies the setting too.
@@ -57,6 +66,16 @@ func (s *Supervisor) settings(ctx context.Context, child Child, state *runstate.
 		return
 	}
 	changed := runstate.DescribeSettingChanges(changes)
+	if refuses, ok := child.(RefusesSettings); ok {
+		if why := refuses.RefusedSettings(ctx); why != "" {
+			// Restarting it would stop a part that serves for one that refuses
+			// to start, so it is left serving on what it started with until the
+			// configuration names something it can start on.
+			state.Settings = fmt.Sprintf("%s; the change cannot be applied, so it is not restarted and goes on serving on what it started with: %s", changed, why)
+			state.SettingsRefused = true
+			return
+		}
+	}
 	if self, ok := child.(RestartsItself); ok {
 		state.Settings = fmt.Sprintf("%s; the supervisor does not restart it, because stopping it cancels the runs it hosts; it starts on the new value when it next restarts itself (%s), and `yoyo stop` then `yoyo start` restarts it now", changed, self.RestartsItself())
 		return

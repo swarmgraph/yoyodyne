@@ -691,14 +691,14 @@ func renderScaffoldServices(builder *strings.Builder, services Services) {
 # file only you can read, and "yoyo dashboard token" prints it. Set token to
 # "keychain" or "file" and it reads the stored one instead, which outlives a
 # restart and is never printed.
-# Binding an interface address instead lets another device on your network
-# open the page, and is an opt-in with a condition: a token printed to one
-# terminal is unusable from another device, so a bind outside loopback has to
-# name where its token is stored -- "keychain" or "file", the two stores the
-# Slack tokens use, under names that carry the product -- and is refused at
-# load until it does. allowed_hosts are the names, beyond the bound address, a
-# request may carry as its Host; write them without a port. The token itself
-# is never written in this file.
+# The dashboard listens only on this machine: bind must be a loopback address,
+# and one that is not is refused when the dashboard starts. allowed_hosts are
+# the names, beyond the bound address, a request may carry as its Host; write
+# them without a port. The running dashboard reads allowed_hosts, the people
+# bound under operators, and their tokens again every ten seconds, so changing
+# them needs no restart; a changed port, bind, or token source is applied by
+# the supervisor replacing the dashboard. The token itself is never written in
+# this file.
 #
 # The maintenance pass is the supervisor's own: every "every", it runs
 # yoyo reconcile, which settles what interrupted runs left behind and catches

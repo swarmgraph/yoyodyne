@@ -71,10 +71,14 @@ type dashboardChild struct {
 	logRoot  string
 	log      string
 	port     int
-	source   config.DashboardTokenSource
+	// bind is the address the dashboard is to listen on, which it reads from
+	// the configuration itself; the child holds it to refuse an address that
+	// is not loopback before a dashboard is started on one.
+	bind   string
+	source config.DashboardTokenSource
 	// configured reads the services section as the configuration says it now,
-	// which is what a start launches on; nil keeps port and source, the values
-	// the supervisor read as it started.
+	// which is what a start launches on; nil keeps port, bind, and source, the
+	// values the supervisor read as it started.
 	configured func() (config.Services, error)
 	// readers is where each dashboard records the settings it started on; nil
 	// opens the product's records under logRoot.
@@ -154,6 +158,12 @@ func (c dashboardChild) Serving(context.Context) supervise.Serving {
 	default:
 		serving.Health = "ready since " + instance.ReadyAt.Local().Format("2006-01-02 15:04 MST")
 	}
+	// What the running dashboard could not apply of who it accepts, as it last
+	// re-read it, is said beside its health, so it is on the line `yoyo status`
+	// prints for the dashboard and not only in its log.
+	if len(instance.AccessProblems) > 0 {
+		serving.Health += "; " + strings.Join(instance.AccessProblems, "; ")
+	}
 	if instance.TokenPublished {
 		serving.TokenFile = c.store.TokenPath()
 	}
@@ -170,6 +180,11 @@ func (c dashboardChild) Ensure(ctx context.Context) (supervise.Ensured, error) {
 	if running {
 		return supervise.Ensured{PID: instance.PID}, nil
 	}
+	// An address that is not loopback is one no dashboard will start on, which
+	// waiting and trying again does not change.
+	if err := dashboard.LoopbackBind(c.onConfiguration().address()); err != nil {
+		return supervise.Ensured{Unstartable: "it cannot be started: " + err.Error()}, nil
+	}
 	ensured, err := c.Replace(ctx)
 	var unsafe dashboardUnsafeToken
 	if errors.As(err, &unsafe) {
@@ -185,8 +200,11 @@ func (c dashboardChild) Ensure(ctx context.Context) (supervise.Ensured, error) {
 // stopped first and the start made again, once.
 func (c dashboardChild) Replace(ctx context.Context) (supervise.Ensured, error) {
 	// Started on the configuration as it stands, so a replacement applies a
-	// port or token source changed since the supervisor started.
+	// port, address, or token source changed since the supervisor started.
 	c = c.onConfiguration()
+	if err := dashboard.LoopbackBind(c.address()); err != nil {
+		return supervise.Ensured{}, err
+	}
 	ensured, startID, err := c.launch(ctx)
 	if errors.Is(err, errDashboardPortHeld) {
 		stopped, stopErr := c.stopUnsharedHolders(ctx)
@@ -208,9 +226,10 @@ func (c dashboardChild) Replace(ctx context.Context) (supervise.Ensured, error) 
 	return ensured, nil
 }
 
-// onConfiguration is the child with the port and token source the configuration
-// says now. A configuration that cannot be read keeps the values it had, so a
-// broken edit leaves the dashboard where it was rather than stopping it.
+// onConfiguration is the child with the port, address, and token source the
+// configuration says now. A configuration that cannot be read keeps the values
+// it had, so a broken edit leaves the dashboard where it was rather than
+// stopping it.
 func (c dashboardChild) onConfiguration() dashboardChild {
 	if c.configured == nil {
 		return c
@@ -219,8 +238,28 @@ func (c dashboardChild) onConfiguration() dashboardChild {
 	if err != nil {
 		return c
 	}
-	c.port, c.source = services.Dashboard.Port, services.Dashboard.Token
+	c.port, c.bind, c.source = services.Dashboard.Port, services.Dashboard.Bind, services.Dashboard.Token
 	return c
+}
+
+// address is the bind the child holds, and the loopback default where it holds
+// none, as a configuration that names none resolves to.
+func (c dashboardChild) address() string {
+	if strings.TrimSpace(c.bind) == "" {
+		return config.DefaultDashboardBind
+	}
+	return c.bind
+}
+
+// RefusedSettings is why the configuration as it stands now is one no
+// dashboard can start on, and empty where one can: an address that is not
+// loopback. The supervisor then leaves the running dashboard serving on what
+// it started with rather than replacing it with one that refuses to start.
+func (c dashboardChild) RefusedSettings(context.Context) string {
+	if err := dashboard.LoopbackBind(c.onConfiguration().address()); err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 // ChangedSettings is each setting the dashboard the supervisor runs holds from
