@@ -78,8 +78,9 @@ type Reference struct {
 	ID   string `json:"id"`
 	// Revision is what that thing was at when it was read. Anything the producer
 	// can compare for equality serves: a revision timestamp, a content hash, a
-	// tracker's own version.
-	Revision string `json:"revision"`
+	// tracker's own version. It is optional: a reference naming none is attached
+	// as the record is now, and its staleness cannot be judged.
+	Revision string `json:"revision,omitempty"`
 }
 
 // Key names the thing referred to without the revision. It is how a reference is
@@ -90,7 +91,7 @@ func (r Reference) validate(what string) error {
 	return errors.Join(
 		boundedText(what+" what", r.What, MaxReferenceBytes, true),
 		boundedText(what+" id", r.ID, MaxReferenceBytes, true),
-		boundedText(what+" revision", r.Revision, MaxReferenceBytes, true),
+		boundedText(what+" revision", r.Revision, MaxReferenceBytes, false),
 	)
 }
 
@@ -310,7 +311,7 @@ func survey(recorded Exchange, revisions map[string]string) (Staleness, bool) {
 	for _, reference := range recorded.Refers {
 		current, known := revisions[reference.Key()]
 		switch {
-		case !known:
+		case !known, strings.TrimSpace(reference.Revision) == "":
 			stale.Unjudged = append(stale.Unjudged, reference)
 		case current != reference.Revision:
 			stale.Moved = append(stale.Moved, Moved{Reference: reference, Now: current})
