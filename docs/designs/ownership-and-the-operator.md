@@ -34,6 +34,10 @@ revisions:
       by: architect
       at: 2026-10-23T10:45:03.369948Z
       reason: 'Answers the reviewer''s report-d208cf81: the report row now says that a handling recorded before such handlings were refused, which names the operator without a reason from the closed list, goes back to the role that recorded it, as the fix for old report handlings (yoyodyne-ifd.432.25.9) does. Nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-10-24T21:37:13.812547Z
+      reason: 'Part of the follow-up queue design (yoyodyne-ifd.432.25.20), as its section on designs this changes promises: the entry kind follow-up joins the list of kinds and the table, owned by the owner it recorded and the operator only with a reason from the closed list; an entry that has a follow-up is shown once with one owner; a test holds that; showing a follow-up as a second entry is recorded as rejected. Written against main at 928cbe4d. Nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -65,6 +69,11 @@ approvals:
       by: harness
       at: 2026-10-23T10:45:03.369948Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1551, for document-1551.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-10-24T21:37:13.812547Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1655, for document-1655.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -94,9 +103,9 @@ A new package, `internal/ownership`, holds the registry. It is a table keyed by
 entry kind. The kinds are the ones the read model already names: amendment,
 waiting document, directive, report, owed step, publication, degraded service,
 failing task, hold, outage, stall, held work, human gate, conversation-carried
-item, operator action, stoppage, escalation, diverged target, and the ages of
-the report pile and the amendment queue. Each kind has one rule. The rule reads
-the entry's record and returns:
+item, operator action, stoppage, escalation, diverged target, follow-up, and
+the ages of the report pile and the amendment queue. Each kind has one rule.
+The rule reads the entry's record and returns:
 
 - `owner`, from the existing mover vocabulary: the operator, a role, the
   harness, or nobody where the entry lifts on a clock no one controls;
@@ -111,6 +120,19 @@ The dashboard, the Slack sink, `yoyo status`, the conversations' context, the
 needs-a-human line, the development manager's pass, and report handling all
 project the answer the read model carries. None of them derives an owner. This
 is the one-read-model invariant applied to who owns what.
+
+**A wait is shown once, with one owner.** A follow-up, as
+[follow-ups](follow-ups.md) describes it, is the record every wait writes: its
+check, its deadlines, and who waits. Where the wait is also an entry of
+another kind, such as a hold, a report, a stopped run's wait, or a parked
+item, the entry is shown once, as its own kind, with the owner its own kind's
+rule returns and the follow-up's check, deadlines and age beside it. The
+follow-up's recorded owner was resolved by that same rule when the follow-up
+was written, so the two agree. Where they disagree, the entry's own kind's
+rule wins, and the disagreement is shown to the Lead Product Manager as an
+unowned-entry defect, as below. A follow-up that belongs to no entry of
+another kind, such as a request the operator's assistant recorded or an ask
+between roles still open, is shown as the kind `follow-up`.
 
 **The default is the Lead Product Manager, never the operator.** A record the
 rule for its kind cannot classify resolves to her, with the remedy "classify
@@ -137,6 +159,7 @@ her pass, and she files it against the registry.
 | human gate | the operator, reason `human-gate` |
 | conversation-carried item | the role its executor marker names |
 | diverged target | the operator, reason `diverged-history` |
+| follow-up | the owner the follow-up recorded when it was written, which the rule for what it is about resolved then; the operator only with a reason from the closed list; a follow-up the operator or his assistant records is never owned by the operator, and is the Lead Product Manager's unless it names another role |
 | pile or queue age | the role that works that pile or queue |
 
 ## Who decides a proposed change
@@ -300,6 +323,10 @@ rather than by hand.
 - Deciding a proposal is refused to every role but the owner of the document it
   targets, and to every role for a change to the brief or the goals recorded as
   `intent: fundamental` or with no intent.
+- A wait that has a follow-up is shown once: a test builds the standing from
+  fixture records of a hold, a report, a stopped run's wait and a parked item,
+  each with its follow-up, and fails where any of them is shown twice or with
+  two owners.
 
 The existing tests stay: the renders of every owner's label
 (yoyodyne-ifd.432.23), every persona and contract carrying the
@@ -318,6 +345,9 @@ Lead Product Manager at once (yoyodyne-ifd.430.27).
   tells him a decision is his when it is not, which is the defect this design
   exists to end. The hand field says what is true: the role decided, and the
   harness needs his keyboard until an item lands.
+- **Showing a follow-up as a second entry beside the wait it belongs to.** Two
+  entries for one wait could name two owners, and the operator would count one
+  wait twice. The follow-up is shown beside its entry instead.
 
 ## Build
 
@@ -331,4 +361,6 @@ Three bounded items, admitted by the Lead Product Manager:
    a closed-list reason, with the refusal naming the rung to use.
 
 Owning roles deciding proposed changes to their own documents was built
-separately (yoyodyne-i92).
+separately (yoyodyne-i92). The `follow-up` kind, its row, and the test that a
+wait is shown once are built with the follow-up store and the surfaces, pieces
+1 and 5 of [follow-ups](follow-ups.md#build).
