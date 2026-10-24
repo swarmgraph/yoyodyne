@@ -9,6 +9,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/usage"
 )
 
 // The bound is the harness's, shared with the operator's side of a conversation
@@ -688,6 +689,7 @@ func (p *streamParser) parseResult(envelope streamEnvelope) error {
 	// false, and what it spent is recorded as unknown rather than as nothing.
 	p.result.CostReported = true
 	p.result.Usage = append([]byte(nil), envelope.Usage...)
+	p.result.UsageReading = claudeReading(envelope.SessionID, envelope.Usage)
 	p.result.ModelUsage, p.result.ModelUsageReported = modelUsageOf(envelope.ModelUsage)
 	p.result.StopReason = envelope.TerminalReason
 	if p.result.StopReason == "" {
@@ -901,6 +903,38 @@ func (p *streamParser) Result() backend.RunResult {
 		result.TransientFailure = &backend.TransientFailure{Detail: p.duplicateTerminal}
 	}
 	return result
+}
+
+// claudeReading is a terminal's usage in the shared shape. Claude Code reports
+// one invocation's own usage on its terminal, with cache reads and cache writes
+// already apart from the fresh input, so nothing is subtracted. It reports no
+// reasoning apart from output, so reasoning is absent rather than zero. The
+// processing tier is the service_tier the provider reports beside the counts.
+func claudeReading(session string, raw json.RawMessage) *usage.Reading {
+	var reported struct {
+		InputTokens         *int64 `json:"input_tokens"`
+		CacheReadTokens     *int64 `json:"cache_read_input_tokens"`
+		CacheCreationTokens *int64 `json:"cache_creation_input_tokens"`
+		OutputTokens        *int64 `json:"output_tokens"`
+		ServiceTier         string `json:"service_tier"`
+	}
+	if len(raw) == 0 || json.Unmarshal(raw, &reported) != nil {
+		return nil
+	}
+	reading := usage.Reading{
+		Session: session,
+		Tier:    reported.ServiceTier,
+		Counters: usage.Counters{
+			FreshInput:  usage.Of(reported.InputTokens),
+			CachedInput: usage.Of(reported.CacheReadTokens),
+			CacheWrite:  usage.Of(reported.CacheCreationTokens),
+			Output:      usage.Of(reported.OutputTokens),
+		},
+	}
+	if !reading.Counters.Any() {
+		return nil
+	}
+	return &reading
 }
 
 func (p *streamParser) SawResult() bool {

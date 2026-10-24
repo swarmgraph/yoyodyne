@@ -40,6 +40,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/usage"
 )
 
 // The bound is the harness's, shared with the operator's side of a conversation
@@ -170,6 +171,45 @@ func (u turnUsage) harnessUsage() (json.RawMessage, bool) {
 	return encoded, true
 }
 
+// reading is the turn's usage in the shared shape, with the overlaps the
+// provider's counts carry taken out: Codex counts cached reads inside its input
+// and reasoning inside its output, so fresh input is the input less the cached
+// reads and output is the output less the reasoning. Cache writes are reported
+// apart and kept apart; no recording has shown a non-zero one, so whether the
+// provider also counts them inside its input is not known.
+//
+// It is marked as a running total for the session. The provider adapters design
+// rules that Codex carries a session's total forward on resume, and a fresh
+// session's first total is its own amount under that rule, so the marking is
+// right for a fresh session whichever way the provider counts; a resumed one is
+// what no recording here yet shows (see testdata/streams/README.md).
+func (u turnUsage) reading(session string) (usage.Reading, bool) {
+	if u.InputTokens == nil && u.CachedInputTokens == nil && u.CacheWriteInputTokens == nil && u.OutputTokens == nil && u.ReasoningOutputTokens == nil {
+		return usage.Reading{}, false
+	}
+	return codexReading(session, u.InputTokens, u.CachedInputTokens, u.CacheWriteInputTokens, u.OutputTokens, u.ReasoningOutputTokens), true
+}
+
+// codexReading is one Codex usage report in the shared shape, whichever event
+// carried it.
+func codexReading(session string, input, cached, written, output, reasoning *int64) usage.Reading {
+	reading := usage.Reading{Session: session, Running: true}
+	reading.Counters.CachedInput = usage.Of(cached)
+	reading.Counters.CacheWrite = usage.Of(written)
+	reading.Counters.Reasoning = usage.Of(reasoning)
+	reading.Counters.FreshInput = usage.Of(input)
+	if input != nil && cached != nil {
+		reading.Counters.FreshInput = usage.Measured(max(*input-*cached, 0))
+		reading.Adjustments = append(reading.Adjustments, "fresh input is the provider's input_tokens less its cached_input_tokens")
+	}
+	reading.Counters.Output = usage.Of(output)
+	if output != nil && reasoning != nil {
+		reading.Counters.Output = usage.Measured(max(*output-*reasoning, 0))
+		reading.Adjustments = append(reading.Adjustments, "output is the provider's output_tokens less its reasoning_output_tokens")
+	}
+	return reading
+}
+
 // providerMessage is one event, reduced to the fields this adapter reads. The
 // provider sends more than this on several of them, and what is not read here is
 // still recorded: the raw line reaches the event log whenever this parser has
@@ -216,6 +256,8 @@ type providerMessage struct {
 	InputTokens       *int64          `json:"input_tokens"`
 	CachedInputTokens *int64          `json:"cached_input_tokens"`
 	OutputTokens      *int64          `json:"output_tokens"`
+	// shared is the reading usage() last made, in the shared shape.
+	shared usage.Reading
 }
 
 // tokenCountInfo is the newer shape of a token_count, which nests the running
@@ -235,7 +277,7 @@ type tokenCountInfo struct {
 // provider did not state is left out rather than written as zero, because an
 // invocation nobody has a measurement for and one measured at nothing are
 // opposite facts to anything adding tokens up.
-func (m providerMessage) usage() (json.RawMessage, bool) {
+func (m *providerMessage) usage() (json.RawMessage, bool) {
 	input, cached, output := m.InputTokens, m.CachedInputTokens, m.OutputTokens
 	if len(m.Info) > 0 {
 		var info tokenCountInfo
@@ -246,6 +288,7 @@ func (m providerMessage) usage() (json.RawMessage, bool) {
 	if input == nil && cached == nil && output == nil {
 		return nil, false
 	}
+	m.shared = codexReading("", input, cached, nil, output, nil)
 	counts := map[string]int64{}
 	if input != nil {
 		counts["input_tokens"] = *input
@@ -309,6 +352,9 @@ type streamParser struct {
 	// takes cached reads out of the input and the record should still show what
 	// the provider said.
 	providerUsage json.RawMessage
+	// usage collects the invocation's usage readings in the shared shape, so the
+	// result carries the last of them and a repeated one is counted once.
+	usage usage.Collector
 }
 
 func newStreamParser(runID string, role domain.AgentRole, lastSequence uint64, clock execution.Clock, redactor execution.Redactor, sink func(execution.Event) error, reply func(string), dialect backend.Dialect) *streamParser {
@@ -637,6 +683,9 @@ func (p *streamParser) parseTurnCompleted(message providerMessage) error {
 				p.result.Usage = mapped
 				p.providerUsage = message.TurnUsage
 			}
+			if reading, measured := usage.reading(p.result.SessionID); measured {
+				p.usage.Observe(reading)
+			}
 		}
 	}
 	return p.parseTerminal(message, "", false)
@@ -682,6 +731,9 @@ func (p *streamParser) parseTokenCount(message providerMessage) error {
 	usage, measured := message.usage()
 	if measured {
 		p.result.Usage = usage
+		reading := message.shared
+		reading.Session = p.result.SessionID
+		p.usage.Observe(reading)
 	}
 	return p.emit(execution.EventProcessOutput, map[string]any{
 		"provider_type": message.Type,
@@ -801,7 +853,11 @@ func (p *streamParser) emit(eventType execution.EventType, payload any) error {
 // Result is the invocation's own answer. Everything in it is settled as the
 // stream arrives, so there is nothing left to decide here.
 func (p *streamParser) Result() backend.RunResult {
-	return p.result
+	result := p.result
+	result.UsageReading = p.usage.Reading()
+	result.UsagePartial = !p.sawTerminal && result.UsageReading != nil
+	result.UsageRepeated = p.usage.Repeated()
+	return result
 }
 
 func (p *streamParser) SawTerminal() bool {

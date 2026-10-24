@@ -764,6 +764,7 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 			Backend:        p.reviewer().Backend,
 			RunID:          entry.RunID,
 			WorkItemID:     entry.WorkItemID,
+			Billing:        p.Config.AccountBilling(run.AccountAlias),
 		},
 		AccountAlias:     account.Alias,
 		AccountConfigDir: account.Directory,

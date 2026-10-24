@@ -37,6 +37,8 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/home"
+	"github.com/mason-bryant/yoyodyne/internal/pricing"
+	"github.com/mason-bryant/yoyodyne/internal/usage"
 )
 
 // SpendSchemaVersion is 1 and has never changed.
@@ -241,6 +243,55 @@ type Spend struct {
 	// at from the version: a comparison nobody can make is an answer, and a
 	// comparison made against the wrong commit is not.
 	Build string `json:"build,omitempty"`
+
+	// What follows is the usage record of the provider usage and cost design
+	// (see spendcost.go), and is absent from every line written before it.
+	//
+	// InvocationID names this call, which is how a later estimate of it says
+	// which call it re-prices.
+	InvocationID string `json:"invocation_id,omitempty"`
+	// Billing is how the account the call ran on is paid for, read from that
+	// account's configuration; empty is not recorded.
+	Billing usage.BillingMode `json:"billing_mode,omitempty"`
+	// Counters is what this call itself used, settled by usage.Settle from what
+	// the adapter read. Absent counters are absent here too; a nil pointer is a
+	// line that recorded no counters at all.
+	Counters *usage.Counters `json:"counters,omitempty"`
+	// RunningCounters is the provider's running session total the counters
+	// were settled from, kept so the session's next call is settled against it.
+	// It is absent where the provider reported per-call amounts.
+	RunningCounters *usage.Counters `json:"running_counters,omitempty"`
+	// UsageReset says the running total fell below the session's last, and the
+	// reading was taken whole; UsagePartial that the call was cut off and the
+	// counters are what it reported before the cut; UsageRepeated how many
+	// final events the provider repeated and that were counted once.
+	UsageReset    bool `json:"usage_reset,omitempty"`
+	UsagePartial  bool `json:"usage_partial,omitempty"`
+	UsageRepeated int  `json:"usage_repeated,omitempty"`
+	// UsageAdjustments is what the adapter took out of a provider figure to
+	// keep the counters from overlapping, in words.
+	UsageAdjustments []string `json:"usage_adjustments,omitempty"`
+	// Tier is the processing tier the provider reported serving the call at.
+	Tier string `json:"tier,omitempty"`
+	// EventSchemaVersion and EventSequence point at the raw provider events the
+	// counters were read from: the schema the event log beside this line was
+	// written at, and the sequence of the last event this call wrote to it.
+	EventSchemaVersion int    `json:"event_schema_version,omitempty"`
+	EventSequence      uint64 `json:"event_sequence,omitempty"`
+	// Cost is the call's cost as exactly one of the four kinds, from the one
+	// pricing service. It is absent on a line written before it was carried,
+	// which Figure reads from the classification.
+	Cost *pricing.Figure `json:"cost,omitempty"`
+	// Revises, on a line that is a later estimate rather than a call, names the
+	// call it re-prices, and Replaces the figure it takes the place of, by its
+	// rate entry and rate data version. Such a line is appended and never
+	// replaces the one it revises; List folds it onto that line.
+	Revises  string `json:"revises,omitempty"`
+	Replaces string `json:"replaces,omitempty"`
+	// Earlier is every figure the line was shown at before its latest, oldest
+	// first. It is filled by List from the later estimates in the log and never
+	// written.
+	Earlier []pricing.Figure `json:"-"`
 }
 
 // Known reports a line carrying an amount somebody can add up.
@@ -350,7 +401,7 @@ func (s Spend) Validate() error {
 	if s.Build != "" && !buildPattern.MatchString(s.Build) {
 		problems = append(problems, errors.New("build is not a revision"))
 	}
-	problems = append(problems, s.subjectProblem(), s.amountProblem())
+	problems = append(problems, s.subjectProblem(), s.amountProblem(), s.costProblem())
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid spend: %w", err)
 	}
@@ -557,7 +608,7 @@ func (s *SpendStore) List() ([]Spend, error) {
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("read spend log: %w", err)
 	}
-	return lines, nil
+	return foldRevisions(lines), nil
 }
 
 // correctSpend is one recorded line as its amount should now be read. A line
@@ -569,7 +620,7 @@ func (s *SpendStore) List() ([]Spend, error) {
 // invocation nobody was told the price of, and treating that as a session total
 // would make the session's next invocation cost its whole running total again.
 func correctSpend(costs *SessionCosts, line Spend) Spend {
-	if !line.Known() {
+	if !line.Known() || line.Revision() {
 		return line
 	}
 	reported := line.ReportedTotal()

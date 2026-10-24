@@ -36,6 +36,7 @@ func (a *activeRun) spendAttribution(role domain.AgentRole, phase runstate.Spend
 		Backend:        p.agentForRole(role).Backend,
 		RunID:          a.state.RunID,
 		WorkItemID:     a.state.WorkItemID,
+		Billing:        p.Config.AccountBilling(a.state.AccountAlias),
 	}
 }
 
@@ -73,5 +74,6 @@ func (b BranchReviewer) spendAttribution(reviewID string) spend.Attribution {
 		ConfigRevision: b.Config.Revision(),
 		Backend:        Pipeline{Config: b.Config}.agentForRole(domain.RoleReviewer).Backend,
 		BranchReviewID: reviewID,
+		Billing:        b.Config.AccountBilling(b.account().Alias),
 	}
 }
