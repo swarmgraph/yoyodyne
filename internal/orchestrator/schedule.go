@@ -1614,6 +1614,10 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	var spend ScheduleSpend
 	var environment ScheduleEnvironment
 	refused := ""
+	// checksHeld is a run of this session's having stopped because no configured
+	// check could run on its change, which holds new work until a probe
+	// (machineChecksHold).
+	var checksHeld machineChecksHold
 	// A refusal cools only until the next poll, never until the item changes.
 	pollPassed := func() {
 		forget(tried)
@@ -1776,6 +1780,9 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		if byTheMachine {
 			started.environmental = true
 			refused, schedule.Blocked = refusal, refusal
+		}
+		if held, holds := machineChecksHeldBy(started.Outcome, s.now()); holds {
+			checksHeld = held
 		}
 		// The run's own context is released with it, whether or not the drain
 		// bound cancelled it first.
@@ -3029,6 +3036,21 @@ pulling:
 			}
 			continue
 		}
+		// Checks the machine could not run hold new work the same way, for as long
+		// as the probe interval since a run of this session's met them.
+		if stopped, holding := checksHeld.holding(s.now(), pull.OutageProbe); holding {
+			schedule.Blocked = stopped
+			if !s.Watching {
+				schedule.Stopped = ScheduleBlocked
+				break
+			}
+			if !wait(pull, runstate.WatchBlocked, account{reason: stopped, running: running}) {
+				schedule.Stopped = ScheduleCancelled
+				break
+			}
+			continue
+		}
+		checksHeld = machineChecksHold{}
 		schedule.Blocked = refused
 
 		schedule.Capacity = pull.Capacity

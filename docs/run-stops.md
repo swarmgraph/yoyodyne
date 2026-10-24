@@ -77,13 +77,13 @@ can end a successful run before promotion,
 recorded as `integration-policy`. Other step and scope refusals keep the existing
 gate names.
 
-The set of causes outside the work currently has sixteen values. A named cause alone does not forgive a
+The set of causes outside the work currently has seventeen values. A named cause alone does not forgive a
 round: normally the settlement must also find an empty delivery. With a change
 present it spends as an ordinary round does. `usage-window`,
-`check-stage-bound`, and `check-time-limit` are the exceptions: they stopped before judgment, so they
+`check-stage-bound`, `check-time-limit`, and `no-check-ran` are the exceptions: they stopped before judgment, so they
 settle without treating the preserved change as delivery. A round charged by a
 previous process is not returned by this process; a return that could not be
-written is reported explicitly. These causes are classifications, not sixteen
+written is reported explicitly. These causes are classifications, not seventeen
 more timers. Stops keep what remains of the branch and checkout; the table says
 when a usable checkout may never have existed.
 
@@ -105,6 +105,7 @@ when a usable checkout may never have existed.
 | `check-time-limit` | One check reached its own load-scaled limit without a verdict. | Timed out, the check unfinished; owed current round/grant returned regardless of diff. The checks are run again within the bounds shared with `check-stage-bound`: two reruns per candidate, within three times the check's limit; once spent, the development manager decides and the record says the cause is unresolved. |
 | `developer-settings-not-applied` | A resumed run's developer provider did not apply the sandbox, the notes guard, or the settings that keep personal configuration out. | Recorded on the run before any developer is relaunched; nothing ran, nothing is charged, and the run stays as it was, resumable once the hold on the provider lifts. A fresh dispatch refused the same way has no run to record it on; see the developer settings check below. |
 | `merge-queue-held` | With `execution.merge_queue` on, the target branch's protection requires the forge's own merge queue, or could not be read, so the approved change could not be admitted. | Integration stops with approval retained, item blocked naming the setting; nothing is admitted, replayed, or merged, and nothing is charged. One report per condition. The harness resumes the change at its promotion once the requirement is gone or the switch is off. |
+| `no-check-ran` | Every configured check could not run, whether it said so itself or the machine refused to start its tool, so nothing verified the change. | Fails before review with the item blocked naming each check and its reason, branch and worktree kept, and the stoppage docketed for the development manager; owed current round/grant returned regardless of diff, no repair attempt spent. The session that started it starts no new work for `execution.usage_limit_unknown_reset_pause`, then starts one run to find out whether the checks can run. |
 
 ## Pauses that keep a run in flight
 
@@ -301,6 +302,7 @@ describes the pass that applies those rules.
 | `internal/orchestrator/pipeline.go` | `(*activeRun).fail` | `status-write` | 2 | Shared terminal state and outcome writes, accounting for causes outside the work, preservation, and docketing; no cleanup. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).recordEndingAfterRefusedSave` | `status-write` | 1 | One salvage of the ending into the last valid durable state after schema refusal. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).attemptReview` | `classified-stop` | 2 | Rejects a failed review invocation or a reviewer that ran on the wrong model. |
+| `internal/orchestrator/nocheckran.go` | `(*activeRun).blockOnNoCheckRan` | `classified-stop` | 2 | Blocks before review on a change every configured check of which could not run, as `no-check-ran`, including a failed blocker write. |
 | `internal/orchestrator/reviewbound.go` | `(*activeRun).blockOnReviewBound` | `classified-stop` | 2 | Blocks before any check or review on a change whose source or test files the review bound would keep out, including a failed blocker write. |
 | `internal/orchestrator/publish.go` | `(*activeRun).blockOnUnlandedPullRequest` | `classified-stop` | 2 | Blocks on a forge landing neither merged nor queued, including a failed blocker write. |
 | `internal/orchestrator/reconcile.go` | `(Reconciler).settleInterruptedLanding` | `status-write` | 1 | Records success for a confirmed queued forge landing; other answers reconcile or block. |
@@ -327,6 +329,7 @@ describes the pass that applies those rules.
 | `internal/runstate/environmental.go` | `CauseDeveloperSettingsNotApplied` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/environmental.go` | `CauseCheckTimeLimit` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/environmental.go` | `CauseMergeQueueHeld` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
+| `internal/runstate/environmental.go` | `CauseNoCheckRan` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/stopclass.go` | `StopChecks` | `StopClass` | 1 | Closed recorded class: checks. Identifies the stopping operation; grants no action. |
 | `internal/runstate/stopclass.go` | `StopReview` | `StopClass` | 1 | Closed recorded class: review. Identifies the stopping operation; grants no action. |
 | `internal/runstate/stopclass.go` | `StopIntegration` | `StopClass` | 1 | Closed recorded class: integration. Identifies the stopping operation; grants no action. |

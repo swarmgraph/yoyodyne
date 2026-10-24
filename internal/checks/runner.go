@@ -66,8 +66,9 @@ type Result struct {
 	// reader can tell a check the stop never started from one it cut short.
 	NotLaunched bool `json:"not_launched,omitempty"`
 	// CouldNotRun is the reason a check that exited non-zero gave for not having
-	// run at all, by the convention CouldNotRunPrefix describes, and empty for
-	// every other check. Passed is false beside it, because nothing passed; a
+	// run at all, by the convention CouldNotRunPrefix describes or by the machine
+	// refusing to start its tool (machineRefusals), and empty for every other
+	// check. Passed is false beside it, because nothing passed; a
 	// reader that judges the change skips such a check rather than counting it
 	// as a failure.
 	CouldNotRun string `json:"could_not_run,omitempty"`
@@ -403,10 +404,14 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		// package did run something that failed — a make target whose one step
 		// could not run and another failed, or code under test that printed the
 		// line itself — and a real failure is still a failure, so it is judged
-		// as one.
+		// as one. A check whose tool the machine refused to start
+		// (machineRefusals) could not run either, and is judged the same way.
 		var couldNotRun string
 		if processResult.Status == execution.ProcessFailed && len(failure.names) == 0 {
 			couldNotRun = failure.couldNotRun
+			if couldNotRun == "" {
+				couldNotRun = failure.machineRefused
+			}
 		}
 		result := Result{
 			Command:      safeCommand,

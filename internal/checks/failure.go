@@ -87,6 +87,11 @@ type failureCapture struct {
 	// every line the check printed rather than from the bounded tail, so a
 	// line followed by a long wrapper's output is still found.
 	couldNotRun string
+	// machineRefused is the reason the first line the machine printed refusing
+	// to start the check's tool gives (machineRefusals), read the same way. A
+	// check's own could-not-run line is preferred over it, because the check
+	// knows more about what it went without.
+	machineRefused string
 	// total is how many bytes of output tail has been given, so a position in
 	// the output can be compared with where the kept tail starts.
 	total int
@@ -108,6 +113,11 @@ func (c *failureCapture) add(text string) {
 		line := strings.TrimSpace(raw)
 		if reason, ok := couldNotRunReason(line); ok {
 			c.couldNotRun = reason
+		}
+		if c.machineRefused == "" {
+			if reason, ok := machineRefusalReason(line); ok {
+				c.machineRefused = reason
+			}
 		}
 		name := failingName(line)
 		c.keepAround(raw, name != "")
