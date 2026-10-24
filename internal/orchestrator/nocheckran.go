@@ -93,10 +93,12 @@ const defaultMachineChecksProbe = 30 * time.Minute
 // machineChecksHold is a session having met a run no configured check could run
 // on. What stopped those checks is the machine, so every other ready item would
 // meet it too: the session says so once and chooses nothing until the probe
-// interval has passed since it was met, when the next run it starts is the
-// probe. A probe that meets it again holds again; one that does not has found
-// it cleared. Only the run that met it is put in front of the development
-// manager, rather than one run for every ready item.
+// interval has passed since it was met. Then it starts exactly one run, whatever
+// the free developer places, and starts nothing else until that run ends. A run
+// that meets it again holds again for another interval; one that does not has
+// found it cleared, and the session chooses as usual. Only the runs that met it
+// are put in front of the development manager, rather than one run for every
+// ready item.
 //
 // It is the session's own, like the refusals it already keeps between pulls:
 // the run that met it is on the durable record and the docket, and a session
@@ -106,7 +108,25 @@ type machineChecksHold struct {
 	workItemID string
 	detail     string
 	since      time.Time
+	// probeStarted is the one run started once the interval passed, and
+	// probeIndex its entry on the schedule, which is how its ending is told
+	// apart from any other run's.
+	probeStarted bool
+	probeIndex   int
 }
+
+// machineChecksState is what a session does about the hold at one pull.
+type machineChecksState int
+
+const (
+	// machineChecksClear chooses as usual.
+	machineChecksClear machineChecksState = iota
+	// machineChecksWaiting chooses nothing: the interval has not passed, or the
+	// one run started to find out is still going.
+	machineChecksWaiting
+	// machineChecksProbe starts one run and no more.
+	machineChecksProbe
+)
 
 // machineChecksHeldBy is the hold a finished run places, where it stopped
 // because no configured check could run on its change.
@@ -118,20 +138,40 @@ func machineChecksHeldBy(outcome Outcome, at time.Time) (machineChecksHold, bool
 	return machineChecksHold{runID: outcome.RunID, workItemID: outcome.WorkItemID, detail: refused.Detail, since: at}, true
 }
 
-// holding reports the hold still standing at now, with what the session says
-// about it, for a probe interval of probe (defaultMachineChecksProbe where it is
-// not positive).
-func (h machineChecksHold) holding(now time.Time, probe time.Duration) (string, bool) {
+// state is what the hold asks of the pull at now, with what the session says
+// while it waits, for a probe interval of probe (defaultMachineChecksProbe where
+// it is not positive).
+func (h machineChecksHold) state(now time.Time, probe time.Duration) (string, machineChecksState) {
 	if h.since.IsZero() {
-		return "", false
+		return "", machineChecksClear
 	}
 	if probe <= 0 {
 		probe = defaultMachineChecksProbe
 	}
+	met := fmt.Sprintf("on run %s of %s, %s; the stopped run is with the development manager",
+		h.runID, h.workItemID, singleLine(h.detail, runstate.MaxEnvironmentalDetailBytes))
+	if h.probeStarted {
+		return "runs are not being started: " + met + ", and the one run started to find out whether the checks can run again is still going", machineChecksWaiting
+	}
 	next := h.since.Add(probe)
 	if !now.Before(next) {
-		return "", false
+		return "", machineChecksProbe
 	}
-	return fmt.Sprintf("runs are not being started: on run %s of %s, %s; the stopped run is with the development manager, and one run will be started at %s to find out whether the checks can run again",
-		h.runID, h.workItemID, singleLine(h.detail, runstate.MaxEnvironmentalDetailBytes), next.Local().Format("Jan 2 15:04 MST")), true
+	return fmt.Sprintf("runs are not being started: %s, and one run will be started at %s to find out whether the checks can run again",
+		met, next.Local().Format("Jan 2 15:04 MST")), machineChecksWaiting
+}
+
+// settled is the hold once the schedule's entry at index has ended with
+// outcome, where the outcome did not hold again. The run started to find out
+// clears it by ending any other way; an entry that never became a run found
+// nothing out, so the next pull starts one again.
+func (h machineChecksHold) settled(index int, outcome Outcome) machineChecksHold {
+	if !h.probeStarted || index != h.probeIndex {
+		return h
+	}
+	if outcome.RunID == "" {
+		h.probeStarted = false
+		return h
+	}
+	return machineChecksHold{}
 }

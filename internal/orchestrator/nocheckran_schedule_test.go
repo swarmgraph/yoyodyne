@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -103,4 +104,63 @@ func TestChecksTheMachineCouldNotRunHoldNewWorkAfterTheFirstRun(t *testing.T) {
 			t.Fatalf("blocked in a row = %d, braked = %#v; want the machine's stops counted toward nothing", schedule.BlockedInARow, schedule.Braked)
 		}
 	})
+}
+
+// With two developer places, once the interval has passed the session starts
+// one run and only one, and starts nothing else while it is going. That run
+// meeting the cause again holds again for another interval; the next one
+// finding the checks run clears the hold, and the session fills both places.
+func TestOnlyOneRunFindsOutWhetherTheChecksCanRunAgain(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-a", "yoyodyne-b", "yoyodyne-c", "yoyodyne-d", "yoyodyne-e", "yoyodyne-f")...)
+	harness.capacity = 2
+	type start struct {
+		id    string
+		sleep int
+	}
+	var starts []start
+	var problems []string
+	harness.run = func(h *scheduleHarness, id string) (Outcome, error) {
+		h.mu.Lock()
+		starts = append(starts, start{id, h.sleeps})
+		h.mu.Unlock()
+		if id == "yoyodyne-c" || id == "yoyodyne-d" {
+			// The run that finds out takes a while, and nothing else may start
+			// while it is going.
+			time.Sleep(200 * time.Millisecond)
+			h.mu.Lock()
+			if len(starts) != map[string]int{"yoyodyne-c": 3, "yoyodyne-d": 4}[id] {
+				problems = append(problems, fmt.Sprintf("%d runs had started while %s was finding out, want none beside it", len(starts), id))
+			}
+			h.mu.Unlock()
+		}
+		if id == "yoyodyne-d" || id == "yoyodyne-e" || id == "yoyodyne-f" {
+			return h.complete(id), nil
+		}
+		return stoppedWithNoCheckRan(h, id)
+	}
+	harness.onSleep = func(_ *scheduleHarness, sleeps int) bool { return sleeps < 100 }
+
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Now: harness.clock}
+	if _, err := scheduler.Schedule(context.Background()); err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	for _, problem := range problems {
+		t.Error(problem)
+	}
+	var order []string
+	for _, started := range starts {
+		order = append(order, started.id)
+	}
+	if len(starts) != 6 || order[2] != "yoyodyne-c" || order[3] != "yoyodyne-d" {
+		t.Fatalf("started %v, want a and b, then c alone, then d alone, then e and f", order)
+	}
+	interval := int(defaultMachineChecksProbe / time.Minute)
+	if starts[2].sleep < interval || starts[3].sleep < starts[2].sleep+interval {
+		t.Fatalf("c started after %d polls and d after %d, want each a whole %s interval after the run before it met the cause", starts[2].sleep, starts[3].sleep, defaultMachineChecksProbe)
+	}
+	if starts[4].sleep != starts[5].sleep {
+		t.Fatalf("e started after %d polls and f after %d, want both places filled together once the hold cleared", starts[4].sleep, starts[5].sleep)
+	}
 }

@@ -1783,6 +1783,8 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		}
 		if held, holds := machineChecksHeldBy(started.Outcome, s.now()); holds {
 			checksHeld = held
+		} else {
+			checksHeld = checksHeld.settled(done.index, started.Outcome)
 		}
 		// The run's own context is released with it, whether or not the drain
 		// bound cancelled it first.
@@ -3037,8 +3039,12 @@ pulling:
 			continue
 		}
 		// Checks the machine could not run hold new work the same way, for as long
-		// as the probe interval since a run of this session's met them.
-		if stopped, holding := checksHeld.holding(s.now(), pull.OutageProbe); holding {
+		// as the probe interval since a run of this session's met them, and then
+		// until the one run started to find out has ended (machineChecksHold).
+		stopped, checksHold := checksHeld.state(s.now(), pull.OutageProbe)
+		checksProbing := checksHold == machineChecksProbe
+		checksBefore := len(schedule.Started)
+		if checksHold == machineChecksWaiting {
 			schedule.Blocked = stopped
 			if !s.Watching {
 				schedule.Stopped = ScheduleBlocked
@@ -3050,7 +3056,6 @@ pulling:
 			}
 			continue
 		}
-		checksHeld = machineChecksHold{}
 		schedule.Blocked = refused
 
 		schedule.Capacity = pull.Capacity
@@ -3058,7 +3063,7 @@ pulling:
 		// A probe is one run, whatever the capacity leaves free: what it is for is
 		// finding out whether the line is fine, and two of them would be two runs
 		// spent on one question.
-		if probing && free > 1 {
+		if (probing || checksProbing) && free > 1 {
 			free = 1
 		}
 		if free < 1 {
@@ -3459,6 +3464,11 @@ pulling:
 			}
 			pendingCarryOuts = nil
 			s.recordUnattempted(ctx, &schedule, pull, outrankedBy)
+		}
+		// The first run this pull started is the one that finds out whether the
+		// checks can run again, and nothing else starts until it ends.
+		if checksProbing && len(schedule.Started) > checksBefore {
+			checksHeld.probeStarted, checksHeld.probeIndex = true, checksBefore
 		}
 		if probing && started == 0 {
 			// Nothing was startable under the hold, so the probe found nothing to

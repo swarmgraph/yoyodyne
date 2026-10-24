@@ -605,9 +605,10 @@ cannot run.
 What stops every check is usually the machine, so every other ready item would
 stop the same way. The session that started the run therefore says so once and
 starts no new work for the interval `execution.usage_limit_unknown_reset_pause`
-gives (30 minutes by default). After that it starts one run to find out whether
-the checks can run again: if they can, work goes on as normal, and if not, it
-holds again.
+gives (30 minutes by default). After that it starts one run, however many
+developer places are free, to find out whether the checks can run again, and
+starts nothing else until that run ends: if the checks ran, work goes on as
+normal, and if not, it holds again for the same interval.
 
 A real failure is still a failure: a check that ran and exited non-zero without
 that line is handed back to the developer exactly as before, whatever another
