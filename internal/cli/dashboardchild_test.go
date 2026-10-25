@@ -671,9 +671,14 @@ func TestChangingTheDashboardPortWithoutANewBuildMovesTheDashboardOntoIt(t *test
 }
 
 // dashboardBound is a project configuration that runs the dashboard on port
-// 8765 at bind, under the token stored in the keychain, which a bind outside
-// loopback needs to load at all.
+// 8765 at bind. A bind outside loopback is given the token stored in the
+// keychain, which it needs to load at all; a loopback one keeps the generated
+// token, which is one per start, so the fakes confirm each start by its own.
 func dashboardBound(bind string) string {
+	token := "generated"
+	if ip := net.ParseIP(bind); ip == nil || !ip.IsLoopback() {
+		token = "keychain"
+	}
 	return `version: 1
 extends: builtin:v1
 product:
@@ -684,7 +689,7 @@ services:
     enabled: true
     port: 8765
     bind: "` + bind + `"
-    token: keychain
+    token: ` + token + `
 `
 }
 
@@ -700,8 +705,6 @@ func TestChangingTheDashboardBindMovesItOrSaysWhyItCannot(t *testing.T) {
 	dashboardReaders(t, child, fakes)
 	path := writeProjectConfig(t, dashboardBound("127.0.0.1"))
 	child.config = path
-	child.source = config.DashboardTokenKeychain
-	fakes.supplied = "the-stored-token"
 	child.configured = func() (config.Services, error) {
 		resolved, err := config.LoadResolved(path)
 		return resolved.Config.Services, err
@@ -777,6 +780,7 @@ func TestChangingTheDashboardBindMovesItOrSaysWhyItCannot(t *testing.T) {
 	said := standing.RenderServices()
 	for _, want := range []string{
 		"services.dashboard.bind is 192.168.1.20 in the configuration and it started with ::1",
+		"services.dashboard.token is keychain in the configuration and it started with generated",
 		"the change cannot be applied, so it is not restarted and goes on serving on what it started with",
 		`services.dashboard.bind "192.168.1.20" is not a loopback address, and the dashboard listens only on this machine`,
 	} {
