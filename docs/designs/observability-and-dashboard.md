@@ -74,6 +74,10 @@ revisions:
       by: architect
       at: 2026-10-25T18:01:23.940497Z
       reason: 'Approved amendment-9f56f450: the dashboard section opens with a summary for the operator, above the top status band and at the head of yoyo status, giving five answers in order (what landed, code apart from documents; what is in progress with its newest result; what is blocked, with who it waits on and the next step, and runs that ended without landing grouped by cause; what needs the operator; what it cost), built from the standing, throughput and spend readings, with run ids and stop causes behind a detail button or flag. The section list now counts eight sections. Only this section changes; the read model''s query list gains its line in a following revision. Written from main at 0ef00fa8.'
+    - action: amended
+      by: architect
+      at: 2026-10-25T20:20:02.180936Z
+      reason: 'Approved amendment-9f56f450, second half: the read model''s list of queries gains the summary query that the dashboard section''s opening summary already describes, built from the standing, throughput and spend answers and keeping no figure of its own. Only the new list entry changes; everything else in this section, including the work item references subsection, is copied unchanged. Written from main at b877e026.'
 approvals:
     - policy: approvals.designs
       revision: 7
@@ -125,6 +129,11 @@ approvals:
       by: harness
       at: 2026-10-25T18:01:23.940497Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1730, for document-1730.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 17
+      by: harness
+      at: 2026-10-25T20:20:02.180936Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1746, for document-1746.1 under the automatic approval policy
 ---
 # One observability read model, and the local dashboard that projects it and takes the operator's own decisions
 
@@ -150,6 +159,7 @@ A shared Go package, independent of HTTP and of any rendering, reading only the 
 - program managers: per configured instance, its name, lane, the status derived as [program-manager](program-manager.md) specifies — blocked from an open cited request, stale from the pass records against the instance's schedule, working otherwise — its open restart requests, and its current lane report, served whole one instance at a time. Where an instance's lane report cites a problem by id, the read model joins the instance's judgment onto the problem — its remedy, its account of the cause, the count it corrected, and the item it admitted in its lane — and the instance's own status and blockers are problems of kind blocked or stalled with the instance as subject.
 - the team at work and one piece of work, the `team` and `work` queries described under the team at work below;
 - the backlog and the delivery measures, the `/api/backlog` and `/api/delivery` queries described under the backlog page and the delivery page below;
+- the summary that opens the dashboard and `yoyo status`: the `summary` query described under the summary that opens the page below, built from the standing, throughput and spend answers this list already gives and keeping no figure of its own, so every figure in it equals the same figure where that answer is shown;
 - the rendered text of everything a role wrote that names a work item, as described under work item references below.
 
 The model also serves what Slack's governed behavior already needs — per-item status for thread reactions, directive lifecycle marks, item titles for thread openers, and the rendered text of every work item reference — so the sink presents these derivations instead of computing them.
