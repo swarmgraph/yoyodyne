@@ -106,8 +106,11 @@ const defaultMachineChecksProbe = 30 * time.Minute
 type machineChecksHold struct {
 	runID      string
 	workItemID string
-	detail     string
-	since      time.Time
+	// title is the work item's title as the pull that started the run read it,
+	// and empty where it read none.
+	title  string
+	detail string
+	since  time.Time
 	// probeStarted is the one run started once the interval passed, and
 	// probeIndex its entry on the schedule, which is how its ending is told
 	// apart from any other run's.
@@ -129,13 +132,23 @@ const (
 )
 
 // machineChecksHeldBy is the hold a finished run places, where it stopped
-// because no configured check could run on its change.
-func machineChecksHeldBy(outcome Outcome, at time.Time) (machineChecksHold, bool) {
+// because no configured check could run on its change. title is the item's
+// title as the session read it when it started the run.
+func machineChecksHeldBy(outcome Outcome, title string, at time.Time) (machineChecksHold, bool) {
 	refused := outcome.Environmental
 	if refused == nil || refused.Cause != runstate.CauseNoCheckRan {
 		return machineChecksHold{}, false
 	}
-	return machineChecksHold{runID: outcome.RunID, workItemID: outcome.WorkItemID, detail: refused.Detail, since: at}, true
+	return machineChecksHold{runID: outcome.RunID, workItemID: outcome.WorkItemID, title: strings.TrimSpace(title), detail: refused.Detail, since: at}, true
+}
+
+// item names the work item the way a person reads it: its title with its
+// identifier after it, or the identifier alone where no title was read.
+func (h machineChecksHold) item() string {
+	if h.title == "" {
+		return h.workItemID
+	}
+	return h.title + " (" + h.workItemID + ")"
 }
 
 // state is what the hold asks of the pull at now, with what the session says
@@ -149,7 +162,7 @@ func (h machineChecksHold) state(now time.Time, probe time.Duration) (string, ma
 		probe = defaultMachineChecksProbe
 	}
 	met := fmt.Sprintf("on run %s of %s, %s; the stopped run is with the development manager",
-		h.runID, h.workItemID, singleLine(h.detail, runstate.MaxEnvironmentalDetailBytes))
+		h.runID, h.item(), singleLine(h.detail, runstate.MaxEnvironmentalDetailBytes))
 	if h.probeStarted {
 		return "runs are not being started: " + met + ", and the one run started to find out whether the checks can run again is still going", machineChecksWaiting
 	}

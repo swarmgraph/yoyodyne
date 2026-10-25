@@ -41,7 +41,9 @@ func TestChecksTheMachineCouldNotRunHoldNewWorkAfterTheFirstRun(t *testing.T) {
 
 	t.Run("a drain", func(t *testing.T) {
 		t.Parallel()
-		harness := newScheduleHarness(readyItems("yoyodyne-one", "yoyodyne-two")...)
+		items := readyItems("yoyodyne-one", "yoyodyne-two")
+		items[0].Title, items[1].Title = "Pin the charting library", "Report shared provider cost"
+		harness := newScheduleHarness(items...)
 		var started []string
 		harness.run = func(h *scheduleHarness, id string) (Outcome, error) {
 			started = append(started, id)
@@ -55,7 +57,7 @@ func TestChecksTheMachineCouldNotRunHoldNewWorkAfterTheFirstRun(t *testing.T) {
 		if strings.Join(started, ",") != "yoyodyne-one" {
 			t.Fatalf("started %v, want only the first run", started)
 		}
-		if schedule.Stopped != ScheduleBlocked || !strings.Contains(schedule.Blocked, "on run run-yoyodyne-one of yoyodyne-one") ||
+		if schedule.Stopped != ScheduleBlocked || !strings.Contains(schedule.Blocked, "on run run-yoyodyne-one of Pin the charting library (yoyodyne-one),") ||
 			!strings.Contains(schedule.Blocked, "You have not agreed to the Xcode license agreements") {
 			t.Fatalf("stopped %q, blocked %q; want the session to say once what the machine refused", schedule.Stopped, schedule.Blocked)
 		}
@@ -162,5 +164,27 @@ func TestOnlyOneRunFindsOutWhetherTheChecksCanRunAgain(t *testing.T) {
 	}
 	if starts[4].sleep != starts[5].sleep {
 		t.Fatalf("e started after %d polls and f after %d, want both places filled together once the hold cleared", starts[4].sleep, starts[5].sleep)
+	}
+}
+
+// The waiting message names the work item by its title with its identifier
+// after it, and by the identifier alone only where no title was read.
+func TestTheChecksHoldNamesTheItemByItsTitle(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 10, 24, 17, 0, 0, 0, time.UTC)
+	outcome, _ := stoppedWithNoCheckRan(newScheduleHarness(), "yoyodyne-ani")
+	for title, want := range map[string]string{
+		"Report shared provider cost": "of Report shared provider cost (yoyodyne-ani),",
+		"":                            "of yoyodyne-ani,",
+	} {
+		held, holds := machineChecksHeldBy(outcome, title, now)
+		if !holds {
+			t.Fatal("machineChecksHeldBy() placed no hold for a run no check could run on")
+		}
+		said, state := held.state(now, time.Minute)
+		if state != machineChecksWaiting || !strings.Contains(said, want) {
+			t.Fatalf("state = %d, said %q; want the session waiting and naming the item as %q", state, said, want)
+		}
 	}
 }

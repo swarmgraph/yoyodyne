@@ -1781,7 +1781,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			started.environmental = true
 			refused, schedule.Blocked = refusal, refusal
 		}
-		if held, holds := machineChecksHeldBy(started.Outcome, s.now()); holds {
+		if held, holds := machineChecksHeldBy(started.Outcome, tried[started.WorkItemID].title, s.now()); holds {
 			checksHeld = held
 		} else {
 			checksHeld = checksHeld.settled(done.index, started.Outcome)
