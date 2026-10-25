@@ -31,6 +31,10 @@ revisions:
       by: architect
       at: 2026-10-22T17:09:26.990337Z
       reason: Replaces the retired phrase for the operator's pause in the preserved-run recovery section with the terms register's wording, as part of replacing the coined vocabulary in the governed documents (yoyodyne-ifd.437.21); nothing else in the design changes.
+    - action: amended
+      by: architect
+      at: 2026-10-24T23:58:17.208001Z
+      reason: 'Carries the revision the forward progress design (yoyodyne-ifd.428.112) and the review of lifecycle states (yoyodyne-ifd.428.113) both promised: health.observe reports every item''s state and the forward progress problems, the recovery tool names who acts and accepts the harness for its bounded acts while the development manager is unavailable, a third use of the same act on the same failure is refused, and the unresolved hold becomes a wait that keeps the stop listed.'
 approvals:
     - revision: 0
       by: operator
@@ -61,6 +65,11 @@ approvals:
       by: harness
       at: 2026-10-22T17:09:26.990337Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1500, for document-1500.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-10-24T23:58:17.208001Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1665, for document-1665.1 under the automatic approval policy
 ---
 # Purpose and scope
 
@@ -68,13 +77,13 @@ This design serves the approved management and supervision goals through the man
 
 The harness supplies fresh standing health evidence to every scheduled development-manager and factory-flow program-manager pass. Recovery, health reporting and pass completion use one account of a run's lifecycle. Event deltas and cached specification context remain useful inputs, but neither establishes current health.
 
-How a stopped run moves from its stop to going on, step by step, is [stopped-run-recovery](stopped-run-recovery.md). This design supplies the evidence and the one recovery capability those steps use, and the two share one closed list of recovery actions.
+How a stopped run moves from its stop to going on, step by step, is [stopped-run-recovery](stopped-run-recovery.md). This design supplies the evidence and the one recovery capability those steps use, and the two share one closed list of recovery actions. What every admitted item's state is, and what the harness does on its own while the development manager is unavailable, is [forward progress](forward-progress.md). How every wait and hold becomes one follow-up record is [fewer lifecycle states](fewer-lifecycle-states.md). This design reports the first and carries the acts of both.
 
 These are design requirements enforced in code, not new repository-wide invariants.
 
 # Decision and alternatives
 
-Use the existing run records, presence observation, reservation lock, run leases, workflow observations, pass records and manager reports. Reject a parallel monitoring database, timestamp-only declarations of process death, unconditional claim-audit exemptions, blind cancellation of preserved work and completion inferred from an empty event delta. Those alternatives either create conflicting accounts or conceal work that still occupies capacity.
+Use the existing run records, presence observation, reservation lock, run leases, workflow observations, pass records, follow-ups and manager reports. Reject a parallel monitoring database, timestamp-only declarations of process death, unconditional claim-audit exemptions, blind cancellation of preserved work and completion inferred from an empty event delta. Those alternatives either create conflicting accounts or conceal work that still occupies capacity.
 
 Separate saved status, observed worker presence, pending wait, continuation eligibility, capacity occupancy and workflow observation. No single field substitutes for the others.
 
@@ -89,12 +98,12 @@ The shared classification has these outcomes:
 - A confirmed live worker retains ownership. Age alone does not authorize intervention.
 - Missing ownership evidence within the existing presence grace remains uncertain. Read failures remain explicit uncertainty.
 - A durable dependency wait keeps the item reserved against duplicate work and holds no developer slot. It is eligible for continuation only after fresh dependency evidence says the wait has cleared.
-- Other legitimate waits retain their existing pause policy and capacity semantics. Health names the condition and the mechanism that will revisit it.
-- A workerless preserved run without a legitimate wait requires same-run recovery or an unresolved recovery hold with a responsible role, supported remedy and follow-up condition.
+- Other legitimate waits retain their existing pause policy and capacity semantics. Health names the condition and the follow-up that will revisit it.
+- A workerless preserved run without a legitimate wait requires same-run recovery or a wait that keeps its stop on the development manager's list, naming a responsible role, supported next step and follow-up check.
 - A recorded integration requires completion or reconciliation of remaining steps, not fresh development.
 - A terminal run may still owe cleanup or carry preserved work. Its ending does not establish that its artifacts are disposable.
 
-Scheduler selection, reconciliation, claim auditing, capacity reporting and manager health delivery consume this shared classification. A timestamp-based snapshot may identify a candidate for inspection; only ownership acquired through the existing lease permits mutation.
+Scheduler selection, reconciliation, claim auditing, capacity reporting and manager health delivery consume this shared classification. None of them decides from an item's tracker status of in progress or its assignee, which are display copies under point 3 of [fewer lifecycle states](fewer-lifecycle-states.md). A timestamp-based snapshot may identify a candidate for inspection; only ownership acquired through the existing lease permits mutation.
 
 # Preserved-run recovery
 
@@ -102,13 +111,13 @@ Recover the same run, branch, worktree, provider session and counters. Preserve 
 
 A recovery actor takes the existing run lease and strictly reloads its record. It then reads current dependencies, the operator's pause (set by `yoyo pause`), directives and applicable gates before invoking a provider or advancing delivery. A pre-adoption refusal is not a durable dependency wait.
 
-If unfinished dependencies prevent continuation, record the dependency wait under the run lease without advancing the interrupted phase. Only a successfully established durable wait releases capacity. The duplicate-run reservation stays active. When dependencies clear, reacquire capacity and clear the wait under the same reservation lock used by fresh reservations, while retaining the run lease. A capacity refusal leaves the durable wait and interrupted phase intact.
+If unfinished dependencies prevent continuation, record the dependency wait under the run lease without advancing the interrupted phase, and write its follow-up in the same act, with the check that the item's dependencies have closed. Only a successfully established durable wait releases capacity. The duplicate-run reservation stays active. When dependencies clear, reacquire capacity and clear the wait under the same reservation lock used by fresh reservations, while retaining the run lease. A capacity refusal leaves the durable wait and interrupted phase intact.
 
-A redeploy stop describes why execution ended; it is not by itself a perpetual audit exemption or proof of a legitimate wait. The shared classification must lead to continuation, a durable wait, completion of already integrated work, or an accountable unresolved hold. Claim auditing must not cancel useful preserved work merely to free capacity.
+A redeploy stop describes why execution ended; it is not by itself a perpetual audit exemption or proof of a legitimate wait. The shared classification must lead to continuation, a durable wait, completion of already integrated work, or a wait that keeps the stop listed for the development manager. Claim auditing must not cancel useful preserved work merely to free capacity.
 
 After a save reports an uncertain result, strictly reload under the lease before another transition. A replacement may have succeeded before a directory-sync error was returned. Neither success nor absence may be inferred from that error alone. If durable state cannot be established, stop further invocation and report uncertainty, the last attempted operation and the recovery owner. Do not attempt blind cancellation as a substitute for reconciliation.
 
-Re-entry must observe artifacts and any previously attempted mutation before repeating it. Exclusive local ownership prevents concurrent workers; it does not prove that a remote or provider action never happened. Ambiguous effects require observation or an unresolved hold rather than an assertion of exactly-once execution.
+Re-entry must observe artifacts and any previously attempted mutation before repeating it. Exclusive local ownership prevents concurrent workers; it does not prove that a remote or provider action never happened. Ambiguous effects require observation or a wait that keeps the stop listed rather than an assertion of exactly-once execution.
 
 # Workflow observation and checkpoints
 
@@ -116,7 +125,7 @@ The inspected declarative delivery path observes the Go pipeline and does not pe
 
 Classify redeploy interruption as a pause before recording an ordinary stopped outcome. Preserve the observation at the last truthful boundary. Reload the run and its observation before resuming; report a missing, unreadable, terminal or divergent observation explicitly.
 
-A terminal observation is not authority to cancel a nonterminal, recoverable delivery run. Preserve its terminal history and record the disagreement on the run. Continue through the supported delivery path when the run's ownership, artifacts, phase and gates establish that continuation is safe; do not fabricate graph transitions or reopen a terminal observation. Where those delivery facts cannot be established, record an unresolved recovery hold.
+A terminal observation is not authority to cancel a nonterminal, recoverable delivery run. Preserve its terminal history and record the disagreement on the run. Continue through the supported delivery path when the run's ownership, artifacts, phase and gates establish that continuation is safe; do not fabricate graph transitions or reopen a terminal observation. Where those delivery facts cannot be established, record a wait that keeps the stop listed for the development manager.
 
 Do not migrate an in-flight run to the current project definition. A changed or unavailable definition is explicit evidence of observation failure. A mismatch must not be reported as a clean workflow trace.
 
@@ -126,18 +135,28 @@ Run and observation writes are separate durable operations. Crash reconciliation
 
 Before every scheduled development-manager and factory-flow program-manager invocation, gather a new shared health observation independently of the event cursor and specification cache. Include nonterminal workerless runs, stranded capacity, unresolved recovery attempts and overdue follow-ups even when no landing, stoppage or admission event occurred.
 
+The observation also reports what [forward progress](forward-progress.md) asks of it:
+
+- the state of every admitted item that is not a parent of open items, worked out from records as point 1 of forward progress says, with the count in each state and the oldest entry of each;
+- an item that fits none of those states, as a problem owned by the development manager, naming the item by title and identifier, its tracker status and the records read;
+- the latest pull's reason for each ready item it did not start, from the closed list in point 2 of forward progress;
+- a developer slot whose provider can be used left empty beside ready work it accepts for `execution.idle_slot_after` with no reason recorded, as a problem, with the bug the harness filed or noted for it;
+- the same failure on three or more items within twenty four hours, shown once as one problem naming the items, the failing check or tests and when it was first seen;
+- whether each management role is unavailable, since when and why, by the test in point 4 of forward progress;
+- a difference between an item's tracker copy of in progress or its assignee and its run records, as a problem the harness owns and repairs.
+
 Give the pass an observation identifier and observation time, source coverage, individual read failures and every actionable anomaly. Bound rendering without silently dropping anomalies: include exact totals and omitted identities through a supported bounded follow-up read. Missing, stale or partial evidence must never be rendered as an empty healthy set.
 
-An anomaly identity is based on product, run and condition; it must distinguish a newer run from an older stoppage on the same item. Retain first observation, latest observation, recurrence, resolution and reopening through existing durable pass/report records. First observation does not reset when a manager starts a new conversation. A reopened condition is recorded explicitly. No separate anomaly database is introduced.
+An anomaly identity is based on product, run and condition; it must distinguish a newer run from an older stoppage on the same item. An anomaly about an item rather than a run, such as an item in no state, uses the item in place of the run. Retain first observation, latest observation, recurrence, resolution and reopening through existing durable pass/report records. First observation does not reset when a manager starts a new conversation. A reopened condition is recorded explicitly. No separate anomaly database is introduced.
 
-Health observation is read-only. Program managers retain their existing authority: they may identify patterns and work within their lane, but cannot stop runs, release claims, alter capacity or decide triage. The development manager remains accountable for recovery decisions within her authority; the harness performs supported operations.
+Health observation is read-only. Program managers retain their existing authority: they may identify patterns and work within their lane, but cannot stop runs, release claims, alter capacity or decide triage. The development manager remains accountable for recovery decisions within her authority; the harness performs supported operations, and takes the bounded acts of its own that the section below on who acts allows.
 
 # Accountable pass completion
 
 Every delivered actionable anomaly must have a durable disposition citing its identity and evidence:
 
 1. Verified resolution, with fresh evidence establishing what changed.
-2. An evidenced wait, naming the release condition and the mechanism that will revisit it; include a deadline when time bounds the wait.
+2. An evidenced wait, naming the release condition and the follow-up that will revisit it; include a deadline when time bounds the wait.
 3. An unresolved condition, naming the responsible role, supported next action and follow-up time or trigger.
 
 Owner assignment alone, generic memory, an empty event delta and a repeated summary do not discharge an anomaly. Reuse existing work and dispositions instead of admitting duplicates. Repeated refusal and overdue follow-up remain visible on later passes until fresh evidence establishes resolution or a valid wait.
@@ -162,45 +181,63 @@ Repository inspection used commit dfc0079ad98c. The continuation, redeploy, reco
 
 This addendum answers the development manager and architect prompt rules and the evidence and recovery contract behind them (yoyodyne-ab2). It carries two things forward. The first is the development manager's finding that the guidance above is not enough to build from, because it says what must be true without saying what a manager can actually ask the harness for. The second is the operator's assignment of October 4: concrete rules for how the development manager and the architect decide, and the evidence and tools that let them follow those rules.
 
-Rules in a prompt cannot supply evidence the harness does not gather or actions it does not offer. So the addendum first defines five capabilities, then the rules that rely on them, then which parts are enforced in code and which are left to the prompt. Everything here reuses the run records, leases, reservation lock, pass records, reports, read model and role authority already described above. No parallel monitoring or recovery service is added, and nothing in a prompt grants authority.
+Rules in a prompt cannot supply evidence the harness does not gather or actions it does not offer. So the addendum first defines five capabilities, then the rules that rely on them, then which parts are enforced in code and which are left to the prompt. Everything here reuses the run records, leases, reservation lock, pass records, follow-ups, reports, read model and role authority already described above. No parallel monitoring or recovery service is added, and nothing in a prompt grants authority.
 
 ## The five capabilities
 
 Each is registered as a tool under [the tool interface design](tool-interface.md): a descriptor, its mark in the registry, and an audit event for every call. The harness performs every call itself. An owning conversation turn and a scheduled pass reach the same capability with the same request and result fields, on both supported backends, in the form the tool interface design gives each backend.
 
-`health.observe`, class read, built by shared health delivery (yoyodyne-e7c). Request: the product, and optionally a list of runs to restrict it to. Result: an observation identifier and its time; the sources read and how complete each was; each read failure; every actionable anomaly with its identity (product, run and condition), first seen, last seen, how many times it has recurred, and its classification under the shared lifecycle account above. It also reports each supervised service: every running copy with its build and start time and whether that build is the current one; the search path the service runs with and whether each provider command it needs is found on it; maintenance failures recorded since the last pass and whether they were delivered; and each configuration file it names with whether that file exists. This is how a pass establishes configuration health rather than guessing it, and it covers the development manager's report of a supervisor configuration pointing at a file missing from its test directory.
+`health.observe`, class read, built by shared health delivery (yoyodyne-e7c). Request: the product, and optionally a list of runs to restrict it to. Result: an observation identifier and its time; the sources read and how complete each was; each read failure; every actionable anomaly with its identity (product, run or item, and condition), first seen, last seen, how many times it has recurred, and its classification under the shared lifecycle account above. It also reports each supervised service: every running copy with its build and start time and whether that build is the current one; the search path the service runs with and whether each provider command it needs is found on it; maintenance failures recorded since the last pass and whether they were delivered; and each configuration file it names with whether that file exists. This is how a pass establishes configuration health rather than guessing it, and it covers the development manager's report of a supervisor configuration pointing at a file missing from its test directory. It reports the forward progress conditions listed in the fresh health delivery section above, each as the forward progress piece that builds it lands.
 
 A result larger than the rendering bound returns exact totals, the identities it left out, and a cursor.
 
 `health.follow`, class read, built by shared health delivery. Request: an observation identifier and a cursor. Result: the next part of what that observation left out. An observation older than fifteen minutes is refused with the reason, and the caller observes again.
 
-`run.inspect`, class read, built by shared health delivery. Request: one run. Result: the run record, cut at 48 KiB with the cut declared; the lease holder; the worker's identity as defined below and whether it is live, absent, or uncertain; whether the branch and worktree exist; the reservation; any wait and its release condition; the last continuation attempt and refusal.
+`run.inspect`, class read, built by shared health delivery. Request: one run. Result: the run record, cut at 48 KiB with the cut declared; the lease holder; the worker's identity as defined below and whether it is live, absent, or uncertain; whether the branch and worktree exist; the reservation; any wait and its release condition, with its follow-up; the last continuation attempt and refusal.
 
-`run.verify`, class read, built by shared health delivery. Request: one run and one expected state, from this closed list: worker live, wait recorded, reservation released, continuation started, repair started, rerun holds the item, integration completed, item given back, question recorded, unresolved hold recorded. Result: met, not met, or unknown, with the evidence read and its observation time. Unknown is never reported as met.
+`run.verify`, class read, built by shared health delivery. Request: one run and one expected state, from this closed list: worker live, wait recorded (keeping the stop listed, or taking it off the list), reservation released, continuation started, repair started, rerun holds the item, integration completed, item given back, question recorded. Result: met, not met, or unknown, with the evidence read and its observation time. Unknown is never reported as met. A request for wait recorded names which of its two kinds it expects, and a wait of the other kind is not met.
 
-`run.recover`, class act, built by lifecycle recovery (yoyodyne-06m), with the four actions marked below built by the slices of stopped-run-recovery. Request: a request identifier the caller makes up and never reuses, one run, the observation identifier the decision rests on, the saved status and phase the caller expects, the stop it answers by attempt number and stop time where the run is on the development manager's list of stopped runs, one action, and a reason. The actions are one closed list. It is the list of the development manager's decisions in step 3 of stopped-run-recovery, with one action added for a run that has no stop to decide:
+`run.recover`, class act, built by lifecycle recovery (yoyodyne-06m), with the four actions marked below built by the slices of stopped-run-recovery. Request: a request identifier the caller makes up and never reuses, one run, the observation identifier the decision rests on, the saved status and phase the caller expects, the stop it answers by attempt number and stop time where the run is on the development manager's list of stopped runs, one action, who is acting, and a reason. The actions are one closed list. It is the list of the development manager's decisions in step 3 of stopped-run-recovery, with one action added for a run that has no stop to decide:
 
 - continue the same run from the step it stopped at, spending nothing;
 - repair: the same run goes back to its developer with a stated number of repair attempts (built by stopped-run-recovery);
 - rerun: a fresh run of the item from the current target branch (built by stopped-run-recovery);
 - finish the merge: complete the steps after a recorded or possible integration;
-- wait, naming the release condition and what will look at it again; a dependency wait is a wait whose release condition is the item's dependencies closing, recorded as the preserved-run recovery section says;
+- wait, naming its owner, next step, check from the closed list of [follow-ups](follow-ups.md) and deadlines, and whether it keeps the stop on the development manager's list or takes it off while its follow-up is open and before its first deadline; a dependency wait is a wait whose check is the item's dependencies closing, recorded as the preserved-run recovery section says;
 - give the item back: retire the run with its change kept, release the item's claim and developer slot, and return the item to the queue with the stop named in a note (built by stopped-run-recovery);
-- record an unresolved hold naming its owner, next action and follow-up;
 - ask the Lead Product Manager, recording the question and the stop it concerns on the run, when the decision needs a priority or a scope she owns (built by stopped-run-recovery);
-- release what a finished run with no worker still holds: its developer slot, the item's claim, or its file reservations. This is not a decision on a stop. It applies only to a finished run that still holds at least one of those three. A finished run that holds none of them has nothing to release, and the request is refused as not allowed for its saved status and phase. A run with no worker that is still saved as in flight is not answered by a release: it is answered by a wait, a continuation of the same run, or an unresolved hold.
+- release what a finished run with no worker still holds: its developer slot, the item's claim, or its file reservations. This is not a decision on a stop. It applies only to a finished run that still holds at least one of those three. A finished run that holds none of them has nothing to release, and the request is refused as not allowed for its saved status and phase. A run with no worker that is still saved as in flight is not answered by a release: it is answered by a wait, a continuation of the same run, or a wait that keeps its stop listed.
+
+The list has no separate action for an unresolved hold. What that action recorded, an owner, a next step and a time to look again, is a wait that keeps the stop listed, as point 2 of [fewer lifecycle states](fewer-lifecycle-states.md) says. Until build piece 4 of that design lands, the build may still record an unresolved hold; it is read as a wait that keeps the stop listed, and no new code records one.
 
 Result: applied, refused, or unknown, as defined below.
 
-There is one carrier. A decision the development manager records on her list of stopped runs is carried out through `run.recover` and nothing else, and a `run.recover` call that answers a stop is that decision. No second path carries a recovery act, so neither can skip a check the other makes.
+There is one carrier. A decision the development manager records on her list of stopped runs is carried out through `run.recover` and nothing else, and a `run.recover` call that answers a stop is that decision. An act the harness takes on its own, under the section on who acts below, goes through `run.recover` the same way. No second path carries a recovery act, so none can skip a check the others make.
 
 Dispositions are recorded where they are recorded now, on the pass record, and manager coverage validation (yoyodyne-5eu) checks them. No new capability is added for them.
+
+## Who acts
+
+A `run.recover` request names who is acting: the development manager, or the harness. The harness acts only while the development manager is unavailable, by the test in point 4 of [forward progress](forward-progress.md), and only for these:
+
+- continue the same run, where the stop is outside the work and its cause has demonstrably cleared, for exactly the causes point 4 of forward progress lists;
+- finish the merge, for a run recorded as merged or whose merge is uncertain, by step 8 of stopped-run-recovery; where the commit is not on the target branch it records a wait for her instead;
+- release what a finished run with no worker still holds;
+- wait, owned by the development manager, keeping the stop listed, with the check that the stop has left the list.
+
+Releasing a hold whose follow-up check has passed, the other act forward progress lets the harness take, is not a `run.recover` call: the follow-up check runner closes that follow-up as [follow-ups](follow-ups.md) says.
+
+A request from the harness for any other action, or with a reason other than the development manager's unavailability, is refused as not allowed for the one acting. So is one past the bounds of point 4 of forward progress: a second act of the harness's own on the same stop; a second automatic continue after the same failure; more automatic continues in an hour than `execution.harness_recovery_per_hour`; or any act on a stop whose failure is shown as the same failure across items. The refusal names the bound. Every act of the harness's own is recorded before and after with the harness as the one who acted and the time since which the development manager has been unavailable, is checked with `run.verify` like hers, and is listed at the start of her next completed pass.
+
+The harness never repairs, reruns, gives an item back or asks the Lead Product Manager through this tool. Those are judgments, and they wait for her.
 
 ## What binds a request
 
 Every `run.recover` request carries the product, the run, the observation identifier and the expected status and phase. The harness takes the run lease, reloads the record strictly and compares. If anything differs from what the caller expected, the request is refused as state moved, nothing is changed, and the result names what differs. Where the request answers a stop, the stop is compared too: a request for a stop that a later stop of the same run has replaced is refused as state moved. An observation older than fifteen minutes is refused for any act.
 
 A repair grant or a rerun is taken from the item's recovery budget when the request is recorded, under the lease, in the units stopped-run-recovery sets: repair attempts, and one rerun for each stop. A request for more than the budget holds is refused, naming what is left. No action widens the budget.
+
+A continue, a repair or a rerun whose act was already carried out twice on the same failure of the same item, as point 3 of [forward progress](forward-progress.md) defines the same failure, is refused, naming the two earlier stops and the acts taken on them. This counts acts by both the development manager and the harness.
 
 The checks that matter for safety are made at the moment the harness acts, under the lease, and not at the moment the caller observed. An action that needs no worker is refused if a worker is live or uncertain when the harness acts, whatever the observation said. A release is checked at that moment against what the finished run still holds, not against what the observation said it held.
 
@@ -228,9 +265,9 @@ The harness records a `run.recover` request on the run record, under the lease, 
 
 Applied means the change was written, and the harness read the record back afterwards and found the change there.
 
-Refused means nothing was changed. The reason is one of: state moved; observation too old; a worker is live or uncertain; the action is not allowed for the run's saved status and phase, which includes a release asked for on a finished run that holds nothing; the request asks for more than the item's recovery budget holds; the action is not yet built, naming the slice that builds it; the caller does not hold the capability; the request identifier was used before with different content.
+Refused means nothing was changed. The reason is one of: state moved; observation too old; a worker is live or uncertain; the action is not allowed for the run's saved status and phase, which includes a release asked for on a finished run that holds nothing; the request asks for more than the item's recovery budget holds; the same act was already carried out twice on the same failure of this item; the action is not allowed for the one acting, or passes a bound on the harness's own acts, naming which; the action is not yet built, naming the slice that builds it; the caller does not hold the capability; the request identifier was used before with different content.
 
-Unknown means the harness tried to write and afterwards could not tell whether the write happened, for example because the file system reported an error after the file may already have been replaced. On unknown, nobody acts on that run again until the harness has reloaded it under the lease and established what it holds. Until then the run carries an unresolved hold that names the development manager, the attempted action and the request identifier, and the next health observation reports it.
+Unknown means the harness tried to write and afterwards could not tell whether the write happened, for example because the file system reported an error after the file may already have been replaced. On unknown, nobody acts on that run again until the harness has reloaded it under the lease and established what it holds. Until then the run carries a wait that keeps its stop listed, owned by the development manager, whose check is that the run has been reloaded and what it holds established, naming the attempted action and the request identifier. The next health observation reports it.
 
 ## Checking the outcome
 
@@ -240,21 +277,20 @@ Applied is not the same as recovered. After an applied result, the caller checks
 - repair: repair started, and then worker live;
 - rerun: rerun holds the item;
 - finish the merge: integration completed;
-- wait, including a dependency wait: wait recorded;
+- wait, including a dependency wait: wait recorded, of the kind the request asked for;
 - give the item back: item given back;
 - ask the Lead Product Manager: question recorded;
-- record an unresolved hold: unresolved hold recorded;
 - release what a finished run holds: reservation released.
 
-A disposition of verified resolution must cite a `run.verify` result of met from an observation taken after the action. A worker that started, an action that was applied, or a pull request that merged is not enough on its own.
+A disposition of verified resolution must cite a `run.verify` result of met from an observation taken after the action. A worker that started, an action that was applied, or a pull request that merged is not enough on its own. The harness checks its own acts the same way.
 
 ## Who holds what
 
-The development manager's bundle holds all five. The program manager's bundle, and so every instance of it, holds `health.observe`, `health.follow`, `run.inspect` and `run.verify`, and never `run.recover`, as the authority section above already says. The architect's bundle holds `health.observe`, `health.follow` and `run.inspect`, so a design can rest on how runs actually behave. A grant is registered by the slice that builds the capability, and a call without the grant is refused.
+The development manager's bundle holds all five. The program manager's bundle, and so every instance of it, holds `health.observe`, `health.follow`, `run.inspect` and `run.verify`, and never `run.recover`, as the authority section above already says. The architect's bundle holds `health.observe`, `health.follow` and `run.inspect`, so a design can rest on how runs actually behave. A grant is registered by the slice that builds the capability, and a call without the grant is refused. The harness's own acts are not a grant to any role: they are the bounded acts of the section on who acts, taken by the harness's code with no model.
 
 ## What is enforced in code and what is left to the prompt
 
-Enforced in code, never left to a prompt: the fifteen minute limit on observations; the binding of a request to its observation, expected state and stop; the checks made at the moment of acting; the recovery budget; worker identity, including the program start record, the one rule every reader applies to it, and the release of an earlier program's leases when a program starts; request identity and repeats; the closed lists of actions and expected states; the one carrier; the grants; that unknown blocks further action on the run; that verified resolution needs a later met result; and that missing, stale or partial evidence is never a healthy or complete result.
+Enforced in code, never left to a prompt: the fifteen minute limit on observations; the binding of a request to its observation, expected state and stop; the checks made at the moment of acting; the recovery budget; the refusal of a third use of the same act on the same failure; who may act, and the bounds on the harness's own acts; worker identity, including the program start record, the one rule every reader applies to it, and the release of an earlier program's leases when a program starts; request identity and repeats; the closed lists of actions and expected states, and that they agree with the decisions in stopped-run-recovery; the one carrier; the grants; that unknown blocks further action on the run; that verified resolution needs a later met result; and that missing, stale or partial evidence is never a healthy or complete result.
 
 Left to the prompt: judgment about which obstruction matters, whether a pattern is recurring, which supported action is smallest, and how a design is ordered. The prompt rules below tell a role how to use what the code guarantees. They grant nothing, and a role that ignores one is held by the checks above, not by the wording.
 
@@ -304,10 +340,16 @@ Each slice can be checked on its own. Decomposing them into items is the develop
 
 1. `health.observe` and `health.follow`, including services, search paths, maintenance delivery and configuration files, with the scheduled pass message carrying a fresh observation and the grants for both. Shared health delivery (yoyodyne-e7c). Depends on nothing new.
 2. Worker identity recorded at worker start, including the program start record, the one rule every reader applies to it, and the release of an earlier program's leases when a program starts; `run.inspect` and `run.verify`, with their grants. Shared health delivery (yoyodyne-e7c). Depends on nothing new.
-3. `run.recover`: the request shape with the whole closed list of actions, binding to the observation, expected state and stop, the checks at the moment of acting, the recovery budget check, request identity and repeats, the three results, and the hold on unknown, with its grant. It carries out continue, finish the merge, wait, record an unresolved hold and release what a finished run holds. It refuses repair, rerun, give the item back and ask the Lead Product Manager as not yet built until slices 3, 4 and 6 of stopped-run-recovery build them on top of it. Its tests include a release asked for on a finished run that holds no developer slot, claim or file reservation, which is refused as not allowed for its saved status and phase with nothing changed. Lifecycle recovery (yoyodyne-06m). Depends on slice 2.
+3. `run.recover`: the request shape with the whole closed list of actions, binding to the observation, expected state and stop, the checks at the moment of acting, the recovery budget check, request identity and repeats, the three results, and the wait that keeps the stop listed on unknown, with its grant. It carries out continue, finish the merge, wait and release what a finished run holds. It refuses repair, rerun, give the item back and ask the Lead Product Manager as not yet built until slices 3, 4 and 6 of stopped-run-recovery build them on top of it. Its tests include a release asked for on a finished run that holds no developer slot, claim or file reservation, which is refused as not allowed for its saved status and phase with nothing changed. Lifecycle recovery (yoyodyne-06m). Depends on slice 2.
 4. Disposition validation: verified resolution needs a later met result, unknown is never complete, and a start, an applied result or a merge alone is refused as resolution. Manager coverage validation (yoyodyne-5eu). Depends on slices 2 and 3.
 5. The shared rule, the five architect rules and the development manager's rules 1, 3, 4 and 5, written into `internal/chat/role.go`, the two live persona files and their shipped templates, with the delivered prompts checked as the adoption section says. A new item. The developer names the template files before starting. Depends on nothing.
 6. The development manager's rule 2, written into the same two files for her, and checked in the same way. A new item. Depends on slices 2 and 3.
+
+Three changes are built by other designs' pieces, not by slices here, so none is admitted twice:
+
+- the forward progress conditions in `health.observe`, by pieces 1, 2, 5 and 6 of [forward progress](forward-progress.md), each adding its report to `health.observe` as it lands;
+- the section on who acts, the bounds on the harness's own acts and the refusal of a third use of the same act, by pieces 5 and 7 of forward progress, on top of slice 3;
+- the unresolved hold folded into a wait that keeps the stop listed, across the action list, `run.verify` and the unknown result, by piece 4 of [fewer lifecycle states](fewer-lifecycle-states.md). Where slice 3 is built first, it is built to that shape.
 
 ## Outcome scenarios
 
@@ -317,7 +359,7 @@ Each scenario is checked by what happens, in a test home or on the live factory,
 
 (b) A repair decision never carried out: assessing and recovering the preserved run a redeploy stopped (yoyodyne-9j7), shared health delivery (yoyodyne-e7c), and the case recorded under the orchestrator's fakes moving to a helper package (yoyodyne-ifd.429.13.6). The development manager decides to continue a stopped run, and carrying it out fails. The next observation shows the anomaly still open with its owner, and validation refuses a complete result for that pass.
 
-(c) A stale reservation blocking the fix needed to release it: the reservation item named in the audit (yoyodyne-ifd.428.68), lifecycle recovery (yoyodyne-06m), and the run on holding a check stopped by its own time limit (yoyodyne-ifd.428.37). A run with no worker is still saved as in flight and holds the item and a developer slot. The development manager answers it with a wait naming its release condition, a continuation of the same run, or an unresolved hold, and `run.verify` reports the matching expected state as met. Where she continues it, the run goes on and the blocked fix is then started; where she waits, the slot is freed as the preserved-run recovery section says while the item stays reserved. A release asked for on a finished run that holds no developer slot, claim or file reservation is refused as not allowed for its saved status and phase, and nothing changes.
+(c) A stale reservation blocking the fix needed to release it: the reservation item named in the audit (yoyodyne-ifd.428.68), lifecycle recovery (yoyodyne-06m), and the run on holding a check stopped by its own time limit (yoyodyne-ifd.428.37). A run with no worker is still saved as in flight and holds the item and a developer slot. The development manager answers it with a wait naming its check, a continuation of the same run, or a wait that keeps its stop listed, and `run.verify` reports the matching expected state as met. Where she continues it, the run goes on and the blocked fix is then started; where she waits, the slot is freed as the preserved-run recovery section says while the item stays reserved. A release asked for on a finished run that holds no developer slot, claim or file reservation is refused as not allowed for its saved status and phase, and nothing changes.
 
 (d) Automatic publication waiting on a ruling it cannot publish: the stopped design publication item named in the audit (yoyodyne-ifd.433.21.1) and the design of how the owning role decides an amendment (yoyodyne-ifd.437.14). A confirmed document whose publication depends on a capability not yet built appears in `health.observe` as waiting with an owner. The architect's design for it names what ships first and in what order.
 
@@ -335,14 +377,22 @@ Each scenario is checked by what happens, in a test home or on the live factory,
 
 (k) A program replaced inside the same process: a run's worker identified by process number and start time (yoyodyne-ifd.428.102). The scheduler holds a run's lease and then restarts by replacing its own program, keeping its process number and the operating system's start time. Before the new program has released anything, `yoyo status`, the dashboard and `run.inspect`, each in another process, report that run's worker as absent, because the program start record names a later program start time than the record beside the lease. Once the new program has started, the lease is released through the ordinary lease path, the run carries a note that its worker was an earlier program in the same process, and the run is answered as a run with no worker. With the program start record removed, the same readers report the worker as uncertain.
 
+(l) The harness acting while the development manager is unavailable. Her passes have not completed for twice their interval. A run stopped at a provider's usage limit whose reset has passed is continued by the harness through `run.recover`, recorded with the harness as the one who acted, and `run.verify` reports the worker live. A stop about the work gets a wait owned by her that keeps the stop listed. A request from the harness to repair is refused as not allowed for the one acting, and a fifth automatic continue within an hour is refused naming the bound. Her next completed pass opens with both acts.
+
+(m) A write whose result is unknown. A `run.recover` write reports an error after the file may have been replaced. The run carries a wait that keeps its stop listed, owned by the development manager, naming the attempted action and request identifier; `run.verify` for wait recorded, keeping the stop listed, is met; any other act on the run is refused until the run has been reloaded and what it holds established.
+
+(n) An item in no state. A parked item loses its follow-up. The next `health.observe` reports it as an item with no recorded way forward, owned by the development manager, with its tracker status and the records read.
+
 ## Evidence and limits of this addendum
 
 The design above was read at commit 968d33ed. The live persona directory `.yoyodyne/personas` was listed at the same commit and holds the architect and development manager files named here. Where the shipped templates live was not read, which is why slice 5 has its developer name them before starting. The tool interface design was not read again for this addendum. No code was read and no tests were run. No invariant is added: the rules marked as enforced in code are requirements of this design, held by its slices and their tests.
 
 Revised at commit 13841dbd, after reading this design and stopped-run-recovery whole at that commit: the closed lists of `run.recover` actions and `run.verify` expected states were made one with the development manager's decisions in stopped-run-recovery, with one carrier, binding to the stop, and the recovery budget check. No code was read for the revision.
 
-Revised at commit c84ec3fd, after reading this design whole at that commit, for the reviewer's report on the recovery tool (yoyodyne-06m) that in the current build a finished run holds no developer slot, claim or file reservation. The release action now applies only to a finished run that still holds one of those, and is refused otherwise; scenario (c) is an in-flight run with no worker, answered by a wait, a continuation or an unresolved hold. The same revision says the build and the run and attempt come from a record beside the run lease rather than from the process, and grants the four read capabilities to every instance of the program manager. No code was read for this revision; the report is the evidence for what a finished run holds.
+Revised at commit c84ec3fd, after reading this design whole at that commit, for the reviewer's report on the recovery tool (yoyodyne-06m) that in the current build a finished run holds no developer slot, claim or file reservation. The release action now applies only to a finished run that still holds one of those, and is refused otherwise; scenario (c) is an in-flight run with no worker, answered by a wait, a continuation or a wait that keeps its stop listed. The same revision says the build and the run and attempt come from a record beside the run lease rather than from the process, and grants the four read capabilities to every instance of the program manager. No code was read for this revision; the report is the evidence for what a finished run holds.
 
 Revised at commit 7a0f0dfd, after reading this design whole at that commit, for the proposed change on how a worker is identified (amendment-5e6136b8) and the developer's warning beside it (report-4cf5c3a6). A worker's identity gains the time its program began, because a scheduler that replaces its own program keeps its process number and the operating system's start time. Each program records its own start where readers in other processes can compare a lease against it, every reader applies one rule, and a starting program releases its earlier program's leases. Scenario (k) checks it. The developer's account in the amendment and the warning is the evidence that the scheduler restarts this way and that the code records the program start time; no code was read for this revision.
 
 Revised at commit f081d385, after reading this design whole at that commit together with the terms register: the preserved-run recovery section now names the operator's pause, set by `yoyo pause`, in the register's own wording. No other sentence changed.
+
+Revised at commit 48d4541a, after reading this design, [forward progress](forward-progress.md) and [fewer lifecycle states](fewer-lifecycle-states.md) whole at that commit, for the revision both of them promised. `health.observe` reports each item's state, an item in no state, the reasons ready work was not started, a slot left empty beside ready work, the same failure across items, each management role's unavailability and a tracker copy that differs from the run records. `run.recover` names who is acting, accepts the harness for its bounded acts while the development manager is unavailable, and refuses a third use of the same act on the same failure. The unresolved hold becomes a wait that keeps the stop listed, across the action list, `run.verify`, the unknown result and the scenarios. Scenarios (l), (m) and (n) are added. No code was read for this revision.
