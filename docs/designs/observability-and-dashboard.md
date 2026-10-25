@@ -66,6 +66,10 @@ revisions:
       by: architect
       at: 2026-10-25T14:03:08.935488Z
       reason: The read model's list of queries gains the accomplishment query that the dashboard section already describes, built every 15 minutes for a date range the operator chooses, and names it as the third reading, beside the backlog and delivery charts, that serves a range the operator chooses. This is the first of three passages that reconcile the design with its accomplishment reading for the reviewer's finding (yoyodyne-ifd.437.61); the backlog page's note and the deferred section follow. Only this section changes; the work item references subsection is copied unchanged. Written from main at ddef0b1e.
+    - action: amended
+      by: architect
+      at: 2026-10-25T15:50:32.892911Z
+      reason: The backlog page's note on what stays deferred now names three exceptions rather than two, adding the reading of what the spend accomplished, so it agrees with the read model's list of queries that landed this morning. This is the second of three passages reconciling the design with its accomplishment reading for the reviewer's finding (yoyodyne-ifd.437.61); the deferred section follows once long documents can be revised. Only this section changes. Written from main at 8a4317dd.
 approvals:
     - policy: approvals.designs
       revision: 7
@@ -107,6 +111,11 @@ approvals:
       by: harness
       at: 2026-10-25T14:03:08.935488Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1707, for document-1707.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 15
+      by: harness
+      at: 2026-10-25T15:50:32.892911Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1711, for document-1711.1 under the automatic approval policy
 ---
 # One observability read model, and the local dashboard that projects it and takes the operator's own decisions
 
@@ -292,7 +301,7 @@ A page of its own, reached from the top status band, that charts the backlog ove
 
 **The chart library.** The page draws with `Chart.js` at one exact version, vendored into `internal/dashboard/assets` and served by the dashboard itself, which keeps the content-security policy at `script-src 'self'` with no CDN. Beside the library a file records its version, where it came from, its checksum, and its MIT license text; changing the version is a reviewed change like any other. No other script from outside this project is admitted by this ruling: another needs a revision of this design naming it.
 
-**The deferral.** Rich timelines stay deferred in general. The backlog chart and the delivery charts are the two exceptions, each because the operator asked for it by name.
+**The deferral.** Rich timelines stay deferred in general. The backlog chart, the delivery charts, and the reading of what the spend accomplished are the three exceptions: the first two because the operator asked for them by name, the third because measuring what each management pass and review accomplished (yoyodyne-ifd.432.47) asks for its figures over any date range the operator chooses.
 
 ## The delivery page
 
