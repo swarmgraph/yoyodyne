@@ -3521,8 +3521,9 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 // promoted is the merge candidate, and it is checked whole here, on this
 // machine, before it is promoted or handed to the forge. A gate that was
 // already told the whole module — a change to the module files, a repository
-// that is no Go module, a confirmed document — has nothing to add and runs
-// nothing here. The approval stands, because the change it approved is the one
+// that is no Go module — has nothing to add and runs nothing here. A confirmed
+// document never reaches this: its checks are its project's document checks,
+// or the configured checks told the whole module (verify). The approval stands, because the change it approved is the one
 // checked: the promotion still refuses evidence for any other content.
 //
 // A failure here is the change's, found in a package it did not touch, and is
@@ -6274,11 +6275,14 @@ func (a *activeRun) verifyCandidate(ctx context.Context) error {
 // attempt's verification, and review and integration are only reachable through
 // a change that passed both on the change being judged. The checks are told the
 // Go packages the change touches, so a check written to narrow itself runs over
-// those alone, except over the merge candidate (verifyCandidate),
-// where they are told the whole module.
+// those alone, except over the merge candidate (verifyCandidate) and over a
+// confirmed document, where they are told the whole module.
 func (a *activeRun) verify(ctx context.Context) error {
 	p := a.pipeline
-	whole := a.checkingCandidate
+	// A confirmed document is the whole change and nothing checks it again after
+	// its review, so where it runs the configured checks rather than the
+	// project's document checks they are told the whole module too.
+	whole := a.checkingCandidate || a.state.Document != nil
 	before := a.state.ChecksPassed
 	a.state.Phase = runstate.PhaseChecking
 	// Scope is settled before the suite runs, because it costs a listing of names

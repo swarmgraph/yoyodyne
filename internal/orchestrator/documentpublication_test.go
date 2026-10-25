@@ -15,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/chat"
+	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
@@ -1255,6 +1256,33 @@ func TestADocumentLandingRunsTheFullChecksWhereNoneAreDeclared(t *testing.T) {
 	}
 	if passed := state.ChecksPassed; passed == nil || passed.CheckSet != config.CheckSetDigest(fullChecks) {
 		t.Fatalf("evidence = %+v, want the full checks' set digest", passed)
+	}
+}
+
+// In a Go project that declares no document checks, a document landing's full
+// checks are told the whole module: the document is the whole change, and
+// nothing after its review checks it again, so checks narrowed to the Go
+// packages it touches (none) would leave the promotion with nothing it can
+// land on.
+func TestADocumentLandingInAGoModuleRunsTheFullChecksWhole(t *testing.T) {
+	repository, _, provider, pipeline, runs := automaticFixture(t)
+	writeCommitted(t, repository, "go.mod", "module example.com/project\n")
+	writeCommitted(t, repository, "internal/checks/runner.go", "package checks\n")
+	told := filepath.Join(t.TempDir(), "told.txt")
+	pipeline.Config.Checks = []string{`printf '%s\n' "$` + checks.ChangedGoPackagesVariable + `" >> ` + told}
+	state := landDesign(t, pipeline, provider, runs)
+	if state.Status != runstate.StatusSucceeded || state.Integration == nil {
+		t.Fatalf("run = %+v, want the design landed", state)
+	}
+	read, err := os.ReadFile(told)
+	if err != nil {
+		t.Fatalf("the full checks did not run: %v", err)
+	}
+	if got := strings.Fields(string(read)); !slices.Equal(got, []string{"./..."}) {
+		t.Fatalf("the document's checks were told %q, want the whole module once", got)
+	}
+	if passed := state.ChecksPassed; passed == nil || passed.Narrowed != "" {
+		t.Fatalf("evidence = %+v, want checks that were told the whole module", passed)
 	}
 }
 
