@@ -40,6 +40,8 @@ type stubReader struct {
 	throughput readmodel.Throughput
 	spend      readmodel.Spend
 	delivery   readmodel.Delivery
+	// accomplishment is what Accomplishment answers.
+	accomplishment readmodel.Accomplishment
 	// items is what WorkItem answers by id; an id not in it is one the tracker
 	// holds nothing under.
 	items map[string]readmodel.WorkItem
@@ -64,6 +66,10 @@ func (r stubReader) Spend(context.Context) (readmodel.Spend, error) {
 
 func (r stubReader) Delivery(context.Context) (readmodel.Delivery, error) {
 	return r.delivery, r.failure
+}
+
+func (r stubReader) Accomplishment(context.Context) (readmodel.Accomplishment, error) {
+	return r.accomplishment, r.failure
 }
 
 func (r stubReader) WorkItem(_ context.Context, id string) (readmodel.WorkItem, error) {

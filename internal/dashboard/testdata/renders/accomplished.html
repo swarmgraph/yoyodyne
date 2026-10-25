@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>yoyodyne — yoyo dashboard</title>
+    <link rel="stylesheet" href="../../assets/dashboard.css">
+  </head>
+  <body>
+    <p class="render-note">Opened over the busy render, which is not repeated here.</p>
+    <div id="grouping" class="popup" role="dialog" aria-modal="true" aria-labelledby="grouping-heading" data-state="ready">
+      <div id="grouping-backdrop" class="popup-backdrop"></div>
+      <div class="popup-card">
+        <div class="popup-head">
+          <div>
+            <h2 id="grouping-heading" class="popup-title">What the spend accomplished (9 lines)</h2>
+            <p id="grouping-note" class="popup-note">2026-09-28 to 2026-10-25, Pacific time, the current week and the three before it</p>
+          </div>
+          <button type="button" id="grouping-close" class="popup-close">Close</button>
+        </div>
+        <div class="section-ready">
+          <ol id="grouping-items" class="grouping-items">
+            <li class="grouping-head">By role, with what each management role's passes led to</li>
+            <li class="grouping-item">
+              <span class="grouping-title grouping-day">product-manager</span>
+              <span class="grouping-detail">$255.00 from 700 invocations — 300 passes: 29% unblocked delivery, 56% changed records only, 9% repeated an earlier pass, 6% changed nothing</span>
+            </li>
+            <li class="grouping-item">
+              <span class="grouping-title grouping-day">development-manager</span>
+              <span class="grouping-detail">$345.00 from 640 invocations — 1 pass: 100% unblocked delivery, 0% changed records only, 0% repeated an earlier pass, 0% changed nothing</span>
+            </li>
+            <li class="grouping-item">
+              <span class="grouping-title grouping-day">developer</span>
+              <span class="grouping-detail">$505.00 from 290 invocations</span>
+            </li>
+            <li class="grouping-head">By week, Monday to Sunday</li>
+            <li class="grouping-item">
+              <span class="grouping-title grouping-day">2026-10-12 to 2026-10-18</span>
+              <span class="grouping-detail">$485.19; 21 items completed at $14.81 each in full</span>
+            </li>
+            <li class="grouping-item">
+              <span class="grouping-title grouping-day">2026-10-19 to 2026-10-25</span>
+              <span class="grouping-detail">$1,588.94; no item completed</span>
+            </li>
+            <li class="grouping-head">Reviews and completed items</li>
+            <li class="grouping-item">
+              <span class="grouping-title grouping-day">reviews</span>
+              <span class="grouping-detail">2 reviews: 1 prevented a defect (50%), 1 approved unchanged (50%)</span>
+            </li>
+            <li class="grouping-item">
+              <span class="grouping-title grouping-day">completed</span>
+              <span class="grouping-detail">1 item at $112.38 each in full, development, review, retries, and management together</span>
+            </li>
+            <li class="grouping-item">
+              <span class="grouping-title grouping-day">named no item</span>
+              <span class="grouping-detail">632 management passes costing $546.46 named no work item, so that spend is in no item's cost</span>
+            </li>
+            <li class="grouping-item grouping-day-unreached">
+              <span class="grouping-title grouping-day">not read</span>
+              <span class="grouping-detail">2 line(s) of the event log of chat-0123 could not be read, so the figures are a floor</span>
+            </li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

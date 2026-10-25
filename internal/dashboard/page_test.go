@@ -231,8 +231,16 @@ func TestTheFixturesAreTheReadModelsShape(t *testing.T) {
 				t.Fatalf("fixture %s is not a program manager's report as the server sends one: %+v", name, answer)
 			}
 			reports++
+		case strings.HasPrefix(name, "accomplishment-"):
+			var answer readmodel.Accomplishment
+			strict(t, name, body, &answer)
+			// The fixture is a reading over a range, with every list the listing
+			// reads present, as the server sends one.
+			if answer.From == "" || answer.To == "" || answer.Roles == nil || answer.Weeks == nil || answer.Reviews == nil || answer.ReviewOutcomes == nil || answer.Completed == nil {
+				t.Fatalf("fixture %s is not what the spend accomplished as the server sends it: %+v", name, answer)
+			}
 		default:
-			t.Fatalf("fixture %s is none of a standing, a throughput, a spend, an item, or a report", name)
+			t.Fatalf("fixture %s is none of a standing, a throughput, a spend, an accomplishment, an item, or a report", name)
 		}
 	}
 	if standings < 4 || throughputs < 3 || spends < 3 || items < 3 || reports < 3 {
@@ -352,6 +360,39 @@ func TestServesTheDeliveryMeasuresToTheTokenAlone(t *testing.T) {
 	response, body = broken.get("/api/delivery", bearer(broken.server.Token()))
 	if response.StatusCode != http.StatusServiceUnavailable || !strings.Contains(body, `"error":"the state root could not be resolved"`) || strings.Contains(body, "days") {
 		t.Fatalf("delivery over unreadable state: %d %s", response.StatusCode, body)
+	}
+}
+
+// What the spend accomplished is served as JSON to the token and to nobody
+// else, with its age, and refused whole when the state cannot be read.
+func TestServesWhatTheSpendAccomplishedToTheTokenAlone(t *testing.T) {
+	t.Parallel()
+	accomplishment := readmodel.Accomplishment{Zone: readmodel.DeliveryZoneName, From: "2026-09-28", To: "2026-10-25", Roles: []readmodel.RoleAccomplishment{{
+		Role: "development-manager", CostUSD: 345, Management: true, Passes: 4,
+		Outcomes: []readmodel.OutcomeShare{{Outcome: string(readmodel.PassUnblocked), Says: readmodel.PassUnblocked.Describe(), Count: 1, Share: 0.25}},
+	}}}
+	w := serve(t, stubReader{standing: standingWith("title"), accomplishment: accomplishment})
+
+	response, body := w.get("/api/accomplishment", bearer(w.server.Token()))
+	if response.StatusCode != http.StatusOK || !strings.HasPrefix(response.Header.Get("Content-Type"), "application/json") {
+		t.Fatalf("accomplishment with the token: %d %s", response.StatusCode, body)
+	}
+	for _, expected := range []string{`"from":"2026-09-28"`, `"role":"development-manager"`, `"outcome":"unblocked-delivery"`, `"says":"unblocked delivery"`, `"share":0.25`, `"snapshot":`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("the accomplishment lacks %s: %s", expected, body)
+		}
+	}
+	if response, body := w.get("/api/accomplishment", nil); response.StatusCode != http.StatusUnauthorized || strings.Contains(body, "role") {
+		t.Fatalf("accomplishment without the token: %d %s", response.StatusCode, body)
+	}
+	if response, _ := w.request(http.MethodPost, "/api/accomplishment", bearer(w.server.Token())); response.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("accomplishment POST: %d", response.StatusCode)
+	}
+
+	broken := serve(t, stubReader{failure: errors.New("the state root could not be resolved")})
+	response, body = broken.get("/api/accomplishment", bearer(broken.server.Token()))
+	if response.StatusCode != http.StatusServiceUnavailable || !strings.Contains(body, `"error":"the state root could not be resolved"`) || strings.Contains(body, "roles") {
+		t.Fatalf("accomplishment over unreadable state: %d %s", response.StatusCode, body)
 	}
 }
 

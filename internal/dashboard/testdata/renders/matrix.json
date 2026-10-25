@@ -875,6 +875,63 @@
       "decide": "closed"
     }
   },
+  "accomplished": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "ready",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
+  "accomplished-loading": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "loading",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
+  "accomplished-error": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "error",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
   "grouping-card": {
     "page": "ready",
     "sections": {

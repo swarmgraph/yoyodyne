@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>yoyodyne — yoyo dashboard</title>
+    <link rel="stylesheet" href="../../assets/dashboard.css">
+  </head>
+  <body>
+    <p class="render-note">Opened over the busy render, which is not repeated here.</p>
+    <div id="grouping" class="popup" role="dialog" aria-modal="true" aria-labelledby="grouping-heading" data-state="error">
+      <div id="grouping-backdrop" class="popup-backdrop"></div>
+      <div class="popup-card">
+        <div class="popup-head">
+          <div>
+            <h2 id="grouping-heading" class="popup-title">What the spend accomplished</h2>
+            <p id="grouping-note" class="popup-note">the current week and the three before it, Pacific time</p>
+          </div>
+          <button type="button" id="grouping-close" class="popup-close">Close</button>
+        </div>
+        <div class="section-error" role="alert">
+          <p id="grouping-problem" class="problem">Could not be read: the state root could not be resolved</p>
+          <p id="grouping-remedy" class="remedy">The listing asks once, when it is opened; close it and open it again to ask again. yoyo status --spend --from &lt;day&gt; --to &lt;day&gt; prints the same reading for any days at the terminal.</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -137,6 +137,8 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	events := flags.Bool("events", false, "print a stream's recent events and exit, without following")
 	list := flags.Bool("list", false, "list the recent runs, conversations, and branch reviews")
 	spend := flags.Bool("spend", false, "report what was spent, grouped by the local day it was spent on")
+	from := flags.String("from", "", "with --spend, report what the spend accomplished from this day, YYYY-MM-DD in Pacific time")
+	to := flags.String("to", "", "with --spend, report what the spend accomplished up to and including this day, YYYY-MM-DD in Pacific time")
 	shipped := flags.Bool("shipped", false, "list the most recently shipped work items with their price and wall clock")
 	latest := flags.Bool("latest", false, "with --follow, move to a later stream when one starts")
 	lines := flags.Int("lines", defaultStreamLines, "replay this many recorded events first (0 replays the whole log)")
@@ -210,6 +212,10 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 			fmt.Fprintln(stderr, "--kind narrows which event streams are read, so it needs --follow, --events, --list, or --spend")
 			return 2
 		}
+		if *from != "" || *to != "" {
+			fmt.Fprintln(stderr, "--from and --to choose the days a spend report covers, so they need --spend")
+			return 2
+		}
 		count, err := shippedCount(named, *limit, flagGiven(flags, "limit"))
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -241,7 +247,18 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 			raw:    *raw,
 			all:    *includeAll,
 		}
-		if mode == statusPricesStreams {
+		if *from != "" || *to != "" {
+			if mode != statusPricesStreams {
+				fmt.Fprintln(stderr, "--from and --to choose the days a spend report covers, so they need --spend")
+				return 2
+			}
+			if named != "" || *kind != "" {
+				fmt.Fprintln(stderr, "--from and --to report every role's spend over a range of days, so they take no id, number of days, or --kind")
+				return 2
+			}
+			options.accomplished = &readmodel.AccomplishmentRange{From: *from, To: *to}
+		}
+		if mode == statusPricesStreams && options.accomplished == nil {
 			days, match, err := spendWindow(named)
 			if err != nil {
 				fmt.Fprintln(stderr, err)
@@ -257,6 +274,10 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	}
 	if *kind != "" {
 		fmt.Fprintln(stderr, "--kind narrows which event streams are read, so it needs --follow, --events, --list, or --spend")
+		return 2
+	}
+	if *from != "" || *to != "" {
+		fmt.Fprintln(stderr, "--from and --to choose the days a spend report covers, so they need --spend")
 		return 2
 	}
 	workItemID := named
@@ -547,6 +568,9 @@ func reportStreamStatus(ctx context.Context, mode statusMode, options streamOpti
 		if err != nil {
 			fmt.Fprintf(stderr, "warning: the recurring tasks' records could not be opened, so their spend is not attributed: %v\n", err)
 			sweeps = nil
+		}
+		if options.accomplished != nil {
+			return reportAccomplishment(ctx, roots.stateRoot, roots.productID, *options.accomplished, holds, jsonOutput, stdout, stderr)
 		}
 		return reportSpend(store, sweeps, options, holds, time.Now(), jsonOutput, stdout, stderr)
 	default:
@@ -1610,6 +1634,7 @@ func printStatusUsage(writer io.Writer) {
        yoyo status --events [options] [<id>]
        yoyo status --list [options]
        yoyo status --spend [options] [<id>|<days>]
+       yoyo status --spend --from <day> [--to <day>] [options]
        yoyo status --shipped [options] [<n>]
 
 Where the harness stands, then what became of the runs it made.
@@ -1695,6 +1720,24 @@ and reads none of it back.
 `+"`yoyo cost`"+` is the same run spending grouped by the work item the runs were
 for.
 
+--spend with --from or --to reports what the spend over those days accomplished,
+the days written YYYY-MM-DD in Pacific time, first and last included; either
+left out is the Monday three weeks before this week's, or today. Each role's
+spend comes first, and for every role but the developer and the reviewer, how
+many passes it made — a recurring pass's turns together, or one conversation
+turn — and the share that unblocked delivery (acted on a work item that a
+developer or reviewer then worked on), changed records only, repeated an
+earlier pass of the same task with the same inputs and account, or changed
+nothing. The same follows by week, Monday to Sunday, with the items completed
+each week and what each cost on average. Then every review by what it led to:
+a repair the developer made and a later review or the merge accepted is a
+defect prevented. Last, every item whose change merged in the range with its
+full cost: the developer's first attempt, every retry, every review, and an
+even share of each management pass that named it. The management passes that
+named no item are totalled under the table, because their cost is in no item's.
+The dashboard serves the same reading, for the last four weeks, at
+/api/accomplishment.
+
 --shipped lists the n most recently shipped work items, most recent promotion
 first, ten unless a number says otherwise and 0 for every one: each with what it
 cost the provider across every run made for it, the failed and repair attempts
@@ -1724,6 +1767,8 @@ Live options:
   --events          print a stream's recent events and exit, without following
   --list            list the recent runs, conversations, and branch reviews
   --spend           report what was spent, by the local day it was spent on
+  --from <day>      with --spend, report what the spend accomplished from this day (YYYY-MM-DD, Pacific time)
+  --to <day>        with --spend, report what the spend accomplished up to and including this day
   --shipped         list the most recently shipped items with cost, elapsed, and paused time
   --latest          with --follow, move to a later stream when one starts
   --lines <n>       replay this many recorded events first (default 50; 0 the whole log)
