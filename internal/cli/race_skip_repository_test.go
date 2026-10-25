@@ -25,7 +25,10 @@ func TestTheRaceCheckSkipsOnlyChangesThatCannotReachGo(t *testing.T) {
 		}
 	}
 	suite := shellSuite(t, raceSkipTestPath)
-	suite.Env = append(os.Environ(), "MAKEFLAGS=", "MFLAGS=", "MAKELEVEL=0")
+	// The scope the harness's own checks name reaches this suite through make,
+	// as it does when `make race CHANGED_GO_PACKAGES=...` runs this package, and
+	// the suite has to answer for `make race` with nothing named all the same.
+	suite.Env = append(os.Environ(), "MAKEFLAGS=", "MFLAGS=", "MAKELEVEL=0", "CHANGED_GO_PACKAGES=./internal/cli", "RACE_BASE=HEAD")
 	report, err := suite.CombinedOutput()
 	if err != nil {
 		t.Fatalf("%s did not pass (%v):\n%s", raceSkipTestPath, err, report)
