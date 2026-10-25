@@ -10,12 +10,21 @@ revisions:
       by: architect
       at: 2026-10-24T21:03:17.504736Z
       reason: 'yoyodyne-ifd.428.112: the operator''s direction of October 24 for predictable forward progress. Every admitted item has one state worked out from records, and an item in none is a problem with an owner; slots fill when a place frees, every unstarted ready item has a recorded reason, and an empty slot beside ready work with no reason is filed as a bug; recovery records what failed and refuses a third use of the same act on the same failure; while the development manager is unavailable the harness takes five bounded acts already on the recovery tool''s list and hands them back. Names what stopped run recovery, the follow-up queue, the hold re-check and fresh factory health become, and the build pieces.'
+    - action: amended
+      by: architect
+      at: 2026-10-25T01:31:19.42613Z
+      reason: 'yoyodyne-ifd.428.113: the last revision the design for fewer lifecycle states asks for. A stopped run with a wait that keeps the stop listed counts as stopped; the unresolved hold leaves the development manager''s alternatives and the unknown-result rule, which now records a wait that keeps the stop listed; every wait the harness records for her while she is unavailable keeps the stop listed, so act 5''s check no longer passes at once; the stopped-run recovery and fresh factory-health revisions are recorded as landed.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-10-24T21:03:17.504736Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1648, for document-1648.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-10-25T01:31:19.42613Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1672, for document-1672.1 under the automatic approval policy
 ---
 # Forward progress: every admitted item moves or stops with an owner, slots fill when work and capacity exist, recovery ends, and the harness repairs within bounds when management cannot
 
@@ -40,7 +49,7 @@ This design settles each and names the build pieces. It adds no new store and no
 
 ## What it rests on, and what was not read
 
-Read whole at commit 4efea121:
+Read whole at commit 4efea121, and read again at commit e1e232af for the revision of October 24, together with [fewer lifecycle states](fewer-lifecycle-states.md):
 
 - [stopped run recovery](stopped-run-recovery.md);
 - [follow-ups](follow-ups.md);
@@ -70,15 +79,15 @@ Every open work item that is not a parent of open items has exactly one of the s
   - an item that depends on another item;
   - a parked item;
   - a run's dependency wait;
-  - a wait decided on a stop;
+  - a wait the development manager decided on a stop;
   - a hold on new work;
   - a question to another role or to the operator.
 
   Owner: the follow-up's owner, with its check and deadlines.
-- **Stopped.** A stop of its run is on the development manager's list, as step 2 of stopped run recovery says. Owner: the development manager.
+- **Stopped.** A stop of its run is on the development manager's list, as step 2 of stopped run recovery says. That includes a stop carrying a wait that keeps the stop listed, which is the wait the harness records after a recovery act whose result it cannot tell, or on her behalf while she is unavailable under point 4. Owner: the development manager.
 - **Waiting on its conversation.** The item is done by a role's conversation rather than a developer run. Owner: that role. The item gets a follow-up when it is admitted, with the check that the item is closed and deadlines from its priority, so it comes back to its owner like any other wait.
 
-An item can look as though it fits two states, such as a stopped run whose stop has a wait recorded. The one that applies is the first of these that fits: stopped, then waiting with a follow-up, then running, then waiting for capacity. Under step 2 of stopped run recovery a wait already takes the stop off the list, so the two never both apply.
+An item can look as though it fits two states, such as a stopped run whose stop has a wait recorded. The one that applies is the first of these that fits: stopped, then waiting with a follow-up, then running, then waiting for capacity. A wait the development manager decides takes the stop off her list under step 2 of stopped run recovery, so that item is waiting with a follow-up and not stopped. A wait that keeps the stop listed takes nothing off, so that item is stopped, and its follow-up is shown with the stop rather than as a second state.
 
 ### The check
 
@@ -153,7 +162,7 @@ Two stops are the same failure when all four match. Nothing else, such as the ti
 
 ### The same act is not taken on the same failure again and again
 
-- The recovery tool refuses a decision whose act was already carried out twice on the same failure of the same item. The refusal names the two earlier stops and the acts taken on them. The acts counted are continuing the same run, a repair, and a rerun, whether the development manager decided them or the harness took them on its own. The development manager then takes a different decision: another kind of act, giving the item back, an unresolved hold, or asking the Lead Product Manager.
+- The recovery tool refuses a decision whose act was already carried out twice on the same failure of the same item. The refusal names the two earlier stops and the acts taken on them. The acts counted are continuing the same run, a repair, and a rerun, whether the development manager decided them or the harness took them on its own. The development manager then takes a different decision: another kind of act, giving the item back, a wait, or asking the Lead Product Manager.
 - A rerun that stops with the same failure as the run it replaced shows the failure is not about that run. The second such rerun is refused by the rule above, and the item is given back or rewritten.
 - The limits on repair attempts and on raising them stay as stopped run recovery sets them. This rule bounds how often one act can be taken on one failure inside those limits, so an item cannot spend its whole allowance on the same move.
 
@@ -169,7 +178,7 @@ These hold for every part that recovers runs: the list of stopped runs, the reco
 - **One bad record does not stop recovery.** A run record that cannot be read is listed as unreadable and the rest are read. A record the reading build does not fully understand is read with the unknown values marked, not refused. This is what the items on one unreadable run record not failing a listing (yoyodyne-6d1) and on run records read tolerantly (yoyodyne-d56) build.
 - **A busy tracker is waited out, never charged.** A tracker read or write that times out inside a recovery act is retried within the tracker boundary's window under recoverable and terminal failures. A recovery act that could not finish because of it spends no rerun and no attempt, and is put back to be carried out, as the item on recoveries refused for a tracker timeout (yoyodyne-ifd.428.99.17) does once.
 - **Recovery runs in the watch loop.** The recovery parts run as steps of the scheduler's watch loop, under the supervisor, as the dispatchers do. A recovery part that fails is restarted with that loop and, past its bound, shown as a degraded part of the harness, owned by the development manager. It never stops unrelated work from being started.
-- **A failure of recovery is shown, not retried in a loop.** A recovery act whose result is unknown puts the unresolved hold on the run that fresh factory health already requires. A follow-up check that cannot run three times in a row is shown as degraded, as [follow-ups](follow-ups.md) says.
+- **A failure of recovery is shown, not retried in a loop.** A recovery act whose result is unknown records a wait that keeps the stop listed, with the check that the run has been reloaded, as [stopped run recovery](stopped-run-recovery.md) and [follow-ups](follow-ups.md) say. The stop stays on the development manager's list until she decides it. A follow-up check that cannot run three times in a row is shown as degraded, as [follow-ups](follow-ups.md) says.
 
 ## Point 4: the harness repairs within bounds when management cannot
 
@@ -198,9 +207,9 @@ While the development manager is unavailable, the harness takes these acts by fi
 
    Never for a check stopped by its time limit whose reruns are spent, for a failure that also fails on the base commit, for a merge the forge refused, or for any stop about the work.
 2. **Release a hold whose follow-up check has passed,** as [follow-ups](follow-ups.md) already says. This is the hold re-check (yoyodyne-ifd.432.25.19), and it runs whether or not the development manager is available.
-3. **Finish a merge** for a run recorded as merged, or whose merge is uncertain, by step 8 of stopped run recovery. That means reading the target branch, confirming the merge when the commit is there, and completing the steps after it. Where the commit is not there, the harness takes no further act and records a wait for her.
+3. **Finish a merge** for a run recorded as merged, or whose merge is uncertain, by step 8 of stopped run recovery. That means reading the target branch, confirming the merge when the commit is there, and completing the steps after it. Where the commit is not there, the harness takes no further act and records a wait that keeps the stop listed for her.
 4. **Release what a finished run with no worker still holds:** its developer slot, the item's claim or its file reservations, by the release action in fresh factory health.
-5. **Record a wait** on every other stop that reaches her list. Its follow-up names her, and its check is that the stop has left the list, so the stop is on her list with its deadlines the moment she is back.
+5. **Record a wait that keeps the stop listed** on every other stop that reaches her list. Its follow-up names her, and its check is that the stop has left the list, which happens only when she decides it. So the stop is on her list with its deadlines the moment she is back.
 
 The harness never, on its own:
 
@@ -217,14 +226,14 @@ Those are judgments, and they wait for the role whose judgment they are.
 ### The bounds
 
 - At most one act of the harness's own on any stop.
-- An automatic continue that stops again with the same failure is not continued automatically again. The second stop gets a recorded wait for the development manager.
-- At most four automatic continues an hour across the product, set by `execution.harness_recovery_per_hour`, which the development manager sets under section 6 of portable agent configuration. Past it, further stops get a recorded wait.
+- An automatic continue that stops again with the same failure is not continued automatically again. The second stop gets a wait that keeps the stop listed for the development manager.
+- At most four automatic continues an hour across the product, set by `execution.harness_recovery_per_hour`, which the development manager sets under section 6 of portable agent configuration. Past it, further stops get a wait that keeps the stop listed.
 - No act on a stop whose failure is shown as the same failure across items, as point 3 says.
 - Every act goes through the recovery tool exactly as hers does. It is bound to an observation taken within fifteen minutes, with the run's expected state and the stop. It is recorded before and after with the harness as the one who acted and the reason "the development manager has been unavailable since" the time, and checked with `run.verify`. The hold on new work, the operator's pause and the pause for provider capacity gate it as they gate any act that starts a provider.
 
 ### Handing back
 
-When the development manager's next pass completes, it opens with every act the harness took on its own since her last completed pass. For each it gives the stop, the act, the reason and the `run.verify` result. Stops that got a recorded wait are on her list as usual. She decides those stops as she would any other; the acts already taken are not undone, and a stop that came back after one is a new stop.
+When the development manager's next pass completes, it opens with every act the harness took on its own since her last completed pass. For each it gives the stop, the act, the reason and the `run.verify` result. Stops that got a wait that keeps the stop listed are on her list as usual. She decides those stops as she would any other; the acts already taken are not undone, and a stop that came back after one is a new stop.
 
 The Lead Product Manager's summary and the operator's regular summary show how long the development manager was unavailable and how many acts the harness took. Neither is asked anything about it. Where the development manager stays unavailable past four hours, the second deadline for anything holding every slot, the follow-ups she owns are put to the Lead Product Manager as [follow-ups](follow-ups.md) says. The Lead Product Manager can admit work on the failing conversation; she still does not decide stops.
 
@@ -235,26 +244,26 @@ The Lead Product Manager's summary and the operator's regular summary show how l
   - step 3 gains the refusal of a third use of the same act on the same failure;
   - step 5 gains the harness's automatic continue under point 4, within its bounds.
 
-  Its rules, closed list of decisions and slices otherwise stand. That revision follows this one, together with the revision [follow-ups](follow-ups.md) already promised for it.
-- **The follow-up queue (yoyodyne-ifd.432.25.20)** is what gives every waiting state in point 1 an owner, a check and deadlines. It stands as designed. Its first piece is a prerequisite for this design's first piece.
+  Its rules, closed list of decisions and slices otherwise stand. Its revision for this design and for [fewer lifecycle states](fewer-lifecycle-states.md) has landed; it replaced the unresolved hold with a wait that keeps the stop listed.
+- **The follow-up queue (yoyodyne-ifd.432.25.20)** is what gives every waiting state in point 1 an owner, a check and deadlines, including the wait that keeps a stop listed. Its first piece is a prerequisite for this design's first piece.
 - **The hold re-check (yoyodyne-ifd.432.25.19)** is piece 2 of follow-ups, and act 2 under point 4. Nothing is added to it.
 - **Fresh factory health:**
   - `health.observe` reports the state of every admitted item, the problem of an item in no state, a slot empty beside ready work, and whether each management role is unavailable;
   - `run.recover` accepts the harness as the one who acts, for the five acts of point 4 only;
   - `run.verify` is unchanged.
 
-  That revision follows this one.
+  Its revision for this design has landed.
 - **Management and supervision:** unchanged. The harness's own acts run in the watch loop it already describes.
 - **Capacity for heavy checks and recoverable and terminal failures:** unchanged; this design applies them.
-- **Reviewing lifecycle states and recovery paths so there are fewer of them (yoyodyne-ifd.428.113)** starts from the states in point 1, which are the whole set of ways an admitted item can stand.
+- **[Fewer lifecycle states](fewer-lifecycle-states.md) (yoyodyne-ifd.428.113)** starts from the states in point 1, which are the whole set of ways an admitted item can stand, and this revision is the last change it asked of this design.
 
 ## What is enforced in code, and what is not an invariant
 
-- A test builds an item in each state and checks that the read model gives it exactly that state. It also builds one in none, a parked item with no follow-up, and checks that the health observation reports it.
+- A test builds an item in each state and checks that the read model gives it exactly that state. It also builds one in none, a parked item with no follow-up, and checks that the health observation reports it. It builds a stopped run with a wait that keeps the stop listed and checks that the item is stopped, and one with a wait the development manager decided and checks that it is waiting with a follow-up.
 - A test fails where a pull leaves a ready item unstarted without recording a reason from the closed list.
 - A test holds a slot with capacity empty beside a ready item it accepts for the configured time with no reason recorded, and checks that one bug is filed and that a second occurrence is added to it as a note.
 - A test refuses a third use of the same act on the same failure of one item.
-- A test makes the development manager unavailable and checks that the harness takes each of the five acts within their bounds and no other act. That includes one continue for one cleared stop, a wait for a stop about the work, no act on a failure shown across items, and a wait past four continues in an hour.
+- A test makes the development manager unavailable and checks that the harness takes each of the five acts within their bounds and no other act. That includes one continue for one cleared stop, a wait that keeps the stop listed for a stop about the work, no act on a failure shown across items, and a wait that keeps the stop listed past four continues in an hour.
 - A test runs the recovery parts with every provider refusing calls and checks that carrying out, `run.verify`, follow-up checks and the harness's own acts all still work.
 
 No invariant is added. Every rule here goes through the read model, the scheduler's pull, the recovery tool or the follow-up store, and their tests hold it. Point 1's check is made while the factory runs, which catches a wait recorded somewhere none of them reaches.
@@ -268,6 +277,7 @@ No invariant is added. Every rule here goes through the read model, the schedule
 - **A watchdog that asks a model whether the factory is stuck.** It stops at a usage limit, exactly when it is needed, as management and supervision already rules out.
 - **An unlimited number of the same act on the same failure inside the item's allowance.** That is the loop this design exists to end. Two is enough to rule out bad luck.
 - **Keeping a developer slot for a run waiting to land.** No developer is working while the harness lands a change, and on a busy afternoon several slots sat empty this way while ready work waited.
+- **Letting the harness record a wait that takes the stop off her list while she is unavailable.** The stop would leave her list with nobody deciding it, and act 5's check would pass the moment it was written.
 
 ## Build
 
@@ -279,7 +289,7 @@ These are the pieces; turning them into work items is the development manager's.
 4. **A run waiting only to land holds no developer slot,** and takes one again ahead of fresh work if sent back to its developer. The developer reads the scheduler first. If the build already releases the slot, this piece is the test alone. Depends on nothing new.
 5. **What failed, recorded on each stop, and the limit on repeating an act.** The four things recorded, the refusal of a third use of the same act on the same failure, and the problem of the same failure across items. Depends on slices 1 and 3 of stopped run recovery.
 6. **When a management role is unavailable.** Worked out from pass records and endpoint state, shown for each role. Depends on nothing new.
-7. **The harness's own acts.** The five acts and their bounds, the recovery tool accepting the harness as the one who acts for those five, and the hand back at the next completed pass. Depends on pieces 5 and 6, on slice 3 of fresh factory health, and on piece 2 of follow-ups.
+7. **The harness's own acts.** The five acts and their bounds, the recovery tool accepting the harness as the one who acts for those five, every wait the harness records keeping the stop listed, and the hand back at the next completed pass. Depends on pieces 5 and 6, on slice 3 of fresh factory health, and on piece 2 of follow-ups.
 8. **The landing that has waited more than one hour,** shown with what it waits behind and who owns that. Depends on nothing new.
 
 Pieces 2, 3, 4, 6 and 8 can start at once. Piece 1 waits on the follow-up store, piece 5 on the stopped run recovery slices it names, and piece 7 comes last.
@@ -287,10 +297,11 @@ Pieces 2, 3, 4, 6 and 8 can start at once. Piece 1 waits on the follow-up store,
 ## What a reviewer can check
 
 - Every admitted item that is not a parent shows exactly one state, and an item in none is reported with its owner.
+- A stopped run with a wait that keeps the stop listed shows as stopped; one with a wait the development manager decided shows as waiting with a follow-up.
 - No pull leaves a ready item unstarted without a recorded reason from the closed list.
 - A slot with capacity left empty beside ready work it accepts, for the configured time with no reason, files one bug and notes repeats on it.
 - A run waiting only to land holds no developer slot.
 - No act is taken a third time on the same failure of the same item.
-- While the development manager is unavailable, the harness takes only the five acts, at most one on any stop and at most the configured number of continues an hour, each bound, recorded and checked like hers, and none on a failure shown across items.
+- While the development manager is unavailable, the harness takes only the five acts, at most one on any stop and at most the configured number of continues an hour, each bound, recorded and checked like hers, and none on a failure shown across items. Every wait it records keeps the stop listed.
 - Every act the harness took on its own is shown at the start of her next completed pass.
 - No recovery part calls a provider in order to carry out, check or take its own acts.
