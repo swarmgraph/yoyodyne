@@ -38,6 +38,11 @@ revisions:
       by: product-manager
       at: 2026-10-05T00:29:53.016326Z
       reason: 'yoyodyne-ifd.433.11: intent: fundamental. Mason directed on 2026-09-27 that a standing set of goals apply to every item and to every role''s output and decisions. This revision adds one section naming the plain-language and autonomy goals as that set; no goal is added, removed or reworded, so existing attributions are untouched. It changes what the goals govern, because a reviewer will refuse a change that breaks a standing goal even where the item''s own goal is met, so it is the operator''s to approve. The two goals are named by their opening words because the goal identifiers (yoyodyne-ifd.344) are not yet recorded.'
+    - action: amended
+      by: product-manager
+      at: 2026-10-25T07:11:35.503032Z
+      reason: 'yoyodyne-ifd.437.60: intent: consistent. Each of the thirteen V1 goals gains a stable identifier in square brackets, assigned now and never reused; no goal is added, removed or reworded, and the standing-goals section is unchanged, so the goals admit and refuse exactly the work they did before. These identifiers replace the October 11 set, whose only copy is on pull request #1413, which never landed and which no role can read; nothing on main cites that set. Under the artifact contract an attribution recorded by a statement''s words still resolves by those words.'
+      intent: consistent
 approvals:
     - revision: 2
       by: operator
@@ -63,8 +68,11 @@ approvals:
       by: operator
       at: 2026-10-05T00:29:53.016326Z
       reason: approved by the operator in conversation chat-91253e0e070c17b0663651cc48602122, turn 1587, for the document the product-manager wrote there (document-1587.1)
+    - revision: 8
+      by: product-manager
+      at: 2026-10-25T07:11:35.503032Z
+      reason: yoyodyne-ifd.437.60 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
 ---
-
 # V1 goals
 
 These are the outcomes Yoyodyne's first version is built to reach: what has to
@@ -105,31 +113,31 @@ milestone rather than an outcome, it was reached, and it is recorded as such.
 
 ## Goals
 
-- Maintain a traceable chain from the product brief through goals, designs, work, code changes, and verification.
+- [traceable-chain] Maintain a traceable chain from the product brief through goals, designs, work, code changes, and verification.
   *Supports: every change traces to intent somebody approved.*
-- Let configurable agent roles collaborate without allowing downstream agents to silently redefine upstream intent.
+- [no-silent-redefinition] Let configurable agent roles collaborate without allowing downstream agents to silently redefine upstream intent.
   *Supports: intent is only redefined by whoever owns it.*
-- Make user directives durable, discoverable, and enforceable regardless of which agent received them.
+- [durable-directives] Make user directives durable, discoverable, and enforceable regardless of which agent received them.
   *Supports: intent is only redefined by whoever owns it.*
-- Isolate implementation tasks in harness-managed Git worktrees and integrate successful work automatically.
+- [isolated-worktrees] Isolate implementation tasks in harness-managed Git worktrees and integrate successful work automatically.
   *Supports: intent goes in and merged software comes out.*
-- Every change is reviewed against the intent it claims to serve, by a role that did not write it, before it is integrated.
+- [independent-review] Every change is reviewed against the intent it claims to serve, by a role that did not write it, before it is integrated.
   *Supports: nothing lands unreviewed by someone other than its author.*
-- Publish that work as pull requests the harness opens, and has the forge merge, on the roles' behalf, for projects that enable it, without letting any agent push or merge.
+- [harness-publishes] Publish that work as pull requests the harness opens, and has the forge merge, on the roles' behalf, for projects that enable it, without letting any agent push or merge.
   *Supports: safety invariants hold whatever the configuration says.*
-- Keep roles, policies, and provider selection configurable without making safety invariants optional, and support multiple providers behind one adapter contract.
+- [configurable-safely] Keep roles, policies, and provider selection configurable without making safety invariants optional, and support multiple providers behind one adapter contract.
   *Supports: safety invariants hold whatever the configuration says.*
-- Run development nearly autonomously. The human's routine interface is the product manager: they state intent, approve the brief and goals, and answer questions the product manager escalates. Directing the architect, development manager, developer, or reviewer individually is available for inspection, recovery, and override, but is not part of the normal loop.
+- [nearly-autonomous] Run development nearly autonomously. The human's routine interface is the product manager: they state intent, approve the brief and goals, and answer questions the product manager escalates. Directing the architect, development manager, developer, or reviewer individually is available for inspection, recovery, and override, but is not part of the normal loop.
   *Supports: the human's attention goes only where it is needed.*
-- The harness's surfaces read clearly: boundaries between topics and speakers are visible, important findings stand out, every distinction survives a terminal that cannot render emphasis, and user-facing language chooses the ordinary, literal word over metaphor, coinage, or term of art.
+- [plain-language] The harness's surfaces read clearly: boundaries between topics and speakers are visible, important findings stand out, every distinction survives a terminal that cannot render emphasis, and user-facing language chooses the ordinary, literal word over metaphor, coinage, or term of art.
   *Supports: the human's attention goes only where it is needed.*
-- The operator can see what the harness spends on their behalf: provider-reported cost, per work item, per run, and in total.
+- [visible-spend] The operator can see what the harness spends on their behalf: provider-reported cost, per work item, per run, and in total.
   *Supports: the operator can see what the system does on their behalf.*
-- Support development in any language. Yoyodyne is written in Go, but the projects it manages are not assumed to be: verification is whatever commands the project declares, and no language, build system, or test framework is built into the harness.
+- [any-language] Support development in any language. Yoyodyne is written in Go, but the projects it manages are not assumed to be: verification is whatever commands the project declares, and no language, build system, or test framework is built into the harness.
   *Supports: it works on other people's projects.*
-- A newcomer can go from the documented install to a working first run on their own repository using the readme alone.
+- [readme-first-run] A newcomer can go from the documented install to a working first run on their own repository using the readme alone.
   *Supports: it works on other people's projects.*
-- A team can run Yoyodyne against one shared repository: collaborators each run their own harness without losing work, splitting the tracker, or weakening any safety invariant.
+- [shared-repository] A team can run Yoyodyne against one shared repository: collaborators each run their own harness without losing work, splitting the tracker, or weakening any safety invariant.
   *Supports: it works on other people's projects.*
 
 ## Standing goals
