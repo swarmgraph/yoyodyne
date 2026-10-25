@@ -62,6 +62,10 @@ revisions:
       by: architect
       at: 2026-10-21T05:07:16.02005Z
       reason: 'Configurable-workflows half of scheduled-pass concurrency (yoyodyne-ifd.428.75.1), agreeing with the architect-loop revision of October 19: a recurring pass runs in its own conversation beside the scheduler''s pull; turns in one conversation run one at a time and passes of different conversations run at once up to a bound the harness sets; the lease, skipping a busy conversation, durable duplicate prevention, the intake hold, the spending pause, budgets committed before spend and durable pass records are unchanged; this is concurrency between conversations, not parallel steps inside a workflow. The program-manager design''s one task per scheduler pull is superseded here and is revised once that design is split. The architect''s pass is no longer called daily.'
+    - action: amended
+      by: architect
+      at: 2026-10-25T17:10:01.920525Z
+      reason: 'yoyodyne-ifd.428.123: the declarative workflow graph will run the delivery pipeline and is not retired. Until the switch, the run record alone decides a run''s next step, and a lifecycle change keeps the graph in step only through one comparison in make test. The graph becomes the default for new runs after four tests recorded in the design are met. Nine build pieces are named for the development manager. Only this section changes; written from main at bd060907. Resent after the word check refused three joined words.'
 approvals:
     - policy: approvals.designs
       revision: 12
@@ -73,6 +77,11 @@ approvals:
       by: harness
       at: 2026-10-21T05:07:16.02005Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1387, for document-1387.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 14
+      by: harness
+      at: 2026-10-25T17:10:01.920525Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1725, for document-1725.1 under the automatic approval policy
 ---
 # Configurable workflows: a declarative runtime over trusted actions
 
@@ -141,6 +150,45 @@ The Sentinel is the second specialist, after the program manager: an observer bu
 ## Conversion order and the recorded trade
 
 Delivery first — it is bounded, tested, safety-critical, and durable — behind the brief's parity discipline: freeze the behavioral baseline, wrap existing code as actions unchanged, run the compiled definition against the baseline, keep an opt-in trial alongside the old path, then default for new runs with legacy resume preserved; existing incomplete runs stay resumable throughout. Triage second, preserving the docket's caps and authority. Management requests third: **ifd.142 proceeds bespoke, per the operator's recorded trade, and converts here — its durable records must therefore map onto instances and interrupts without loss, which constrains 142's persistence now.** The specialist substrate and Sentinel fourth. Parallel branches, fan-out, visual authoring, and new evidence-producing gate types wait for demonstrated need. The human gate — a step satisfiable only by a person's durable recorded act — is part of the runtime envelope and available to definitions now, not a deferred gate type.
+
+### Whether the graph runs the pipeline
+
+Decided on 25 October 2026 for the item asking whether the declarative workflow graph will run the delivery pipeline or be retired (yoyodyne-ifd.428.123).
+
+**The decision.** The graph will run the delivery pipeline. It is not retired. The operating rules say the sequence of steps a change goes through is project-owned data, with the capability behind each step kept in trusted code; retiring the graph would leave that rule with nothing behind it, and every project's sequence would stay fixed in Go. What this decision ends is the graph costing every lifecycle change a second edit while it decides nothing.
+
+**Until the switch.** These hold for every run until the conditions below are met:
+
+- The run record is the only record any code decides a run's next step from. No code reads a workflow instance's position to choose what a run does.
+- A change to the run lifecycle keeps the graph in step through one check in `make test`: the comparison of the built-in delivery definition with the paths the pipeline records. The change either updates the built-in definition so the comparison passes, or adds the difference, with its reason, to the list of known differences the comparison reads. Nothing else about the graph is asked of a lifecycle change.
+- The path for an interrupted review, and the difference recorded for an integration whose process was killed, stay as the runtime section above describes them.
+
+**When the graph takes over.** All four of these must be true, and each can be checked from records:
+
+1. The runtime above exists as built: every action has a step-attempt record, each attempt has a key that makes repeating the step after a death safe, and a step whose process died is settled by adopting its result, running it again under the same key, or recording it for the development manager.
+2. Every delivery action declares its outcomes in its descriptor, and every outcome the pipeline produces is a declared one.
+3. The comparison with the frozen baseline passes with no known differences left on its list.
+4. An opt-in trial has run at least 50 delivery runs over at least seven days beside the old path. Among them is at least one interrupted review that was resumed, and at least one integration whose process was killed and was then settled. Each of those ended as the old path would have ended it.
+
+Then the graph becomes the default for new runs. A run started on the old path finishes on the old path.
+
+**After the switch.** The workflow instance holds where a run stands, and the state in the run record is worked out from it through the translation table of settled question 8. Both are written by the one function that changes a run's state, so the two cannot disagree. This follows the rule in [one owner for each guarantee](one-owner-for-each-guarantee.md) that a guarantee has one owning component and one way in.
+
+**What to build.** Nine pieces, for the development manager to split into work items in this order:
+
+1. The step-attempt record and the key that makes repeating a step safe.
+2. Settling a step whose process died: adopt, run again under the same key, or record it for the development manager.
+3. Outcome declarations in every delivery action's descriptor, checked against the outcomes the pipeline produces.
+4. The comparison with the frozen baseline and its list of known differences, each with a reason, run in `make test`.
+5. A check in `make test` that no code reads a workflow instance's position before the switch.
+6. The opt-in trial for one project, with a record that counts its runs and days and shows whether the interrupted review and the killed integration have each occurred and how they ended.
+7. Making the graph the default for new runs, with old runs finishing on the old path.
+8. The function that changes a run's state writing the instance position and the run record's state, worked out from that position, together.
+9. Removing the old path once no run started on it remains open.
+
+**Alternatives rejected.** Retiring the graph, which drops the operating rule and leaves every project's sequence in Go. Keeping the graph and the pipeline in full step forever without a switch, which keeps the second edit on every lifecycle change for nothing. Switching now, before step attempts and settling exist, which lets a process that dies partway through a step repeat what it already did, such as opening a second pull request.
+
+**What a reviewer can check.** Before the switch, no code chooses a run's next step from an instance's position, and `make test` fails on a lifecycle change that neither updates the built-in definition nor records the difference with a reason. The switch is made only where the four conditions are met in the records. After it, the instance position and the state in the run record are written by one function, and a run started on the old path never moves to the new one.
 
 ## The twenty questions, settled
 
