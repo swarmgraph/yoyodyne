@@ -632,8 +632,8 @@ func (r dashboardReader) Delivery(ctx context.Context) (readmodel.Delivery, erro
 // Pacific time, and a dependency stamp bd wrote in a writer's wall clock is
 // corrected in that zone rather than in whichever zone the dashboard happens to
 // run in (beads.Client.WriterZone). No delivery measure is read from a
-// dependency stamp, and naming the zone keeps it so for anything the listing
-// carries.
+// dependency stamp: the listing is usually read out of the shared reading,
+// which another status reading's client may have made without the zone.
 func deliverySources(resolved config.Resolved) readmodel.DeliverySources {
 	zone := readmodel.DeliveryZone()
 	sources := readmodel.DeliverySources{TrackerTimeout: chatTrackerTimeout, Zone: zone}
@@ -647,6 +647,12 @@ func deliverySources(resolved config.Resolved) readmodel.DeliverySources {
 	}
 	productID := resolved.Config.Product.ID
 	sources.Tracker = beads.Client{Runner: execution.OSProcessRunner{}, Dir: roots.repository, WriterZone: zone}
+	// The one reading of the tracker every status reading on the machine
+	// shares, so the delivery measures do not hold the tracker's store for a
+	// listing of every item of their own (runstate, trackerreading.go).
+	if store, err := runstate.NewTrackerReadingStore(roots.stateRoot, productID); err == nil {
+		sources.TrackerReadings = store
+	}
 	if worktrees, err := gitworktree.New(gitworktree.Options{
 		Runner:         execution.OSProcessRunner{},
 		RepositoryRoot: roots.repository,

@@ -126,9 +126,19 @@ func RecordedWorkItemTitle(id, title string) *WorkItemTitles {
 // bounded by the sources' tracker timeout. A listing that fails gives the
 // unreadable reading and the error, so a caller that only renders can ignore
 // the error and still show every reference marked.
+//
+// Where the sources carry the product's shared reading, the listing is read
+// out of it rather than asked of the tracker, as a standing's is
+// (sharedlisting.go): the dashboard names the items its throughput shows
+// every minute, and that is one more listing of every item it need not make.
 func ReadWorkItemTitles(ctx context.Context, sources Sources) (*WorkItemTitles, error) {
 	if sources.Tracker == nil {
 		return nil, nil
+	}
+	if sources.TrackerReadings != nil {
+		var shared *sharedTracker
+		sources, shared = sources.sharing()
+		defer shared.finish()
 	}
 	items, err := sources.list(ctx, "")
 	if err != nil {
