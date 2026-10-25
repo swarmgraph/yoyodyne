@@ -149,6 +149,39 @@ func (s *InterventionStore) List() ([]intervention.Event, error) {
 	return events, nil
 }
 
+// Scan is every event in the order it was written, with the lines that would not
+// decode holding their places. It is how the channel reads the log, by position,
+// so a line one build cannot read neither stops the rest being said nor moves
+// what has already been said; List is for every other reader.
+func (s *InterventionStore) Scan() ([]intervention.Event, []SkippedLine, error) {
+	file, err := os.Open(s.Path())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("open intervention log: %w", err)
+	}
+	defer file.Close()
+	var events []intervention.Event
+	skipped, err := scanLog(file, maxEncodedInterventionBytes, func(line []byte) error {
+		var decoded intervention.Event
+		unknown, err := decodeTolerating(line, &decoded)
+		if err != nil {
+			return err
+		}
+		noteUnknownFields("intervention record", unknown)
+		if err := s.validate(decoded); err != nil {
+			return err
+		}
+		events = append(events, decoded)
+		return nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("read intervention log: %w", err)
+	}
+	return events, skipped, nil
+}
+
 func (s *InterventionStore) lock() (func(), error) {
 	if err := os.MkdirAll(s.root, 0o700); err != nil {
 		return nil, fmt.Errorf("create intervention directory: %w", err)

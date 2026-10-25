@@ -341,8 +341,9 @@ own file and a person's activation of it, and a persona or remit cannot grant
 anything.
 
 The program manager's `log.read` grant reads this product's pass records, watch
-transitions and scheduler output, docket, named run records, usage-limit log and
-provider-outage record under the state root. Reads require a cursor or a time
+transitions and scheduler output, docket, named run records, usage-limit log,
+provider-outage record, and record of the operator's hand steps and messages
+under the state root. Reads require a cursor or a time
 window and a byte cap, return redacted untrusted evidence, and are audited on the
 conversation before evidence is delivered. Tokens, memory, other agents'
 conversation records and arbitrary filesystem paths are refused.

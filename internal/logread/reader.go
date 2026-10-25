@@ -74,6 +74,8 @@ func recordPath(request Request) string {
 		return "usage-limits.jsonl"
 	case "provider-outage":
 		return "provider-outage.json"
+	case "intervention":
+		return "interventions.jsonl"
 	case "run":
 		return "runs/" + request.Name + ".json"
 	}

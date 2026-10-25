@@ -38,7 +38,8 @@ func recordedSteps(t *testing.T, store *runstate.InterventionStore) map[interven
 // Approving what the product manager proposed, running the item it became by
 // name, and stopping that run are three hand steps, each recorded once as the
 // harness carries it out, naming the item and the conversation it came in
-// through. What the product manager says between them records nothing.
+// through. The message the operator typed to start it is recorded as his
+// message, and what the product manager says between them records nothing.
 func TestTheOperatorsCommandsInAConversationAreRecordedAsHandSteps(t *testing.T) {
 	t.Parallel()
 
@@ -80,8 +81,11 @@ func TestTheOperatorsCommandsInAConversationAreRecordedAsHandSteps(t *testing.T)
 			t.Errorf("the %s was recorded as %+v, want a step carried out through %s on yoyodyne-1", kind, event, via)
 		}
 	}
-	if total := len(byKind); total != 3 {
-		t.Errorf("recorded kinds %v, want exactly the three the operator took", byKind)
+	if messages := byKind[intervention.KindMessage]; len(messages) != 1 || messages[0].Via != "the console" {
+		t.Errorf("recorded messages %+v, want the one the operator typed at the console", messages)
+	}
+	if total := len(byKind); total != 4 {
+		t.Errorf("recorded kinds %v, want exactly the three steps the operator took and his message", byKind)
 	}
 	if subject := byKind[intervention.KindApprove][0].Subject; subject == "" {
 		t.Error("the approval does not name the proposal it decided")
@@ -236,5 +240,41 @@ func TestAnInterventionBlockIsReadStrictly(t *testing.T) {
 		if _, _, err := extractIntervention("prose\n\n" + interventionBlock(payload)); err == nil {
 			t.Errorf("extractIntervention(%q) accepted the block", payload)
 		}
+	}
+}
+
+// A message a person sends a role is one of the operator's interventions and is
+// recorded as it is sent, saying where it came in; a message the harness sends
+// on its own account, as a recurring pass or a wakeup does, records nothing.
+func TestAPersonsMessageIsRecordedAndTheHarnessesIsNot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	steps := interventionStore(t, root)
+	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: "Noted."},
+		{SessionID: "session-1", FinalText: "Noted again."},
+	}})
+	options.Store = newTestStore(t, root)
+	options.Interventions = steps
+	session := openTestSession(t, options)
+
+	if _, err := session.Send(context.Background(), "The harness woke you for the recurring task."); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if recorded := recordedSteps(t, steps)[intervention.KindMessage]; len(recorded) != 0 {
+		t.Fatalf("the harness's own message was recorded: %+v", recorded)
+	}
+	session.FromPerson("Slack")
+	if _, err := session.Send(context.Background(), "Start counting the operator's interventions now."); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	recorded := recordedSteps(t, steps)[intervention.KindMessage]
+	if len(recorded) != 1 {
+		t.Fatalf("recorded %+v, want the person's message once", recorded)
+	}
+	if event := recorded[0]; event.Via != "Slack" || !strings.Contains(event.Said, "Start counting the operator's interventions now.") ||
+		!strings.HasPrefix(event.Subject, "conversation "+session.Evidence().ConversationID) {
+		t.Errorf("the message was recorded as %+v, want it from Slack, naming the conversation and saying what was sent", event)
 	}
 }

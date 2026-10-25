@@ -414,6 +414,12 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 	if err != nil {
 		return nil, "", err
 	}
+	// The operator's hand steps, read so each is said once in the thread of what
+	// it unblocked, and for the count of his interventions the four lines carry.
+	interventions, err := runstate.NewInterventionStore(stateRoot, productID)
+	if err != nil {
+		return nil, "", err
+	}
 	// The same product-scoped directive records `yoyo directive` writes and every
 	// run consults. A directive recorded from a thread lands there rather than in
 	// a second pile beside it, which is the whole of what makes a reply reach the
@@ -459,6 +465,7 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		IntakeHolds:     intake,
 		Sessions:        watch,
 		Reports:         reports,
+		Interventions:   interventions,
 		// The triage docket, so the channel names an unanswered product decision
 		// about a run in flight exactly as the terminal does.
 		Docket: slackDocket(stateRoot, resolved.Config.Product.ID),
@@ -593,6 +600,9 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 			// machine stuck behind one reads as a drained queue rather than as a stall.
 			// The watch loop audits and releases; this says so, once per release.
 			Claims: releasedClaims,
+			// The operator's hand steps, each said once in the thread of what it
+			// unblocked, so the channel carries the count's entries as they land.
+			Interventions: interventions,
 			// What this project's template has improved that this project never
 			// edited. Every other surface that says it is one somebody has to run,
 			// so a harness left running for a fortnight says it nowhere at all —
@@ -768,6 +778,9 @@ func sayToConversation(ctx context.Context, session *chat.Session, said string, 
 	// watching this process, and a thread carrying one every time would bury the
 	// answer somebody asked for.
 	log("%s", session.Freshness(ctx))
+	// Whoever wrote in the channel is a person, so the message is one of the
+	// operator's messages and is recorded as one.
+	session.FromPerson("Slack")
 	reply, err := session.Send(ctx, said)
 	// And what the harness did about that age, where it did anything: a re-read
 	// it made unasked goes to the same log the caveat did. A reply whose picture

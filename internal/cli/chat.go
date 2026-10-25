@@ -354,6 +354,12 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 	// ago. It is said on stderr because stdout is the reply and, with --json, a
 	// document.
 	fmt.Fprintln(stderr, session.Freshness(ctx))
+	// A message a person typed at this command line is one of the operator's
+	// messages, and is recorded as one; the same verb run by an agent's process
+	// or the harness's own schedule is the system talking to itself.
+	if personAtCommandLine() {
+		session.FromPerson(viaCommandLine)
+	}
 	reply, err := session.Send(ctx, message)
 	if err != nil {
 		// The answer travels with the failure. A turn that produced one is worth

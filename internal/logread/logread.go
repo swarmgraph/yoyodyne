@@ -51,7 +51,7 @@ func (r Request) Validate() error {
 		if r.Name != "" && r.Name != "output" {
 			return errors.New("watch name must be empty or output")
 		}
-	case "pass", "docket", "usage-limit", "provider-outage":
+	case "pass", "docket", "usage-limit", "provider-outage", "intervention":
 		if r.Name != "" {
 			return errors.New("only a run record accepts a name")
 		}
@@ -60,7 +60,7 @@ func (r Request) Validate() error {
 			return errors.New("run name must be a plain run identifier")
 		}
 	default:
-		return errors.New("record must be pass, watch, docket, run, usage-limit, or provider-outage")
+		return errors.New("record must be pass, watch, docket, run, usage-limit, provider-outage, or intervention")
 	}
 	if r.Task != "" && (r.Record != "pass" || domain.ValidateIdentifier("task", r.Task) != nil) {
 		return errors.New("only a pass read accepts a task, and it must be a recurring task's name")
@@ -90,7 +90,7 @@ func plainIdentifier(value string) bool {
 
 func Descriptor() action.Tool {
 	return action.Tool{ID: capability.LogRead, Block: "yoyodyne-log", Class: action.ToolRead,
-		Parameters: `JSON such as {"requests":[{"record":"watch","cursor":0,"max_bytes":4096}]}. Records: pass (task narrows it to one recurring task's passes), watch (name output reads scheduler output), docket, run (requires name), usage-limit, provider-outage. Supply a nonnegative byte cursor at a record boundary, or since and until as RFC3339 times spanning at most 24 hours, or both to carry a window read on from a cursor. Unknown fields and invalid requests refuse the whole block. Results name the next cursor, bytes returned, the record's whole size, any truncation, and the next read to ask for. A record longer than one read returns comes back in parts: each part names where it starts and how many bytes of the record remain, and its next read carries on with an offset into the record at the cursor.`,
+		Parameters: `JSON such as {"requests":[{"record":"watch","cursor":0,"max_bytes":4096}]}. Records: pass (task narrows it to one recurring task's passes), watch (name output reads scheduler output), docket, run (requires name), usage-limit, provider-outage, intervention (the operator's recorded hand steps and messages). Supply a nonnegative byte cursor at a record boundary, or since and until as RFC3339 times spanning at most 24 hours, or both to carry a window read on from a cursor. Unknown fields and invalid requests refuse the whole block. Results name the next cursor, bytes returned, the record's whole size, any truncation, and the next read to ask for. A record longer than one read returns comes back in parts: each part names where it starts and how many bytes of the record remain, and its next read carries on with an offset into the record at the cursor.`,
 		Bounds:     action.ToolBounds{RequestsPerReply: MaxRequestsPerReply, RoundsPerMessage: MaxRoundsPerMessage, BytesPerRequest: MaxContentBytes, BytesPerReply: MaxBytesPerReply},
 		Scope:      "one named record the product keeps of its own running, under its state directory; never a path, a credential, a memory, a conversation, or the repository's files",
 		Gates:      "that your role is allowed to use it, and that spending is not paused. One request reads through at most 8 MiB of a record.",

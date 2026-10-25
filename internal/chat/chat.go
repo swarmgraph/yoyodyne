@@ -907,6 +907,12 @@ type Session struct {
 	// typing says the message being sent was typed at the console's prompt,
 	// which is what marks it in the record as one up recalls later.
 	typing bool
+	// personVia is where a person sent the messages this session is given from
+	// outside its console — the command line, or Slack — set by FromPerson. A
+	// message typed at the console says so by typing, and a message a recurring
+	// pass, a wakeup, or an escalation sends sets neither, so only a person's is
+	// recorded as one of the operator's messages (intervention.go).
+	personVia string
 }
 
 // proposalRecord is one proposal and whether the operator has finished with it.
@@ -2771,7 +2777,16 @@ func (s *Session) recordOperatorMessage(message string) error {
 	if s.typing {
 		payload[typedAtConsole] = true
 	}
-	return s.emit(execution.EventOperatorMessage, payload)
+	if err := s.emit(execution.EventOperatorMessage, payload); err != nil {
+		return err
+	}
+	switch {
+	case s.typing:
+		s.noteMessage("the console", text)
+	case s.personVia != "":
+		s.noteMessage(s.personVia, text)
+	}
+	return nil
 }
 
 // typedAtConsole is the field an operator.message event carries when the

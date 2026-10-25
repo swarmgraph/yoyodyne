@@ -242,6 +242,12 @@ const (
 	// sweep reached them on 2026-09-14, and then reached him only because he
 	// asked.
 	KindOperatorAction Kind = "operator-action.recorded"
+	// A hand step the operator took, or somebody took for him, said once in the
+	// thread of what it unblocked as the record of it lands (see
+	// internal/intervention). It asks nothing of anybody: the step is taken, and
+	// saying it is what lets a channel reader see the steps the count of his
+	// interventions is made of.
+	KindInterventionRecorded Kind = "intervention.recorded"
 	// What a watch session is doing. A session that stays open until it is told
 	// to stop spends most of its life saying nothing, and an idle one and a dead
 	// one are the same silence: these are what tell them apart in the record. Idle
@@ -475,6 +481,7 @@ func Kinds() []Kind {
 		KindHoldPlaced,
 		KindHoldLifted,
 		KindOperatorAction,
+		KindInterventionRecorded,
 		KindWatchStarted,
 		KindWatchIdle,
 		KindWatchBraked,
@@ -517,6 +524,7 @@ func (k Kind) Valid() bool {
 		KindDirectiveRecorded, KindDirectiveResolved, KindDirectiveCarriedOut, KindDirectiveRefused,
 		KindDirectiveWithdrawn, KindQuestionHeard,
 		KindIntakeHeld, KindIntakeReleased, KindIntakeEscalated, KindHoldPlaced, KindHoldLifted, KindOperatorAction,
+		KindInterventionRecorded,
 		KindWatchStarted, KindWatchIdle, KindWatchBraked, KindWatchBlocked, KindWatchResumed, KindWatchStopped,
 		KindWatchRedeploying, KindWatchReadRetrying, KindLineWaiting, KindResidentStale, KindStallNoticed,
 		KindProviderWindow, KindCapacityHold, KindProviderOutage, KindProviderRestored,
@@ -1114,6 +1122,10 @@ type Detail struct {
 	RecordedIn string `json:"recorded_in,omitempty"`
 	FoundBy    string `json:"found_by,omitempty"`
 	Ends       string `json:"ends,omitempty"`
+	// TookBy is who took a hand step and Unblocked what it unblocked, in words,
+	// both read by KindInterventionRecorded; what was done is the event's Text.
+	TookBy    string `json:"took_by,omitempty"`
+	Unblocked string `json:"unblocked,omitempty"`
 	// Stops is the runs the brake counted on its way to tripping, already worded
 	// by the record, read by KindIntakeHeld. It is empty on the operator's own
 	// hold, which counts nothing, and the line leaves the clause out.

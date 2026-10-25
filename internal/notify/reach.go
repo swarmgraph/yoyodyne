@@ -202,6 +202,11 @@ var reaches = map[Kind]Reach{
 	// own definition — what needs his action — and it is also said to him
 	// directly, which is the surface's to do.
 	KindOperatorAction: ReachChannel,
+	// A hand step, said once in the thread of what it unblocked. It is the
+	// channel level because it is the record of a person's act somebody reading
+	// the thread wants beside the work, and it goes to nobody directly: it asks
+	// for nothing.
+	KindInterventionRecorded: ReachChannel,
 	// What a watch session is doing. These are the poll-by-poll narration of a
 	// process that spends most of its life saying nothing, and they were 473 of the
 	// measured posts on their own. The watch log holds every one of them and

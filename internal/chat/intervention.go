@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/intervention"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
 const interventionFence = "```yoyodyne-intervention"
@@ -76,6 +77,51 @@ func (s *Session) noteHandStep(kind intervention.Kind, items []string, run, subj
 	}
 }
 
+// FromPerson marks the messages this session is sent as a person's, sent from
+// via: the command line, or Slack. Each is then recorded as one of the
+// operator's messages as it is sent. It is for the callers that know a person
+// typed the message; a session the harness opens for its own turns never calls
+// it.
+func (s *Session) FromPerson(via string) {
+	s.personVia = strings.TrimSpace(via)
+}
+
+// maxMessageSaidBytes bounds how much of a message its record repeats: enough
+// to say what it was about, with the whole of it in the conversation's log.
+const maxMessageSaidBytes = 300
+
+// noteMessage records one message a person sent the role. The text is the one
+// the conversation's log was given, already redacted. A message the record
+// would not take is still a message the role is answering, so it is said and
+// nothing else changes.
+func (s *Session) noteMessage(via, text string) {
+	if s.options.Interventions == nil {
+		return
+	}
+	id, err := intervention.NewID()
+	if err == nil {
+		now := s.options.clock().Now().UTC()
+		said := oneline.Fold(text, maxMessageSaidBytes)
+		if said == "" {
+			said = "an empty message"
+		}
+		err = s.options.Interventions.Record(intervention.Event{
+			SchemaVersion: intervention.SchemaVersion,
+			ID:            id,
+			ProductID:     s.options.ProductID,
+			Kind:          intervention.KindMessage,
+			At:            now,
+			Subject:       "conversation " + s.state.ConversationID + " with the " + RoleTitle(s.state.Role),
+			Said:          "sent the " + RoleTitle(s.state.Role) + " a message: " + said,
+			Via:           via,
+			RecordedAt:    now,
+		})
+	}
+	if err != nil {
+		s.notice("the operator's message could not be recorded as one of his interventions: %v", err)
+	}
+}
+
 // ObservedAsk is one hand step a role noticed and asks to have recorded.
 type ObservedAsk struct {
 	Kind    string   `json:"kind"`
@@ -85,6 +131,12 @@ type ObservedAsk struct {
 	Run     string   `json:"run,omitempty"`
 	Subject string   `json:"subject,omitempty"`
 	Said    string   `json:"said"`
+	// Unblocked is what the step unblocked, written as `yoyo intervention
+	// record --unblocked` takes it, and PersonOnly whether only a person could
+	// have taken it. Both are optional here, and a step that says neither is
+	// counted as not saying.
+	Unblocked  string `json:"unblocked,omitempty"`
+	PersonOnly *bool  `json:"person_only,omitempty"`
 }
 
 // ObservedOutcome is what became of one ask: the event as recorded, or why
@@ -156,6 +208,15 @@ func (s *Session) performObservedWithoutToolAudit(ask ObservedAsk) ObservedOutco
 		}
 		at = parsed.UTC()
 	}
+	var unblocked *intervention.Unblocked
+	if written := strings.TrimSpace(ask.Unblocked); written != "" {
+		parsed, err := intervention.ParseUnblocked(written)
+		if err != nil {
+			outcome.Failure = singleLine(err.Error(), maxTrackerFailureBytes)
+			return outcome
+		}
+		unblocked = &parsed
+	}
 	id, err := intervention.NewID()
 	if err != nil {
 		outcome.Failure = singleLine(err.Error(), maxTrackerFailureBytes)
@@ -177,6 +238,8 @@ func (s *Session) performObservedWithoutToolAudit(ask ObservedAsk) ObservedOutco
 		Run:           strings.TrimSpace(ask.Run),
 		Subject:       strings.TrimSpace(ask.Subject),
 		Said:          strings.TrimSpace(ask.Said),
+		Unblocked:     unblocked,
+		PersonOnly:    ask.PersonOnly,
 		Observed:      true,
 		By:            strings.TrimSpace(ask.By),
 		RecordedBy:    s.options.Agent,
@@ -226,7 +289,7 @@ var interventionContract = `# Recording a hand step taken outside the harness
 The operator's hand steps are counted: every one taken through the harness is recorded as it happens, and the count per merged change is read from that record. A step taken outside the harness — the scheduler restarted by hand, the target branch reset by hand, a tracker status edited by hand — is in the count only if somebody writes it down. Where you can see that one was taken and it is not already recorded, write it down by ending your reply with exactly one block, after the prose:
 
 ` + "```" + `yoyodyne-intervention
-{"kind":"restart","by":"who took the step","at":"2026-10-05T09:30:00-07:00","items":["beads-id"],"run":"run-id","subject":"what else it touched","said":"what was done, in a sentence"}
+{"kind":"restart","by":"who took the step","at":"2026-10-05T09:30:00-07:00","items":["beads-id"],"run":"run-id","subject":"what else it touched","unblocked":"part:dashboard","person_only":false,"said":"what was done, in a sentence"}
 ` + "```" + `
 
-"kind" is one of ` + strings.Join(intervention.KindNames(), ", ") + `; "by" and "said" are required; "at" is when it was taken and defaults to now; "items", "run", and "subject" name what it touched, and naming the work item or run it was for is what counts it against that change. It is recorded as observed, under your name, and does nothing else. Record only what you have evidence for, and never a step an agent or the harness took: the count is of what the operator did by hand.`
+"kind" is one of ` + strings.Join(intervention.KindNames(), ", ") + `; "by" and "said" are required; "at" is when it was taken and defaults to now; "items", "run", and "subject" name what it touched, and naming the work item or run it was for is what counts it against that change; "unblocked" is what it unblocked — item:<id>, run:<id>, part:<name>, conversation:<id>, or none — and "person_only" is true where only a person could have taken it and false where the harness should have taken it itself. It is recorded as observed, under your name, and does nothing else. Record only what you have evidence for, and never a step an agent or the harness took: the count is of what the operator did by hand.`

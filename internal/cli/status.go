@@ -366,6 +366,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	if standing != nil {
 		fmt.Fprint(stdout, standing.Render())
 		fmt.Fprint(stdout, standing.RenderUsageWindows())
+		fmt.Fprint(stdout, standing.RenderOwnerInterventions())
 		fmt.Fprint(stdout, standing.RenderProgramManagers())
 		fmt.Fprint(stdout, standing.RenderConversationPasses())
 		fmt.Fprint(stdout, standing.RenderMergeQueues())
@@ -659,6 +660,11 @@ func standingSources(configPath string) readmodel.Sources {
 	}
 	if store, err := runstate.NewReportStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Reports = store
+	}
+	// The record of hand steps and messages, for the count of the operator's
+	// interventions printed under the four lines.
+	if store, err := runstate.NewInterventionStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.Interventions = store
 	}
 	// The triage docket, for the Lead Product Manager's decisions about runs in
 	// flight that the development manager has not yet answered.

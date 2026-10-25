@@ -77,6 +77,9 @@ const (
 	// fixed pair of facts, and because it is the one reading here that is about
 	// the installation rather than about the work.
 	improvementStream = "improvements"
+	// interventionStream is the operator's hand steps, read from their log by
+	// position like the reports, so each is said once.
+	interventionStream = "interventions"
 )
 
 func runStream(runID string) string { return "run:" + runID }
@@ -385,6 +388,10 @@ type HarnessFeed struct {
 	// item with nothing accounting for the first, so every sink the harness builds
 	// is given one.
 	Claims ReleasedClaims
+	// Interventions is the record of the operator's hand steps, each said once
+	// in the thread of what it unblocked (interventions.go). It is optional, and
+	// a feed assembled without one says nothing about them.
+	Interventions InterventionLog
 	// Improvements is what the project's template supplies now against what it
 	// supplied when this project was generated, read for the one class of value
 	// that is an offer: improved by the template and never edited here. It is
@@ -691,6 +698,11 @@ func (f *HarnessFeed) Poll(ctx context.Context, cursors Cursors) (Batch, error) 
 		return Batch{}, err
 	}
 	batch.Deliveries = append(batch.Deliveries, unstuck...)
+	stepped, err := f.interventionDeliveries(cursors.Streams[interventionStream], since, batch.Streams)
+	if err != nil {
+		return Batch{}, err
+	}
+	batch.Deliveries = append(batch.Deliveries, stepped...)
 
 	// What the project's template offers that this project never edited. It is
 	// last because it is the one reading here that is not about the work at all:
