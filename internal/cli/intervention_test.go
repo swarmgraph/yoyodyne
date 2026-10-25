@@ -64,6 +64,7 @@ func TestHandStepsAtTheCommandLineAreRecordedAndReadBack(t *testing.T) {
 	code, stdout, stderr := runYoyo(t, "intervention", "record",
 		"--kind", "restart", "--by", "Mason", "--subject", "the scheduler",
 		"--at", "2026-10-05T09:30:00-07:00",
+		"--unblocked", "part:scheduler", "--person-only", "no",
 		"--config", configPath,
 		"restarted the scheduler by hand after it stopped pulling work")
 	if code != 0 {
@@ -92,6 +93,10 @@ func TestHandStepsAtTheCommandLineAreRecordedAndReadBack(t *testing.T) {
 	restart, ok := byKind[intervention.KindRestart]
 	if !ok || !restart.Observed || restart.By != "Mason" || restart.RecordedBy != "Mason" || restart.Via != "" {
 		t.Errorf("the restart was recorded as %+v, want it observed, taken and recorded by Mason", restart)
+	}
+	if restart.Unblocked == nil || *restart.Unblocked != (intervention.Unblocked{Kind: intervention.UnblockedPart, ID: "scheduler"}) ||
+		restart.PersonOnly == nil || *restart.PersonOnly {
+		t.Errorf("the restart was recorded as unblocking %+v, person-only %v; want the scheduler part, and not person-only", restart.Unblocked, restart.PersonOnly)
 	}
 	if want := time.Date(2026, 10, 5, 16, 30, 0, 0, time.UTC); !restart.At.Equal(want) {
 		t.Errorf("the restart was taken at %s, want %s", restart.At, want)
@@ -125,7 +130,7 @@ func TestNothingIsRecordedForAnAgentOrTheHarnessItself(t *testing.T) {
 	t.Setenv(execution.StartedByVariable, "")
 	t.Setenv(execution.AgentRoleVariable, string(domain.RoleDeveloper))
 	recordFromCommandLine(t, configPath, "a directive an agent's process records")
-	code, _, stderr := runYoyo(t, "intervention", "record", "--kind", "restart", "--by", "Mason", "--config", configPath, "restarted the scheduler")
+	code, _, stderr := runYoyo(t, "intervention", "record", "--kind", "restart", "--by", "Mason", "--unblocked", "part:scheduler", "--person-only", "no", "--config", configPath, "restarted the scheduler")
 	if code == 0 || !strings.Contains(stderr, "refused from a process the harness launched for the developer") {
 		t.Errorf("an agent recorded a person's step: exit %d, %s", code, stderr)
 	}
@@ -223,12 +228,61 @@ func TestRecordingAnOutsideStepAsksWhoTookIt(t *testing.T) {
 	if code == 0 || !strings.Contains(stderr, "say who took the step") {
 		t.Errorf("a step nobody took was recorded: exit %d, %s", code, stderr)
 	}
-	code, _, stderr = runYoyo(t, "intervention", "record", "--kind", "reset", "--by", "Mason", "--at", "yesterday", "--config", configPath, "reset main by hand")
+	code, _, stderr = runYoyo(t, "intervention", "record", "--kind", "reset", "--by", "Mason", "--config", configPath, "reset main by hand")
+	if code == 0 || !strings.Contains(stderr, "say what the step unblocked") {
+		t.Errorf("a step that says nothing of what it unblocked was recorded: exit %d, %s", code, stderr)
+	}
+	code, _, stderr = runYoyo(t, "intervention", "record", "--kind", "reset", "--by", "Mason", "--unblocked", "branch:main", "--person-only", "yes", "--config", configPath, "reset main by hand")
+	if code == 0 || !strings.Contains(stderr, "is not a kind of thing a step unblocks") {
+		t.Errorf("a step that unblocked an unknown kind of thing was recorded: exit %d, %s", code, stderr)
+	}
+	code, _, stderr = runYoyo(t, "intervention", "record", "--kind", "reset", "--by", "Mason", "--unblocked", "none", "--config", configPath, "reset main by hand")
+	if code == 0 || !strings.Contains(stderr, "say whether only a person could have taken the step") {
+		t.Errorf("a step that says nothing of whether a person had to take it was recorded: exit %d, %s", code, stderr)
+	}
+	code, _, stderr = runYoyo(t, "intervention", "record", "--kind", "reset", "--by", "Mason", "--unblocked", "none", "--person-only", "yes", "--at", "yesterday", "--config", configPath, "reset main by hand")
 	if code == 0 || !strings.Contains(stderr, "is not a time") {
 		t.Errorf("a step at no time was recorded: exit %d, %s", code, stderr)
 	}
-	code, _, stderr = runYoyo(t, "intervention", "record", "--kind", "rebooted", "--by", "Mason", "--config", configPath, "rebooted")
+	code, _, stderr = runYoyo(t, "intervention", "record", "--kind", "rebooted", "--by", "Mason", "--unblocked", "none", "--person-only", "yes", "--config", configPath, "rebooted")
 	if code == 0 || !strings.Contains(stderr, "the kinds are") {
 		t.Errorf("a step of no kind was recorded: exit %d, %s", code, stderr)
+	}
+}
+
+// A hand step recorded now is counted at once: the listing carries the
+// operator's interventions over the last day and week, and `yoyo status`
+// prints the same count under its four lines once any is recorded.
+func TestARecordedHandStepIsCountedOverTheLastDayAndWeek(t *testing.T) {
+	// Not parallel: the state root and the process's own markers are set here.
+	t.Setenv("YOYODYNE_STATE_HOME", t.TempDir())
+	t.Setenv(execution.AgentRoleVariable, "")
+	t.Setenv(execution.StartedByVariable, "")
+	t.Setenv(execution.LaunchdJobVariable, "")
+	configPath := writeConfig(t, validConfig)
+
+	code, _, stderr := runYoyo(t, "intervention", "record",
+		"--kind", "restart", "--by", "the operator's assistant", "--subject", "the dashboard",
+		"--unblocked", "part:dashboard", "--person-only", "no",
+		"--config", configPath,
+		"restarted the dashboard by hand after it stopped answering")
+	if code != 0 {
+		t.Fatalf("yoyo intervention record exited %d: %s", code, stderr)
+	}
+	listed := listedInterventions(t, configPath)
+	if len(listed.Interventions) != 1 {
+		t.Fatalf("listed %+v, want the one step read back", listed.Interventions)
+	}
+	owner := listed.Owner
+	if owner == nil || !owner.Recorded() || owner.Day.HandSteps != 1 || owner.Week().HandSteps != 1 || owner.Week().NotPersonOnly != 1 {
+		t.Fatalf("the count of interventions = %+v, want one hand step today and this week, which the harness should have taken", owner)
+	}
+	if len(owner.Entries) != 1 || owner.Entries[0].Record != listed.Interventions[0].ID {
+		t.Errorf("the week's entries = %+v, want the one step", owner.Entries)
+	}
+	code, text, _ := runYoyo(t, "intervention", "list", "--config", configPath)
+	if code != 0 || !strings.Contains(text, "unblocked: the dashboard part of the product") ||
+		!strings.Contains(text, "last 7 days: 1 — 0 asks, 0 messages, 1 hand step; 0 only a person could take, 1 the harness should have taken, 0 not said") {
+		t.Errorf("the listing said %q, want the step with what it unblocked and the week's count", text)
 	}
 }

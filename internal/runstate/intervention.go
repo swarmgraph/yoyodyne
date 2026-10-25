@@ -149,6 +149,39 @@ func (s *InterventionStore) List() ([]intervention.Event, error) {
 	return events, nil
 }
 
+// Scan is every event in the order it was written, with the lines that would not
+// decode holding their places. It is how the channel reads the log, by position,
+// so a line one build cannot read neither stops the rest being said nor moves
+// what has already been said; List is for every other reader.
+func (s *InterventionStore) Scan() ([]intervention.Event, []SkippedLine, error) {
+	file, err := os.Open(s.Path())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("open intervention log: %w", err)
+	}
+	defer file.Close()
+	var events []intervention.Event
+	skipped, err := scanLog(file, maxEncodedInterventionBytes, func(line []byte) error {
+		var decoded intervention.Event
+		unknown, err := decodeTolerating(line, &decoded)
+		if err != nil {
+			return err
+		}
+		noteUnknownFields("intervention record", unknown)
+		if err := s.validate(decoded); err != nil {
+			return err
+		}
+		events = append(events, decoded)
+		return nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("read intervention log: %w", err)
+	}
+	return events, skipped, nil
+}
+
 func (s *InterventionStore) lock() (func(), error) {
 	if err := os.MkdirAll(s.root, 0o700); err != nil {
 		return nil, fmt.Errorf("create intervention directory: %w", err)
@@ -171,4 +204,80 @@ func (s *InterventionStore) validate(event intervention.Event) error {
 		return fmt.Errorf("intervention product %q does not match store product %q", event.ProductID, s.productID)
 	}
 	return event.Validate()
+}
+
+// MessageCatchUp is the record that the operator's messages sent before each
+// was recorded as it was sent have been read back from the conversations' logs
+// once: from when, when the reading finished, how many it recorded, and which
+// logs it could not read. Its presence is what keeps the harness from reading
+// those logs again, which on a product with months of conversation is hundreds
+// of megabytes.
+type MessageCatchUp struct {
+	Since    time.Time `json:"since"`
+	Finished time.Time `json:"finished_at"`
+	Recorded int       `json:"recorded"`
+	Already  int       `json:"already_recorded"`
+	Unread   []string  `json:"unread,omitempty"`
+}
+
+func (s *InterventionStore) catchUpPath() string {
+	return filepath.Join(s.root, "interventions-messages-caught-up.json")
+}
+
+// MessagesCaughtUp is the record of the catch-up, or nothing where it has not
+// been made. A record that cannot be read is an error rather than an absence,
+// so a reader never takes the logs to be unread when they were read.
+func (s *InterventionStore) MessagesCaughtUp() (MessageCatchUp, bool, error) {
+	file, err := os.Open(s.catchUpPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return MessageCatchUp{}, false, nil
+	}
+	if err != nil {
+		return MessageCatchUp{}, false, fmt.Errorf("open the record of the message catch-up: %w", err)
+	}
+	defer file.Close()
+	encoded, err := io.ReadAll(io.LimitReader(file, maxEncodedStateBytes))
+	if err != nil {
+		return MessageCatchUp{}, false, fmt.Errorf("read the record of the message catch-up: %w", err)
+	}
+	var caught MessageCatchUp
+	if _, err := decodeTolerating(encoded, &caught); err != nil {
+		return MessageCatchUp{}, false, fmt.Errorf("decode the record of the message catch-up: %w", err)
+	}
+	if caught.Since.IsZero() || caught.Finished.IsZero() {
+		return MessageCatchUp{}, false, errors.New("the record of the message catch-up says neither where it read from nor when it finished")
+	}
+	return caught, true, nil
+}
+
+// RecordMessagesCaughtUp replaces the record of the catch-up, whole and
+// durable.
+func (s *InterventionStore) RecordMessagesCaughtUp(caught MessageCatchUp) error {
+	if caught.Since.IsZero() || caught.Finished.IsZero() {
+		return errors.New("a message catch-up says where it read from and when it finished")
+	}
+	if err := os.MkdirAll(s.root, 0o700); err != nil {
+		return fmt.Errorf("create intervention directory: %w", err)
+	}
+	temporary, err := os.CreateTemp(s.root, ".interventions-messages-caught-up-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temporary record of the message catch-up: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return fmt.Errorf("secure temporary record of the message catch-up: %w", err)
+	}
+	if err := writeJSONFile(temporary, "message catch-up", caught); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close temporary record of the message catch-up: %w", err)
+	}
+	if err := os.Rename(temporaryPath, s.catchUpPath()); err != nil {
+		return fmt.Errorf("replace the record of the message catch-up: %w", err)
+	}
+	return syncDirectory(s.root)
 }

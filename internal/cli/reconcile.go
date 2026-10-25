@@ -96,6 +96,10 @@ type reconcileOutput struct {
 	// nothing else — every other step it took stands — so it is reported beside
 	// the sweep rather than failing it, exactly as a staleness reading is.
 	StallProblem string `json:"stall_problem,omitempty"`
+	// Messages is what this sweep did about the operator's messages sent before
+	// each was recorded as it was sent: the record of reading them back, on the
+	// one sweep that does, or why it could not.
+	Messages *messageCatchUp `json:"messages,omitempty"`
 	// Continuations is what this sweep did about the runs that exited on their
 	// in-process usage-limit bound with the deadline since passed: each one
 	// continued in its own worktree and session, hosted by this process to its
@@ -147,8 +151,11 @@ type reconcileSweep struct {
 	Supervision      []orchestrator.SupervisionResult
 	Stall            *watchdog.Reading
 	StallProblem     string
-	Continuations    []orchestrator.WaitContinuation
-	Updates          []orchestrator.UpdateContinuation
+	// Messages is what the sweep did about the operator's messages sent before
+	// each was recorded: nothing after the first sweep that read them back.
+	Messages      messageCatchUp
+	Continuations []orchestrator.WaitContinuation
+	Updates       []orchestrator.UpdateContinuation
 	// Forge is what the sweep asked the forge about its publications, and how
 	// long the forge took.
 	Forge *orchestrator.ForgeQuestions
@@ -301,7 +308,14 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// having been turned on. A reading that fails is reported and does not fail the
 	// sweep: nothing was recorded, and the next pass decides.
 	stall, stallProblem := checkForStall(ctx, parts, *stallAfter)
+	// The operator's messages sent before each was recorded as it was sent are
+	// read back once, by the first sweep that finds no record of it, so the
+	// count of his interventions covers them without anybody typing a command
+	// (interventionbackfill.go). Like the stall reading, a failure is said and
+	// fails nothing else.
+	messages := catchUpOperatorMessages(parts.stateRoot, parts.config.Product.ID, parts.interventions, time.Now().UTC())
 	sweep := reconcileSweep{
+		Messages:           messages,
 		TrackerExports:     trackerExports,
 		Runs:               results,
 		Recoveries:         recoveries,
@@ -635,6 +649,9 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			Updates:            sweep.Updates,
 			Forge:              sweep.Forge,
 		}
+		if sweep.Messages.Caught != nil || sweep.Messages.Problem != "" {
+			output.Messages = &sweep.Messages
+		}
 		if results == nil {
 			output.Runs = []orchestrator.Reconciliation{}
 		}
@@ -812,6 +829,12 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		printConvergence(stdout, stderr, convergence)
 		printSupervision(stdout, sweep.Supervision)
 		printStall(stdout, stderr, sweep.Stall, sweep.StallProblem)
+		if line := sweep.Messages.Describe(); line != "" {
+			fmt.Fprintln(stdout, line)
+		}
+		if sweep.Messages.Problem != "" {
+			fmt.Fprintln(stderr, "the operator's earlier messages were not read back: "+sweep.Messages.Problem)
+		}
 		printContinuations(stdout, stderr, sweep.Continuations)
 		// Said last, so the maintenance pass, which records the end of what this
 		// prints, carries how long the forge took on every pass.

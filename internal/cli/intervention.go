@@ -123,7 +123,10 @@ func nonEmpty(values []string) []string {
 type interventionOutput struct {
 	Interventions []intervention.Event         `json:"interventions,omitempty"`
 	Count         *readmodel.InterventionCount `json:"count,omitempty"`
-	Error         string                       `json:"error,omitempty"`
+	// Owner is the count of the operator's interventions over the last day and
+	// week by week, as `yoyo status` prints it.
+	Owner *readmodel.OwnerInterventions `json:"owner_interventions,omitempty"`
+	Error string                        `json:"error,omitempty"`
 }
 
 func runIntervention(args []string, stdout, stderr io.Writer) int {
@@ -136,6 +139,8 @@ func runIntervention(args []string, stdout, stderr io.Writer) int {
 		return recordIntervention(args[1:], stdout, stderr)
 	case "list":
 		return listInterventions(args[1:], stdout, stderr)
+	case "backfill":
+		return backfillInterventions(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown intervention command %q\n\n", args[0])
 		printInterventionUsage(stderr)
@@ -158,6 +163,8 @@ func recordIntervention(args []string, stdout, stderr io.Writer) int {
 	run := flags.String("run", "", "the run the step touched")
 	subject := flags.String("subject", "", "anything else it touched: a part of the product, a branch, a directive")
 	at := flags.String("at", "", "when the step was taken, as 2026-10-05T09:30:00-07:00 (default: now)")
+	unblockedFlag := flags.String("unblocked", "", "what the step unblocked: item:<id>, run:<id>, part:<name>, conversation:<id>, or none; required")
+	personOnlyFlag := flags.String("person-only", "", "yes where only a person could have taken the step, no where the harness should have; required")
 	jsonOutput := flags.Bool("json", false, "emit machine-readable JSON")
 	positional, err := parseArguments(flags, args)
 	if err != nil {
@@ -174,6 +181,24 @@ func recordIntervention(args []string, stdout, stderr io.Writer) int {
 	if strings.TrimSpace(*by) == "" {
 		return reportInterventionError(stdout, stderr, *jsonOutput,
 			errors.New("say who took the step, as --by; a command line does not say who typed at it, and the record is who did it"))
+	}
+	if strings.TrimSpace(*unblockedFlag) == "" {
+		return reportInterventionError(stdout, stderr, *jsonOutput,
+			errors.New("say what the step unblocked, as --unblocked item:<id>, run:<id>, part:<name>, conversation:<id>, or none"))
+	}
+	unblocked, err := intervention.ParseUnblocked(*unblockedFlag)
+	if err != nil {
+		return reportInterventionError(stdout, stderr, *jsonOutput, err)
+	}
+	var personOnly bool
+	switch strings.ToLower(strings.TrimSpace(*personOnlyFlag)) {
+	case "yes":
+		personOnly = true
+	case "no":
+		personOnly = false
+	default:
+		return reportInterventionError(stdout, stderr, *jsonOutput,
+			errors.New("say whether only a person could have taken the step, as --person-only yes, or --person-only no where the harness should have taken it itself"))
 	}
 	now := time.Now().UTC()
 	when := now
@@ -211,6 +236,8 @@ func recordIntervention(args []string, stdout, stderr io.Writer) int {
 		Run:           strings.TrimSpace(*run),
 		Subject:       strings.TrimSpace(*subject),
 		Said:          strings.TrimSpace(positional[0]),
+		Unblocked:     &unblocked,
+		PersonOnly:    &personOnly,
 		Observed:      true,
 		By:            strings.TrimSpace(*by),
 		RecordedBy:    recorder,
@@ -267,8 +294,9 @@ func listInterventions(args []string, stdout, stderr io.Writer) int {
 		return reportInterventionError(stdout, stderr, *jsonOutput, err)
 	}
 	count := readmodel.CountInterventions(events, merged)
+	owner := readmodel.ReadOwnerInterventions(ownerInterventionSources(stateRoot, resolved.Config.Product.ID, store), time.Now())
 	if *jsonOutput {
-		return writeJSON(stdout, stderr, interventionOutput{Interventions: events, Count: &count})
+		return writeJSON(stdout, stderr, interventionOutput{Interventions: events, Count: &count, Owner: &owner})
 	}
 	if len(events) == 0 {
 		fmt.Fprintln(stdout, "no hand steps are recorded for this product")
@@ -277,7 +305,18 @@ func listInterventions(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, event.Render(time.Local))
 	}
 	fmt.Fprintln(stdout, renderInterventionCount(count))
+	fmt.Fprint(stdout, readmodel.Standing{OwnerInterventions: owner}.RenderOwnerInterventions())
 	return 0
+}
+
+// ownerInterventionSources is the report handlings and the record of hand steps,
+// which are what the count of the operator's interventions reads.
+func ownerInterventionSources(stateRoot string, productID domain.ProductID, interventions *runstate.InterventionStore) readmodel.Sources {
+	sources := readmodel.Sources{Interventions: interventions}
+	if store, err := runstate.NewReportStore(stateRoot, productID); err == nil {
+		sources.Reports = store
+	}
+	return sources
 }
 
 // renderInterventionCount is the count in one sentence, floor included.
@@ -309,7 +348,7 @@ func reportInterventionError(stdout, stderr io.Writer, jsonOutput bool, err erro
 }
 
 func printInterventionUsage(writer io.Writer) {
-	fmt.Fprintln(writer, `Usage: yoyo intervention <record|list> [options]
+	fmt.Fprintln(writer, `Usage: yoyo intervention <record|list|backfill> [options]
 
 A hand step is something the operator did by hand to keep the work moving. Every
 one taken through the harness is recorded as it happens: running an item by name,
@@ -323,11 +362,23 @@ editing the tracker — is recorded only if somebody writes it down, which is wh
 "record" is for. It is marked as observed, with who took it and who wrote it
 down. A program manager that notices one records it from its own conversation.
 
-"list" shows every recorded step and how many named each merged change. That
-count is a floor: a step nobody recorded is not in it.
+A message the operator, or somebody typing for him, sends a role — at a
+conversation's console, with --message at a command line, or in Slack — is
+recorded as it is sent, as a step of kind message.
 
-  record --by <who> [options] <what was done>
+"list" shows every recorded step, how many named each merged change, and the
+operator's interventions over the last day and each of the last four weeks:
+the asks put to him, his messages, and the hand steps. Every count is a floor: a
+step nobody recorded is not in it.
+
+"backfill" records the operator's messages sent before each was recorded as it
+was sent, read back from the conversations' logs from the moment --since names.
+The harness does this itself once, on its first yoyo reconcile, so this is for
+inspection and recovery. A message already recorded is not recorded twice.
+
+  record --by <who> --unblocked <what> --person-only <yes|no> [options] <what was done>
   list
+  backfill --since <time>
 
 Options:
   --config <path>       configuration file (default: the nearest .yoyodyne/config.yaml)
@@ -337,9 +388,17 @@ record options:
   --kind <kind>         restart, reset, tracker, other (the default), or any
                         step the harness also records, such as stop
   --by <who>            who took the step; required
+  --unblocked <what>    what it unblocked: item:<id>, run:<id>, part:<name>,
+                        conversation:<id>, or none; required
+  --person-only <yes|no>
+                        yes where only a person could have taken it, no where
+                        the harness should have taken it itself; required
   --recorded-by <who>   who is writing it down (default: whoever took it)
   --item <items>        comma-separated work items the step touched
   --run <run-id>        the run the step touched
   --subject <what>      anything else it touched: a part, a branch, a directive
-  --at <time>           when it was taken, as 2026-10-05T09:30:00-07:00 (default: now)`)
+  --at <time>           when it was taken, as 2026-10-05T09:30:00-07:00 (default: now)
+
+backfill options:
+  --since <time>        read from this moment, as 2026-10-17T00:00:00-07:00; required`)
 }

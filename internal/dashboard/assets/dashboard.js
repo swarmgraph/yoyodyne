@@ -603,9 +603,32 @@ var standingWarningAgeSeconds = 5 * 60;
     setHidden(list, list.childNodes.length === 0);
   }
 
+  // renderOwnerInterventions is how often the operator was asked or stepped
+  // in, over the last day and each of the last four weeks, in the words the
+  // model derives and `yoyo status` prints under the four lines. Like the usage
+  // above it, it is information, and it is drawn only where any is recorded or
+  // something behind it could not be read.
+  function renderOwnerInterventions() {
+    var list = document.getElementById("owner-interventions");
+    clear(list);
+    var reading = model.standing && model.standing.owner_interventions;
+    var weeks = (reading && reading.weeks) || [];
+    if (reading && reading.recorded) {
+      list.appendChild(el("li", null, "The operator's interventions (asks put to him, his messages to the roles, and hand steps; a floor):"));
+      [reading.day].concat(weeks).forEach(function (stretch) {
+        list.appendChild(el("li", null, stretch.label + ": " + stretch.says));
+      });
+    }
+    if (reading && reading.problem) {
+      list.appendChild(el("li", null, "not fully read: " + reading.problem));
+    }
+    setHidden(list, list.childNodes.length === 0);
+  }
+
   function renderBand() {
     var standing = model.standing;
     renderUsageWindows();
+    renderOwnerInterventions();
     if (!standing) {
       section("band", model.standingError ? "error" : "loading", model.standingError, whatToDoAboutTheStanding());
       return;

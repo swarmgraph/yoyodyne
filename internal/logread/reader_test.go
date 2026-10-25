@@ -25,7 +25,7 @@ func TestEveryRuledRecordAndWatchOutput(t *testing.T) {
 	reader := Reader{StateRoot: root, ProductID: "sample", RedactValues: []string{"known-secret"}}
 	since := time.Date(2026, 10, 4, 8, 0, 0, 0, time.UTC)
 	until := since.Add(time.Hour)
-	for _, kind := range []string{"pass", "watch", "docket", "run", "usage-limit", "provider-outage"} {
+	for _, kind := range []string{"pass", "watch", "docket", "run", "usage-limit", "provider-outage", "intervention"} {
 		request := Request{Record: kind, Since: since, Until: until, MaxBytes: MaxContentBytes}
 		if kind == "run" {
 			request.Name = "run-123"

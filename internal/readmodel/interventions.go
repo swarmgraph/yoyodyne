@@ -6,7 +6,9 @@ package readmodel
 // the harness promoted (runstate.Store.Promoted). A step counts toward a change
 // when it names the change's work item or any run made for it; a step naming
 // nothing merged — a reconcile, a decision on a document, a restart — is counted
-// as unattributed rather than spread across changes it did not name.
+// as unattributed rather than spread across changes it did not name. A message
+// the operator sent a role is recorded in the same log and is not a hand step
+// on any change, so it is left out here and counted in ownerinterventions.go.
 //
 // The number is a floor and says so on every reading. A step the operator took
 // outside the harness is in it only if somebody recorded it afterwards, so a
@@ -79,6 +81,9 @@ func CountInterventions(events []intervention.Event, merged []runstate.PromotedI
 		}
 	}
 	for _, event := range events {
+		if event.Kind == intervention.KindMessage {
+			continue
+		}
 		named := map[int]bool{}
 		for _, item := range event.Items {
 			if index, ok := byItem[item]; ok {

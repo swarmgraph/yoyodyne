@@ -86,6 +86,12 @@ const (
 	KindDecline Kind = "decline"
 	// KindDirective is recording a directive.
 	KindDirective Kind = "directive"
+	// KindMessage is the operator, or somebody typing for him, sending a role a
+	// message: at a conversation's console, with --message at a command line, or
+	// in Slack. It is one of the three things the operator's interventions are
+	// counted by (readmodel's OwnerInterventions), and it is not a hand step on
+	// a change, so the count per merged change leaves it out.
+	KindMessage Kind = "message"
 
 	// The kinds below happen only outside the harness, so only an observed event
 	// carries one.
@@ -107,7 +113,7 @@ const (
 // killing its process is a stop the harness never saw.
 var performedKinds = []Kind{
 	KindRun, KindRerun, KindRepair, KindResume, KindRearm, KindOverride, KindGiveBack,
-	KindStop, KindSettle, KindApprove, KindDecline, KindDirective,
+	KindStop, KindSettle, KindApprove, KindDecline, KindDirective, KindMessage,
 }
 
 // outsideKinds are the steps only a person outside the harness takes.
@@ -166,6 +172,8 @@ func (k Kind) Describe() string {
 		return "declined a proposal"
 	case KindDirective:
 		return "recorded a directive"
+	case KindMessage:
+		return "sent a role a message"
 	case KindRestart:
 		return "restarted a part of the product by hand"
 	case KindReset:
@@ -188,6 +196,91 @@ func KindNames() []string {
 	return names
 }
 
+// UnblockedKind is what sort of thing a step unblocked. The list is closed so a
+// listing can say it in words and the channel can say the step in the thread of
+// what it unblocked.
+type UnblockedKind string
+
+const (
+	UnblockedItem         UnblockedKind = "item"
+	UnblockedRun          UnblockedKind = "run"
+	UnblockedPart         UnblockedKind = "part"
+	UnblockedConversation UnblockedKind = "conversation"
+	// UnblockedNothing is a step that unblocked nothing in particular, said
+	// rather than left out so a record that says nothing is told apart from one
+	// that never asked.
+	UnblockedNothing UnblockedKind = "none"
+)
+
+// UnblockedKinds is every kind of thing a step can have unblocked.
+func UnblockedKinds() []UnblockedKind {
+	return []UnblockedKind{UnblockedItem, UnblockedRun, UnblockedPart, UnblockedConversation, UnblockedNothing}
+}
+
+// Unblocked is what a step unblocked: a work item, a run, a part of the product,
+// a conversation, or nothing. ID names the one it was, and is empty for none.
+type Unblocked struct {
+	Kind UnblockedKind `json:"kind"`
+	ID   string        `json:"id,omitempty"`
+}
+
+// ParseUnblocked reads what a step unblocked as a person writes it: none, or a
+// kind and a name joined by a colon, such as item:yoyodyne-ifd.436.8,
+// run:run-1234, part:dashboard, or conversation:chat-1234.
+func ParseUnblocked(written string) (Unblocked, error) {
+	written = strings.TrimSpace(written)
+	if written == string(UnblockedNothing) {
+		return Unblocked{Kind: UnblockedNothing}, nil
+	}
+	kind, id, found := strings.Cut(written, ":")
+	unblocked := Unblocked{Kind: UnblockedKind(strings.TrimSpace(kind)), ID: strings.TrimSpace(id)}
+	if !found {
+		return Unblocked{}, fmt.Errorf("%q does not say what was unblocked; write none, or item:<id>, run:<id>, part:<name>, or conversation:<id>", written)
+	}
+	if err := unblocked.Validate(); err != nil {
+		return Unblocked{}, err
+	}
+	return unblocked, nil
+}
+
+// Validate reports a kind outside the list, a name missing where one is
+// needed, and a name given with none.
+func (u Unblocked) Validate() error {
+	switch u.Kind {
+	case UnblockedNothing:
+		if strings.TrimSpace(u.ID) != "" {
+			return errors.New("a step that unblocked nothing names nothing it unblocked")
+		}
+		return nil
+	case UnblockedItem, UnblockedRun, UnblockedPart, UnblockedConversation:
+		return lineProblem("what was unblocked", u.ID, true)
+	default:
+		var kinds []string
+		for _, kind := range UnblockedKinds() {
+			kinds = append(kinds, string(kind))
+		}
+		return fmt.Errorf("%q is not a kind of thing a step unblocks; the kinds are %s", u.Kind, strings.Join(kinds, ", "))
+	}
+}
+
+// Describe says what was unblocked in a listing's words.
+func (u Unblocked) Describe() string {
+	switch u.Kind {
+	case UnblockedNothing:
+		return "nothing in particular"
+	case UnblockedItem:
+		return "work item " + u.ID
+	case UnblockedRun:
+		return "run " + u.ID
+	case UnblockedPart:
+		return "the " + u.ID + " part of the product"
+	case UnblockedConversation:
+		return "conversation " + u.ID
+	default:
+		return string(u.Kind) + " " + u.ID
+	}
+}
+
 // Event is one hand step.
 type Event struct {
 	SchemaVersion int              `json:"schema_version"`
@@ -208,6 +301,16 @@ type Event struct {
 	Subject string `json:"subject,omitempty"`
 	// Said is what was done, in a sentence.
 	Said string `json:"said"`
+	// Unblocked is what the step unblocked, where whoever recorded it said. A
+	// step recorded with `yoyo intervention record` always says, if only none;
+	// one the harness recorded as it carried it out says only where the verb
+	// knows, and a record from before the field existed says nothing.
+	Unblocked *Unblocked `json:"unblocked,omitempty"`
+	// PersonOnly is whether the step was one only a person could take, where
+	// whoever recorded it said: false is a step the harness should have taken
+	// itself, such as restarting a part it supervises. It is what tells the
+	// operator's own work apart from the harness's missing work in the count.
+	PersonOnly *bool `json:"person_only,omitempty"`
 	// Via is where a step the harness carried out came in: the command line, or
 	// the conversation it was typed into. An observed step came in through
 	// nothing of the harness's and has none.
@@ -290,6 +393,11 @@ func (e Event) Validate() error {
 	} else if strings.TrimSpace(e.Via) == "" {
 		problems = append(problems, errors.New("a step the harness carried out says where it came in"))
 	}
+	if e.Unblocked != nil {
+		if err := e.Unblocked.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	if e.RecordedRole != "" {
 		if !e.Observed {
 			problems = append(problems, errors.New("only an observed step names the role that recorded it"))
@@ -344,6 +452,16 @@ func (e Event) Render(location *time.Location) string {
 	}
 	if touched := e.touched(); touched != "" {
 		fmt.Fprintf(&rendered, "  touched: %s\n", touched)
+	}
+	if e.Unblocked != nil {
+		fmt.Fprintf(&rendered, "  unblocked: %s\n", e.Unblocked.Describe())
+	}
+	if e.PersonOnly != nil {
+		if *e.PersonOnly {
+			rendered.WriteString("  only a person could have taken it\n")
+		} else {
+			rendered.WriteString("  the harness should have taken it itself\n")
+		}
 	}
 	fmt.Fprintf(&rendered, "  %s\n", oneline.Fold(e.Said, MaxSaidBytes))
 	return rendered.String()

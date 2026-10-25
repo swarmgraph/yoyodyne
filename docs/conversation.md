@@ -1769,7 +1769,8 @@ part of a conversation and is not offered inside a run.
 
 The program manager holds `log.read`. It may request pass records, watch
 transitions or scheduler output, the docket, a named run record, the usage-limit
-log, and the provider-outage record of this product. It cannot request arbitrary
+log, the provider-outage record, and the record of the operator's hand steps and
+messages of this product. It cannot request arbitrary
 paths, tokens, memory, another agent's conversation records, or repository
 content. Repository content uses the existing repository block, where the
 program manager may also [search](#reading-the-repository-at-a-recorded-commit)
@@ -1781,8 +1782,11 @@ with `repository.search`.
 ```
 ````
 
-Use `record` as `pass`, `watch`, `docket`, `run`, `usage-limit`, or
-`provider-outage`. A run also requires its plain run identifier in `name`.
+Use `record` as `pass`, `watch`, `docket`, `run`, `usage-limit`,
+`provider-outage`, or `intervention`. A run also requires its plain run
+identifier in `name`. An intervention read returns `interventions.jsonl`, one
+hand step or message per line ([counting your hand
+steps](operations.md#counting-your-hand-steps)).
 For the watch's process output, use `record: "watch"` and `name: "output"`:
 the supervisor writes it at
 `<state root>/projects/<product id>/state/scheduler.log`. An unnamed watch read

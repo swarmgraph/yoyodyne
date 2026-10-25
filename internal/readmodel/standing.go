@@ -269,6 +269,10 @@ type Sources struct {
 	// reported anything" and "nothing was wired to read what anybody reported" are
 	// opposite answers, and only one of them means there is nothing to do.
 	Reports Reports
+	// Interventions is the record of the operator's hand steps and messages,
+	// read for the count of his interventions. It is optional, and a reading
+	// without it says that nothing but the asks was counted.
+	Interventions InterventionLog
 	// Docket is the triage docket, read for the Lead Product Manager's decisions
 	// about runs in flight that the development manager has not answered. It is
 	// optional, and a reading without one names none of them.
@@ -616,6 +620,12 @@ type Standing struct {
 	// the dashboard prints it at the top of its status band; a window past the
 	// configured threshold is said among the factory problems instead.
 	UsageWindows UsageWindows `json:"usage_windows"`
+
+	// OwnerInterventions is how often the operator was asked or stepped in, over
+	// the last day and each of the last four weeks (ownerinterventions.go). Like
+	// the usage windows it is information under the four lines, and waits on
+	// nobody.
+	OwnerInterventions OwnerInterventions `json:"owner_interventions"`
 
 	// Paused is the harness waiting out the provider's usage window, said above
 	// the four lines rather than inside them.
@@ -1154,6 +1164,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// waited out by the harness and said where refusals are.
 	standing.UsageWindows = ReadUsageWindows(sources.UsageWindows, sources.UsageAccounts, sources.UsageWindowDegradedPercent, now)
 	standing.FactoryProblems = append(standing.FactoryProblems, standing.UsageWindows.Degraded()...)
+	standing.OwnerInterventions = ReadOwnerInterventions(sources, now)
 	// A watch session draining past its bound without restarting is a factory
 	// problem whatever the queue holds: it pulls nothing until it restarts, and
 	// from every other record it reads as a session at work. It is on the

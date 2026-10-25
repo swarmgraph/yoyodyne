@@ -21,6 +21,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/intervention"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -1360,6 +1361,61 @@ func productNotification(kind Kind, at time.Time, detail Detail) Notification {
 // topicForItem addresses something to the item it concerns, or to the product
 // where it concerns none: a conversation has no assigned work rather than
 // unknown work, and burying what it said in some item's thread would misfile it.
+// FromIntervention says one recorded hand step in the thread of what it
+// unblocked: the work item it names, the item of the run it names — which the
+// caller reads from the run's record and passes as runItem — and otherwise the
+// product line, where a part of the product, a conversation, or nothing in
+// particular is said. A step that says nothing about what it unblocked is said
+// in the thread of the first work item it touched, where it names one.
+//
+// A message the operator sent a role is in that role's conversation already,
+// and echoing it into the channel would say every message twice, so it posts
+// nothing.
+func FromIntervention(event intervention.Event, runItem string) (Notification, error) {
+	if event.Kind == intervention.KindMessage {
+		return Notification{}, nil
+	}
+	item := ""
+	unblocked := "nothing the record names"
+	switch {
+	case event.Unblocked == nil:
+		if len(event.Items) > 0 {
+			item = event.Items[0]
+		}
+	case event.Unblocked.Kind == intervention.UnblockedItem:
+		item = event.Unblocked.ID
+		unblocked = event.Unblocked.Describe()
+	case event.Unblocked.Kind == intervention.UnblockedRun:
+		item = strings.TrimSpace(runItem)
+		unblocked = event.Unblocked.Describe()
+	default:
+		unblocked = event.Unblocked.Describe()
+	}
+	topic, err := topicForItem(item)
+	if err != nil {
+		return Notification{}, fmt.Errorf("address the hand step %s: %w", event.ID, err)
+	}
+	took := "the operator, through " + event.Via
+	if event.Observed {
+		took = event.By + ", recorded by " + event.RecordedBy
+	}
+	return Notification{
+		Topic:   topic,
+		Speaker: Harness(),
+		Event: Event{
+			Kind:     KindInterventionRecorded,
+			At:       event.At,
+			Severity: report.SeverityNote,
+			Text:     ended(strings.TrimSpace(event.Said)),
+			Refs:     Refs{RunID: event.Run, WorkItemID: item},
+			Detail: Detail{
+				TookBy:    took + " " + event.Kind.Describe(),
+				Unblocked: unblocked,
+			},
+		},
+	}, nil
+}
+
 func topicForItem(workItemID string) (Topic, error) {
 	if strings.TrimSpace(workItemID) == "" {
 		return Product(), nil

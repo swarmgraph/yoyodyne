@@ -1936,7 +1936,12 @@ ones it carries out for you as it does them:
 - approving or declining a proposal or a document in a conversation, and a
   proposed change with `yoyo amendment approve` or `decline`;
 - recording a directive — `yoyo directive record`, or `/directive` in a
-  conversation.
+  conversation;
+- sending a role a message — typed at a conversation's console, sent with
+  `yoyo chat --message` or `yoyo agent chat --message` at a terminal, or
+  written in Slack. Each is recorded as a step of kind `message`, saying where
+  it came in and the start of what it said. A message the harness sends a role
+  itself — a recurring pass, a wakeup, an escalation — is not.
 
 Each event says when, which kind of step it was, the work items and run it
 touched, anything else it touched (a directive, a proposal, a document), and
@@ -1955,16 +1960,42 @@ own launchd name is not one of those, so what you type is still counted.
 **A step you take outside the harness is counted only if somebody writes it
 down.** Restarting the scheduler, resetting the target branch, editing a
 tracker status by hand: none of those passes through anything that could
-record it. Record one afterwards with `yoyo intervention record`, saying who
-took it, and naming the item or run it was for wherever there was one, because
-that is what counts it against that change:
+record it.
+
+**When to record one.** Record a step whenever you, or somebody acting for
+you, did by hand something that kept the work moving and that no `yoyo` verb
+recorded: a part of the product restarted or stopped by hand, a branch reset or
+pushed by hand, a tracker item edited, a file or setting changed on the
+machine (a licence accepted, a credential renewed, a configuration value
+written), a run killed by ending its process, or a fix merged by hand rather
+than by a run. Record it as soon as it is done, or afterwards with `--at` for
+when it happened. Do not record what a `yoyo` verb already recorded, a message
+you sent a role, or anything the harness or an agent did on its own: those are
+counted already, or are not yours.
+
+Record one with `yoyo intervention record`, saying who took it, what it
+unblocked, and whether only a person could have taken it. Name the item or run
+it was for wherever there was one, because that is what counts it against that
+change:
 
 ```sh
 ./bin/yoyo intervention record --kind restart --by mason --subject "the scheduler" \
+  --unblocked part:scheduler --person-only no \
   --at 2026-10-05T09:30:00-07:00 "restarted the scheduler after it stopped pulling work"
 ./bin/yoyo intervention record --kind reset --by mason --item yoyodyne-ifd.432 \
+  --unblocked item:yoyodyne-ifd.432 --person-only no \
   "reset main by hand to drop a commit that broke the build"
+./bin/yoyo intervention record --kind other --by mason --subject "the Xcode licence" \
+  --unblocked none --person-only yes \
+  "accepted the Xcode licence with sudo, which only somebody with the password can do"
 ```
+
+`--by`, `--unblocked`, and `--person-only` are all required. `--unblocked` is
+`item:<id>`, `run:<id>`, `part:<name>`, `conversation:<id>`, or `none`.
+`--person-only yes` is a step only a person could take: a password, a
+credential, a setting the harness's token cannot change. `--person-only no` is
+a step the harness should have taken itself, such as restarting a part it
+supervises; those are the ones that say what the harness is missing.
 
 The kinds that only happen outside the harness are `restart`, `reset`,
 `tracker`, and `other`; any kind the harness records can be written down
@@ -1973,7 +2004,16 @@ observed, with who took the step and who recorded it (`--recorded-by`, by
 default whoever took it). A process an agent's run started is refused, as the
 other verbs that record a person's act are. A program manager that notices a
 step can record it from its own conversation with a `yoyodyne-intervention`
-block, under its own name; no other role can.
+block, under its own name, saying what it unblocked and whether only a person
+could have taken it where it knows; no other role can. A program manager reads
+the record back with its `log.read` tool, as the `intervention` record.
+
+**Each step is said once in the channel**, in the thread of what it unblocked:
+the item's thread for an item, the run's item's thread for a run, and the
+product line for a part, a conversation, or nothing in particular. A step that
+does not say what it unblocked is said in the thread of the first item it
+touched. A message you sent a role is not said again: it is in that role's
+conversation already.
 
 The events are kept in `interventions.jsonl` in the product's state directory
 (`projects/<product>/state/` under the state root). The file is only ever
@@ -1993,10 +2033,67 @@ A merged change is a work item the harness promoted. A step counts toward it
 when it names the item or any run made for it, and once however many of them
 it names; a step that names no merged change — a reconcile, a restart, a
 decision on a document — is counted apart rather than spread across changes.
+A message is not a step on any change, so it is left out of this count.
 `--json` carries the events and the count, and the count is the read model's
 (`readmodel.CountInterventions`), so a surface that shows it per day or per
 week reads the same number. Steps taken before this record existed are not in
 it.
+
+**Your interventions over the last day and week.** Beside the count per
+change, the read model counts how often you were asked or stepped in, in three
+kinds: an *ask* is a report handling that names you (a reason from your closed
+list, or a role's decision that needs your hand); a *message* is one you, or
+somebody typing for you, sent a role; a *hand step* is every other recorded
+step. Each is split by whether only a person could have taken it: an ask is
+when it names a reason from your closed list, a hand step is when its record
+says so, and a message says neither. The weeks are seven days back from the
+moment of the reading, so the latest is always the last seven days. `yoyo
+status` prints the count under the four lines once anything in the last four
+weeks is recorded, the dashboard shows the same lines under the provider usage
+at the top of the page, and `yoyo intervention list` ends with them:
+
+```text
+The operator's interventions (asks put to him, his messages to the roles, and hand steps; a floor):
+  last 24 hours: 3 — 0 asks, 2 messages, 1 hand step; 0 only a person could take, 1 the harness should have taken, 2 not said
+  last 7 days: 14 — 1 ask, 11 messages, 2 hand steps; 2 only a person could take, 1 the harness should have taken, 11 not said
+  week from 2026-10-10 13:05 PDT: none
+  ...
+```
+
+`yoyo status --json` carries it as `standing.owner_interventions`, with each
+stretch's counts, label, and words, and the last seven days' entries — when,
+which kind, what it was about, the record it came from, and whether only a
+person could have taken it. It is information and waits on nobody.
+
+**Messages sent before they were recorded** are in the conversations' logs
+and nowhere else, so the harness reads them back itself, once. The first `yoyo
+reconcile` that finds no record of having done it — the
+[maintenance pass's](#the-supervisors-maintenance-pass), or one typed at a
+terminal — reads every conversation's log from 2026-10-17 00:00 PDT, the start
+of the week the count was asked to cover, and records each message a person
+sent as a `message` step at the moment it was sent. It then writes
+`interventions-messages-caught-up.json` beside the record of hand steps, saying
+where it read from, when it finished, how many it recorded, and any log it
+could not read, so no later sweep reads the logs again. The sweep says one
+line about it, and `--json` carries it as `messages`; a failure is said and
+fails nothing else. Nobody has to run anything.
+
+A log does not say who sent a message, so it is decided from what the log does
+say: a message typed at a console says so, a recurring pass's first message
+follows the pass's start, every other message the harness sends opens with
+words of its own, and an escalation of a stopped run opens `Run <run> of
+<item> stopped:`. What is left is counted as a person's. A message already
+recorded is never recorded twice.
+
+`yoyo intervention backfill --since <time>` is the same reading by hand, for
+inspecting or recovering the record — after a log the harness could not read
+has been repaired, say:
+
+```sh
+./bin/yoyo intervention backfill --since 2026-10-17T00:00:00-07:00
+```
+
+A process an agent's run started is refused it, as `record` is.
 
 ## When the provider dies mid-run
 
@@ -5317,6 +5414,13 @@ dashboard's factory problems instead. `yoyo status --json` carries it under
 `standing.usage_windows`. Codex reports no usage limit reading in the stream
 the harness reads, so a Codex account has none.
 
+**Under those, the operator's interventions** — the asks put to him, his
+messages to the roles, and the hand steps recorded — over the last 24 hours and
+each of the last four weeks, printed only once anything in those weeks is
+recorded or a record behind them could not be read. It waits on nobody;
+[counting your hand steps](#counting-your-hand-steps) says what each kind is and
+when to record one, and `--json` carries it as `standing.owner_interventions`.
+
 **Under those, one line per [program manager](designs/program-manager.md)
 instance**, where any is configured or any has a restart request open:
 
@@ -6695,7 +6799,10 @@ slowly or not at all`.
    Fable's own week beside it, each window's reset in local time with the zone
    named, and how old the reading is, in the same sentence
    [`yoyo status` prints](#where-the-harness-stands-the-four-lines) for it, and
-   shown whatever else the band says. Then a tile for each of the four lines: running
+   shown whatever else the band says. Under it, where any is recorded, the
+   operator's interventions over the last day and each of the last four weeks,
+   in the lines `yoyo status` prints under the four lines
+   ([counting your hand steps](#counting-your-hand-steps)). Then a tile for each of the four lines: running
    developer runs, conversations with a turn in flight, admitted items not
    startable now (out of how many are admitted, how many await a decision or
    the carrying out of one, and the ready work waiting for a developer slot),

@@ -140,3 +140,53 @@ func TestRenderSaysWhetherTheStepWasObserved(t *testing.T) {
 		t.Errorf("rendered %q, want it to say the harness carried it out", rendered)
 	}
 }
+
+// What a step unblocked is written as a kind and a name, or none, and anything
+// else is refused with the kinds named.
+func TestWhatAStepUnblockedIsReadAsAPersonWritesIt(t *testing.T) {
+	t.Parallel()
+	for written, want := range map[string]Unblocked{
+		"none":                       {Kind: UnblockedNothing},
+		"item:yoyodyne-ifd.436.8":    {Kind: UnblockedItem, ID: "yoyodyne-ifd.436.8"},
+		"run: run-1234":              {Kind: UnblockedRun, ID: "run-1234"},
+		"part:dashboard":             {Kind: UnblockedPart, ID: "dashboard"},
+		"conversation:chat-91253e0e": {Kind: UnblockedConversation, ID: "chat-91253e0e"},
+	} {
+		got, err := ParseUnblocked(written)
+		if err != nil || got != want {
+			t.Errorf("ParseUnblocked(%q) = %+v, %v; want %+v", written, got, err, want)
+		}
+	}
+	for _, written := range []string{"", "dashboard", "branch:main", "item:", "none:thing"} {
+		if _, err := ParseUnblocked(written); err == nil {
+			t.Errorf("ParseUnblocked(%q) was accepted", written)
+		}
+	}
+	event := observed(KindRestart)
+	event.Unblocked = &Unblocked{Kind: UnblockedNothing, ID: "something"}
+	if err := event.Validate(); err == nil || !strings.Contains(err.Error(), "names nothing it unblocked") {
+		t.Errorf("a step that unblocked nothing and names something: error = %v", err)
+	}
+	no := false
+	event.Unblocked = &Unblocked{Kind: UnblockedPart, ID: "dashboard"}
+	event.PersonOnly = &no
+	if err := event.Validate(); err != nil {
+		t.Fatalf("a restart of the dashboard: %v", err)
+	}
+	rendered := event.Render(time.UTC)
+	if !strings.Contains(rendered, "unblocked: the dashboard part of the product") || !strings.Contains(rendered, "the harness should have taken it itself") {
+		t.Errorf("rendered %q, want what it unblocked and that the harness should have taken it", rendered)
+	}
+}
+
+// A message is a step the harness records as it is sent, never one somebody
+// observed outside it.
+func TestAMessageIsRecordedThroughTheHarness(t *testing.T) {
+	t.Parallel()
+	if KindMessage.OutsideOnly() || !KindMessage.Valid() {
+		t.Fatal("a message is a kind recorded through the harness")
+	}
+	if err := performed(KindMessage).Validate(); err != nil {
+		t.Errorf("a message sent through the harness: %v", err)
+	}
+}
