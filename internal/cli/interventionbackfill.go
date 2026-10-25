@@ -1,20 +1,24 @@
 package cli
 
-// `yoyo intervention backfill`: the operator's messages sent before each was
-// recorded as it was sent, read back from the conversations' logs.
+// The operator's messages sent before each was recorded as it was sent, read
+// back from the conversations' logs.
 //
 // Every message a person sends a role is now recorded as one of his
 // interventions when it is sent (chat's noteMessage). The ones sent before that
 // are in the conversations' event logs and nowhere else, and the count of his
 // interventions is read from the record of hand steps rather than from those
-// logs, which are far too large to read on every `yoyo status`. So this reads
-// them once, from a moment the person running it names, and records each
+// logs, which are far too large to read on every `yoyo status`. So the harness
+// reads them back once itself, on the first `yoyo reconcile` that finds no
+// record of having done it (catchUpOperatorMessages), and records each
 // person's message it finds as a message, at the time it was sent.
+// `yoyo intervention backfill` is the same reading by hand, from a moment the
+// person running it names, for inspection and recovery.
 //
 // A log does not say who sent a message, so this decides it from what the log
 // does say: a message typed at a console says so; the first message of a
 // recurring pass follows the pass's start; and every other message the harness
-// sends a role opens with words of its own, listed in harnessOpenings. What is
+// sends a role opens with words of its own, listed in harnessOpenings, or is the
+// escalation of a stopped run (escalationOpening). What is
 // left is counted as a person's. It is run again safely: a message already
 // recorded, whether by an earlier backfill or as it was sent, is not recorded
 // twice.
@@ -25,6 +29,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -42,8 +47,10 @@ import (
 // recurring pass (internal/orchestrator's recurring and program manager passes,
 // and the wakeup after a refused tracker block), the work waiting in a role's
 // conversation (internal/contextbundle), the request for a missing closing
-// report (sweep.ReportRequest), the critical-report and brake summonses
-// (internal/orchestrator), and the escalation of a stopped run (escalate.go).
+// report (sweep.ReportRequest), and the critical-report and brake summonses
+// (internal/orchestrator). Each is checked against the code that writes it
+// (TestEveryHarnessOpeningIsWrittenByTheHarness), so a change to the wording
+// fails a test rather than counting the harness's messages as the operator's.
 var harnessOpenings = []string{
 	"The harness woke you",
 	"## Work waiting in your conversation",
@@ -52,8 +59,13 @@ var harnessOpenings = []string{
 	"You said the pass of",
 	"A critical report was filed",
 	"The intake brake summoned you",
-	"Run run-",
 }
+
+// escalationOpening is how the escalation of a stopped run opens
+// (escalationMessage): "Run <run> of <item> stopped: ". It is matched whole
+// rather than by its first word, so a person's message that happens to begin
+// "Run run-" is still counted as his.
+var escalationOpening = regexp.MustCompile(`^Run run-[0-9a-f]+ of \S+.* stopped: `)
 
 // backfillMatchWindow is how close in time a recorded message has to be to one
 // in a log to be taken for the same message.
@@ -107,37 +119,9 @@ func backfillInterventions(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return reportInterventionError(stdout, stderr, *jsonOutput, err)
 	}
-	conversations, err := runstate.NewConversationStore(stateRoot, productID)
+	recorded, skipped, problems, err := catchUpMessages(stateRoot, productID, store, since.UTC(), time.Now().UTC())
 	if err != nil {
 		return reportInterventionError(stdout, stderr, *jsonOutput, err)
-	}
-	found, problems, err := loggedPersonMessages(conversations, since.UTC())
-	if err != nil {
-		return reportInterventionError(stdout, stderr, *jsonOutput, err)
-	}
-	existing, err := store.List()
-	if err != nil {
-		return reportInterventionError(stdout, stderr, *jsonOutput, err)
-	}
-	var recorded []intervention.Event
-	skipped := 0
-	now := time.Now().UTC()
-	for _, message := range found {
-		if alreadyRecorded(existing, message) {
-			skipped++
-			continue
-		}
-		event, err := backfilledMessage(productID, message, now)
-		if err == nil {
-			err = store.Record(event)
-		}
-		if err != nil {
-			problems = append(problems, fmt.Sprintf("a message in conversation %s at %s could not be recorded: %v",
-				message.conversationID, message.at.Format(time.RFC3339), err))
-			continue
-		}
-		recorded = append(recorded, event)
-		existing = append(existing, event)
 	}
 	if *jsonOutput {
 		output := interventionOutput{Interventions: recorded}
@@ -158,6 +142,105 @@ func backfillInterventions(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// catchUpMessages records every person's message in the conversations' logs
+// since a moment that is not recorded already, and says how many it recorded,
+// how many were recorded already, and which logs or messages it could not
+// handle. An error is a store it could not open or read at all.
+func catchUpMessages(stateRoot string, productID domain.ProductID, store *runstate.InterventionStore, since, now time.Time) ([]intervention.Event, int, []string, error) {
+	conversations, err := runstate.NewConversationStore(stateRoot, productID)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	found, problems, err := loggedPersonMessages(conversations, since)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	existing, err := store.List()
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	var recorded []intervention.Event
+	skipped := 0
+	for _, message := range found {
+		if alreadyRecorded(existing, message) {
+			skipped++
+			continue
+		}
+		event, err := backfilledMessage(productID, message, now)
+		if err == nil {
+			err = store.Record(event)
+		}
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("a message in conversation %s at %s could not be recorded: %v",
+				message.conversationID, message.at.Format(time.RFC3339), err))
+			continue
+		}
+		recorded = append(recorded, event)
+		existing = append(existing, event)
+	}
+	return recorded, skipped, problems, nil
+}
+
+// messagesCountedFrom is where the harness's own catch-up reads the logs from:
+// the start of the week from which the Lead Product Manager, at the operator's
+// direction of 2026-10-24, asked the operator's interventions to be counted
+// (yoyodyne-ifd.436.8). Nothing earlier is in any week the count covers.
+var messagesCountedFrom = time.Date(2026, 10, 17, 0, 0, 0, 0, time.FixedZone("PDT", -7*60*60))
+
+// messageCatchUp is what the harness's own catch-up did on one sweep: nothing,
+// where it was made on an earlier one, or the record it wrote.
+type messageCatchUp struct {
+	Caught  *runstate.MessageCatchUp `json:"caught_up,omitempty"`
+	Problem string                   `json:"problem,omitempty"`
+}
+
+// catchUpOperatorMessages is the harness reading the operator's old messages
+// back once, on the first `yoyo reconcile` — the maintenance pass's sweep, or
+// one typed at a terminal — that finds no record of it having been done. It
+// records that it was done even where a log could not be read, naming the logs,
+// so a log that will never read does not have every pass read the rest again;
+// `yoyo intervention backfill` reads them again by hand. A failure is the
+// sweep's to report and fails nothing else.
+func catchUpOperatorMessages(stateRoot string, productID domain.ProductID, store *runstate.InterventionStore, now time.Time) messageCatchUp {
+	if store == nil {
+		return messageCatchUp{}
+	}
+	if _, done, err := store.MessagesCaughtUp(); err != nil {
+		return messageCatchUp{Problem: err.Error()}
+	} else if done {
+		return messageCatchUp{}
+	}
+	recorded, already, problems, err := catchUpMessages(stateRoot, productID, store, messagesCountedFrom.UTC(), now)
+	if err != nil {
+		return messageCatchUp{Problem: err.Error()}
+	}
+	caught := runstate.MessageCatchUp{
+		Since:    messagesCountedFrom.UTC(),
+		Finished: now,
+		Recorded: len(recorded),
+		Already:  already,
+		Unread:   problems,
+	}
+	if err := store.RecordMessagesCaughtUp(caught); err != nil {
+		return messageCatchUp{Caught: &caught, Problem: err.Error()}
+	}
+	return messageCatchUp{Caught: &caught}
+}
+
+// Describe is the sweep's line about the catch-up, or empty where there is
+// nothing to say.
+func (c messageCatchUp) Describe() string {
+	if c.Caught == nil {
+		return ""
+	}
+	line := fmt.Sprintf("read the operator's messages since %s back from the conversations' logs: recorded %d, %d recorded already",
+		c.Caught.Since.In(time.Local).Format("2006-01-02 15:04 MST"), c.Caught.Recorded, c.Caught.Already)
+	if len(c.Caught.Unread) > 0 {
+		line += "; not read: " + strings.Join(c.Caught.Unread, "; ")
+	}
+	return line
 }
 
 // loggedPersonMessages is every person's message in every conversation log
@@ -236,7 +319,7 @@ func harnessComposed(text string) bool {
 			return true
 		}
 	}
-	return false
+	return escalationOpening.MatchString(trimmed)
 }
 
 // alreadyRecorded is a message event about the same conversation at the same

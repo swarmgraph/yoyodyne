@@ -372,8 +372,9 @@ the asks put to him, his messages, and the hand steps. Every count is a floor: a
 step nobody recorded is not in it.
 
 "backfill" records the operator's messages sent before each was recorded as it
-was sent, read back once from the conversations' logs from the moment --since
-names. A message already recorded is not recorded twice.
+was sent, read back from the conversations' logs from the moment --since names.
+The harness does this itself once, on its first yoyo reconcile, so this is for
+inspection and recovery. A message already recorded is not recorded twice.
 
   record --by <who> --unblocked <what> --person-only <yes|no> [options] <what was done>
   list

@@ -2066,20 +2066,34 @@ which kind, what it was about, the record it came from, and whether only a
 person could have taken it. It is information and waits on nobody.
 
 **Messages sent before they were recorded** are in the conversations' logs
-and nowhere else. `yoyo intervention backfill --since <time>` reads them back
-once and records each message a person sent as a `message` step, at the
-moment it was sent; a message already recorded is not recorded again, so
-running it twice is safe. A log does not say who sent a message, so it is
-decided from what the log does say: a message typed at a console says so, a
-recurring pass's first message follows the pass's start, and every other
-message the harness sends opens with words of its own; what is left is counted
-as a person's. To fill in the week from 2026-10-17:
+and nowhere else, so the harness reads them back itself, once. The first `yoyo
+reconcile` that finds no record of having done it — the
+[maintenance pass's](#the-supervisors-maintenance-pass), or one typed at a
+terminal — reads every conversation's log from 2026-10-17 00:00 PDT, the start
+of the week the count was asked to cover, and records each message a person
+sent as a `message` step at the moment it was sent. It then writes
+`interventions-messages-caught-up.json` beside the record of hand steps, saying
+where it read from, when it finished, how many it recorded, and any log it
+could not read, so no later sweep reads the logs again. The sweep says one
+line about it, and `--json` carries it as `messages`; a failure is said and
+fails nothing else. Nobody has to run anything.
+
+A log does not say who sent a message, so it is decided from what the log does
+say: a message typed at a console says so, a recurring pass's first message
+follows the pass's start, every other message the harness sends opens with
+words of its own, and an escalation of a stopped run opens `Run <run> of
+<item> stopped:`. What is left is counted as a person's. A message already
+recorded is never recorded twice.
+
+`yoyo intervention backfill --since <time>` is the same reading by hand, for
+inspecting or recovering the record — after a log the harness could not read
+has been repaired, say:
 
 ```sh
 ./bin/yoyo intervention backfill --since 2026-10-17T00:00:00-07:00
 ```
 
-A process an agent's run started is refused, as `record` is.
+A process an agent's run started is refused it, as `record` is.
 
 ## When the provider dies mid-run
 
