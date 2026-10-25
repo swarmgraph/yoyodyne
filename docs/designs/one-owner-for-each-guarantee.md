@@ -14,6 +14,10 @@ revisions:
       by: architect
       at: 2026-10-25T17:58:45.787484Z
       reason: 'yoyodyne-ifd.428.127: adds checks as guarantee 9 at the operator''s direction of October 25 (owner, way in, check in make test, and the five things it takes in) and places its seven migration items second, after storage and admission; heavy check permits move into the same reservation as developer slots. Records the ruling on the race check policy (yoyodyne-ifd.428.126.6.1.1) as this repository''s application of guarantee 9, including the macOS race coverage and where it runs. Existing migration numbers are kept so items citing them stay right. Written from reads at main 0ef00fa8.'
+    - action: amended
+      by: architect
+      at: 2026-10-25T19:34:50.476511Z
+      reason: 'Brings race point 3 into line with the revision of choosing checks by change sent for the race-check item (yoyodyne-ifd.428.126.6.3): the local full race check on the merge candidate is dropped only once integration through the merge queue is on, as the Lead Product Manager decided on October 25; only the forge''s merge queue meets the second condition; and forge settings that cannot be read run the check locally. Names the three cases for what verifies the merge candidate in full, the same as that design. Points 1, 2 and 4 are unchanged. Written from a read at main 08be9d12.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -25,6 +29,11 @@ approvals:
       by: harness
       at: 2026-10-25T17:58:45.787484Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1728, for document-1728.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-10-25T19:34:50.476511Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1738, for document-1738.1 under the automatic approval policy
 ---
 # Guarantees the whole system relies on: one owning component and one way in for each
 
@@ -236,11 +245,13 @@ Measured October 20 to 25, the single `make race` permit was busy 72% of 130 hou
    - any file a test reads by embedding it or as test data.
    A path the analyser cannot place runs the whole race check. Formatting and vet still run on every change.
 2. **After a repair, or when main moves: accepted.** The race check runs again only where the change's own Go code, or code it depends on, changed since the result that passed. When main has moved, this is worked out on the change combined with the new main. Otherwise the earlier result is kept, with the commit it passed on and the analyser's answer recorded beside it.
-3. **The merge candidate: accepted, on two conditions.** The local full race on the merge candidate does not run when both of these hold:
+3. **The merge candidate: accepted, once integration through the merge queue is on, and on two conditions.** The Lead Product Manager decided on October 25 that this takes effect only once integration through the merge queue is switched on in this project (yoyodyne-ifd.429.59.7). Until then, the full race check runs on this machine on every merge candidate, as it does today.
+   Once the merge queue is on, the local full race check on the merge candidate does not run when both of these hold:
    - the forge's required check runs the full suite under the race detector;
-   - it runs on the change combined with current main, through the forge's merge queue or because the forge requires a branch to be current before it merges.
-   The project declares both in its configuration. The harness confirms them from the forge at each landing where it can read the forge's settings, and records whether it confirmed them or could not read them. Where the forge shows either condition false, the local full race on the merge candidate runs as it does today.
-   This differs from the answer I gave in exchange 9bb52ecf, which only recorded a failed condition. Running locally is what when in doubt, everything runs requires.
+   - it runs on the change combined with current main, through the forge's merge queue. A forge rule that a branch be current before it merges does not meet this condition: with the merge queue on, the queue's run is the one made on the change as it lands, and it is the only one the harness confirms.
+   The project declares both in its configuration. At each landing the harness reads the forge's settings, confirms both conditions, and records what it found for each: confirmed, shown false, or could not be read. Where either condition is undeclared, shown false, or could not be read, the local full race check on the merge candidate runs, as it does with the merge queue off, because when in doubt, everything runs.
+   So the merge candidate is always verified in full, and the record names which run did it: with the merge queue off, every check before promotion runs whole on this machine; with it on and both conditions confirmed at that landing, the forge's required check is the whole race run, and every other check before promotion still runs whole here; with it on and a condition not confirmed, the full race check runs here. [Choosing checks by change](choosing-checks-by-change.md) states the same three cases.
+   This differs from the answer I gave in exchange 9bb52ecf, which only recorded a failed condition, and from this point as first written in this design, which also accepted a forge rule that a branch be current and did not say what a setting that could not be read meant.
 4. **A full race run on main: accepted.** The harness runs the whole `make race` on main every four hours, only when main has moved since the last clean run. It runs as one of the harness's recurring tasks, whose schedule the development manager sets under section 6, and takes a permit like any other check. A failure is not run again to make it pass. The harness files a critical report naming the failing tests, the commit, the last clean commit and the commits between them. That is admitted at priority 0 with the reliability label, as the operating rules require for anything that blocks reliable execution, so work enters through admission like any other.
 
 **Race coverage on macOS is required.** This repository has code built only on macOS: the keychain, launchd, file system and process handling. The tests only macOS exercises keep running on this machine on every change, in the short local check that [checks on CI](checks-on-ci.md) keeps. The race detector over that code runs in point 4's run on main, on this Mac. When the macOS CI job (yoyodyne-ifd.428.122) runs the race detector over that code on each pull request, it takes over that coverage, and point 4 may move to the forge.
