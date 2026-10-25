@@ -15,6 +15,9 @@ package runstate
 // the tracker: one begun recently enough is handed over as it is, and only where
 // none was does the caller make one, under a lock every caller on the machine
 // queues on, so that the callers queued behind it are handed the one it made.
+// The caller making one is handed the reading kept before it, however old, so
+// that it can carry the closed items forward and list only the unfinished work
+// rather than every item again (internal/readmodel, sharedlisting.go).
 
 import (
 	"context"
@@ -52,6 +55,18 @@ type TrackerReading struct {
 	EveryFailure string           `json:"every_failure,omitempty"`
 	Ready        []beads.WorkItem `json:"ready,omitempty"`
 	ReadyFailure string           `json:"ready_failure,omitempty"`
+	// WholeAt is when the last listing of every item, closed work included,
+	// began, and ClosedAt when the closed items were last brought up to date,
+	// by that listing or by a listing of the closed items changed since. The
+	// readings between them list only unfinished work and carry the closed
+	// items forward from the reading before (internal/readmodel,
+	// sharedlisting.go). Zero is a reading that carries nothing forward.
+	WholeAt  time.Time `json:"whole_at,omitzero"`
+	ClosedAt time.Time `json:"closed_at,omitzero"`
+	// Closed is the closed items carried forward where the reading's own
+	// listing failed and Every carries none, so the next reading can still
+	// carry them rather than listing every item again.
+	Closed []beads.WorkItem `json:"closed,omitempty"`
 }
 
 // TrackerReadingStore is where the product's shared reading is kept, one file
@@ -85,22 +100,28 @@ func (s *TrackerReadingStore) Path() string { return filepath.Join(s.root, "trac
 // it and is handed it, rather than asking the tracker behind it.
 //
 // ctx bounds only the wait for the lock; read is called with none of it, and is
-// what bounds its own listings. read says whether what it read may be kept for
+// what bounds its own listings. read is handed the reading kept before, however
+// old, so it can carry forward what has not changed, or nil where none is kept.
+// read says whether what it read may be kept for
 // others: a reading its own caller abandoned may not. Share fails only where it
 // has no reading to hand over: one it made and could not keep is handed over
 // all the same, and the next caller makes its own.
-func (s *TrackerReadingStore) Share(ctx context.Context, fresh time.Duration, read func() (TrackerReading, bool)) (TrackerReading, error) {
+func (s *TrackerReadingStore) Share(ctx context.Context, fresh time.Duration, read func(kept *TrackerReading) (TrackerReading, bool)) (TrackerReading, error) {
 	asked := s.now()
 	release, err := s.lock(ctx)
 	if err != nil {
 		return TrackerReading{}, err
 	}
 	defer release()
-	if kept, err := s.read(); err == nil && !kept.StartedAt.Before(asked.Add(-fresh)) {
-		return kept, nil
+	var previous *TrackerReading
+	if kept, err := s.read(); err == nil {
+		if !kept.StartedAt.Before(asked.Add(-fresh)) {
+			return kept, nil
+		}
+		previous = &kept
 	}
 	started := s.now()
-	reading, keep := read()
+	reading, keep := read(previous)
 	reading.SchemaVersion, reading.ProductID, reading.StartedAt = TrackerReadingSchemaVersion, s.productID, started.UTC()
 	if keep {
 		_ = s.write(reading)

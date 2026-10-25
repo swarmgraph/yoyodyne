@@ -141,7 +141,12 @@ type DeliverySources struct {
 	Tracker        DeliveryTracker
 	TrackerProblem string
 	// TrackerTimeout bounds the one tracker listing the reading makes.
-	TrackerTimeout       time.Duration
+	TrackerTimeout time.Duration
+	// TrackerReadings is the product's one shared reading of the tracker. Where
+	// it is set and the tracker can answer a status reading (Tracker), the
+	// listing is read out of the reading every status reading shares rather
+	// than asked of the tracker (sharedlisting.go).
+	TrackerReadings      TrackerReadings
 	Runs                 DeliveryRuns
 	RunsProblem          string
 	Usage                DeliveryUsage
@@ -539,8 +544,16 @@ func readDeliverySources(ctx context.Context, sources DeliverySources, since tim
 		if sources.TrackerTimeout > 0 {
 			listCtx, cancel = context.WithTimeout(ctx, sources.TrackerTimeout)
 		}
-		items, err := sources.Tracker.List(listCtx, "")
+		tracker := DeliveryTracker(sources.Tracker)
+		var shared *sharedTracker
+		if whole, ok := sources.Tracker.(Tracker); ok && sources.TrackerReadings != nil {
+			var sharing Sources
+			sharing, shared = Sources{Tracker: whole, TrackerReadings: sources.TrackerReadings, TrackerTimeout: sources.TrackerTimeout, Now: sources.Now}.sharing()
+			tracker = sharing.Tracker
+		}
+		items, err := tracker.List(listCtx, "")
 		cancel()
+		shared.finish()
 		if err != nil {
 			read.trackerErr = fmt.Sprintf("%s could not be read: %v", sourceTracker, err)
 		} else {

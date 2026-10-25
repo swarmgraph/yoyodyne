@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -34,6 +35,9 @@ func (r *storeRunner) Run(ctx context.Context, command execution.Command, _ exec
 	verb := command.Args[0]
 	r.mu.Lock()
 	r.asked[verb]++
+	if verb == "list" && slices.Contains(command.Args, "--all") {
+		r.asked[everyItem]++
+	}
 	r.mu.Unlock()
 	limit := time.NewTimer(command.Timeout)
 	defer limit.Stop()
@@ -55,6 +59,10 @@ func (r *storeRunner) Run(ctx context.Context, command execution.Command, _ exec
 		return execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "[" + item + "]"}, nil
 	}
 }
+
+// everyItem is what storeRunner counts a listing of every item under, closed
+// work included, beside counting it as a listing.
+const everyItem = "list --all"
 
 func (r *storeRunner) count(verb string) int {
 	r.mu.Lock()
@@ -170,4 +178,71 @@ func TestATrackerWriteFinishesInsideItsLimitBesideStatusReadingsAndExports(t *te
 			t.Fatalf("%d status readings over %d freshness window(s) made %d listing(s) and %d readiness quer(ies); want one of each per window", readers*rounds, windows, lists, readies)
 		}
 	})
+}
+
+// madeEveryTime is the shared reading with no reading ever fresh enough to hand
+// over, so every dashboard refresh makes one of its own, queued on the same
+// lock: the most a dashboard can ask of the tracker, whatever its timing.
+type madeEveryTime struct{ store *runstate.TrackerReadingStore }
+
+func (m madeEveryTime) Share(ctx context.Context, _ time.Duration, read func(*runstate.TrackerReading) (runstate.TrackerReading, bool)) (runstate.TrackerReading, error) {
+	return m.store.Share(ctx, 0, read)
+}
+
+// A tracker write arriving among repeated dashboard refreshes — each reading
+// the standing, the titles its throughput is named with, and the delivery
+// measures, and each making a reading of its own — finishes inside its own
+// limit, and only the first reading lists every item: the rest list the
+// unfinished work and carry the closed items forward.
+func TestATrackerWriteFinishesInsideItsLimitBesideRepeatedDashboardRefreshes(t *testing.T) {
+	t.Parallel()
+	const (
+		hold       = 25 * time.Millisecond
+		dashboards = 3
+		refreshes  = 3
+		writeLimit = 2 * time.Second
+	)
+	runner := newStoreRunner(hold)
+	repository := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repository, ".beads"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, ".beads", "metadata.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := runstate.NewTrackerReadingStore(t.TempDir(), domain.ProductID("yoyodyne"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	readings := madeEveryTime{store}
+	client := func(limit time.Duration) beads.Client {
+		return beads.Client{Runner: runner, Dir: repository, Timeout: limit, Holders: noHolders{}}
+	}
+
+	var contenders sync.WaitGroup
+	for range dashboards {
+		contenders.Go(func() {
+			for range refreshes {
+				sources := quietSources()
+				sources.Tracker, sources.TrackerTimeout, sources.TrackerReadings = client(contenderLimit), contenderLimit, readings
+				ReadStanding(context.Background(), sources)
+				if _, err := ReadWorkItemTitles(context.Background(), sources); err != nil {
+					t.Errorf("titles: %v", err)
+				}
+				ReadDelivery(context.Background(), DeliverySources{Tracker: client(contenderLimit), TrackerTimeout: contenderLimit, TrackerReadings: readings, Now: sources.Now})
+			}
+		})
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	started := time.Now()
+	_, err = client(writeLimit).RecordOutcome(context.Background(), "yoyodyne-1", "landed")
+	took := time.Since(started)
+	contenders.Wait()
+	if err != nil || took >= writeLimit {
+		t.Fatalf("the write = %v after %s; want it answered inside its %s limit", err, took, writeLimit)
+	}
+	if every, lists := runner.count(everyItem), runner.count("list"); every != 1 || lists < 2 {
+		t.Fatalf("%d dashboard refreshes made %d listing(s), %d of them of every item; want only the first of every item", dashboards*refreshes, lists, every)
+	}
 }

@@ -678,6 +678,37 @@ func (c Client) ListStatuses(ctx context.Context, statuses []string) ([]WorkItem
 	return items, err
 }
 
+// ListUnfinished reports every item that is not closed, as List reads a status
+// otherwise: the whole set, asked again after the same waits, and recorded the
+// same way. It is `bd list` given no status, which bd answers with everything
+// but closed work; TestUnfinishedAndChangedClosedListingConformance pins that
+// it and the closed listing together are every item.
+//
+// It exists for a reader that keeps the closed items it has already read and
+// asks only for what can still change often (internal/readmodel,
+// sharedlisting.go): closed work is most of the store and almost none of what
+// moves, and a listing of it on every refresh is the bulk of what such a reader
+// would otherwise ask the store for.
+func (c Client) ListUnfinished(ctx context.Context) ([]WorkItem, error) {
+	items, err := c.listPatiently(ctx, nil)
+	c.recordListing(ctx, err)
+	return items, err
+}
+
+// ListClosedSince reports the closed items bd last changed after since, which
+// is every item closed after it and every closed item edited after it. It is
+// read as List reads a status otherwise. bd compares the time it is given with
+// each item's last change; the time is given in UTC so no zone is left for bd
+// to assume.
+func (c Client) ListClosedSince(ctx context.Context, since time.Time) ([]WorkItem, error) {
+	if since.IsZero() {
+		return nil, errors.New("a listing of closed work changed since a time needs the time")
+	}
+	items, err := c.listPatiently(ctx, []string{"--status=" + statusClosed, "--updated-after=" + since.UTC().Format(time.RFC3339)})
+	c.recordListing(ctx, err)
+	return items, err
+}
+
 // listingWaits are the pauses between the attempts one listing makes, and so
 // how many it makes: one more than there are waits.
 //

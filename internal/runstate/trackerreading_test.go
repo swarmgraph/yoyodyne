@@ -30,7 +30,7 @@ func TestASharedTrackerReadingIsHandedOverWhileFresh(t *testing.T) {
 	clock := time.Date(2026, 10, 19, 20, 0, 0, 0, time.UTC)
 	store.now = func() time.Time { return clock }
 	reads := 0
-	read := func() (TrackerReading, bool) {
+	read := func(*TrackerReading) (TrackerReading, bool) {
 		reads++
 		return TrackerReading{
 			Every:        []beads.WorkItem{{ID: "yoyodyne-1", Status: "open"}},
@@ -56,14 +56,49 @@ func TestASharedTrackerReadingIsHandedOverWhileFresh(t *testing.T) {
 	}
 }
 
+// A reading that has to be made again is handed the one kept before it, however
+// old, with what it carries forward, so it can list only what may have changed;
+// where nothing is kept it is handed nothing.
+func TestAStaleTrackerReadingIsHandedToTheOneMadeAfterIt(t *testing.T) {
+	t.Parallel()
+	store := newTrackerReadingStore(t)
+	clock := time.Date(2026, 10, 24, 19, 13, 0, 0, time.UTC)
+	store.now = func() time.Time { return clock }
+	var handed []*TrackerReading
+	read := func(kept *TrackerReading) (TrackerReading, bool) {
+		handed = append(handed, kept)
+		return TrackerReading{
+			Every:    []beads.WorkItem{{ID: "yoyodyne-1", Status: "closed"}},
+			WholeAt:  clock,
+			ClosedAt: clock,
+		}, true
+	}
+	if _, err := store.Share(context.Background(), 10*time.Second, read); err != nil {
+		t.Fatal(err)
+	}
+	first := clock
+	clock = clock.Add(time.Hour)
+	if _, err := store.Share(context.Background(), 10*time.Second, read); err != nil {
+		t.Fatal(err)
+	}
+	if len(handed) != 2 || handed[0] != nil {
+		t.Fatalf("handed = %+v; want nothing for the first reading", handed)
+	}
+	kept := handed[1]
+	if kept == nil || !kept.StartedAt.Equal(first) || !kept.WholeAt.Equal(first) || !kept.ClosedAt.Equal(first) ||
+		len(kept.Every) != 1 || kept.Every[0].Status != "closed" {
+		t.Fatalf("second reading was handed %+v; want the hour-old reading whole", kept)
+	}
+}
+
 // A reading its own caller abandoned is handed to that caller and kept for
 // nobody else.
 func TestAnAbandonedTrackerReadingIsNotKept(t *testing.T) {
 	t.Parallel()
 	store := newTrackerReadingStore(t)
 	reads := 0
-	read := func(keep bool) func() (TrackerReading, bool) {
-		return func() (TrackerReading, bool) {
+	read := func(keep bool) func(*TrackerReading) (TrackerReading, bool) {
+		return func(*TrackerReading) (TrackerReading, bool) {
 			reads++
 			return TrackerReading{EveryFailure: "context canceled"}, keep
 		}
@@ -89,7 +124,7 @@ func TestACallerQueuedBehindAReadingIsHandedIt(t *testing.T) {
 	var mu sync.Mutex
 	reads := 0
 	making, release := make(chan struct{}), make(chan struct{})
-	read := func() (TrackerReading, bool) {
+	read := func(*TrackerReading) (TrackerReading, bool) {
 		mu.Lock()
 		reads++
 		first := reads == 1
@@ -134,7 +169,7 @@ func TestAWaitForTheSharedReadingEndsWithItsContext(t *testing.T) {
 	holding, release, held := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(held)
-		_, _ = store.Share(context.Background(), 0, func() (TrackerReading, bool) {
+		_, _ = store.Share(context.Background(), 0, func(*TrackerReading) (TrackerReading, bool) {
 			close(holding)
 			<-release
 			return TrackerReading{}, true
@@ -150,7 +185,7 @@ func TestAWaitForTheSharedReadingEndsWithItsContext(t *testing.T) {
 	waiting, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	read := false
-	_, err := store.Share(waiting, time.Minute, func() (TrackerReading, bool) { read = true; return TrackerReading{}, true })
+	_, err := store.Share(waiting, time.Minute, func(*TrackerReading) (TrackerReading, bool) { read = true; return TrackerReading{}, true })
 	if err == nil || read {
 		t.Fatalf("a wait that ended = %v, read = %v; want it refused without reading", err, read)
 	}
@@ -185,7 +220,7 @@ func TestASharedTrackerReadingKeepsEveryFieldOfAnItem(t *testing.T) {
 		Labels:             []string{"reliability"},
 		Landing:            "document@2026-10-19",
 	}
-	if _, err := store.Share(context.Background(), time.Minute, func() (TrackerReading, bool) {
+	if _, err := store.Share(context.Background(), time.Minute, func(*TrackerReading) (TrackerReading, bool) {
 		return TrackerReading{Every: []beads.WorkItem{item}, Ready: []beads.WorkItem{item}}, true
 	}); err != nil {
 		t.Fatal(err)
