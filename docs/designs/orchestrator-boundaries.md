@@ -14,6 +14,10 @@ revisions:
       by: architect
       at: 2026-10-15T20:48:01.031593Z
       reason: 'yoyodyne-ifd.437.27: finishes the orchestrator split. Names the package each remaining boundary moves to (internal/integration, internal/mergequeue, internal/documentlanding, internal/rolepass) and lists the shared command-line constructors and their owners, from reads of internal/cli/run.go and cli.go at ed48d235. The responsibilities, the owner of the shared rules, the fit with configurable workflows, the first boundary to move and the rule on admitted work were already recorded in the first revision.'
+    - action: amended
+      by: architect
+      at: 2026-10-25T18:44:56.634718Z
+      reason: 'Follows the design for one owner for each guarantee, as that design says: operation 4 reserves a developer slot through the one reservation of its guarantee 3 rather than reading whether one is free, and a run paused on unfinished work takes its slot through the same reservation. Nothing else in this section changes. Written from a read at main 22aa9a32.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -25,6 +29,11 @@ approvals:
       by: harness
       at: 2026-10-15T20:48:01.031593Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1040, for document-1040.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-10-25T18:44:56.634718Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1734, for document-1734.1 under the automatic approval policy
 ---
 # How internal/orchestrator is split, one admitted change at a time
 
@@ -64,7 +73,7 @@ At 348e9a43 the four continuation paths each repeat one sequence. They differ in
 1. **Find and take the stopped run.** Find the run on the development manager's list (`docketedStoppage`), take its lease (`AdoptRun`), and check the run was made for the item the list names. Today only the stall and repair paths check the last; all four will.
 2. **Check nothing else runs for the item** (`noRunInFlight`).
 3. **Check the item may be continued** (`Items.Show`, then `continuableItem`).
-4. **Read the operator's pause on new work, then a free developer slot** (the intake hold, then `slotIsFree`). Either is a wait, not a refusal, and writes nothing.
+4. **Read the operator's pause on new work, then reserve a developer slot.** Read the intake hold first. Then take a slot through the one reservation that guarantee 3 of [one owner for each guarantee](one-owner-for-each-guarantee.md) sets, which checks a slot is free and records it as taken by this run in the same act. No path reads the free slots and acts on them later. The pause, or a slot that is not free, is a wait, not a refusal, and writes nothing. Operation 7 takes the reservation as its argument, and a continuation refused after this operation gives the reservation back in the same act as the refusal of operation 10.
 5. **Make sure the checkout is there and is the harness's.** Restore a missing checkout from the recorded branch, through one restore (`checkoutRecovery`); integration's own `restoreWorktree` is replaced by it. Then `VerifyOwnedHead`, then `preservedChangeHeld` wherever the path judges a change that already exists.
 6. **Put the item back:** the note, the claim, `validateClaimedItem`.
 7. **Save the run live,** with the continuation record the path builds.
@@ -82,7 +91,7 @@ Each path composes the operations in a function of its own. There is no single c
 
 Two things that look like continuations stay off these operations:
 
-- **A run paused on unfinished work** (`schedulecontinue.go`). It is paused, not stopped, has no entry on the development manager's list, and keeps different slot rules. It uses only the slot read and the check for a request to stop the run, and stays with the watch loop.
+- **A run paused on unfinished work** (`schedulecontinue.go`). It is paused, not stopped, has no entry on the development manager's list, and keeps its own slot rules. It takes its slot through the same reservation as operation 4 and uses the check for a request to stop the run, and stays with the watch loop.
 - **A run adopted again after a new build** (`redeploydrain.go`, through `Pipeline.Run`). It uses only the function that chooses where a run resumes.
 
 ## The first move
