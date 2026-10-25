@@ -366,10 +366,20 @@ approvals:
 #   # Java (Gradle)
 #   checks:
 #     - ./gradlew --no-daemon check
+#
+# make test and make race are given the Go packages the change touches, so a
+# run's checks before review cover what it touched rather than the whole module
+# (yoyodyne-ifd.429.46). The harness runs the same list once more over the
+# approved merge candidate, told the whole module, before it is promoted, so
+# nothing reaches the forge on narrowed checks. The unset-only default runs the
+# whole module wherever the harness did not set the variable, and the Makefile
+# widens to the whole module for a change it cannot narrow; the Makefile's race
+# target says when, and docs/configuration.md, "Where the whole suite runs",
+# says how the two passes fit.
 checks:
   - make fmtcheck
-  - make test
-  - make race
+  - make test CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
+  - make race CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
   - make vet
 
 # What a confirmed document's landing runs in place of the checks above: every

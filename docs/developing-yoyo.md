@@ -22,25 +22,38 @@ runs. Those same four are what this project declares as its
 let a change reach review or integration — so anything a run has to exercise has
 to reach one of the four, and for content that is not Go that means `make test`.
 
-`make race` takes the packages it covers as `RACE_PACKAGES`, and is the whole
-module when nothing names them, which is what `make check` and a person's own
-run want. A run's gate is meant to name them: the harness hands every check the
-Go packages the change touches as `YOYODYNE_CHANGED_GO_PACKAGES`, and
-`make race RACE_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"` in the check
-list runs the race detector over those alone, with the whole suite run once per
-landing from `landing_checks` instead. The unset-only default is what makes
-that line safe to run outside the harness — the probe and the evidence a
-developer records in its worktree, or your own hand — where the variable is
-not set and the whole module is what should run. An explicitly empty
-`RACE_PACKAGES` is the harness saying the change touches no Go package, and
-the target says so and passes. Left at its default, `make race` also skips by
-itself, saying so and why, when every file changed since the merge base with
-`main` — committed, uncommitted, or not yet tracked — is Markdown or one of the
-tracker's exports (`.beads/issues.jsonl`, `.beads/interactions.jsonl`) outside
-every directory holding Go source. Anything else, a package's testdata and
-`go.mod` included, runs it, and so does a checkout with no `main` to compare
-with or nothing changed. [`scripts/race-skip.sh`](../scripts/race-skip.sh)
-makes that decision, and naming `RACE_PACKAGES`, even as `./...`, bypasses it.
+`make test` and `make race` take the Go packages a change touches as
+`CHANGED_GO_PACKAGES`, and are the whole module when nothing names them, which
+is what `make check`, CI, and a person's own run want. A run's gate names them:
+the harness hands every check the packages the change touches as
+`YOYODYNE_CHANGED_GO_PACKAGES`, and the check list passes them on as
+`make test CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"` and the
+same for `make race`. Once the reviewer approves, the harness runs the list
+again over the merge candidate told `./...`, so the whole suite runs on this
+machine before anything is promoted; see
+[where the whole suite runs](configuration.md#where-the-whole-suite-runs). The
+unset-only default is what makes those lines safe to run outside the harness —
+the probe and the evidence a developer records in its worktree, or your own
+hand — where the variable is not set and the whole module is what should run.
+[`scripts/check-scope.sh`](../scripts/check-scope.sh) decides what a named list
+becomes: the listed packages when the change, read from Git since its merge
+base with `main`, touches nothing else the target reads, and the whole module
+when it touches anything outside every package — a document, the Makefile, a
+script, the configuration — or a package the list leaves out, or cannot be
+read. For `make race`, Markdown outside every directory holding Go source does
+not widen it, and an empty list over a change made only of such Markdown runs
+the race detector over nothing and says so.
+
+`make race` with neither `CHANGED_GO_PACKAGES` nor `RACE_PACKAGES` named also
+skips by itself, saying so and why, when every file changed since the merge
+base with `main` — committed, uncommitted, or not yet tracked — is Markdown or
+one of the tracker's exports (`.beads/issues.jsonl`,
+`.beads/interactions.jsonl`) outside every directory holding Go source.
+Anything else, a package's testdata and `go.mod` included, runs it, and so does
+a checkout with no `main` to compare with or nothing changed.
+[`scripts/race-skip.sh`](../scripts/race-skip.sh) makes that decision, the
+list naming the whole module goes through it too, and naming `RACE_PACKAGES`, even as
+`./...`, runs exactly those packages and bypasses both scripts.
 The check
 stage as a whole is bounded by `execution.check_stage_timeout`, scaled for
 the machine's load;

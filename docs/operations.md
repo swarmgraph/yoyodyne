@@ -3021,15 +3021,20 @@ what the gate was narrowed to. The run's Slack thread says what the stage spent
 of its bound when the checks pass, so the thread reads "checks passed in 14m0s
 of the 30m0s bound" rather than only "passed".
 
-**Where the whole suite runs is once per landing.** The stage fits its bound
-by running the expensive suite narrowed per run and whole per landing. Every
-check is handed `YOYODYNE_CHANGED_GO_PACKAGES`, the Go packages the change
-touches, and a check written to read it — `make race
-RACE_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"` here, with the shell's
-unset-only default so the same line tests the whole module wherever the
-harness did not set the variable — runs over those alone.
-`landing_checks` is then what runs whole, once per landing on the target
-branch: after a run has integrated, closed its item, and removed its worktree,
+**Where the whole suite runs is once per merge candidate, and can be once per
+landing.** The stage fits its bound by running the expensive suite narrowed
+per attempt and whole once the change is approved. Every check is handed
+`YOYODYNE_CHANGED_GO_PACKAGES`, the Go packages the change touches, and a check
+written to read it — `make race
+CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"` here, with the
+shell's unset-only default so the same line tests the whole module wherever the
+harness did not set the variable — runs over those alone before review. Once
+the reviewer approves, the same checks run again over the merge candidate told
+`./...`, and a change is promoted only on that whole pass; the item's notes say
+`the whole module (the merge candidate is checked whole before it is promoted);
+before review:` and what the gate was narrowed to.
+`landing_checks`, where a project names them, run whole once per landing on
+the target branch: after a run has integrated, closed its item, and removed its worktree,
 the harness cuts a detached checkout of the integrated commit under the
 worktree root, runs the list there, and removes the checkout. The landing has
 a budget of its own, `execution.landing_check_timeout` (two hours by default,

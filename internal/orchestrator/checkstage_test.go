@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -604,6 +606,9 @@ func TestTheRecordSaysWhichCheckTheStageIsOnWhileItRuns(t *testing.T) {
 // takes, so a check the operator wrote to narrow itself runs over that and
 // nothing else. A change to one package is that package; a repository that is
 // no Go module is told the whole module, so a check written for one runs whole.
+// A gate that was narrowed is followed, once the change is approved, by the
+// same checks over the merge candidate told the whole module, and only that
+// whole pass is evidence the promotion takes.
 func TestEveryCheckIsToldWhichGoPackagesTheChangeTouches(t *testing.T) {
 	t.Parallel()
 
@@ -611,10 +616,19 @@ func TestEveryCheckIsToldWhichGoPackagesTheChangeTouches(t *testing.T) {
 		name    string
 		module  bool
 		changes string
-		want    string
+		want    []string
+		stage   []string
 	}{
-		{name: "a change to one package", module: true, changes: "internal/checks/narrow.go", want: "./internal/checks"},
-		{name: "a repository that is no Go module", module: false, changes: "feature.txt", want: "./..."},
+		{
+			name: "a change to one package", module: true, changes: "internal/checks/narrow.go",
+			want:  []string{"./internal/checks", "./..."},
+			stage: []string{"the whole module (" + candidateCheckedWhole + "); before review: ./internal/checks"},
+		},
+		{
+			name: "a repository that is no Go module", module: false, changes: "feature.txt",
+			want:  []string{"./..."},
+			stage: []string{"the whole module (the repository root is not a Go module)"},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -635,7 +649,7 @@ func TestEveryCheckIsToldWhichGoPackagesTheChangeTouches(t *testing.T) {
 			}, approveVerdict)
 			told := filepath.Join(t.TempDir(), "told.txt")
 			pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{
-				`printf '%s' "$` + checks.ChangedGoPackagesVariable + `" > ` + told,
+				`printf '%s\n' "$` + checks.ChangedGoPackagesVariable + `" >> ` + told,
 			})
 			outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 			if err != nil {
@@ -645,21 +659,109 @@ func TestEveryCheckIsToldWhichGoPackagesTheChangeTouches(t *testing.T) {
 			if err != nil {
 				t.Fatalf("the check did not write what it was told: %v", err)
 			}
-			if string(read) != test.want {
-				t.Fatalf("the check was told %q, want %q", read, test.want)
+			if got := strings.Fields(string(read)); !slices.Equal(got, test.want) {
+				t.Fatalf("the check was told %q, want %q", got, test.want)
 			}
 			state, err := store.Load(outcome.RunID)
 			if err != nil {
 				t.Fatalf("Load() error = %v", err)
 			}
-			if state.CheckStage == nil || !strings.Contains(state.CheckStage.Narrowed, strings.TrimPrefix(test.want, "./...")) {
-				t.Fatalf("recorded stage = %#v, want the narrowing recorded", state.CheckStage)
+			if state.CheckStage == nil || !slices.Contains(test.stage, state.CheckStage.Narrowed) {
+				t.Fatalf("recorded stage = %#v, want the narrowing recorded as one of %q", state.CheckStage, test.stage)
+			}
+			if state.ChecksPassed == nil || state.ChecksPassed.Narrowed != "" {
+				t.Fatalf("promoted on evidence %#v, want checks that were told the whole module", state.ChecksPassed)
+			}
+			if outcome.Integration == nil {
+				t.Fatalf("outcome = %#v, want the change integrated", outcome)
 			}
 			notes := strings.Join(tracker.NoteRecords, "\n")
 			if !strings.Contains(notes, "gate narrowed to: ") {
 				t.Fatalf("item notes do not say what the gate was narrowed to:\n%s", notes)
 			}
 		})
+	}
+}
+
+// A narrowed check cannot see a package that depends on the one a change
+// touched, so the whole pass over the merge candidate is where such a failure
+// is found. It is the change's failure and is handed back as repair input like
+// any failing check: the approval is cleared, and the repaired change is
+// checked narrowed, reviewed, and checked whole again before it is promoted.
+func TestAMergeCandidateFailingWholeIsRepairedBeforeItIsPromoted(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	writeCommitted(t, repository, "go.mod", "module example.com/project\n")
+	writeCommitted(t, repository, "internal/checks/runner.go", "package checks\n")
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	attempts := 0
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		attempts++
+		path := filepath.Join(request.WorkingDirectory, "internal", "checks", "narrow.go")
+		return os.WriteFile(path, []byte(fmt.Sprintf("package checks\n\nconst attempt = %d\n", attempts)), 0o600)
+	}, approveVerdict)
+	scratch := t.TempDir()
+	told := filepath.Join(scratch, "told.txt")
+	failed := filepath.Join(scratch, "failed-once")
+	// The check passes narrowed and fails the first time it is told the whole
+	// module, as a dependent package the change broke would.
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{
+		`printf '%s\n' "$` + checks.ChangedGoPackagesVariable + `" >> ` + told +
+			` && if [ "$` + checks.ChangedGoPackagesVariable + `" = ./... ] && [ ! -e ` + failed + ` ]; then : > ` + failed + `; echo "a dependent package fails"; exit 1; fi`,
+	})
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Integration == nil {
+		t.Fatalf("outcome = %#v, want the repaired change integrated", outcome)
+	}
+	read, err := os.ReadFile(told)
+	if err != nil {
+		t.Fatalf("the check did not write what it was told: %v", err)
+	}
+	want := []string{"./internal/checks", "./...", "./internal/checks", "./..."}
+	if got := strings.Fields(string(read)); !slices.Equal(got, want) {
+		t.Fatalf("the check was told %q, want %q", got, want)
+	}
+	reviews := 0
+	for _, request := range provider.RequestsMade() {
+		if request.Role == domain.RoleReviewer {
+			reviews++
+		}
+	}
+	if attempts != 2 || reviews != 2 {
+		t.Fatalf("developer invoked %d times and reviewer %d, want 2 each: the failure handed back and the repair reviewed again", attempts, reviews)
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if state.RepairAttempts != 1 {
+		t.Fatalf("repair attempts = %d, want the whole check's failure to have spent one", state.RepairAttempts)
+	}
+	if state.WorkflowInstanceID == "" || state.WorkflowDivergence != "" {
+		t.Fatalf("delivery instance %q recorded the divergence %q; the hand-back from the whole check is a path the definition expresses", state.WorkflowInstanceID, state.WorkflowDivergence)
+	}
+	if state.ChecksPassed == nil || state.ChecksPassed.Narrowed != "" {
+		t.Fatalf("promoted on evidence %#v, want checks that were told the whole module", state.ChecksPassed)
+	}
+}
+
+// Evidence from checks that were narrowed does not promote a change, however a
+// promotion is reached.
+func TestNarrowedEvidenceDoesNotPromote(t *testing.T) {
+	t.Parallel()
+
+	state := runstate.State{
+		ReviewDecision: runstate.ReviewApprove,
+		ChecksPassed:   &runstate.ChecksPassed{Content: "content", Narrowed: "./internal/checks"},
+	}
+	run := &activeRun{state: state}
+	err := run.integrationEarned(context.Background())
+	if !errors.Is(err, ErrIntegrationUnearned) || !strings.Contains(err.Error(), "has not been checked whole") {
+		t.Fatalf("integrationEarned() = %v, want narrowed evidence refused", err)
 	}
 }
 

@@ -3074,9 +3074,10 @@ positive; a stage with no bound would be every check's budget added up again.
 A per-run gate that runs the whole suite on every attempt spends the suite's
 cost several times per change and pays it in wall clock under contention, which
 is what the stage bound above then stops. The arrangement that fits inside the
-bound is two halves: the per-run gate runs the expensive suite **narrowed to
-what the change touches**, and the whole suite runs **once per landing** over
-what actually landed.
+bound is three parts: the per-run gate runs the expensive suite **narrowed to
+what the change touches** on every attempt before review, the approved change
+is checked **whole as the merge candidate** once before it is promoted, and
+the whole suite can also run **once per landing** over what actually landed.
 
 **Narrowing.** Every check is given `YOYODYNE_CHANGED_GO_PACKAGES` in its
 environment: the Go packages the change touches, as the `./dir` patterns the Go
@@ -3089,9 +3090,33 @@ vendor tree reaches every package, and a repository that is no Go module has
 nothing to narrow within. It is empty where the change touches no Go package at
 all. A check that never mentions it runs exactly as it always has; a check
 written to read it runs over that and nothing else. What the narrowing cannot
-see is a package that depends on a touched one, which is what the landing half
-is for. The run's record says what the gate was narrowed to, and so do the
-item's notes.
+see is a package that depends on a touched one, which is what the whole check
+of the merge candidate below is for. The run's record says what the gate was
+narrowed to, and so do the item's notes.
+
+**The merge candidate is checked whole.** Checks that were told less than the
+whole module never promote a change. Once the reviewer approves a change whose
+checks were narrowed, the harness runs the same checks once more over it, in
+its worktree on the machine the run is on, told
+`YOYODYNE_CHANGED_GO_PACKAGES=./...`: the change as it would be promoted, which
+is the merge candidate. Only that pass is evidence the promotion takes, and the
+promotion refuses evidence from narrowed checks however it is reached. A
+failure there is the change's, found in a package that depends on what it
+touched, and is handed back to the developer as repair input exactly as a
+failing check before review is, spending a repair attempt; the approval is
+cleared with it, so the repaired change is checked, reviewed, and checked whole
+again. A gate already told the whole module — a change to `go.mod`, a
+repository that is no Go module — runs nothing more. Two kinds of run have
+their checks told the whole module from the start, because nothing later
+checks them whole: a run whose integration a person approves, and a confirmed
+document's landing, which runs the project's
+[document checks](#the-document-checks) where it declares them and otherwise
+the configured checks over the whole module. Its heavy checks are let start ahead of every run's gate, as a
+landing's are. The stage's record says `the whole module (the merge candidate
+is checked whole before it is promoted); before review: ` and what the gate was
+narrowed to, so the two passes are never read as one. Every configured check
+runs again, not only the ones that read the variable, because the harness
+cannot tell which checks read it.
 
 **Landing checks.** `landing_checks` is a second list beside `checks`, run
 once per landing on the target branch — after a run has integrated, closed its
@@ -3185,20 +3210,29 @@ to the tracker under either `approvals.work_items` value, which
 [what reaches the queue](#what-reaches-the-queue) states as the exception it
 is.
 
-For this repository the two halves are written as, with the Makefile's `race`
-target taking the packages it covers as `RACE_PACKAGES` and passing on an empty
-one:
+For this repository the narrowed gate is written as, with the Makefile's `test`
+and `race` targets taking the packages as `CHANGED_GO_PACKAGES`:
 
 ```yaml
 checks:
   - make fmtcheck
-  - make test
-  - make race RACE_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
+  - make test CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
+  - make race CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
   - make vet
-
-landing_checks:
-  - make race
 ```
+
+The variable says only where the changed Go files are, and this repository's
+tests also read its documents, scripts, Makefile, and configuration, so
+[`scripts/check-scope.sh`](../scripts/check-scope.sh) reads the change from Git
+and widens a target to the whole module whenever the change touches a file
+outside every package that the target reads, a package the variable does not
+name, or cannot be read at all; the race check alone leaves out Markdown outside
+every package, which cannot change what the race detector finds. An empty
+variable runs the race check over nothing, saying so, only for a change that is
+nothing but such Markdown. This project names no `landing_checks`: the whole
+check of the merge candidate is the whole suite on this machine, and CI's
+required build check runs `make check` on every pull request, as it did before
+the gate was narrowed.
 
 **Read the variable with the shell's unset-only default, `${…-./...}`.** The
 variable is set only by the harness's check runner, and the declared checks

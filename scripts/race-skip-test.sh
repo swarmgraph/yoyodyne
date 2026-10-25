@@ -44,7 +44,11 @@ export MAKEFLAGS= MFLAGS= MAKELEVEL=0
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com
 export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
-unset RACE_BASE RACE_PACKAGES
+# The harness runs this suite inside `make test` and `make race` with
+# CHANGED_GO_PACKAGES on their command lines, and make hands a variable named
+# there to everything its recipe starts. The cases here are about `make race`
+# with nothing named, so nothing is inherited.
+unset RACE_BASE RACE_PACKAGES CHANGED_GO_PACKAGES
 
 failures=0
 cases=0

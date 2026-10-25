@@ -36,6 +36,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // Class is one kind of content this repository carries and what a run's gates
@@ -311,19 +312,29 @@ func Exercised(root string, declared []string, paths []string) bool {
 // these checks. It asks that every check any class names is declared, and not
 // the reverse: a project that declares a check no class names has coverage this
 // ledger does not describe, which is a claim to weaken nothing rather than a
-// reason to distrust the classes.
+// reason to distrust the classes. A check is declared under a name the way the
+// heavy-check limits match one: the command is the name, or the name followed by
+// a space and what it passes, so `make test CHANGED_GO_PACKAGES=...` is
+// `make test`.
 func Describes(declared []string) bool {
 	if len(Classes) == 0 {
 		return false
 	}
 	for _, class := range Classes {
 		for _, check := range class.Checks {
-			if !slices.Contains(declared, check) {
+			if !slices.ContainsFunc(declared, func(command string) bool { return declaresCheck(command, check) }) {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+// declaresCheck reports whether a declared command is the named check, with or
+// without arguments after it.
+func declaresCheck(command, name string) bool {
+	rest, found := strings.CutPrefix(command, name)
+	return found && (rest == "" || unicode.IsSpace(rune(rest[0])))
 }
 
 // classOfChanged is classOf over a path a change touched, which is not quite the
@@ -449,7 +460,7 @@ func Check(root string, ledger []Class, files, declared []string) ([]Problem, er
 			})
 		}
 		for _, check := range class.Checks {
-			if !slices.Contains(declared, check) {
+			if !slices.ContainsFunc(declared, func(command string) bool { return declaresCheck(command, check) }) {
 				problems = append(problems, Problem{
 					Class:  class.ID,
 					Reason: fmt.Sprintf("says %q exercises it, and the project declares no such check. Its coverage was removed with that check; either declare it again or record here what covers this class now.", check),

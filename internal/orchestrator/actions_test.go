@@ -1096,6 +1096,8 @@ var notAStep = map[string]string{
 	"republishRebase":            "replaces the published run branch with the one the local branch now carries, inside candidate.develop's publication",
 	"verifyHandback":             "checks a resumed run still has the change it preserved",
 	"closeCheckStage":            "records how the check stage ended, inside candidate.check",
+	"checkCandidateWhole":        "decides, after an approval, whether candidate.check runs again over the merge candidate told the whole module, and hands its failure back as candidate.check's own would be",
+	"verifyCandidate":            "is candidate.check over the merge candidate, told the whole module",
 	"keepChecks":                 "chooses, inside candidate.check, which checks a stage picked up after a restart onto a new build still runs",
 	"checkLimit":                 "works out one check's own time limit as it begins, inside candidate.check",
 

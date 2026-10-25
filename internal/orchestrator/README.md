@@ -158,11 +158,15 @@ through `blockOnReviewBound`, because no repair changes the bound. A
 `pathRefusal`, `missingVerification` (in `selfcheck.go`) or `checkFailure` goes
 back to the developer through `repair` with the matching prompt; any other
 `verify` error ends the run. When `verify` passes,
-`reviewChange` runs. Approve returns to `verifyReviewAndFinish`; escalate
+`reviewChange` runs. Approve goes to `checkCandidateWhole`, which, where the
+checks were narrowed to the packages the change touches, runs them again over
+the merge candidate told the whole module (`verifyCandidate`) and hands a
+`checkFailure` back like any other; then the loop returns to
+`verifyReviewAndFinish`. Escalate
 returns `escalationRaised`; anything else is handed back with `repairPrompt`
 until `repairBudget` is spent, then `blockOnUnresolvedFindings`. Without
-automatic integration (`automatic()` false) there is no loop: `verify` once,
-then `finish`.
+automatic integration (`automatic()` false) there is no loop: `verifyCandidate`
+once, then `finish`.
 
 ### What does the reviewer receive, and where is the verdict recorded?
 `attemptReview` builds the `review.Request`: diff from
@@ -241,9 +245,10 @@ decided a repair (`repaircontinue.go`) or a check-stage continuation
 (`checkstagecontinue.go`).
 
 ### Where are the content fingerprint and "checks passed" bound together?
-`verify` records `ChecksPassed` with `Worktrees.ContentIdentity`;
-`integrationEarned` compares it again before promotion
-(`ErrIntegrationUnearned`). The fingerprint itself is
+`verify` records `ChecksPassed` with `Worktrees.ContentIdentity`, and with
+`Narrowed` set where the checks were told less than the whole module;
+`integrationEarned` compares it again before promotion and refuses narrowed
+evidence (`ErrIntegrationUnearned`). The fingerprint itself is
 `gitworktree.Manager.ContentIdentity` (`internal/gitworktree/identity.go`).
 
 ### Where is the change committed, pushed, merged, and the item closed?

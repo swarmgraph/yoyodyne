@@ -87,7 +87,17 @@ GOVERNED_DOCUMENT_PREFIX = defect in a governed document (escalated;
 # judges the set, where a person running the checks can read them. The grep
 # keeps the one or two lines that matter; the suite above is still the verdict.
 test: cachecheck
-	$(GO) test -timeout $(TEST_TIMEOUT) ./...
+	@if [ "$(origin CHANGED_GO_PACKAGES)" = undefined ]; then \
+		packages=./...; \
+	else \
+		packages=$$(sh scripts/check-scope.sh test '$(CHANGED_GO_PACKAGES)') || packages=./...; \
+	fi; \
+	if [ -z "$$packages" ]; then \
+		echo "test: no Go package to run the tests of"; \
+	else \
+		echo "$(GO) test -timeout $(TEST_TIMEOUT) $$packages"; \
+		$(GO) test -timeout $(TEST_TIMEOUT) $$packages; \
+	fi
 	@$(GO) test -v -run '^TestShippedDocumentationNamesDocumentsThisRepositoryHas$$' ./internal/contextbundle \
 		| grep -E 'shipped documentation is|WARNING:'
 	@# The dashboard page's only behavioural evidence is its render comparison,
@@ -131,44 +141,61 @@ test: cachecheck
 
 # The race suite is the expensive one -- several times the plain suite, and
 # under two concurrent runs the check that took a run's check stage past two
-# hours on 2026-09-19 -- so it takes the packages it covers as a variable. Left
-# alone it is the whole module, which is what a person's `make race` and the
-# landing check over an integrated commit want. A run's per-run gate passes it
-# the packages its change touches, which the harness works out and hands every
-# check as YOYODYNE_CHANGED_GO_PACKAGES:
+# hours on 2026-09-19 -- so it and the plain suite take the packages a change
+# touches as CHANGED_GO_PACKAGES. The harness works those out and hands every
+# check them as YOYODYNE_CHANGED_GO_PACKAGES, and this project's checks pass
+# them on:
 #
 #   checks:
-#     - make race RACE_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
-#   landing_checks:
-#     - make race
+#     - make test CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
+#     - make race CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
+#
+# The harness runs the checks narrowed before review, and once more told
+# "./..." over the approved merge candidate before it is promoted, so nothing
+# reaches the forge on narrowed checks alone (docs/configuration.md, "Where the
+# whole suite runs").
 #
 # The shell's unset-only default is the point of that line. The variable is set
 # only by the harness's check runner, so the same line run anywhere else -- a
 # developer executing the declared checks in its worktree for its probe and its
 # evidence, a person running the list by hand -- tests the whole module rather
-# than reading an unset variable as "nothing to test" and passing on that. Set
-# and empty is different: it is the harness saying the change touches no Go
-# package, and the target says so and passes rather than testing the module
-# root, which holds no Go files and would fail on that alone. `check` below
-# keeps the whole module: it is what a person runs before handing work over, and
-# it does not know what the change touches.
+# than reading an unset variable as "nothing to test" and passing on that.
 #
-# Left at its default, the target first asks scripts/race-skip.sh whether the
-# change can affect Go code at all, and skips -- saying so and why -- only when
-# every file changed since the merge base with main is Markdown or a tracker
-# export outside every directory holding Go source. That script says what it
-# compares and why each other kind of file runs the check. Naming RACE_PACKAGES,
-# even as ./..., is asking for those packages, so nothing is skipped.
+# What the harness names is only where the changed Go files are, so
+# scripts/check-scope.sh reads the change from Git and runs the whole module
+# instead whenever the change touches a file outside every package that the
+# check reads, a package the list does not name, or cannot be read at all. Set
+# and empty is the harness saying the change touches no Go package: the race
+# check then runs over nothing and says so where the change is only Markdown
+# outside every package, and the whole module otherwise. That script says what
+# it compares and why. Left undefined, as `make check`, CI, and a person's own
+# run leave it, `make test` is the whole module.
+#
+# `make race` with neither variable named first asks scripts/race-skip.sh
+# whether the change can affect Go code at all, and skips -- saying so and why
+# -- only when every file changed since the merge base with main is Markdown or
+# a tracker export outside every directory holding Go source. That script says
+# what it compares and why each other kind of file runs the check. Naming
+# RACE_PACKAGES, even as ./..., is asking for exactly those packages, so nothing
+# is skipped or widened; an empty one runs nothing. `check` below keeps the
+# whole module: it is what a person runs before handing work over, and it does
+# not know what the change touches.
 RACE_PACKAGES ?= ./...
 
 race: cachecheck
-	@if [ -z "$(RACE_PACKAGES)" ]; then \
-		echo "race: the change touches no Go package, so there is nothing to run the race detector over"; \
-	elif [ "$(origin RACE_PACKAGES)" = file ] && sh scripts/race-skip.sh; then \
-		:; \
+	@if [ "$(origin RACE_PACKAGES)" != file ]; then \
+		packages='$(RACE_PACKAGES)'; \
+		[ -n "$$packages" ] || echo "race: no Go package was named, so there is nothing to run the race detector over"; \
+	elif [ "$(origin CHANGED_GO_PACKAGES)" != undefined ]; then \
+		packages=$$(sh scripts/check-scope.sh race '$(CHANGED_GO_PACKAGES)') || packages=./...; \
+	elif sh scripts/race-skip.sh; then \
+		packages=; \
 	else \
-		echo "$(GO) test -race -timeout $(TEST_TIMEOUT) $(RACE_PACKAGES)"; \
-		$(GO) test -race -timeout $(TEST_TIMEOUT) $(RACE_PACKAGES); \
+		packages=./...; \
+	fi; \
+	if [ -n "$$packages" ]; then \
+		echo "$(GO) test -race -timeout $(TEST_TIMEOUT) $$packages"; \
+		$(GO) test -race -timeout $(TEST_TIMEOUT) $$packages; \
 	fi
 
 vet: cachecheck
