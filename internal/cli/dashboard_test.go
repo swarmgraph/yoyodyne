@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/dashboard"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // fakeKeychain is a keychain holding whatever items the test stored, so the
@@ -313,5 +314,27 @@ func TestDashboardPrintsItsURLAndTokenAndStopsWhenAsked(t *testing.T) {
 	cancel()
 	if code := <-done; code != 0 || !strings.Contains(stdout.String(), "dashboard stopped") {
 		t.Fatalf("stop: code = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
+// A dashboard the supervisor starts reads services.dashboard.bind, and one
+// that is not a loopback address is refused before anything is bound, in
+// words that name the setting and say the dashboard listens only on this
+// machine.
+func TestASupervisedDashboardRefusesABindOutsideLoopback(t *testing.T) {
+	// Not parallel: the state root the command reads is set here.
+	t.Setenv("YOYODYNE_STATE_HOME", t.TempDir())
+	configPath := writeConfig(t, validConfig+"services:\n  dashboard:\n    bind: 192.168.1.20\n    token: keychain\n")
+	startID, err := runstate.NewDashboardStartID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := RunContext(context.Background(), []string{"dashboard", "--config", configPath, "--port", "8765", "--start-id", startID}, &stdout, &stderr, "test")
+	if code != 1 || !strings.Contains(stderr.String(), `services.dashboard.bind "192.168.1.20" is not a loopback address, and the dashboard listens only on this machine`) {
+		t.Fatalf("code = %d, stderr = %q, want the bind refused", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "serving at") {
+		t.Fatalf("stdout = %q, want nothing served", stdout.String())
 	}
 }

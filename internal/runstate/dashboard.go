@@ -104,6 +104,12 @@ type DashboardInstance struct {
 	// ReadyAt is when the dashboard accepted the readiness request and began
 	// serving; zero until then.
 	ReadyAt time.Time `json:"ready_at,omitempty"`
+	// AccessProblems is what the dashboard could not apply of who it accepts,
+	// as of the last time it re-read them: a person bound in the configuration
+	// whose token could not be read or bound, its own stored token gone, or a
+	// configuration that would not load. Each says why, and none carries a
+	// token.
+	AccessProblems []string `json:"access_problems,omitempty"`
 }
 
 // Validate refuses a record nothing could use.

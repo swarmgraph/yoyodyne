@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/dashboard"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/supervise"
@@ -149,6 +150,10 @@ func (d *diagnosis) checkChangedSettings(resolved config.Resolved) []Finding {
 			status := StatusWarning
 			remedy := "yoyo stop && yoyo start"
 			switch {
+			case supervised && running && settingsRefused(record, drift):
+				// A change no restart can apply: it waits on the configuration
+				// naming something the part can start on.
+				remedy = fmt.Sprintf("${EDITOR:-vi} %s", shellQuote(drift.ConfigPath))
 			case supervised && running:
 				status, remedy = StatusOK, ""
 			case !supervised:
@@ -169,6 +174,59 @@ func (d *diagnosis) checkChangedSettings(resolved config.Resolved) []Finding {
 			Status:  StatusWarning,
 			Summary: "whether a setting a running part of the product holds from its start has changed was not fully checked",
 			Detail:  driftErr.Error(),
+		})
+	}
+	return findings
+}
+
+// settingsRefused reports whether the supervisor recorded the drifted part's
+// changed setting as one it cannot be started on.
+func settingsRefused(record runstate.Supervision, drift runstate.SettingsDrift) bool {
+	for _, child := range record.Children {
+		if string(child.Service) == drift.Service && child.PID == drift.PID {
+			return child.SettingsRefused
+		}
+	}
+	return false
+}
+
+const dashboardAccessCheck = "dashboard-access"
+
+// checkDashboardAccess is one finding per running dashboard that could not
+// apply all of who it is to accept, as it last re-read them: a person bound in
+// the configuration whose own token could not be read or bound, its own stored
+// token gone, or a configuration it could not read. Each problem is the
+// dashboard's own words, which carry the command that stores a missing token.
+// A dashboard applies what it can without a restart, so nothing here asks for
+// one.
+func (d *diagnosis) checkDashboardAccess(resolved config.Resolved) []Finding {
+	root, err := d.stateRootPath()
+	if err != nil {
+		return nil
+	}
+	store, err := runstate.NewDashboardStore(root, resolved.Config.Product.ID)
+	if err != nil {
+		return nil
+	}
+	looks, err := store.Instances()
+	var findings []Finding
+	for _, look := range looks {
+		if !look.Live || len(look.Instance.AccessProblems) == 0 {
+			continue
+		}
+		findings = append(findings, Finding{
+			Check:   dashboardAccessCheck,
+			Status:  StatusWarning,
+			Summary: fmt.Sprintf("the dashboard running as pid %d, serving at %s, could not apply all of who it is to accept when it last re-read them", look.Instance.PID, look.Instance.URL),
+			Detail:  strings.Join(look.Instance.AccessProblems, "; ") + fmt.Sprintf("; it reads them again every %s, so once the cause is fixed it applies them without a restart", dashboard.AccessEvery),
+		})
+	}
+	if err != nil {
+		findings = append(findings, Finding{
+			Check:   dashboardAccessCheck,
+			Status:  StatusWarning,
+			Summary: "whether each running dashboard applied who it is to accept was not fully checked",
+			Detail:  err.Error(),
 		})
 	}
 	return findings

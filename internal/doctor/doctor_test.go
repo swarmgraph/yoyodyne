@@ -1982,3 +1982,90 @@ func TestDoctorNamesADashboardWhosePortChangedAndWhyItWasNotRestarted(t *testing
 		t.Errorf("the dashboard on the configured port was named: %s", render(report))
 	}
 }
+
+// A dashboard the supervisor runs, over a changed bind it cannot be started on,
+// is a warning naming the setting and why, with the configuration to edit as
+// the remedy rather than a restart nothing could make.
+func TestDoctorSaysWhyAChangedDashboardBindCannotBeApplied(t *testing.T) {
+	t.Parallel()
+	world := newWorld(t)
+	world.configuration = servicesConfig("dashboard:\n    enabled: true\n    bind: 192.168.1.20\n    token: keychain\n")
+	readers, err := runstate.NewConfigReaderStore(world.stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := readers.Record(runstate.ConfigReader{
+		Service: "dashboard", PID: 4242, Build: currentBuild,
+		ConfigPath: filepath.Join(world.project, config.DirectoryName, "config.yaml"),
+		StartedAt:  time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC), Keys: config.SchemaKeys(),
+		Settings: map[string]string{config.SettingDashboardPort: "8765", config.SettingDashboardBind: "127.0.0.1", config.SettingDashboardToken: "keychain"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	world.alive[4242] = true
+	dashboards, err := runstate.NewDashboardStore(world.stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	startID, _ := runstate.NewDashboardStartID()
+	if err := dashboards.RecordStart(runstate.DashboardStart{StartID: startID, PID: 4242, Port: 8765, StartedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := dashboards.Register(runstate.DashboardInstance{StartID: startID, PID: 4242, StartedAt: time.Now().UTC(), URL: "http://127.0.0.1:8765/", Port: 8765, Supervised: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lease.Release() })
+	supervision, err := runstate.NewSupervisionStore(world.stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, running, err := supervision.Lease()
+	if err != nil || !running {
+		t.Fatalf("Lease() = %v, %v", running, err)
+	}
+	t.Cleanup(func() { _ = held.Release() })
+	why := `services.dashboard.bind is 192.168.1.20 in the configuration and it started with 127.0.0.1; the change cannot be applied, so it is not restarted and goes on serving on what it started with: services.dashboard.bind "192.168.1.20" is not a loopback address, and the dashboard listens only on this machine`
+	if err := supervision.Save(runstate.Supervision{PID: 4100, StartedAt: time.Now().UTC(), ObservedAt: time.Now().UTC(), Children: []runstate.SupervisedChild{{
+		Service: config.ServiceDashboard, State: runstate.ChildRunning, PID: 4242, Settings: why, SettingsRefused: true,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	report := world.diagnose()
+	finding, found := findingFor(report, "changed-settings:dashboard")
+	if !found || finding.Status != StatusWarning {
+		t.Fatalf("changed-settings:dashboard = %#v, want a warning: %s", finding, render(report))
+	}
+	if !strings.Contains(finding.Summary, "services.dashboard.bind is 192.168.1.20 in the configuration and it started with 127.0.0.1") ||
+		!strings.Contains(finding.Detail, "the dashboard listens only on this machine") || !strings.Contains(finding.Remedy, "config.yaml") {
+		t.Errorf("finding = %#v, want the setting, why it cannot be applied, and the configuration to edit", finding)
+	}
+}
+
+// A running dashboard that could not apply all of who it is to accept is a
+// warning carrying its own words, which name the person and the command that
+// stores the missing token; one that applied everything says nothing.
+func TestDoctorSaysWhatARunningDashboardCouldNotApplyOfWhoItAccepts(t *testing.T) {
+	t.Parallel()
+	world := newWorld(t)
+	dashboards, err := runstate.NewDashboardStore(world.stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report := world.diagnose(); func() bool { _, found := findingFor(report, "dashboard-access"); return found }() {
+		t.Fatalf("a finding with no dashboard running: %s", render(report))
+	}
+	problem := "mason cannot approve, decline, or ask from the page: the dashboard's token could not be read: the file /state/dashboard.mason.token is not there; store it with: mkdir -p /state"
+	startID, _ := runstate.NewDashboardStartID()
+	lease, err := dashboards.Register(runstate.DashboardInstance{StartID: startID, PID: 4343, StartedAt: time.Now().UTC(), URL: "http://127.0.0.1:8765/", Port: 8765, AccessProblems: []string{problem}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lease.Release() })
+	report := world.diagnose()
+	finding, found := findingFor(report, "dashboard-access")
+	if !found || finding.Status != StatusWarning || !strings.Contains(finding.Summary, "pid 4343") || !strings.Contains(finding.Detail, problem) || !strings.Contains(finding.Detail, "without a restart") {
+		t.Fatalf("dashboard-access = %#v, want a warning carrying the dashboard's words: %s", finding, render(report))
+	}
+}

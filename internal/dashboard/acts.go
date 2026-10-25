@@ -100,27 +100,88 @@ type personToken struct {
 // with the reason.
 func (s *Server) SetActor(actor Actor) { s.actor = actor }
 
-// BindPerson accepts one person's own token. A token too short to authorize
-// anything, the shared token itself, and a token another person already bound
-// are refused, and the refused person is left unbound: a token two people hold
-// resolves to neither, and the shared token resolving to somebody would make
-// every reader of the page that person.
+// PersonBinding is one person's own token, as read from the store their entry
+// in the operators mapping names, and who it resolves to.
+type PersonBinding struct {
+	Token  string
+	Person Person
+}
+
+// BindPerson accepts one person's own token beside those already bound. A
+// token too short to authorize anything, the shared token itself, and a token
+// another person already bound are refused, and the refused person is left
+// unbound: a token two people hold resolves to neither, and the shared token
+// resolving to somebody would make every reader of the page that person.
 func (s *Server) BindPerson(token string, person Person) error {
+	s.access.Lock()
+	defer s.access.Unlock()
 	token = strings.TrimSpace(token)
-	switch {
-	case len(token) < minPersonTokenBytes:
-		return fmt.Errorf("the dashboard token bound for %s is %d characters, and a token that authorizes acts is at least %d, as `openssl rand -hex 32` makes", person.Name, len(token), minPersonTokenBytes)
-	case subtle.ConstantTimeCompare([]byte(token), []byte(s.token)) == 1:
-		return fmt.Errorf("the dashboard token bound for %s is the shared token the dashboard serves under, which reads only; bind a token of the person's own", person.Name)
+	if err := s.bindable(token, person); err != nil {
+		return err
 	}
 	for index, bound := range s.people {
 		if subtle.ConstantTimeCompare([]byte(token), []byte(bound.token)) == 1 {
 			s.people = slices.Delete(s.people, index, index+1)
-			return fmt.Errorf("the dashboard tokens bound for %s and %s are the same token, which resolves to neither of them; each person binds a token of their own", bound.person.Name, person.Name)
+			return sameToken(bound.person, person)
 		}
 	}
 	s.people = append(s.people, personToken{token: token, person: person})
 	return nil
+}
+
+// BindPeople replaces every person's binding at once with the ones given, by
+// the rules BindPerson holds each to, and returns why each person it left
+// unbound was refused, by name. It is how the people the configuration binds
+// now are applied to a dashboard already serving: a person newly bound is
+// accepted from the next request on, and a token that changed, or a person no
+// longer bound, is refused from the next request on. The shared token is
+// compared as it stands, so set it first where it changed too.
+func (s *Server) BindPeople(bindings []PersonBinding) map[string]error {
+	s.access.Lock()
+	defer s.access.Unlock()
+	refused := map[string]error{}
+	var people []personToken
+	for _, binding := range bindings {
+		token := strings.TrimSpace(binding.Token)
+		if err := s.bindable(token, binding.Person); err != nil {
+			refused[binding.Person.Name] = err
+			continue
+		}
+		people = append(people, personToken{token: token, person: binding.Person})
+	}
+	// A token two people bound resolves to neither of them, however many hold it.
+	kept := make([]personToken, 0, len(people))
+	for index, candidate := range people {
+		shared := false
+		for other, bound := range people {
+			if other != index && subtle.ConstantTimeCompare([]byte(candidate.token), []byte(bound.token)) == 1 {
+				refused[candidate.person.Name] = sameToken(bound.person, candidate.person)
+				shared = true
+				break
+			}
+		}
+		if !shared {
+			kept = append(kept, candidate)
+		}
+	}
+	s.people = kept
+	return refused
+}
+
+// bindable is why a token cannot be bound to a person on its own terms, or nil.
+// It is called with access held.
+func (s *Server) bindable(token string, person Person) error {
+	switch {
+	case len(token) < minPersonTokenBytes:
+		return fmt.Errorf("the dashboard token bound for %s is %d characters, and a token that authorizes acts is at least %d, as `openssl rand -hex 32` makes", person.Name, len(token), minPersonTokenBytes)
+	case s.token != "" && subtle.ConstantTimeCompare([]byte(token), []byte(s.token)) == 1:
+		return fmt.Errorf("the dashboard token bound for %s is the shared token the dashboard serves under, which reads only; bind a token of the person's own", person.Name)
+	}
+	return nil
+}
+
+func sameToken(first, second Person) error {
+	return fmt.Errorf("the dashboard tokens bound for %s and %s are the same token, which resolves to neither of them; each person binds a token of their own", first.Name, second.Name)
 }
 
 // presenter is who presented the request's token: whether it was one this
@@ -132,6 +193,8 @@ func (s *Server) presenter(request *http.Request) (*Person, bool) {
 		return nil, false
 	}
 	candidate = strings.TrimSpace(candidate)
+	s.access.RLock()
+	defer s.access.RUnlock()
 	var resolved *Person
 	for _, bound := range s.people {
 		if subtle.ConstantTimeCompare([]byte(candidate), []byte(bound.token)) == 1 {
@@ -142,7 +205,7 @@ func (s *Server) presenter(request *http.Request) (*Person, bool) {
 	if resolved != nil {
 		return resolved, true
 	}
-	return nil, subtle.ConstantTimeCompare([]byte(candidate), []byte(s.token)) == 1
+	return nil, sharedToken(candidate, s.token)
 }
 
 // actRequest is one act as the page sends it.

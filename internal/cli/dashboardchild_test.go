@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"slices"
@@ -79,7 +80,7 @@ func (f *fakeDashboards) Launch(spec slack.Launch) (int, error) {
 	f.next++
 	pid := f.next
 	instance := runstate.DashboardInstance{StartID: startID, PID: pid, Build: "deployed-build", StartedAt: time.Now().UTC(),
-		URL: "http://127.0.0.1:" + strconv.Itoa(port) + "/", Port: port, ReadyURL: "http://127.0.0.1:45999/", Supervised: true}
+		URL: "http://" + net.JoinHostPort(f.bindFor(), strconv.Itoa(port)) + "/", Port: port, ReadyURL: "http://127.0.0.1:45999/", Supervised: true}
 	switch {
 	case f.tokenProblem != "":
 		instance.TokenProblem = f.tokenProblem
@@ -103,6 +104,19 @@ func (f *fakeDashboards) Launch(spec slack.Launch) (int, error) {
 	return pid, nil
 }
 
+// bindFor is the address a dashboard launched now listens on: the one the
+// configuration names where the fakes read one, and loopback otherwise.
+func (f *fakeDashboards) bindFor() string {
+	if f.configPath == "" {
+		return config.DefaultDashboardBind
+	}
+	resolved, err := config.LoadResolved(f.configPath)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return resolved.Config.Services.Dashboard.Bind
+}
+
 // recordReader records a dashboard as reading the configuration, which is the
 // record every reading of the copies of a part counts.
 func (f *fakeDashboards) recordReader(instance runstate.DashboardInstance) {
@@ -113,9 +127,16 @@ func (f *fakeDashboards) recordReader(instance runstate.DashboardInstance) {
 		ConfigPath: "/repo/.yoyodyne/config.yaml", StartedAt: instance.StartedAt, Keys: []string{"product"}}
 	if f.configPath != "" {
 		reader.ConfigPath = f.configPath
-		reader.Settings = map[string]string{config.SettingDashboardToken: string(config.DashboardTokenGenerated)}
+		// The token source and the address are what the configuration says as
+		// the dashboard starts, which is where `yoyo dashboard` reads them from.
+		resolved, err := config.LoadResolved(f.configPath)
+		if err != nil {
+			f.t.Fatal(err)
+		}
+		reader.Settings = map[string]string{config.SettingDashboardToken: string(resolved.Config.Services.Dashboard.Token)}
 		if instance.Supervised {
 			reader.Settings[config.SettingDashboardPort] = strconv.Itoa(instance.Port)
+			reader.Settings[config.SettingDashboardBind] = resolved.Config.Services.Dashboard.Bind
 		}
 	}
 	if err := f.readers.Record(reader); err != nil {
@@ -646,5 +667,176 @@ func TestChangingTheDashboardPortWithoutANewBuildMovesTheDashboardOntoIt(t *test
 	standing = readmodel.ReadStanding(context.Background(), readmodel.Sources{Supervision: supervision, ConfigReaders: fakes.readers, Dashboards: child.store})
 	if len(standing.Services.Settings) != 0 {
 		t.Errorf("services settings = %+v, want nothing once the dashboard is on the new port", standing.Services.Settings)
+	}
+}
+
+// dashboardBound is a project configuration that runs the dashboard on port
+// 8765 at bind. A bind outside loopback is given the token stored in the
+// keychain, which it needs to load at all; a loopback one keeps the generated
+// token, which is one per start, so the fakes confirm each start by its own.
+func dashboardBound(bind string) string {
+	token := "generated"
+	if ip := net.ParseIP(bind); ip == nil || !ip.IsLoopback() {
+		token = "keychain"
+	}
+	return `version: 1
+extends: builtin:v1
+product:
+  id: yoyodyne
+  repository: .
+services:
+  dashboard:
+    enabled: true
+    port: 8765
+    bind: "` + bind + `"
+    token: ` + token + `
+`
+}
+
+// Changing services.dashboard.bind to another loopback address, with no new
+// build deployed, has the supervisor replace the dashboard with one listening
+// there, ready before the old one stops, and record the setting it applied. A
+// bind that is not loopback cannot be applied: no dashboard is started on it,
+// the one running goes on serving on what it started with, and `yoyo status`
+// says which setting and why.
+func TestChangingTheDashboardBindMovesItOrSaysWhyItCannot(t *testing.T) {
+	t.Parallel()
+	child, fakes := newDashboardChild(t)
+	dashboardReaders(t, child, fakes)
+	path := writeProjectConfig(t, dashboardBound("127.0.0.1"))
+	child.config = path
+	child.configured = func() (config.Services, error) {
+		resolved, err := config.LoadResolved(path)
+		return resolved.Config.Services, err
+	}
+	fakes.configPath = path
+	child.readers = fakes.readers
+
+	supervision, err := runstate.NewSupervisionStore(child.logRoot, child.product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, held, err := supervision.Lease()
+	if err != nil || !held {
+		t.Fatalf("Lease() = %v, %v", held, err)
+	}
+	t.Cleanup(func() { _ = lease.Release() })
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	supervisor := &supervise.Supervisor{
+		Records:  supervision,
+		Product:  child.product,
+		Children: []supervise.Child{child},
+		Now:      func() time.Time { return now },
+		Log:      t.Logf,
+		PID:      4242,
+		Build:    "deployed-build",
+	}
+	supervisor.Tick(context.Background())
+	first, running, err := child.current()
+	if err != nil || !running || first.URL != "http://127.0.0.1:8765/" {
+		t.Fatalf("current() = %+v, %v, %v, want the dashboard serving at 127.0.0.1", first, running, err)
+	}
+
+	if err := os.WriteFile(path, []byte(dashboardBound("::1")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(supervise.DeployEvery)
+	supervisor.Tick(context.Background())
+	moved, running, err := child.current()
+	if err != nil || !running || moved.PID == first.PID || moved.URL != "http://[::1]:8765/" {
+		t.Fatalf("current() = %+v, %v, %v, want a new dashboard listening at ::1", moved, running, err)
+	}
+	if alive, _ := fakes.alivePID(first.PID); alive {
+		t.Errorf("the dashboard at 127.0.0.1, pid %d, is still running", first.PID)
+	}
+	recorded, _, err := supervision.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := recorded.Child(config.ServiceDashboard)
+	if got.SettingsRestarts != 1 || got.Failures != 0 || !strings.Contains(got.SettingsApplied, "services.dashboard.bind is ::1 in the configuration and it started with 127.0.0.1") {
+		t.Errorf("the supervisor's record of the dashboard = %+v, want one restart applying the changed bind", got)
+	}
+
+	if err := os.WriteFile(path, []byte(dashboardBound("192.168.1.20")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	launches := len(fakes.launches)
+	now = now.Add(supervise.DeployEvery)
+	supervisor.Tick(context.Background())
+	kept, running, err := child.current()
+	if err != nil || !running || kept.PID != moved.PID || len(fakes.launches) != launches {
+		t.Fatalf("current() = %+v, %v, %v after %d launches, want the dashboard at ::1 left serving and none started", kept, running, err, len(fakes.launches)-launches)
+	}
+	recorded, _, err = supervision.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ = recorded.Child(config.ServiceDashboard)
+	if !got.SettingsRefused || got.Failures != 0 {
+		t.Errorf("the supervisor's record of the dashboard = %+v, want the change recorded as one it cannot apply", got)
+	}
+	standing := readmodel.ReadStanding(context.Background(), readmodel.Sources{Supervision: supervision, ConfigReaders: fakes.readers, Dashboards: child.store})
+	said := standing.RenderServices()
+	for _, want := range []string{
+		"services.dashboard.bind is 192.168.1.20 in the configuration and it started with ::1",
+		"services.dashboard.token is keychain in the configuration and it started with generated",
+		"the change cannot be applied, so it is not restarted and goes on serving on what it started with",
+		`services.dashboard.bind "192.168.1.20" is not a loopback address, and the dashboard listens only on this machine`,
+	} {
+		if !strings.Contains(said, want) {
+			t.Errorf("RenderServices() = %q, want %q", said, want)
+		}
+	}
+}
+
+// A dashboard the supervisor would start on an address that is not loopback
+// is not started at all: the part is left down at once with the reason, rather
+// than started into a refusal five times.
+func TestADashboardIsNotStartedOnABindOutsideLoopback(t *testing.T) {
+	t.Parallel()
+	child, fakes := newDashboardChild(t)
+	path := writeProjectConfig(t, dashboardBound("192.168.1.20"))
+	child.configured = func() (config.Services, error) {
+		resolved, err := config.LoadResolved(path)
+		return resolved.Config.Services, err
+	}
+	ensured, err := child.Ensure(context.Background())
+	if err != nil || !strings.Contains(ensured.Unstartable, "is not a loopback address, and the dashboard listens only on this machine") || len(fakes.launches) != 0 {
+		t.Fatalf("Ensure() = %+v, %v after %d launches, want it unstartable with the reason and nothing launched", ensured, err, len(fakes.launches))
+	}
+}
+
+// What the running dashboard could not apply of who it accepts, as it last
+// recorded it, is said on the dashboard's line under Services, beside its
+// health, in the dashboard's own words.
+func TestWhatTheDashboardCouldNotApplyIsOnItsStatusLine(t *testing.T) {
+	t.Parallel()
+	child, _ := newDashboardChild(t)
+	supervision, err := runstate.NewSupervisionStore(child.logRoot, child.product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, held, err := supervision.Lease()
+	if err != nil || !held {
+		t.Fatalf("Lease() = %v, %v", held, err)
+	}
+	t.Cleanup(func() { _ = lease.Release() })
+	supervisor := &supervise.Supervisor{Records: supervision, Product: child.product, Children: []supervise.Child{child},
+		Now: time.Now, Log: t.Logf, PID: 4242, Build: "deployed-build"}
+	supervisor.Tick(context.Background())
+	instance, running, err := child.current()
+	if err != nil || !running {
+		t.Fatalf("current() = %v, %v", running, err)
+	}
+	problem := "mason cannot approve, decline, or ask from the page: the dashboard's token could not be read: the file /state/dashboard.mason.token is not there; store it with: mkdir -p /state"
+	instance.AccessProblems = []string{problem}
+	if err := child.store.Update(instance); err != nil {
+		t.Fatal(err)
+	}
+	supervisor.Tick(context.Background())
+	standing := readmodel.ReadStanding(context.Background(), readmodel.Sources{Supervision: supervision, Dashboards: child.store})
+	if said := standing.RenderServices(); !strings.Contains(said, "dashboard: running") || !strings.Contains(said, problem) {
+		t.Fatalf("RenderServices() = %q, want the dashboard's line to carry %q", said, problem)
 	}
 }

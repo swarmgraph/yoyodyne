@@ -39,6 +39,8 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
@@ -109,14 +111,25 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 	// And which configuration keys this build reads, so a later landing that
 	// adds one this build does not know is named against this process rather
 	// than shown as the decoder's error on every page.
-	// The port and the token source are read once, here, and held for as long
-	// as it serves; recording what it started with is what lets the supervisor
-	// see one change and replace it with a dashboard on the new value. A
-	// dashboard started by hand serves on the port it was given rather than the
-	// configured one, so only its token source is the configuration's.
+	// The port, the address, and the token source are read once, here, and held
+	// for as long as it serves; recording what it started with is what lets the
+	// supervisor see one change and replace it with a dashboard on the new
+	// value. A dashboard started by hand serves on the port it was given, and
+	// binds loopback, rather than the configured ones, so only its token source
+	// is the configuration's. Who it accepts is not held: it is re-read while it
+	// serves (dashboardaccess.go).
 	held := map[string]string{config.SettingDashboardToken: string(resolved.Config.Services.Dashboard.Token)}
+	bind := config.DefaultDashboardBind
 	if supervised {
+		bind = strings.TrimSpace(resolved.Config.Services.Dashboard.Bind)
+		// A bind outside loopback is refused before anything is recorded or
+		// bound: the dashboard listens only on this machine.
+		if err := dashboard.LoopbackBind(bind); err != nil {
+			fmt.Fprintf(stderr, "dashboard: %v\n", err)
+			return 1
+		}
 		held[config.SettingDashboardPort] = strconv.Itoa(*port)
+		held[config.SettingDashboardBind] = bind
 	}
 	recordConfigReaderHolding(resolved, string(config.ServiceDashboard), held, stderr)
 	records, err := runstate.NewDashboardStore(stateRoot, productID)
@@ -139,10 +152,9 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 	// token cannot be read is said here and left unbound, so the page goes on
 	// reading and refuses that person's acts with the reason.
 	server.SetActor(newDashboardActor(ctx, *configPath, stderr))
-	people := bindDashboardPeople(ctx, server, resolved.Config, stores)
 	var url, readyURL string
 	if supervised {
-		url, err = server.ListenShared(*port)
+		url, err = server.ListenSharedOn(bind, *port)
 		if err == nil {
 			readyURL, err = server.ListenReadiness()
 		}
@@ -153,6 +165,12 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	// Who it accepts, read now and again every dashboardAccessEvery for as long
+	// as it serves, so a person bound or a token stored after it started is
+	// accepted without a restart, and one taken away is refused.
+	access := &dashboardAccess{configPath: *configPath, stores: stores, productID: productID, source: source, supervised: supervised}
+	reading := access.applyConfig(ctx, server, resolved.Config)
+	access.changed(reading)
 	if !supervised {
 		if *startID, err = runstate.NewDashboardStartID(); err != nil {
 			fmt.Fprintln(stderr, err)
@@ -170,10 +188,17 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 		Port:       server.Port(),
 		ReadyURL:   readyURL,
 		Supervised: supervised,
+		// What it could not apply of who it accepts, kept current as it re-reads.
+		AccessProblems: reading.problems,
 	}
 	receipt, published := publishDashboardToken(records, source, server, supervised, &instance, stderr)
+	// The record is rewritten as the dashboard becomes ready and as what it
+	// could not apply changes, which happen on two goroutines.
+	var recording sync.Mutex
 	if supervised {
 		server.Supervise(*startID, build, func() {
+			recording.Lock()
+			defer recording.Unlock()
 			instance.ReadyAt = time.Now().UTC()
 			if err := records.Update(instance); err != nil {
 				fmt.Fprintf(stderr, "the dashboard is ready and could not record that it is: %v\n", err)
@@ -218,9 +243,29 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	// Who may act from the page is said either way: it names where each
 	// person's token is read from and never the token.
-	for _, line := range people {
+	for _, line := range reading.lines {
 		fmt.Fprintln(stdout, line)
 	}
+	fmt.Fprintf(stdout, "who it accepts is read again every %s, so a person bound or a token stored, changed, or removed is applied without a restart\n", dashboardAccessEvery)
+	// The re-reading stops before the record is removed, however the dashboard
+	// stops, so nothing writes the record of a dashboard that has gone.
+	watching, stopWatching := context.WithCancel(ctx)
+	watched := make(chan struct{})
+	go func() {
+		defer close(watched)
+		access.watch(watching, server, stdout, func(problems []string) {
+			recording.Lock()
+			defer recording.Unlock()
+			instance.AccessProblems = problems
+			if err := records.Update(instance); err != nil {
+				fmt.Fprintf(stderr, "the dashboard could not record what it could not apply of who it accepts: %v\n", err)
+			}
+		})
+	}()
+	defer func() {
+		stopWatching()
+		<-watched
+	}()
 	if !supervised {
 		if published {
 			fmt.Fprintf(stdout, "it is also in %s while this dashboard runs, and `yoyo dashboard token` prints it\n", records.TokenPath())
@@ -337,30 +382,6 @@ func dashboardTokenStores(stateRoot string) dashboard.TokenStores {
 		stores.Keychain = slack.Keychain{Runner: execution.OSProcessRunner{}}
 	}
 	return stores
-}
-
-// bindDashboardPeople binds every person who named a dashboard token of their
-// own, and says what came of each: bound, with where the token was read from
-// and never the token, or left unbound with the reason and the command that
-// stores it.
-func bindDashboardPeople(ctx context.Context, server *dashboard.Server, cfg config.Config, stores dashboard.TokenStores) []string {
-	bindings := cfg.DashboardBindings()
-	if len(bindings) == 0 {
-		return []string{"nobody has bound a dashboard token of their own under operators.<name>.dashboard_token, so the page reads only and refuses every approve, decline, and ask with the reason"}
-	}
-	var lines []string
-	for _, binding := range bindings {
-		supplied, err := stores.ReadPerson(ctx, binding.Source, cfg.Product.ID, binding.Operator)
-		if err == nil {
-			err = server.BindPerson(supplied.Value, dashboard.Person{Name: binding.Operator, Grants: binding.Grants})
-		}
-		if err != nil {
-			lines = append(lines, fmt.Sprintf("%s cannot approve, decline, or ask from the page: %v", binding.Operator, err))
-			continue
-		}
-		lines = append(lines, fmt.Sprintf("%s approves, declines, and asks from the page with their own token, read from %s and not printed", binding.Operator, supplied.Origin))
-	}
-	return lines
 }
 
 // dashboardHeaderLine is said whichever way the token came, because it is

@@ -927,6 +927,7 @@ func (p *product) realChildren() ([]supervise.Child, []supervise.NotYet, []confi
 				logRoot:  p.stateRoot,
 				log:      home.ProductDirectoryWithin(p.stateRoot, string(productID)) + "/" + dashboardLogFile,
 				port:     services.Dashboard.Port,
+				bind:     services.Dashboard.Bind,
 				source:   services.Dashboard.Token,
 				configured: func() (config.Services, error) {
 					return config.LoadServices(configPath)
