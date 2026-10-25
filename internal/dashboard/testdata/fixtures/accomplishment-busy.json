@@ -1,0 +1,48 @@
+{
+  "observed_at": "2026-10-25T16:00:00Z",
+  "zone": "America/Los_Angeles",
+  "from": "2026-09-28",
+  "to": "2026-10-25",
+  "cost_usd": 1900,
+  "unpriced": 3,
+  "roles": [
+    {"role": "product-manager", "cost_usd": 255, "invocations": 700, "unpriced": 0, "management": true, "passes": 300,
+     "outcomes": [
+       {"outcome": "unblocked-delivery", "says": "unblocked delivery", "count": 87, "cost_usd": 90, "share": 0.29},
+       {"outcome": "changed-records-only", "says": "changed records only", "count": 168, "cost_usd": 130, "share": 0.56},
+       {"outcome": "repeated-earlier", "says": "repeated an earlier pass", "count": 27, "cost_usd": 20, "share": 0.09},
+       {"outcome": "changed-nothing", "says": "changed nothing", "count": 18, "cost_usd": 15, "share": 0.06}]},
+    {"role": "development-manager", "cost_usd": 345, "invocations": 640, "unpriced": 2, "management": true, "passes": 1,
+     "outcomes": [
+       {"outcome": "unblocked-delivery", "says": "unblocked delivery", "count": 1, "cost_usd": 345, "share": 1},
+       {"outcome": "changed-records-only", "says": "changed records only", "count": 0, "cost_usd": 0, "share": 0},
+       {"outcome": "repeated-earlier", "says": "repeated an earlier pass", "count": 0, "cost_usd": 0, "share": 0},
+       {"outcome": "changed-nothing", "says": "changed nothing", "count": 0, "cost_usd": 0, "share": 0}]},
+    {"role": "developer", "cost_usd": 505, "invocations": 290, "unpriced": 1, "management": false, "passes": 0}
+  ],
+  "weeks": [
+    {"week": "2026-10-12", "from": "2026-10-12", "to": "2026-10-18", "roles": [], "cost_usd": 485.19, "completed": 21, "completed_cost_usd": 311, "cost_per_completed_item": 14.81},
+    {"week": "2026-10-19", "from": "2026-10-19", "to": "2026-10-25", "roles": [], "cost_usd": 1588.94, "completed": 0, "completed_cost_usd": 0, "cost_per_completed_item": 0}
+  ],
+  "passes": [],
+  "reviews": [
+    {"run_id": "run-a1", "work_item_id": "yoyodyne-ifd.432.8", "at": "2026-10-20T17:00:00Z", "decision": "repair", "findings": 2, "cost_usd": 1.2, "invocations": 1, "outcome": "prevented-defect"},
+    {"run_id": "run-a1", "work_item_id": "yoyodyne-ifd.432.8", "at": "2026-10-20T19:00:00Z", "decision": "approve", "findings": 0, "cost_usd": 1.1, "invocations": 1, "outcome": "approved-unchanged"}
+  ],
+  "review_outcomes": [
+    {"outcome": "prevented-defect", "says": "prevented a defect", "count": 1, "cost_usd": 1.2, "share": 0.5},
+    {"outcome": "approved-unchanged", "says": "approved unchanged", "count": 1, "cost_usd": 1.1, "share": 0.5},
+    {"outcome": "findings-not-fixed", "says": "findings not fixed", "count": 0, "cost_usd": 0, "share": 0},
+    {"outcome": "escalated", "says": "escalated", "count": 0, "cost_usd": 0, "share": 0},
+    {"outcome": "no-verdict", "says": "no verdict", "count": 0, "cost_usd": 0, "share": 0}
+  ],
+  "completed": [
+    {"work_item_id": "yoyodyne-ifd.432.8", "title": "One-click approve or decline", "merged_at": "2026-10-20T20:00:00Z", "runs": 17, "development_usd": 0, "review_usd": 30.03, "retries_usd": 56.55, "management_usd": 25.8, "total_usd": 112.38, "management_passes": 9}
+  ],
+  "completed_cost_usd": 112.38,
+  "cost_per_completed_item": 112.38,
+  "unnamed_management_usd": 546.46,
+  "unnamed_passes": 632,
+  "not_read": ["2 line(s) of the event log of chat-0123 could not be read"],
+  "floor": true
+}

@@ -6393,7 +6393,7 @@ prints the token to your terminal when it starts:
 ```text
 dashboard for yoyodyne serving at http://127.0.0.1:52341/
 token: 9f2c41ab7e05…
-the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask
+the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/accomplishment, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask
 a restarted dashboard prints a new one; stop with ctrl-c
 it is also in …/projects/yoyodyne/state/dashboard/token while this dashboard runs, and `yoyo dashboard token` prints it
 mason approves, declines, and asks from the page with their own token, read from the keychain item yoyo-dashboard.yoyodyne.mason under the account yoyo and not printed
@@ -6419,7 +6419,7 @@ the value:
 ```text
 dashboard for yoyodyne serving at http://127.0.0.1:8765/
 the token was read from the keychain item yoyo-dashboard.yoyodyne under the account yoyo, as services.dashboard.token names, and is not printed
-the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask
+the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/accomplishment, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask
 it outlives a restart: a restarted dashboard reads the same one; stop with ctrl-c
 ```
 
@@ -6448,6 +6448,16 @@ for it once a minute rather than every ten seconds — and it is one read of the
 logs rather than two, because pricing a stream reads the whole of its log
 whatever window is asked for, so the rolling day and the days around it come
 off the same pass.
+
+At `/api/accomplishment` it serves what the spend of the current week and the
+three before it accomplished — each role's passes by what they led to, each
+review by whether it prevented a defect, and each completed item's full cost —
+read exactly as `yoyo status --spend --from` reads it for any days
+([what the spend accomplished](reporting.md#what-the-spend-accomplished)). It
+reads the whole spend log and the tracker actions in every conversation's log,
+so it is rebuilt every fifteen minutes rather than every minute, and the page
+asks for it only when **What the spend accomplished, by role and by week** is
+opened under the spend box.
 
 **Those answers, and the delivery measures below, are snapshots, built in the
 background and never per request.** The dashboard reads the standing every ten
@@ -7464,6 +7474,7 @@ yoyo status --list               # list recent runs, conversations, and reviews 
 yoyo status --spend              # report the last 7 days of spend, by day and in total
 yoyo status --spend 30           # report that many days instead of 7
 yoyo status --spend 40b68275     # report spend for one run, conversation, review, or exchange, any day
+yoyo status --spend --from 2026-10-17 --to 2026-10-24   # what that spend accomplished, by role, week, review, and item
 yoyo status --shipped            # the 10 most recently shipped items: cost, elapsed, paused, runs
 yoyo status --shipped 25         # that many instead of 10; 0 lists every item that shipped
 ```

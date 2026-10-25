@@ -31,6 +31,10 @@ const (
 	// event log a month holds, and the delivery measures read every merged
 	// change's.
 	minuteInterval = time.Minute
+	// accomplishmentInterval is what the spend accomplished, which reads the
+	// whole spend log and every conversation's tracker actions and changes on
+	// the scale of a pass rather than a poll.
+	accomplishmentInterval = 15 * time.Minute
 	// firstWait is how long a request waits for a reading no build has
 	// finished yet, which is every request in the first build after the
 	// dashboard starts. Past it the request is refused saying how long the

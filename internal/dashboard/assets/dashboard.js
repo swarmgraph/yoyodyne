@@ -36,8 +36,10 @@
 // of them ever shows a zero in place of an answer the model did not give. A
 // fourth reading is taken only when asked for: one work item whole, for the
 // card a reader opens on it from Running now or from a grouping of the
-// pipeline; and a fifth the same way: one program manager instance's current
-// lane report, for the card a reader opens on it from the program managers.
+// pipeline; a fifth the same way: one program manager instance's current
+// lane report, for the card a reader opens on it from the program managers;
+// and a sixth when its listing is opened under the spend box: what the spend of
+// the current week and the three before it accomplished.
 //
 // The words are the terminal's. Where `yoyo status` has a way of saying a
 // thing — "no developer runs", "cost unknown", "12m", "approved, resuming
@@ -81,7 +83,9 @@ var standingWarningAgeSeconds = 5 * 60;
     throughput: null,
     throughputError: "",
     spend: null,
-    spendError: ""
+    spendError: "",
+    accomplishment: null,
+    accomplishmentError: ""
   };
   // delays is how long each reading waits before it is asked for again, which
   // is its ordinary clock until an answer is slow or fails. timers holds the
@@ -817,6 +821,8 @@ var standingWarningAgeSeconds = 5 * 60;
     var label = document.getElementById("spend-open");
     clear(label);
     label.appendChild(groupingOpener("spend:days", "spend-label", "Every day for the past 30 days"));
+    label.appendChild(el("span", null, " "));
+    label.appendChild(groupingOpener("accomplished", "spend-label", "What the spend accomplished, by role and by week"));
     section("spend", "ready");
   }
 
@@ -1609,6 +1615,9 @@ var standingWarningAgeSeconds = 5 * 60;
     if (kind === "spend") {
       return spendGrouping();
     }
+    if (kind === "accomplished") {
+      return accomplishedGrouping();
+    }
     if (!standing) {
       return { title: kind === "attention" ? "What is waiting, and on whom" : "Where the work stands", note: "", state: model.standingError ? "error" : "loading", problem: model.standingError, remedy: whatToDoAboutTheStanding() };
     }
@@ -1710,6 +1719,88 @@ var standingWarningAgeSeconds = 5 * 60;
     // The heading counts lines rather than days, because the two at the foot
     // are not days and a count that called them days would be wrong by two.
     return listing(title, note, spend.problem, whatToDoAboutTheSpend(), "The spend log holds no days.", lines, "line");
+  }
+
+  // accomplishedGrouping says what the spend of the current week and the three
+  // before it accomplished, as /api/accomplishment reads it and `yoyo status
+  // --spend --from` prints it: each role's spend and, for a management role,
+  // what share of its passes unblocked delivery, changed records only,
+  // repeated an earlier pass, or changed nothing; each week's spend and what
+  // each item completed in it cost in full; what the reviews led to; and the
+  // completed items' mean cost beside the management spend that named no item.
+  // It is asked for when the listing is opened rather than polled, because it
+  // reads the whole spend log, and every figure and word in it is the read
+  // model's.
+  function accomplishedGrouping() {
+    var reading = model.accomplishment;
+    var title = "What the spend accomplished";
+    var note = reading ? reading.from + " to " + reading.to + ", Pacific time, the current week and the three before it" : "the current week and the three before it, Pacific time";
+    var remedy = "The listing asks once, when it is opened; close it and open it again to ask again. yoyo status --spend --from <day> --to <day> prints the same reading for any days at the terminal.";
+    if (!reading) {
+      return { title: title, note: note, state: model.accomplishmentError ? "error" : "loading", waiting: "Reading what each pass, review, and item came to…", problem: model.accomplishmentError, remedy: remedy };
+    }
+    if (reading.problem) {
+      return listing(title, note, reading.problem, remedy, "", []);
+    }
+    var lines = [];
+    var row = function (label, detail, className) {
+      lines.push({ day: label, title: label, detail: detail, className: className || null });
+    };
+    lines.push({ heading: "By role, with what each management role's passes led to" });
+    (reading.roles || []).forEach(function (role) {
+      var detail = money(role.cost_usd) + " from " + count(role.invocations, "invocation");
+      if (role.management) {
+        detail += " — " + passCount(role.passes, "pass") + ": " + (role.outcomes || []).map(function (share) {
+          return Math.round(share.share * 100) + "% " + share.says;
+        }).join(", ");
+      }
+      row(role.role, detail);
+    });
+    lines.push({ heading: "By week, Monday to Sunday" });
+    (reading.weeks || []).forEach(function (week) {
+      var completed = week.completed === 0 ? "no item completed" : count(week.completed, "item") + " completed at " + money(week.cost_per_completed_item) + " each in full";
+      row(week.from + " to " + week.to, money(week.cost_usd) + "; " + completed);
+    });
+    lines.push({ heading: "Reviews and completed items" });
+    var reviews = (reading.review_outcomes || []).filter(function (share) { return share.count > 0; });
+    row("reviews", reviews.length === 0 ? "no review in these weeks" : count((reading.reviews || []).length, "review") + ": " + reviews.map(function (share) {
+      return share.count + " " + share.says + " (" + Math.round(share.share * 100) + "%)";
+    }).join(", "));
+    var completedItems = (reading.completed || []).length;
+    row("completed", completedItems === 0 ? "no item completed" : count(completedItems, "item") + " at " + money(reading.cost_per_completed_item) + " each in full, development, review, retries, and management together");
+    if (reading.unnamed_passes) {
+      row("named no item", passCount(reading.unnamed_passes, "management pass") + " costing " + money(reading.unnamed_management_usd) + " named no work item, so that spend is in no item's cost");
+    }
+    (reading.not_read || []).forEach(function (problem) {
+      row("not read", problem + ", so the figures are a floor", "grouping-day-unreached");
+    });
+    var described = listing(title, note, "", "", "", lines, "line");
+    if (described.state === "ready") {
+      described.counted = lines.filter(function (line) { return !line.heading; }).length;
+    }
+    return described;
+  }
+
+  // passCount counts passes, whose plural count() would misspell.
+  function passCount(number, noun) {
+    return number + " " + noun + (number === 1 ? "" : "es");
+  }
+
+  // askAccomplishment asks for what the spend accomplished, once each time its
+  // listing is opened, keeping the last reading in view while it asks.
+  function askAccomplishment() {
+    model.accomplishmentError = "";
+    read("/api/accomplishment", token(), function (reading) {
+      model.accomplishment = reading;
+      model.accomplishmentError = "";
+      renderGrouping();
+    }, function (reason) {
+      model.accomplishmentError = reason;
+      if (model.accomplishment) {
+        model.accomplishment = null;
+      }
+      renderGrouping();
+    });
   }
 
   // attentionGrouping lists what is waiting and on whom: each entry of the
@@ -1823,6 +1914,9 @@ var standingWarningAgeSeconds = 5 * 60;
   function showGrouping(key, from) {
     openGrouping = key;
     openers.grouping = from || null;
+    if (key === "accomplished") {
+      askAccomplishment();
+    }
     renderGrouping();
     open(groupingPopup);
     document.getElementById("grouping-close").focus();
@@ -2980,7 +3074,7 @@ var standingWarningAgeSeconds = 5 * 60;
   }
 
   function start(current) {
-    model = { standing: null, standingError: "", throughput: null, throughputError: "", spend: null, spendError: "" };
+    model = { standing: null, standingError: "", throughput: null, throughputError: "", spend: null, spendError: "", accomplishment: null, accomplishmentError: "" };
     // A page starting over — a token just entered — opens with nothing over it.
     openGrouping = null;
     openCard = null;

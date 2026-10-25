@@ -386,7 +386,7 @@ func dashboardTokenStores(stateRoot string) dashboard.TokenStores {
 
 // dashboardHeaderLine is said whichever way the token came, because it is
 // about how the token is presented rather than where it came from.
-const dashboardHeaderLine = "the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask"
+const dashboardHeaderLine = "the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/accomplishment, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask"
 
 // dashboardServer makes the server under the token the entry names, and says
 // what the command prints about it. Under `generated` the server makes its own
@@ -593,6 +593,22 @@ func (r dashboardReader) Spend(ctx context.Context) (readmodel.Spend, error) {
 	return readmodel.ReadSpend(ctx, spendSources(stateRoot, productID)), nil
 }
 
+// Accomplishment is what the spend of the current week and the three before it
+// accomplished. readmodel.ReadAccomplishment is the one reading `yoyo status
+// --spend --from` prints, read here over its default range from the same
+// stores (accomplishmentSources), so the page and the terminal cannot disagree
+// about what a pass led to.
+func (r dashboardReader) Accomplishment(ctx context.Context) (readmodel.Accomplishment, error) {
+	if err := r.ready(); err != nil {
+		return readmodel.Accomplishment{}, err
+	}
+	stateRoot, productID, err := r.stateRoot()
+	if err != nil {
+		return readmodel.Accomplishment{}, err
+	}
+	return readmodel.ReadAccomplishment(ctx, accomplishmentSources(stateRoot, productID), readmodel.AccomplishmentRange{}), nil
+}
+
 // Delivery is the factory's delivery measures, day by day and week by week in
 // Pacific time. readmodel.ReadDelivery counts a merge exactly where the
 // throughput counts a landing, and the hand steps per change by
@@ -737,7 +753,9 @@ at /api/standing, what landed over today and the last seven days at
 /api/throughput, what was spent over the last 24 hours and the last seven local
 days with a line for each of the last thirty at /api/spend, the factory's
 delivery measures for each of the last thirty days and thirteen weeks in Pacific
-time at /api/delivery, and one work item
+time at /api/delivery, what the spend of the current week and the three before
+it accomplished at /api/accomplishment -- the reading `+"`yoyo status --spend --from`"+`
+prints, rebuilt every fifteen minutes -- and one work item
 whole -- its tracker fields and the run last made for it -- at
 /api/items/<work-item-id>, which is what the page's card on an item reads,
 and one program manager instance with its current lane report at

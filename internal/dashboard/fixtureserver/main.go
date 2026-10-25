@@ -162,6 +162,27 @@ func (r fixtureReader) Delivery(ctx context.Context) (readmodel.Delivery, error)
 	return readmodel.Delivery{}, r.refused
 }
 
+// Accomplishment answers from `accomplishment.json` where the fixtures hold
+// one, and with an empty reading where they do not, so every scenario serves
+// the route.
+func (r fixtureReader) Accomplishment(ctx context.Context) (readmodel.Accomplishment, error) {
+	if r.pending {
+		<-ctx.Done()
+		return readmodel.Accomplishment{}, ctx.Err()
+	}
+	if r.refused != nil {
+		return readmodel.Accomplishment{}, r.refused
+	}
+	var answer readmodel.Accomplishment
+	if err := load(r.dir, "accomplishment", &answer); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return readmodel.Accomplishment{Roles: []readmodel.RoleAccomplishment{}, Weeks: []readmodel.WeekAccomplishment{}}, nil
+		}
+		return readmodel.Accomplishment{}, err
+	}
+	return answer, nil
+}
+
 func load(dir, name string, into any) error {
 	body, err := os.ReadFile(filepath.Join(dir, name+".json"))
 	if err != nil {

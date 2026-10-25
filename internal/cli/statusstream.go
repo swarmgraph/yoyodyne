@@ -36,6 +36,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -71,6 +72,9 @@ type streamOptions struct {
 	latest bool
 	raw    bool
 	all    bool
+	// accomplished is the range of days a spend report classifies by what the
+	// spend accomplished, where --from or --to asked for one.
+	accomplished *readmodel.AccomplishmentRange
 	// poll and look are the two intervals a follow runs on. They are here rather
 	// than fixed so a test of the switch can make the look frequent and the poll
 	// rare, which is what isolates the drain from the ordinary polling; zero

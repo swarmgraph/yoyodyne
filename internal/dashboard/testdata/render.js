@@ -414,6 +414,11 @@ const scenarios = pages.concat([
   over("spend-days-empty", "busy", { open: [{ grouping: "spend:days" }, { poll: { "/api/spend": ok(fixture("spend-quiet")) } }] }),
   over("spend-days-error", "busy", { open: [{ grouping: "spend:days" }, { poll: { "/api/spend": ok(fixture("spend-unreadable")) } }] }),
   over("spend-days-loading", "spend-pending", { open: [{ grouping: "spend:days" }] }),
+  // What the spend accomplished, asked for when its listing is opened: read,
+  // still being read, and refused.
+  over("accomplished", "busy", { asks: { "/api/accomplishment": ok(fixture("accomplishment-busy")) }, open: [{ grouping: "accomplished" }] }),
+  over("accomplished-loading", "busy", { asks: { "/api/accomplishment": pending }, open: [{ grouping: "accomplished" }] }),
+  over("accomplished-error", "busy", { asks: { "/api/accomplishment": refused(503, "the state root could not be resolved") }, open: [{ grouping: "accomplished" }] }),
   over("grouping-card", "busy", { items: items("yoyodyne-ifd.153"), open: [{ grouping: "pile:held-decision" }, { item: "yoyodyne-ifd.153" }] }),
   over("closed", "busy", { items: items("yoyodyne-ifd.153"), open: [{ grouping: "pile:held-decision" }, { item: "yoyodyne-ifd.153" }], escape: 2 }),
   // A poll redraws the page under an open grouping, so the button that opened
@@ -509,7 +514,7 @@ async function run(scenario) {
     timeouts.clear();
     due.forEach((callback) => callback());
   };
-  let answers = Object.assign({ "/api/standing": scenario.standing, "/api/throughput": scenario.throughput, "/api/spend": scenario.spend }, scenario.items || {}, scenario.reports || {}, scenario.acts || {});
+  let answers = Object.assign({ "/api/standing": scenario.standing, "/api/throughput": scenario.throughput, "/api/spend": scenario.spend }, scenario.items || {}, scenario.reports || {}, scenario.acts || {}, scenario.asks || {});
   const requests = [];
 
   const fetch = (url, options) => {

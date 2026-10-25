@@ -109,6 +109,10 @@ conversations, branch reviews, side threads, and exchanges beside runs, and
 their own, because a total that skipped any of them would be wrong rather than
 merely unattributed. A side thread is attributed to the conversation it was
 opened beside rather than to a work item, for the reason a conversation turn is.
+The one report that does put management spend on items is
+[what the spend accomplished](#what-the-spend-accomplished), below, which splits
+each management pass evenly among the items it named and says how much named
+none; the price the tracker carries stays the runs alone.
 
 `/show` breaks one item's price down by attempt, which is what a single total
 invites:
@@ -322,6 +326,81 @@ the ifd.92 experiment**, to its own log under `branch-reviews/` rather than unde
 are no affected runs to name: not because its invocations announced themselves,
 but because none of them was ever written into a run's log at all. The sweep in
 `internal/execution/terminal_test.go` is what keeps that set of writers closed.
+
+### What the spend accomplished
+
+`yoyo status --spend --from <day> --to <day>` asks a different question of the
+same spend: not what it cost but what it moved. The days are written
+`YYYY-MM-DD` in Pacific time, first and last included; leave out `--from` and the
+report starts on the Monday three weeks before this week's, leave out `--to`
+and it ends today. `--json` carries every pass, review, and item behind the
+figures. The dashboard serves the same reading for the current week and the
+three before it at `/api/accomplishment`, rebuilt every fifteen minutes, and
+lists it from **What the spend accomplished, by role and by week** under the
+spend box.
+
+```text
+role                         USD  calls  passes  unblocked  records only  repeated  nothing
+product-manager          $273.49    772     301        29%           56%        9%       6%
+development-manager      $363.23    644     286        28%           54%        1%      17%
+program-manager          $264.97    679     314         3%           91%        0%       5%
+architect                $220.82    562     246         0%           75%       24%       1%
+developer                $564.35    294       -          -             -         -        -
+reviewer                 $387.27    402       -          -             -         -        -
+```
+
+It reads nothing a person or an agent wrote about itself. A management pass is
+one recurring pass's turns taken together, as the pass's own record bounds them,
+or one turn of a conversation, a side thread, or an answer to another role's
+ask; each is classified from the harness's records alone, in this order:
+
+- **unblocked delivery**: it acted on a work item in the tracker — admitted,
+  released, repaired, decided, reprioritized — and a developer or reviewer then
+  worked on that item, or a run for it started;
+- **changed records only**: it acted on the tracker, wrote a memory or a lane
+  report, filed a report, recorded a document, proposal, directive or concern,
+  or answered an ask, and nothing it acted on progressed afterwards;
+- **repeated an earlier pass**: it changed nothing, and an earlier pass of the
+  same recurring task was handed the same things — the events, health
+  conditions, critical reports, delivered work, and request its record names —
+  and gave the same account: the same status, and each finding with the same
+  disposition and the same filed work. A conversation turn's input is the
+  operator's message, which is not compared, so a turn is never a repeat;
+- **changed nothing**: it left the tracker and the records as they were.
+
+The developer and the reviewer make no passes; their spend is the runs. A review
+is one verdict on a run: it **prevented a defect** where it asked for a repair,
+the developer repaired the change, and a later review approved it or it merged;
+it **approved unchanged** where it approved; its **findings were not fixed**
+where it asked for a repair and nothing later accepted the change; it
+**escalated** where it sent the item to the development manager; and it has **no
+verdict** where the reviewer was paid and recorded none.
+
+A completed item is one whose change merged in the range, read as the delivery
+measures read a merge; a run that published a document served no item and is
+left out. Its full cost is every invocation that named it at any time:
+**development** is its first run's first attempt, **retries** are every repair
+attempt and every later run's first attempt, **review** is every reviewer
+invocation, and **management** is an even share of every management pass that
+named it — the items it acted on and, for a recurring pass, the items its
+account names. A pass that named no item is in no item's cost, and the report
+totals those under the table rather than leaving them to be noticed missing.
+Weeks run Monday to Sunday, clipped to the range, each with what was spent and
+what each item completed in it cost on average. An invocation the provider never
+priced is counted as unpriced and makes the figures a floor, and a record that
+could not be read is named under the report.
+
+The first baseline is October 17 to 24, 2026, read from the records as they stood
+on October 25: $2,074.12 spent, of which management took $1,122.51.
+Of the Lead Product Manager's 301 passes, 29% unblocked delivery ($98.37); of
+the development manager's 286, 28% ($121.07) and 17% changed nothing ($74.72);
+of the program managers' 314, 3% ($11.18) and 91% changed records only; of the
+architect's 246, none, with 24% ($43.56) repeating an earlier pass. Of 376
+reviews, 45 prevented a defect ($60.13) and 322 approved unchanged ($318.32). The
+80 items completed cost $14.69 each in full — $150.52 in all for first attempts,
+$407.19 for retries, $344.10 for review, and $273.42 for management — and 632
+management passes costing $546.46 named no item. 135 invocations ended without
+the provider reporting their cost, so every figure is a floor.
 
 ### Every provider spend, one line
 
