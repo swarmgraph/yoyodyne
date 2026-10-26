@@ -7,3 +7,7 @@ version: 4.4.1
 license: MIT
 license_file: chart.js-LICENSE.md
 for: yoyodyne-ifd.432.33
+sha256: 74401d738dd3e03ee5dfb3b6841210fe2c4ead8a960c4011ca4ba0b78a9fd8f3
+size: 205125
+fetched_from: https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js
+fetched_at: "2026-10-26T20:02:12Z"
