@@ -6678,13 +6678,17 @@ origin is drawn under "unknown: no origin recorded". An item whose filing or
 closing time the tracker did not record is left out of what that time decides,
 and the page says how many there are.
 
-The page draws its chart with Chart.js once the library and a record of its
-version, source, checksum, and license are checked into
-`internal/dashboard/assets` (as `chart.umd.js` and `chartjs.md`), served by the
-dashboard itself, so the page loads nothing from anywhere else. The build does
-not carry them yet, so for now the page shows the figures as a table and says
-the chart library is not in this build. The table stays under the chart once
-the library is there.
+The page draws its chart with Chart.js, served by the dashboard itself, so the
+page loads nothing from anywhere else. Nobody checks the library in by hand: it
+is a [pinned outside file](configuration.md#pinned-outside-files), declared by the record
+`internal/dashboard/assets/chart.umd.js.yoyodyne-source.yaml`, and the harness
+fetches `chart.umd.js` and its license, `chart.js-LICENSE.md`, from
+`cdn.jsdelivr.net`, the host this project lists under `outside_files`. The page
+loads the library only where it matches that record: the checksum the harness
+wrote there, the version it names, and the MIT license beside it. Until the
+harness has fetched it, or wherever it does not match, the page shows the
+figures as a table and says the chart library is not in this build. The table
+stays under the chart once the library is there.
 
 ### The dashboard under the product
 

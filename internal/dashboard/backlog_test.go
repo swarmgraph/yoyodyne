@@ -2,23 +2,25 @@ package dashboard
 
 // These tests are the evidence for the backlog page: its handler, the policy
 // it is served under, the scripts it loads and that they load nothing from
-// anywhere else, the chart library held to its record, and the counting the
+// anywhere else, the chart library held to its pinned-file record, and the counting the
 // chart draws, run under Node.
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"errors"
 	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/outsidefile"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 )
 
@@ -90,7 +92,7 @@ func TestTheBacklogPageLoadsNothingFromAnywhereElse(t *testing.T) {
 
 	const unchanged = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 	paths := []string{"/backlog", "/assets/backlog.js", "/assets/backlog-count.js", "/assets/dashboard.css", "/api/backlog"}
-	if chartLibraryPresent() {
+	if chartLibraryLoads(assets) {
 		paths = append(paths, "/"+chartLibraryAsset)
 	}
 	for _, path := range paths {
@@ -129,59 +131,136 @@ func TestTheBacklogPageLoadsNothingFromAnywhereElse(t *testing.T) {
 	}
 }
 
-// The chart library and its record go in together, and the record says the
-// exact version, where the file came from, the file's checksum, and the MIT
-// license text (chartlib.go). The page loads the library exactly when the
-// build carries it, so a build without it asks for nothing that is not there.
-func TestTheVendoredChartLibraryMatchesItsRecord(t *testing.T) {
+// The build's own chart library is held to its pinned-file record: the
+// version and checksum the harness wrote there, and the license the record
+// names (chartlib.go). Before the harness has fetched it, the page loads no
+// chart script and says so; once it has, the page loads it and the dashboard
+// serves it as script. Nothing reads or needs the hand-written record the
+// pinned-file records replaced.
+func TestTheChartLibraryMatchesItsPinnedRecord(t *testing.T) {
 	t.Parallel()
 	w := serve(t, stubReader{standing: standingWith("title")})
 	_, page := w.get("/backlog", nil)
 	loads := strings.Contains(page, `<script src="/`+chartLibraryAsset+`"></script>`)
 
-	library, libraryErr := fs.ReadFile(assets, chartLibraryAsset)
-	record, recordErr := fs.ReadFile(assets, chartLibraryRecord)
+	content, err := fs.ReadFile(assets, chartLibraryRecord)
+	if err != nil {
+		t.Fatalf("this build carries no %s, the record the harness fetches the chart library from: %v", chartLibraryRecord, err)
+	}
+	record, err := outsidefile.ParseRecord(chartLibraryRecord, content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(record.URL, "@"+record.Version+"/") || record.License != "MIT" {
+		t.Fatalf("%s records %s at %s under %s", chartLibraryRecord, record.Version, record.URL, record.License)
+	}
+	if _, err := fs.Stat(assets, "assets/chartjs.md"); err == nil {
+		t.Fatalf("assets/chartjs.md is in this build; the pinned-file records replaced it, and nothing reads it")
+	}
+
+	_, err = chartLibraryIn(assets)
 	switch {
-	case libraryErr != nil && recordErr != nil:
+	case errors.Is(err, errNoChartLibrary):
 		if loads {
 			t.Fatalf("the backlog page loads %s, which this build does not carry", chartLibraryAsset)
 		}
 		if !strings.Contains(page, "The chart library is not in this build") {
 			t.Fatalf("a build without the chart library does not say so on the backlog page:\n%s", page)
 		}
-		t.Logf("this build carries no chart library; the backlog page shows its figures as a table")
+		t.Logf("the harness has not fetched the chart library into this build; the backlog page shows its figures as a table")
 		return
-	case libraryErr != nil:
-		t.Fatalf("%s is checked in without %s, the library it records", chartLibraryRecord, chartLibraryAsset)
-	case recordErr != nil:
-		t.Fatalf("%s is checked in without %s, the record of its version, source, checksum, and license", chartLibraryAsset, chartLibraryRecord)
+	case err != nil:
+		t.Fatal(err)
 	}
-
 	if !loads {
 		t.Fatalf("this build carries %s and the backlog page does not load it:\n%s", chartLibraryAsset, page)
-	}
-	read := readChartRecord(record)
-	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(read.Version) {
-		t.Fatalf("%s records version %q, not one exact version", chartLibraryRecord, read.Version)
-	}
-	if !strings.Contains(read.Source, read.Version) {
-		t.Fatalf("%s records source %q, which does not name version %s", chartLibraryRecord, read.Source, read.Version)
-	}
-	sum := sha256.Sum256(library)
-	if got := hex.EncodeToString(sum[:]); got != read.SHA256 {
-		t.Fatalf("%s has SHA-256 %s; %s records %q", chartLibraryAsset, got, chartLibraryRecord, read.SHA256)
-	}
-	for _, expected := range []string{"MIT License", "Permission is hereby granted, free of charge", "Chart.js"} {
-		if !strings.Contains(read.License, expected) {
-			t.Fatalf("%s lacks %q from the license text:\n%s", chartLibraryRecord, expected, read.License)
-		}
-	}
-	if !strings.Contains(string(library), read.Version) {
-		t.Fatalf("%s does not name version %s, which its record says it is", chartLibraryAsset, read.Version)
 	}
 	response, _ := w.get("/"+chartLibraryAsset, nil)
 	if response.StatusCode != http.StatusOK || !strings.HasPrefix(response.Header.Get("Content-Type"), "text/javascript") {
 		t.Fatalf("%s is not served as script: %d %s", chartLibraryAsset, response.StatusCode, response.Header.Get("Content-Type"))
+	}
+}
+
+// chartFixture is a chart library, its license, and the records the harness
+// leaves once it has fetched both, as plain files the server is handed in
+// place of its own assets.
+func chartFixture() fstest.MapFS {
+	library := []byte("/*!\n * Chart.js v4.4.1\n * https://www.chartjs.org\n */\nwindow.Chart = function () {};\n")
+	license := []byte("The MIT License (MIT)\n\nCopyright (c) 2014-2022 Chart.js Contributors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\n")
+	record := func(file, address string, content []byte) []byte {
+		return []byte("file: " + file + "\nurl: " + address + "\nversion: 4.4.1\nlicense: MIT\nlicense_file: chart.js-LICENSE.md\nfor: yoyodyne-ifd.432.33\n" +
+			"sha256: " + outsidefile.Checksum(content) + "\nsize: " + strconv.Itoa(len(content)) + "\nfetched_from: " + address + "\nfetched_at: 2026-10-26T15:00:00Z\n")
+	}
+	return fstest.MapFS{
+		"assets/chart.umd.js":                                   {Data: library},
+		"assets/chart.umd.js" + outsidefile.RecordSuffix:        {Data: record("chart.umd.js", "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js", library)},
+		"assets/chart.js-LICENSE.md":                            {Data: license},
+		"assets/chart.js-LICENSE.md" + outsidefile.RecordSuffix: {Data: record("chart.js-LICENSE.md", "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/LICENSE.md", license)},
+	}
+}
+
+// With a fixture library and its records in place of the build's own, the page
+// loads the library when it matches its record, and otherwise loads none, so
+// its script shows the figures as the table alone (backlog.js), when the
+// library is absent or disagrees with its record: a checksum
+// that is not the file's, no checksum at all, a version the file does not
+// name, or no license beside it.
+func TestTheBacklogPageLoadsTheChartLibraryOnlyWhereItMatchesItsRecord(t *testing.T) {
+	t.Parallel()
+	const script = `<script src="/` + chartLibraryAsset + `"></script>`
+	const table = "The chart library is not in this build"
+	recordOf := func(files fstest.MapFS) string { return string(files[chartLibraryRecord].Data) }
+
+	for _, test := range []struct {
+		name  string
+		shape func(fstest.MapFS)
+		loads bool
+	}{
+		{name: "the library matches its record", shape: func(fstest.MapFS) {}, loads: true},
+		{name: "the library is absent", shape: func(files fstest.MapFS) { delete(files, chartLibraryAsset) }},
+		{name: "the library and its license are absent", shape: func(files fstest.MapFS) {
+			delete(files, chartLibraryAsset)
+			delete(files, "assets/chart.js-LICENSE.md")
+		}},
+		{name: "the library is not the file its record's checksum names", shape: func(files fstest.MapFS) {
+			files[chartLibraryAsset] = &fstest.MapFile{Data: append([]byte("/* changed by hand */\n"), files[chartLibraryAsset].Data...)}
+		}},
+		{name: "the record carries no checksum", shape: func(files fstest.MapFS) {
+			files[chartLibraryRecord] = &fstest.MapFile{Data: []byte(regexp.MustCompile(`(?m)^(sha256|size|fetched_from|fetched_at):.*\n`).ReplaceAllString(recordOf(files), ""))}
+		}},
+		{name: "the library does not name its recorded version", shape: func(files fstest.MapFS) {
+			files[chartLibraryRecord] = &fstest.MapFile{Data: []byte(strings.Replace(recordOf(files), "version: 4.4.1", "version: 4.4.2", 1))}
+		}},
+		{name: "the license is absent", shape: func(files fstest.MapFS) { delete(files, "assets/chart.js-LICENSE.md") }},
+		{name: "the record is absent", shape: func(files fstest.MapFS) { delete(files, chartLibraryRecord) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			files := chartFixture()
+			test.shape(files)
+			w := serve(t, stubReader{standing: standingWith("title")})
+			w.server.files = files
+
+			_, page := w.get("/backlog", nil)
+			if loads := strings.Contains(page, script); loads != test.loads {
+				t.Fatalf("the backlog page loads the chart library: %v, want %v:\n%s", loads, test.loads, page)
+			}
+			// The figures are a table either way, and the page's script shows
+			// the note saying so wherever no library was loaded.
+			if !strings.Contains(page, `id="backlog-table"`) || !strings.Contains(page, table) {
+				t.Fatalf("the backlog page carries no table of its figures or no note for a build without the chart library:\n%s", page)
+			}
+			if test.loads {
+				library, err := chartLibraryIn(files)
+				if err != nil || library.Record.Version != "4.4.1" || !strings.Contains(library.License, "Permission is hereby granted") {
+					t.Fatalf("chartLibraryIn() = %+v, %v", library, err)
+				}
+				response, body := w.get("/"+chartLibraryAsset, nil)
+				if response.StatusCode != http.StatusOK || !strings.HasPrefix(response.Header.Get("Content-Type"), "text/javascript") || !strings.Contains(body, "Chart.js v4.4.1") {
+					t.Fatalf("%s is not served as script: %d %s", chartLibraryAsset, response.StatusCode, response.Header.Get("Content-Type"))
+				}
+			}
+		})
 	}
 }
 
