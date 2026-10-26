@@ -80,9 +80,10 @@ type exchangeEvidenceReaders struct {
 	conversations evidenceConversations
 	documents     evidenceDocuments
 	goals         func() goal.Set
-	// commitOf is the commit a document's file was last changed in, and empty
-	// where it cannot be told. It is a field so a test does not need git.
-	commitOf     func(ctx context.Context, path string) string
+	// fileState is the commit the checkout is at and whether a document's file
+	// differs from it there, with an empty commit where it cannot be told. It is
+	// a field so a test does not need git.
+	fileState    func(ctx context.Context, path string) fileState
 	redactValues []string
 	now          func() time.Time
 }
@@ -99,7 +100,7 @@ func exchangeEvidence(parts components) exchange.Evidence {
 			goals, _ := loadGoals(parts.repository, parts.config.Product)
 			return goals
 		},
-		commitOf:     gitCommitOf(parts.repository),
+		fileState:    gitFileState(parts.repository),
 		redactValues: parts.redactValues,
 	}
 	// A store that was never built is left nil, so its kind is read as one the
@@ -217,6 +218,7 @@ func (r exchangeEvidenceReaders) readAmendment(_ context.Context, id string) (ex
 			if err != nil {
 				return exchange.EvidenceRecord{}, err
 			}
+			publication.Matched = publicationMatched
 			evidence.Publication = publication
 		}
 	}
@@ -225,9 +227,16 @@ func (r exchangeEvidenceReaders) readAmendment(_ context.Context, id string) (ex
 	return record, nil
 }
 
+// publicationMatched is what an amendment's attachment says about how its
+// publication was found; see publication.
+const publicationMatched = "matched by the document and by starting after the approval, since nothing records which run carries which amendment; a run publishing another revision of the same document would read the same"
+
 // publication is how far a document's approved change has got: the latest
 // document run for it started after the approval, or a document waiting for a
-// run, or nothing.
+// run, or nothing. Nothing records which run carries which amendment, so the
+// match is by document and time: a later run publishing some other revision of
+// the same document reads as this amendment's publication. The attachment says
+// so (exchange.AmendmentPublication.Matched).
 func (r exchangeEvidenceReaders) publication(document string, approved time.Time) (exchange.AmendmentPublication, error) {
 	if r.runs == nil {
 		return exchange.AmendmentPublication{}, errors.New("the run store is not available, so whether the change was published cannot be told")
@@ -281,12 +290,11 @@ func (r exchangeEvidenceReaders) publication(document string, approved time.Time
 }
 
 // readWorkItem is what the tracker read returns for one item, with its notes
-// window. An id under another product's prefix is refused rather than looked
-// up: the tracker here is this product's.
+// window. The tracker read is this product's own, so an id it does not hold —
+// another product's included — is no such record. The id is not judged by its
+// prefix: a tracker's prefix is set apart from the product id and need not
+// match it.
 func (r exchangeEvidenceReaders) readWorkItem(ctx context.Context, id string) (exchange.EvidenceRecord, error) {
-	if prefix := string(r.productID); prefix != "" && !strings.HasPrefix(id, prefix+"-") {
-		return exchange.EvidenceRecord{}, &exchange.RefusedError{Boundary: fmt.Sprintf("%s is not a work item of this product, whose items are named %s-…", id, prefix)}
-	}
 	ctx, cancel := context.WithTimeout(ctx, trackerCommandTimeout)
 	defer cancel()
 	item, err := r.tracker.Show(ctx, id)
@@ -322,20 +330,27 @@ func (r exchangeEvidenceReaders) readDocument(ctx context.Context, id string) (e
 	}
 	current := len(document.Revisions) - 1
 	revision := fmt.Sprintf("revision %d", current)
-	commit := ""
-	if r.commitOf != nil {
-		commit = r.commitOf(ctx, document.Path)
+	var state fileState
+	if r.fileState != nil {
+		state = r.fileState(ctx, document.Path)
 	}
 	var rendered strings.Builder
 	fmt.Fprintf(&rendered, "document: %s (%s), %s\n", document.ID, document.Title, document.Path)
 	owner, _ := artifact.Owner(document.Kind)
 	fmt.Fprintf(&rendered, "kind: %s, owned by the %s, status %s\n", document.Kind, owner.Title(), document.Status)
 	fmt.Fprintf(&rendered, "current revision: %d\n", current)
-	if commit != "" {
-		fmt.Fprintf(&rendered, "read at commit: %s\n", commit)
-		revision += " at " + commit
-	} else {
+	// The file is read from the checkout, so it is named as read at a commit only
+	// where the checkout's copy is that commit's. A file with uncommitted changes
+	// is said to have them, because the text attached is not what any commit holds.
+	switch {
+	case state.commit == "":
 		rendered.WriteString("read at commit: not known; the file was read as it stands in the checkout\n")
+	case state.dirty:
+		fmt.Fprintf(&rendered, "read at commit: none; the file was read from the checkout, where it has changes not yet committed on top of %s\n", state.commit)
+		revision += ", with uncommitted changes on " + state.commit
+	default:
+		fmt.Fprintf(&rendered, "read at commit: %s\n", state.commit)
+		revision += " at " + state.commit
 	}
 	rendered.WriteString("latest revisions:\n")
 	for i := max(0, len(document.Revisions)-evidenceDocumentRevisions); i < len(document.Revisions); i++ {
@@ -556,15 +571,28 @@ func contentRevision(text string) string {
 
 func singleLineText(text string) string { return strings.Join(strings.Fields(text), " ") }
 
-// gitCommitOf is the commit a file in the repository was last changed in.
-func gitCommitOf(repository string) func(ctx context.Context, path string) string {
-	return func(ctx context.Context, path string) string {
+// fileState is where a file read from the checkout stands against the commit
+// the checkout is at.
+type fileState struct {
+	commit string
+	dirty  bool
+}
+
+// gitFileState reads the commit the repository's checkout is at, and whether
+// the file differs from that commit there: changed, staged, or not yet tracked.
+// Either read failing leaves the commit unknown rather than guessed.
+func gitFileState(repository string) func(ctx context.Context, path string) fileState {
+	return func(ctx context.Context, path string) fileState {
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		output, err := exec.CommandContext(ctx, "git", "-C", repository, "log", "-1", "--format=%H", "--", path).Output()
+		head, err := exec.CommandContext(ctx, "git", "-C", repository, "rev-parse", "HEAD").Output()
 		if err != nil {
-			return ""
+			return fileState{}
 		}
-		return strings.TrimSpace(string(output))
+		status, err := exec.CommandContext(ctx, "git", "-C", repository, "status", "--porcelain", "--", path).Output()
+		if err != nil {
+			return fileState{}
+		}
+		return fileState{commit: strings.TrimSpace(string(head)), dirty: strings.TrimSpace(string(status)) != ""}
 	}
 }

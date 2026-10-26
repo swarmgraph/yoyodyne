@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -182,7 +185,7 @@ func TestAnAmendmentIsReadAsProposedDecidedAndPublishedSeparately(t *testing.T) 
 			name:    "approved and landed",
 			records: []amendment.Record{evidenceProposal(), evidenceApproval()},
 			runs:    fixedRuns{states: []runstate.State{before, documentRun("run-landed", evidenceObserved, runstate.StatusSucceeded, "9f8e7d6c5b4a")}},
-			want:    []string{"approved by the architect", "landed at commit 9f8e7d6c5b4a, by run run-landed"},
+			want:    []string{"approved by the architect", "landed at commit 9f8e7d6c5b4a, by run run-landed", "how this was found: matched by the document"},
 			absent:  []string{"1111111"},
 		},
 	}
@@ -245,8 +248,7 @@ func (f fixedTracker) Show(_ context.Context, id string) (beads.WorkItem, error)
 }
 
 // A work item is the tracker read's rendering with its notes window; one the
-// tracker does not hold is absent, and one under another product's prefix is
-// refused without being looked up.
+// tracker does not hold is absent, whatever its prefix.
 func TestAWorkItemIsWhatTheTrackerReadReturns(t *testing.T) {
 	t.Parallel()
 
@@ -263,8 +265,15 @@ func TestAWorkItemIsWhatTheTrackerReadReturns(t *testing.T) {
 	if missing := resolveOne(t, readers, exchange.Reference{What: "work-item", ID: "yoyodyne-ifd.999"}); missing.Status != exchange.EvidenceAbsent {
 		t.Errorf("missing = %#v, want absent", missing)
 	}
-	if other := resolveOne(t, readers, exchange.Reference{What: "work-item", ID: "otherproduct-1"}); other.Status != exchange.EvidenceRefused || !strings.Contains(other.Boundary, "not a work item of this product") {
-		t.Errorf("other = %#v, want refused at the product boundary", other)
+	// The tracker's prefix need not be the product id: an item this product's
+	// tracker holds under any prefix is attached, and one it does not hold is
+	// no such record rather than refused by its name.
+	readers.productID = "acme"
+	if attached := resolveOne(t, readers, exchange.Reference{What: "work-item", ID: evidenceItemID}); attached.Status != exchange.EvidenceAttached {
+		t.Errorf("an item under a prefix other than the product id = %#v, want it attached", attached)
+	}
+	if other := resolveOne(t, readers, exchange.Reference{What: "work-item", ID: "otherproduct-1"}); other.Status != exchange.EvidenceAbsent {
+		t.Errorf("other = %#v, want absent", other)
 	}
 }
 
@@ -470,3 +479,85 @@ func (m *memoryExchangeStore) Load(id string) (exchange.Exchange, error) {
 type discardReports struct{}
 
 func (discardReports) Append(report.Report) error { return nil }
+
+type fixedDocuments struct{ set artifact.Set }
+
+func (f fixedDocuments) Load() (artifact.Set, error) { return f.set, nil }
+
+// A document is read from the checkout, so it is named as read at a commit only
+// where the checkout's copy is that commit's; a file with uncommitted changes
+// says so and names no commit it was not read at.
+func TestADocumentNamesTheCommitItWasReadAtOnlyWhereItWas(t *testing.T) {
+	t.Parallel()
+
+	repository := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repository, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "docs", "release-recovery.md"), []byte("the recovery, as the file holds it\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	document := artifact.Artifact{
+		ID: "release-recovery", Kind: artifact.KindDesign, Title: "Release recovery", Status: artifact.StatusActive,
+		Path:      "docs/release-recovery.md",
+		Revisions: []artifact.Revision{{Action: artifact.ActionCreated, By: domain.RoleArchitect, At: evidenceRaised, Reason: "drafted"}},
+	}
+	for _, tc := range []struct {
+		name     string
+		state    fileState
+		want     string
+		revision string
+	}{
+		{"clean", fileState{commit: "abc1234"}, "read at commit: abc1234", "revision 0 at abc1234"},
+		{"uncommitted changes", fileState{commit: "abc1234", dirty: true}, "read at commit: none; the file was read from the checkout, where it has changes not yet committed on top of abc1234", "revision 0, with uncommitted changes on abc1234"},
+		{"unknown", fileState{}, "read at commit: not known", "revision 0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			readers := exchangeEvidenceReaders{
+				productID:  "yoyodyne",
+				repository: repository,
+				documents:  fixedDocuments{set: artifact.Set{Artifacts: []artifact.Artifact{document}}},
+				fileState:  func(context.Context, string) fileState { return tc.state },
+			}
+			attached := resolveOne(t, readers, exchange.Reference{What: "document", ID: "release-recovery"})
+			if attached.Status != exchange.EvidenceAttached || !strings.Contains(attached.Text, tc.want) || !strings.Contains(attached.Text, "the recovery, as the file holds it") {
+				t.Fatalf("attachment = %#v, want it to say %q", attached, tc.want)
+			}
+			if attached.Revision != tc.revision {
+				t.Errorf("Revision = %q, want %q", attached.Revision, tc.revision)
+			}
+		})
+	}
+}
+
+// The real reader tells a file with uncommitted changes from one without.
+func TestGitFileStateSeesUncommittedChanges(t *testing.T) {
+	t.Parallel()
+
+	repository := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		command := exec.Command("git", append([]string{"-C", repository}, args...)...)
+		command.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
+	}
+	git("init", "-q")
+	path := filepath.Join(repository, "design.md")
+	if err := os.WriteFile(path, []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "design.md")
+	git("commit", "-q", "-m", "one")
+	state := gitFileState(repository)(context.Background(), "design.md")
+	if state.commit == "" || state.dirty {
+		t.Fatalf("committed file = %#v, want a commit and no changes", state)
+	}
+	if err := os.WriteFile(path, []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if after := gitFileState(repository)(context.Background(), "design.md"); !after.dirty || after.commit != state.commit {
+		t.Errorf("edited file = %#v, want it marked as changed on %s", after, state.commit)
+	}
+}

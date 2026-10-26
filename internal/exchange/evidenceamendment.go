@@ -68,12 +68,18 @@ type AmendmentDecision struct {
 
 // AmendmentPublication is how far the decided change has got into its
 // document: the run carrying it, the commit it landed at, or why it came back.
+//
+// Matched says how the publication was found where it was not read off a
+// record linking it to this amendment — today, by its document and the time
+// after the approval — and is said beside it, so a reader knows the run named
+// may be publishing some other revision of the same document.
 type AmendmentPublication struct {
-	State  AmendmentPublicationState
-	Run    string
-	Commit string
-	Reason string
-	At     time.Time
+	Matched string
+	State   AmendmentPublicationState
+	Run     string
+	Commit  string
+	Reason  string
+	At      time.Time
 }
 
 // AmendmentEvidence is one amendment's three states.
@@ -199,6 +205,9 @@ func (a AmendmentEvidence) Text() string {
 		rendered.WriteString("\n")
 	default:
 		fmt.Fprintf(&rendered, "  %s\n", publication.State)
+	}
+	if matched := strings.TrimSpace(publication.Matched); matched != "" && publication.State != AmendmentNotWritten {
+		fmt.Fprintf(&rendered, "  how this was found: %s\n", matched)
 	}
 	return rendered.String()
 }
