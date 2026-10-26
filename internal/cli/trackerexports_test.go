@@ -15,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/home"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 func TestTrackerExportMaintenanceRecordsAndReportsItsRemovals(t *testing.T) {
@@ -79,7 +80,7 @@ func TestTheCleanUpsExportFailureNamesItsCause(t *testing.T) {
 	}{
 		"behind another process": {
 			holders: []beads.StoreHolder{{PID: 38601, Command: "bd list --all --json"}},
-			want:    "refresh the tracker export: exporting every work item ran 0s without finishing, on a store of 3.0 MB on disk, while 1 other process(es) had the store open, so it was most likely waiting behind them: bd export failed with status timed_out",
+			want:    "refresh the tracker export: exporting every work item ran 0s without finishing, on a store of 3.0 MB on disk, while 1 other process had the store open, so it was most likely waiting behind them: bd export failed with status timed_out",
 		},
 		"with nothing else holding the store": {
 			want: "refresh the tracker export: exporting every work item ran 0s without finishing, on a store of 3.0 MB on disk, while no other process had the store open, so the tracker itself was too slow: bd export failed with status timed_out",
@@ -129,4 +130,34 @@ func zeroRan(said string) string {
 		return said
 	}
 	return said[:start] + " ran 0s" + said[start+len(" ran ")+end:]
+}
+
+// The work listing a conversation's briefing starts from keeps a call that ran
+// out of time in the product's record of slow calls, like every other harness
+// call.
+func TestABriefingsListingThatRanOutOfTimeIsKept(t *testing.T) {
+	t.Parallel()
+	project := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(project, ".beads", "embeddeddolt"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, ".beads", "metadata.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	slowCalls, err := runstate.NewTrackerSlowCallStore(t.TempDir(), "product")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ground := conversationGround{runner: timedOutRunner{}, repository: project, gitBinary: "git", timeout: 200 * time.Millisecond, slowCalls: slowCalls}
+
+	// The rest of the picture is not this test's: a project with no
+	// specifications may fail to assemble one after the listing has been made.
+	_, _ = ground.Gather(context.Background())
+	calls, err := slowCalls.Read()
+	if err != nil || len(calls) == 0 {
+		t.Fatalf("slow calls = %+v, %v; want the briefing's listing kept", calls, err)
+	}
+	if calls[0].Verb != "list" || calls[0].Store == "" {
+		t.Errorf("first slow call = %+v, want the listing, with the store it measured", calls[0])
+	}
 }

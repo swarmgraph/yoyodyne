@@ -92,8 +92,12 @@ func (s SlowCall) Cause() string {
 	case s.HoldersUnread != "":
 		return fmt.Sprintf("%s without finishing, on %s; whether another process held the store could not be told", ran, size)
 	case s.Held():
-		return fmt.Sprintf("%s without finishing, on %s, while %d other process(es) had the store open, so it was most likely waiting behind them",
-			ran, size, len(s.Holders))
+		others := "1 other process"
+		if len(s.Holders) != 1 {
+			others = fmt.Sprintf("%d other processes", len(s.Holders))
+		}
+		return fmt.Sprintf("%s without finishing, on %s, while %s had the store open, so it was most likely waiting behind them",
+			ran, size, others)
 	default:
 		return fmt.Sprintf("%s without finishing, on %s, while no other process had the store open, so the tracker itself was too slow", ran, size)
 	}

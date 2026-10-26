@@ -2587,7 +2587,7 @@ directory. The command also names each removal, and `--json` carries it under
 out of time fails the pass with its cause first:
 `refresh the tracker export: exporting every work item ran 30s without
 finishing, on a store of 885 MB on disk, while no other process had the store
-open, so the tracker itself was too slow: …`, or `… while 2 other process(es)
+open, so the tracker itself was too slow: …`, or `… while 2 other processes
 had the store open, so it was most likely waiting behind them: …`, followed by
 the whole account of the call ([below](#a-tracker-that-does-not-answer-a-listing)).
 Nothing about it is retried or counted as done. The developer's sandbox cannot clean the primary checkout;
@@ -2637,7 +2637,8 @@ store's size is the size of its database directory on disk at the same moment,
 or why it could not be measured.
 
 **Every call that runs out of time is also kept.** The harness's own tracker
-client — the one maintenance, the role passes, and `yoyo status` use — writes
+client — the one maintenance, the role passes, a conversation's briefing, and
+`yoyo status` use — writes
 each such call as a file of its own under
 `projects/<product-id>/state/tracker-slow-calls/` in the product's state
 directory: what it was asked and for whom, when it started, how long it ran,

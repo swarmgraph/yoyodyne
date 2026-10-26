@@ -52,7 +52,7 @@ func TestAnExportStoppedAtItsLimitIsKeptWithTheStoresSizeAndHolders(t *testing.T
 		"another process held the store": {
 			holders:   []StoreHolder{{PID: 38601, Command: "bd show yoyodyne-ifd --json", Since: since}, {PID: 39706, Command: "bd list --all --json"}},
 			wantSaid:  "when it was stopped, the tracker's store was held open by process 38601 (bd show yoyodyne-ifd --json), running since " + since.Format("2006-01-02 15:04:05 MST") + "; process 39706 (bd list --all --json); the tracker's store was 2.0 MB on disk",
-			wantCause: "exporting every work item ran 30s without finishing, on a store of 2.0 MB on disk, while 2 other process(es) had the store open, so it was most likely waiting behind them",
+			wantCause: "exporting every work item ran 30s without finishing, on a store of 2.0 MB on disk, while 2 other processes had the store open, so it was most likely waiting behind them",
 		},
 		"nothing else held the store": {
 			wantSaid:  "no process had the tracker's store open when it was stopped; the tracker's store was 2.0 MB on disk",
