@@ -6553,6 +6553,13 @@ func (a *activeRun) verify(ctx context.Context) error {
 		}
 		return stoppedBy(runstate.StopChecks, phaseError{status: statusForProcess(check.Process.Status), cause: cause})
 	}
+	// A check that could not run lets the change go on only beside one that ran.
+	// Where none did, nothing verified the change, so it earns no evidence and
+	// goes to the development manager rather than to review (nocheckran.go).
+	if refused, none := noCheckVerified(checkResults); none {
+		a.state.KeptChecks = nil
+		return a.blockOnNoCheckRan(refused)
+	}
 	// The change in the worktree now passes, so any failure an earlier attempt
 	// was handed is no longer this run's outstanding repair input. What replaces
 	// it is the evidence the promotion reads: these checks passed over this
@@ -6646,6 +6653,8 @@ func (a *activeRun) integrationEarned(ctx context.Context) error {
 			ErrIntegrationUnearned, state.CheckFailure.Command, state.CheckFailure.ExitCode)
 	case state.ChecksPassed == nil:
 		return fmt.Errorf("%w: no configured check is recorded as having passed over the change", ErrIntegrationUnearned)
+	case len(state.ChecksPassed.Commands) == 0 && len(state.ChecksPassed.CouldNotRun) > 0:
+		return fmt.Errorf("%w: no check verified the change, because every configured check could not run", ErrIntegrationUnearned)
 	case state.ChecksPassed.Attempt != state.RepairAttempts:
 		return fmt.Errorf("%w: the checks passed over attempt %d and the change being promoted is attempt %d",
 			ErrIntegrationUnearned, state.ChecksPassed.Attempt, state.RepairAttempts)

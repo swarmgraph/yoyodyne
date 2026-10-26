@@ -221,6 +221,19 @@ const (
 	// (docs/designs/integration-through-a-merge-queue.md, "GitHub's own merge
 	// queue"). Only the integration stop records it.
 	CauseMergeQueueHeld EnvironmentalCause = "merge-queue-held"
+	// CauseNoCheckRan is a change every one of whose configured checks could not
+	// run at all (checks.CouldNotRunPrefix), whether the check said so itself or
+	// the machine refused to start the tool it drives. Nothing verified the
+	// change, so it is not integrated: the item is blocked naming each check and
+	// why it could not run, the branch and worktree are kept, and the stoppage is
+	// the development manager's to decide. A check that could not run is the
+	// machine's condition rather than the change's, so the session that met it
+	// stops choosing new work until a probe finds it cleared, rather than
+	// stopping every ready item on it in turn.
+	//
+	// It ends the round unjudged for CauseCheckStageBound's reason: no check and
+	// no reviewer read what the attempt left.
+	CauseNoCheckRan EnvironmentalCause = "no-check-ran"
 )
 
 // Valid reports a cause this harness recognizes. A record naming anything else
@@ -233,6 +246,7 @@ func EnvironmentalCauses() []EnvironmentalCause {
 		CauseProcessVanished, CauseUsageWindow, CauseReplayKilled, CauseDivergedTarget,
 		CauseRemoteAuthRefused, CauseQueuedHeadBehind, CauseCheckStageBound,
 		CauseDeveloperSettingsNotApplied, CauseCheckTimeLimit, CauseMergeQueueHeld,
+		CauseNoCheckRan,
 	}
 }
 
@@ -270,11 +284,12 @@ func (c EnvironmentalCause) NeedsAPerson() bool {
 
 // EndsTheRoundUnjudged reports a cause that ends the round before anything
 // could judge what it holds, so the round is refused without the worktree
-// being asked whether it delivered: the provider's usage window, and the check
-// stage stopped at its bound, and a check stopped at its own limit. See
-// CauseUsageWindow, CauseCheckStageBound, and CauseCheckTimeLimit.
+// being asked whether it delivered: the provider's usage window, the check
+// stage stopped at its bound, a check stopped at its own limit, and a change no
+// check could run on. See CauseUsageWindow, CauseCheckStageBound,
+// CauseCheckTimeLimit, and CauseNoCheckRan.
 func (c EnvironmentalCause) EndsTheRoundUnjudged() bool {
-	return c == CauseUsageWindow || c == CauseCheckStageBound || c == CauseCheckTimeLimit
+	return c == CauseUsageWindow || c == CauseCheckStageBound || c == CauseCheckTimeLimit || c == CauseNoCheckRan
 }
 
 // Title says what a cause is, the way somebody reading a docket entry or a
@@ -314,6 +329,8 @@ func (c EnvironmentalCause) Title() string {
 		return "the developer's provider did not apply the sandbox, the notes guard, or the settings that keep personal configuration out"
 	case CauseMergeQueueHeld:
 		return "the merge queue is switched on and the target branch's protection requires the forge's own merge queue, or could not be read"
+	case CauseNoCheckRan:
+		return "every configured check could not run, so nothing verified the change"
 	default:
 		return string(c)
 	}

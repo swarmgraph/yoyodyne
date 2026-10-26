@@ -122,3 +122,52 @@ func TestACheckThatAlsoNamesAFailureIsARealFailure(t *testing.T) {
 		t.Fatalf("results = %#v, want one real failure that stops the list", results)
 	}
 }
+
+// A check whose tool the machine refused to start could not run either: make
+// exiting 69 with the Xcode licence message is read as could not run, naming
+// the machine's line, on every check it meets, and the list goes on. The same
+// line beside a failing test is still a failure, and a message nothing names is
+// judged as the failure it looks like.
+func TestACheckTheMachineRefusedToStartCouldNotRun(t *testing.T) {
+	t.Parallel()
+
+	licence := "You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild -license' from within a Terminal window to review and agree to the Xcode and/or iOS license."
+	refused := "echo \"" + licence + "\" >&2; exit 69"
+	results, _, err := (Runner{Process: execution.OSProcessRunner{}}).Run(
+		context.Background(),
+		Request{RunID: "run-0123456789abcdef0123456789abcdef", Directory: t.TempDir(), Commands: []string{
+			refused,
+			refused,
+			"echo '--- FAIL: TestSomething (0.00s)'; echo \"" + licence + "\"; exit 1",
+			"true",
+		}},
+		func(execution.Event) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("results = %#v, want both refusals and the failure that stopped the list", results)
+	}
+	want := "the machine refused to start it: " + licence
+	for index := range 2 {
+		if results[index].Passed || results[index].CouldNotRun != want || results[index].Process.ExitCode != 69 {
+			t.Fatalf("check %d = %#v, want could not run naming the machine's refusal", index, results[index])
+		}
+	}
+	if results[2].Passed || results[2].CouldNotRun != "" {
+		t.Fatalf("third = %#v, want a failing test beside the refusal judged a failure", results[2])
+	}
+
+	unnamed, _, err := (Runner{Process: execution.OSProcessRunner{}}).Run(
+		context.Background(),
+		Request{RunID: "run-0123456789abcdef0123456789abcdef", Directory: t.TempDir(), Commands: []string{"echo 'make: *** [test] Error 2' >&2; exit 2"}},
+		func(execution.Event) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(unnamed) != 1 || unnamed[0].CouldNotRun != "" {
+		t.Fatalf("results = %#v, want an unrecognised message judged a failure", unnamed)
+	}
+}

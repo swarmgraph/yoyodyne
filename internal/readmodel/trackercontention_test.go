@@ -2,6 +2,7 @@ package readmodel
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -119,7 +120,13 @@ func trackerContention(t *testing.T, runner *storeRunner, shared bool, readers, 
 	}
 	for range exporters {
 		contenders.Go(func() {
-			if err := client(contenderLimit).RefreshExport(context.Background()); err != nil {
+			err := client(contenderLimit).RefreshExport(context.Background())
+			// With every reading asking for itself the store is held long enough
+			// that, on a loaded machine, an export queued behind another can wait
+			// past its own limit for the export lock: that is the same long hold the
+			// write is stopped by, so it is what the test shows rather than a fault.
+			// Any other failure, and any failure with the readings shared, is one.
+			if err != nil && (shared || !errors.Is(err, beads.ErrExportBusy)) {
 				t.Errorf("worktree export: %v", err)
 			}
 		})

@@ -3514,6 +3514,15 @@ passed whatever it printed, a check stopped at its time budget was stopped on
 time, and the prefix with no reason after it is not recognized, so each of
 those is judged as it always was.
 
+A check the machine refused to start could not run either, without printing
+anything itself. On macOS, while the Xcode licence is unaccepted or Apple's
+developer tools are missing, `make` and the tools beside it exit
+before doing anything (`make` with status 69) and print the same line for every
+target. A check that exits non-zero with one of those lines is recorded as could
+not run, with the reason `the machine refused to start it:` followed by the
+line. Only those few known lines count; any other message is judged as the
+failure it looks like.
+
 A check that could not run:
 
 - spends no repair attempt and does not stop the change: the checks after it
@@ -3524,6 +3533,24 @@ A check that could not run:
   `checks_passed.could_not_run`;
 - makes no landing red: a landing check that could not run is named in the
   landing's line and the rest decide whether it is green.
+
+A check that could not run lets a change go on only beside a check that ran
+and passed. When every configured check could not run, nothing verified the
+change, so it is not reviewed or integrated. Instead the run stops with the
+cause `no-check-ran`: the item is blocked with a note saying no check verified
+the change and naming each check and why it could not run, the branch and
+worktree are kept, and the stopped run is put on the development manager's list.
+No repair attempt and no review round is spent on it, and it counts toward no
+hold on new work. A project with a single check meets this whenever that check
+cannot run.
+
+What stops every check is usually the machine, so every other ready item would
+stop the same way. The session that started the run therefore says so once and
+starts no new work for the interval `execution.usage_limit_unknown_reset_pause`
+gives (30 minutes by default). After that it starts one run, however many
+developer places are free, to find out whether the checks can run again, and
+starts nothing else until that run ends: if the checks ran, work goes on as
+normal, and if not, it holds again for the same interval.
 
 A real failure is still a failure: a check that ran and exited non-zero without
 that line is handed back to the developer exactly as before, whatever another

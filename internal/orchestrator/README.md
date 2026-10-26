@@ -101,7 +101,10 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     `checkStageTimeout`, `checkLimit` and `checkTimeout` (each check's own
     limit, scaled and capped), `checkTimedOut` (a check unfinished at its own
     limit), `landingCheckTimeout`, `gateProtectedPaths`,
-    `pathRefusal`, `checkFailure`. Which checks a stage runs after a restart
+    `pathRefusal`, `checkFailure`. A stage every check of which could not run
+    stops the run instead of earning evidence (`noCheckVerified`,
+    `blockOnNoCheckRan` in `nocheckran.go`), and the scheduler then holds new
+    work until a probe (`machineChecksHold`, same file). Which checks a stage runs after a restart
     onto a new build stopped the run at its checks is `keepChecks` in
     `keptchecks.go`: checks that already passed on the same change keep their
     results, and `keepPassed` records each check as it passes. A heavy check
