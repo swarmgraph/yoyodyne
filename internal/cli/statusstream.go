@@ -302,6 +302,10 @@ type spendOutput struct {
 	// by task and by the model each pass ran on. It is a share of the report's
 	// conversation spend rather than an addition to it.
 	Sweeps []runstate.SweepModelSpend `json:"sweeps,omitempty"`
+	// CostKinds is the same selection's calls in the spend ledger by kind of
+	// cost, and CostKindsProblem why it is absent.
+	CostKinds        *runstate.CostKinds `json:"cost_kinds,omitempty"`
+	CostKindsProblem string              `json:"cost_kinds_problem,omitempty"`
 	statusHolds
 	Error string `json:"error,omitempty"`
 }
@@ -311,7 +315,7 @@ type spendOutput struct {
 // reads today and asked to keep: a day per group, that day's spend closing it,
 // the most recent day last where the eye already is, and the split under the
 // total saying how much of it was each kind of work.
-func reportSpend(store *runstate.StreamStore, sweeps *runstate.SweepStore, options streamOptions, holds statusHolds, now time.Time, jsonOutput bool, stdout, stderr io.Writer) int {
+func reportSpend(store *runstate.StreamStore, sweeps *runstate.SweepStore, calls *runstate.SpendStore, options streamOptions, holds statusHolds, now time.Time, jsonOutput bool, stdout, stderr io.Writer) int {
 	report, err := store.Spend(runstate.SpendQuery{
 		Kinds: options.kinds,
 		Match: options.match,
@@ -322,11 +326,12 @@ func reportSpend(store *runstate.StreamStore, sweeps *runstate.SweepStore, optio
 		return reportStreamFailure(stdout, stderr, jsonOutput, spendOutput{Error: err.Error()}, err)
 	}
 	scheduled := sweepSpend(sweeps, options, report, stderr)
+	kinds, kindsProblem := costKinds(calls, runstate.SpendQuery{Kinds: options.kinds, Match: options.match, Days: options.days, Now: now})
 	if jsonOutput {
 		if report.Rows == nil {
 			report.Rows = []runstate.SpendRow{}
 		}
-		return writeJSON(stdout, stderr, spendOutput{Report: report, Sweeps: scheduled, statusHolds: holds})
+		return writeJSON(stdout, stderr, spendOutput{Report: report, Sweeps: scheduled, CostKinds: kinds, CostKindsProblem: kindsProblem, statusHolds: holds})
 	}
 	if report.Empty() {
 		// Something named but not found is a question that could not be asked,
@@ -358,6 +363,7 @@ func reportSpend(store *runstate.StreamStore, sweeps *runstate.SweepStore, optio
 	}
 	printSpendRows(stdout, report, now)
 	printSpendTotals(stdout, report)
+	printCostKinds(stdout, kinds, kindsProblem)
 	printSweepSpend(stdout, scheduled)
 	printUnreadableExchanges(stdout, report)
 	return 0
@@ -487,6 +493,33 @@ func printSpendSubtotal(writer io.Writer, day string, subtotal runstate.SpendRow
 	fmt.Fprintf(writer, spendSubtotal, day+" total", "", subtotal.Calls,
 		subtotal.Usage.InputTokens, subtotal.Usage.OutputTokens, subtotal.Usage.CacheCreationTokens, subtotal.Usage.CacheReadTokens, subtotal.Usage.CostText(subtotal.CostUSD))
 	fmt.Fprintln(writer)
+}
+
+// costKinds is the selection's calls in the spend ledger by kind of cost, by
+// the one summation every surface showing cost by kind reads.
+func costKinds(calls *runstate.SpendStore, query runstate.SpendQuery) (*runstate.CostKinds, string) {
+	if calls == nil {
+		return nil, "the spend ledger could not be opened"
+	}
+	lines, err := calls.List()
+	if err != nil {
+		return nil, fmt.Sprintf("the spend ledger could not be read: %v", err)
+	}
+	kinds := runstate.KindsOf(lines, query.Covers)
+	return &kinds, ""
+}
+
+// printCostKinds says what the spend ledger holds for the same selection, each
+// kind of cost apart: reported, estimated, the comparison that is not money
+// spent, and the share whose cost is unknown. The figures above are read from
+// the event logs, which go back further than the ledger does, so the two are
+// labeled rather than set side by side as one total.
+func printCostKinds(writer io.Writer, kinds *runstate.CostKinds, problem string) {
+	if kinds == nil {
+		fmt.Fprintf(writer, "by kind of cost: not shown, because %s\n", problem)
+		return
+	}
+	fmt.Fprintf(writer, "by kind of cost, from the spend ledger: %s\n", kinds.Text())
 }
 
 // renderSpendMoment is what a row says in its started column. Something whose

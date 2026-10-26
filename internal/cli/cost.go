@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/pricing"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -27,6 +28,15 @@ type costOutput struct {
 	// conversation each was opened beside. It is beside the item prices for the
 	// reason a conversation turn is: it belongs to a conversation, not an item.
 	SideStreams *runstate.SideStreamSpend `json:"side_streams,omitempty"`
+	// CostKinds is the spend ledger's calls by kind of cost -- reported,
+	// estimated, comparison only, and unknown, never added together -- for the
+	// item named, or for everything; ItemCostKinds is the same per work item.
+	// CostKindsProblem is why they are absent, and Repriced how many later
+	// estimates --reprice appended.
+	CostKinds        *runstate.CostKinds           `json:"cost_kinds,omitempty"`
+	ItemCostKinds    map[string]runstate.CostKinds `json:"item_cost_kinds,omitempty"`
+	CostKindsProblem string                        `json:"cost_kinds_problem,omitempty"`
+	Repriced         *int                          `json:"repriced,omitempty"`
 	// Recorded is what was written onto the tracker, and is absent from a report
 	// that only read the records.
 	Recorded []recordedCost `json:"recorded,omitempty"`
@@ -56,6 +66,7 @@ func reportCosts(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	configPath := flags.String("config", "", "configuration file path (default: the nearest project configuration)")
 	record := flags.Bool("record", false, "write each price onto its work item in the tracker")
 	jsonOutput := flags.Bool("json", false, "emit machine-readable JSON")
+	reprice := flags.Bool("reprice", false, "append a later estimate to the spend ledger for every call the current rate data prices differently")
 	positional, err := parseArguments(flags, args)
 	if err != nil {
 		return 2
@@ -89,6 +100,14 @@ func reportCosts(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		sides := parts.store.SideStreamSpend()
 		output.SideStreams = &sides
 	}
+	if *reprice {
+		repriced, err := repriceCalls(parts)
+		if err != nil {
+			return reportCostFailure(stdout, stderr, *jsonOutput, err)
+		}
+		output.Repriced = &repriced
+	}
+	output.CostKinds, output.ItemCostKinds, output.CostKindsProblem = itemCostKinds(parts, workItemID)
 	failed := false
 	if *record {
 		recorded, err := recordPrices(ctx, parts, workItemID)
@@ -107,12 +126,73 @@ func reportCosts(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		}
 	} else {
 		printPrices(stdout, prices, output.Exchanges, output.SideStreams, workItemID != "")
+		printItemCostKinds(stdout, output, workItemID)
 		printRecordedPrices(stdout, stderr, output.Recorded)
 	}
 	if failed {
 		return 1
 	}
 	return 0
+}
+
+// repriceCalls appends a later estimate for every call in the spend ledger the
+// rate data this build ships now prices differently.
+func repriceCalls(parts components) (int, error) {
+	if parts.spend == nil {
+		return 0, fmt.Errorf("the spend ledger is not open, so nothing can be repriced")
+	}
+	service, err := pricing.New()
+	if err != nil {
+		return 0, err
+	}
+	return parts.spend.Reprice(service, time.Now)
+}
+
+// itemCostKinds is the spend ledger's calls by kind of cost: for the one item
+// named, or in all and per work item.
+func itemCostKinds(parts components, workItemID string) (*runstate.CostKinds, map[string]runstate.CostKinds, string) {
+	if parts.spend == nil {
+		return nil, nil, "the spend ledger is not open"
+	}
+	lines, err := parts.spend.List()
+	if err != nil {
+		return nil, nil, fmt.Sprintf("the spend ledger could not be read: %v", err)
+	}
+	if workItemID != "" {
+		kinds := runstate.KindsOf(lines, func(line runstate.Spend) bool { return line.WorkItemID == workItemID })
+		return &kinds, nil, ""
+	}
+	total := runstate.KindsOf(lines, nil)
+	items := make(map[string]runstate.CostKinds)
+	for _, line := range lines {
+		if line.WorkItemID == "" {
+			continue
+		}
+		kinds := items[line.WorkItemID]
+		kinds.Add(line)
+		items[line.WorkItemID] = kinds
+	}
+	return &total, items, ""
+}
+
+// printItemCostKinds says what the spend ledger holds by kind of cost. The
+// prices above are read from the runs' event logs, which go back further than
+// the ledger and cover runs only; this covers every call the ledger recorded,
+// conversations and exchanges included where nothing was named, so it is
+// labeled rather than added to them.
+func printItemCostKinds(writer io.Writer, output costOutput, workItemID string) {
+	if output.Repriced != nil {
+		fmt.Fprintf(writer, "repriced: %d later estimate(s) appended to the spend ledger\n", *output.Repriced)
+	}
+	if output.CostKinds == nil {
+		fmt.Fprintf(writer, "by kind of cost: not shown, because %s\n", output.CostKindsProblem)
+		return
+	}
+	scope := "every call"
+	if workItemID != "" {
+		scope = workItemID + "'s calls"
+	}
+	fmt.Fprintf(writer, "by kind of cost, %s in the spend ledger: %s\n", scope, output.CostKinds.Text())
 }
 
 func readPrices(parts components, workItemID string) ([]runstate.ItemPrice, error) {
@@ -718,9 +798,18 @@ be wrong rather than unattributed. What the agents' side conversations spent is
 a row beside it for the same reason, with each side conversation's cost named
 under the table against the conversation it was opened beside.
 
+Under the table is the spend ledger's account of the same calls by kind of
+cost, never added together: what the provider reported, what the harness
+estimated from the rate data (naming its version), what calls paid for by a
+subscription or credits would cost at API prices -- a comparison, not money
+spent -- and how many calls, and what share of them, have no known cost.
+
 Options:
   --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)
   --record          write each price onto its work item in the tracker
+  --reprice         append a later estimate to the spend ledger for every call
+                    the current rate data prices differently; earlier figures
+                    stay readable and a reported cost is never recalculated
   --json            emit machine-readable JSON`)
 }
 

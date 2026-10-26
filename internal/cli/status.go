@@ -573,7 +573,15 @@ func reportStreamStatus(ctx context.Context, mode statusMode, options streamOpti
 		if options.accomplished != nil {
 			return reportAccomplishment(ctx, roots.stateRoot, roots.productID, *options.accomplished, holds, jsonOutput, stdout, stderr)
 		}
-		return reportSpend(store, sweeps, options, holds, time.Now(), jsonOutput, stdout, stderr)
+		// The spend ledger is what says each call's cost as the kind it is. A
+		// ledger that cannot be opened costs the report that split and nothing
+		// else, and the report says so.
+		calls, err := runstate.NewSpendStore(roots.stateRoot, roots.productID)
+		if err != nil {
+			fmt.Fprintf(stderr, "warning: the spend ledger could not be opened, so cost is not shown by kind: %v\n", err)
+			calls = nil
+		}
+		return reportSpend(store, sweeps, calls, options, holds, time.Now(), jsonOutput, stdout, stderr)
 	default:
 		// --json is refused for these two before anything is resolved, so by here
 		// there is nothing left to decide about the shape of what they emit.

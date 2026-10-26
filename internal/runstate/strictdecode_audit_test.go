@@ -92,6 +92,7 @@ var strictSites = map[string]strictSite{
 	"internal/runstate/memory.go:(*MemoryStore).decodeTip":                {strictWriter, "a memory tip is read only by the write it numbers, under the agent's lock, and one that will not decode is rebuilt from the history rather than refused"},
 
 	// Gates: a refusal the caller declines to proceed on and reports.
+	"internal/pricing/rates.go:Parse":                                             {strictValidator, "rate data is compiled into the build and tested to read, and a field it does not know -- a misspelt price -- would otherwise be a counter silently priced at nothing"},
 	"internal/runstate/hold.go:(*OperatorHoldStore).Held":                         {strictValidator, "a hold nobody can read is never spent through as though it were absent; the read model reports it as a problem and the sink reads it past"},
 	"internal/runstate/intake.go:(*IntakeHoldStore).Held":                         {strictValidator, "an intake hold nobody can read is never taken for a clear one; the read model reports it and the sink reads it past"},
 	"internal/runstate/releasecut.go:(*ReleaseCutStore).List":                     {strictWriter, "the release cuts are read by the cut that writes them back, and a record it could not read whole could lose an intent to push a tag"},

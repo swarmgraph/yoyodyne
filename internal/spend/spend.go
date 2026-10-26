@@ -18,13 +18,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
+	"github.com/mason-bryant/yoyodyne/internal/pricing"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/usage"
 )
 
 // processBuild is the revision this binary was built from, read once because a
@@ -66,6 +70,20 @@ type Log interface {
 	ReportedSessionTotal(sessionID string) (float64, bool, error)
 }
 
+// RunningUsageLog is a log that can also say the last running usage total it
+// recorded for a session. A provider reporting running totals is settled
+// against it, for the reason the reported total above is read from the log: a
+// session outlives the process that opened it. runstate.SpendStore satisfies
+// it; a log that does not is one whose every running total is settled as a
+// fresh session's.
+type RunningUsageLog interface {
+	LastRunningUsage(sessionID string) (*usage.Counters, error)
+}
+
+// shippedPricing is the pricing service over the rate data this build ships,
+// read once.
+var shippedPricing = sync.OnceValues(pricing.New)
+
 // Attribution is what the harness knows about one invocation and the provider
 // does not: which work it served, under whose account, and under which
 // configuration. Everything else on a line -- the role, the requested model,
@@ -94,6 +112,10 @@ type Attribution struct {
 	SideStreamID   string
 	ExchangeID     string
 	BranchReviewID string
+	// Billing is how the account is paid for, read from that account's
+	// configuration. Empty is not recorded, which leaves an invocation the
+	// provider did not price unknown rather than priced as money it may not be.
+	Billing usage.BillingMode
 }
 
 // Metered is one provider with the cost log wired behind it. Every invocation it
@@ -136,6 +158,9 @@ type Metered struct {
 	// leaking silently behind a failure they were told about. The one thing it is
 	// not called for is a line whose amount could not be worked out at all.
 	Recorded func(line runstate.Spend)
+	// Pricing is the service an invocation the provider did not price is
+	// estimated by, and nil for the one over the rate data this build ships.
+	Pricing *pricing.Service
 }
 
 // Run makes the invocation and records what it spent.
@@ -173,12 +198,16 @@ func (m Metered) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	// the record of what the session was last reported at, and an unmetered
 	// harness has none, so the amount is the provider's figure as it stands.
 	if m.Log == nil {
+		line, _ = m.usageAndCost(line, result)
 		if m.Recorded != nil {
 			m.Recorded(line)
 		}
 		return result, err
 	}
 	line, recordErr := m.ownCost(line)
+	if recordErr == nil {
+		line, recordErr = m.usageAndCost(line, result)
+	}
 	if recordErr == nil {
 		// The amount is settled, so a caller counting what it spent is told even if
 		// what follows cannot keep the line. Its figure and the log's are the same
@@ -206,30 +235,33 @@ func (m Metered) Run(ctx context.Context, request backend.RunRequest) (backend.R
 // line is what the invocation spent, said once.
 func (m Metered) line(request backend.RunRequest, result backend.RunResult, err error) runstate.Spend {
 	line := runstate.Spend{
-		SchemaVersion:     runstate.SpendSchemaVersion,
-		ProductID:         m.Attribution.ProductID,
-		At:                m.clock().Now().UTC(),
-		Role:              request.Role,
-		Agent:             m.Attribution.Agent,
-		Phase:             m.Attribution.Phase,
-		AccountAlias:      m.Attribution.AccountAlias,
-		ConfigRevision:    m.Attribution.ConfigRevision,
-		RunID:             m.Attribution.RunID,
-		WorkItemID:        m.Attribution.WorkItemID,
-		ConversationID:    m.Attribution.ConversationID,
-		SideStreamID:      m.Attribution.SideStreamID,
-		ExchangeID:        m.Attribution.ExchangeID,
-		BranchReviewID:    m.Attribution.BranchReviewID,
-		Backend:           m.Attribution.Backend,
-		Model:             request.Model,
-		ResolvedModel:     result.ResolvedModel,
-		Effort:            request.Effort,
-		ResolvedEffort:    result.ResolvedEffort,
-		EffortDescription: result.EffortDescription,
-		EffortReported:    result.EffortReported,
-		SessionID:         result.SessionID,
-		Usage:             result.Usage,
-		Build:             processBuild,
+		SchemaVersion:      runstate.SpendSchemaVersion,
+		ProductID:          m.Attribution.ProductID,
+		At:                 m.clock().Now().UTC(),
+		Role:               request.Role,
+		Agent:              m.Attribution.Agent,
+		Phase:              m.Attribution.Phase,
+		AccountAlias:       m.Attribution.AccountAlias,
+		ConfigRevision:     m.Attribution.ConfigRevision,
+		RunID:              m.Attribution.RunID,
+		WorkItemID:         m.Attribution.WorkItemID,
+		ConversationID:     m.Attribution.ConversationID,
+		SideStreamID:       m.Attribution.SideStreamID,
+		ExchangeID:         m.Attribution.ExchangeID,
+		BranchReviewID:     m.Attribution.BranchReviewID,
+		Backend:            m.Attribution.Backend,
+		Model:              request.Model,
+		ResolvedModel:      result.ResolvedModel,
+		Effort:             request.Effort,
+		ResolvedEffort:     result.ResolvedEffort,
+		EffortDescription:  result.EffortDescription,
+		EffortReported:     result.EffortReported,
+		SessionID:          result.SessionID,
+		Usage:              result.Usage,
+		Build:              processBuild,
+		Billing:            m.Attribution.Billing.OrNotRecorded(),
+		EventSchemaVersion: execution.EventSchemaVersion,
+		EventSequence:      result.LastEvent,
 	}
 	if result.ModelUsageReported {
 		line.Models = append([]backend.ModelUsage(nil), result.ModelUsage...)
@@ -300,6 +332,52 @@ func (m Metered) ownCost(line runstate.Spend) (runstate.Spend, error) {
 	line.AmountUSD = own
 	line.ReportedTotalUSD = reported
 	return line, nil
+}
+
+// usageAndCost settles what the invocation used, by the one shared rule, and
+// gives it its cost as exactly one of the four kinds. The previous running
+// total is read from the log where the provider reports running totals; a log
+// that cannot say is a failure to record, for the reason ownCost's is.
+func (m Metered) usageAndCost(line runstate.Spend, result backend.RunResult) (runstate.Spend, error) {
+	id, err := runstate.NewInvocationID()
+	if err != nil {
+		return line, err
+	}
+	line.InvocationID = id
+	var previous *usage.Counters
+	reading := result.UsageReading
+	if reading != nil && reading.Running && strings.TrimSpace(result.SessionID) != "" {
+		if log, ok := m.Log.(RunningUsageLog); ok {
+			if previous, err = log.LastRunningUsage(result.SessionID); err != nil {
+				return line, fmt.Errorf("read what session %s last reported using: %w", result.SessionID, err)
+			}
+		}
+	}
+	settled := usage.Settle(previous, reading, result.UsagePartial, result.UsageRepeated)
+	counters := settled.Counters
+	line.Counters = &counters
+	line.RunningCounters = settled.Running
+	line.UsageReset = settled.Reset
+	line.UsagePartial = settled.Partial
+	line.UsageRepeated = settled.Repeated
+	line.UsageAdjustments = settled.Adjustments
+	line.Tier = settled.Tier
+	figure := m.pricing().Price(line.PricedCall())
+	line.Cost = &figure
+	return line, nil
+}
+
+func (m Metered) pricing() pricing.Service {
+	if m.Pricing != nil {
+		return *m.Pricing
+	}
+	service, err := shippedPricing()
+	if err != nil {
+		// The shipped data is tested to read, so this is a build nobody tested;
+		// every estimate it would have made is unknown and says why.
+		return pricing.Service{Schedule: pricing.Schedule{Version: "unreadable: " + err.Error()}}
+	}
+	return service
 }
 
 // unknownReason says why nobody knows what an invocation cost, in as much of the

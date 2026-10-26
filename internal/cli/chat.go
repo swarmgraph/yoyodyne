@@ -1141,6 +1141,7 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// than a configuration-wide single account there is none of.
 		AccountAlias:   account.Alias,
 		ConfigRevision: cfg.Revision(),
+		AccountBilling: cfg.AccountBilling,
 		// And which harness is holding it, read once here because a process does not
 		// change binary while it lives — which is the whole reason a conversation
 		// somebody leaves open for days is worth stamping.

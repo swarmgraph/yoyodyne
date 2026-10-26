@@ -775,6 +775,12 @@ var standingWarningAgeSeconds = 5 * 60;
     if (period.unpriced) {
       figures.appendChild(figureRow("Not priced", count(period.unpriced, "exchange record") + " could not be read, so the cost is a floor", "figure-unreadable"));
     }
+    // The spend ledger's calls by kind of cost, in the read model's own words:
+    // reported, estimated, the comparison at API prices that is not money
+    // spent, and the share whose cost is unknown. They are never added together.
+    if (period.cost_kinds_text) {
+      figures.appendChild(figureRow("By kind", period.cost_kinds_text, "figure-kinds"));
+    }
     column.appendChild(figures);
     return column;
   }
