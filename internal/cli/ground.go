@@ -86,6 +86,10 @@ type conversationGround struct {
 	gitBinary    string
 	clock        execution.Clock
 	timeout      time.Duration
+	// slowCalls is where the briefing's tracker calls that run out of time are
+	// kept, beside every other harness call's (runstate, trackerslowcall.go);
+	// nil keeps none.
+	slowCalls *runstate.TrackerSlowCallStore
 }
 
 func newConversationGround(parts components, role domain.AgentRole) conversationGround {
@@ -101,7 +105,14 @@ func newConversationGround(parts components, role domain.AgentRole) conversation
 		gitBinary:            "git",
 		clock:                execution.RealClock{},
 		timeout:              chatTrackerTimeout,
+		slowCalls:            parts.trackerSlowCalls,
 	}
+}
+
+// tracker is the briefing's tracker client, which keeps each call that runs
+// out of time in the product's record of slow calls.
+func (g conversationGround) tracker() beads.Client {
+	return withTrackerRecords(chatTracker(g.runner, g.repository), nil, g.slowCalls)
 }
 
 // conversationDocket wires the triage docket for the role that decides about
@@ -704,7 +715,7 @@ func roleDocumentSets(role domain.AgentRole, product config.Product) []contextbu
 func (g conversationGround) Gather(ctx context.Context) (chat.Briefing, error) {
 	trackerCtx, cancel := context.WithTimeout(ctx, g.timeout)
 	defer cancel()
-	items, listErr := chatTracker(g.runner, g.repository).List(trackerCtx, chatWorkItemStatus)
+	items, listErr := g.tracker().List(trackerCtx, chatWorkItemStatus)
 	briefing := chat.Briefing{GatheredAt: g.now()}
 	unavailable := ""
 	if listErr != nil {
@@ -794,7 +805,7 @@ func (g conversationGround) docketWindowFor(ctx context.Context, docket []triage
 	if len(docket) == 0 {
 		return inputs
 	}
-	read, err := readDocketItems(ctx, chatTracker(g.runner, g.repository), "", docketItemIDs(docket))
+	read, err := readDocketItems(ctx, g.tracker(), "", docketItemIDs(docket))
 	switch {
 	case err != nil:
 		inputs.itemsUnavailable = err.Error()

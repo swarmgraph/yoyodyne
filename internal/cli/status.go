@@ -831,7 +831,8 @@ func standingSources(configPath string) readmodel.Sources {
 		return sources
 	}
 	sources.Repository = repository
-	sources.Tracker = withListingRecord(beads.Client{Runner: execution.OSProcessRunner{}, Dir: repository}, listings)
+	slowCalls, _ := runstate.NewTrackerSlowCallStore(stateRoot, cfg.Product.ID)
+	sources.Tracker = withTrackerRecords(beads.Client{Runner: execution.OSProcessRunner{}, Dir: repository}, listings, slowCalls)
 	return sources
 }
 

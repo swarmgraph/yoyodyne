@@ -185,6 +185,9 @@ type components struct {
 	// since a moment. Every listing the harness's tracker client makes writes its
 	// outcome there; see tracker.
 	trackerListings *runstate.TrackerListingStore
+	// trackerSlowCalls is where every tracker call stopped at its limit is kept,
+	// with how long it ran, the store's size, and what held the store.
+	trackerSlowCalls *runstate.TrackerSlowCallStore
 	// interventions is the product's record of the operator's hand steps: what a
 	// verb that carries one out writes, and what a conversation's operator
 	// commands write (see intervention.go).
@@ -452,6 +455,10 @@ func buildComponents(configPath string) (components, error) {
 	if err != nil {
 		return components{}, err
 	}
+	trackerSlowCalls, err := runstate.NewTrackerSlowCallStore(stateRoot, cfg.Product.ID)
+	if err != nil {
+		return components{}, err
+	}
 	interventions, err := runstate.NewInterventionStore(stateRoot, cfg.Product.ID)
 	if err != nil {
 		return components{}, err
@@ -482,34 +489,35 @@ func buildComponents(configPath string) (components, error) {
 		return components{}, err
 	}
 	return components{
-		config:          cfg,
-		configPath:      resolved.Path,
-		repository:      repository,
-		stateRoot:       stateRoot,
-		runner:          processRunner,
-		store:           store,
-		reports:         reports,
-		amendments:      amendments,
-		evaluations:     evaluations,
-		restartRequests: restartRequests,
-		docket:          docket,
-		mergeQueues:     mergeQueues,
-		branchReviews:   branchReviews,
-		directives:      directives,
-		holds:           holds,
-		intake:          intake,
-		watch:           watch,
-		releasedClaims:  releasedClaims,
-		usageLimits:     usageLimits,
-		outages:         outages,
-		capacityServed:  capacityServed,
-		divergences:     divergences,
-		launchSettings:  launchSettings,
-		spend:           spendLog,
-		trackerListings: trackerListings,
-		interventions:   interventions,
-		worktrees:       worktrees,
-		redactValues:    execution.SensitiveEnvironmentValues(os.Environ()),
+		config:           cfg,
+		configPath:       resolved.Path,
+		repository:       repository,
+		stateRoot:        stateRoot,
+		runner:           processRunner,
+		store:            store,
+		reports:          reports,
+		amendments:       amendments,
+		evaluations:      evaluations,
+		restartRequests:  restartRequests,
+		docket:           docket,
+		mergeQueues:      mergeQueues,
+		branchReviews:    branchReviews,
+		directives:       directives,
+		holds:            holds,
+		intake:           intake,
+		watch:            watch,
+		releasedClaims:   releasedClaims,
+		usageLimits:      usageLimits,
+		outages:          outages,
+		capacityServed:   capacityServed,
+		divergences:      divergences,
+		launchSettings:   launchSettings,
+		spend:            spendLog,
+		trackerListings:  trackerListings,
+		trackerSlowCalls: trackerSlowCalls,
+		interventions:    interventions,
+		worktrees:        worktrees,
+		redactValues:     execution.SensitiveEnvironmentValues(os.Environ()),
 	}, nil
 }
 
@@ -552,17 +560,22 @@ func primaryCheckout(repository, worktreeRoot string) (string, error) {
 
 // tracker is the harness's own tracker client. Every listing it makes writes
 // how it ended to the product's listing record, which is what `yoyo status`
-// reads to say the tracker is not answering listings and since when.
+// reads to say the tracker is not answering listings and since when, and every
+// call stopped at its limit is kept in the product's record of slow calls.
 func (c components) tracker() beads.Client {
-	return withListingRecord(beads.Client{Runner: c.runner, Dir: c.repository}, c.trackerListings)
+	return withTrackerRecords(beads.Client{Runner: c.runner, Dir: c.repository}, c.trackerListings, c.trackerSlowCalls)
 }
 
-// withListingRecord has a client write how its listings end to the record,
-// where there is one. The nil check is on the store rather than left to the
-// interface, because a nil *TrackerListingStore in the interface is not nil.
-func withListingRecord(client beads.Client, listings *runstate.TrackerListingStore) beads.Client {
+// withTrackerRecords has a client write how its listings end, and each call
+// stopped at its limit, to the records, where there are any. The nil checks are
+// on the stores rather than left to the interfaces, because a nil pointer in an
+// interface is not nil.
+func withTrackerRecords(client beads.Client, listings *runstate.TrackerListingStore, slowCalls *runstate.TrackerSlowCallStore) beads.Client {
 	if listings != nil {
 		client.Listings = listings
+	}
+	if slowCalls != nil {
+		client.SlowCalls = slowCalls
 	}
 	return client
 }

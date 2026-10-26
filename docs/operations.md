@@ -2583,7 +2583,14 @@ each export; it never reopens an abandoned one.
 Each pass that removes files records their paths, sizes, and modification times
 under `projects/<product-id>/state/tracker-export-cleanups/` in the product's state
 directory. The command also names each removal, and `--json` carries it under
-`tracker_exports`. The developer's sandbox cannot clean the primary checkout;
+`tracker_exports`. The same pass refreshes the export, and an export that runs
+out of time fails the pass with its cause first:
+`refresh the tracker export: exporting every work item ran 30s without
+finishing, on a store of 885 MB on disk, while no other process had the store
+open, so the tracker itself was too slow: …`, or `… while 2 other processes
+had the store open, so it was most likely waiting behind them: …`, followed by
+the whole account of the call ([below](#a-tracker-that-does-not-answer-a-listing)).
+Nothing about it is retried or counted as done. The developer's sandbox cannot clean the primary checkout;
 the harness performs this on its next maintenance pass after moving to the new
 build. Calls to bd outside the harness keep their own export settings.
 
@@ -2620,12 +2627,28 @@ yoyodyne-7my for the development manager's recurring pass
 development-manager-sweep#804 was stopped after 30s, at the 30s limit each
 tracker call is given; when it was stopped, the tracker's store was held open
 by process 4242 (bd export -o .beads/issues.jsonl), running since 2026-10-16
-05:41:25 PDT`; that is the store being slow, and the process named is what it
-was waiting on. The holder is read from `lsof` and its start from `ps` at the
-moment the call is stopped; where neither can say, the account says so and why
-(`which process held the tracker's store could not be told: lsof could not be
-run: …`, or `since when could not be read: ps did not answer: …`), and where
-nothing had the store open it says that. A write that waited out another
+05:41:25 PDT; the tracker's store was 885 MB on disk`; that is the store being
+slow, and the process named is what it was waiting on. The holder is read from
+`lsof` and its start from `ps` at the moment the call is stopped; where neither
+can say, the account says so and why (`which process held the tracker's store
+could not be told: lsof could not be run: …`, or `since when could not be read:
+ps did not answer: …`), and where nothing had the store open it says that. The
+store's size is the size of its database directory on disk at the same moment,
+or why it could not be measured.
+
+**Every call that runs out of time is also kept.** The harness's own tracker
+client — the one maintenance, the role passes, a conversation's briefing, and
+`yoyo status` use — writes
+each such call as a file of its own under
+`projects/<product-id>/state/tracker-slow-calls/` in the product's state
+directory: what it was asked and for whom, when it started, how long it ran,
+the limit and any shorter deadline of its caller's, the store's path and size,
+and the processes that had the store open, or why either could not be read.
+The newest thousand are kept. Read together, they say whether calls run out
+of time behind one another or with nothing else holding the store, which is
+the tracker itself being slow, and how big the store was each time. A record
+that cannot be written is said at the end of the call's own failure, which is
+otherwise unchanged. A write that waited out another
 write to the same item names what held that item's write lock the same way. A
 call its caller gave
 less time says `… was stopped after 5s, when its caller's own deadline of 5s ran
