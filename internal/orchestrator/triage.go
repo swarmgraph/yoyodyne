@@ -455,7 +455,7 @@ func (d Docketer) endedReruns(recorded []runstate.State, already standingDocket)
 	}
 	claimed := make(map[string]map[string]bool)
 	return func(state runstate.State) bool {
-		if state.Document != nil || state.WorkItemID == "" || latest[state.WorkItemID] != state.RunID ||
+		if state.HarnessAuthored() || state.WorkItemID == "" || latest[state.WorkItemID] != state.RunID ||
 			strings.TrimSpace(state.Blocker) != "" || state.Integration != nil ||
 			(state.Status != runstate.StatusFailed && state.Status != runstate.StatusTimedOut) {
 			return false
@@ -916,6 +916,12 @@ func runStartedSince(runs map[string]runstate.State, workItemID string, at time.
 // ended for a reason nobody has to decide about, which is most of them.
 func (d Docketer) RecordStoppedRun(state runstate.State) (bool, error) {
 	if state.Document != nil && !documentHandedOver(state) {
+		return false, nil
+	}
+	// A run that brings a file in that stopped is reported to the development
+	// manager by the harness once, against its record (outsidefilelanding.go),
+	// rather than docketed as a stopped run nobody can continue.
+	if state.OutsideFile != nil {
 		return false, nil
 	}
 	if err := d.validate(); err != nil {
@@ -1630,6 +1636,9 @@ func (d Docketer) unreadyEntry(item beads.WorkItem, unmet []readiness.Unmet, now
 // A document run contributes only its stoppage, and only once it is the
 // development manager's to decide; see documentdocket.go.
 func (d Docketer) entriesFor(state runstate.State, now time.Time, already standingDocket, copies documentCopies) ([]triage.Entry, error) {
+	if state.OutsideFile != nil {
+		return nil, nil
+	}
 	if state.Document != nil {
 		if !copies.docketable(state, now, d.Triage.StuckMergeAge.Duration()) || !already.dockets(triage.Key(triage.ClassStoppedRun, state.RunID), stoppedAt(state)) {
 			return nil, nil

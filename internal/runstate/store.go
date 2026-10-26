@@ -176,9 +176,15 @@ type CapacityError struct {
 	Limit    int  `json:"limit"`
 	Active   int  `json:"active"`
 	Landings bool `json:"landings,omitempty"`
+	// OutsideFiles is a run that brings a file in refused because another is
+	// in flight.
+	OutsideFiles bool `json:"outside_files,omitempty"`
 }
 
 func (e CapacityError) Error() string {
+	if e.OutsideFiles {
+		return fmt.Sprintf("a run bringing an outside file in is already going: %d running, limit %d", e.Active, e.Limit)
+	}
 	if e.Landings {
 		return fmt.Sprintf("document landings are full: %d landing(s) running, limit %d", e.Active, e.Limit)
 	}
@@ -215,6 +221,9 @@ func (s *Store) Reserve(ctx context.Context, state State, maxConcurrent int) (*L
 	}
 	if state.Document != nil {
 		return nil, errors.New("a document landing is reserved against the document landings, not a developer slot")
+	}
+	if state.OutsideFile != nil {
+		return nil, errors.New("a run that brings a file in is reserved on its own, not against a developer slot")
 	}
 	return s.reserve(ctx, state, func(active []State) error {
 		// A run paused on work its item waits on is in flight for the duplicate

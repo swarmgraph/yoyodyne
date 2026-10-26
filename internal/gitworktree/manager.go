@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/outsidefile"
 )
 
 const (
@@ -709,7 +710,8 @@ const (
 	// FileClassFixture is test data and generated content: anything under a
 	// `testdata`, `fixtures`, `golden`, or `snapshots` directory, a `.golden` or
 	// `.snap` file, a lock file a package manager writes, a Go file named as
-	// generated, or a file whose rendered diff carries the generated-code marker.
+	// generated, a file whose rendered diff carries the generated-code marker, or
+	// a pinned outside file with its record beside it (classifyPinned).
 	FileClassFixture FileClass = "fixture"
 )
 
@@ -810,6 +812,21 @@ func ClassifyPath(path string) FileClass {
 func classifySection(path, patch string) FileClass {
 	class := ClassifyPath(path)
 	if class == FileClassSource && generatedMarker.MatchString(patch) {
+		return FileClassFixture
+	}
+	return class
+}
+
+// classifyPinned classes a pinned outside file — one with its record beside it
+// in the worktree (internal/outsidefile) — as generated content, whatever its
+// name says. Nobody in the project wrote it and nobody reviews it line by line:
+// the harness fetched it, its record says where from, and every run's checks
+// compare it with the checksum the record carries. So the patch spends its
+// bound on the record and the code around it, and a file kept out is listed
+// whole with its digest, which is what the reviewer is asked to account for.
+func classifyPinned(worktree, relative string, class FileClass) FileClass {
+	record, err := os.Lstat(filepath.Join(worktree, filepath.FromSlash(filepath.Clean(relative))+outsidefile.RecordSuffix))
+	if err == nil && record.Mode().IsRegular() {
 		return FileClassFixture
 	}
 	return class
@@ -1629,11 +1646,11 @@ func (m *Manager) UnifiedChanges(ctx context.Context, worktree Worktree, limits 
 	candidates := make([]patchCandidate, 0, len(sections)+len(untracked))
 	for _, section := range sections {
 		candidates = append(candidates, patchCandidate{
-			path: section.path, class: classifySection(section.path, section.patch), tracked: true, patch: section.patch,
+			path: section.path, class: classifyPinned(path, section.path, classifySection(section.path, section.patch)), tracked: true, patch: section.patch,
 		})
 	}
 	for _, relative := range untracked {
-		candidates = append(candidates, patchCandidate{path: relative, class: m.classifyUntracked(path, relative)})
+		candidates = append(candidates, patchCandidate{path: relative, class: classifyPinned(path, relative, m.classifyUntracked(path, relative))})
 	}
 	orderForPresentation(candidates)
 
@@ -2358,7 +2375,7 @@ func (m *Manager) listChangedFiles(ctx context.Context, path, baseCommit, headCo
 		}
 		files = append(files, ChangedFile{
 			Path: entry.path, Status: entry.status, Bytes: size,
-			Binary: binary[entry.path], Committed: committed[entry.path], Class: ClassifyPath(entry.path),
+			Binary: binary[entry.path], Committed: committed[entry.path], Class: classifyPinned(path, entry.path, ClassifyPath(entry.path)),
 		})
 	}
 	for _, relative := range untracked {
@@ -2366,7 +2383,7 @@ func (m *Manager) listChangedFiles(ctx context.Context, path, baseCommit, headCo
 		if err != nil {
 			return nil, 0, err
 		}
-		file := ChangedFile{Path: relative, Status: "??", Bytes: size, Class: ClassifyPath(relative)}
+		file := ChangedFile{Path: relative, Status: "??", Bytes: size, Class: classifyPinned(path, relative, ClassifyPath(relative))}
 		if regular {
 			file.Binary, err = sniffBinary(filepath.Join(path, filepath.FromSlash(filepath.Clean(relative))))
 			if err != nil {

@@ -6533,6 +6533,61 @@ advice and nothing else: recording one admits no work, changes no document, and
 approves nothing. That path, and how to read the evaluations back, is described
 in [the conversation guide](conversation.md#bringing-it-an-idea-rather-than-a-work-item).
 
+## Pinned outside files
+
+Some work needs a file nobody in the project wrote, such as a chart library the
+dashboard serves. Developer runs cannot reach the network, so the harness brings
+such a file in itself, in its own process, from a record you keep beside it
+([the design](designs/pinned-outside-files.md)). **Nothing is fetched until you
+list a host.**
+
+```yaml
+outside_files:
+  hosts: [cdn.jsdelivr.net]   # host names, or host:port where the address has one
+  max_bytes: 5242880          # the largest file fetched; 5 MiB when left out
+```
+
+**The record.** Beside the pinned file, under its name with
+`.yoyodyne-source.yaml` added, write `file`, `url`, `version` (which must appear
+in the address's path), `license` (an SPDX identifier), `license_file`, `for`
+(the work item that asked for the file), and, where the source publishes one,
+`sha256`. The harness writes `sha256` where you gave none, `size`,
+`fetched_from` and `fetched_at` when it fetches; nothing else may write those
+four.
+
+**What is fetched, and how.** At each pull the scheduler reads the records on
+the target branch, and only those: a record still on a run's branch is never
+fetched. A record is due when its file is missing or it carries no checksum.
+The address must be https, on a listed host, with no user name, password, query
+string or fragment; at most five redirects are followed, each to https and a
+listed host; the file is held to `max_bytes`, and to 50 MiB whatever that says;
+no credentials are sent; and the file is never unpacked or run. What the fetch
+brought is landed by a run of the harness's own: one at a time, holding no
+developer slot, changing only the file and the record's four fields, with the
+full checks and an independent review shown the record, the final address, the
+size, the checksum, and the license file. It merges through its pull request,
+and through the merge queue when `execution.merge_queue` is on, like any
+approved change. Where the queue's combined change fails its checks or its
+review, or will not apply to the target as it then stands, the run ends with the
+reason written on the work item the record names, nothing is handed to a
+developer, and a later pull starts a fresh run from the record as the target
+branch then holds it. Three such refusals in a row for one record stop it and
+file one warning report for the development manager naming the record and the
+three reasons.
+
+**Every run compares.** Before its checks, every run compares each pinned file
+with its record. A file whose checksum does not match, or a record whose four
+harness fields a change wrote, fails the checks naming it. A missing file is
+fine: the harness fetches it. To change a version, edit `url` and `version`,
+clear the four fields, and remove the old file.
+
+**When a fetch fails.** A network failure is tried again at least ten minutes
+later and counts for nothing. A failure about the record — an address the rules
+refuse, a missing file, a file over the limit, a checksum that does not match,
+a `for` naming no work item, a check or a reviewer refusing the file — stops the
+record until it changes on the target branch, and files one warning report for
+the development manager.
+
 ## Reading the repository from a conversation
 
 The three management roles — Lead Product Manager, architect, development manager —

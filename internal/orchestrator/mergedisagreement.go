@@ -65,7 +65,7 @@ type MergeDisagreementFinding struct {
 // docketed as that. A document's landing is not one either; it is settled by its
 // own path (documentpublication.go).
 func disagreementCandidate(state runstate.State) bool {
-	if !state.RecordedAsMerged() || state.Document != nil || state.PullRequest == nil {
+	if !state.RecordedAsMerged() || state.HarnessAuthored() || state.PullRequest == nil {
 		return false
 	}
 	return state.Integration.ThroughPullRequest || state.PullRequest.Merged

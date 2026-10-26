@@ -184,6 +184,12 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 		return outcome, fmt.Errorf("read run %s, which merge queue entry %d was admitted for: %w", entry.RunID, entry.Order, err)
 	}
 	author := strings.TrimSpace(run.ProviderSessionID)
+	if author == "" && run.OutsideFile != nil {
+		// No provider session wrote the change of a run that brings a file in:
+		// the harness fetched and wrote it. Its author is named as the harness's
+		// own run, which no reviewer session can be.
+		author = "harness:" + run.RunID
+	}
 	if author == "" {
 		return outcome, fmt.Errorf("run %s records no developer session, so no reviewer can be shown to be independent of it", entry.RunID)
 	}

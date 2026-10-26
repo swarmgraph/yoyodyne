@@ -292,7 +292,7 @@ func claimDeveloperSlot(ctx context.Context, store RoutingStore, held runstate.S
 // later invocation reads them back off the record.
 func (a *activeRun) pinDeveloperRouting(ctx context.Context) error {
 	p := a.pipeline
-	if !p.routesDeveloperSlots() || a.state.Document != nil {
+	if !p.routesDeveloperSlots() || a.state.HarnessAuthored() {
 		return nil
 	}
 	store, ok := p.routingStore()

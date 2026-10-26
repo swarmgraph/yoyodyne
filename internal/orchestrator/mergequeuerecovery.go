@@ -720,6 +720,14 @@ func (q *queuePromotion) decide(failure MergeQueueFailure) *runstate.MergeQueueH
 	handback.Branch = run.Branch
 	handback.RepairAttempts = run.RepairAttempts
 	handback.RepairBudget = run.RepairBudget(q.p.Pipeline.Config.Execution.RepairAttemptsBeforeReplan)
+	if run.OutsideFile != nil && strings.TrimSpace(run.Branch) != "" {
+		// A run that brings a file in has no developer to repair anything: the
+		// hand-back ends the run with its reason on the item its record names,
+		// and the harness starts a fresh run from the record at a later pull
+		// (outsidefilequeue.go).
+		handback.Continuation, handback.Mover = runstate.MergeQueueContinueRepair, ownership.MoverHarness
+		return handback
+	}
 	switch {
 	case strings.TrimSpace(run.Branch) == "":
 		return missing(fmt.Sprintf("run %s records no branch holding its change", q.entry.RunID))
@@ -897,6 +905,11 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 		state.CheckFailure = &runstate.CheckFailure{Command: command, ExitCode: 1, Output: boundedTail(marker+"\n"+handback.Reason, runstate.MaxCheckOutputBytes)}
 	}
 	state.Blocker = runstate.RecordBlocker(notes)
+	if state.OutsideFile != nil {
+		// Nothing repairs this run's change, so the checks it passed describe
+		// an attempt that has ended rather than one a repair continues from.
+		state.ChecksPassed = nil
+	}
 	now := h.now()
 	// A run admitted to the queue ended succeeded once its change was approved;
 	// the change has not landed, so it is a stopped run now, failed as a run the

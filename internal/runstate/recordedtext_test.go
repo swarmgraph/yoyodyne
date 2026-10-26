@@ -18,6 +18,14 @@ import (
 // Keys name a string by its place in the record, with [] standing for any
 // element of a list.
 var structuredStrings = map[string]string{
+	"outside_file.record":                            "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
+	"outside_file.record_digest":                     "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
+	"outside_file.target_commit":                     "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
+	"outside_file.for":                               "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
+	"outside_file.url":                               "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
+	"outside_file.version":                           "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
+	"outside_file.fetched.final_url":                 "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
+	"outside_file.fetched.sha256":                    "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
 	"document.candidate.artifact.id":                 "validated publication identity, policy, or author attribution",
 	"document.candidate.artifact.kind":               "validated publication identity, policy, or author attribution",
 	"document.candidate.artifact.supports[]":         "validated publication identity, policy, or author attribution",

@@ -55,6 +55,9 @@ func RecoveryContinuable(state runstate.State) error {
 	if state.Document != nil {
 		return errors.New("it lands a document, which is continued by its own publication rather than by the pipeline")
 	}
+	if state.OutsideFile != nil {
+		return errors.New("it brings an outside file in, which the scheduler continues at its next look at the record")
+	}
 	if pausedForUsageLimit(state) || pausedForDirective(state) || pausedForDependency(state) || pausedForTracker(state) ||
 		pausedForOperatorHold(state) || stoppedProviderIsResumable(state) || stoppedForRedeployIsResumable(state) ||
 		continuedAtCheckStage(state) || resumableRepair(state) {
