@@ -103,8 +103,8 @@ func TestATrackerStoreCleanupKeepsItsItemCounts(t *testing.T) {
 		t.Fatalf("Read() = %+v, %v", cleanups, err)
 	}
 	read := cleanups[0]
-	if !read.ItemsChanged() || read.ItemsBefore != 812 || read.ItemsAfter != 805 || len(read.Missing) != 7 || read.File == "" {
-		t.Errorf("Read() = %+v, want the counts, the missing items, and the file it was read from", read)
+	if !read.ItemsChanged() || !read.Lost() || read.ItemsBefore != 812 || read.ItemsAfter != 805 || len(read.Missing) != 7 {
+		t.Errorf("Read() = %+v, want the counts and the missing items", read)
 	}
 	if said := read.Says(); !strings.Contains(said, "812 work items before and 805 after, calc-1, calc-2, calc-3, calc-4, calc-5 and 2 more missing") {
 		t.Errorf("Says() = %q, want the changed count said with what went missing", said)
@@ -112,6 +112,10 @@ func TestATrackerStoreCleanupKeepsItsItemCounts(t *testing.T) {
 	unchanged := TrackerStoreCleanup{ItemsBefore: 812, ItemsAfter: 812, ItemsCounted: true}
 	if unchanged.ItemsChanged() || unchanged.SaysItems() != "812 work items before and after" {
 		t.Errorf("SaysItems() = %q, changed %t, want the count unchanged", unchanged.SaysItems(), unchanged.ItemsChanged())
+	}
+	added := TrackerStoreCleanup{ItemsBefore: 812, ItemsAfter: 813, ItemsCounted: true, Added: []string{"calc-813"}}
+	if !added.ItemsChanged() || added.Lost() || added.SaysItems() != "812 work items before and 813 after, calc-813 added meanwhile" {
+		t.Errorf("SaysItems() = %q, changed %t, lost %t, want a count that rose said as changed and not lost", added.SaysItems(), added.ItemsChanged(), added.Lost())
 	}
 	// A record written before items were counted says nothing of them.
 	if old := (TrackerStoreCleanup{SizeBefore: 1}); old.ItemsChanged() || old.SaysItems() != "" {

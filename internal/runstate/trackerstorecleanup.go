@@ -13,8 +13,8 @@ package runstate
 // that skipped it and is not recorded here. A cleanup that started and failed,
 // or whose store held other work items after it than before, is recorded with
 // that, because the pass reads it back: the first is not tried again until the
-// next cleanup is due, and the second holds every later cleanup back until its
-// record is removed.
+// next cleanup is due, and one after which an item is missing holds every later
+// cleanup back until the pass finds every missing item in the store again.
 
 import (
 	"crypto/rand"
@@ -42,8 +42,8 @@ const TrackerStoreCleanupSchemaVersion = 1
 // cleanup said. The whole of it is in the supervisor's log.
 const maxTrackerStoreCleanupTextBytes = 1 << 10
 
-// maxMissingKept bounds how many missing items a record names. The count
-// either side still says how many there were.
+// maxMissingKept bounds how many missing or added items a record names. The
+// count either side still says how many there were.
 const maxMissingKept = 100
 
 // TrackerStoreCleanup is one cleanup of the tracker's store that started.
@@ -65,25 +65,28 @@ type TrackerStoreCleanup struct {
 	// Reason is why it was due, in words.
 	Reason string `json:"reason,omitempty"`
 	// ItemsBefore and ItemsAfter are how many work items the store held either
-	// side of the cleanup, ItemsCounted says both were taken, and Missing is the
-	// items it held before and not after.
+	// side of the cleanup, ItemsCounted says both were taken, Missing is the
+	// items it held before and not after, and Added the items it held after and
+	// not before.
 	ItemsBefore  int      `json:"items_before,omitempty"`
 	ItemsAfter   int      `json:"items_after,omitempty"`
 	ItemsCounted bool     `json:"items_counted,omitempty"`
 	Missing      []string `json:"missing,omitempty"`
+	Added        []string `json:"added,omitempty"`
 	// Failed is why a cleanup that started did not end as one: bd failing, or
 	// the items not counted after it.
 	Failed string `json:"failed,omitempty"`
-
-	// File is the record's file name in the directory, as Read found it.
-	File string `json:"-"`
 }
 
 // ItemsChanged reports a cleanup counted either side whose store did not hold
 // the same work items after it as before.
 func (c TrackerStoreCleanup) ItemsChanged() bool {
-	return c.ItemsCounted && (c.ItemsBefore != c.ItemsAfter || len(c.Missing) > 0)
+	return c.ItemsCounted && (c.ItemsBefore != c.ItemsAfter || len(c.Missing) > 0 || len(c.Added) > 0)
 }
+
+// Lost reports a cleanup after which an item the store held before it was
+// missing.
+func (c TrackerStoreCleanup) Lost() bool { return c.ItemsCounted && len(c.Missing) > 0 }
 
 // SaysItems is the work items either side of the cleanup in words, and empty
 // where they were not counted.
@@ -96,20 +99,26 @@ func (c TrackerStoreCleanup) SaysItems() string {
 	}
 	said := fmt.Sprintf("%d work items before and %d after", c.ItemsBefore, c.ItemsAfter)
 	if len(c.Missing) > 0 {
-		said += fmt.Sprintf(", %s missing", sayMissing(c.Missing))
+		said += fmt.Sprintf(", %s missing", sayIdentifiers(c.Missing))
+	}
+	if len(c.Added) > 0 {
+		said += fmt.Sprintf(", %s added meanwhile", sayIdentifiers(c.Added))
 	}
 	return said
 }
 
-// maxMissingSaid is how many missing items a sentence names before it counts
-// the rest.
-const maxMissingSaid = 5
+// maxItemsSaid is how many items a sentence names before it counts the rest.
+const maxItemsSaid = 5
 
-func sayMissing(missing []string) string {
-	if len(missing) <= maxMissingSaid {
-		return strings.Join(missing, ", ")
+// SayIdentifiers is items named in a sentence, the first few by identifier
+// and the rest counted.
+func SayIdentifiers(ids []string) string { return sayIdentifiers(ids) }
+
+func sayIdentifiers(ids []string) string {
+	if len(ids) <= maxItemsSaid {
+		return strings.Join(ids, ", ")
 	}
-	return fmt.Sprintf("%s and %d more", strings.Join(missing[:maxMissingSaid], ", "), len(missing)-maxMissingSaid)
+	return fmt.Sprintf("%s and %d more", strings.Join(ids[:maxItemsSaid], ", "), len(ids)-maxItemsSaid)
 }
 
 // Says is the cleanup in a sentence: when it ran, the store's size either side,
@@ -204,6 +213,9 @@ func (s *TrackerStoreCleanupStore) Record(cleanup TrackerStoreCleanup) error {
 	if len(cleanup.Missing) > maxMissingKept {
 		cleanup.Missing = cleanup.Missing[:maxMissingKept]
 	}
+	if len(cleanup.Added) > maxMissingKept {
+		cleanup.Added = cleanup.Added[:maxMissingKept]
+	}
 	encoded, err := json.Marshal(cleanup)
 	if err != nil {
 		return err
@@ -255,7 +267,6 @@ func (s *TrackerStoreCleanupStore) Read() (TrackerStoreCleanups, error) {
 		if cleanup.ProductID != s.productID {
 			return nil, fmt.Errorf("the tracker store cleanup %s belongs to product %q, not %q", name, cleanup.ProductID, s.productID)
 		}
-		cleanup.File = name
 		cleanups = append(cleanups, cleanup)
 	}
 	return cleanups, nil

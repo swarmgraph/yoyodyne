@@ -40,10 +40,11 @@ import (
 // every status included, so each cleanup shows on its own record that it lost
 // none. The count before is taken once nobody else has the store open, just
 // before bd's cleanup starts, and the count after once it has ended, so another
-// process creating an item between the two is the one way the counts differ
-// without the cleanup having lost anything; the maintenance pass treats any
-// difference as a loss all the same and stops cleaning up until somebody has
-// looked (internal/maintain).
+// process creating an item between the two can make the counts differ without
+// the cleanup having lost anything. The items are therefore compared by
+// identifier as well as counted: an item there after and not before is added,
+// and only an item there before and not after is missing, which is what the
+// maintenance pass holds later cleanups back for (internal/maintain).
 
 // StoreCleanup is one cleanup of the tracker's store: what it found and what it
 // came to.
@@ -66,11 +67,13 @@ type StoreCleanup struct {
 	Said    string
 	// ItemsBefore and ItemsAfter are how many work items the store held either
 	// side of the cleanup, every status counted, and Counted says both were
-	// taken. Missing is the items it held before and not after.
+	// taken. Missing is the items it held before and not after, and Added the
+	// items it held after and not before.
 	ItemsBefore int
 	ItemsAfter  int
 	Counted     bool
 	Missing     []string
+	Added       []string
 }
 
 // Ran reports a cleanup that started, whether it finished or was stopped.
@@ -81,6 +84,10 @@ func (s StoreCleanup) Ran() bool { return len(s.Busy) == 0 && !s.StartedAt.IsZer
 func (s StoreCleanup) ItemsChanged() bool {
 	return s.Counted && (s.ItemsBefore != s.ItemsAfter || len(s.Missing) > 0)
 }
+
+// Lost reports a cleanup after which an item the store held before it is
+// missing.
+func (s StoreCleanup) Lost() bool { return s.Counted && len(s.Missing) > 0 }
 
 // StoreSize is the tracker's store as this client's bd finds it, and its
 // database directory's size in bytes.
@@ -157,13 +164,36 @@ func (c Client) CleanUpStore(ctx context.Context, hold time.Duration) (StoreClea
 		return cleanup, fmt.Errorf("the tracker's work items could not be counted after its store was cleaned up, so whether the cleanup lost any cannot be told: %w", err)
 	}
 	cleanup.ItemsAfter, cleanup.Counted = len(itemsAfter), true
-	for id := range itemsBefore {
-		if _, kept := itemsAfter[id]; !kept {
-			cleanup.Missing = append(cleanup.Missing, id)
+	cleanup.Missing = absent(itemsBefore, itemsAfter)
+	cleanup.Added = absent(itemsAfter, itemsBefore)
+	return cleanup, nil
+}
+
+// MissingItems is which of ids the store does not hold, read in one listing as
+// a cleanup counts its items. It is how the maintenance pass looks again for
+// items a cleanup found missing.
+func (c Client) MissingItems(ctx context.Context, ids []string) ([]string, error) {
+	held, err := c.storeItems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	wanted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	return absent(wanted, held), nil
+}
+
+// absent is the identifiers in from that are not in in, in order.
+func absent(from, in map[string]struct{}) []string {
+	var missing []string
+	for id := range from {
+		if _, found := in[id]; !found {
+			missing = append(missing, id)
 		}
 	}
-	sort.Strings(cleanup.Missing)
-	return cleanup, nil
+	sort.Strings(missing)
+	return missing
 }
 
 // storeItems is the identifier of every work item the store holds, closed work

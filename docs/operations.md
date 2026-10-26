@@ -438,10 +438,13 @@ Each pass takes eight steps, in this order, and each is recorded:
   latest: `the tracker's store was last cleaned up at 2026-10-16 05:41 PDT, from
   885 MB to 526 MB in 9.0 seconds, 1483 work items before and after`. A cleanup
   that fails is a failure of the pass, in bd's own words, recorded, and not tried
-  again until the next cleanup is due. One after which the store holds other work
-  items than before is a failure naming the items missing, and every pass after
-  it fails saying so without starting a cleanup, until that cleanup's record,
-  which the failure names, is removed from `tracker-store-cleanups/`.
+  again until the next cleanup is due. So is one whose count of work items
+  changed: the failure names the items added while it ran, which another process
+  created, and the items missing after it. Added items alone hold nothing back.
+  A missing item may have been lost, so while any is missing every pass fails
+  saying so and starts no cleanup; the pass looks for the missing items again
+  each time a cleanup is due, at most once a cleanup interval, and cleanups
+  resume on their own once every one of them is back in the store.
 - **rebuild** — what the supervisor's rebuilder last came to. It builds the
   binary on its own thirty-second look when the branch lands something the
   binary is made of (above), so a deploy has a build to take up.

@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -30,11 +28,31 @@ type fakeStore struct {
 	stopped bool
 	asked   []time.Duration
 	order   *[]string
-	// items is how many work items the store holds, and lose how many of them
-	// a cleanup loses, naming them missing; fail is a cleanup bd fails.
-	items int
-	lose  int
-	fail  error
+	// items is how many work items the store holds, lose how many of them a
+	// cleanup loses, naming them missing, and add how many another process
+	// creates while it runs; fail is a cleanup bd fails. gone is the items lost
+	// and not yet back, and looked how often the pass looked for them.
+	items  int
+	lose   int
+	add    int
+	fail   error
+	gone   map[string]bool
+	looked int
+	// clock is when a cleanup starts, where the test moves time on.
+	clock *time.Time
+}
+
+func (s *fakeStore) MissingItems(_ context.Context, ids []string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.looked++
+	var still []string
+	for _, id := range ids {
+		if s.gone[id] {
+			still = append(still, id)
+		}
+	}
+	return still, nil
 }
 
 func (s *fakeStore) StoreSize() (string, int64, error) {
@@ -56,6 +74,9 @@ func (s *fakeStore) CleanUpStore(_ context.Context, hold time.Duration) (beads.S
 		return cleanup, nil
 	}
 	cleanup.StartedAt = time.Date(2026, 9, 29, 17, 0, 1, 0, time.UTC)
+	if s.clock != nil {
+		cleanup.StartedAt = s.clock.Add(time.Second)
+	}
 	cleanup.Took = 9 * time.Second
 	cleanup.SizeAfter = s.after
 	cleanup.Stopped = s.stopped
@@ -65,9 +86,17 @@ func (s *fakeStore) CleanUpStore(_ context.Context, hold time.Duration) (beads.S
 		return cleanup, s.fail
 	}
 	for lost := 0; lost < s.lose; lost++ {
-		cleanup.Missing = append(cleanup.Missing, fmt.Sprintf("calc-%d", lost+1))
+		id := fmt.Sprintf("calc-%d", lost+1)
+		cleanup.Missing = append(cleanup.Missing, id)
+		if s.gone == nil {
+			s.gone = map[string]bool{}
+		}
+		s.gone[id] = true
 	}
-	s.items -= s.lose
+	for added := 0; added < s.add; added++ {
+		cleanup.Added = append(cleanup.Added, fmt.Sprintf("calc-%d", s.items+added+1))
+	}
+	s.items += s.add - s.lose
 	cleanup.ItemsAfter, cleanup.Counted = s.items, true
 	return cleanup, nil
 }
@@ -259,51 +288,101 @@ func TestACleanupStoppedAtItsHoldIsRecordedAndFinishedLater(t *testing.T) {
 	}
 }
 
-// A cleanup after which the store holds fewer work items than before is a
-// failure of the pass, said in words naming what is missing, and it is not
-// tried again: every later pass fails saying why, without starting a cleanup,
-// until the record of the one that changed the count is removed.
-func TestACleanupThatChangesTheItemCountStopsLaterCleanups(t *testing.T) {
+// A cleanup after which items it held before are missing is a failure of the
+// pass, said in words naming them, and it is not repeated while they are
+// missing: later passes fail saying why without starting a cleanup, look for
+// the items again once a cleanup interval at most, and resume cleanups on
+// their own once every one of them is back, with no person releasing anything.
+func TestACleanupThatLosesItemsHoldsLaterCleanupsUntilTheyAreBack(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	store := &fakeStore{size: 700 * megabyte, after: 520 * megabyte, items: 812, lose: 2}
+	store := &fakeStore{size: 700 * megabyte, after: 520 * megabyte, items: 812, lose: 2, clock: &f.now}
 	record := withTrackerStore(t, f, store)
 
 	recorded := f.pass1(t)
 	step := stepNamed(t, recorded, StepTrackerCleanup)
-	for _, want := range []string{"812 work items before and 810 after, calc-1, calc-2 missing", "may have lost work items", "no cleanup runs again until that is looked at and its record is removed from " + record.Path()} {
+	for _, want := range []string{"812 work items before and 810 after, calc-1, calc-2 missing", "may have lost work items", "cleanups resume on their own once all of them are back in the store"} {
 		if step.Outcome != runstate.StepFailed || !strings.Contains(step.Detail, want) {
 			t.Errorf("cleanup step = %+v, want it failed saying %q", step, want)
 		}
 	}
 	if !strings.Contains(recorded.Problem, "may have lost work items") {
-		t.Errorf("pass problem = %q, want the changed count said as the pass's problem", recorded.Problem)
+		t.Errorf("pass problem = %q, want the loss said as the pass's problem", recorded.Problem)
 	}
 	cleanups, err := record.Read()
-	if err != nil || len(cleanups) != 1 || !cleanups[0].ItemsChanged() || cleanups[0].ItemsBefore != 812 || cleanups[0].ItemsAfter != 810 {
-		t.Fatalf("cleanups = %+v, %v, want the cleanup recorded with both counts", cleanups, err)
+	if err != nil || len(cleanups) != 1 || !cleanups[0].Lost() || cleanups[0].ItemsBefore != 812 || cleanups[0].ItemsAfter != 810 {
+		t.Fatalf("cleanups = %+v, %v, want the cleanup recorded with both counts and what is missing", cleanups, err)
 	}
-
-	// A day later the store is due again by time, and is still not cleaned up.
 	store.mu.Lock()
 	store.lose = 0
 	store.mu.Unlock()
-	f.now = f.now.Add(25 * time.Hour)
-	later := f.pass1(t)
-	step = stepNamed(t, later, StepTrackerCleanup)
-	if step.Outcome != runstate.StepFailed || !strings.Contains(step.Detail, "its last cleanup, at ") || !strings.Contains(step.Detail, cleanups[0].File) || later.Problem == "" {
-		t.Errorf("cleanup step a day later = %+v, problem %q, want it failed naming the record that holds cleanups back", step, later.Problem)
-	}
-	if asked := store.cleanups(); len(asked) != 1 {
-		t.Errorf("cleanups asked = %v, want none after the one that changed the count", asked)
-	}
 
-	if err := os.Remove(filepath.Join(record.Path(), cleanups[0].File)); err != nil {
-		t.Fatal(err)
+	held := func(when, want string, looked int) {
+		t.Helper()
+		later := f.pass1(t)
+		step := stepNamed(t, later, StepTrackerCleanup)
+		if step.Outcome != runstate.StepFailed || !strings.Contains(step.Detail, want) || !strings.Contains(step.Detail, "no cleanup runs while any of them is missing") || later.Problem == "" {
+			t.Errorf("cleanup step %s = %+v, problem %q, want it failed saying %q", when, step, later.Problem, want)
+		}
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		if len(store.asked) != 1 || store.looked != looked {
+			t.Errorf("%s: cleanups asked %v, looked %d times, want no cleanup and %d looks", when, store.asked, store.looked, looked)
+		}
 	}
 	f.now = f.now.Add(11 * time.Minute)
+	held("before a cleanup is due", "the pass looks for them again when the next cleanup is due", 0)
+	f.now = f.now.Add(25 * time.Hour)
+	held("once a cleanup is due", "calc-1, calc-2 still missing", 1)
+	f.now = f.now.Add(11 * time.Minute)
+	held("ten minutes after looking", "the pass looks for them again when the next cleanup is due", 1)
+
+	store.mu.Lock()
+	store.gone = nil
+	store.mu.Unlock()
+	f.now = f.now.Add(25 * time.Hour)
+	step = stepNamed(t, f.pass1(t), StepTrackerCleanup)
+	if step.Outcome != runstate.StepRan || !strings.Contains(step.Detail, "found missing (calc-1, calc-2) are all in the store again") {
+		t.Errorf("cleanup step once the items are back = %+v, want a cleanup run saying why", step)
+	}
+	f.now = f.now.Add(11 * time.Minute)
+	if step := stepNamed(t, f.pass1(t), StepTrackerCleanup); step.Outcome != runstate.StepSkipped {
+		t.Errorf("cleanup step after the hold ended = %+v, want the ordinary not-due skip", step)
+	}
+}
+
+// A cleanup whose count changed only because another process created items
+// while it ran is reported as a failure in words naming the added items, and
+// holds nothing back: nothing it held before is missing.
+func TestACleanupWhoseCountRoseOnlyHoldsNothingBack(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	store := &fakeStore{size: 700 * megabyte, after: 520 * megabyte, items: 812, add: 1, clock: &f.now}
+	record := withTrackerStore(t, f, store)
+
+	recorded := f.pass1(t)
+	step := stepNamed(t, recorded, StepTrackerCleanup)
+	for _, want := range []string{"812 work items before and 813 after, calc-813 added meanwhile", "no item it held before is missing", "the next cleanup runs when it is due"} {
+		if step.Outcome != runstate.StepFailed || !strings.Contains(step.Detail, want) {
+			t.Errorf("cleanup step = %+v, want it failed saying %q", step, want)
+		}
+	}
+	if cleanups, err := record.Read(); err != nil || len(cleanups) != 1 || cleanups[0].Lost() || !cleanups[0].ItemsChanged() {
+		t.Fatalf("cleanups = %+v, %v, want a changed count recorded with nothing lost", cleanups, err)
+	}
+	store.mu.Lock()
+	store.add = 0
+	store.mu.Unlock()
+	f.now = f.now.Add(11 * time.Minute)
+	if step := stepNamed(t, f.pass1(t), StepTrackerCleanup); step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "the next cleanup is due at") {
+		t.Errorf("cleanup step at the next pass = %+v, want the ordinary not-due skip", step)
+	}
+	f.now = f.now.Add(25 * time.Hour)
 	if step := stepNamed(t, f.pass1(t), StepTrackerCleanup); step.Outcome != runstate.StepRan {
-		t.Errorf("cleanup step once the record is removed = %+v, want a cleanup run", step)
+		t.Errorf("cleanup step a day later = %+v, want a cleanup run", step)
+	}
+	if store.looked != 0 {
+		t.Errorf("looked for missing items %d times, want none", store.looked)
 	}
 }
 
