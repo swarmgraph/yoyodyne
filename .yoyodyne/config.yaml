@@ -317,6 +317,11 @@ recurring_tasks:
       the oldest is, and any question for the operator at the top. When
       nothing is waiting, say NOTHING WAITING and stop.
 
+# The one host the harness fetches pinned outside files from: Chart.js for the
+# dashboard (internal/dashboard/assets). The size limit is the default.
+outside_files:
+  hosts: [cdn.jsdelivr.net]
+
 approvals:
   brief: human
   goals: human

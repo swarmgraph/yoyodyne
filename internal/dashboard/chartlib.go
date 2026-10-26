@@ -1,74 +1,103 @@
 package dashboard
 
-// The backlog page draws with Chart.js at one exact version, checked into the
-// assets beside a record of it, as the observability-and-dashboard design's
-// "the chart library" rules: served by the dashboard itself, so the policy
-// stays script-src 'self' and nothing is fetched from a CDN.
+// The backlog page draws with Chart.js at one exact version, kept in the
+// assets, as the observability-and-dashboard design's "the chart library"
+// rules: served by the dashboard itself, so the policy stays script-src 'self'
+// and the browser fetches nothing from a CDN.
 //
-// The library is the one script here that this project did not write, so two
-// files go in together and neither goes in alone:
+// The library is a pinned outside file (docs/designs/pinned-outside-files.md):
+// nobody checks it in by hand. Its record, assets/chart.umd.js.yoyodyne-source.yaml,
+// says the exact version, the address, and the license, and the harness fetches
+// assets/chart.umd.js and its license, assets/chart.js-LICENSE.md, from the
+// address each record gives and writes the file's checksum into the record.
+// This file reads what those records say and nothing else:
 //
-//   - assets/chart.umd.js, the file the chart.js npm package ships as
-//     package/dist/chart.umd.js, byte for byte;
-//   - assets/chartjs.md, its record: a "Version:" line with the exact version
-//     (three numbers, no range), a "Source:" line saying where the file was
-//     taken from, a "SHA-256:" line with the file's checksum in hex, and the
-//     package's MIT license text below them.
+//   - the version and the checksum come from the library's record;
+//   - the license text comes from the license file that record names.
 //
-// TestTheVendoredChartLibraryMatchesItsRecord holds the two to each other.
-// Changing the version is replacing both in one reviewed change. Until the
-// library is checked in, the backlog page loads no chart script and shows its
-// figures as a table, saying the chart library is not in this build.
+// The library is loaded only where it matches its record: its checksum is the
+// one recorded, it names the recorded version, and its MIT license is beside
+// it. TestTheChartLibraryMatchesItsPinnedRecord holds the build's own assets to
+// that. Until the harness has fetched the library, the backlog page loads no
+// chart script and shows its figures as a table, saying the chart library is
+// not in this build. Changing the version is changing the record's address and
+// version in a reviewed change, and the harness fetches the new file.
 
 import (
-	"bufio"
-	"bytes"
+	"errors"
+	"fmt"
 	"io/fs"
 	"strings"
+
+	"github.com/mason-bryant/yoyodyne/internal/outsidefile"
 )
 
 const (
-	// chartLibraryAsset is the vendored library, and chartLibraryRecord the
-	// record beside it.
+	// chartLibraryAsset is the pinned library, and chartLibraryRecord the
+	// harness's record of it.
 	chartLibraryAsset  = "assets/chart.umd.js"
-	chartLibraryRecord = "assets/chartjs.md"
+	chartLibraryRecord = chartLibraryAsset + outsidefile.RecordSuffix
 )
 
-// chartLibraryPresent says whether this build carries the chart library, which
-// decides whether the backlog page loads it.
-func chartLibraryPresent() bool {
-	_, err := fs.Stat(assets, chartLibraryAsset)
-	return err == nil
-}
+// chartLibraryLicense is text the MIT license file has to carry.
+var chartLibraryLicense = []string{"MIT License", "Permission is hereby granted, free of charge", "Chart.js"}
 
-// chartRecord is what the record says of the vendored library.
-type chartRecord struct {
-	Version string
-	Source  string
-	SHA256  string
+// errNoChartLibrary is a build the harness has not yet fetched the library
+// into.
+var errNoChartLibrary = errors.New("the chart library is not in this build")
+
+// chartLibrary is what the library's record says of it, read with the library.
+type chartLibrary struct {
+	Record  outsidefile.Record
 	License string
 }
 
-// readChartRecord reads the record's three lines and keeps the rest as the
-// license text.
-func readChartRecord(content []byte) chartRecord {
-	var record chartRecord
-	var license strings.Builder
-	scanner := bufio.NewScanner(bytes.NewReader(content))
-	for scanner.Scan() {
-		line := scanner.Text()
-		switch {
-		case strings.HasPrefix(line, "Version:"):
-			record.Version = strings.TrimSpace(strings.TrimPrefix(line, "Version:"))
-		case strings.HasPrefix(line, "Source:"):
-			record.Source = strings.TrimSpace(strings.TrimPrefix(line, "Source:"))
-		case strings.HasPrefix(line, "SHA-256:"):
-			record.SHA256 = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "SHA-256:")))
-		default:
-			license.WriteString(line)
-			license.WriteString("\n")
+// chartLibraryIn reads the library and its record from files. It is
+// errNoChartLibrary where the library is absent, and any other error is the
+// library and its record disagreeing, which leaves the page without a chart.
+func chartLibraryIn(files fs.FS) (chartLibrary, error) {
+	library, libraryErr := fs.ReadFile(files, chartLibraryAsset)
+	content, recordErr := fs.ReadFile(files, chartLibraryRecord)
+	switch {
+	case libraryErr != nil && errors.Is(libraryErr, fs.ErrNotExist):
+		return chartLibrary{}, errNoChartLibrary
+	case libraryErr != nil:
+		return chartLibrary{}, libraryErr
+	case recordErr != nil:
+		return chartLibrary{}, fmt.Errorf("%s is in this build without %s, the record of its version, checksum, and license: %w", chartLibraryAsset, chartLibraryRecord, recordErr)
+	}
+	record, err := outsidefile.ParseRecord(chartLibraryRecord, content)
+	if err != nil {
+		return chartLibrary{}, err
+	}
+	if record.SHA256 == "" {
+		return chartLibrary{}, fmt.Errorf("%s records no checksum for %s", chartLibraryRecord, chartLibraryAsset)
+	}
+	if got := outsidefile.Checksum(library); got != record.SHA256 {
+		return chartLibrary{}, fmt.Errorf("%s has SHA-256 %s; %s records %s", chartLibraryAsset, got, chartLibraryRecord, record.SHA256)
+	}
+	if !strings.Contains(string(library), record.Version) {
+		return chartLibrary{}, fmt.Errorf("%s does not name version %s, which %s says it is", chartLibraryAsset, record.Version, chartLibraryRecord)
+	}
+	if record.License != "MIT" {
+		return chartLibrary{}, fmt.Errorf("%s records license %q, not MIT", chartLibraryRecord, record.License)
+	}
+	licensePath := record.LicensePath(chartLibraryRecord)
+	license, err := fs.ReadFile(files, licensePath)
+	if err != nil {
+		return chartLibrary{}, fmt.Errorf("%s is in this build without %s, the license its record names: %w", chartLibraryAsset, licensePath, err)
+	}
+	for _, expected := range chartLibraryLicense {
+		if !strings.Contains(string(license), expected) {
+			return chartLibrary{}, fmt.Errorf("%s lacks %q from the license text", licensePath, expected)
 		}
 	}
-	record.License = license.String()
-	return record
+	return chartLibrary{Record: record, License: string(license)}, nil
+}
+
+// chartLibraryLoads says whether the backlog page loads the library from
+// files: it is there and matches its record.
+func chartLibraryLoads(files fs.FS) bool {
+	_, err := chartLibraryIn(files)
+	return err == nil
 }

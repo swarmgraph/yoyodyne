@@ -187,6 +187,9 @@ type Server struct {
 	// text and is escaped like everything else.
 	Product string
 	reader  Reader
+	// files is where the page's scripts, style, and chart library are served
+	// from: the binary's own assets, unless a test hands it others.
+	files fs.FS
 
 	// access guards who the server accepts, which the process that started it
 	// replaces while it runs: the shared token, every person's own token, and
@@ -672,15 +675,15 @@ func (s *Server) servePage(writer http.ResponseWriter) {
 // serveBacklogPage is the backlog page's shell, served without a token for the
 // same reason the main shell is: it is static text the page's script fills
 // from /api/backlog, which is behind the token. It loads the chart library
-// only where this build carries it (chartlib.go), so a build without it asks
-// for nothing that is not there.
+// only where this build carries it and it matches its record (chartlib.go), so
+// a build without it asks for nothing that is not there.
 func (s *Server) serveBacklogPage(writer http.ResponseWriter) {
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 	writer.WriteHeader(http.StatusOK)
 	_ = backlogShell.Execute(writer, struct {
 		Product      string
 		ChartLibrary bool
-	}{Product: s.Product, ChartLibrary: chartLibraryPresent()})
+	}{Product: s.Product, ChartLibrary: chartLibraryLoads(s.assetFiles())})
 }
 
 // serveReading is one reading of the read model as JSON, whole or refused. What
@@ -813,7 +816,7 @@ func (s *Server) serveProgramManager(writer http.ResponseWriter, request *http.R
 // text with nothing of the read model in them.
 func (s *Server) serveAsset(writer http.ResponseWriter, request *http.Request) {
 	name := strings.TrimPrefix(request.URL.Path, "/")
-	content, err := fs.ReadFile(assets, name)
+	content, err := fs.ReadFile(s.assetFiles(), name)
 	if err != nil || strings.HasSuffix(name, ".html") {
 		refuse(writer, request, http.StatusNotFound, "nothing is served at that path")
 		return
@@ -830,6 +833,15 @@ func (s *Server) serveAsset(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodHead {
 		_, _ = writer.Write(content)
 	}
+}
+
+// assetFiles is what serveAsset serves and the backlog page looks for the
+// chart library in.
+func (s *Server) assetFiles() fs.FS {
+	if s.files != nil {
+		return s.files
+	}
+	return assets
 }
 
 // refuse is every refusal: JSON for a caller that asked for it or is at an API
