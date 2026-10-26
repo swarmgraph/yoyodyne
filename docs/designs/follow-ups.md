@@ -14,6 +14,10 @@ revisions:
       by: architect
       at: 2026-10-25T01:27:14.437043Z
       reason: The design for fewer lifecycle states asks this design to take in every wait and hold. The brake's trip, the pause for an exhausted endpoint, the readiness check's parking, and the dependency wait and wait to land now write follow-ups. The record gains whether a wait keeps a stop listed, and an unknown recovery result writes such a wait. The paced endpoint probe is named as how the provider check runs where there is no reset, and the list of designs it changes now says what has landed. Read whole at main e1e232af.
+    - action: amended
+      by: architect
+      at: 2026-10-26T22:16:05.275773Z
+      reason: 'Answers report-a7df0a29: the account of the Xcode license stop now matches the diagnosis of it. The step was posted and sent to the operator directly once and never repeated, not shown only as a line on a list, and the stop began at about 17:36 PDT. Read whole at main 1d382a58; nothing else in the design changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -25,6 +29,11 @@ approvals:
       by: harness
       at: 2026-10-25T01:27:14.437043Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1670, for document-1670.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-10-26T22:16:05.275773Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1816, for document-1816.1 under the automatic approval policy
 ---
 # Follow-ups: every wait has an owner, a check the harness runs, and two deadlines
 
@@ -35,7 +44,7 @@ Serves the autonomy goal: the operator states intent and answers what only he ca
 - the development manager waited to hear how a trial run of the hold on new work went, and nothing told her;
 - the conditions on scoped local race checks (yoyodyne-ifd.429.46) waited six days for her confirmation;
 - asks to the operator went unanswered and nothing came back to the role that asked;
-- the Xcode license on the operator's Mac was not accepted from about 17:45 PDT on October 23 to 11:49 PDT on October 24, every check failed, and the factory stood still for about 19 hours, because the step reached him only as one line on a list and nothing checked whether it had been done.
+- the Xcode license on the operator's Mac was not accepted from about 17:36 PDT on October 23 to 11:49 PDT on October 24, every check failed, and the factory stood still for about 19 hours. The step he had to take was posted in the channel and sent to him directly once, at about 17:40 PDT, among hundreds of other messages. It was never said again, every message that did repeat named the hold on new work rather than the step, and nothing checked whether the step had been done. The [diagnosis of that stop](../diagnoses/yoyodyne-ifd-432-25-18-license-step-said-once.md) records what Slack carried in those hours.
 
 The operator asked on October 24 for follow-ups that work mechanically (yoyodyne-ifd.432.25.20). This design says what a follow-up is, what creates one, what ends one, what happens when one is late, and how the waits that exist today are brought in.
 
