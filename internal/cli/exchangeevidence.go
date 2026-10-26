@@ -509,9 +509,15 @@ func (r exchangeEvidenceReaders) readReport(_ context.Context, id string) (excha
 }
 
 // readTurn is one turn of a conversation: what was said to the role since its
-// previous reply, and its reply. A turn is counted by the role's replies, from
-// one. The exchange package has already refused a conversation neither party
-// holds; this reads only the turn named, never the history around it.
+// previous turn, and its reply. Turns are counted from one the way the
+// conversation counts them, one for each provider call that completed, so a
+// turn number here is the number the conversation's own records use. One call
+// can log several agent messages — Codex logs each one it sees and Claude Code
+// one per block of text — and the reply is the last of them, which is the final
+// text the turn took. A call that failed is not a turn, and what was said
+// before it is carried to the call that retried it. The exchange package has
+// already refused a conversation neither party holds; this reads only the turn
+// named, never the history around it.
 func (r exchangeEvidenceReaders) readTurn(_ context.Context, id string) (exchange.EvidenceRecord, error) {
 	conversation, number, err := exchange.SplitTurn(id)
 	if err != nil {
@@ -525,23 +531,32 @@ func (r exchangeEvidenceReaders) readTurn(_ context.Context, id string) (exchang
 		return exchange.EvidenceRecord{}, err
 	}
 	var said []string
-	replies := 0
-	for _, event := range events {
+	var reply *execution.Event
+	turns := 0
+	for i, event := range events {
 		switch event.Type {
 		case execution.EventOperatorMessage:
 			said = append(said, eventText(event))
 		case execution.EventAgentMessage:
-			replies++
-			if replies < number {
-				said = nil
+			reply = &events[i]
+		case execution.EventRunFailed:
+			reply = nil
+		case execution.EventRunCompleted:
+			turns++
+			if turns < number {
+				said, reply = nil, nil
 				continue
 			}
 			var rendered strings.Builder
-			fmt.Fprintf(&rendered, "conversation %s, turn %d, replied %s\n", conversation, number, exchange.LocalTime(event.Timestamp))
+			fmt.Fprintf(&rendered, "conversation %s, turn %d, completed %s\n", conversation, number, exchange.LocalTime(event.Timestamp))
 			for _, message := range said {
 				fmt.Fprintf(&rendered, "\nsaid to the role:\n%s\n", message)
 			}
-			fmt.Fprintf(&rendered, "\nthe role replied:\n%s\n", eventText(event))
+			if reply != nil {
+				fmt.Fprintf(&rendered, "\nthe role replied:\n%s\n", eventText(*reply))
+			} else {
+				rendered.WriteString("\nthe role's reply is not in the log\n")
+			}
 			return exchange.EvidenceRecord{
 				Source:   "the conversation log",
 				Revision: fmt.Sprintf("event %d", event.Sequence),

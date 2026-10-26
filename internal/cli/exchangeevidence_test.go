@@ -329,13 +329,22 @@ func (f fixedConversations) LoadEvents(id string) ([]execution.Event, error) {
 	return f.events[id], nil
 }
 
-// A turn is what was said to the role and its reply, counted by replies, and
-// only of a party's own conversation; a turn past the end is absent.
+// A turn is what was said to the role and its reply, counted as the
+// conversation counts turns — one per provider call that completed — and only
+// of a party's own conversation; a turn past the end is absent. One call that
+// logged several agent messages is one turn whose reply is the last of them,
+// and a call that failed is not a turn.
 func TestATurnIsOneTurnOfAPartysOwnConversation(t *testing.T) {
 	t.Parallel()
 
-	event := func(sequence uint64, kind execution.EventType, text string) execution.Event {
-		made, err := execution.NewEvent("chat-architect", sequence, evidenceRaised, kind, "harness.chat", map[string]any{"text": text})
+	sequence := uint64(0)
+	event := func(kind execution.EventType, text string) execution.Event {
+		sequence++
+		payload := map[string]any{}
+		if text != "" {
+			payload["text"] = text
+		}
+		made, err := execution.NewEvent("chat-architect", sequence, evidenceRaised, kind, "harness.chat", payload)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -346,16 +355,29 @@ func TestATurnIsOneTurnOfAPartysOwnConversation(t *testing.T) {
 		conversations: fixedConversations{
 			conversations: []runstate.Conversation{{ConversationID: "chat-architect", Role: domain.RoleArchitect}, {ConversationID: "chat-pm", Role: domain.RoleProductManager}},
 			events: map[string][]execution.Event{"chat-architect": {
-				event(1, execution.EventOperatorMessage, "first question"),
-				event(2, execution.EventAgentMessage, "first reply"),
-				event(3, execution.EventOperatorMessage, "second question"),
-				event(4, execution.EventAgentMessage, "the ruling is drafted, not published"),
+				event(execution.EventOperatorMessage, "first question"),
+				event(execution.EventRunStarted, ""),
+				event(execution.EventAgentMessage, "looking at the repository first"),
+				event(execution.EventAgentMessage, "first reply"),
+				event(execution.EventRunCompleted, ""),
+				event(execution.EventOperatorMessage, "second question"),
+				event(execution.EventRunStarted, ""),
+				event(execution.EventAgentMessage, "a reply that never finished"),
+				event(execution.EventRunFailed, ""),
+				event(execution.EventRunStarted, ""),
+				event(execution.EventAgentMessage, "the ruling is drafted, not published"),
+				event(execution.EventRunCompleted, ""),
 			}},
 		},
 	}
-	turn := resolveOne(t, readers, exchange.Reference{What: "turn", ID: "chat-architect#2"})
-	if turn.Status != exchange.EvidenceAttached || !strings.Contains(turn.Text, "second question") || !strings.Contains(turn.Text, "the ruling is drafted, not published") || strings.Contains(turn.Text, "first") {
-		t.Errorf("turn = %#v, want the second turn and nothing around it", turn)
+	first := resolveOne(t, readers, exchange.Reference{What: "turn", ID: "chat-architect#1"})
+	if first.Status != exchange.EvidenceAttached || !strings.Contains(first.Text, "first question") || !strings.Contains(first.Text, "the role replied:\nfirst reply") || strings.Contains(first.Text, "second") {
+		t.Errorf("turn 1 = %#v, want the first call with its last message as the reply", first)
+	}
+	second := resolveOne(t, readers, exchange.Reference{What: "turn", ID: "chat-architect#2"})
+	if second.Status != exchange.EvidenceAttached || !strings.Contains(second.Text, "second question") ||
+		!strings.Contains(second.Text, "the ruling is drafted, not published") || strings.Contains(second.Text, "first") || strings.Contains(second.Text, "never finished") {
+		t.Errorf("turn 2 = %#v, want the second completed call and nothing around it", second)
 	}
 	if past := resolveOne(t, readers, exchange.Reference{What: "turn", ID: "chat-architect#3"}); past.Status != exchange.EvidenceAbsent {
 		t.Errorf("past = %#v, want absent", past)
