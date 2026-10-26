@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/usage"
 )
 
 // Account is one provider account the harness runs agents under, named by the
@@ -74,6 +75,14 @@ type Account struct {
 	// it as "no limit" would put the account back in full rotation at exactly the
 	// moment they meant to take it out.
 	WeeklyBudgetUSD *float64 `yaml:"weekly_budget_usd,omitempty" json:"weekly_budget_usd,omitempty"`
+	// Billing is how the account is paid for: `api_key` per token at the
+	// provider's API prices, `subscription`, or `credits` bought from the
+	// provider. It is what decides whether a cost the harness works out for a
+	// call the provider did not price is money spent, a comparison at API prices,
+	// or credits, so it is stated here rather than inferred from a model or a
+	// provider. Unstated is `not_recorded`, and such a call's cost is shown as
+	// unknown rather than guessed. See docs/designs/provider-usage-and-cost.md.
+	Billing usage.BillingMode `yaml:"billing,omitempty" json:"billing,omitempty"`
 }
 
 // Budgeted reports an account the operator has put a weekly limit on, and what
@@ -190,6 +199,12 @@ func (c Config) AccountProvider(alias string) domain.Backend {
 		return domain.BackendClaudeCode
 	}
 	return ""
+}
+
+// AccountBilling is how the named account is paid for, and not recorded where
+// its configuration does not say or names no such account.
+func (c Config) AccountBilling(alias string) usage.BillingMode {
+	return c.Accounts[strings.TrimSpace(alias)].Billing.OrNotRecorded()
 }
 
 // accountHasOwnHome reports an alias the harness points a provider at a home of
@@ -469,6 +484,9 @@ func (c Config) accountProblems() []string {
 		account := c.Accounts[alias]
 		if description := account.Description; len(description) > MaxAccountDescriptionBytes {
 			problems = append(problems, fmt.Sprintf("accounts.%s.description is %d bytes, limit is %d", alias, len(description), MaxAccountDescriptionBytes))
+		}
+		if !account.Billing.Valid() {
+			problems = append(problems, fmt.Sprintf("accounts.%s.billing is %q, and an account is billed by %q, %q, or %q, or says %q", alias, account.Billing, usage.BillingAPIKey, usage.BillingSubscription, usage.BillingCredits, usage.BillingNotRecorded))
 		}
 		if !account.Pool.Valid() {
 			problems = append(problems, fmt.Sprintf("accounts.%s.pool is %q, and an account is %q or %q", alias, account.Pool, PoolActive, PoolReserved))

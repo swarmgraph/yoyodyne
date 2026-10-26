@@ -16,6 +16,7 @@ package chat
 import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/spend"
+	"github.com/mason-bryant/yoyodyne/internal/usage"
 )
 
 // spendAttribution is what this turn's invocation is charged to. The role and
@@ -30,7 +31,16 @@ func (s *Session) spendAttribution() spend.Attribution {
 		ConfigRevision: s.options.ConfigRevision,
 		Backend:        s.options.Provider,
 		ConversationID: s.state.ConversationID,
+		Billing:        s.billing(s.options.AccountAlias),
 	}
+}
+
+// billing is how the named account is paid for, as the configuration says.
+func (s *Session) billing(alias string) usage.BillingMode {
+	if s.options.AccountBilling == nil {
+		return usage.BillingNotRecorded
+	}
+	return s.options.AccountBilling(alias)
 }
 
 // countSpend takes one invocation's own cost off the line the meter has just
@@ -61,5 +71,6 @@ func (s *Session) failoverAttribution() spend.Attribution {
 	attribution := s.spendAttribution()
 	attribution.AccountAlias = s.options.FailoverEndpoint.AccountAlias
 	attribution.Backend = s.options.FailoverEndpoint.Provider
+	attribution.Billing = s.billing(s.options.FailoverEndpoint.AccountAlias)
 	return attribution
 }

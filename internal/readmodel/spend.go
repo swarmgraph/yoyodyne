@@ -64,6 +64,12 @@ type SpendSources struct {
 	// reporting nothing spent.
 	Ledger        Ledger
 	LedgerProblem string
+	// Calls is the spend ledger, one line per provider call, which is where a
+	// call's cost is recorded as the kind it is: reported by the provider,
+	// estimated, a comparison at API prices, or unknown. CallsProblem is why it
+	// could not be opened.
+	Calls        SpendCalls
+	CallsProblem string
 	// Now stamps the reading and anchors both windows. It defaults to the wall
 	// clock and is injected so a test can pin a moment.
 	Now func() time.Time
@@ -74,6 +80,12 @@ func (s SpendSources) now() time.Time {
 		return s.Now()
 	}
 	return time.Now()
+}
+
+// SpendCalls is the spend ledger's lines. It is satisfied by
+// *runstate.SpendStore.
+type SpendCalls interface {
+	List() ([]runstate.Spend, error)
 }
 
 // SpendWindow is what one window cost, labeled with what it covers.
@@ -104,6 +116,12 @@ type SpendWindow struct {
 	// surface does not have to know why.
 	Unpriced int  `json:"unpriced"`
 	Floor    bool `json:"floor"`
+	// CostKinds is the window's calls in the spend ledger by kind of cost, never
+	// added together, summed by runstate.KindsOf -- the one summation every
+	// surface showing cost by kind reads -- and CostKindsText the same in
+	// words. Both are absent where the ledger could not be read.
+	CostKinds     *runstate.CostKinds `json:"cost_kinds,omitempty"`
+	CostKindsText string              `json:"cost_kinds_text,omitempty"`
 }
 
 // SpendDay is one local day of the listing: what that day cost and on what.
@@ -150,6 +168,8 @@ type Spend struct {
 	// Problem is set where the spend could not be read; every figure is then
 	// nothing rather than zero, and this says why.
 	Problem string `json:"problem,omitempty"`
+	// CostKindsProblem is why the windows carry no cost by kind.
+	CostKindsProblem string `json:"cost_kinds_problem,omitempty"`
 }
 
 // ReadSpend assembles the windows and the month from the recorded spend. One
@@ -201,6 +221,8 @@ func ReadSpend(ctx context.Context, sources SpendSources) Spend {
 		sumInto(window, report.Since(window.SinceDay))
 	}
 
+	readCostKinds(&reading, sources)
+
 	reading.Days = make([]SpendDay, 0, listedSpendDays)
 	for back := 0; back < listedSpendDays; back++ {
 		day := runstate.LocalDay(startOfLocalDay(now, back+1))
@@ -213,6 +235,28 @@ func ReadSpend(ctx context.Context, sources SpendSources) Spend {
 	reading.Undated = SpendDay{Day: runstate.UndatedDay, Reached: true, Kinds: []KindSpend{}}
 	reading.Undated.CostUSD, reading.Undated.Invocations, reading.Undated.Kinds, reading.Undated.Tokens, reading.Undated.CostText = onlyDay(report, runstate.UndatedDay)
 	return reading
+}
+
+// readCostKinds puts each window's calls in the spend ledger, by kind of cost,
+// onto the window. A window covers a call recorded at or after its first
+// instant.
+func readCostKinds(reading *Spend, sources SpendSources) {
+	if sources.Calls == nil {
+		reading.CostKindsProblem = absent("the spend ledger", sources.CallsProblem)
+		return
+	}
+	lines, err := sources.Calls.List()
+	if err != nil {
+		reading.CostKindsProblem = fmt.Sprintf("the spend ledger could not be read: %v", err)
+		return
+	}
+	for index := range reading.Windows {
+		window := &reading.Windows[index]
+		since := window.Since
+		kinds := runstate.KindsOf(lines, func(line runstate.Spend) bool { return !line.At.Before(since) })
+		window.CostKinds = &kinds
+		window.CostKindsText = kinds.Text()
+	}
 }
 
 // spendWindows are the two windows every reading covers, with what each covers

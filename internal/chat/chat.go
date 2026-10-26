@@ -45,6 +45,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/spend"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
+	"github.com/mason-bryant/yoyodyne/internal/usage"
 )
 
 // untypedIssueType is the Beads type of an item created from this conversation
@@ -605,6 +606,11 @@ type Options struct {
 	// loading one.
 	AccountAlias   string
 	ConfigRevision string
+	// AccountBilling says how an account is paid for, by alias, so a turn's
+	// spend says whether a cost worked out for it is money spent or only a
+	// comparison. It is the configuration's own answer handed in, and nil is
+	// every account's billing not recorded.
+	AccountBilling func(alias string) usage.BillingMode
 	// Build is the repository revision the harness binary holding this
 	// conversation was built from, recorded on the conversation with the pair
 	// above. It is supplied for the reason they are — the conversation is handed

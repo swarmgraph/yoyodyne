@@ -730,6 +730,11 @@ func spendSources(stateRoot string, productID domain.ProductID) readmodel.SpendS
 	} else {
 		sources.Ledger = store
 	}
+	if calls, err := runstate.NewSpendStore(stateRoot, productID); err != nil {
+		sources.CallsProblem = err.Error()
+	} else {
+		sources.Calls = calls
+	}
 	return sources
 }
 

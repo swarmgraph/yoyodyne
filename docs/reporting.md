@@ -23,9 +23,11 @@ beside the developer's. One item in this repository cost roughly twenty-eight
 dollars across a rejected attempt and a successful one; a per-run view shows two
 numbers and this shows the truth.
 
-Every figure is the provider's own report of what an invocation cost, read from
-the run's event log, never an estimate from a price table that drifts the moment
-a provider changes what it charges.
+Every figure in the price itself is the provider's own report of what an
+invocation cost, read from the run's event log. Where a provider reports usage
+but no cost, as Codex does, the price leaves that invocation out rather than
+guessing at it, and the spend ledger says what kind of cost it was instead: see
+[cost by kind](#cost-by-kind) below.
 
 **What an invocation cost is not always what the provider said it cost.** A
 provider asked to resume a session reports what that session has cost since it
@@ -141,6 +143,7 @@ priced retroactively rather than the ledger starting today.
 ./bin/yoyo cost                     # every item the harness has run, and the total
 ./bin/yoyo cost yoyodyne-ifd.2.7    # one item, broken down by run
 ./bin/yoyo cost --record            # write each price onto its work item
+./bin/yoyo cost --reprice           # append later estimates where the rate data changed
 ./bin/yoyo status --shipped         # the 10 most recently shipped items, with the wall clock beside the price
 ```
 
@@ -149,6 +152,40 @@ What shipped lately, and how long each item took as well as what it cost, is
 the same per-item join, read for the items whose work the harness promoted and
 sorted by when each shipped, with elapsed time from first claim to promotion and
 the part of it spent parked stated separately.
+
+### Cost by kind
+
+Every provider call the harness makes is one line in the spend ledger, and from
+the provider usage and cost design on
+([provider-usage-and-cost](designs/provider-usage-and-cost.md)) each line also
+carries what the call used — fresh input, cached input read, cache writes,
+output, and reasoning, each a measured number, a measured zero, or not reported
+— and its cost as exactly one of four kinds:
+
+- **reported**: the provider's own figure for the call;
+- **estimated**: worked out from the counters and the rate data in
+  `internal/pricing/rates.json`, naming the rate entry and the rate data version,
+  for an account whose `billing` is `api_key`;
+- **comparison only**: what the same use would cost at API prices, for an
+  account billed by `subscription` or `credits` — not money spent — with credits
+  shown apart where the rate data prices them;
+- **unknown**: neither, with the reason, such as an account whose billing is not
+  recorded or a model no rate entry covers.
+
+`yoyo cost`, `yoyo status --spend`, and the dashboard's spend box each print a
+line *by kind of cost, from the spend ledger*, summed by one function, and never
+add two kinds together. The ledger starts later than the event logs and covers
+every call rather than runs alone, so that line is labeled rather than added to
+the price above it. Lines written before the design carry no counters and are
+read with every counter absent and as reported or unknown, never as zero.
+`yoyo cost --reprice` appends a later estimate for each call the current rate
+data prices differently; the earlier figure stays in the ledger beside it, and a
+reported figure is never recalculated.
+
+The rate data ships empty until somebody reads the providers' pricing pages and
+records each price with its page and the day it was checked, as
+`internal/pricing/README.md` describes, so today a Codex call's cost reads as
+unknown with that reason.
 
 ### Where the money went
 
