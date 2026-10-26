@@ -85,6 +85,43 @@ func TestATrackerStoreCleanupFromAnotherProductIsRefused(t *testing.T) {
 	}
 }
 
+// A cleanup's work items are kept either side and read back, and a count that
+// changed is said with what went missing; a failure is said with it.
+func TestATrackerStoreCleanupKeepsItsItemCounts(t *testing.T) {
+	t.Parallel()
+	store, err := NewTrackerStoreCleanupStore(t.TempDir(), "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := TrackerStoreCleanup{StartedAt: time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC), SizeBefore: 885 << 20, SizeAfter: 526 << 20,
+		ItemsBefore: 812, ItemsAfter: 805, ItemsCounted: true, Missing: []string{"calc-1", "calc-2", "calc-3", "calc-4", "calc-5", "calc-6", "calc-7"}}
+	if err := store.Record(changed); err != nil {
+		t.Fatal(err)
+	}
+	cleanups, err := store.Read()
+	if err != nil || len(cleanups) != 1 {
+		t.Fatalf("Read() = %+v, %v", cleanups, err)
+	}
+	read := cleanups[0]
+	if !read.ItemsChanged() || read.ItemsBefore != 812 || read.ItemsAfter != 805 || len(read.Missing) != 7 || read.File == "" {
+		t.Errorf("Read() = %+v, want the counts, the missing items, and the file it was read from", read)
+	}
+	if said := read.Says(); !strings.Contains(said, "812 work items before and 805 after, calc-1, calc-2, calc-3, calc-4, calc-5 and 2 more missing") {
+		t.Errorf("Says() = %q, want the changed count said with what went missing", said)
+	}
+	unchanged := TrackerStoreCleanup{ItemsBefore: 812, ItemsAfter: 812, ItemsCounted: true}
+	if unchanged.ItemsChanged() || unchanged.SaysItems() != "812 work items before and after" {
+		t.Errorf("SaysItems() = %q, changed %t, want the count unchanged", unchanged.SaysItems(), unchanged.ItemsChanged())
+	}
+	// A record written before items were counted says nothing of them.
+	if old := (TrackerStoreCleanup{SizeBefore: 1}); old.ItemsChanged() || old.SaysItems() != "" {
+		t.Errorf("an uncounted cleanup = %q, changed %t, want nothing said", old.SaysItems(), old.ItemsChanged())
+	}
+	if said := (TrackerStoreCleanup{Failed: "disk full"}).Says(); !strings.HasSuffix(said, ", and it failed: disk full") {
+		t.Errorf("Says() = %q, want the failure said", said)
+	}
+}
+
 func TestSizesAreSaidInWords(t *testing.T) {
 	t.Parallel()
 	for size, want := range map[int64]string{512: "512 bytes", 184 << 10: "184 KB", 2 << 20: "2.0 MB", 885 << 20: "885 MB"} {

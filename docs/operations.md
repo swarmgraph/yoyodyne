@@ -430,11 +430,18 @@ Each pass takes eight steps, in this order, and each is recorded:
   has the store open, and says which; and it is stopped once it has held the
   store for `max_hold`, so a call waiting behind it still answers inside its
   own thirty seconds. A store in use, or a cleanup stopped at its hold, is a
-  skip rather than a failure, and the next pass tries again. Each cleanup that
-  ran is recorded under the product's state in `tracker-store-cleanups/`, and
-  the maintenance line in `yoyo status` says the latest:
-  `the tracker's store was last cleaned up at 2026-10-16 05:41 PDT, from 885 MB
-  to 526 MB in 9.0 seconds`.
+  skip rather than a failure, and the next pass tries again. The cleanup counts
+  the store's work items, closed ones included, just before it starts and again
+  once it ends; a store whose items cannot be counted first is not cleaned up.
+  Each cleanup that ran is recorded under the product's state in
+  `tracker-store-cleanups/`, and the maintenance line in `yoyo status` says the
+  latest: `the tracker's store was last cleaned up at 2026-10-16 05:41 PDT, from
+  885 MB to 526 MB in 9.0 seconds, 1483 work items before and after`. A cleanup
+  that fails is a failure of the pass, in bd's own words, recorded, and not tried
+  again until the next cleanup is due. One after which the store holds other work
+  items than before is a failure naming the items missing, and every pass after
+  it fails saying so without starting a cleanup, until that cleanup's record,
+  which the failure names, is removed from `tracker-store-cleanups/`.
 - **rebuild** — what the supervisor's rebuilder last came to. It builds the
   binary on its own thirty-second look when the branch lands something the
   binary is made of (above), so a deploy has a build to take up.

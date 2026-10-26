@@ -29,6 +29,12 @@ const (
 
 func TestMain(m *testing.M) {
 	if lock := os.Getenv(storeHolderVariable); lock != "" {
+		// The cleanup counts the store's items either side of bd's cleanup, and
+		// the stand-in answers that count with an empty store at once.
+		if len(os.Args) > 1 && os.Args[1] == "list" {
+			fmt.Println("[]")
+			return
+		}
 		holdStoreLock(lock, os.Getenv(storeHeldVariable))
 		return
 	}
