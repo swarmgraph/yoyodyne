@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-10-26T22:16:05.275773Z
       reason: 'Answers report-a7df0a29: the account of the Xcode license stop now matches the diagnosis of it. The step was posted and sent to the operator directly once and never repeated, not shown only as a line on a list, and the stop began at about 17:36 PDT. Read whole at main 1d382a58; nothing else in the design changes.'
+    - action: amended
+      by: architect
+      at: 2026-10-26T23:02:00.569465Z
+      reason: 'Answers the last part of report-a7df0a29: this section said no Slack message went out on October 23 and 24, but the diagnosis shows the license step was posted and sent to the operator once and never repeated. Only that sentence changes. Read whole at main c2a456dc.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -34,6 +38,11 @@ approvals:
       by: harness
       at: 2026-10-26T22:16:05.275773Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1816, for document-1816.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-10-26T23:02:00.569465Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1818, for document-1818.1 under the automatic approval policy
 ---
 # Follow-ups: every wait has an owner, a check the harness runs, and two deadlines
 
@@ -167,7 +176,7 @@ Where the operator owns a follow-up and it holds intake or leaves every develope
 
 It repeats every `follow_ups.person_reminder_interval` (default 30 minutes) while the follow-up is open. When the check passes, a last message says the stop has cleared. A follow-up he owns that stops nothing is shown under what is his to decide and in his summary, posted in the channel once, and not sent directly.
 
-This is how a step only a person can take reaches the operator on Slack (yoyodyne-ifd.432.25.18). Finding why no Slack message went out on October 23 and 24 stays that item's own work.
+This is how a step only a person can take reaches the operator on Slack (yoyodyne-ifd.432.25.18). On October 23 the license step was posted and sent to him once and never again, and every message that did repeat named the hold on new work rather than the step, as the [diagnosis of that stop](../diagnoses/yoyodyne-ifd-432-25-18-license-step-said-once.md) records. Finding why the step was not repeated, and why the repeated messages named the hold instead, stays that item's own work.
 
 ## The operator's assistant
 
