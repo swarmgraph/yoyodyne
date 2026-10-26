@@ -1,5 +1,5 @@
 // The page's own script: hold the token, fetch the read model with it, and
-// draw the eight sections, and the merge queues where there are any, from what
+// draw the nine sections, the summary first, and the merge queues where there are any, from what
 // comes back. It is served from this origin
 // because the policy allows script from nowhere else.
 //
@@ -57,8 +57,8 @@ var standingWarningAgeSeconds = 5 * 60;
 
   // Each reading's ordinary clock, the longest it backs off to, and how long
   // an answer may take before it counts as slow.
-  var every = { standing: 10000, throughput: 60000, spend: 60000 };
-  var ceiling = { standing: 60000, throughput: 180000, spend: 180000 };
+  var every = { standing: 10000, summary: 10000, throughput: 60000, spend: 60000 };
+  var ceiling = { standing: 60000, summary: 60000, throughput: 180000, spend: 180000 };
   var slowAnswer = 5000;
   var storageKey = "yoyo-dashboard-token";
 
@@ -80,6 +80,8 @@ var standingWarningAgeSeconds = 5 * 60;
   var model = {
     standing: null,
     standingError: "",
+    summary: null,
+    summaryError: "",
     throughput: null,
     throughputError: "",
     spend: null,
@@ -92,9 +94,14 @@ var standingWarningAgeSeconds = 5 * 60;
   // one pending ask of each, and generation tells a chain started for an
   // earlier token from the current one, so a token entered again never leaves
   // two chains asking.
-  var delays = { standing: every.standing, throughput: every.throughput, spend: every.spend };
+  var delays = { standing: every.standing, summary: every.summary, throughput: every.throughput, spend: every.spend };
   var timers = {};
   var generation = 0;
+  // summaryPeriod is the time the summary counts what landed and what it cost
+  // from, as the reader last chose it, and summaryOpen which of its lines have
+  // their detail open, so a reading taken since keeps them open.
+  var summaryPeriod = "today";
+  var summaryOpen = {};
 
   // ---- small DOM helpers -------------------------------------------------
 
@@ -2938,6 +2945,102 @@ var standingWarningAgeSeconds = 5 * 60;
     return "The dashboard asks again every minute. yoyo status --spend 30 prices the same records at the terminal and names what could not be read.";
   }
 
+  // ---- the summary ----------------------------------------------------------
+
+  // The owner summary is the read model's five answers, each line worded by
+  // the model; the page adds nothing to them but the button that opens what
+  // is behind a line — run records, stop causes, commands — which the summary
+  // keeps out of its lines.
+  function detailToggle(key, lines) {
+    var wrap = el("div", "summary-detail");
+    var button = el("button", "detail-toggle", summaryOpen[key] ? "Hide detail" : "Detail");
+    button.setAttribute("type", "button");
+    button.setAttribute("data-detail", key);
+    button.setAttribute("aria-expanded", summaryOpen[key] ? "true" : "false");
+    var list = el("ul", "detail-lines");
+    lines.forEach(function (line) { list.appendChild(el("li", null, line)); });
+    setHidden(list, !summaryOpen[key]);
+    button.addEventListener("click", function () {
+      summaryOpen[key] = !summaryOpen[key];
+      renderSummary();
+    });
+    wrap.appendChild(button);
+    wrap.appendChild(list);
+    return wrap;
+  }
+
+  function summaryAnswer(answer, at) {
+    var item = el("div", "answer" + (answer.unread ? " answer-unread" : ""));
+    item.appendChild(el("dt", null, answer.heading));
+    var says = el("dd", null);
+    says.appendChild(el("p", "answer-says", answer.says));
+    if ((answer.detail || []).length > 0) {
+      says.appendChild(detailToggle("answer-" + at, answer.detail));
+    }
+    var entries = answer.entries || [];
+    if (entries.length > 0) {
+      var list = el("ul", "answer-lines");
+      entries.forEach(function (entry, index) {
+        var line = el("li", entry.count > 1 ? "grouped" : null);
+        line.appendChild(el("span", "answer-line", entry.line));
+        if ((entry.detail || []).length > 0) {
+          line.appendChild(detailToggle("entry-" + at + "-" + index, entry.detail));
+        }
+        list.appendChild(line);
+      });
+      says.appendChild(list);
+    }
+    item.appendChild(says);
+    return item;
+  }
+
+  function renderSummary() {
+    document.getElementById("summary-today").setAttribute("aria-pressed", summaryPeriod === "today" ? "true" : "false");
+    document.getElementById("summary-week").setAttribute("aria-pressed", summaryPeriod === "week" ? "true" : "false");
+    var summary = model.summary;
+    if (!summary) {
+      section("summary", model.summaryError ? "error" : "loading", model.summaryError, whatToDoAboutTheSummary());
+      return;
+    }
+    if (summary.quiet) {
+      section("summary", "empty", summary.quiet);
+      return;
+    }
+    section("summary", "ready");
+    document.getElementById("summary-since").textContent = "Counted " + summary.since_says + ", in this machine's local time.";
+    var answers = document.getElementById("summary-answers");
+    clear(answers);
+    [summary.landed, summary.published, summary.moving, summary.blocked, summary.failures, summary.decisions, summary.cost].forEach(function (answer, at) {
+      if (answer) {
+        answers.appendChild(summaryAnswer(answer, at));
+      }
+    });
+  }
+
+  function whatToDoAboutTheSummary() {
+    return "The dashboard asks again every ten seconds. yoyo status opens with the same summary at the terminal, and yoyo status --detail prints what is behind each line.";
+  }
+
+  function chooseSummaryPeriod(period) {
+    if (period === summaryPeriod) {
+      return;
+    }
+    summaryPeriod = period;
+    summaryOpen = {};
+    model.summary = null;
+    model.summaryError = "";
+    renderSummary();
+    var current = token();
+    if (current !== "") {
+      window.clearTimeout(timers.summary);
+      delays.summary = every.summary;
+      refresh("summary", current);
+    }
+  }
+
+  document.getElementById("summary-today").addEventListener("click", function () { chooseSummaryPeriod("today"); });
+  document.getElementById("summary-week").addEventListener("click", function () { chooseSummaryPeriod("week"); });
+
   // ---- the page -------------------------------------------------------------
 
   function render() {
@@ -2956,6 +3059,7 @@ var standingWarningAgeSeconds = 5 * 60;
     }
     show("ready");
     renderHeader();
+    renderSummary();
     renderBand();
     renderSpend();
     renderLive();
@@ -3060,19 +3164,30 @@ var standingWarningAgeSeconds = 5 * 60;
   function refresh(name, current) {
     var mine = generation;
     var asked = Date.now();
+    // A summary asked for one period and answered after the reader chose the
+    // other is dropped, and the chain the new choice started is the one that
+    // goes on asking.
+    var period = summaryPeriod;
+    var superseded = function () { return name === "summary" && period !== summaryPeriod; };
     var answered = function (backOff) {
-      if (mine !== generation) {
+      if (mine !== generation || superseded()) {
         return;
       }
       delays[name] = backOff ? Math.min(delays[name] * 2, ceiling[name]) : every[name];
       timers[name] = window.setTimeout(function () { refresh(name, current); }, delays[name]);
     };
-    read("/api/" + name, current, function (reading) {
+    read(name === "summary" ? "/api/summary?since=" + period : "/api/" + name, current, function (reading) {
+      if (superseded()) {
+        return;
+      }
       answered(Date.now() - asked > slowAnswer);
       model[name] = reading;
       model[name + "Error"] = "";
       render();
     }, function (reason) {
+      if (superseded()) {
+        return;
+      }
       answered(true);
       model[name + "Error"] = reason;
       render();
@@ -3080,7 +3195,8 @@ var standingWarningAgeSeconds = 5 * 60;
   }
 
   function start(current) {
-    model = { standing: null, standingError: "", throughput: null, throughputError: "", spend: null, spendError: "", accomplishment: null, accomplishmentError: "" };
+    model = { standing: null, standingError: "", summary: null, summaryError: "", throughput: null, throughputError: "", spend: null, spendError: "", accomplishment: null, accomplishmentError: "" };
+    summaryOpen = {};
     // A page starting over — a token just entered — opens with nothing over it.
     openGrouping = null;
     openCard = null;
@@ -3097,9 +3213,10 @@ var standingWarningAgeSeconds = 5 * 60;
     setHidden(cardPopup, true);
     setHidden(reportPopup, true);
     stopAsking();
-    delays = { standing: every.standing, throughput: every.throughput, spend: every.spend };
+    delays = { standing: every.standing, summary: every.summary, throughput: every.throughput, spend: every.spend };
     render();
     refresh("standing", current);
+    refresh("summary", current);
     refresh("throughput", current);
     refresh("spend", current);
   }

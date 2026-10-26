@@ -484,6 +484,13 @@ type RunningRun struct {
 	// still working are the same phase and different facts, and only the second
 	// is the provider's.
 	AfterReply string `json:"after_reply,omitempty"`
+	// Evidence is the newest result the run's record holds about its current
+	// change, in words — the checks passing or failing, a protected file
+	// refused, or the review's verdict — and empty where nothing has judged it
+	// yet. EvidenceAt is when it was recorded, where the record says. It is what
+	// the owner summary says beside each run in progress (ownersummary.go).
+	Evidence   string    `json:"evidence,omitempty"`
+	EvidenceAt time.Time `json:"evidence_at,omitzero"`
 	// NoProcess says why no process can be found behind the run, and is empty
 	// where one can. A run's record says "running" until something writes its
 	// ending, and a process that dies writes nothing, so a run with no process is
@@ -1382,6 +1389,7 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 				break
 			}
 		}
+		run.Evidence, run.EvidenceAt = evidenceOf(state)
 		run.Subagents = subagentCallsOf(sources.Runs, state, run.NoProcess == "", run.Subagents)
 		// A confirmed document's landing holds no developer slot either, but it is
 		// running rather than paused: it is listed with the running and kept out

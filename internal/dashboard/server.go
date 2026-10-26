@@ -41,9 +41,9 @@
 // page draws with included, where the build carries it (chartlib.go): static
 // text compiled into the binary, with nothing of the read model in it, which
 // is what a browser needs before it can present a token at all.
-// Everything that reads state is behind the token: the standing, the
-// throughput, the spend, the delivery measures at /api/delivery, what the
-// spend accomplished at /api/accomplishment, one work item
+// Everything that reads state is behind the token: the standing, the owner
+// summary at /api/summary, the throughput, the spend, the delivery measures at
+// /api/delivery, what the spend accomplished at /api/accomplishment, one work item
 // at a time at /api/items/<id>, which is
 // what the page opens a card from, and one program manager instance's lane
 // report at a time at /api/program-managers/<agent>, and every work item the
@@ -597,7 +597,7 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 		s.serveBacklogPage(writer)
 	case strings.HasPrefix(request.URL.Path, "/assets/"):
 		s.serveAsset(writer, request)
-	case request.URL.Path == "/api/standing", request.URL.Path == "/api/throughput", request.URL.Path == "/api/spend", request.URL.Path == "/api/backlog", request.URL.Path == "/api/delivery", request.URL.Path == "/api/accomplishment", request.URL.Path == sessionPath, strings.HasPrefix(request.URL.Path, "/api/items/"), strings.HasPrefix(request.URL.Path, "/api/program-managers/"):
+	case request.URL.Path == "/api/standing", request.URL.Path == summaryPath, request.URL.Path == "/api/throughput", request.URL.Path == "/api/spend", request.URL.Path == "/api/backlog", request.URL.Path == "/api/delivery", request.URL.Path == "/api/accomplishment", request.URL.Path == sessionPath, strings.HasPrefix(request.URL.Path, "/api/items/"), strings.HasPrefix(request.URL.Path, "/api/program-managers/"):
 		// The routes that read state, and so the ones the token guards. A
 		// person's own token reads everything the shared one does.
 		person, accepted := s.presenter(request)
@@ -618,6 +618,8 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 			s.serveSnapshot(writer, request, s.accomplishment)
 		case request.URL.Path == "/api/standing":
 			s.serveSnapshot(writer, request, s.standing)
+		case request.URL.Path == summaryPath:
+			s.serveSummary(writer, request)
 		case request.URL.Path == "/api/backlog":
 			s.serveReading(writer, request, func(ctx context.Context) (any, error) { return s.reader.Backlog(ctx) })
 		case strings.HasPrefix(request.URL.Path, "/api/program-managers/"):
@@ -654,8 +656,9 @@ func sharedToken(candidate, token string) bool {
 }
 
 // servePage is the shell: the page with its states — asking for the token,
-// loading, error, ready — and its eight sections, each with an empty, a loading,
-// and an error state of its own, and a ninth, the merge queues, hidden until
+// loading, error, ready — and its nine sections, the owner summary first, each
+// with an empty, a loading, and an error state of its own, and a tenth, the
+// merge queues, hidden until
 // the product has a merge queue record, and nothing of the read model in any of them.
 // It is static text the page's own script then fills from the JSON, so it is
 // served to a browser that has no token yet, which is every browser before it
@@ -737,6 +740,43 @@ func (s *Server) serveSnapshot(writer http.ResponseWriter, request *http.Request
 		return
 	}
 	_, _ = writer.Write(encoded)
+}
+
+// summaryPath is the owner summary: the five answers the page opens with,
+// made from the standing, the throughput, and the spend.
+const summaryPath = "/api/summary"
+
+// serveSummary is the owner summary over the latest snapshot of each of the
+// three readings it is made from, for the period the request names as
+// ?since=today or ?since=week. It builds no reading of its own, so asking for
+// it costs nothing the page's other polls have not already paid; a reading
+// that has never been built, or whose builds have all failed, costs the
+// answers made from it, which say they could not be read, and the summary is
+// still served. A period that is not one of the two is refused, reflecting
+// nothing back.
+func (s *Server) serveSummary(writer http.ResponseWriter, request *http.Request) {
+	period, err := readmodel.ParseSummaryPeriod(request.URL.Query().Get("since"))
+	if err != nil {
+		refuse(writer, request, http.StatusBadRequest, "the summary counts from today or over the last 7 days: ask with since=today or since=week")
+		return
+	}
+	in := readmodel.SummaryInputs{Period: period}
+	if reading, err := s.standing.latest(request.Context()); err != nil {
+		in.StandingProblem = err.Error()
+	} else if standing, ok := reading.(readmodel.Standing); ok {
+		in.Standing = &standing
+	}
+	if reading, err := s.throughput.latest(request.Context()); err != nil {
+		in.ThroughputProblem = err.Error()
+	} else if throughput, ok := reading.(readmodel.Throughput); ok {
+		in.Throughput = &throughput
+	}
+	if reading, err := s.spend.latest(request.Context()); err != nil {
+		in.SpendProblem = err.Error()
+	} else if spend, ok := reading.(readmodel.Spend); ok {
+		in.Spend = &spend
+	}
+	s.serveReading(writer, request, func(context.Context) (any, error) { return readmodel.Summarize(in), nil })
 }
 
 // serveWorkItem is one work item as JSON, whole or refused, for the card the

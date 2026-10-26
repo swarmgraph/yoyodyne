@@ -37,6 +37,20 @@
     <p id="stale" class="stale" role="status" hidden></p>
     <p id="banner" class="banner" role="status" hidden></p>
 
+    <section id="summary" class="panel summary" data-state="loading" aria-labelledby="summary-heading">
+      <div class="panel-head">
+        <h2 id="summary-heading">Summary</h2>
+        <p id="summary-since" class="panel-note">what landed, what is moving, what is blocked, what needs you, and what it cost</p>
+        <p class="summary-periods"><button id="summary-today" type="button" class="period" data-act="summary-today" aria-pressed="true">Today</button> <button id="summary-week" type="button" class="period" data-act="summary-week" aria-pressed="false">Last 7 days</button></p>
+      </div>
+      <div class="section-loading"><p class="waiting"><span class="pulse" aria-hidden="true"></span>Reading…</p></div>
+      <div class="section-error" role="alert"><p id="summary-problem" class="problem"></p><p id="summary-remedy" class="remedy"></p></div>
+      <div class="section-empty"><p id="summary-empty" class="empty"></p></div>
+      <div class="section-ready">
+        <dl id="summary-answers" class="answers"></dl>
+      </div>
+    </section>
+
     <section id="band" class="panel band" data-state="loading" aria-labelledby="band-heading">
       <div class="panel-head">
         <h2 id="band-heading">Where the harness stands</h2>

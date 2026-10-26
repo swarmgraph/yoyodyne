@@ -22,6 +22,104 @@
       <div class="state state-ready">
         <p id="stale" class="stale" role="status" hidden></p>
         <p id="banner" class="banner" role="status" hidden></p>
+        <section id="summary" class="panel summary" data-state="ready" aria-labelledby="summary-heading">
+          <div class="panel-head">
+            <h2 id="summary-heading">Summary</h2>
+            <p id="summary-since" class="panel-note">Counted today, since 00:00 PDT on Sunday October 25, in this machine's local time.</p>
+            <p class="summary-periods">
+              <button id="summary-today" type="button" class="period" data-act="summary-today" aria-pressed="true">Today</button>
+              <button id="summary-week" type="button" class="period" data-act="summary-week" aria-pressed="false">Last 7 days</button>
+            </p>
+          </div>
+          <div class="section-ready">
+            <dl id="summary-answers" class="answers">
+              <div class="answer answer-unread">
+                <dt>Landed</dt>
+                <dd>
+                  <p class="answer-says">could not be read just now</p>
+                  <div class="summary-detail">
+                    <button class="detail-toggle" type="button" data-detail="answer-0" aria-expanded="false">Detail</button>
+                    <ul class="detail-lines" hidden>
+                      <li>the recorded runs could not be read: open /Users/somebody/state/runs: permission denied</li>
+                    </ul>
+                  </div>
+                </dd>
+              </div>
+              <div class="answer answer-unread">
+                <dt>Documents published</dt>
+                <dd>
+                  <p class="answer-says">could not be read just now</p>
+                  <div class="summary-detail">
+                    <button class="detail-toggle" type="button" data-detail="answer-1" aria-expanded="false">Detail</button>
+                    <ul class="detail-lines" hidden>
+                      <li>the recorded runs could not be read: open /Users/somebody/state/runs: permission denied</li>
+                    </ul>
+                  </div>
+                </dd>
+              </div>
+              <div class="answer answer-unread">
+                <dt>In progress</dt>
+                <dd>
+                  <p class="answer-says">could not be read just now</p>
+                  <div class="summary-detail">
+                    <button class="detail-toggle" type="button" data-detail="answer-2" aria-expanded="false">Detail</button>
+                    <ul class="detail-lines" hidden>
+                      <li>the dashboard's first reading since it started has been under way for 12s and is not finished yet; the page asks again</li>
+                    </ul>
+                  </div>
+                </dd>
+              </div>
+              <div class="answer answer-unread">
+                <dt>Blocked</dt>
+                <dd>
+                  <p class="answer-says">could not be read just now</p>
+                  <div class="summary-detail">
+                    <button class="detail-toggle" type="button" data-detail="answer-3" aria-expanded="false">Detail</button>
+                    <ul class="detail-lines" hidden>
+                      <li>the dashboard's first reading since it started has been under way for 12s and is not finished yet; the page asks again</li>
+                    </ul>
+                  </div>
+                </dd>
+              </div>
+              <div class="answer answer-unread">
+                <dt>Ended without landing</dt>
+                <dd>
+                  <p class="answer-says">could not be read just now</p>
+                  <div class="summary-detail">
+                    <button class="detail-toggle" type="button" data-detail="answer-4" aria-expanded="false">Detail</button>
+                    <ul class="detail-lines" hidden>
+                      <li>the recorded runs could not be read: open /Users/somebody/state/runs: permission denied</li>
+                    </ul>
+                  </div>
+                </dd>
+              </div>
+              <div class="answer answer-unread">
+                <dt>Needs your decision</dt>
+                <dd>
+                  <p class="answer-says">could not be read just now</p>
+                  <div class="summary-detail">
+                    <button class="detail-toggle" type="button" data-detail="answer-5" aria-expanded="false">Detail</button>
+                    <ul class="detail-lines" hidden>
+                      <li>the dashboard's first reading since it started has been under way for 12s and is not finished yet; the page asks again</li>
+                    </ul>
+                  </div>
+                </dd>
+              </div>
+              <div class="answer answer-unread">
+                <dt>Cost</dt>
+                <dd>
+                  <p class="answer-says">could not be read just now</p>
+                  <div class="summary-detail">
+                    <button class="detail-toggle" type="button" data-detail="answer-6" aria-expanded="false">Detail</button>
+                    <ul class="detail-lines" hidden>
+                      <li>the spend could not be read: open /Users/somebody/state/streams: permission denied</li>
+                    </ul>
+                  </div>
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </section>
         <section id="band" class="panel band" data-state="error" aria-labelledby="band-heading">
           <div class="panel-head">
             <h2 id="band-heading">Where the harness stands</h2>

@@ -52,10 +52,19 @@ const tally = "  - "
 // reaches him when the system is paused on a window. Nothing else is ever put
 // above them: a state that will not render into the four is a bug in the state.
 func (s Standing) Render() string {
+	return s.RenderBanner() + s.RenderLines()
+}
+
+// RenderBanner is the banner alone, with its line ending, and empty where the
+// harness is not paused on the provider's usage window. It is for `yoyo
+// status`, which opens with the owner summary: the banner goes above the
+// summary there, so the pause is still the first words, and the four lines
+// follow the summary without it.
+func (s Standing) RenderBanner() string {
 	if s.Paused == "" {
-		return s.RenderLines()
+		return ""
 	}
-	return s.wording.Render(s.Titles.Cite(s.Paused)) + "\n" + s.RenderLines()
+	return s.wording.Render(s.Titles.Cite(s.Paused)) + "\n"
 }
 
 // RenderLines is the four lines without the banner, for the one caller that has

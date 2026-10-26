@@ -1,0 +1,69 @@
+{
+  "observed_at": "2026-10-25T20:00:00-07:00",
+  "period": "today",
+  "since": "2026-10-25T00:00:00-07:00",
+  "since_says": "today, since 00:00 PDT on Sunday October 25",
+  "landed": {
+    "heading": "Landed",
+    "says": "could not be read just now",
+    "entries": [],
+    "unread": true,
+    "detail": [
+      "the recorded runs could not be read: open /Users/somebody/state/runs: permission denied"
+    ]
+  },
+  "published": {
+    "heading": "Documents published",
+    "says": "could not be read just now",
+    "entries": [],
+    "unread": true,
+    "detail": [
+      "the recorded runs could not be read: open /Users/somebody/state/runs: permission denied"
+    ]
+  },
+  "moving": {
+    "heading": "In progress",
+    "says": "could not be read just now",
+    "entries": [],
+    "unread": true,
+    "detail": [
+      "the dashboard's first reading since it started has been under way for 12s and is not finished yet; the page asks again"
+    ]
+  },
+  "blocked": {
+    "heading": "Blocked",
+    "says": "could not be read just now",
+    "entries": [],
+    "unread": true,
+    "detail": [
+      "the dashboard's first reading since it started has been under way for 12s and is not finished yet; the page asks again"
+    ]
+  },
+  "failures": {
+    "heading": "Ended without landing",
+    "says": "could not be read just now",
+    "entries": [],
+    "unread": true,
+    "detail": [
+      "the recorded runs could not be read: open /Users/somebody/state/runs: permission denied"
+    ]
+  },
+  "decisions": {
+    "heading": "Needs your decision",
+    "says": "could not be read just now",
+    "entries": [],
+    "unread": true,
+    "detail": [
+      "the dashboard's first reading since it started has been under way for 12s and is not finished yet; the page asks again"
+    ]
+  },
+  "cost": {
+    "heading": "Cost",
+    "says": "could not be read just now",
+    "entries": [],
+    "unread": true,
+    "detail": [
+      "the spend could not be read: open /Users/somebody/state/streams: permission denied"
+    ]
+  }
+}
