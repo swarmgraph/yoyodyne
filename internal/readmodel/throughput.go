@@ -26,6 +26,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -106,6 +107,10 @@ type Window struct {
 	// StopsByCause counts every terminal run that did not land, including a
 	// successful escalation. Old records count as unknown, never an inferred cause.
 	StopsByCause map[runstate.StopClass]int `json:"stops_by_cause"`
+	// LatestStopByCause is when the newest of each StopsByCause count ended, so
+	// a cause that keeps recurring can be said once with its count and its
+	// latest time (ownersummary.go) rather than once per run.
+	LatestStopByCause map[runstate.StopClass]time.Time `json:"latest_stop_by_cause,omitempty"`
 }
 
 // LandedRun is one run whose work reached the target branch inside a window:
@@ -116,6 +121,11 @@ type LandedRun struct {
 	WorkItemID string    `json:"work_item_id"`
 	Title      string    `json:"title,omitempty"`
 	LandedAt   time.Time `json:"landed_at"`
+	// Document is the title of the confirmed document the run published, and
+	// empty for a run that landed a code change, so a reader can keep the two
+	// apart: a document's run carries a work item id the harness made for it
+	// rather than one the tracker holds.
+	Document string `json:"document,omitempty"`
 }
 
 // Throughput is the reading: the two windows, and what could not be read. It is
@@ -200,6 +210,7 @@ func countEndings(window *Window, recorded []runstate.State, now time.Time) {
 	since := startOfLocalDay(now, window.Days)
 	window.LandedItems = []LandedRun{}
 	window.StopsByCause = map[runstate.StopClass]int{}
+	window.LatestStopByCause = map[runstate.StopClass]time.Time{}
 	for _, state := range recorded {
 		if !state.StartedAt.Before(since) && !state.StartedAt.After(now) {
 			window.Started++
@@ -212,13 +223,17 @@ func countEndings(window *Window, recorded []runstate.State, now time.Time) {
 			continue
 		}
 		if state.Outcome() != runstate.OutcomeSucceeded || state.Integration == nil {
-			window.StopsByCause[state.RecordedStopClass()]++
+			class := state.RecordedStopClass()
+			window.StopsByCause[class]++
+			if ended.After(window.LatestStopByCause[class]) {
+				window.LatestStopByCause[class] = ended
+			}
 		}
 		switch state.Outcome() {
 		case runstate.OutcomeSucceeded:
 			if state.Integration != nil {
 				window.Landed++
-				window.LandedItems = append(window.LandedItems, LandedRun{RunID: state.RunID, WorkItemID: state.WorkItemID, Title: state.WorkItemTitle, LandedAt: ended})
+				window.LandedItems = append(window.LandedItems, LandedRun{RunID: state.RunID, WorkItemID: state.WorkItemID, Title: state.WorkItemTitle, LandedAt: ended, Document: documentTitle(state)})
 			} else {
 				window.Succeeded++
 			}
@@ -240,6 +255,22 @@ func countEndings(window *Window, recorded []runstate.State, now time.Time) {
 		}
 		return window.LandedItems[first].RunID < window.LandedItems[second].RunID
 	})
+}
+
+// documentTitle is the title of the confirmed document a run published, and
+// empty for every other run. A document whose record names no title is named by
+// its path, and one naming neither is still a document.
+func documentTitle(state runstate.State) string {
+	if state.Document == nil {
+		return ""
+	}
+	artifact := state.Document.Candidate.Artifact
+	for _, name := range []string{artifact.Title, artifact.Path} {
+		if name = strings.TrimSpace(name); name != "" {
+			return name
+		}
+	}
+	return "a confirmed document"
 }
 
 // EndedAt is when a terminal run ended: its completion where the record has

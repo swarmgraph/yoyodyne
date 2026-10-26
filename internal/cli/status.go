@@ -61,6 +61,12 @@ import (
 )
 
 type statusOutput struct {
+	// Summary is the owner summary: what landed, what is in progress, what is
+	// blocked, what needs the operator, and what it cost, in ordinary words. It
+	// opens the answer because it is what the owner reads first, and it is made
+	// from the standing, the throughput, and the spend beside it rather than
+	// read separately. It is absent when one item was named, as Standing is.
+	Summary *readmodel.OwnerSummary `json:"summary,omitempty"`
 	// Standing is where the harness stands right now, in the four lines the
 	// operator ratified. It comes first because it is the question this verb is
 	// actually reached for: the run history says what became of attempts that are
@@ -145,6 +151,8 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	kind := flags.String("kind", "", "narrow to one kind: runs, chats, reviews, sides, exchanges, or all (default all)")
 	includeAll := flags.Bool("all", false, "include the thinking-token events the default leaves out")
 	raw := flags.Bool("raw", false, "emit each event exactly as it was recorded")
+	since := flags.String("since", "", "count what landed and what it cost from today (the default) or over the last 7 days (week)")
+	detail := flags.Bool("detail", false, "print the run records, stop causes, and commands behind each line of the summary")
 	positional, err := parseArguments(flags, args)
 	if err != nil {
 		return 2
@@ -281,6 +289,17 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 		return 2
 	}
 	workItemID := named
+	period, err := readmodel.ParseSummaryPeriod(*since)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	// The summary is about the product, so it is shaped only where it is
+	// printed: with nothing named.
+	if workItemID != "" && (flagGiven(flags, "since") || *detail) {
+		fmt.Fprintln(stderr, "--since and --detail shape the summary, which is printed only when no item is named")
+		return 2
+	}
 
 	store, caps, err := recordedRunStore(*configPath)
 	if err != nil {
@@ -335,6 +354,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	// asking a different question, and answering both would put a screen of
 	// product-wide state in front of the run they came here to read.
 	var standing *readmodel.Standing
+	var summary *readmodel.OwnerSummary
 	var stalls []runstate.StallEvent
 	var stallFailure string
 	if workItemID == "" {
@@ -348,6 +368,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 		}
 		read := readmodel.ReadStanding(context.Background(), standingSources(*configPath))
 		standing = &read
+		summary = statusSummary(ctx, *configPath, standing, period)
 		// What the product recorded about having gone quiet, read for the whole
 		// product for the reason the four lines are: a stall is a fact about the
 		// line rather than about any item, and the item that was not started during
@@ -358,6 +379,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	if *jsonOutput {
 		throughput := readmodel.ReadThroughput(ctx, readmodel.ThroughputSources{Runs: store})
 		output := statusOutput{
+			Summary:    summary,
 			Throughput: &throughput,
 			Standing:   standing,
 			Runs:       history.Runs,
@@ -381,19 +403,13 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 		output.StallError = stallFailure
 		return writeJSON(stdout, stderr, output)
 	}
-	// The four lines come first and are separated from the history by a blank
-	// line, because they answer opposite questions: everything above is what is
-	// true now, and everything below is what became of attempts that are over.
-	if standing != nil {
-		fmt.Fprint(stdout, standing.Render())
-		fmt.Fprint(stdout, standing.RenderUsageWindows())
-		fmt.Fprint(stdout, standing.RenderOwnerInterventions())
-		fmt.Fprint(stdout, standing.RenderProgramManagers())
-		fmt.Fprint(stdout, standing.RenderConversationPasses())
-		fmt.Fprint(stdout, standing.RenderMergeQueues())
-		fmt.Fprint(stdout, standing.RenderServices())
-		fmt.Fprintln(stdout)
-	}
+	// The summary comes first, then the four lines, and they are separated from
+	// the history by a blank line, because they answer opposite questions:
+	// everything above is what is true now, and everything below is what became
+	// of attempts that are over. A pause on the provider's usage window is said
+	// above all of it, so the cause is still the first words (Standing.Render),
+	// and the four lines under the summary do not say it again.
+	printStanding(stdout, standing, summary, *detail)
 	printWatch(stdout, watched)
 	printStalls(stdout, stalls)
 	printRunHistory(stdout, history, workItemID, *failedOnly)
@@ -419,6 +435,50 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	// command working. An exit status that treated the answer as a failure would
 	// make the surface something a script has to guard against reading.
 	return 0
+}
+
+// printStanding is what is true now, as `yoyo status` opens with it: the
+// banner where the harness is paused on the provider's usage window, then the
+// summary, then the four lines without the banner and what is printed under
+// them. Either half may be absent, when an item was named.
+func printStanding(stdout io.Writer, standing *readmodel.Standing, summary *readmodel.OwnerSummary, detail bool) {
+	if standing != nil {
+		fmt.Fprint(stdout, standing.RenderBanner())
+	}
+	if summary != nil {
+		fmt.Fprint(stdout, summary.Render(detail))
+		fmt.Fprintln(stdout)
+	}
+	if standing != nil {
+		fmt.Fprint(stdout, standing.RenderLines())
+		fmt.Fprint(stdout, standing.RenderUsageWindows())
+		fmt.Fprint(stdout, standing.RenderOwnerInterventions())
+		fmt.Fprint(stdout, standing.RenderProgramManagers())
+		fmt.Fprint(stdout, standing.RenderConversationPasses())
+		fmt.Fprint(stdout, standing.RenderMergeQueues())
+		fmt.Fprint(stdout, standing.RenderServices())
+		fmt.Fprintln(stdout)
+	}
+}
+
+// statusSummary is the owner summary over the standing already read, the
+// throughput, and the spend, read here as the dashboard reads them. A state
+// root that cannot be resolved costs the two answers that need it and leaves
+// the rest, as every reading here does.
+func statusSummary(ctx context.Context, configPath string, standing *readmodel.Standing, period readmodel.SummaryPeriod) *readmodel.OwnerSummary {
+	in := readmodel.SummaryInputs{Standing: standing, Period: period}
+	roots, err := statusStateRoots(configPath)
+	if err != nil {
+		in.ThroughputProblem = err.Error()
+		in.SpendProblem = err.Error()
+	} else {
+		throughput := readmodel.ReadThroughput(ctx, throughputSources(roots.stateRoot, roots.productID))
+		throughput.NameWorkItems(standing.Titles)
+		spend := readmodel.ReadSpend(ctx, spendSources(roots.stateRoot, roots.productID))
+		in.Throughput, in.Spend = &throughput, &spend
+	}
+	summary := readmodel.Summarize(in)
+	return &summary
 }
 
 // recordedRunStore resolves the same product-scoped run records every run
@@ -1653,7 +1713,18 @@ func printStatusUsage(writer io.Writer) {
 
 Where the harness stands, then what became of the runs it made.
 
-Naming no item prints four lines first, and prints all four every time: what is
+While the harness is paused on the provider's usage limit, the sentence saying
+so is printed first. Naming no item then opens with a summary in five answers:
+what landed today, code changes apart from documents published; each run in progress with the newest
+check or review result about its change; what is blocked, with who it waits on
+and what happens next, and the runs that ended without landing, one line per
+cause with its count and latest time; what needs your own decision; and what
+the time cost. --since week counts what landed and what it cost over the last 7
+days instead of today. The same thing seen several times is one line with its
+count. Run identifiers, stop causes, and commands are kept out of the summary,
+and --detail prints them under each line.
+
+Under the summary come four lines, all four printed every time: what is
 Running, with each run's item, phase, elapsed time and spend; what is Working,
 which is the persona conversations with a turn in flight; what is Not startable,
 which is each admitted item nothing will pull with the refusal that stops it; and
@@ -1775,6 +1846,8 @@ Options:
   --failed          only the runs that ended without succeeding
   --limit <n>       report at most this many, newest first (default 20, or 10 with --shipped; 0 reports all)
   --json            emit machine-readable JSON
+  --since <when>    count the summary from today (the default) or over the last 7 days (week)
+  --detail          print what is behind each line of the summary
 
 Live options:
   --follow          follow a stream's events as they arrive

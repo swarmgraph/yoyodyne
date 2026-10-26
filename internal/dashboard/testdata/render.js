@@ -295,6 +295,21 @@ function aged(reading, snapshot) {
 
 const pending = { pending: true };
 
+// summaryFor is what /api/summary answers in a scenario that does not say:
+// the server makes the summary from the standing, the throughput, and the
+// spend it already holds, so it answers when the standing does and is refused
+// when the standing is — the quiet page's summary for the quiet page, and the
+// busy one's for every other.
+function summaryFor(scenario) {
+  if (scenario.summary !== undefined) {
+    return scenario.summary;
+  }
+  if (!scenario.standing || !scenario.standing.ok) {
+    return scenario.standing;
+  }
+  return ok(fixture(scenario.name === "quiet" ? "summary-quiet" : "summary-busy"));
+}
+
 // Who a session is, as /api/session answers: one bound to a person, and one
 // holding the shared token, which reads only.
 const boundSession = { person: { name: "mason-bryant", grants: ["own-intent", "direct-work", "decide-amendments"] }, says: "this session is mason-bryant, and an approve, decline, or ask from here is recorded as theirs", acts: true };
@@ -346,7 +361,13 @@ const pages = [
   { name: "held", token: "t", standing: ok(fixture("standing-held")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "roles", token: "t", standing: ok(fixture("standing-roles")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "degraded", token: "t", standing: ok(fixture("standing-degraded")), throughput: ok(fixture("throughput-degraded")), spend: ok(fixture("spend-busy")) },
-  { name: "unreadable", token: "t", standing: ok(fixture("standing-unreadable")), throughput: ok(fixture("throughput-unreadable")), spend: ok(fixture("spend-unreadable")) },
+  { name: "unreadable", token: "t", standing: ok(fixture("standing-unreadable")), summary: ok(fixture("summary-unreadable")), throughput: ok(fixture("throughput-unreadable")), spend: ok(fixture("spend-unreadable")) },
+  // The summary over the last 7 days, chosen on the page, and with what is
+  // behind its grouped line opened; and the summary refused while the rest
+  // of the page was read.
+  { name: "summary-week", token: "t", standing: ok(fixture("standing-busy")), summaryWeek: ok(fixture("summary-week")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), open: [{ act: "summary-week" }] },
+  { name: "summary-detail", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), open: [{ detail: "entry-3-0" }] },
+  { name: "summary-refused", token: "t", standing: ok(fixture("standing-busy")), summary: refused(503, "the dashboard's first reading since it started has been under way for 6s and is not finished yet; the page asks again"), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "throughput-pending", token: "t", standing: ok(fixture("standing-busy")), throughput: pending, spend: ok(fixture("spend-busy")) },
   { name: "throughput-refused", token: "t", standing: ok(fixture("standing-busy")), throughput: refused(503, "the state root could not be resolved"), spend: ok(fixture("spend-busy")) },
   // The spend box while the month is still being priced, which is the one
@@ -514,7 +535,7 @@ async function run(scenario) {
     timeouts.clear();
     due.forEach((callback) => callback());
   };
-  let answers = Object.assign({ "/api/standing": scenario.standing, "/api/throughput": scenario.throughput, "/api/spend": scenario.spend }, scenario.items || {}, scenario.reports || {}, scenario.acts || {}, scenario.asks || {});
+  let answers = Object.assign({ "/api/standing": scenario.standing, "/api/summary?since=today": summaryFor(scenario), "/api/summary?since=week": scenario.summaryWeek || summaryFor(scenario), "/api/throughput": scenario.throughput, "/api/spend": scenario.spend }, scenario.items || {}, scenario.reports || {}, scenario.acts || {}, scenario.asks || {});
   const requests = [];
 
   const fetch = (url, options) => {
@@ -597,8 +618,8 @@ async function run(scenario) {
     }
     // A press on one of the decision's buttons acts on what is open rather
     // than opening something, so it is not an opener focus goes back to.
-    if (step.act) {
-      openerFor("data-act", step.act).dispatch("click", {});
+    if (step.act || step.detail) {
+      openerFor(step.act ? "data-act" : "data-detail", step.act || step.detail).dispatch("click", {});
       await settle();
       continue;
     }
@@ -620,7 +641,7 @@ async function run(scenario) {
   }
 
   const page = document.getElementById("page");
-  const sections = ["band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"];
+  const sections = ["summary", "band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"];
   // A section shown only where the product has what it lists is dropped from
   // the render and the matrix while it is hidden, so a page without it renders
   // exactly as it did before the section existed.

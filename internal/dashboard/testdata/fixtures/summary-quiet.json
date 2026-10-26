@@ -1,0 +1,42 @@
+{
+  "observed_at": "2026-10-25T20:00:00-07:00",
+  "period": "today",
+  "since": "2026-10-25T00:00:00-07:00",
+  "since_says": "today, since 00:00 PDT on Sunday October 25",
+  "landed": {
+    "heading": "Landed",
+    "says": "no code changes",
+    "entries": []
+  },
+  "published": {
+    "heading": "Documents published",
+    "says": "no documents",
+    "entries": []
+  },
+  "moving": {
+    "heading": "In progress",
+    "says": "no runs",
+    "entries": []
+  },
+  "blocked": {
+    "heading": "Blocked",
+    "says": "nothing",
+    "entries": []
+  },
+  "failures": {
+    "heading": "Ended without landing",
+    "says": "no runs",
+    "entries": []
+  },
+  "decisions": {
+    "heading": "Needs your decision",
+    "says": "nothing",
+    "entries": []
+  },
+  "cost": {
+    "heading": "Cost",
+    "says": "$0.00 across no provider calls",
+    "entries": []
+  },
+  "quiet": "Nothing landed, nothing is in progress or blocked, no run ended without landing, nothing needs you, and nothing was spent, today, since 00:00 PDT on Sunday October 25."
+}

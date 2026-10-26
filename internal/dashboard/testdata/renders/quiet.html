@@ -22,6 +22,19 @@
       <div class="state state-ready">
         <p id="stale" class="stale" role="status" hidden></p>
         <p id="banner" class="banner" role="status" hidden></p>
+        <section id="summary" class="panel summary" data-state="empty" aria-labelledby="summary-heading">
+          <div class="panel-head">
+            <h2 id="summary-heading">Summary</h2>
+            <p id="summary-since" class="panel-note">what landed, what is moving, what is blocked, what needs you, and what it cost</p>
+            <p class="summary-periods">
+              <button id="summary-today" type="button" class="period" data-act="summary-today" aria-pressed="true">Today</button>
+              <button id="summary-week" type="button" class="period" data-act="summary-week" aria-pressed="false">Last 7 days</button>
+            </p>
+          </div>
+          <div class="section-empty">
+            <p id="summary-empty" class="empty">Nothing landed, nothing is in progress or blocked, no run ended without landing, nothing needs you, and nothing was spent, today, since 00:00 PDT on Sunday October 25.</p>
+          </div>
+        </section>
         <section id="band" class="panel band" data-state="empty" aria-labelledby="band-heading">
           <div class="panel-head">
             <h2 id="band-heading">Where the harness stands</h2>

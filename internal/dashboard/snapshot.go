@@ -97,8 +97,11 @@ type snapshot struct {
 	// still stops.
 	life context.Context
 	// encoded is the latest reading, encoded once when it was built rather than
-	// once per request; have is whether there is one at all.
+	// once per request, and value the same reading as it was built, for the
+	// owner summary, which is made from three readings rather than built on its
+	// own; have is whether there is one at all.
 	encoded  []byte
+	value    any
 	have     bool
 	takenAt  time.Time
 	failure  string
@@ -164,6 +167,22 @@ func (s *snapshot) get(ctx context.Context) ([]byte, SnapshotAge, error) {
 	if !s.have {
 		return nil, SnapshotAge{}, errors.New(s.failure)
 	}
+	return s.encoded, s.age(), nil
+}
+
+// latest is the latest reading as it was built, waiting for a first build as
+// get does, and refused as get refuses.
+func (s *snapshot) latest(ctx context.Context) (any, error) {
+	if _, _, err := s.get(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.value, nil
+}
+
+// age is the latest reading's age as of now. The caller holds mu.
+func (s *snapshot) age() SnapshotAge {
 	age := s.now().Sub(s.takenAt)
 	if age < 0 {
 		age = 0
@@ -180,7 +199,7 @@ func (s *snapshot) get(ctx context.Context) ([]byte, SnapshotAge, error) {
 		served.Failure = s.failure
 		served.FailedAt = &failedAt
 	}
-	return s.encoded, served, nil
+	return served
 }
 
 // start begins building now, ahead of any request, so the first request after
@@ -294,6 +313,7 @@ func (s *snapshot) take(ctx context.Context) {
 		s.failedAt = s.now()
 	} else {
 		s.encoded = encoded
+		s.value = reading
 		s.have = true
 		s.takenAt = started
 		s.failure = ""

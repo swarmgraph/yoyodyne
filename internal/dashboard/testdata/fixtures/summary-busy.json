@@ -1,0 +1,172 @@
+{
+  "observed_at": "2026-10-25T20:00:00-07:00",
+  "period": "today",
+  "since": "2026-10-25T00:00:00-07:00",
+  "since_says": "today, since 00:00 PDT on Sunday October 25",
+  "landed": {
+    "heading": "Landed",
+    "says": "2 code changes",
+    "entries": [
+      {
+        "line": "Fix the tile (ex-7) (19:00 PDT)",
+        "says": "Fix the tile (ex-7)",
+        "work_item_id": "ex-7",
+        "count": 1,
+        "latest": "2026-10-25T19:00:00-07:00",
+        "latest_says": "19:00 PDT",
+        "detail": [
+          "run run-1111111111111111"
+        ]
+      },
+      {
+        "line": "Name the slot (ex-8) (17:00 PDT)",
+        "says": "Name the slot (ex-8)",
+        "work_item_id": "ex-8",
+        "count": 1,
+        "latest": "2026-10-25T17:00:00-07:00",
+        "latest_says": "17:00 PDT",
+        "detail": [
+          "run run-3333333333333333"
+        ]
+      }
+    ]
+  },
+  "published": {
+    "heading": "Documents published",
+    "says": "1 document",
+    "entries": [
+      {
+        "line": "V1 goals (18:00 PDT)",
+        "says": "V1 goals",
+        "count": 1,
+        "latest": "2026-10-25T18:00:00-07:00",
+        "latest_says": "18:00 PDT",
+        "detail": [
+          "run run-2222222222222222"
+        ]
+      }
+    ]
+  },
+  "moving": {
+    "heading": "In progress",
+    "says": "3 runs",
+    "entries": [
+      {
+        "line": "Retry the merge (ex-1) — in review; latest: the checks passed (19:00 PDT)",
+        "says": "Retry the merge (ex-1) — in review; latest: the checks passed",
+        "work_item_id": "ex-1",
+        "count": 1,
+        "latest": "2026-10-25T19:00:00-07:00",
+        "latest_says": "19:00 PDT",
+        "detail": [
+          "run run-aaaaaaaa11111111",
+          "phase reviewing"
+        ]
+      },
+      {
+        "line": "Name the stop (ex-2) — being developed; latest: the review returned 2 findings, and the developer is answering them",
+        "says": "Name the stop (ex-2) — being developed; latest: the review returned 2 findings, and the developer is answering them",
+        "work_item_id": "ex-2",
+        "count": 1,
+        "detail": [
+          "run run-bbbbbbbb22222222",
+          "phase developing"
+        ]
+      },
+      {
+        "line": "Count the slots (ex-3) — being developed; no check or review result yet",
+        "says": "Count the slots (ex-3) — being developed; no check or review result yet",
+        "work_item_id": "ex-3",
+        "count": 1,
+        "detail": [
+          "run run-cccccccc33333333",
+          "phase developing"
+        ]
+      }
+    ]
+  },
+  "blocked": {
+    "heading": "Blocked",
+    "says": "2 things waiting on somebody other than you",
+    "entries": [
+      {
+        "line": "Run not finished, 3 times, on ex-4 (latest 18:00 PDT) — next: settle the run; waiting on the harness",
+        "says": "Run not finished, 3 times, on ex-4",
+        "work_item_id": "ex-4",
+        "waiting_on": "the harness",
+        "next": "settle the run",
+        "count": 3,
+        "latest": "2026-10-25T18:00:00-07:00",
+        "latest_says": "18:00 PDT",
+        "detail": [
+          "run-dddddddd44444444: cleanup of the branch and worktree for ex-4 is not finished — the harness's — `yoyo reconcile` finishes the run's cleanup and records it (needs yoyo reconcile)",
+          "run-eeeeeeee55555555: cleanup of the branch and worktree for ex-4 is not finished — the harness's — `yoyo reconcile` finishes the run's cleanup and records it (needs yoyo reconcile)",
+          "run-ffffffff66666666: cleanup of the branch and worktree for ex-4 is not finished — the harness's — `yoyo reconcile` finishes the run's cleanup and records it (needs yoyo reconcile)"
+        ]
+      },
+      {
+        "line": "2 wait on the development manager's decision about a stopped run — next: she decides what becomes of each stopped run; waiting on the development manager",
+        "says": "2 wait on the development manager's decision about a stopped run",
+        "waiting_on": "the development manager",
+        "next": "she decides what becomes of each stopped run",
+        "count": 2,
+        "detail": [
+          "Keep the branch (ex-5)",
+          "Read the queue (ex-6)"
+        ]
+      }
+    ]
+  },
+  "failures": {
+    "heading": "Ended without landing",
+    "says": "4 runs",
+    "entries": [
+      {
+        "line": "3 runs: the checks kept failing or could not run (latest 19:00 PDT)",
+        "says": "3 runs: the checks kept failing or could not run",
+        "count": 3,
+        "latest": "2026-10-25T19:00:00-07:00",
+        "latest_says": "19:00 PDT",
+        "detail": [
+          "recorded stop cause checks: 3"
+        ]
+      },
+      {
+        "line": "1 run: a check ran past its time limit (15:00 PDT)",
+        "says": "1 run: a check ran past its time limit",
+        "count": 1,
+        "latest": "2026-10-25T15:00:00-07:00",
+        "latest_says": "15:00 PDT",
+        "detail": [
+          "recorded stop cause check-timeout: 1"
+        ]
+      }
+    ]
+  },
+  "decisions": {
+    "heading": "Needs your decision",
+    "says": "1 thing only you can do",
+    "entries": [
+      {
+        "line": "Provider unavailable (18:00 PDT) — next: log in to the provider again; waiting on you, because it is a credential or account only a person holds",
+        "says": "Provider unavailable",
+        "waiting_on": "you, because it is a credential or account only a person holds",
+        "next": "log in to the provider again",
+        "count": 1,
+        "latest": "2026-10-25T18:00:00-07:00",
+        "latest_says": "18:00 PDT",
+        "detail": [
+          "unauthenticated: The provider is not authenticated; the operator must log in: every role is waiting on it, and the harness asks again on its own until it answers; 0 turns refused since 2026-10-26T01:00:00Z — the operator's — log in to the provider again; the harness resumes on its own once it answers, and nothing is released or restarted (needs the provider's login)"
+        ]
+      }
+    ]
+  },
+  "cost": {
+    "heading": "Cost",
+    "says": "$12.30 across 40 provider calls",
+    "entries": [],
+    "detail": [
+      "run: $10.00 over 30 calls"
+    ]
+  }
+}

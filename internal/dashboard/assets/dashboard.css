@@ -1383,3 +1383,70 @@ input[type="checkbox"]:focus-visible {
     opacity: 0.8;
   }
 }
+
+/* The owner summary: five answers, each a heading and its sentence, with the
+   lines under it. A grouped line — the same thing seen several times — says
+   its count in words; the rule beside it only repeats that. What is behind a
+   line opens under it on a button and is closed to begin with. */
+.summary-periods {
+  margin: 0.4rem 0 0;
+}
+
+.period[aria-pressed="true"] {
+  background: var(--accent-paper);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.answers {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.answer dt {
+  font-weight: 600;
+}
+
+.answer dd {
+  margin: 0.15rem 0 0;
+}
+
+.answer-says {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.answer-unread .answer-says {
+  color: var(--attention);
+}
+
+.answer-lines {
+  margin: 0.35rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.answer-lines li {
+  margin: 0.2rem 0;
+}
+
+.answer-lines li.grouped {
+  border-left: 3px solid var(--held);
+  padding-left: 0.4rem;
+}
+
+.detail-toggle {
+  margin-left: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.detail-lines {
+  margin: 0.25rem 0 0;
+  padding: 0.4rem 0.6rem 0.4rem 1.4rem;
+  background: var(--panel-inset);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}

@@ -1,6 +1,6 @@
 package dashboard
 
-// These tests are the evidence for the page: its eight sections, each with an
+// These tests are the evidence for the page: its nine sections, each with an
 // empty, a loading, and an error state beside its ready one, and the merge
 // queues shown only where there are any, rendered from the read model and from
 // nothing else.
@@ -42,10 +42,11 @@ import (
 
 var updateRenders = flag.Bool("update-renders", false, "rewrite the rendered pages under testdata/renders from the fixtures")
 
-// sections are the eight the page carries, by the id each carries in the
-// shell: the five the design names, the spend box above Running now, and the
-// factory problems and program managers under Provider capacity.
-var sections = []string{"band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"}
+// sections are the nine the page carries, by the id each carries in the
+// shell: the owner summary that opens it, the five the design names, the spend
+// box above Running now, and the factory problems and program managers under
+// Provider capacity.
+var sections = []string{"summary", "band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"}
 
 // shownWhenPresent are the sections the page shows only where the product has
 // what they list, and hides otherwise, so a page without them is the page it
@@ -87,7 +88,7 @@ func strict(t *testing.T, name string, body []byte, into any) {
 	}
 }
 
-// The shell carries the eight sections and the hidden merge queues section,
+// The shell carries the nine sections and the hidden merge queues section,
 // and each of them carries its four states with the lines the script fills, so
 // a section the script has not reached yet says it is reading rather than
 // being blank.
@@ -159,7 +160,7 @@ func TestTheFixturesAreTheReadModelsShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	standings, throughputs, spends, items, reports := 0, 0, 0, 0, 0
+	standings, throughputs, spends, items, reports, summaries := 0, 0, 0, 0, 0, 0
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
@@ -209,6 +210,22 @@ func TestTheFixturesAreTheReadModelsShape(t *testing.T) {
 				t.Fatalf("fixture %s names %d days beside a problem of %q", name, len(spend.Days), spend.Problem)
 			}
 			spends++
+		case strings.HasPrefix(name, "summary-"):
+			var summary readmodel.OwnerSummary
+			strict(t, name, body, &summary)
+			// Every answer is present, with its lines a list, and each line
+			// carries the words every surface prints for it.
+			for _, answer := range []readmodel.SummaryAnswer{summary.Landed, summary.Published, summary.Moving, summary.Blocked, summary.Failures, summary.Decisions, summary.Cost} {
+				if answer.Heading == "" || answer.Says == "" || answer.Entries == nil {
+					t.Fatalf("fixture %s carries an answer the summary never sends: %+v", name, answer)
+				}
+				for _, entry := range answer.Entries {
+					if entry.Line == "" {
+						t.Fatalf("fixture %s carries a line with no words: %+v", name, entry)
+					}
+				}
+			}
+			summaries++
 		case strings.HasPrefix(name, "item-"):
 			var item readmodel.WorkItem
 			strict(t, name, body, &item)
@@ -240,11 +257,51 @@ func TestTheFixturesAreTheReadModelsShape(t *testing.T) {
 				t.Fatalf("fixture %s is not what the spend accomplished as the server sends it: %+v", name, answer)
 			}
 		default:
-			t.Fatalf("fixture %s is none of a standing, a throughput, a spend, an accomplishment, an item, or a report", name)
+			t.Fatalf("fixture %s is none of a standing, a summary, a throughput, a spend, an accomplishment, an item, or a report", name)
 		}
 	}
-	if standings < 4 || throughputs < 3 || spends < 3 || items < 3 || reports < 3 {
-		t.Fatalf("expected the standing, throughput, spend, item, and report fixtures, found %d, %d, %d, %d, and %d", standings, throughputs, spends, items, reports)
+	if standings < 4 || throughputs < 3 || spends < 3 || items < 3 || reports < 3 || summaries < 3 {
+		t.Fatalf("expected the standing, throughput, spend, item, report, and summary fixtures, found %d, %d, %d, %d, %d, and %d", standings, throughputs, spends, items, reports, summaries)
+	}
+}
+
+// The owner summary is served to the token and to nobody else, made from the
+// standing, the throughput, and the spend the dashboard already holds, for the
+// period asked; a period that is not one is refused, and a reading that could
+// not be had costs the answers made from it rather than the summary.
+func TestServesTheOwnerSummaryToTheTokenAlone(t *testing.T) {
+	t.Parallel()
+	var throughput readmodel.Throughput
+	strict(t, "throughput-busy", fixture(t, "throughput-busy"), &throughput)
+	var spend readmodel.Spend
+	strict(t, "spend-busy", fixture(t, "spend-busy"), &spend)
+	w := serve(t, stubReader{standing: standingWith("title"), throughput: throughput, spend: spend})
+
+	response, body := w.get("/api/summary?since=week", bearer(w.server.Token()))
+	if response.StatusCode != http.StatusOK || !strings.HasPrefix(response.Header.Get("Content-Type"), "application/json") {
+		t.Fatalf("summary with the token: %d %s", response.StatusCode, body)
+	}
+	var summary readmodel.OwnerSummary
+	if err := json.Unmarshal([]byte(body), &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary.Period != readmodel.SummaryWeek || summary.Landed.Unread || summary.Cost.Unread || summary.Moving.Unread {
+		t.Fatalf("the summary over the week: %+v", summary)
+	}
+	if response, _ := w.get("/api/summary", bearer(w.server.Token())); response.StatusCode != http.StatusOK {
+		t.Fatalf("summary with no period: %d", response.StatusCode)
+	}
+	if response, body := w.get("/api/summary?since=yesterday", bearer(w.server.Token())); response.StatusCode != http.StatusBadRequest || strings.Contains(body, "yesterday") {
+		t.Fatalf("summary for a period that is not one: %d %s", response.StatusCode, body)
+	}
+	if response, body := w.get("/api/summary", nil); response.StatusCode != http.StatusUnauthorized || strings.Contains(body, "landed") {
+		t.Fatalf("summary without the token: %d %s", response.StatusCode, body)
+	}
+
+	broken := serve(t, stubReader{failure: errors.New("the state root could not be resolved")})
+	response, body = broken.get("/api/summary", bearer(broken.server.Token()))
+	if response.StatusCode != http.StatusOK || json.Unmarshal([]byte(body), &summary) != nil || !summary.Landed.Unread || !summary.Cost.Unread || !summary.Decisions.Unread {
+		t.Fatalf("summary over unreadable state: %d %s", response.StatusCode, body)
 	}
 }
 
@@ -674,7 +731,7 @@ func TestARenderWithoutNodeFailsUnlessDeclaredUnavailable(t *testing.T) {
 
 // The page's script draws every section in every state from the fixtures, and
 // what it draws is what the renders under testdata/renders hold. Each of the
-// eight sections reaches each of its four states in at least one scenario, the
+// nine sections reaches each of its four states in at least one scenario, the
 // merge queues are hidden, ready, and unreadable in at least one each, each
 // of the three pop-ups reaches each of its four and is closed in another, the
 // page reaches its own four, and no scenario sets a style or sends the token

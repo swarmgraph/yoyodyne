@@ -2,6 +2,7 @@
   "pass-failures": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "empty",
       "spend": "empty",
       "live": "empty",
@@ -21,6 +22,7 @@
   "pass-failures-unreadable": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "empty",
       "spend": "empty",
       "live": "empty",
@@ -40,6 +42,7 @@
   "queues": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "empty",
       "spend": "empty",
       "live": "empty",
@@ -60,6 +63,7 @@
   "queues-unreadable": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "empty",
       "spend": "empty",
       "live": "empty",
@@ -80,6 +84,7 @@
   "run-steps": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "empty",
       "live": "ready",
@@ -99,6 +104,7 @@
   "signin": {
     "page": "signin",
     "sections": {
+      "summary": "loading",
       "band": "loading",
       "spend": "loading",
       "live": "loading",
@@ -118,6 +124,7 @@
   "loading": {
     "page": "loading",
     "sections": {
+      "summary": "loading",
       "band": "loading",
       "spend": "loading",
       "live": "loading",
@@ -137,6 +144,7 @@
   "quiet": {
     "page": "ready",
     "sections": {
+      "summary": "empty",
       "band": "empty",
       "spend": "empty",
       "live": "empty",
@@ -156,6 +164,7 @@
   "busy": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -175,6 +184,7 @@
   "held": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -194,6 +204,7 @@
   "roles": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -213,6 +224,7 @@
   "degraded": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -232,6 +244,7 @@
   "unreadable": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "error",
       "spend": "error",
       "live": "error",
@@ -248,9 +261,70 @@
       "decide": "closed"
     }
   },
+  "summary-week": {
+    "page": "ready",
+    "sections": {
+      "summary": "ready",
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
+  "summary-detail": {
+    "page": "ready",
+    "sections": {
+      "summary": "ready",
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
+  "summary-refused": {
+    "page": "ready",
+    "sections": {
+      "summary": "error",
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
   "throughput-pending": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -270,6 +344,7 @@
   "throughput-refused": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -289,6 +364,7 @@
   "spend-pending": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "loading",
       "live": "ready",
@@ -308,6 +384,7 @@
   "refused": {
     "page": "error",
     "sections": {
+      "summary": "loading",
       "band": "loading",
       "spend": "loading",
       "live": "loading",
@@ -327,6 +404,7 @@
   "unreachable": {
     "page": "error",
     "sections": {
+      "summary": "loading",
       "band": "loading",
       "spend": "loading",
       "live": "loading",
@@ -346,6 +424,7 @@
   "wrong-token": {
     "page": "signin",
     "sections": {
+      "summary": "loading",
       "band": "loading",
       "spend": "loading",
       "live": "loading",
@@ -365,6 +444,7 @@
   "stale": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -384,6 +464,7 @@
   "throughput-stale": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -403,6 +484,7 @@
   "snapshot": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -422,6 +504,7 @@
   "snapshot-old": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -441,6 +524,7 @@
   "snapshot-slow": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -460,6 +544,7 @@
   "snapshot-failed": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -479,6 +564,7 @@
   "decisions": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -498,6 +584,7 @@
   "decisions-unreadable": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -517,6 +604,7 @@
   "spend-stale": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -536,6 +624,7 @@
   "attention-run-steps": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "empty",
       "live": "ready",
@@ -555,6 +644,7 @@
   "attention-run-queued": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "empty",
       "live": "ready",
@@ -574,6 +664,7 @@
   "attention-run-cleanup": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "empty",
       "live": "ready",
@@ -593,6 +684,7 @@
   "attention-run-dropped-cleanup": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "empty",
       "live": "ready",
@@ -612,6 +704,7 @@
   "attention-run-dropped": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "empty",
       "live": "ready",
@@ -631,6 +724,7 @@
   "card": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -650,6 +744,7 @@
   "card-loading": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -669,6 +764,7 @@
   "card-missing": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -688,6 +784,7 @@
   "card-refused": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -707,6 +804,7 @@
   "grouping": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -726,6 +824,7 @@
   "grouping-landed": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -745,6 +844,7 @@
   "grouping-empty": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -764,6 +864,7 @@
   "grouping-error": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -783,6 +884,7 @@
   "grouping-loading": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -802,6 +904,7 @@
   "spend-days": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -821,6 +924,7 @@
   "spend-days-empty": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "empty",
       "live": "ready",
@@ -840,6 +944,7 @@
   "spend-days-error": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "error",
       "live": "ready",
@@ -859,6 +964,7 @@
   "spend-days-loading": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "loading",
       "live": "ready",
@@ -878,6 +984,7 @@
   "accomplished": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -897,6 +1004,7 @@
   "accomplished-loading": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -916,6 +1024,7 @@
   "accomplished-error": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -935,6 +1044,7 @@
   "grouping-card": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -954,6 +1064,7 @@
   "closed": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -973,6 +1084,7 @@
   "closed-after-poll": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -992,6 +1104,7 @@
   "attention": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1011,6 +1124,7 @@
   "attention-empty": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1030,6 +1144,7 @@
   "attention-error": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1049,6 +1164,7 @@
   "attention-amendment": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1068,6 +1184,7 @@
   "attention-owed-step": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1087,6 +1204,7 @@
   "attention-carried-item": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1106,6 +1224,7 @@
   "attention-human-gate": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1125,6 +1244,7 @@
   "attention-hand": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1144,6 +1264,7 @@
   "attention-carried-item-card": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1163,6 +1284,7 @@
   "attention-settled": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1182,6 +1304,7 @@
   "attention-unreadable": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1201,6 +1324,7 @@
   "attention-closed": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1220,6 +1344,7 @@
   "report": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1239,6 +1364,7 @@
   "report-blocked": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1258,6 +1384,7 @@
   "report-unwritten": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1277,6 +1404,7 @@
   "report-loading": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1296,6 +1424,7 @@
   "report-missing": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1315,6 +1444,7 @@
   "report-refused": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1334,6 +1464,7 @@
   "report-closed": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1353,6 +1484,7 @@
   "decide": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1372,6 +1504,7 @@
   "decide-next": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1391,6 +1524,7 @@
   "decide-approve": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1410,6 +1544,7 @@
   "decide-decline": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1429,6 +1564,7 @@
   "decide-ask": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1448,6 +1584,7 @@
   "decide-unbound": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1467,6 +1604,7 @@
   "decide-loading": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1486,6 +1624,7 @@
   "decide-empty": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1505,6 +1644,7 @@
   "decide-error": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1524,6 +1664,7 @@
   "decide-closed": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1543,6 +1684,7 @@
   "attention-document": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1562,6 +1704,7 @@
   "decide-document": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1581,6 +1724,7 @@
   "decide-document-approve": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1600,6 +1744,7 @@
   "decide-document-decline": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",
@@ -1619,6 +1764,7 @@
   "decide-document-ask": {
     "page": "ready",
     "sections": {
+      "summary": "ready",
       "band": "ready",
       "spend": "ready",
       "live": "ready",

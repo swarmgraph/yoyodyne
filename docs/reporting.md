@@ -1536,7 +1536,8 @@ as evidence instead, which is the same hour a run's own record gets and
 deliberately not the alarm bar: a session that died inside an untimed wait must
 not go on accounting for every hour after it. `yoyo status` opens with the same
 sentence while the window
-stands, above [the four lines](operations.md#where-the-harness-stands-the-four-lines).
+stands, above [the summary](operations.md#where-things-stand-in-five-answers-the-summary)
+and [the four lines](operations.md#where-the-harness-stands-the-four-lines).
 
 **It gets louder as it stands, not quieter.** It used to be said once per stall
 and then nothing while the stall stood, on the reasoning that a stopped machine

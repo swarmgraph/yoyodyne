@@ -22,6 +22,185 @@
       <div class="state state-ready">
         <p id="stale" class="stale" role="status">The last reading failed for the spend — the state root could not be resolved — so its figures are from 14:05:09, and the page asks again in 2m, less often while the dashboard answers slowly or not at all.</p>
         <p id="banner" class="banner" role="status" hidden></p>
+        <section id="summary" class="panel summary" data-state="ready" aria-labelledby="summary-heading">
+          <div class="panel-head">
+            <h2 id="summary-heading">Summary</h2>
+            <p id="summary-since" class="panel-note">Counted today, since 00:00 PDT on Sunday October 25, in this machine's local time.</p>
+            <p class="summary-periods">
+              <button id="summary-today" type="button" class="period" data-act="summary-today" aria-pressed="true">Today</button>
+              <button id="summary-week" type="button" class="period" data-act="summary-week" aria-pressed="false">Last 7 days</button>
+            </p>
+          </div>
+          <div class="section-ready">
+            <dl id="summary-answers" class="answers">
+              <div class="answer">
+                <dt>Landed</dt>
+                <dd>
+                  <p class="answer-says">2 code changes</p>
+                  <ul class="answer-lines">
+                    <li>
+                      <span class="answer-line">Fix the tile (ex-7) (19:00 PDT)</span>
+                      <div class="summary-detail">
+                        <button class="detail-toggle" type="button" data-detail="entry-0-0" aria-expanded="false">Detail</button>
+                        <ul class="detail-lines" hidden>
+                          <li>run run-1111111111111111</li>
+                        </ul>
+                      </div>
+                    </li>
+                    <li>
+                      <span class="answer-line">Name the slot (ex-8) (17:00 PDT)</span>
+                      <div class="summary-detail">
+                        <button class="detail-toggle" type="button" data-detail="entry-0-1" aria-expanded="false">Detail</button>
+                        <ul class="detail-lines" hidden>
+                          <li>run run-3333333333333333</li>
+                        </ul>
+                      </div>
+                    </li>
+                  </ul>
+                </dd>
+              </div>
+              <div class="answer">
+                <dt>Documents published</dt>
+                <dd>
+                  <p class="answer-says">1 document</p>
+                  <ul class="answer-lines">
+                    <li>
+                      <span class="answer-line">V1 goals (18:00 PDT)</span>
+                      <div class="summary-detail">
+                        <button class="detail-toggle" type="button" data-detail="entry-1-0" aria-expanded="false">Detail</button>
+                        <ul class="detail-lines" hidden>
+                          <li>run run-2222222222222222</li>
+                        </ul>
+                      </div>
+                    </li>
+                  </ul>
+                </dd>
+              </div>
+              <div class="answer">
+                <dt>In progress</dt>
+                <dd>
+                  <p class="answer-says">3 runs</p>
+                  <ul class="answer-lines">
+                    <li>
+                      <span class="answer-line">Retry the merge (ex-1) — in review; latest: the checks passed (19:00 PDT)</span>
+                      <div class="summary-detail">
+                        <button class="detail-toggle" type="button" data-detail="entry-2-0" aria-expanded="false">Detail</button>
+                        <ul class="detail-lines" hidden>
+                          <li>run run-aaaaaaaa11111111</li>
+                          <li>phase reviewing</li>
+                        </ul>
+                      </div>
+                    </li>
+                    <li>
+                      <span class="answer-line">Name the stop (ex-2) — being developed; latest: the review returned 2 findings, and the developer is answering them</span>
+                      <div class="summary-detail">
+                        <button class="detail-toggle" type="button" data-detail="entry-2-1" aria-expanded="false">Detail</button>
+                        <ul class="detail-lines" hidden>
+                          <li>run run-bbbbbbbb22222222</li>
+                          <li>phase developing</li>
+                        </ul>
+                      </div>
+                    </li>
+                    <li>
+                      <span class="answer-line">Count the slots (ex-3) — being developed; no check or review result yet</span>
+                      <div class="summary-detail">
+                        <button class="detail-toggle" type="button" data-detail="entry-2-2" aria-expanded="false">Detail</button>
+                        <ul class="detail-lines" hidden>
+                          <li>run run-cccccccc33333333</li>
+                          <li>phase developing</li>
+                        </ul>
+                      </div>
+                    </li>
+                  </ul>
+                </dd>
+              </div>
+              <div class="answer">
+                <dt>Blocked</dt>
+                <dd>
+                  <p class="answer-says">2 things waiting on somebody other than you</p>
+                  <ul class="answer-lines">
+                    <li class="grouped">
+                      <span class="answer-line">Run not finished, 3 times, on ex-4 (latest 18:00 PDT) — next: settle the run; waiting on the harness</span>
+                      <div class="summary-detail">
+                        <button class="detail-toggle" type="button" data-detail="entry-3-0" aria-expanded="false">Detail</button>
+                        <ul class="detail-lines" hidden>
+                          <li>run-dddddddd44444444: cleanup of the branch and worktree for ex-4 is not finished — the harness's — `yoyo reconcile` finishes the run's cleanup and records it (needs yoyo reconcile)</li>
+                          <li>run-eeeeeeee55555555: cleanup of the branch and worktree for ex-4 is not finished — the harness's — `yoyo reconcile` finishes the run's cleanup and records it (needs yoyo reconcile)</li>
+                          <li>run-ffffffff66666666: cleanup of the branch and worktree for ex-4 is not finished — the harness's — `yoyo reconcile` finishes the run's cleanup and records it (needs yoyo reconcile)</li>
+                        </ul>
+                      </div>
+                    </li>
+                    <li class="grouped">
+                      <span class="answer-line">2 wait on the development manager's decision about a stopped run — next: she decides what becomes of each stopped run; waiting on the development manager</span>
+                      <div class="summary-detail">
+                        <button class="detail-toggle" type="button" data-detail="entry-3-1" aria-expanded="false">Detail</button>
+                        <ul class="detail-lines" hidden>
+                          <li>Keep the branch (ex-5)</li>
+                          <li>Read the queue (ex-6)</li>
+                        </ul>
+                      </div>
+                    </li>
+                  </ul>
+                </dd>
+              </div>
+              <div class="answer">
+                <dt>Ended without landing</dt>
+                <dd>
+                  <p class="answer-says">4 runs</p>
+                  <ul class="answer-lines">
+                    <li class="grouped">
+                      <span class="answer-line">3 runs: the checks kept failing or could not run (latest 19:00 PDT)</span>
+                      <div class="summary-detail">
+                        <button class="detail-toggle" type="button" data-detail="entry-4-0" aria-expanded="false">Detail</button>
+                        <ul class="detail-lines" hidden>
+                          <li>recorded stop cause checks: 3</li>
+                        </ul>
+                      </div>
+                    </li>
+                    <li>
+                      <span class="answer-line">1 run: a check ran past its time limit (15:00 PDT)</span>
+                      <div class="summary-detail">
+                        <button class="detail-toggle" type="button" data-detail="entry-4-1" aria-expanded="false">Detail</button>
+                        <ul class="detail-lines" hidden>
+                          <li>recorded stop cause check-timeout: 1</li>
+                        </ul>
+                      </div>
+                    </li>
+                  </ul>
+                </dd>
+              </div>
+              <div class="answer">
+                <dt>Needs your decision</dt>
+                <dd>
+                  <p class="answer-says">1 thing only you can do</p>
+                  <ul class="answer-lines">
+                    <li>
+                      <span class="answer-line">Provider unavailable (18:00 PDT) — next: log in to the provider again; waiting on you, because it is a credential or account only a person holds</span>
+                      <div class="summary-detail">
+                        <button class="detail-toggle" type="button" data-detail="entry-5-0" aria-expanded="false">Detail</button>
+                        <ul class="detail-lines" hidden>
+                          <li>unauthenticated: The provider is not authenticated; the operator must log in: every role is waiting on it, and the harness asks again on its own until it answers; 0 turns refused since 2026-10-26T01:00:00Z — the operator's — log in to the provider again; the harness resumes on its own once it answers, and nothing is released or restarted (needs the provider's login)</li>
+                        </ul>
+                      </div>
+                    </li>
+                  </ul>
+                </dd>
+              </div>
+              <div class="answer">
+                <dt>Cost</dt>
+                <dd>
+                  <p class="answer-says">$12.30 across 40 provider calls</p>
+                  <div class="summary-detail">
+                    <button class="detail-toggle" type="button" data-detail="answer-6" aria-expanded="false">Detail</button>
+                    <ul class="detail-lines" hidden>
+                      <li>run: $10.00 over 30 calls</li>
+                    </ul>
+                  </div>
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </section>
         <section id="band" class="panel band" data-state="ready" aria-labelledby="band-heading">
           <div class="panel-head">
             <h2 id="band-heading">Where the harness stands</h2>

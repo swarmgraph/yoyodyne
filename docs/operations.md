@@ -4850,9 +4850,74 @@ remote gained, which is by definition work this repository has never seen.
    Nothing sweeps it for you: it is preserved work, and the convergence sweep only
    ever removes a branch whose work the target provably carries.
 
+## Where things stand, in five answers: the summary
+
+`yoyo status` opens with a summary, and the dashboard opens with the same one
+at the top of its page. While the harness is paused on the provider's usage
+limit, the sentence saying so comes first, above the summary, so the cause is
+still the first thing you read. It answers five questions in ordinary words, so you can
+see where things stand without reading run records:
+
+```text
+Summary, today, since 00:00 PDT on Sunday October 25 (read at 20:00 PDT):
+  Landed: 2 code changes
+    - (P1) Fix the tile (ex-7) (19:00 PDT)
+    - (P2) Name the slot (ex-8) (17:00 PDT)
+  Documents published: 1 document
+    - V1 goals (18:00 PDT)
+  In progress: 2 runs
+    - (P1) Retry the merge (ex-1) — in review; latest: the checks passed (19:00 PDT)
+    - (P2) Name the stop (ex-2) — being developed; latest: the review returned 2 findings, and the developer is answering them
+  Blocked: 2 things waiting on somebody other than you
+    - Run not finished, 3 times, on (P1) Keep the branch (ex-4) (latest 18:00 PDT) — next: settle the run; waiting on the harness
+    - 2 wait on the development manager's decision about a stopped run — next: she decides what becomes of each stopped run; waiting on the development manager
+  Ended without landing: 4 runs
+    - 3 runs: the checks kept failing or could not run (latest 19:00 PDT)
+    - 1 run: a check ran past its time limit (15:00 PDT)
+  Needs your decision: 1 thing only you can do
+    - Provider unavailable (18:00 PDT) — next: log in to the provider again; waiting on you, because it is a credential or account only a person holds
+  Cost: $12.30 across 40 provider calls
+```
+
+- **Landed** and **Documents published** are what reached the target branch
+  in the period, code changes apart from the confirmed documents a role wrote,
+  each with the time it landed.
+- **In progress** is each run with the newest result about its change: the
+  checks passing or failing, a protected file refused, or the review's
+  verdict, and "no check or review result yet" before any of them.
+- **Blocked** is everything waiting on somebody other than you, each with who
+  it waits on and what happens next, as [the ownership
+  registry](#who-owns-each-kind-of-entry) answers for it. **Ended without
+  landing** is the runs that stopped in the period, one line per cause, each
+  cause in the same words the rest of the harness uses for it.
+- **Needs your decision** is only what is yours: an entry the registry gives
+  you for a reason on its closed list, and a decision a role made that needs
+  your hand to carry out. Nothing else is put to you here.
+- **Cost** is what the period cost, as `yoyo status --spend` and the
+  dashboard's spend box price it, with "at least" where some records could not
+  be read.
+
+The same thing seen several times — the same kind of thing, waiting on the
+same role or part, ended by the same step — is one line with its count and its
+latest time, and so is every run that stopped for the same cause. Every time is
+in this machine's local zone, with the zone named.
+
+The summary names no run, no stop cause by its code, and no configuration key.
+Those are kept behind each line: `yoyo status --detail` prints them under it,
+and on the dashboard each line's **Detail** button opens them. An answer whose
+records could not be read says "could not be read just now", and the detail
+says why.
+
+The period is today, from local midnight, by default. `yoyo status --since
+week` counts what landed and what it cost over the last 7 local days instead,
+and the dashboard's **Last 7 days** button does the same. What is in progress,
+blocked, and waiting on you is always as it stands now. `yoyo status --json`
+carries the summary under `summary`, and the dashboard reads it from
+`/api/summary?since=today` or `?since=week`.
+
 ## Where the harness stands: the four lines
 
-`yoyo status` opens with four lines, and prints all four every time:
+Under the summary, `yoyo status` prints four lines, all four every time:
 
 ```text
 Running (2 developer runs):
@@ -6362,11 +6427,12 @@ against the answer.
 
 ## Watching from a browser: the dashboard
 
-`yoyo dashboard` serves what `yoyo status` reads — the four lines, the
+`yoyo dashboard` serves what `yoyo status` reads — [the
+summary](#where-things-stand-in-five-answers-the-summary), the four lines, the
 capacity state carried under them, what the harness is spending, and what
-landed — to a browser on this machine, as one page of eight sections, with a
-ninth, Merge queues, shown only where the product has a merge queue record,
-and keeps serving it until you stop it:
+landed — to a browser on this machine, as one page of nine sections opening
+with the summary, with a tenth, Merge queues, shown only where the product has
+a merge queue record, and keeps serving it until you stop it:
 
 ```sh
 ./bin/yoyo dashboard              # a port the operating system chooses
@@ -6393,7 +6459,7 @@ prints the token to your terminal when it starts:
 ```text
 dashboard for yoyodyne serving at http://127.0.0.1:52341/
 token: 9f2c41ab7e05…
-the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/accomplishment, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask
+the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/summary?since=today or ?since=week, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/accomplishment, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask
 a restarted dashboard prints a new one; stop with ctrl-c
 it is also in …/projects/yoyodyne/state/dashboard/token while this dashboard runs, and `yoyo dashboard token` prints it
 mason approves, declines, and asks from the page with their own token, read from the keychain item yoyo-dashboard.yoyodyne.mason under the account yoyo and not printed
@@ -6419,7 +6485,7 @@ the value:
 ```text
 dashboard for yoyodyne serving at http://127.0.0.1:8765/
 the token was read from the keychain item yoyo-dashboard.yoyodyne under the account yoyo, as services.dashboard.token names, and is not printed
-the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/accomplishment, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask
+the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/summary?since=today or ?since=week, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/accomplishment, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask
 it outlives a restart: a restarted dashboard reads the same one; stop with ctrl-c
 ```
 
@@ -6438,6 +6504,8 @@ harness stands and asks again every ten seconds. The same answers are served as
 JSON to anything that sends the token as a bearer header: at `/api/standing`,
 the `standing` object `yoyo status --json` carries, from the same derivation,
 so the page and the terminal cannot disagree about a number; at
+`/api/summary?since=today` or `?since=week`, the `summary` object `yoyo status
+--json` carries, made from the three readings here rather than read again; at
 `/api/throughput`, what landed over today and the last seven days, counted from
 the run records `yoyo status` derives each run's outcome from; and at
 `/api/spend`, what the harness spent over the last twenty-four hours and the

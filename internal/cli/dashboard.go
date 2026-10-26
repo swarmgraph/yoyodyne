@@ -386,7 +386,7 @@ func dashboardTokenStores(stateRoot string) dashboard.TokenStores {
 
 // dashboardHeaderLine is said whichever way the token came, because it is
 // about how the token is presented rather than where it came from.
-const dashboardHeaderLine = "the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/accomplishment, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask"
+const dashboardHeaderLine = "the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/summary?since=today or ?since=week, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/accomplishment, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask"
 
 // dashboardServer makes the server under the token the entry names, and says
 // what the command prints about it. Under `generated` the server makes its own
@@ -744,10 +744,11 @@ func printDashboardUsage(writer io.Writer) {
 
 Serves the read model -- the same four lines and capacity state `+"`yoyo status`"+`
 reads, what the harness is spending, and what landed -- to a browser on this
-machine, at a loopback port, until stopped, as a page of eight sections: the
-status band, what the harness is spending, the runs and conversations in
+machine, at a loopback port, until stopped, as a page of nine sections: the
+summary of what landed, what is moving, what is blocked, what needs you, and
+what it cost; the status band, what the harness is spending, the runs and conversations in
 flight, where admitted work stands in the pipeline, throughput, provider
-capacity, factory problems, and the program managers, with a ninth, the merge
+capacity, factory problems, and the program managers, with a tenth, the merge
 queues, shown only where the product has a merge queue record. It prints the URL and, beside it,
 where the token every request for the read model has to carry as
 `+"`Authorization: Bearer <token>`"+` comes from: with services.dashboard.token at its
@@ -760,8 +761,10 @@ start with the command that stores it, the one `+"`yoyo doctor`"+` prints. The p
 asks for the token and keeps it in the tab's session storage, scoped to this
 port, and never in a URL or a cookie. It serves
 the read model as JSON behind the token -- the four lines and the capacity state
-at /api/standing, what landed over today and the last seven days at
-/api/throughput, what was spent over the last 24 hours and the last seven local
+at /api/standing, the summary of what landed, what is in progress, what is
+blocked, what needs you, and what it cost, counted from today or over the last
+seven days, at /api/summary?since=today or ?since=week, what landed over today
+and the last seven days at /api/throughput, what was spent over the last 24 hours and the last seven local
 days with a line for each of the last thirty at /api/spend, the factory's
 delivery measures for each of the last thirty days and thirteen weeks in Pacific
 time at /api/delivery, what the spend of the current week and the three before

@@ -1874,3 +1874,89 @@ func TestDeveloperEndpointsAreTheDeveloperAndItsMappedModels(t *testing.T) {
 		t.Fatalf("endpoints with no developer = %+v, want none", got)
 	}
 }
+
+// `yoyo status` opens with the owner summary, ahead of the four lines, and the
+// stop cause a run recorded is said there in words, grouped with its count;
+// the cause's code and the run's identifier are printed only under --detail,
+// and the summary is in the JSON as the lines print it.
+func TestStatusOpensWithTheOwnerSummary(t *testing.T) {
+	stateRoot := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
+	configPath := writeConfig(t, validConfig)
+	store, err := runstate.NewStore(stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Add(-time.Minute)
+	for index, item := range []string{"yoyodyne-one", "yoyodyne-two"} {
+		run := recordedRun(t, store, runstate.StatusTimedOut, item, now.Add(-time.Duration(index)*time.Second))
+		run.StopClass = runstate.StopProviderIdle
+		saveRun(t, store, run)
+	}
+
+	stdout, stderr, code := runCLI(t, "status", "--config", configPath)
+	if code != 0 {
+		t.Fatalf("status exited %d: %s", code, stderr)
+	}
+	summary, _, found := strings.Cut(stdout, "\nRunning")
+	if !found || !strings.HasPrefix(summary, "Summary, today, since 00:00 ") {
+		t.Fatalf("status does not open with the summary ahead of the four lines:\n%s", stdout)
+	}
+	for _, said := range []string{"  Landed: ", "  In progress: ", "  Blocked: ", "  Needs your decision: ", "  Cost: "} {
+		if !strings.Contains(summary, said) {
+			t.Fatalf("the summary lacks %q:\n%s", said, summary)
+		}
+	}
+	if strings.Contains(summary, "provider-idle") || strings.Contains(summary, "run-") {
+		t.Fatalf("the summary carries a stop cause's code or a run:\n%s", summary)
+	}
+
+	stdout, _, code = runCLI(t, "status", "--config", configPath, "--detail", "--since", "week")
+	// Over the week rather than today, so a test run in the minute after
+	// midnight still finds both runs inside the period.
+	if code != 0 || !strings.HasPrefix(stdout, "Summary, over the last 7 days") || !strings.Contains(stdout, "    - 2 runs: "+runstate.StopSays(runstate.StopProviderIdle)+" (latest ") || !strings.Contains(stdout, "detail: recorded stop cause provider-idle: 2") {
+		t.Fatalf("--detail --since week: code %d\n%s", code, stdout)
+	}
+
+	stdout, _, code = runCLI(t, "status", "--config", configPath, "--json", "--since", "week")
+	var output statusOutput
+	if code != 0 || json.Unmarshal([]byte(stdout), &output) != nil || output.Summary == nil || output.Summary.Failures.Says != "2 runs" {
+		t.Fatalf("the JSON summary: code %d\n%s", code, stdout)
+	}
+
+	if _, stderr, code := runCLI(t, "status", "--config", configPath, "--detail", "yoyodyne-one"); code != 2 || !strings.Contains(stderr, "printed only when no item is named") {
+		t.Fatalf("--detail with an item: code %d, %s", code, stderr)
+	}
+	if _, stderr, code := runCLI(t, "status", "--config", configPath, "--since", "yesterday"); code != 2 || !strings.Contains(stderr, "say today or week") {
+		t.Fatalf("--since yesterday: code %d, %s", code, stderr)
+	}
+}
+
+// While the harness is paused on the provider's usage window, `yoyo status`
+// still opens with the pause: the banner is the first line, above the summary,
+// and the four lines under the summary do not say it a second time.
+func TestStatusOpensWithThePauseAboveTheSummary(t *testing.T) {
+	t.Parallel()
+	const paused = "Paused on the provider's usage limit until 13:43 PDT"
+	standing := readmodel.Standing{Paused: paused, ObservedAt: time.Now(), Running: []readmodel.RunningRun{}, NotStartable: []readmodel.Refused{}}
+	summary := readmodel.Summarize(readmodel.SummaryInputs{Standing: &standing})
+	var out bytes.Buffer
+	printStanding(&out, &standing, &summary, false)
+	printed := out.String()
+	if !strings.HasPrefix(printed, paused+"\nSummary, today, since ") {
+		t.Fatalf("status does not open with the pause above the summary:\n%s", printed)
+	}
+	if strings.Count(printed, paused) != 1 {
+		t.Fatalf("the pause is said more than once:\n%s", printed)
+	}
+	if !strings.Contains(printed, "\nRunning") {
+		t.Fatalf("the four lines are missing under the summary:\n%s", printed)
+	}
+
+	standing.Paused = ""
+	out.Reset()
+	printStanding(&out, &standing, &summary, false)
+	if !strings.HasPrefix(out.String(), "Summary, today, since ") {
+		t.Fatalf("with no pause, status does not open with the summary:\n%s", out.String())
+	}
+}
