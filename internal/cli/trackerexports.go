@@ -23,9 +23,21 @@ func maintainTrackerExports(ctx context.Context, parts components) (beads.Export
 	if recordErr != nil {
 		recordErr = fmt.Errorf("record removed tracker export temporaries: %w", recordErr)
 	}
-	refreshErr := parts.tracker().RefreshExportIfDue(ctx)
-	if refreshErr != nil {
-		refreshErr = fmt.Errorf("refresh the tracker export: %w", refreshErr)
-	}
+	refreshErr := refreshTrackerExport(parts.tracker().RefreshExportIfDue(ctx))
 	return cleaned, errors.Join(cleanErr, recordErr, refreshErr)
+}
+
+// refreshTrackerExport is the clean-up's failure to refresh the tracker
+// export, said with its cause first where the export ran out of time: whether
+// it waited behind other processes or the tracker was slow on its own, and how
+// big the store was. The failure stays a failure either way; what bd said and
+// the whole account follow it.
+func refreshTrackerExport(err error) error {
+	if err == nil {
+		return nil
+	}
+	if slow, ok := beads.SlowCallOf(err); ok {
+		return fmt.Errorf("refresh the tracker export: %s: %w", slow.Cause(), err)
+	}
+	return fmt.Errorf("refresh the tracker export: %w", err)
 }

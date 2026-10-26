@@ -298,9 +298,7 @@ func (c Client) whoHeld(what, path string) string {
 	if path == "" {
 		return fmt.Sprintf("which process held %s could not be told: no store was found from %s", what, describeDir(c.Dir))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), holderLookupTimeout)
-	defer cancel()
-	holders, err := c.holdersFinder().Holders(ctx, path)
+	holders, err := c.findHolders(path)
 	if err != nil {
 		return fmt.Sprintf("which process held %s could not be told: %v", what, err)
 	}
@@ -308,6 +306,14 @@ func (c Client) whoHeld(what, path string) string {
 		return fmt.Sprintf("no process had %s open when it was stopped", what)
 	}
 	return fmt.Sprintf("when it was stopped, %s was held open by %s", what, SayHolders(holders))
+}
+
+// findHolders asks the client's finder which processes hold path open, within
+// the bound each such question is given.
+func (c Client) findHolders(path string) ([]StoreHolder, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), holderLookupTimeout)
+	defer cancel()
+	return c.holdersFinder().Holders(ctx, path)
 }
 
 func describeDir(dir string) string {

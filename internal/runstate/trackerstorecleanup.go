@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
@@ -68,21 +69,9 @@ func (c TrackerStoreCleanup) Says() string {
 	return said
 }
 
-// SayBytes is a size as a person reads one: kilobytes under a megabyte, and
-// megabytes above.
-func SayBytes(size int64) string {
-	const kilobyte, megabyte = 1 << 10, 1 << 20
-	switch {
-	case size < kilobyte:
-		return fmt.Sprintf("%d bytes", size)
-	case size < megabyte:
-		return fmt.Sprintf("%d KB", (size+kilobyte/2)/kilobyte)
-	case size < 10*megabyte:
-		return fmt.Sprintf("%.1f MB", float64(size)/megabyte)
-	default:
-		return fmt.Sprintf("%d MB", (size+megabyte/2)/megabyte)
-	}
-}
+// SayBytes is a size as a person reads one, said as the tracker client says
+// the store's size (beads.SayBytes).
+func SayBytes(size int64) string { return beads.SayBytes(size) }
 
 // sayTook is a duration to the tenth of a second under a minute, and to the
 // second above.

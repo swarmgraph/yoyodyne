@@ -506,6 +506,11 @@ type Client struct {
 	// store open, so its account can name them (storeholders.go). Nil asks the
 	// operating system.
 	Holders HolderFinder
+	// SlowCalls is handed every call stopped at a limit, with how long it ran,
+	// the store's size, and what held the store (slowcall.go). Nil keeps
+	// nothing beyond the call's own failure. A record that cannot be written is
+	// said in that failure and changes nothing else about it.
+	SlowCalls SlowCallRecorder
 	// WriterZone is the zone the tracker's writers ran bd in, which a listing
 	// reads a provably early dependency stamp in (dependencyCreatedAt). Nil is
 	// this machine's own zone, which is right for a tracker only this machine
@@ -2005,13 +2010,18 @@ func (c Client) runWithin(ctx context.Context, limit time.Duration, args ...stri
 		if result.Status == execution.ProcessTimedOut {
 			// bd's own words come after the account, so the account is never lost
 			// to however much bd printed before it was stopped.
-			account := timeoutAccount(args, Caller(ctx), time.Since(started), limit, deadline, deadlined, started)
+			ran := time.Since(started)
+			account := timeoutAccount(args, Caller(ctx), ran, limit, deadline, deadlined, started)
+			var slow *SlowCall
 			if !deadlined || deadline.After(started) {
 				// A call that never started waited on nothing, so only one that ran is
-				// asked about.
-				account += "; " + c.whoHeld("the tracker's store", c.storeDatabase())
+				// measured, and kept (slowcall.go).
+				call := c.slowCall(args, Caller(ctx), started, ran, limit, deadline, deadlined)
+				slow = &call
+				account += "; " + call.Says() + c.recordSlowCall(call)
 			}
 			message = strings.TrimSuffix(account+": "+message, ": ")
+			return nil, processFailure{verb: args[0], status: result.Status, exitCode: result.ExitCode, message: message, slow: slow}
 		}
 		return nil, processFailure{verb: args[0], status: result.Status, exitCode: result.ExitCode, message: message}
 	}
@@ -2035,6 +2045,9 @@ type processFailure struct {
 	status   execution.ProcessStatus
 	exitCode int
 	message  string
+	// slow is what a call stopped at a limit found, and nil for every other
+	// failure and for a call that never started.
+	slow *SlowCall
 }
 
 func (f processFailure) Error() string {

@@ -71,7 +71,7 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		Roles:              roleConversation{configPath: configPath, stderr: stderr},
 		MissingReportLimit: parts.config.Execution.MissingReportLimit(),
 		ConversationWork: sweepConversationWork{
-			items: withListingRecord(chatTracker(parts.runner, parts.repository), parts.trackerListings),
+			items: withTrackerRecords(chatTracker(parts.runner, parts.repository), parts.trackerListings, parts.trackerSlowCalls),
 		},
 		// Where the note goes on an item first in a pass's order that the pass
 		// did not take, so the item itself says it was passed over.
@@ -125,7 +125,7 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 	if parts.docket != nil {
 		trigger.Docket = sweepDocket{
 			docketer: docketerFrom(parts),
-			items:    withListingRecord(chatTracker(parts.runner, parts.repository), parts.trackerListings),
+			items:    withTrackerRecords(chatTracker(parts.runner, parts.repository), parts.trackerListings, parts.trackerSlowCalls),
 			window:   parts.docket,
 			// The standing `yoyo status` reads, so what she is shown as waiting on
 			// the operator is his needs-a-human line and not a second reading of it.
@@ -138,7 +138,7 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 	// what landed since her last pass against the standing goals. The same
 	// tracker her conversation admits the corrections into.
 	trigger.ClosedWork = closedWork{
-		items: withListingRecord(chatTracker(parts.runner, parts.repository), parts.trackerListings),
+		items: withTrackerRecords(chatTracker(parts.runner, parts.repository), parts.trackerListings, parts.trackerSlowCalls),
 	}
 	// The program manager instances, with the cursor each keeps over the
 	// streams its triggers watch and the streams themselves, the requests for
