@@ -38,6 +38,10 @@ revisions:
       by: architect
       at: 2026-10-24T21:37:13.812547Z
       reason: 'Part of the follow-up queue design (yoyodyne-ifd.432.25.20), as its section on designs this changes promises: the entry kind follow-up joins the list of kinds and the table, owned by the owner it recorded and the operator only with a reason from the closed list; an entry that has a follow-up is shown once with one owner; a test holds that; showing a follow-up as a second entry is recorded as rejected. Written against main at 928cbe4d. Nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-10-26T18:30:58.491794Z
+      reason: 'yoyodyne-ifd.430.69: the section on who decides a proposed change gains what the record of a proposal keeps: the revision and commit it was written against, its withdrawal by the proposer or the operator, and the revision, runs and landed commit that carry an approved change, named by the owner''s typed write rather than found by matching document and time. Answers the developer''s reports e27a1e81, b3af2aa3 and 0b4dde7d. Written against main at 840ed8b3; nothing else in the design changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -74,6 +78,11 @@ approvals:
       by: harness
       at: 2026-10-24T21:37:13.812547Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1655, for document-1655.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 8
+      by: harness
+      at: 2026-10-26T18:30:58.491794Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1807, for document-1807.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -199,6 +208,59 @@ him that is not his, the defect this design exists to end; and having the Lead
 Product Manager decide every proposal, which gives her the designs and
 decision records that are the architect's, and the work definitions that are
 the development manager's.
+
+### What the record of a proposal keeps
+
+*(yoyodyne-ifd.430.69)*
+
+Each proposal keeps its own record, and entries are only ever added to it,
+never changed or removed. Besides the proposal and its decision, the record
+keeps three things, so that anyone reading a proposal, including the records
+attached to a question between roles, sees exactly where it stands without
+matching documents and times.
+
+1. **The revision it was written against.** When a role proposes a change,
+   the harness records the document's latest recorded revision number and the
+   commit of the target branch it read the document at. An invariant has no
+   revision list, so for one the commit alone is recorded. A proposal recorded
+   before this was built shows "not recorded"; the harness never infers the
+   revision from times. Where the document has been revised since, the owner
+   may still decide the proposal, and the record and every surface showing it
+   name both revisions, the one the proposal was written against and the
+   current one.
+2. **Its withdrawal.** The role that proposed a change, or the operator, may
+   withdraw it while it is undecided. Withdrawing adds an entry naming who
+   withdrew it, when, and why. A withdrawn proposal leaves the owner's list and
+   stays readable, shown as withdrawn. A decision on a withdrawn proposal is
+   refused, naming the withdrawal; a decided proposal cannot be withdrawn.
+3. **The revision and run that carry an approved change.** When the owner
+   writes the revision that makes an approved change, the typed write names
+   the approved proposals it carries. The harness refuses a name that is not
+   an approved proposal against that same document. For each one it adds, to
+   the proposal's record, the revision that carries it, then each run that
+   tries to land that revision, then the commit it landed in. A run returned
+   to its writer keeps its entry, and the later revision that carries the
+   change again adds its own. An approved proposal that no landed revision
+   carries stays on the owner's list as approved and not yet written, and
+   counts in the age of the amendment queue.
+
+A proposal therefore reads as one of: undecided, withdrawn, declined, approved
+and not yet written, written and waiting to land, or landed in a named commit.
+
+Rejected: finding the run that publishes an approved change by matching the
+document and the time, which is what the code does today, because two
+revisions of one document written minutes apart cannot be told apart that way;
+and inferring the revision a proposal was written against from when it was
+made, for the same reason.
+
+Enforced in code: the revision and commit are recorded when a proposal is
+made; a decision on a withdrawn proposal is refused; a typed write naming a
+proposal that is not approved, or is against another document, is refused;
+and the record of a proposal is only ever added to. A test drives one
+proposal through being made, approved, carried by a revision whose run is
+returned, carried again, and landed, and fails where any of those entries is
+missing; another withdraws a proposal and fails where a later decision on it
+is recorded.
 
 ## The operator's closed list
 
