@@ -10,7 +10,11 @@ package runstate
 // its own, created once and never rewritten, so nothing here needs a lock and
 // two records can never be one write that lost the other. A cleanup that never
 // started — not due, or another process using the store — is said on the pass
-// that skipped it and is not recorded here.
+// that skipped it and is not recorded here. A cleanup that started and failed,
+// or whose store held other work items after it than before, is recorded with
+// that, because the pass reads it back: the first is not tried again until the
+// next cleanup is due, and one after which an item is missing holds every later
+// cleanup back until the pass finds every missing item in the store again.
 
 import (
 	"crypto/rand"
@@ -38,6 +42,10 @@ const TrackerStoreCleanupSchemaVersion = 1
 // cleanup said. The whole of it is in the supervisor's log.
 const maxTrackerStoreCleanupTextBytes = 1 << 10
 
+// maxMissingKept bounds how many missing or added items a record names. The
+// count either side still says how many there were.
+const maxMissingKept = 100
+
 // TrackerStoreCleanup is one cleanup of the tracker's store that started.
 type TrackerStoreCleanup struct {
 	SchemaVersion int              `json:"schema_version"`
@@ -56,6 +64,61 @@ type TrackerStoreCleanup struct {
 	Said    string `json:"said,omitempty"`
 	// Reason is why it was due, in words.
 	Reason string `json:"reason,omitempty"`
+	// ItemsBefore and ItemsAfter are how many work items the store held either
+	// side of the cleanup, ItemsCounted says both were taken, Missing is the
+	// items it held before and not after, and Added the items it held after and
+	// not before.
+	ItemsBefore  int      `json:"items_before,omitempty"`
+	ItemsAfter   int      `json:"items_after,omitempty"`
+	ItemsCounted bool     `json:"items_counted,omitempty"`
+	Missing      []string `json:"missing,omitempty"`
+	Added        []string `json:"added,omitempty"`
+	// Failed is why a cleanup that started did not end as one: bd failing, or
+	// the items not counted after it.
+	Failed string `json:"failed,omitempty"`
+}
+
+// ItemsChanged reports a cleanup counted either side whose store did not hold
+// the same work items after it as before.
+func (c TrackerStoreCleanup) ItemsChanged() bool {
+	return c.ItemsCounted && (c.ItemsBefore != c.ItemsAfter || len(c.Missing) > 0 || len(c.Added) > 0)
+}
+
+// Lost reports a cleanup after which an item the store held before it was
+// missing.
+func (c TrackerStoreCleanup) Lost() bool { return c.ItemsCounted && len(c.Missing) > 0 }
+
+// SaysItems is the work items either side of the cleanup in words, and empty
+// where they were not counted.
+func (c TrackerStoreCleanup) SaysItems() string {
+	if !c.ItemsCounted {
+		return ""
+	}
+	if !c.ItemsChanged() {
+		return fmt.Sprintf("%d work items before and after", c.ItemsBefore)
+	}
+	said := fmt.Sprintf("%d work items before and %d after", c.ItemsBefore, c.ItemsAfter)
+	if len(c.Missing) > 0 {
+		said += fmt.Sprintf(", %s missing", sayIdentifiers(c.Missing))
+	}
+	if len(c.Added) > 0 {
+		said += fmt.Sprintf(", %s added meanwhile", sayIdentifiers(c.Added))
+	}
+	return said
+}
+
+// maxItemsSaid is how many items a sentence names before it counts the rest.
+const maxItemsSaid = 5
+
+// SayIdentifiers is items named in a sentence, the first few by identifier
+// and the rest counted.
+func SayIdentifiers(ids []string) string { return sayIdentifiers(ids) }
+
+func sayIdentifiers(ids []string) string {
+	if len(ids) <= maxItemsSaid {
+		return strings.Join(ids, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(ids[:maxItemsSaid], ", "), len(ids)-maxItemsSaid)
 }
 
 // Says is the cleanup in a sentence: when it ran, the store's size either side,
@@ -63,8 +126,14 @@ type TrackerStoreCleanup struct {
 func (c TrackerStoreCleanup) Says() string {
 	said := fmt.Sprintf("at %s, from %s to %s in %s",
 		c.StartedAt.Local().Format("2006-01-02 15:04 MST"), SayBytes(c.SizeBefore), SayBytes(c.SizeAfter), sayTook(c.Took))
+	if items := c.SaysItems(); items != "" {
+		said += ", " + items
+	}
 	if c.Stopped {
 		said += ", stopped before it finished when its hold on the store ran out"
+	}
+	if c.Failed != "" {
+		said += ", and it failed: " + c.Failed
 	}
 	return said
 }
@@ -93,9 +162,11 @@ func (c TrackerStoreCleanups) Latest() (TrackerStoreCleanup, bool) {
 	return c[len(c)-1], true
 }
 
-// LastFinished is the most recent cleanup that finished, which is what the
-// pass's bounds are measured from: a stopped one left the store part cleaned at
-// most, so the time since it does not say the store is clean.
+// LastFinished is the most recent cleanup that was not stopped, which is what
+// the pass's bounds are measured from: a stopped one left the store part
+// cleaned at most, so the time since it does not say the store is clean. A
+// failed one counts, so that a failure is tried again when the next cleanup is
+// due rather than at every pass.
 func (c TrackerStoreCleanups) LastFinished() (TrackerStoreCleanup, bool) {
 	for index := len(c) - 1; index >= 0; index-- {
 		if !c[index].Stopped {
@@ -138,6 +209,13 @@ func (s *TrackerStoreCleanupStore) Record(cleanup TrackerStoreCleanup) error {
 	cleanup.StartedAt = cleanup.StartedAt.UTC()
 	cleanup.Said = oneline.Fold(cleanup.Said, maxTrackerStoreCleanupTextBytes)
 	cleanup.Reason = oneline.Fold(cleanup.Reason, maxTrackerStoreCleanupTextBytes)
+	cleanup.Failed = oneline.Fold(cleanup.Failed, maxTrackerStoreCleanupTextBytes)
+	if len(cleanup.Missing) > maxMissingKept {
+		cleanup.Missing = cleanup.Missing[:maxMissingKept]
+	}
+	if len(cleanup.Added) > maxMissingKept {
+		cleanup.Added = cleanup.Added[:maxMissingKept]
+	}
 	encoded, err := json.Marshal(cleanup)
 	if err != nil {
 		return err

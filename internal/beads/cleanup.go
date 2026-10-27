@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -34,6 +35,16 @@ import (
 // leaves the store whole: Dolt's collection writes what it keeps to new files
 // and swaps them in by rewriting one manifest, so a collection stopped before
 // the swap leaves the old store as it was, and one stopped after has finished.
+//
+// The cleanup also counts the work items the store holds either side of it,
+// every status included, so each cleanup shows on its own record that it lost
+// none. The count before is taken once nobody else has the store open, just
+// before bd's cleanup starts, and the count after once it has ended, so another
+// process creating an item between the two can make the counts differ without
+// the cleanup having lost anything. The items are therefore compared by
+// identifier as well as counted: an item there after and not before is added,
+// and only an item there before and not after is missing, which is what the
+// maintenance pass holds later cleanups back for (internal/maintain).
 
 // StoreCleanup is one cleanup of the tracker's store: what it found and what it
 // came to.
@@ -54,10 +65,29 @@ type StoreCleanup struct {
 	// said about it, including what held the store at that moment.
 	Stopped bool
 	Said    string
+	// ItemsBefore and ItemsAfter are how many work items the store held either
+	// side of the cleanup, every status counted, and Counted says both were
+	// taken. Missing is the items it held before and not after, and Added the
+	// items it held after and not before.
+	ItemsBefore int
+	ItemsAfter  int
+	Counted     bool
+	Missing     []string
+	Added       []string
 }
 
 // Ran reports a cleanup that started, whether it finished or was stopped.
 func (s StoreCleanup) Ran() bool { return len(s.Busy) == 0 && !s.StartedAt.IsZero() }
+
+// ItemsChanged reports a cleanup counted either side whose store does not hold
+// the work items after it that it held before.
+func (s StoreCleanup) ItemsChanged() bool {
+	return s.Counted && (s.ItemsBefore != s.ItemsAfter || len(s.Missing) > 0)
+}
+
+// Lost reports a cleanup after which an item the store held before it is
+// missing.
+func (s StoreCleanup) Lost() bool { return s.Counted && len(s.Missing) > 0 }
 
 // StoreSize is the tracker's store as this client's bd finds it, and its
 // database directory's size in bytes.
@@ -76,10 +106,15 @@ func (c Client) StoreSize() (string, int64, error) {
 // CleanUpStore runs bd's cleanup over the store for at most hold, unless
 // another process has the store open, in which case it starts nothing and says
 // which. A cleanup stopped at its hold is not an error: it is reported as
-// stopped, with the sizes either side, and is the next cleanup's to finish. A
-// finder that cannot tell who has the store open does not hold the cleanup
-// back, since the hold alone keeps the wait it causes inside every other
-// call's limit.
+// stopped, with the sizes and item counts either side, and is the next
+// cleanup's to finish. A finder that cannot tell who has the store open does
+// not hold the cleanup back, since the hold alone keeps the wait it causes
+// inside every other call's limit.
+//
+// The items are counted before bd's cleanup starts, and one that cannot be
+// counted is not started, because nothing could then show it lost no item. A
+// cleanup that fails, or whose items cannot be counted after it, is returned
+// with what was measured of it and the error; its StartedAt says it ran.
 func (c Client) CleanUpStore(ctx context.Context, hold time.Duration) (StoreCleanup, error) {
 	if hold <= 0 {
 		return StoreCleanup{}, errors.New("a cleanup of the tracker's store needs a hold longer than zero")
@@ -96,22 +131,85 @@ func (c Client) CleanUpStore(ctx context.Context, hold time.Duration) (StoreClea
 		cleanup.Busy, cleanup.SizeAfter = holders, before
 		return cleanup, nil
 	}
+	itemsBefore, err := c.storeItems(ctx)
+	if err != nil {
+		return cleanup, fmt.Errorf("the tracker's work items could not be counted before its store was cleaned up, so the cleanup was not started: %w", err)
+	}
+	cleanup.ItemsBefore = len(itemsBefore)
 	cleanup.StartedAt = time.Now()
 	_, runErr := c.runWithin(ctx, hold, "gc", "--skip-decay", "--force")
 	cleanup.Took = time.Since(cleanup.StartedAt)
+	failed := false
 	switch {
 	case runErr == nil:
 	case timedOut(runErr) && ctx.Err() == nil:
 		cleanup.Stopped, cleanup.Said = true, runErr.Error()
 	default:
-		return cleanup, runErr
+		failed = true
 	}
 	after, err := directorySize(store)
 	if err != nil {
+		cleanup.SizeAfter = before
+		if failed {
+			return cleanup, runErr
+		}
 		return cleanup, fmt.Errorf("measure the tracker's store %s after its cleanup: %w", store, err)
 	}
 	cleanup.SizeAfter = after
+	if failed {
+		return cleanup, runErr
+	}
+	itemsAfter, err := c.storeItems(ctx)
+	if err != nil {
+		return cleanup, fmt.Errorf("the tracker's work items could not be counted after its store was cleaned up, so whether the cleanup lost any cannot be told: %w", err)
+	}
+	cleanup.ItemsAfter, cleanup.Counted = len(itemsAfter), true
+	cleanup.Missing = absent(itemsBefore, itemsAfter)
+	cleanup.Added = absent(itemsAfter, itemsBefore)
 	return cleanup, nil
+}
+
+// MissingItems is which of ids the store does not hold, read in one listing as
+// a cleanup counts its items. It is how the maintenance pass looks again for
+// items a cleanup found missing.
+func (c Client) MissingItems(ctx context.Context, ids []string) ([]string, error) {
+	held, err := c.storeItems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	wanted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	return absent(wanted, held), nil
+}
+
+// absent is the identifiers in from that are not in in, in order.
+func absent(from, in map[string]struct{}) []string {
+	var missing []string
+	for id := range from {
+		if _, found := in[id]; !found {
+			missing = append(missing, id)
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+// storeItems is the identifier of every work item the store holds, closed work
+// included, read in one listing and not asked again where it does not answer:
+// a count that fails is the cleanup failing, said as that, rather than a wait
+// that keeps the store busy longer.
+func (c Client) storeItems(ctx context.Context) (map[string]struct{}, error) {
+	items, err := c.workListing(ctx, "list", []string{everyStatus})
+	if err != nil {
+		return nil, err
+	}
+	ids := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		ids[item.ID] = struct{}{}
+	}
+	return ids, nil
 }
 
 // directorySize is the bytes held by the regular files under dir.
