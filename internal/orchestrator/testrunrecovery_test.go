@@ -74,13 +74,16 @@ func recoveryHarness(finish func(*scheduleHarness) Outcome) (*scheduleHarness, *
 	harness.outstanding = outstandingUntilFired(fired, other, test)
 	var startedOrder []string
 	harness.carry = func(h *scheduleHarness, task CarryOutTask) (CarriedOut, Outcome, error) {
+		// The hold is read whole under the harness's lock, as the real store reads
+		// it under its own: the scheduler rewrites it while this runs.
 		h.mu.Lock()
-		hold := h.held
+		held := h.held != nil
+		lets := held && h.held.RecoveryProbing(task.WorkItemID, task.RunID)
 		h.mu.Unlock()
 		carried := CarriedOut{WorkItemID: task.WorkItemID, RunID: task.RunID, Decision: task.Decision}
 		// The real repair action's own check: a hold lets through only the
 		// recovery its record names as the probe in flight.
-		if hold != nil && !hold.RecoveryProbing(task.WorkItemID, task.RunID) {
+		if held && !lets {
 			carried.Gate, carried.Waiting = runstate.TriageGateIntakeHold, true
 			carried.Problem = "the hold on new work is standing"
 			return carried, Outcome{}, nil
