@@ -934,6 +934,10 @@ type Scheduler struct {
 	// Open assembles one pull. It is called once per pull rather than once per
 	// scheduler, which is the whole of how a configuration change is picked up.
 	Open func(ctx context.Context) (Pull, error)
+	// CarryOutStartWait bounds how long a pull waits to hear whether the decided
+	// recoveries it fired began, before giving a slot one of them handed back to
+	// the decisions behind it. Zero is carryOutStartWait; see carryoutstart.go.
+	CarryOutStartWait time.Duration
 	// Limit bounds how many runs one pass starts. Zero means no bound on the
 	// count, which is what an unattended scheduler wants; an operator sitting in
 	// front of one wants a number. What ends an unbounded pass is what it was
@@ -2694,7 +2698,13 @@ pulling:
 				occupied[id] = runstate.State{WorkItemID: id}
 			}
 		}
-		free := pull.Capacity - len(occupied)
+		// A run another process left recorded as in flight, whose worker has been
+		// shown to be gone, is doing no work and is not counted against the slots
+		// (runstate.Store.HoldsDeveloperSlotNow), the same way the reservation does
+		// not count it. It stays in occupied, because its item still has a run
+		// standing over it and one item is never given two.
+		gone := workersGone(pull.Runs, occupied, mine, s.now())
+		free := pull.Capacity - (len(occupied) - len(gone))
 		// freed is the slots that came free since the last pull and whose runs had
 		// held them, which the line a filling poll writes says; heldElsewhere is how
 		// many slots another process's runs hold now, which decides what a session
@@ -2890,9 +2900,13 @@ pulling:
 		var tasks []CarryOutTask
 		var passedCarryOuts map[string]string
 		var pendingCarryOuts []outrankedCarryOut
+		// slotBound is a decision passed over for want of a slot, and attempted
+		// the decisions this pull has fired, by run; see the rounds below.
+		slotBound := false
+		attempted := map[string]bool{}
 		_, declining := drain.declinesStarts(pull.Poll, s.now())
 		if !declining {
-			tasks, passedCarryOuts, pendingCarryOuts = s.nextCarryOuts(&schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked)
+			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked, attempted)
 		} else if pull.CarryOut != nil {
 			// Nothing is attempted, and nothing is written onto the items, but the
 			// log still names each decision this pass left standing and why.
@@ -2902,17 +2916,11 @@ pulling:
 				}
 			}
 		}
-		// With no slot free this pull never walks the queue, so a decision held back
-		// for outranking work is written up now, beside the ones passed over.
-		if free < 1 && len(pendingCarryOuts) > 0 {
-			for _, pending := range pendingCarryOuts {
-				passedCarryOuts[pending.task.RunID] = pending.reason()
-				schedule.waitCarryOut(pending.task, pending.reason())
-			}
-			pendingCarryOuts = nil
-		}
 		firedCarryOuts := 0
-		fireCarryOut := func(task CarryOutTask) {
+		// fireCarryOut starts one decision in its own goroutine. Where signalled,
+		// it hands back what the carry-out tells the pull first: that its run
+		// began, or what it came back with (carryoutstart.go).
+		fireCarryOut := func(task CarryOutTask, signalled bool) *carryOutSignal {
 			reusesSlot := task.Recover && occupied[task.WorkItemID].RunID == task.RunID && occupied[task.WorkItemID].RepairDispatchPending()
 			index := len(schedule.Started)
 			schedule.Started = append(schedule.Started, Started{
@@ -2929,9 +2937,11 @@ pulling:
 			// one the action's own capacity gate refuses before it reserves anything,
 			// and a count driven negative here would offer the queue below room the
 			// harness does not have.
+			tookSlot := false
 			if free > 0 && !reusesSlot {
 				free--
 				filledByCarryOut++
+				tookSlot = true
 			}
 			carrying = true
 			firedCarryOuts++
@@ -2940,13 +2950,69 @@ pulling:
 			// one, rather than waiting it out past the bound.
 			runCtx, cancel := hostedContext(session.dispatching(ctx, task.WorkItemID), index, landings)
 			hosted[index] = cancel
+			var signal *carryOutSignal
+			if signalled {
+				signal = newCarryOutSignal(task, tookSlot)
+				runCtx = withCarryOutBegun(runCtx, signal.begun)
+			}
 			go func(task CarryOutTask) {
 				carried, outcome, err := pull.CarryOut.Carry(runCtx, task)
+				if signal != nil {
+					signal.returned(carried)
+				}
 				deliver(completed{index: index, outcome: outcome, err: err, carriedOut: &carried})
 			}(task)
+			return signal
 		}
-		for _, task := range tasks {
-			fireCarryOut(task)
+		// The decisions are fired in rounds. Where a decision was passed over for
+		// want of a slot, the pull waits for each decided recovery it fired to say
+		// whether its run began; one that came back without starting gives its slot
+		// back, and the next round offers it to the decisions behind, in this same
+		// pull, so a decision refused on every pass never keeps the slot from them
+		// (carryoutstart.go). What is left over after the last round goes to the
+		// queue below. A refusal for a full harness ends the rounds, because nothing
+		// more can start in this pull.
+		_, waits := pull.CarryOut.(carryOutStarts)
+		for {
+			var signals []*carryOutSignal
+			for _, task := range tasks {
+				attempted[task.RunID] = true
+				if signal := fireCarryOut(task, waits && slotBound && decidedRecovery(task.Decision)); signal != nil {
+					signals = append(signals, signal)
+				}
+			}
+			if len(signals) == 0 {
+				break
+			}
+			unstarted, full := awaitCarryOutStarts(ctx, signals, s.carryOutStartWait())
+			for _, signal := range unstarted {
+				if signal.tookSlot {
+					free++
+					filledByCarryOut--
+				}
+			}
+			if len(unstarted) == 0 || full {
+				break
+			}
+			if s.Limit > 0 {
+				remaining = s.Limit - len(schedule.Started)
+				if remaining <= 0 {
+					break
+				}
+			}
+			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked, attempted)
+			for _, task := range tasks {
+				schedule.unwaitCarryOut(task)
+			}
+		}
+		// With no slot free this pull never walks the queue, so a decision held back
+		// for outranking work is written up now, beside the ones passed over.
+		if freeAtPoll < 1 && len(pendingCarryOuts) > 0 {
+			for _, pending := range pendingCarryOuts {
+				passedCarryOuts[pending.task.RunID] = pending.reason()
+				schedule.waitCarryOut(pending.task, pending.reason())
+			}
+			pendingCarryOuts = nil
 		}
 		// A declining drain attempted nothing and is within a poll of its restart,
 		// so a decision it left standing is the returning session's to fire or to
@@ -3068,7 +3134,7 @@ pulling:
 		schedule.Blocked = refused
 
 		schedule.Capacity = pull.Capacity
-		schedule.Occupied = len(occupied)
+		schedule.Occupied = len(occupied) - len(gone)
 		// A probe is one run, whatever the capacity leaves free: what it is for is
 		// finding out whether the line is fine, and two of them would be two runs
 		// spent on one question.
@@ -3146,7 +3212,7 @@ pulling:
 		if probing {
 			if task, found := s.testRunRecovery(pull, hold, occupied); found {
 				if s.recordProbe(&schedule, pull, task.WorkItemID, task.RunID) {
-					fireCarryOut(task)
+					fireCarryOut(task, false)
 					schedule.Started[len(schedule.Started)-1].Probe = true
 					if probed, held, err := pull.Intake.Held(); err == nil && held {
 						session.enter(runstate.WatchBraked, account{reason: brakedReason(probed), running: running, mover: brakedMover(probed)})
@@ -3220,7 +3286,7 @@ pulling:
 		// configured for it before a slot with no preference reaches it. It is
 		// read from what is in flight rather than remembered, like everything
 		// else here, and it is the same reading the standing status makes.
-		freeSlots := pull.slotsOf(occupied, read.items).Free()
+		freeSlots := pull.slotsOf(withoutItems(occupied, gone), read.items).Free()
 		if len(freeSlots) > free {
 			freeSlots = freeSlots[:free]
 		}
@@ -3332,7 +3398,7 @@ pulling:
 			}
 			task := pendingCarryOuts[chosen].task
 			pendingCarryOuts = append(pendingCarryOuts[:chosen:chosen], pendingCarryOuts[chosen+1:]...)
-			fireCarryOut(task)
+			fireCarryOut(task, false)
 			flight.take(read.items[task.WorkItemID], "")
 			firedInWalk++
 			return task.WorkItemID, true
@@ -5151,8 +5217,18 @@ func (s Scheduler) corrected(schedule *Schedule, sweep CorrectionSweep, err erro
 // item's priority puts it. outranked says which decisions those are; nil says
 // none are, which is every decision before yoyodyne-ifd.428.58.
 func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool)) ([]CarryOutTask, map[string]string, []outrankedCarryOut) {
+	chosen, passed, pending, _ := s.nextCarryOutsExcept(schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked, nil)
+	return chosen, passed, pending
+}
+
+// nextCarryOutsExcept is nextCarryOuts leaving out the decisions about the runs
+// in attempted, which this pull has already fired: their own attempts are what
+// account for them. slotBound reports a decision passed over because the slots
+// ran out, which is what a decision that came back without starting gives one
+// back to.
+func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool), attempted map[string]bool) (chosen []CarryOutTask, passed map[string]string, pending []outrankedCarryOut, slotBound bool) {
 	if pull.CarryOut == nil {
-		return nil, nil, nil
+		return nil, nil, nil, false
 	}
 	outstanding, err := pull.CarryOut.Outstanding()
 	// Kept apart from what a gate said about the attempt this pass then makes.
@@ -5175,9 +5251,7 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 	if slots < 1 {
 		slots = 1
 	}
-	var chosen []CarryOutTask
-	var pending []outrankedCarryOut
-	passed := make(map[string]string)
+	passed = make(map[string]string)
 	taken := make(map[string]string)
 	newSlots := make(map[string]bool)
 	// pass passes a decision over for the item's record and says so on this
@@ -5187,6 +5261,9 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 		schedule.waitCarryOut(task, why)
 	}
 	for _, task := range outstanding {
+		if attempted[task.RunID] {
+			continue
+		}
 		if run, ours := taken[task.WorkItemID]; ours {
 			pass(task, fmt.Sprintf("this pull was already carrying out a decision about run %s of the same item, and one item is never given two runs at once", run))
 			continue
@@ -5219,7 +5296,16 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 			continue
 		}
 		if !reusesSlot && len(newSlots) >= slots {
-			pass(task, fmt.Sprintf("every developer slot this pull had was spent on %d decision(s) ahead of it on the docket", len(newSlots)))
+			// With no slot free the pull still attempts one decision, so the full
+			// harness is recorded where the development manager reads it; what
+			// keeps the rest back then is the runs holding the slots, not that one
+			// attempt, and the reason says so.
+			if free < 1 {
+				pass(task, fmt.Sprintf("no developer slot was free at this pull: all %d are held by runs in flight, and a pull with none free attempts only one decision, to record that", pull.Capacity))
+			} else {
+				pass(task, fmt.Sprintf("every developer slot this pull had was spent on %d decision(s) ahead of it on the docket", len(newSlots)))
+			}
+			slotBound = true
 			continue
 		}
 		// An unserved continuation already holds its slot. Recovering it does
@@ -5243,7 +5329,7 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 	for id := range newSlots {
 		delete(occupied, id)
 	}
-	return chosen, passed, pending
+	return chosen, passed, pending, slotBound
 }
 
 // CarryOutWait is one decision a pass offered and did not start: the item, the
@@ -5267,6 +5353,14 @@ func (s *Schedule) waitCarryOut(task CarryOutTask, why string) {
 		}
 	}
 	s.CarryOutWaiting = append(s.CarryOutWaiting, wait)
+}
+
+// unwaitCarryOut takes back what this pass said a decision waits on, once a
+// later round of the same pull has fired it.
+func (s *Schedule) unwaitCarryOut(task CarryOutTask) {
+	s.CarryOutWaiting = slices.DeleteFunc(s.CarryOutWaiting, func(existing CarryOutWait) bool {
+		return existing.RunID == task.RunID && existing.Decision == task.Decision
+	})
 }
 
 // Render is the wait as the pass's log line says it.
@@ -7049,6 +7143,37 @@ func occupiedItems(runs ScheduleRuns) (map[string]runstate.State, error) {
 		occupied[state.WorkItemID] = state
 	}
 	return occupied, nil
+}
+
+// workersGone is the items in occupied whose run holds no developer slot because
+// its worker has been shown to be gone (holdsDeveloperSlot). A run this session
+// started or picked up is its own and is never among them, nor is an entry
+// with no run recorded yet: both are this session's to count.
+func workersGone(runs ScheduleRuns, occupied map[string]runstate.State, mine map[string]int, now time.Time) map[string]bool {
+	gone := map[string]bool{}
+	for id, state := range occupied {
+		if _, ours := mine[id]; ours || state.RunID == "" {
+			continue
+		}
+		if !holdsDeveloperSlot(runs, state, now) {
+			gone[id] = true
+		}
+	}
+	return gone
+}
+
+// withoutItems is occupied without the items named, as a copy.
+func withoutItems(occupied map[string]runstate.State, items map[string]bool) map[string]runstate.State {
+	if len(items) == 0 {
+		return occupied
+	}
+	kept := make(map[string]runstate.State, len(occupied))
+	for id, state := range occupied {
+		if !items[id] {
+			kept[id] = state
+		}
+	}
+	return kept
 }
 
 // waitingOnDependencies takes the runs paused on work their items wait on out of

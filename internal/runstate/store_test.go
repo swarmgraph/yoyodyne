@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -1719,6 +1720,96 @@ func newTestStore(t *testing.T) *Store {
 		t.Fatalf("NewStore() error = %v", err)
 	}
 	return store
+}
+
+// A run whose record says it is in flight and whose worker's process is gone
+// holds no developer slot, so a reservation beside it is not refused for a slot
+// nobody is using. A run its session stopped for a redeploy keeps its slot for
+// the session that comes back, and so does a run whose worker cannot be shown
+// either way, or whose program is still running with nothing holding its lease.
+func TestReserveDoesNotCountARunWhoseWorkerIsGone(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	// exited is the pid of a process that has run and been reaped.
+	exited := func(t *testing.T) int {
+		t.Helper()
+		command := exec.Command("true")
+		if err := command.Run(); err != nil {
+			t.Fatalf("run a process to exit: %v", err)
+		}
+		return command.Process.Pid
+	}
+	refusedForCapacity := func(t *testing.T, store *Store) bool {
+		t.Helper()
+		next := testState(t, StatusPending)
+		next.WorkItemID = "yoyodyne-other"
+		lease, err := store.Reserve(ctx, next, 1)
+		var capacity CapacityError
+		if errors.As(err, &capacity) {
+			return true
+		}
+		if err != nil {
+			t.Fatalf("Reserve() error = %v", err)
+		}
+		_ = lease.Release()
+		return false
+	}
+	t.Run("a worker whose process has exited", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t)
+		gone := testState(t, StatusRunning)
+		gone.Worker = &WorkerIdentity{PID: exited(t), StartedAt: gone.StartedAt, ProgramStartedAt: gone.StartedAt, RunID: gone.RunID, Attempt: 1}
+		if err := store.Create(gone); err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+		if store.HoldsDeveloperSlotNow(gone, time.Now()) {
+			t.Fatalf("HoldsDeveloperSlotNow() = true for a run whose worker exited, want its slot counted free")
+		}
+		if refusedForCapacity(t, store) {
+			t.Fatalf("Reserve() was refused for a slot only a run with no worker was counted in")
+		}
+	})
+	t.Run("a run stopped for a redeploy", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t)
+		stopped := testState(t, StatusRunning)
+		stopped.Worker = &WorkerIdentity{PID: exited(t), StartedAt: stopped.StartedAt, ProgramStartedAt: stopped.StartedAt, RunID: stopped.RunID, Attempt: 1}
+		stopped.RedeployStop = &RedeployStop{At: stopped.StartedAt, Phase: PhaseDeveloping, BoundSeconds: 900}
+		if err := store.Create(stopped); err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+		if !refusedForCapacity(t, store) {
+			t.Fatalf("Reserve() took the slot kept for the session that picks the stopped run back up")
+		}
+	})
+	t.Run("a worker nothing can show either way", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t)
+		// Recorded by a build that wrote down no worker identity.
+		if err := store.Create(testState(t, StatusRunning)); err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+		if !refusedForCapacity(t, store) {
+			t.Fatalf("Reserve() took the slot of a run whose worker cannot be shown gone")
+		}
+	})
+	t.Run("a live program between one step and the next", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t)
+		lease, err := store.Reserve(ctx, testState(t, StatusPending), 1)
+		if err != nil {
+			t.Fatalf("Reserve() error = %v", err)
+		}
+		// Nothing holds the run's lease for the moment, and the program that
+		// took it is still running.
+		if err := lease.Release(); err != nil {
+			t.Fatalf("Release() error = %v", err)
+		}
+		if !refusedForCapacity(t, store) {
+			t.Fatalf("Reserve() took the slot of a run its own program is between steps of")
+		}
+	})
 }
 
 func testState(t *testing.T, status Status) State {

@@ -227,8 +227,9 @@ func (s *Store) Reserve(ctx context.Context, state State, maxConcurrent int) (*L
 	}
 	return s.reserve(ctx, state, func(active []State) error {
 		// A run paused on work its item waits on is in flight for the duplicate
-		// check and holds no slot here: see State.HoldsDeveloperSlot.
-		if holding := HoldingDeveloperSlots(active); holding >= maxConcurrent {
+		// check and holds no slot here: see State.HoldsDeveloperSlot. Nor does a
+		// run whose worker is gone: see HoldsDeveloperSlotNow.
+		if holding := s.HoldingDeveloperSlotsNow(active, time.Now()); holding >= maxConcurrent {
 			return CapacityError{Limit: maxConcurrent, Active: holding}
 		}
 		return nil
@@ -318,6 +319,42 @@ func HoldingDeveloperSlots(states []State) int {
 	return holding
 }
 
+// HoldsDeveloperSlotNow is State.HoldsDeveloperSlot with the run's worker
+// asked as well: a run whose record says it is in flight, and whose worker's
+// process has been shown to be gone, is doing no work and holds no slot.
+// Counting it was how every slot came to read as full while no run was going.
+//
+// Only a process shown to be gone is left out (WorkerReading.ProcessGone). A
+// worker that cannot be shown either way is still counted, because a reading
+// the operating system could not make would otherwise let the harness start
+// more runs than its configured limit; so is one still running the program
+// that took the run with nothing holding its lease, which is the moment
+// between one step and the next. A run its session stopped for a redeploy is
+// counted too: its worker is the program that was replaced, and the slot is
+// kept for the session that comes back and picks it up.
+func (s *Store) HoldsDeveloperSlotNow(state State, now time.Time) bool {
+	if !state.HoldsDeveloperSlot() {
+		return false
+	}
+	if state.RedeployStop != nil {
+		return true
+	}
+	return !s.Worker(state, now).ProcessGone()
+}
+
+// HoldingDeveloperSlotsNow counts the runs among states that hold a developer
+// slot by HoldsDeveloperSlotNow, which is what a reservation is measured
+// against.
+func (s *Store) HoldingDeveloperSlotsNow(states []State, now time.Time) int {
+	holding := 0
+	for _, state := range states {
+		if s.HoldsDeveloperSlotNow(state, now) {
+			holding++
+		}
+	}
+	return holding
+}
+
 // HoldingDocumentLandings counts the runs among states that are confirmed
 // documents landing, which is what execution.document_landings is measured
 // against.
@@ -360,8 +397,9 @@ func (s *Store) ReclaimSlot(ctx context.Context, state State, maxConcurrent int)
 		return state, fmt.Errorf("discover incomplete runs while reclaiming a developer slot: %w", err)
 	}
 	holding := 0
+	now := time.Now()
 	for _, existing := range active {
-		if existing.RunID != state.RunID && existing.HoldsDeveloperSlot() {
+		if existing.RunID != state.RunID && s.HoldsDeveloperSlotNow(existing, now) {
 			holding++
 		}
 	}
