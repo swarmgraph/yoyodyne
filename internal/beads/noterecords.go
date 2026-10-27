@@ -64,6 +64,30 @@ func NoteRecords(notes string) []NoteRecord {
 	return records
 }
 
+// PlainNotes is the notes with every recorded append boundary taken out, which
+// is the text the appends would have left had none been recorded. The boundary
+// is storage rather than prose, so nothing a person or a role reads shows it.
+func PlainNotes(notes string) string {
+	if !strings.Contains(notes, noteBoundary) {
+		return notes
+	}
+	var plain strings.Builder
+	for _, record := range NoteRecords(notes) {
+		plain.WriteString(record.Text)
+	}
+	return plain.String()
+}
+
+// RecordedNotes is the item's notes with their append boundaries, for a reader
+// that has to tell one append from another; it is the plain notes where none
+// were recorded.
+func (w WorkItem) RecordedNotes() string {
+	if w.FramedNotes != "" {
+		return w.FramedNotes
+	}
+	return w.Notes
+}
+
 func frameNoteArguments(args []string) []string {
 	framed := append([]string(nil), args...)
 	for index, arg := range framed {

@@ -497,7 +497,7 @@ func TestAppendedNoteDurabilityConformance(t *testing.T) {
 		}
 	}
 	var appends []string
-	for _, record := range NoteRecords(shown.Notes) {
+	for _, record := range NoteRecords(shown.RecordedNotes()) {
 		if record.Framed {
 			appends = append(appends, record.Text)
 		}

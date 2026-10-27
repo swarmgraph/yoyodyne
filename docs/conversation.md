@@ -1149,7 +1149,13 @@ absent.
 
 The harness records each new append's boundary and byte length with the note,
 so stop or triage sentences inside captured output or quoted reasons stay inside
-that append. The read leaves these storage markers out. Older notes have no
+that append. It is stored as a line of the form
+`<!-- yoyodyne-note-bytes: 120 -->` ahead of the note. The harness takes that
+line out wherever it reads an item, so this read, the dashboard's item card, the
+work item a developer or reviewer is given, and every other place the harness
+shows notes show them as the prose that was written. `bd show` and the tracker
+export in `.beads/issues.jsonl` read the store directly, and show the line.
+Older notes have no
 recorded append boundaries: the read retains all matching excerpts from that
 history and says their order cannot establish separate writes or which decision
 was latest. It does not let a matching sentence silently replace an earlier

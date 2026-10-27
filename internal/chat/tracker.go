@@ -3013,7 +3013,7 @@ func renderWorkItemRead(item beads.WorkItem, goals goal.Set, offset *int) (strin
 		if len(short) <= maxTrackerItemBytes {
 			// The bound decides on the continuous notes alone; the stop and decisions
 			// that tail cut are quoted beside it rather than counted against it.
-			return head + fmt.Sprintf("\nnotes:\n%s\n", strings.TrimSpace(renderTrackerNotes(item.Notes, maxTrackerItemBytes-len(head)))), nil
+			return head + fmt.Sprintf("\nnotes:\n%s\n", strings.TrimSpace(renderTrackerNotes(item.RecordedNotes(), maxTrackerItemBytes-len(head)))), nil
 		}
 	}
 
@@ -3055,7 +3055,7 @@ func renderWorkItemRead(item beads.WorkItem, goals goal.Set, offset *int) (strin
 		page += continuation(end)
 	}
 	if notes != "" {
-		page += fmt.Sprintf("\nnotes:\n%s\n", strings.TrimSpace(renderTrackerNotes(item.Notes, minTrackerNotesBytes)))
+		page += fmt.Sprintf("\nnotes:\n%s\n", strings.TrimSpace(renderTrackerNotes(item.RecordedNotes(), minTrackerNotesBytes)))
 	}
 	return page, nil
 }
