@@ -80,6 +80,12 @@ func fixtureRecords() []Record {
 		},
 		func(r *Record) { r.PassFailure = &PassFailure{Mover: MoverProgramManager} },
 		func(r *Record) { r.PassFailure = &PassFailure{Mover: "not-a-mover"} },
+		func(r *Record) { r.RecordedOwner = MoverOperator },
+		func(r *Record) { r.RecordedOwner, r.RecordedByOperator = MoverOperator, true },
+		func(r *Record) { r.RecordedOwner = MoverHarness },
+		func(r *Record) { r.RecordedOwner = MoverDevelopmentManager },
+		func(r *Record) { r.RecordedOwner = MoverUnnamed },
+		func(r *Record) { r.RecordedOwner = "not-a-mover" },
 	}
 	holds := []HoldSwitch{"", OperatorHold, IntakeHold, CapacityHold, "something-else"}
 	stalls := append([]StallReason{"", "something-nobody-named"}, StallReasons()...)
@@ -278,6 +284,12 @@ func TestTheRulesFollowTheDesignsTable(t *testing.T) {
 		{"a carried item naming no role is the unnamed role's", KindCarriedItem, Record{}, MoverUnnamed, ""},
 		{"a lane block off the list is the Lead Product Manager's", KindLaneHumanBlock, Record{Reason: "approval"}, MoverProductManager, ""},
 		{"a held group parked is the Lead Product Manager's", KindHeldWork, Record{Parked: true}, MoverProductManager, ""},
+		{"a follow-up is the owner it recorded", KindFollowUp, Record{RecordedOwner: MoverArchitect}, MoverArchitect, ""},
+		{"a follow-up the harness owns is the harness's", KindFollowUp, Record{RecordedOwner: MoverHarness}, MoverHarness, ""},
+		{"a follow-up the operator owns for a credential is his", KindFollowUp, Record{RecordedOwner: MoverOperator, Reason: OperatorCredential}, MoverOperator, OperatorCredential},
+		{"a follow-up recorded as the operator's for no reason is the Lead Product Manager's to classify", KindFollowUp, Record{RecordedOwner: MoverOperator, Reason: "approval"}, MoverProductManager, ""},
+		{"a follow-up the operator recorded is never his", KindFollowUp, Record{RecordedOwner: MoverOperator, Reason: OperatorOwnHold, RecordedByOperator: true}, MoverProductManager, ""},
+		{"a follow-up recording nobody the registry names is the Lead Product Manager's to classify", KindFollowUp, Record{RecordedOwner: "somebody"}, MoverProductManager, ""},
 	}
 	for _, c := range cases {
 		got := Resolve(c.kind, c.record)

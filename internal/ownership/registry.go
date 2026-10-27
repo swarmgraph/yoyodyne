@@ -142,6 +142,12 @@ type Record struct {
 	// exactly than the gap's own words do.
 	Hand    HandNeed
 	Command string
+
+	// A follow-up's facts: the owner it recorded when it was written, which the
+	// rule for what it is about resolved then, and whether the operator or his
+	// assistant wrote it. Reason is why the recorded owner is the operator.
+	RecordedOwner      Mover
+	RecordedByOperator bool
 }
 
 // HoldSwitch is which of the three switches a hold entry is about.
@@ -188,6 +194,7 @@ var registry = map[Kind]Rule{
 	KindLaneHumanBlock:    laneHumanBlockRule,
 	KindDocumentApproval:  documentApprovalRule,
 	KindStoppage:          stoppageRule,
+	KindFollowUp:          followUpRule,
 }
 
 // HasRule reports whether the registry keeps a rule for a kind.
@@ -593,4 +600,26 @@ func documentApprovalRule(r Record) (Answer, bool) {
 	}
 	answer, ok := roleOwned(r.Role, "have the operator approve or decline the document, as the project's approval setting for its kind asks", "yoyo agent chat approve|decline")
 	return withHand(answer, ok, HandDocumentConfirmation, r.Command)
+}
+
+// followUpRule is the owner the follow-up recorded. The operator is that owner
+// only with a reason from his closed list, and never on a follow-up he or his
+// assistant recorded, which is the Lead Product Manager's unless it names
+// another role (docs/designs/ownership-and-the-operator.md, the follow-up row).
+// A recorded owner the registry does not name is an entry to classify.
+func followUpRule(r Record) (Answer, bool) {
+	const remedy, capability = "do what the follow-up's check waits on, or close it with a reason", "follow-up"
+	if r.RecordedOwner.IsOperator() {
+		if r.RecordedByOperator {
+			return owned(MoverProductManager, remedy, capability)
+		}
+		if !r.Reason.Valid() {
+			return Answer{}, false
+		}
+		return operator(r.Reason, remedy, capability)
+	}
+	if !r.RecordedOwner.Valid() || r.RecordedOwner == MoverUnnamed {
+		return Answer{}, false
+	}
+	return owned(r.RecordedOwner, remedy, capability)
 }
