@@ -272,7 +272,7 @@ context bundle come from `internal/contextbundle`.
 
 | File | What it holds |
 |---|---|
-| `schedule.go` | `Scheduler.Schedule` (one watch poll), `Pull`, `Starter`, `Scheduler.host` (starts a run), `Scheduler.fire` (recurring passes), `Scheduler.brake`, passed-over reasons (`passedOverReason`), redeploy drain bookkeeping (`redeployDrain`) |
+| `schedule.go` | `Scheduler.Schedule` (one watch poll), `Pull`, `Starter`, `Scheduler.host` (starts a run), `Scheduler.fire` (recurring passes), `Scheduler.brake` (the hold on new work after a run of blocked runs; its one start goes to a decided recovery of its own test run first, `testRunRecovery`), passed-over reasons (`passedOverReason`), redeploy drain bookkeeping (`redeployDrain`) |
 | `recurring.go` | `Trigger` — recurring role passes: `Cadence`, `Fire`, `Summon`, `run` (turn loop of one pass, `MissConversationHeld`), `Missed`, `earlierPasses`, `PassFailures` |
 | `passedover.go` | what a pass was handed of the work waiting in its role's conversation and which of it it took (`judgeDelivered`, which also marks an item whose finished document is held for sending, and refuses a held claim no such document backs), and the note on the first item when the pass did not take it (`notePassedOver`, `passedOverNote`) |
 | `repeatleave.go` | an item a role's passes keep leaving with nothing outside the role holding it: the count (`earlierLeaves`, `streakFor`), telling the pass to decide or ask (`leaveStreak.message`), sending it back once (`leaveStreak.sendBack`), the note on what it did (`noteSettled`), and what the development manager's pass is told (`itemsLeftAgain`, `leftAgainMessage`) |

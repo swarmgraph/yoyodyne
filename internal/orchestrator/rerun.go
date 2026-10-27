@@ -461,11 +461,13 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 	}
 	// The hold is read before the claim, so a held harness leaves the stoppage its
 	// one re-run rather than spending it on a run that would decline to start.
+	// The one re-run it lets through is of the hold's own test run, where the
+	// brake has recorded this re-run as the run its hold starts.
 	hold, held, err := r.Intake.Held()
 	if err != nil {
 		return result, fmt.Errorf("read whether intake is held: %w", err)
 	}
-	if held {
+	if held && !hold.RecoveryProbing(entry.WorkItemID, entry.RunID) {
 		result.IntakeHeld = &hold
 		return result, nil
 	}

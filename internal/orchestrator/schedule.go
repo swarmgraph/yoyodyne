@@ -1769,6 +1769,9 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 				delete(waitingOn, carried.WorkItemID)
 			}
 			if !s.settleCarryOut(&schedule, started, *carried) {
+				if started.Probe {
+					s.settleRefusedRecovery(&schedule, brake, cooldown, *started)
+				}
 				return
 			}
 		}
@@ -2819,6 +2822,12 @@ pulling:
 		// stops at its next look, and the record offers the decision again to the
 		// session that comes back.
 		closed := closedGates{intake: held, pause: paused, capacity: free < 1}
+		// A decided recovery of the hold's own test run is kept for the hold's next
+		// start rather than attempted beside the queue and refused by the hold
+		// (testRunRecovery), where a watching session works the brake's hold.
+		if held && hold.Braked() && pull.Brake != nil && s.Watching {
+			closed.brake = hold.Brake
+		}
 		carrying := false
 		// A session bounded by --limit is bounded here too: every decision fired is
 		// a run started, and the bound is on runs started.
@@ -3129,6 +3138,29 @@ pulling:
 			continue
 		}
 
+		// The hold's start goes first to a decided recovery of its own test run,
+		// ahead of every other decision and every ready item: that recovery is the
+		// hold's test run still, its landing lifts the hold and its blocking keeps
+		// it, and a fresh probe chosen from the queue instead would leave the run
+		// that was nearly through waiting behind every probe that follows.
+		if probing {
+			if task, found := s.testRunRecovery(pull, hold, occupied); found {
+				if s.recordProbe(&schedule, pull, task.WorkItemID, task.RunID) {
+					fireCarryOut(task)
+					schedule.Started[len(schedule.Started)-1].Probe = true
+					if probed, held, err := pull.Intake.Held(); err == nil && held {
+						session.enter(runstate.WatchBraked, account{reason: brakedReason(probed), running: running, mover: brakedMover(probed)})
+					}
+					continue
+				}
+				if !wait(pull, runstate.WatchBraked, account{reason: brakedReason(hold), running: running, mover: brakedMover(hold)}) {
+					schedule.Stopped = ScheduleCancelled
+					break
+				}
+				continue
+			}
+		}
+
 		// The queue a decision was ranked against is the one this pull chooses from,
 		// so the order that held a decision back is the order that decides when it
 		// fires.
@@ -3260,7 +3292,7 @@ pulling:
 				// would be a hold any caller could talk its way past. A record that
 				// will not take it starts nothing, and says so.
 				selection = runstate.Selection{By: runstate.SelectedByBrake, Reason: probeReason(hold, selection.Reason)}
-				if !s.recordProbe(&schedule, pull, entry.ID) {
+				if !s.recordProbe(&schedule, pull, entry.ID, "") {
 					delete(tried, entry.ID)
 					return false
 				}
@@ -4225,11 +4257,13 @@ func (s Scheduler) settleLostProbe(schedule *Schedule, pull Pull, now time.Time)
 // recordProbe names the item about to be started as the brake's probe on the
 // hold's own record, and reports whether it was recorded. The record is what
 // the pipeline reads to let the run through the hold, so a record that will
-// not take it is a probe that does not start.
-func (s Scheduler) recordProbe(schedule *Schedule, pull Pull, workItemID string) bool {
+// not take it is a probe that does not start. recovers is the run of the hold's
+// earlier test run where the probe carries out a decided recovery of it, and
+// empty for a probe chosen from the queue.
+func (s Scheduler) recordProbe(schedule *Schedule, pull Pull, workItemID, recovers string) bool {
 	now := s.now().UTC()
 	if _, err := pull.Brake.ReviseBrake(func(trip *runstate.IntakeBrake) error {
-		trip.Probe = &runstate.IntakeProbe{WorkItemID: workItemID, StartedAt: now}
+		trip.Probe = &runstate.IntakeProbe{WorkItemID: workItemID, StartedAt: now, Recovers: recovers}
 		trip.Probes++
 		// A decision on a probe is carried out by this, and cleared so the next
 		// poll does not read it as a second probe owed.
@@ -4244,6 +4278,64 @@ func (s Scheduler) recordProbe(schedule *Schedule, pull Pull, workItemID string)
 		return false
 	}
 	return true
+}
+
+// testRunRecovery is the decided recovery of the hold's own test run that this
+// pull starts as the hold's probe, where one is outstanding: the oldest repair
+// or re-run the development manager decided about the run the hold's last probe
+// ran. One whose item has a run going is not startable beside it and is left
+// for the pull after that run ends. What could be read is searched even where
+// part of the reading failed; the failure is said on the pass by the carry-out
+// reading this pull already made, and a pull that finds none probes from the
+// queue as it always did.
+func (s Scheduler) testRunRecovery(pull Pull, hold runstate.IntakeHold, occupied map[string]runstate.State) (CarryOutTask, bool) {
+	if pull.CarryOut == nil || !hold.Braked() {
+		return CarryOutTask{}, false
+	}
+	outstanding, _ := pull.CarryOut.Outstanding()
+	slices.SortStableFunc(outstanding, func(a, b CarryOutTask) int {
+		return a.DecidedAt.Compare(b.DecidedAt)
+	})
+	for _, task := range outstanding {
+		if !decidedRecovery(task.Decision) || !hold.Brake.TestRun(task.RunID) {
+			continue
+		}
+		if _, busy := occupied[task.WorkItemID]; busy {
+			continue
+		}
+		return task, true
+	}
+	return CarryOutTask{}, false
+}
+
+// settleRefusedRecovery closes a probe that was to carry out a decided recovery
+// of the hold's test run and that the recovery's own action declined to start.
+// Nothing ran, so it decides nothing about the line; the record keeps the run it
+// was recovering, so the hold's next start goes to the same recovery, and that
+// start waits the cooldown as after any probe that decided nothing, so a refusal
+// that stands is not asked again on every poll.
+func (s Scheduler) settleRefusedRecovery(schedule *Schedule, brake ScheduleBrake, cooldown time.Duration, started Started) {
+	if brake == nil {
+		return
+	}
+	now := s.now().UTC()
+	if _, err := brake.ReviseBrake(func(trip *runstate.IntakeBrake) error {
+		if trip.Probe == nil || !trip.Probe.InFlight() || trip.Probe.WorkItemID != started.WorkItemID {
+			return nil
+		}
+		trip.Probe.EndedAt = &now
+		trip.Probe.Reason = runstate.BoundBrakeText(fmt.Sprintf("the decided recovery of run %s could not be started, which decides nothing about the line, so the hold's next start goes to it again once the usual wait between probes has passed: %s",
+			trip.Probe.Recovers, started.Declined))
+		if trip.Decision == runstate.BrakeDecisionProbe {
+			trip.Decision = ""
+			trip.DecidedAt = nil
+		}
+		trip.CooldownEndsAt = now.Add(cooldown)
+		return nil
+	}); err != nil && !errors.Is(err, runstate.ErrNoBrakeHold) {
+		schedule.BrakeProblem = appendProblem(schedule.BrakeProblem, fmt.Sprintf(
+			"the probe that was to recover the hold's test run, and could not start, could not be settled on the hold: %v", err))
+	}
 }
 
 // recordNoProbe says on the hold that a probe was due and nothing was startable,
@@ -5108,6 +5200,10 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 			pass(task, occupiedWhy(pull.Runs, state, s.now()))
 			continue
 		}
+		if closed.keptForTheHold(task) {
+			pass(task, keptForTheHoldReason(task, *closed.brake))
+			continue
+		}
 		if gate, stopped := waitingOn[task.WorkItemID]; stopped && closed.stillShut(gate) {
 			if task.Decision == DecisionContinueChecks {
 				pass(task, fmt.Sprintf("the continuation is still waiting on %s; lifting that gate lets the next pull attempt it", gate))
@@ -5360,6 +5456,34 @@ type closedGates struct {
 	intake   bool
 	pause    bool
 	capacity bool
+	// brake is the brake's own record on a hold this session works, and nil
+	// otherwise. It is what names the run whose decided recovery waits for the
+	// hold's next start (keptForTheHold).
+	brake *runstate.IntakeBrake
+}
+
+// keptForTheHold reports a decision this pull keeps for the hold's next start
+// rather than attempting: a repair or re-run the development manager decided of
+// the run the hold's last probe ran. That recovery is the hold's test run, and
+// the start the hold allows goes to it ahead of every other decision and every
+// ready item (testRunRecovery), so attempting it here would only have the hold
+// refuse it.
+func (c closedGates) keptForTheHold(task CarryOutTask) bool {
+	return c.intake && c.brake != nil && decidedRecovery(task.Decision) && c.brake.TestRun(task.RunID)
+}
+
+// decidedRecovery reports a decision of the development manager's that starts a
+// run again on a stopped run's behalf: a repair of that run, or a re-run of its
+// item. The harness's own continuations are nobody's decision.
+func decidedRecovery(decision string) bool {
+	return decision == runstate.TriageDecisionRepair || decision == runstate.TriageDecisionRerun
+}
+
+// keptForTheHoldReason is what a decided recovery of the hold's test run says
+// while it waits for the hold's next start, on the pass's log and on its item.
+func keptForTheHoldReason(task CarryOutTask, brake runstate.IntakeBrake) string {
+	return fmt.Sprintf("it recovers run %s, the test run the hold on new work started, so it is the run that lifts the hold: while the hold stands it lets one run start at a time, and this recovery takes the next of those starts ahead of every other decision and every ready item. It waits for %s; if it lands the hold is lifted, and if it stops again the hold stays",
+		task.RunID, brake.NextStart())
 }
 
 // stillShut reports the named gate being one this pull can see, and shut. A gate

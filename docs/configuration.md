@@ -4268,7 +4268,12 @@ long the brake waits for that decision before it decides on evidence instead:
 once it has passed with nothing recorded, the session starts one probe run under
 the hold, and the probe landing reopens intake while the probe blocking keeps it
 held, restarts the cooldown, and summons her again with the probe's own
-stoppage beside the three. A probe stopped from outside the work is neither a
+stoppage beside the three. Where she has decided a repair of the run the last
+probe ran, or a re-run of its item, the hold's next start goes to that
+recovery, ahead of every other decision and every ready item, and the recovery
+counts as the probe: its landing reopens intake and its blocking keeps the
+hold. Every other decided recovery waits for the hold to lift, as fresh work
+does. A probe stopped from outside the work is neither a
 landing nor a blocking: it spends no cycle and summons nobody, and the next
 probe still waits the cooldown, as it does when the session that started a
 probe went away holding it — so probes never start back to back, however often

@@ -344,3 +344,60 @@ func TestBrakeTextIsCutOnARuneBoundaryAndMarked(t *testing.T) {
 		t.Fatalf("stored decision reason = %q..., want the reason's start kept and the cut marked", stored[:16])
 	}
 }
+
+// The hold's test run is the run its last probe ran, or the run that probe was
+// recovering, once that probe settled short of landing; and a hold lets a
+// decided recovery through only where its record names that recovery as the
+// probe in flight.
+func TestTheHoldsTestRunAndTheRecoveryItLetsThrough(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 10, 24, 19, 40, 0, 0, time.UTC)
+	ended := now.Add(-time.Hour)
+	trip := IntakeBrake{
+		Blocked:        []BrakeBlockedRun{{WorkItemID: "yoyodyne-a", Reason: "blocked"}},
+		CooldownEndsAt: now,
+		Probe:          &IntakeProbe{WorkItemID: "yoyodyne-44j", RunID: "run-510e", StartedAt: now.Add(-2 * time.Hour), EndedAt: &ended, Blocked: true},
+	}
+	if !trip.TestRun("run-510e") || trip.TestRun("run-other") || trip.TestRun("") {
+		t.Fatal("want the blocked probe's run, and only it, named as the test run")
+	}
+	inFlight := trip
+	inFlight.Probe = &IntakeProbe{WorkItemID: "yoyodyne-44j", RunID: "run-510e", StartedAt: now, Recovers: "run-510e"}
+	if inFlight.TestRun("run-510e") {
+		t.Fatal("a probe in flight names no test run whose recovery waits")
+	}
+	landed := trip
+	landed.Probe = &IntakeProbe{WorkItemID: "yoyodyne-44j", RunID: "run-510e", StartedAt: now, EndedAt: &ended, Landed: true}
+	if landed.TestRun("run-510e") {
+		t.Fatal("a probe that landed lifted the hold, and names no test run")
+	}
+	escalated := trip
+	escalated.Decision, escalated.DecidedAt = BrakeDecisionEscalate, &now
+	if escalated.TestRun("run-510e") {
+		t.Fatal("an escalated hold starts no further probe, and names no test run")
+	}
+	rerun := trip
+	rerun.Probe = &IntakeProbe{WorkItemID: "yoyodyne-44j", RunID: "run-later", Recovers: "run-510e", StartedAt: now, EndedAt: &ended, Blocked: true}
+	if !rerun.TestRun("run-later") || !rerun.TestRun("run-510e") {
+		t.Fatal("want a blocked re-run of the test run, and the run it recovered, both named as the test run")
+	}
+
+	hold := IntakeHold{HeldBy: IntakeHolderBrake, Brake: &inFlight}
+	if !hold.RecoveryProbing("yoyodyne-44j", "run-510e") || !hold.RecoveryProbing("yoyodyne-44j", "") {
+		t.Fatal("want the recovery the record names let through")
+	}
+	if hold.RecoveryProbing("yoyodyne-44j", "run-other") || hold.RecoveryProbing("yoyodyne-other", "run-510e") {
+		t.Fatal("want no other run or item let through by the record")
+	}
+	queued := IntakeHold{HeldBy: IntakeHolderBrake, Brake: &IntakeBrake{Probe: &IntakeProbe{WorkItemID: "yoyodyne-44j", StartedAt: now}}}
+	if queued.RecoveryProbing("yoyodyne-44j", "") {
+		t.Fatal("a probe chosen from the queue recovers nothing, want no decided recovery let through by it")
+	}
+	if operator := (IntakeHold{HeldBy: IntakeHolderOperator}); operator.RecoveryProbing("yoyodyne-44j", "run-510e") {
+		t.Fatal("the operator's hold lets nothing through")
+	}
+	if says := inFlight.Standing(); !strings.Contains(says, "decided recovery of run run-510e, the hold's earlier test run, is in flight") {
+		t.Fatalf("standing = %q, want the recovery in flight named", says)
+	}
+}

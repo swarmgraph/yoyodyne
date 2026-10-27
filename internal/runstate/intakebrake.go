@@ -112,10 +112,44 @@ type IntakeProbe struct {
 	Landed  bool       `json:"landed,omitempty"`
 	Blocked bool       `json:"blocked,omitempty"`
 	Reason  string     `json:"reason,omitempty"`
+	// Recovers is the run of an earlier probe this one carries out the
+	// development manager's decided recovery of — a repair of that run, or a
+	// re-run of its item — and is empty for a probe chosen from the queue. A
+	// recovery of the hold's own test run is still its test run: it takes the
+	// hold's next start ahead of everything else, its landing lifts the hold,
+	// and its blocking keeps it (IntakeBrake.TestRun).
+	Recovers string `json:"recovers,omitempty"`
 }
 
 // InFlight reports a probe that has started and not settled.
 func (p IntakeProbe) InFlight() bool { return p.EndedAt == nil }
+
+// TestRun reports runID being the run the hold's last probe ran, or the run that
+// probe was recovering, with that probe settled without landing: the run whose
+// decided recovery the hold's next start goes to. A probe in flight is not one a
+// recovery could start beside, a probe that landed lifted the hold, and a hold
+// escalated past the harness starts no further probe at all, so none of those
+// names a test run whose recovery waits.
+func (b IntakeBrake) TestRun(runID string) bool {
+	runID = strings.TrimSpace(runID)
+	probe := b.Probe
+	if runID == "" || probe == nil || probe.InFlight() || probe.Landed || b.Escalated() {
+		return false
+	}
+	return probe.RunID == runID || probe.Recovers == runID
+}
+
+// NextStart says in ordinary words what the hold's next start waits for, for a
+// sentence about work that takes that start: her decision on a probe is carried
+// out at the watching session's next poll, and otherwise the start comes when
+// she decides on one or, if she has not, when the cooldown runs out.
+func (b IntakeBrake) NextStart() string {
+	if b.Decision == BrakeDecisionProbe {
+		return "the watching session's next poll, because the development manager has decided the hold should start its run now"
+	}
+	return fmt.Sprintf("the development manager deciding the hold should start its run now, or %s, when it starts by itself if she has not",
+		b.CooldownEndsAt.Local().Format("2006-01-02 15:04 MST"))
+}
 
 // BrakeEscalation is the harness escalating its own hold to the Lead Product
 // Manager, with the operator told, which it does when the configured number of summons-and-probe cycles have
@@ -222,6 +256,9 @@ func (b IntakeBrake) Validate() error {
 		if len(b.Probe.Reason) > MaxBrakeTextBytes {
 			problems = append(problems, fmt.Errorf("probe reason is %d bytes, limit is %d", len(b.Probe.Reason), MaxBrakeTextBytes))
 		}
+		if len(b.Probe.Recovers) > MaxBrakeTextBytes {
+			problems = append(problems, fmt.Errorf("the run a probe recovers is named in %d bytes, limit is %d", len(b.Probe.Recovers), MaxBrakeTextBytes))
+		}
 	}
 	if b.Cycles < 0 {
 		problems = append(problems, fmt.Errorf("a brake trip cannot have spent %d cycles", b.Cycles))
@@ -297,7 +334,7 @@ func (b IntakeBrake) Whose() string {
 	case b.EscalatedByHarness():
 		return fmt.Sprintf("the Lead Product Manager's — the harness escalated it after %s, and she decides whether intake reopens; the operator is told and may release it, and nothing new is chosen until `yoyo release` lifts it", b.escalationAccount())
 	case b.Probing():
-		return b.loop(fmt.Sprintf("the harness's — a probe run of %s is in flight; intake reopens if it lands, and the hold stays with the development manager asked again if it blocks", b.Probe.WorkItemID))
+		return b.loop(fmt.Sprintf("the harness's — %s is in flight; intake reopens if it lands, and the hold stays with the development manager asked again if it blocks", b.probeInFlight()))
 	case b.Decision == BrakeDecisionProbe:
 		return b.loop("the harness's — the development manager decided on a probe run, and the watching session starts it at its next poll")
 	default:
@@ -318,7 +355,7 @@ func (b IntakeBrake) Standing() string {
 	case b.EscalatedByHarness():
 		return fmt.Sprintf("the harness escalated it to the Lead Product Manager after %s, and the operator is told, so it stays held until somebody releases it", b.escalationAccount())
 	case b.Probing():
-		return b.loop(fmt.Sprintf("a probe run of %s is in flight: intake reopens if it lands, and the hold stays if it blocks", b.Probe.WorkItemID))
+		return b.loop(fmt.Sprintf("%s is in flight: intake reopens if it lands, and the hold stays if it blocks", b.probeInFlight()))
 	case b.Decision == BrakeDecisionProbe:
 		return b.loop("the development manager decided on a probe run, which the watching session starts at its next poll")
 	case b.SummonedAt != nil:
@@ -331,6 +368,15 @@ func (b IntakeBrake) Standing() string {
 		return b.loop(fmt.Sprintf("the development manager is being summoned to decide what happens to it, and a probe run starts by itself at %s if she has not",
 			b.CooldownEndsAt.UTC().Format(time.RFC3339)))
 	}
+}
+
+// probeInFlight names the probe in flight: the item, and where it is carrying
+// out a decided recovery of the hold's earlier test run, which run that is.
+func (b IntakeBrake) probeInFlight() string {
+	if recovers := strings.TrimSpace(b.Probe.Recovers); recovers != "" {
+		return fmt.Sprintf("a probe run of %s, carrying out the development manager's decided recovery of run %s, the hold's earlier test run,", b.Probe.WorkItemID, recovers)
+	}
+	return "a probe run of " + b.Probe.WorkItemID
 }
 
 // Loop names where the summons-and-probe loop stands, for every surface that
