@@ -26,6 +26,10 @@ revisions:
       by: architect
       at: 2026-10-22T15:36:38.20726Z
       reason: Replaces the retired phrase for a round refused from outside the work, in the Local Git boundary, with the terms register's own ordinary wording, as part of replacing the coined vocabulary in the governed documents (yoyodyne-ifd.437.21). One sentence changes; nothing else.
+    - action: amended
+      by: architect
+      at: 2026-10-27T03:46:36.765086Z
+      reason: 'Says which code makes each decision this design describes, as the design that gives each guarantee one owner requires (yoyodyne-ifd.428.127): a retry in place and a further recovery act are decided by internal/budget, and the reruns of a check by the plan in internal/checks; the windows and bounds are unchanged. Corrects the two places that said the checks before promotion always run whole, which the race check ruling changed. Written from a read at main 0158d2ad.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -47,6 +51,11 @@ approvals:
       by: harness
       at: 2026-10-22T15:36:38.20726Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1496, for document-1496.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-10-27T03:46:36.765086Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1830, for document-1830.1 under the automatic approval policy
 ---
 # Recoverable and terminal failures: the boundary per failure class, and what a retry may never do
 
@@ -116,7 +125,7 @@ The harness decides from the check's failing tests and the change's paths, and f
 ### Nothing is hidden
 
 - The reviewer's evidence lists every test that failed and then passed, with the first failure's output.
-- The checks before promotion, and CI on the pull request, the merge queue and main, still run whole, so a test that passed only on its rerun runs again before the change lands.
+- The merge candidate is still verified in full before it lands: by the checks before promotion on this machine, or, where guarantee 9 of [one owner for each guarantee](one-owner-for-each-guarantee.md) allows it, by the forge's required check run on the change combined with current main. CI on the pull request, the merge queue and main still runs whole. So a test that passed only on its rerun runs again before the change lands.
 - The read model counts, for each test name, how often it failed and then passed and when it last did. A test seen three times in seven days is shown in the dashboard's section for what is broken, stalled, blocked or degraded (yoyodyne-ps2), owned by the development manager, until a fix for it lands or seven days pass without it recurring.
 - A rerun that passed changes nothing for the brake on new work, because no run stopped.
 
@@ -131,6 +140,17 @@ Where the full checks run on CI under [checks on CI](checks-on-ci.md), a failure
 - **More than one rerun.** Rejected because each extra rerun raises the chance that a real but intermittent failure is passed over.
 - **A list of known unreliable tests to skip.** Rejected because it removes coverage without anybody deciding it for each change, and such a list goes stale.
 - **Requiring the analyser before any rerun.** Rejected because a project that declares none would get no relief at all; the directory rule is the floor, and the analyser only makes it stricter.
+
+## Where each decision is made
+
+The windows, classes and bounds in this design are unchanged. Which code makes each decision is settled by [one owner for each guarantee](one-owner-for-each-guarantee.md), and this section says how that applies here:
+
+- **A retry in place at a boundary** is decided by `internal/budget`, under guarantee 4 of that design: given what the boundary has already spent and its window here, it says whether one more may be taken, and why not in ordinary words when it may not. The window itself stays as this design sets it for each boundary. Boundaries move onto it one at a time, last in that design's order of migration. Until a boundary has moved, its own code decides, against the same window.
+- **A further repair, a re-run of a stopped run, a merge tried again, and the harness's own continues** are decided by `internal/budget` too, with a grant and an attempt counted in one unit (yoyodyne-ifd.428.86). The recovery budget itself stays on the run record.
+- **When a check is run again** is not a recovery act and is not decided by `internal/budget`. The two reruns of a check stopped by its time limit, and the one rerun of a failure confined to untouched tests, are decided by the plan in `internal/checks`, under guarantee 9 of that design, and launched only by its runner. Their bounds are the ones this design states, and no path keeps a copy of them.
+- **The brake** keeps the counting rules below. It becomes a follow-up as guarantee 6 of that design says.
+
+Where the two designs differ, that design decides which code makes a decision, and this one decides the windows and the bounds.
 
 ## What a retry may never do
 
@@ -161,7 +181,11 @@ The rule on failures confined to untouched tests, ruled on October 19 for yoyody
 5. The read model's count of tests that failed and then passed, and the dashboard entry for a test seen three times in seven days.
 6. Later, the same rule for required checks on CI, through the forge adapter where it can ask for failed jobs to run again.
 
+Moving the decisions in the section on where each decision is made onto their owners is ordered by [one owner for each guarantee](one-owner-for-each-guarantee.md), in its migration items 8, 10, 19 and 20 under the work that gives each guarantee one owner (yoyodyne-ifd.428.126), and is not repeated here.
+
 A reviewer can check: no stop cause outside step 1's list, other than a cancellation, is kept out of the brake's count; and no trial run starts sooner than its ordinary spacing after the one before it stopped.
+
+A reviewer can check where each decision is made: a boundary that has moved onto `internal/budget` keeps no retry rule of its own; the reruns of a check are decided only by the plan in `internal/checks`; and no window or bound in this design has changed.
 
 A reviewer can check the rule on untouched tests:
 
@@ -170,4 +194,4 @@ A reviewer can check the rule on untouched tests:
 - A rerun that passes spends no repair attempt, keeps both results, and lists the tests in the reviewer's evidence.
 - A second failure that passes on the base commit spends one repair attempt; one that fails on the base too is not integrated, spends none, goes to the development manager, and files the warning report.
 - A restart never grants a second rerun for the same stage and commit.
-- The checks before promotion and on CI still run whole.
+- The merge candidate is still verified in full before it lands, and CI still runs whole.
