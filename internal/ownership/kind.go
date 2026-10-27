@@ -119,6 +119,14 @@ const (
 // held-work reading ask who moves one, and the answer is the registry's.
 const KindStoppage Kind = "stoppage"
 
+// KindFollowUp is a follow-up: one wait somebody left for somebody else, with
+// a check the harness runs and two deadlines (internal/followup). It is not on
+// the attention line yet; an entry of another kind that has a follow-up is
+// shown once, as its own kind, and a follow-up belonging to no such entry is
+// shown as this kind once the surfaces carry it. Its rule returns the owner the
+// follow-up recorded.
+const KindFollowUp Kind = "follow-up"
+
 // AttentionKinds is every kind the read model's attention line carries, in the
 // order it lists them.
 func AttentionKinds() []Kind {
@@ -153,10 +161,10 @@ func AttentionKinds() []Kind {
 	}
 }
 
-// Kinds is every kind the registry keeps a rule for: the attention line's, and
-// the stoppage.
+// Kinds is every kind the registry keeps a rule for: the attention line's, the
+// stoppage, and the follow-up.
 func Kinds() []Kind {
-	return append(AttentionKinds(), KindStoppage)
+	return append(AttentionKinds(), KindStoppage, KindFollowUp)
 }
 
 // Valid reports whether a token is one of the attention line's kinds.
