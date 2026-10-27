@@ -6,6 +6,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,7 +49,10 @@ func TestTwoRunsPromotingIntoOneTargetBranchSerializeAndBothLand(t *testing.T) {
 
 	witness := &promotionWitness{}
 	// Both runs leave review together, so both arrive at the promotion queue at
-	// once rather than one happening to be finished before the other starts.
+	// once rather than one happening to be finished before the other starts. The
+	// gate opens on the second arrival or on a run abandoning it, and never on a
+	// clock: see "A test never bounds a wait in wall-clock time" in
+	// docs/developing-yoyo.md.
 	gate := newArrivalGate(2)
 
 	items := promotionRunItems
@@ -275,12 +279,19 @@ func (w *witnessedWorktrees) Integrate(ctx context.Context, worktree gitworktree
 	return w.WorktreeManager.Integrate(ctx, worktree, message)
 }
 
+// leaseHeld asks once, without waiting. The probe's context is cancelled before
+// it is used, and the queue tries the lock before it looks at the context, so a
+// free lease is taken on that one try and a held one refuses with the
+// cancellation straight after it. There is no deadline for load to reach: a
+// clock here could only turn a free lease into one that read as held. Any other
+// refusal is not an answer about the lease, so it counts as not held and fails
+// the test rather than passing it.
 func (w *witnessedWorktrees) leaseHeld(ctx context.Context, branch string) bool {
-	probeCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-	defer cancel()
+	probeCtx, cancel := context.WithCancel(ctx)
+	cancel()
 	lease, err := w.probe.LeasePromotion(probeCtx, branch)
 	if err != nil {
-		return true
+		return errors.Is(err, context.Canceled)
 	}
 	_ = lease.Release()
 	return false
