@@ -1,0 +1,15 @@
+Yoyodyne blocked this item; the blocker recorded on the item says what stopped it.
+Run: run-review
+Failure: replay conflicted with the target branch
+Phase: integrating
+Changes when the run ended:
+M feature.go
+Diff stat when the run ended:
+LONG_DIFF_OUTPUT
+Reviewed against: base base-revision, tip reviewed-revision
+Review decision: approve
+Approved as: evidence — the reviewer approved the change without approving it as the work this item asked for, so it discharges nothing
+Review summary: The change is a sound diagnosis.
+It does not implement the item.
+Finding [minor, out_of_scope]: The follow-up repair is still needed.
+Keep the item open.

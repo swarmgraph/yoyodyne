@@ -71,7 +71,10 @@ const maxTrackerRounds = 4
 
 // maxTrackerItemBytes bounds one work item carried back to the product manager.
 // Detail is fetched on demand precisely so it costs context only where judgement
-// needs it, and an item that outgrows this is read in parts.
+// needs it, and an item that outgrows this is read in parts. The bound is on the
+// standing text and the continuous end of the notes: the latest stop and
+// decisions cut from that view are quoted beside it (renderTrackerNotes), so
+// output cannot displace the records a role has to decide from.
 const maxTrackerItemBytes = 8 << 10
 
 // minTrackerNotesBytes is what an item's notes are guaranteed of that budget,
@@ -2235,8 +2238,18 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		// writes a work item's priority. Everything else reads it, which is what
 		// makes "the product manager owns the order" a property of the code rather
 		// than only of the contract the product manager is given.
+		// The old priority must come from the live read, so a read that could not
+		// answer refuses this write rather than recording an invented history.
+		if outcome.target == nil {
+			outcome.fail(fmt.Errorf("cannot reprioritize %s without reading its old priority: %s", id, outcome.TargetUnread))
+			return
+		}
 		priority := *action.Priority
-		if _, err := s.options.Tracker.Update(ctx, id, beads.WorkItemChange{Priority: &priority}); err != nil {
+		change := beads.WorkItemChange{
+			Priority:    &priority,
+			AppendNotes: s.trackerProvenance(fmt.Sprintf("Reprioritized from priority %d to %d", outcome.target.Priority, priority), action.Reason),
+		}
+		if _, err := s.options.Tracker.Update(ctx, id, change); err != nil {
 			outcome.fail(err)
 			return
 		}
@@ -2998,7 +3011,9 @@ func renderWorkItemRead(item beads.WorkItem, goals goal.Set, offset *int) (strin
 		}
 		short := head + fmt.Sprintf("\nnotes:\n%s\n", boundTextTail(notes, maxTrackerItemBytes-len(head)))
 		if len(short) <= maxTrackerItemBytes {
-			return short, nil
+			// The bound decides on the continuous notes alone; the stop and decisions
+			// that tail cut are quoted beside it rather than counted against it.
+			return head + fmt.Sprintf("\nnotes:\n%s\n", strings.TrimSpace(renderTrackerNotes(item.Notes, maxTrackerItemBytes-len(head)))), nil
 		}
 	}
 
@@ -3040,7 +3055,7 @@ func renderWorkItemRead(item beads.WorkItem, goals goal.Set, offset *int) (strin
 		page += continuation(end)
 	}
 	if notes != "" {
-		page += fmt.Sprintf("\nnotes:\n%s\n", boundTextTail(notes, minTrackerNotesBytes))
+		page += fmt.Sprintf("\nnotes:\n%s\n", strings.TrimSpace(renderTrackerNotes(item.Notes, minTrackerNotesBytes)))
 	}
 	return page, nil
 }
