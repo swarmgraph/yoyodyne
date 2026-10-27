@@ -261,7 +261,12 @@ func TestARunThatKeepsLosingTheRaceGivesBackItsSlotWithItsWorkKept(t *testing.T)
 		if outcome.Integration != nil || tracker.Closed {
 			t.Fatalf("Run() outcome = %#v, want nothing promoted", outcome)
 		}
-		assertSavedStopClass(t, store, outcome.RunID, runstate.StopIntegration)
+		assertSavedStopClass(t, store, outcome.RunID, runstate.StopLostRaces)
+		// Other work landing first refused the change, so the stop says nothing
+		// about the work and the hold on new work leaves it out of its count.
+		if !(Started{Failure: err.Error(), Outcome: outcome}).stoppedOutsideTheWork() {
+			t.Fatalf("a run that lost its race %s is counted towards the hold on new work", lost)
+		}
 		// The race at the bound is not replayed: one review per race lost, and the
 		// developer never asked for anything.
 		if reviews := provider.RequestsForRole(domain.RoleReviewer); len(reviews) != lostRacesBeforeGivingBackTheSlot {

@@ -103,8 +103,9 @@ func TestEveryStopCauseIsSortedByNameAndAnUnrecognisedOneIsAboutTheWork(t *testi
 	}
 }
 
-// The hold on new work leaves out only the causes outside the work and the
-// stops the operator or the development manager asked for. The harness's own
+// The hold on new work leaves out only the causes outside the work, the bounds
+// step 1 of stopped-run-recovery places outside it, and the stops the operator
+// or the development manager asked for. The harness's own
 // failures around a run, a dead process, a cancellation naming no origin, a
 // publishing failure, a record that names no cause, and an unrecognised cause
 // are counted (stopped-run-recovery, step 1, as ruled on October 19).
@@ -121,7 +122,21 @@ func TestTheHoldKeepsOutOnlyOutsideCausesAndStopsSomebodyAskedFor(t *testing.T) 
 		StopDeadClaim:                   false, StopCancelled: false, StopPublish: false,
 		StopHarness: false, StopRecording: false, StopCleanup: false, StopUnknown: false,
 		StopChecks: false, StopReview: false, StopRepairBudget: false, StopRecoveryWindow: false,
-		CauseCheckTimeLimit.StopClass(): false, "a-cause-from-a-newer-build": false,
+		"a-cause-from-a-newer-build": false,
+		// Step 1 of stopped-run recovery: a check stopped on time after its
+		// reruns, a merge race lost as many times as a run may, no configured
+		// check running, the reviewer's session out of budget, tests that also
+		// fail on the base commit, and a merge the forge's required merge queue
+		// refused say nothing about the work.
+		StopCheckTimeout: true, CauseCheckTimeLimit.StopClass(): true, CauseCheckStageBound.StopClass(): true,
+		StopLostRaces: true, CauseNoCheckRan.StopClass(): true, StopReviewBudget: true,
+		StopBaseFailing: true, StopForgeQueueRequired: true,
+		// Close to those, and still counted: a replay that stopped on the change
+		// past the integration budget, the developer's session out of budget, a
+		// replay conflict or other promotion failure, and the wait for a turn to
+		// merge.
+		StopIntegrationBudget: false, StopProviderBudget: false, StopIntegration: false,
+		StopPromotionWait: false, StopReviewBound: false, StopContextBound: false,
 	} {
 		if got := StopKeptOutOfHold(class); got != want {
 			t.Errorf("StopKeptOutOfHold(%s) = %t, want %t", class, got, want)
@@ -143,6 +158,31 @@ func spentWindow(boundary string) []Retry {
 		waited += delay
 	}
 	return retries
+}
+
+// The reviewer's session running out of budget is its own cause, kept apart from
+// the developer's, which still counts: by the invocation that stopped, and by the
+// step a run whose process vanished was parked at.
+func TestTheReviewersBudgetIsItsOwnCause(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		got  StopClass
+		want StopClass
+	}{
+		{"the reviewer out of budget", ReviewStopClass(ProviderStopBudgetExhausted), StopReviewBudget},
+		{"the reviewer gone silent", ReviewStopClass(ProviderStopStalled), StopProviderIdle},
+		{"a vanished process parked at review", ProviderStopClassAt(ProviderStopBudgetExhausted, PhaseReviewing), StopReviewBudget},
+		{"a vanished process parked in development", ProviderStopClassAt(ProviderStopBudgetExhausted, PhaseDeveloping), StopProviderBudget},
+	} {
+		if test.got != test.want {
+			t.Errorf("%s: class = %s, want %s", test.name, test.got, test.want)
+		}
+	}
+	if !StopKeptOutOfHold(StopReviewBudget) || StopKeptOutOfHold(StopProviderBudget) {
+		t.Error("want the reviewer's budget left out of the hold and the developer's counted")
+	}
 }
 
 // A publishing failure counts unless the forge's retries ran out, and a spent

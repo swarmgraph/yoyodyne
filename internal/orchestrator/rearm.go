@@ -425,7 +425,7 @@ func (r Rearmer) repeat(ctx context.Context, runID, targetBranch string, checked
 	published.TargetRed = nil
 	state.PullRequest = &published
 	state.PublishFailure = ""
-	if state.StopClass == runstate.StopPublish {
+	if state.StopClass.Publishing() {
 		state.StopClass = ""
 	}
 	state.Blocker = ""

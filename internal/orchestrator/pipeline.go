@@ -2899,9 +2899,9 @@ func (a *activeRun) blockOnLostRaces(cause error) error {
 	blocked := fmt.Errorf("%s %d times, so the run stopped replaying and gave back its developer slot with its work kept: %w",
 		runstate.ContendedIntegrationFailure, lost, cause)
 	if err := a.block(renderLostRacesBlockerNotes(a.outcome, a.worktree.TargetBranch, lost, blocked.Error())); err != nil {
-		return stoppedBy(runstate.StopIntegration, withFailedRecord(blocked, fmt.Errorf("record the lost races as a blocker: %w", err)))
+		return stoppedBy(runstate.StopLostRaces, withFailedRecord(blocked, fmt.Errorf("record the lost races as a blocker: %w", err)))
 	}
-	return stoppedBy(runstate.StopIntegration, blocked)
+	return stoppedBy(runstate.StopLostRaces, blocked)
 }
 
 // prepareIntegrationRetry re-prepares a change whose promotion lost its race,
@@ -8633,7 +8633,7 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 			if resumable {
 				return "", providerStop{reason: reason}
 			}
-			return "", stoppedBy(runstate.ProviderStopClass(reason), err)
+			return "", stoppedBy(runstate.ReviewStopClass(reason), err)
 		}
 		// A reply the verdict contract could not read at all is a failed review
 		// invocation rather than a failed change: the reviewer said nothing about
@@ -9354,7 +9354,7 @@ func (a *activeRun) classifyStop(cause error, status runstate.Status) runstate.S
 	class, classified := recordedStopIn(cause)
 	if a.state.Environmental != nil && !a.state.Environmental.Settled && class != runstate.StopRecoveryWindow {
 		if a.state.Environmental.Cause == runstate.CauseProcessVanished && a.state.Environmental.ProviderStop != "" {
-			return runstate.ProviderStopClass(a.state.Environmental.ProviderStop)
+			return runstate.ProviderStopClassAt(a.state.Environmental.ProviderStop, a.state.Phase)
 		}
 		return a.state.Environmental.Cause.StopClass()
 	}

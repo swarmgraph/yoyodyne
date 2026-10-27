@@ -128,7 +128,8 @@ func stopSideListed(class StopClass) (StopSide, bool) {
 	case StopPublish, StopCleanup, StopRecording, StopProvider, StopOutside,
 		StopCancelled, StopHarness, StopUnknown, StopProviderIdle, StopUsagePause,
 		StopOperator, StopManager, StopRedeploy, StopDeadClaim,
-		StopDeveloperAccount, StopReviewAccount:
+		StopDeveloperAccount, StopReviewAccount, StopLostRaces, StopReviewBudget,
+		StopBaseFailing, StopForgeQueueRequired:
 		return StopSideOutside, true
 	}
 	if EnvironmentalCause(class).Valid() {
@@ -154,23 +155,42 @@ func stopSideListed(class StopClass) (StopSide, bool) {
 //     their own (StopOperator, StopManager, StopRedeploy), which stay out;
 //   - a publishing failure, except the forge's retries running out
 //     (StopKeptOutOfHoldAfter) and a merge refused for a reason not about the
-//     change, which records the merge queue's own cause (CauseMergeQueueHeld).
+//     change, which records a cause of its own: StopForgeQueueRequired for a
+//     direct merge the forge's required merge queue refused, and
+//     CauseMergeQueueHeld for a change that protection held from the
+//     harness's own queue.
 var stopsTheHoldCounts = []StopClass{
 	StopHarness, StopRecording, StopCleanup, StopUnknown,
 	StopDeadClaim, StopCancelled, StopPublish,
 }
 
 // stopsTheHoldKeepsOut are the causes StopSideOf puts among the bounds that the
-// hold leaves out all the same: the AI provider ending a session more times
-// than the harness restarts it, which step 1 of stopped-run-recovery places
-// outside the work.
-var stopsTheHoldKeepsOut = []StopClass{StopRelaunchBudget}
+// hold leaves out all the same, because step 1 of stopped-run-recovery places
+// them outside the work:
+//
+//   - the AI provider ending a session more times than the harness restarts
+//     it;
+//   - a check stopped at its own time limit, or the check stage stopped at its
+//     bound. The harness runs the check again itself within the bounds
+//     CheckStageContinuation describes, so a run that stops on one has spent
+//     them, and a check stopped on time judged nothing about the change.
+//
+// A replay charged past the integration budget (StopIntegrationBudget) is not
+// one of these: it stopped on the change, by a conflict, a failing check or a
+// repair verdict. A run that lost the race for its target too many times
+// records StopLostRaces, which is outside the work.
+var stopsTheHoldKeepsOut = []StopClass{
+	StopRelaunchBudget, StopCheckTimeout,
+	CauseCheckTimeLimit.StopClass(), CauseCheckStageBound.StopClass(),
+}
 
 // StopKeptOutOfHold reports whether the hold on new work leaves a stop of this
 // cause out of its count. Only the causes outside the work — the provider, the
-// forge, a move to a new build, the environment, an unusable provider account —
-// and a run stopped by the operator or the development manager are left out.
-// Everything else counts, an unrecognised cause included (stopsTheHoldCounts).
+// forge, a move to a new build, the environment, an unusable provider account,
+// lost races, the reviewer's session running out of budget, tests that also
+// fail on the base commit, a check stopped on time — and a run stopped by the
+// operator or the development manager are left out. Everything else counts, an
+// unrecognised cause included (stopsTheHoldCounts).
 // A caller holding the run's recorded waits asks StopKeptOutOfHoldAfter, which
 // also leaves out a boundary's retries running out.
 func StopKeptOutOfHold(class StopClass) bool {
@@ -271,38 +291,42 @@ func (k StopCauseKey) Describe() string {
 // stopSays is what each recorded stop cause means, in the words a person
 // would use for it. The environmental causes say themselves (Title).
 var stopSays = map[StopClass]string{
-	StopChecks:            "the checks kept failing or could not run",
-	StopReview:            "the review found problems the repairs could not resolve",
-	StopIntegration:       "the change could not be merged onto the target branch",
-	StopPublish:           "the merged change could not be published to the forge",
-	StopCleanup:           "the run's worktree could not be removed after its change merged",
-	StopRecording:         "the harness could not record that the run finished",
-	StopProvider:          "the AI provider ended the run without the work being judged",
-	StopOutside:           "something outside the work refused the run",
-	StopCancelled:         "the run was cancelled",
-	StopHarness:           "one of the harness's own steps around the work failed",
-	StopUnknown:           "something the run record does not name",
-	StopCheckTimeout:      "a check ran past its time limit",
-	StopProviderIdle:      "the AI session produced no output for too long",
-	StopProviderBudget:    "the AI session ran past the time it is given",
-	StopRelaunchBudget:    "the AI session died more times than the harness restarts it",
-	StopRepairBudget:      "the repair attempts ran out",
-	StopIntegrationBudget: "the merge attempts ran out",
-	StopPromotionWait:     "the wait for its turn to merge ran past its limit",
-	StopUsagePause:        "the provider's usage limit paused the run",
-	StopOperator:          "the operator stopped the run",
-	StopManager:           "the development manager stopped the run",
-	StopRedeploy:          "a new build was deployed while the run was going",
-	StopDeadClaim:         "the process carrying the run died",
-	StopDeveloperAccount:  "the developer's provider account could not be used",
-	StopReviewAccount:     "the reviewer's provider account could not be used",
-	StopEscalated:         "the item was raised as one that cannot be met as written",
-	StopContextBound:      "what the AI session is sent grew past its size limit",
-	StopStateBound:        "the run's record grew past its size limit",
-	StopEventBound:        "the run's event log grew past its size limit",
-	StopIntegrationPolicy: "the merge rules refused the change",
-	StopRecoveryWindow:    "the time allowed for recovering the run ran out",
-	StopReviewBound:       "the change was too large for the reviewer's copy",
+	StopChecks:             "the checks kept failing or could not run",
+	StopReview:             "the review found problems the repairs could not resolve",
+	StopIntegration:        "the change could not be merged onto the target branch",
+	StopPublish:            "the merged change could not be published to the forge",
+	StopCleanup:            "the run's worktree could not be removed after its change merged",
+	StopRecording:          "the harness could not record that the run finished",
+	StopProvider:           "the AI provider ended the run without the work being judged",
+	StopOutside:            "something outside the work refused the run",
+	StopCancelled:          "the run was cancelled",
+	StopHarness:            "one of the harness's own steps around the work failed",
+	StopUnknown:            "something the run record does not name",
+	StopCheckTimeout:       "a check ran past its time limit",
+	StopProviderIdle:       "the AI session produced no output for too long",
+	StopProviderBudget:     "the AI session ran past the time it is given",
+	StopRelaunchBudget:     "the AI session died more times than the harness restarts it",
+	StopRepairBudget:       "the repair attempts ran out",
+	StopIntegrationBudget:  "the merge attempts ran out",
+	StopPromotionWait:      "the wait for its turn to merge ran past its limit",
+	StopUsagePause:         "the provider's usage limit paused the run",
+	StopOperator:           "the operator stopped the run",
+	StopManager:            "the development manager stopped the run",
+	StopRedeploy:           "a new build was deployed while the run was going",
+	StopDeadClaim:          "the process carrying the run died",
+	StopDeveloperAccount:   "the developer's provider account could not be used",
+	StopReviewAccount:      "the reviewer's provider account could not be used",
+	StopEscalated:          "the item was raised as one that cannot be met as written",
+	StopContextBound:       "what the AI session is sent grew past its size limit",
+	StopStateBound:         "the run's record grew past its size limit",
+	StopEventBound:         "the run's event log grew past its size limit",
+	StopIntegrationPolicy:  "the merge rules refused the change",
+	StopRecoveryWindow:     "the time allowed for recovering the run ran out",
+	StopReviewBound:        "the change was too large for the reviewer's copy",
+	StopLostRaces:          "other work kept landing on the target branch first, so the approved change lost the race to merge as many times as a run may",
+	StopReviewBudget:       "the reviewer's AI session ran past the time it is given before it reached a verdict",
+	StopBaseFailing:        "tests the change did not touch failed again and also fail on the base commit it was built on",
+	StopForgeQueueRequired: "the forge refused the merge because the target branch's protection rules require the forge's own merge queue",
 }
 
 // StopSays is what a recorded stop cause means, in ordinary words, and the

@@ -4242,9 +4242,19 @@ because nobody is logged into it or nobody can reach it, nor any run whose
 record names a stop cause outside the work — a move to a new build, a login the
 provider refused, the provider ending a session after its retries, the forge's
 retries running out, a merge the merge queue held for a reason not about the
-change — or a stop you or the development manager asked for. Those are the only
-stops it leaves out. A run the harness's own step failed around, such as a state
-it could not save, still counts; so does a run whose process died, though the
+change, a direct merge the forge refused because the target branch's protection
+requires the forge's own merge queue (recorded as `forge-queue-required`, naming
+that setting), a check stopped at its time limit or the check stage stopped at
+its bound once the harness's reruns are spent, a change no configured check
+could run on, an approved change that lost the race to merge as many times as a
+run may (`lost-races`), the reviewer's session running out of its time before a
+verdict (`review-budget`), and failing tests the change did not touch that also
+fail on the base commit it was built on (`base-failing`) — or a stop you or the
+development manager asked for. Those are the only stops it leaves out. A replay
+that stopped on the change past `execution.integration_retries_before_reconciliation`
+(`integration-budget`) and the developer's session running out of its time
+(`provider-budget`) still count. A run the harness's own step failed around,
+such as a state it could not save, still counts; so does a run whose process died, though the
 runs one claim audit finds dead together, such as every run a machine restart
 ended, count as one; so do a cancellation that records nobody as having asked
 for it, any other failure to publish to the forge, and a stop cause the running

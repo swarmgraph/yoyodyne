@@ -36,7 +36,7 @@ the stop itself.
 | Whole check stage's time | `execution.check_stage_timeout`: 30 minutes | All checks in one stage, scaled upward for load, at most ten times the configured figure. The heaviest reading can raise the bound during the stage. | `timed_out`, class `check-stage-bound`. The harness can run the same run's checks again twice on one candidate, hard-coded by `MaxCheckStageContinuations` and shared with reruns after a check's own limit and with decided repairs; after that the development manager gets the stop. | No review round, repair attempt, grant, or re-run for the bound or its continuation. | Branch, checkout, and developer session preserved. |
 | Developer invocation's total time | Hard-coded: four hours in both provider adapters | One invocation, including its tool work; another invocation starts another clock. | A process times out. With resumable state the run stays `running`, awaiting continuation; without it the run ends `timed_out`, class `provider-budget`. An uncontinued stop is settled after the grace below, and a settled first stop is continued by the harness itself under the same `MaxHarnessStallContinuations` bound as a stall; a second is docketed. | Continuation re-enters the same attempt; no repair, grant, review round, or re-run. | Preserved, including the recorded session. |
 | Provider silence | Hard-coded: five minutes in both adapters | Gap between output events while the provider has not written its final reply. | The process is `stalled`; resumable state leaves the run `running` with `ProviderStop`. With nothing to continue it ends `timed_out`, class `provider-idle`. One automatic continuation of a settled stall is allowed by `MaxHarnessStallContinuations`, shared with the total-time stop above; a second stall is docketed. | Continuation re-enters the same attempt; no repair, grant, review round, or re-run. | Preserved, including the recorded session. |
-| Reviewer invocation's total time | Hard-coded: 15 minutes in `review.Reviewer` | One independent review, overriding the adapter's four-hour total; the five-minute limit on a session producing no output still applies. | A process timeout follows the same provider-stop continuation rule; a review with no resumable state ends on the provider failure. | No repair attempt for an unfinished verdict. | Preserved. |
+| Reviewer invocation's total time | Hard-coded: 15 minutes in `review.Reviewer` | One independent review, overriding the adapter's four-hour total; the five-minute limit on a session producing no output still applies. | A process timeout follows the same provider-stop continuation rule; a review with no resumable state ends on the provider failure, and one stopped at its total time with nothing to continue from ends `timed_out`, class `review-budget`, kept apart from the developer's `provider-budget`. | No repair attempt for an unfinished verdict. | Preserved. |
 | Transient provider deaths | `execution.transient_relaunches_before_blocking`: 2 | Relaunches shared by developer and reviewer in one run. Zero permits none. | After the budget, an unclassified transient death blocks and fails the run, class `relaunch-budget`. A recognized transport death can still wait under the recovery window. | Each relaunch increments `TransientRelaunches`; not a repair attempt or review round. | Same checkout and session preserved. |
 | Developer session that fails | No setting; whatever the provider or its process reports | A developer invocation that ends in failure for a reason that is none of the waits, relaunches, or harness clocks in this table, such as a provider error, or a session that exits non-zero before writing an answer. | `failed`, class `provider`, usually before any check has run. The failure says what ended it in plain words: the provider's own answer or that it gave none, the exit status, and the last ten lines (at most 2 KiB) the session wrote to standard error or that it wrote none. The same words are on the run's record, the item's notes and the development manager's docket entry, and a note for a run that stopped before any check ends on them after the diff stat. | The attempt already charged stands; no further repair attempt is invoked. | Preserved. |
 | Transport recovery | Hard-coded: two hours of committed waits per boundary in `recovery.Window`; Fibonacci delays start at one second and cap at 30 minutes | Recognized recoverable failures at provider, tracker, Git, and forge boundaries that use recovery. The wait is durable across process restarts; this is not a deadline on the whole run. | The original boundary's failure is returned with class `recovery-window` and the retry account when another delay would exceed the window; integration can record that transport failure ended the run, and publication after local promotion may be a warning on success. | Recovery waits and attempts, not repairs. The failed operation determines any other budget cost, under the rules for causes outside the work. | Preserved; any promotion already made stands. |
@@ -76,6 +76,21 @@ for the reviewer's copy `review-bound`. The configured integration policy
 can end a successful run before promotion,
 recorded as `integration-policy`. Other step and scope refusals keep the existing
 gate names.
+
+Four more classes name stops outside the work that are not refusals of a round.
+`lost-races` is an approved change that lost the race for its target branch as
+many times as a run may before giving its developer slot back. `review-budget`
+is the reviewer's session running past its total time with nothing to continue
+from. `forge-queue-required` is a direct merge the forge refused because the
+target branch's protection requires the forge's own merge queue; the publishing
+failure and the item's blocker name that setting, and a re-arm or a settled
+publication clears it as it clears `publish`. `base-failing` is failing tests
+the change did not touch that fail again and also fail on the base commit; it is
+named ahead of the build that runs those tests on the base commit, and nothing
+records it yet. The failure-storm brake leaves all four out of its count, with
+`check-time-limit`, `check-stage-bound`, `check-timeout`, `no-check-ran`, and the
+other causes in this section (`runstate.StopKeptOutOfHold`); `integration-budget`
+and `provider-budget` still count.
 
 The set of causes outside the work currently has seventeen values. A named cause alone does not forgive a
 round: normally the settlement must also find an empty delivery. With a change
@@ -362,6 +377,10 @@ describes the pass that applies those rules.
 | `internal/runstate/stopclass.go` | `StopIntegrationPolicy` | `StopClass` | 1 | The configured policy leaves promotion outside this run; grants no action. |
 | `internal/runstate/stopclass.go` | `StopRecoveryWindow` | `StopClass` | 1 | A boundary spent its bounded recovery waits; grants no action. |
 | `internal/runstate/stopclass.go` | `StopReviewBound` | `StopClass` | 1 | Closed recorded cause: `review-bound`; grants no action. |
+| `internal/runstate/stopclass.go` | `StopLostRaces` | `StopClass` | 1 | Closed recorded cause: `lost-races`; grants no action. |
+| `internal/runstate/stopclass.go` | `StopReviewBudget` | `StopClass` | 1 | Closed recorded cause: `review-budget`; grants no action. |
+| `internal/runstate/stopclass.go` | `StopBaseFailing` | `StopClass` | 1 | Closed recorded cause: `base-failing`; grants no action. |
+| `internal/runstate/stopclass.go` | `StopForgeQueueRequired` | `StopClass` | 1 | Closed recorded cause: `forge-queue-required`; grants no action. |
 ```
 
 ## Sites that do not end a run

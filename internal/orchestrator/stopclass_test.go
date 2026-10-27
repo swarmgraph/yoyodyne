@@ -165,12 +165,14 @@ func TestReconciliationKeepsTheProviderClockAndDoesNotBorrowAnOlderCause(t *test
 	for _, test := range []struct {
 		name        string
 		environment *runstate.EnvironmentalRefusal
+		phase       runstate.Phase
 		want        runstate.StopClass
 	}{
 		{name: "a vanished process", want: runstate.CauseProcessVanished.StopClass()},
 		{name: "an earlier checkout refusal", environment: &runstate.EnvironmentalRefusal{Cause: runstate.CauseWorktreeCheckoutKilled, Settled: true}, want: runstate.CauseProcessVanished.StopClass()},
 		{name: "provider silence", environment: &runstate.EnvironmentalRefusal{Cause: runstate.CauseProcessVanished, ProviderStop: runstate.ProviderStopStalled, Settled: true}, want: runstate.StopProviderIdle},
 		{name: "provider budget", environment: &runstate.EnvironmentalRefusal{Cause: runstate.CauseProcessVanished, ProviderStop: runstate.ProviderStopBudgetExhausted, Settled: true}, want: runstate.StopProviderBudget},
+		{name: "reviewer budget", environment: &runstate.EnvironmentalRefusal{Cause: runstate.CauseProcessVanished, ProviderStop: runstate.ProviderStopBudgetExhausted, Settled: true}, phase: runstate.PhaseReviewing, want: runstate.StopReviewBudget},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, err := runstate.NewStore(t.TempDir(), "yoyodyne")
@@ -184,7 +186,7 @@ func TestReconciliationKeepsTheProviderClockAndDoesNotBorrowAnOlderCause(t *test
 			state := runstate.State{SchemaVersion: runstate.StateSchemaVersion,
 				RunID: pipelineRunID, ProductID: "yoyodyne", RepositoryID: "yoyodyne",
 				WorkItemID: "yoyodyne-task", Backend: "claude-code",
-				Status: runstate.StatusRunning, StartedAt: now, UpdatedAt: now,
+				Status: runstate.StatusRunning, Phase: test.phase, StartedAt: now, UpdatedAt: now,
 				Environmental: test.environment}
 			if err := store.Create(state); err != nil {
 				t.Fatal(err)
