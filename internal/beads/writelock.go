@@ -52,7 +52,7 @@ func (c Client) write(ctx context.Context, id string, args ...string) ([]byte, e
 		return nil, err
 	}
 	defer unlock()
-	return c.run(ctx, args...)
+	return c.run(ctx, frameNoteArguments(args)...)
 }
 
 // lockItem takes the write lock for one item, waiting for whoever holds it, and

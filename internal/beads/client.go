@@ -39,13 +39,19 @@ type WorkItem struct {
 	Description        string
 	Design             string
 	AcceptanceCriteria string
-	Notes              string
-	Status             string
-	Priority           int
-	IssueType          string
-	Assignee           string
-	Parent             string
-	Dependencies       []Dependency
+	// Notes is what the item's notes say, with the boundary each harness append
+	// is stored under (FrameNote) taken out, so whatever shows them shows prose.
+	Notes string
+	// FramedNotes is the notes as the tracker stores them, boundaries included,
+	// and is empty where they carry none. Only a reader that needs to tell one
+	// append from another reads it, through RecordedNotes.
+	FramedNotes  string `json:",omitempty"`
+	Status       string
+	Priority     int
+	IssueType    string
+	Assignee     string
+	Parent       string
+	Dependencies []Dependency
 	// CreatedAt is when the tracker recorded this item, which is what says what
 	// the work was admitted knowing. It is the zero time where the tracker did not
 	// say, and a caller that needs it reports that it does not know rather than
@@ -2255,7 +2261,7 @@ func convertWorkItemIn(raw rawWorkItem, writerZone *time.Location) (WorkItem, er
 		Description:        raw.Description,
 		Design:             raw.Design,
 		AcceptanceCriteria: raw.AcceptanceCriteria,
-		Notes:              raw.Notes,
+		Notes:              PlainNotes(raw.Notes),
 		Status:             raw.Status,
 		Priority:           raw.Priority,
 		IssueType:          raw.IssueType,
@@ -2265,6 +2271,9 @@ func convertWorkItemIn(raw rawWorkItem, writerZone *time.Location) (WorkItem, er
 		ClosedAt:           admittedAt(raw.ClosedAt),
 		CloseReason:        raw.CloseReason,
 		Dependencies:       make([]Dependency, 0, len(raw.Dependencies)),
+	}
+	if item.Notes != raw.Notes {
+		item.FramedNotes = raw.Notes
 	}
 	for _, dependency := range raw.Dependencies {
 		id := dependency.ID
