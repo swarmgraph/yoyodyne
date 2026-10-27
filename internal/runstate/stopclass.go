@@ -45,6 +45,29 @@ const (
 	// StopReviewBound is a change whose source or test files the review bound
 	// would keep out of the reviewer's copy, measured before any check ran.
 	StopReviewBound StopClass = "review-bound"
+	// StopLostRaces is an approved change that lost the race for its target
+	// branch as many times as a run may before it gives its developer slot back
+	// (lostRacesBeforeGivingBackTheSlot in internal/orchestrator). Other work
+	// landing first refused it, not anything about the change.
+	StopLostRaces StopClass = "lost-races"
+	// StopReviewBudget is the reviewer's session running past the time it is
+	// given before it reached a verdict, with nothing to continue from. The
+	// developer's session doing the same is StopProviderBudget.
+	StopReviewBudget StopClass = "review-budget"
+	// StopBaseFailing is a change whose failing tests are ones it did not touch,
+	// which failed again when run once more and also fail on the base commit the
+	// change was built on, so the target branch itself is failing
+	// (recoverable-and-terminal-failures, as ruled on October 19). It is named
+	// here ahead of the build that runs those tests on the base commit, so that
+	// build records a cause the hold on new work already keeps out.
+	StopBaseFailing StopClass = "base-failing"
+	// StopForgeQueueRequired is a merge the forge refused because the target
+	// branch's protection requires the forge's own merge queue, which accepts no
+	// direct merge: a repository setting, not anything about the change
+	// (publish.MergeRefused.QueueRequired). With execution.merge_queue on, the
+	// same protection holds the change before any merge is asked for, and that
+	// records CauseMergeQueueHeld instead.
+	StopForgeQueueRequired StopClass = "forge-queue-required"
 
 	// StopChecks is the checking gate: a configured check that kept failing or
 	// could not run, a protected path the change kept touching, or a change nobody
@@ -101,7 +124,8 @@ var stopClasses = []StopClass{
 	StopUsagePause, StopOperator, StopManager, StopRedeploy, StopDeadClaim,
 	StopDeveloperAccount, StopReviewAccount, StopEscalated, StopContextBound,
 	StopStateBound, StopEventBound, StopIntegrationPolicy, StopRecoveryWindow,
-	StopReviewBound,
+	StopReviewBound, StopLostRaces, StopReviewBudget, StopBaseFailing,
+	StopForgeQueueRequired,
 }
 
 // StopClasses is the stop vocabulary as a caller outside this package reads it,
@@ -161,6 +185,32 @@ func ProviderStopClass(reason string) StopClass {
 	default:
 		return StopProvider
 	}
+}
+
+// ReviewStopClass is ProviderStopClass for the reviewer's session, which keeps
+// its budget running out apart from the developer's: the reviewer's is outside
+// the work (stopped-run-recovery, step 1).
+func ReviewStopClass(reason string) StopClass {
+	if reason == ProviderStopBudgetExhausted {
+		return StopReviewBudget
+	}
+	return ProviderStopClass(reason)
+}
+
+// ProviderStopClassAt is the class of a provider stop at the step the run was
+// at: the reviewer's at review, the developer's anywhere else.
+func ProviderStopClassAt(reason string, step Phase) StopClass {
+	if step == PhaseReviewing {
+		return ReviewStopClass(reason)
+	}
+	return ProviderStopClass(reason)
+}
+
+// Publishing reports a stop at the publication of the change to the forge:
+// an ordinary publishing failure, or a merge refused because the target
+// requires the forge's own merge queue. Settling the publication clears either.
+func (c StopClass) Publishing() bool {
+	return c == StopPublish || c == StopForgeQueueRequired
 }
 
 // Valid reports a class the durable schema stores.

@@ -204,17 +204,51 @@ type MergeRefused struct {
 	// read; Reason is what the forge printed when it refused.
 	Status string
 	Reason string
+	// QueueRequired says the forge refused because the base branch's protection
+	// requires the forge's own merge queue, so no direct merge is accepted
+	// whatever the change is. That is a repository setting rather than anything
+	// about the change, and the refusal names the setting
+	// (MergeQueueRequiredRemedy).
+	QueueRequired bool
 }
+
+// MergeQueueRequiredRemedy is what a person changes when the forge refuses a
+// direct merge because the base branch requires its own merge queue.
+const MergeQueueRequiredRemedy = "the target branch's protection rules require the forge's own merge queue, which accepts no direct merge: remove that requirement from the branch's protection rules so the harness can merge again"
 
 func (e MergeRefused) Error() string {
 	message := fmt.Sprintf("the forge refused to merge pull request %d with the %s method", e.Number, e.Method)
-	if requirement := mergeRequirement(e.Status); requirement != "" {
+	if e.QueueRequired {
+		message += ": " + MergeQueueRequiredRemedy
+	} else if requirement := mergeRequirement(e.Status); requirement != "" {
 		message += ": " + requirement
 	}
 	if e.Reason != "" {
 		message += ": " + e.Reason
 	}
 	return message
+}
+
+// MergeQueueRequired reports a merge the forge refused because the base
+// branch requires its own merge queue, wherever in err the refusal is wrapped.
+func MergeQueueRequired(err error) bool {
+	var refused MergeRefused
+	return errors.As(err, &refused) && refused.QueueRequired
+}
+
+// mergeQueueRequired recognizes the forge saying a merge must go through its
+// own merge queue. GitHub says so only in words ("Changes must be made through
+// the merge queue"), and the CLI exits the same way it does for any other
+// refusal, so the message is what is read.
+func mergeQueueRequired(reason string) bool {
+	normalized := strings.ToLower(reason)
+	if !strings.Contains(normalized, "merge queue") {
+		return false
+	}
+	return strings.Contains(normalized, "made through the merge queue") ||
+		strings.Contains(normalized, "merge queue is required") ||
+		strings.Contains(normalized, "requires a merge queue") ||
+		strings.Contains(normalized, "requires the merge queue")
 }
 
 // mergeRequirement states in words what the forge's merge state says is unmet,
@@ -462,10 +496,11 @@ func (g GitHub) Merge(ctx context.Context, request MergeRequest) (MergeResult, e
 			return MergeResult{}, AutoMergeUnavailable{Number: request.Number, Status: status, Reason: reason}
 		}
 		return MergeResult{}, MergeRefused{
-			Number: request.Number,
-			Method: request.Method,
-			Status: status,
-			Reason: reason,
+			Number:        request.Number,
+			Method:        request.Method,
+			Status:        status,
+			Reason:        reason,
+			QueueRequired: mergeQueueRequired(reason),
 		}
 	}
 	// The forge has nothing left to wait for, so it refused to queue a merge it
@@ -479,11 +514,13 @@ func (g GitHub) Merge(ctx context.Context, request MergeRequest) (MergeResult, e
 		return MergeResult{}, fmt.Errorf("merge pull request %d: %w", request.Number, err)
 	}
 	if merged.Status != execution.ProcessSucceeded {
+		refusal := g.redact(strings.TrimSpace(merged.Stderr))
 		return MergeResult{}, MergeRefused{
-			Number: request.Number,
-			Method: request.Method,
-			Status: g.mergeState(ctx, request.Number),
-			Reason: g.redact(strings.TrimSpace(merged.Stderr)),
+			Number:        request.Number,
+			Method:        request.Method,
+			Status:        g.mergeState(ctx, request.Number),
+			Reason:        refusal,
+			QueueRequired: mergeQueueRequired(refusal),
 		}
 	}
 	return MergeResult{}, nil

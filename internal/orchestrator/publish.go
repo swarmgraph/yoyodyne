@@ -670,10 +670,16 @@ func (a *activeRun) landedThroughPullRequest() bool {
 func (a *activeRun) blockOnUnlandedPullRequest(integration gitworktree.Integration) error {
 	unlanded := fmt.Errorf("the change was not landed on %s: %s",
 		integration.TargetBranch, nonEmpty(a.outcome.PublishFailure, "the forge did not merge its pull request"))
-	if err := a.block(renderUnlandedPullRequestNotes(a.outcome, integration, unlanded.Error())); err != nil {
-		return stoppedBy(runstate.StopPublish, errors.Join(unlanded, fmt.Errorf("record the unlanded pull request as a blocker: %w", err)))
+	// The class the publication failure recorded is kept, so a merge refused for
+	// the forge's required merge queue stops the run as that refusal.
+	class := runstate.StopPublish
+	if a.outcome.StopClass.Publishing() {
+		class = a.outcome.StopClass
 	}
-	return stoppedBy(runstate.StopPublish, unlanded)
+	if err := a.block(renderUnlandedPullRequestNotes(a.outcome, integration, unlanded.Error())); err != nil {
+		return stoppedBy(class, errors.Join(unlanded, fmt.Errorf("record the unlanded pull request as a blocker: %w", err)))
+	}
+	return stoppedBy(class, unlanded)
 }
 
 // replayUnlandedChange answers a remote target that moved after the landing was
@@ -773,10 +779,18 @@ func (a *activeRun) catchUpTarget(ctx context.Context, targetBranch string) {
 // saving the record itself is folded into the reported failure rather than
 // hidden: durable state that disagrees with the report is the thing an operator
 // cannot diagnose.
+//
+// A merge the forge refused because the target requires its own merge queue is
+// recorded as that refusal (runstate.StopForgeQueueRequired) rather than as an
+// ordinary publishing failure: it is a repository setting, and the failure
+// names it.
 func (a *activeRun) recordPublishFailure(cause error) {
 	a.outcome.PublishFailure = cause.Error()
 	a.state.PublishFailure = a.outcome.PublishFailure
 	a.outcome.StopClass = runstate.StopPublish
+	if publish.MergeQueueRequired(cause) {
+		a.outcome.StopClass = runstate.StopForgeQueueRequired
+	}
 	a.state.StopClass = a.outcome.StopClass
 	a.state.UpdatedAt = a.pipeline.clock().Now()
 	if err := a.pipeline.Store.Save(a.state); err != nil {

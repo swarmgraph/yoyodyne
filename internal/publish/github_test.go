@@ -330,6 +330,51 @@ func TestGitHubMergeMergesACleanRequestItDoesNotRecognizeTheRefusalOf(t *testing
 	}
 }
 
+// A branch whose protection requires the forge's own merge queue refuses every
+// direct merge, which is a repository setting rather than anything about the
+// change: the refusal says so and names the setting, whether the forge refused
+// to queue the merge or to perform it. An ordinary refusal is not read as one.
+func TestGitHubMergeNamesARefusalForTheForgesRequiredMergeQueue(t *testing.T) {
+	t.Parallel()
+
+	const queueOnly = "GraphQL: Changes must be made through the merge queue (mergePullRequest)"
+	for _, test := range []struct {
+		name   string
+		queued string
+		status string
+		merged string
+		want   bool
+		merges int
+	}{
+		{name: "refused to queue", queued: queueOnly, status: "BLOCKED", want: true, merges: 1},
+		{name: "refused to merge now", queued: "GraphQL: Pull request is in clean status (enablePullRequestAutoMerge)", status: "CLEAN", merged: queueOnly, want: true, merges: 2},
+		{name: "an ordinary refusal", queued: "GraphQL: Pull Request is not mergeable: the merge commit cannot be cleanly created. (enablePullRequestAutoMerge)", status: "BLOCKED", want: false, merges: 1},
+	} {
+		runner := &scriptedRunner{}
+		runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+		runner.reply("pr merge", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: test.queued})
+		if test.merged != "" {
+			runner.replyAfter("pr merge", 1, execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: test.merged})
+		}
+		runner.reply("pr view", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: `{"mergeStateStatus":"` + test.status + `"}`})
+		_, err := (GitHub{Runner: runner, Dir: t.TempDir()}).Merge(context.Background(),
+			MergeRequest{Number: 7, HeadCommit: "0123456789abcdef0123456789abcdef01234567", Method: MergeCommit})
+		var refused MergeRefused
+		if !errors.As(err, &refused) {
+			t.Fatalf("%s: Merge() error = %v, want a MergeRefused", test.name, err)
+		}
+		if refused.QueueRequired != test.want || MergeQueueRequired(fmt.Errorf("merge: %w", err)) != test.want {
+			t.Errorf("%s: queue required = %t, want %t", test.name, refused.QueueRequired, test.want)
+		}
+		if names := strings.Contains(err.Error(), MergeQueueRequiredRemedy); names != test.want {
+			t.Errorf("%s: refusal %q names the setting = %t, want %t", test.name, err.Error(), names, test.want)
+		}
+		if calls := runner.matching("pr merge"); len(calls) != test.merges {
+			t.Errorf("%s: pr merge calls = %v, want %d", test.name, calls, test.merges)
+		}
+	}
+}
+
 // A protected branch declining the merge is the repository's rules being
 // applied, not the harness failing, so the refusal has to name the requirement
 // that was unmet rather than read as a generic error.

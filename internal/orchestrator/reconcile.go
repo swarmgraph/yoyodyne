@@ -2020,7 +2020,7 @@ func (r Reconciler) saveTerminalFailure(state runstate.State, reason string) (ru
 		state.StopClass = runstate.CauseProcessVanished.StopClass()
 		if state.Environmental != nil && state.Environmental.Cause == runstate.CauseProcessVanished {
 			if state.Environmental.ProviderStop != "" {
-				state.StopClass = runstate.ProviderStopClass(state.Environmental.ProviderStop)
+				state.StopClass = runstate.ProviderStopClassAt(state.Environmental.ProviderStop, state.Phase)
 			}
 		}
 		state.Status = runstate.StatusFailed

@@ -154,6 +154,56 @@ func TestARefusedMergeOnAProtectedTargetLeavesMainWhereTheForgeHasIt(t *testing.
 	if published := testharness.PublishedCommit(t, run.Remote, outcome.Branch); published == "" {
 		t.Error("the branch carrying the unlanded change was removed from the remote")
 	}
+	// An ordinary refusal is a publishing failure, which the hold on new work
+	// counts.
+	if state.StopClass != runstate.StopPublish || runstate.StopKeptOutOfHoldAfter(outcome.StopClass, outcome.Retries) {
+		t.Errorf("stop class = %q (outcome %q), want a publishing failure the hold counts", state.StopClass, outcome.StopClass)
+	}
+	run.AssertMainNotAhead(t)
+}
+
+// A direct merge the forge refuses because the target branch requires its own
+// merge queue is a repository setting, not anything about the change. It is
+// recorded as that refusal, naming the setting, and the hold on new work leaves
+// it out of its count.
+func TestAMergeRefusedForTheForgesRequiredQueueIsRecordedAsThatRefusal(t *testing.T) {
+	t.Parallel()
+
+	run := testharness.NewProtectedRun(t, &orchestratortest.Forge{
+		TargetProtection: publish.BranchProtection{Protected: true, By: "branch protection"},
+		MergeErr: publish.MergeRefused{
+			Number:        1,
+			Method:        publish.MergeCommit,
+			Status:        "BLOCKED",
+			Reason:        "GraphQL: Changes must be made through the merge queue (mergePullRequest)",
+			QueueRequired: true,
+		},
+	})
+	outcome, err := run.Pipeline.Run(context.Background(), "yoyodyne-task")
+	if err == nil {
+		t.Fatalf("Run() = %#v, want the run stopped on the unlanded change", outcome)
+	}
+	if outcome.WorkItemClosed || run.Tracker.Closed || !run.Tracker.Blocked {
+		t.Fatalf("closed %t, blocked %t; want the item handed back unclosed", run.Tracker.Closed, run.Tracker.Blocked)
+	}
+	state, err := run.Store.Load(testharness.PipelineRunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if state.StopClass != runstate.StopForgeQueueRequired || outcome.StopClass != runstate.StopForgeQueueRequired {
+		t.Fatalf("stop class = %q (outcome %q), want %q", state.StopClass, outcome.StopClass, runstate.StopForgeQueueRequired)
+	}
+	for _, said := range []string{state.PublishFailure, run.Tracker.BlockReason} {
+		if !strings.Contains(said, "protection rules require the forge's own merge queue") {
+			t.Errorf("%q does not name the setting that refused the merge", said)
+		}
+	}
+	if !runstate.StopKeptOutOfHoldAfter(outcome.StopClass, outcome.Retries) {
+		t.Error("a merge refused for the forge's required merge queue is counted towards the hold on new work")
+	}
+	if state.MergeDrop == nil || state.PullRequest == nil {
+		t.Errorf("record = merge drop %#v, pull request %#v; want what a re-arm repeats", state.MergeDrop, state.PullRequest)
+	}
 	run.AssertMainNotAhead(t)
 }
 
