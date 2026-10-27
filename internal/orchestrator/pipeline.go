@@ -6019,7 +6019,10 @@ func (p Pipeline) holdWorkItem(workItemID string, hold runstate.OperatorHold) (O
 // flight. The selection saying so is not enough — the record is what is read,
 // because the brake writes it under its lock and a selection is words any
 // caller could supply — and a hold that is not the brake's lets nothing
-// through however the selection is named.
+// through however the selection is named. A re-run the development manager
+// decided of the hold's own test run is that probe too, where the record says
+// the probe in flight is carrying out a recovery: the re-run action has already
+// matched the record to the run it was decided about (IntakeHold.RecoveryProbing).
 func (p Pipeline) holdIntake(workItemID string) (Outcome, bool, error) {
 	if !p.Selection.SelectedByHarness() {
 		return Outcome{}, false, nil
@@ -6032,6 +6035,9 @@ func (p Pipeline) holdIntake(workItemID string) (Outcome, bool, error) {
 		return Outcome{}, false, nil
 	}
 	if strings.TrimSpace(p.Selection.By) == runstate.SelectedByBrake && hold.Probing(workItemID) {
+		return Outcome{}, false, nil
+	}
+	if strings.TrimSpace(p.Selection.By) == runstate.SelectedByDevelopmentManager && hold.RecoveryProbing(workItemID, "") {
 		return Outcome{}, false, nil
 	}
 	return Outcome{

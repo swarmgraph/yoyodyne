@@ -151,6 +151,26 @@ func (h IntakeHold) Probing(workItemID string) bool {
 	return h.Braked() && h.Brake.Probing() && h.Brake.Probe.WorkItemID == strings.TrimSpace(workItemID)
 }
 
+// RecoveryProbing reports the brake's own record naming this item as the probe
+// it has in flight and that probe as carrying out the decided recovery of
+// recovers, the hold's earlier test run. It is what lets a repair or re-run the
+// development manager decided through a held intake, and only that one: the
+// record names the run it recovers, so no other decision about the item, and no
+// decision about another item, is let through by it. An empty recovers asks
+// whether the probe recovers any run, which is what a re-run's fresh run can
+// ask once the re-run has read the record for the run it was decided about.
+func (h IntakeHold) RecoveryProbing(workItemID, recovers string) bool {
+	if !h.Probing(workItemID) {
+		return false
+	}
+	named := strings.TrimSpace(h.Brake.Probe.Recovers)
+	if named == "" {
+		return false
+	}
+	recovers = strings.TrimSpace(recovers)
+	return recovers == "" || recovers == named
+}
+
 // WaitsOnAPerson reports a hold nothing but a person lifts: the operator's own,
 // a brake hold from before the brake worked its own holds, and a brake hold
 // escalated — by the development manager, or by the harness once its

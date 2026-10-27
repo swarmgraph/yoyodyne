@@ -584,11 +584,13 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	}
 	// The hold is read before anything is written, so a held harness leaves the
 	// grant uncarried rather than half re-entering a run it would not continue.
+	// The one repair it lets through is of the hold's own test run, where the
+	// brake has recorded this repair as the run its hold starts.
 	hold, held, err := c.Intake.Held()
 	if err != nil {
 		return result, fmt.Errorf("read whether intake is held: %w", err)
 	}
-	if held {
+	if held && !hold.RecoveryProbing(entry.WorkItemID, prior.RunID) {
 		result.IntakeHeld = &hold
 		return result, nil
 	}
@@ -841,7 +843,7 @@ func (c RepairContinuer) dispatchContinuation(ctx context.Context, result Repair
 	// therefore leaves that record intact rather than reporting an unspent grant.
 	if hold, held, err := c.Intake.Held(); err != nil {
 		return result, fmt.Errorf("read whether intake is held before dispatching the recorded continuation: %w", err)
-	} else if held {
+	} else if held && !hold.RecoveryProbing(result.WorkItemID, result.RunID) {
 		result.RecordProblem = strings.TrimSpace(result.RecordProblem + " The continuation is recorded, but no developer was dispatched because intake is held: " + hold.Says())
 		return result, nil
 	}

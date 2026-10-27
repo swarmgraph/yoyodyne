@@ -1475,7 +1475,13 @@ acts on her decision at its next poll. Where she records none by
 `execution.brake_cooldown` — thirty minutes by default — the session decides on
 evidence instead: it starts one probe run under the hold, and the probe landing
 reopens intake while the probe blocking keeps it held, restarts the cooldown,
-and puts the question to her again with the probe's own stoppage. Her summoned
+and puts the question to her again with the probe's own stoppage. Where she
+has decided a repair of the run the last probe ran, or a re-run of its item,
+the hold's next start goes to that recovery ahead of every other decision and
+every ready item, and the recovery counts as the probe: its landing reopens
+intake and its blocking keeps the hold; while it waits, `yoyo status` and the
+dashboard say it is the run that lifts the hold and what it waits for. Every
+other decided recovery waits for the hold to lift, as fresh work does. Her summoned
 turn is taken beside the poll, so the session goes on pulling while she answers,
 and no probe starts on the cooldown alone until that turn has ended. A broken
 machine is therefore probed once per cooldown and put to her each time, and a

@@ -1823,3 +1823,40 @@ func TestRepairOfAStageTimeoutContinuesItsChecksOnThePreservedChange(t *testing.
 		t.Fatalf("continued = %#v, want checks continued without a developer attempt or review round", continued)
 	}
 }
+
+// The one repair a held intake lets through is the hold's own test run's, where
+// the brake's record names it as the probe in flight; a record naming another
+// run lets this one through no more than the operator's hold does.
+func TestAHeldIntakeContinuesTheRepairItsRecordNamesAsItsTestRun(t *testing.T) {
+	t.Parallel()
+
+	for _, recovers := range []string{docketedRunID, "run-another"} {
+		harness := newContinueHarness(t, continuableState())
+		ended := docketedNow.Add(-time.Hour)
+		trip := runstate.IntakeBrake{
+			Blocked:        []runstate.BrakeBlockedRun{{WorkItemID: "yoyodyne-a", Reason: "blocked"}},
+			CooldownEndsAt: docketedNow,
+			Probe:          &runstate.IntakeProbe{WorkItemID: docketedItem, RunID: docketedRunID, StartedAt: docketedNow.Add(-2 * time.Hour), EndedAt: &ended, Blocked: true},
+		}
+		if _, err := harness.intake.Brake(trip, "three runs blocked", docketedNow); err != nil {
+			t.Fatalf("Brake() error = %v", err)
+		}
+		if _, err := harness.intake.ReviseBrake(func(brake *runstate.IntakeBrake) error {
+			brake.Probe = &runstate.IntakeProbe{WorkItemID: docketedItem, StartedAt: docketedNow, Recovers: recovers}
+			return nil
+		}); err != nil {
+			t.Fatalf("ReviseBrake() error = %v", err)
+		}
+		result, err := harness.continuer().Continue(context.Background(), continueRequest())
+		if err != nil {
+			t.Fatalf("Continue() error = %v", err)
+		}
+		named := recovers == docketedRunID
+		if named && (result.IntakeHeld != nil || len(harness.started) != 1) {
+			t.Fatalf("held = %#v, started = %#v, want the test run's repair continued under its own hold", result.IntakeHeld, harness.started)
+		}
+		if !named && (result.IntakeHeld == nil || len(harness.started) != 0) {
+			t.Fatalf("held = %#v, started = %#v, want a repair the record does not name held", result.IntakeHeld, harness.started)
+		}
+	}
+}
