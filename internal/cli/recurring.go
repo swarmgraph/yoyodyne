@@ -49,7 +49,8 @@ import (
 // pass would call through it.
 func recurringTrigger(parts components, configPath string, stderr io.Writer) orchestrator.ScheduleRecurring {
 	instances := programManagerPasses(parts)
-	if len(parts.config.RecurringTasks) == 0 && len(instances) == 0 {
+	architect := architectConfigured(parts.config)
+	if len(parts.config.RecurringTasks) == 0 && len(instances) == 0 && !architect {
 		return nil
 	}
 	trigger := &orchestrator.Trigger{
@@ -157,6 +158,15 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 			fmt.Fprintf(stderr, "the program manager instances' conversations could not be opened to ask whether a turn is in flight on one, so a pass is opened and recorded as unreachable where one is: %v\n", err)
 		}
 	}
+	// The open items carrying the needs-design label, read from the export
+	// admissions are read from, and which of them the architect has been woken
+	// for, so adding the label by any path wakes her once, with a daily pass
+	// behind it (orchestrator/needsdesignwake.go). Only where the project has an
+	// architect to wake.
+	if architect {
+		trigger.NeedsDesign = needsDesignItems{repository: parts.repository, refresh: parts.tracker().RefreshExportIfDue}
+		trigger.NeedsDesignWakes = parts.store.NeedsDesignWakes()
+	}
 	// The harness's own reading of the forge on the development manager's pass,
 	// through the same client the publication path opens and merges requests
 	// with, so what it lists is the repository runs publish into. The tracker
@@ -181,6 +191,17 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		}
 	}
 	return trigger
+}
+
+// architectConfigured reports a project with an agent in the architect's role,
+// which is what the needs-design label has to wake.
+func architectConfigured(cfg config.Config) bool {
+	for _, agent := range cfg.Agents {
+		if agent.Role == domain.RoleArchitect {
+			return true
+		}
+	}
+	return false
 }
 
 func passFailureAttribution(cfg config.Config) report.Attribution {

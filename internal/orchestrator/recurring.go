@@ -483,6 +483,13 @@ type Trigger struct {
 	// conversation, so an unfinished pass is not mistaken for a dead one.
 	// A due pass queues when it opens the conversation, as a recurring task does.
 	Conversations InstanceConversations
+	// NeedsDesign is the open work items carrying the needs-design label, and
+	// NeedsDesignWakes which of them the architect has been woken for. Both are
+	// needed for the label to wake her; a trigger wired without them wakes her
+	// only through whatever recurring task the project configures. See
+	// needsdesignwake.go.
+	NeedsDesign      NeedsDesignItems
+	NeedsDesignWakes NeedsDesignWakeRecord
 	// Breakage is where a missed cadence is said to somebody, as a report the
 	// harness files itself. Optional: a trigger wired without one still records
 	// the miss in the sweep log, and only the report is left unsaid.

@@ -209,6 +209,82 @@ func admissionEvents(repository string, after, until time.Time) ([]orchestrator.
 	return events, nil
 }
 
+// needsDesignItems reads the open items carrying the needs-design label from
+// the tracker's export, the same export admissions are read from, so the
+// architect's wake sees the label however it was added.
+type needsDesignItems struct {
+	repository string
+	refresh    func(context.Context) error
+}
+
+func (n needsDesignItems) Labelled(ctx context.Context) ([]orchestrator.NeedsDesignItem, error) {
+	if n.refresh != nil {
+		if err := n.refresh(ctx); err != nil {
+			return nil, fmt.Errorf("refresh the tracker's item export: %w", err)
+		}
+	}
+	return labelledNeedsDesign(n.repository)
+}
+
+// labelledNeedsDesign is every item the tracker's export records as open and
+// carrying the needs-design label, in the export's order. A repository with no
+// tracker has none; one with a tracker and no export could not be read.
+func labelledNeedsDesign(repository string) ([]orchestrator.NeedsDesignItem, error) {
+	file, err := os.Open(filepath.Join(repository, issuesExport))
+	if errors.Is(err, os.ErrNotExist) {
+		if _, statErr := os.Stat(filepath.Join(repository, filepath.Dir(issuesExport))); statErr == nil {
+			return nil, errors.New("the tracker has not exported its items")
+		}
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("open the tracker's item export: %w", err)
+	}
+	defer file.Close()
+
+	counted := &countingReader{reader: io.LimitReader(file, maxIssuesExportBytes+1)}
+	scanner := bufio.NewScanner(counted)
+	scanner.Buffer(make([]byte, 64*1024), 16<<20)
+	var items []orchestrator.NeedsDesignItem
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var item struct {
+			Type     string   `json:"_type"`
+			ID       string   `json:"id"`
+			Title    string   `json:"title"`
+			Status   string   `json:"status"`
+			Priority *int     `json:"priority"`
+			Labels   []string `json:"labels"`
+		}
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			// One unreadable entry is not an export that could not be read.
+			continue
+		}
+		if (item.Type != "" && item.Type != "issue") || strings.TrimSpace(item.ID) == "" {
+			continue
+		}
+		// Finished or deleted work waits on no design; every other status does,
+		// an item with a run already going on it included.
+		if status := strings.TrimSpace(item.Status); status == "closed" || status == "tombstone" {
+			continue
+		}
+		if !domain.NeedsDesign(item.Labels) {
+			continue
+		}
+		items = append(items, orchestrator.NeedsDesignItem{ID: item.ID, Title: item.Title, Priority: item.Priority})
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read the tracker's item export: %w", err)
+	}
+	if counted.read > maxIssuesExportBytes {
+		return nil, fmt.Errorf("the tracker's item export is larger than the %d bytes a pass reads", maxIssuesExportBytes)
+	}
+	return items, nil
+}
+
 // itemPriorities is each item's priority as the tracker's export records it,
 // and empty where there is no export or it cannot be read.
 func itemPriorities(repository string) map[string]int {

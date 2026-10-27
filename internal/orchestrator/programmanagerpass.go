@@ -759,12 +759,16 @@ func describeEvent(event PassEvent) string {
 	if detail := strings.TrimSpace(event.Detail); detail != "" {
 		line += " — " + detail
 	}
-	line = strings.Join(strings.Fields(line), " ")
-	if len(line) <= maxPassEventLineBytes {
+	return truncateLine(strings.Join(strings.Fields(line), " "), maxPassEventLineBytes)
+}
+
+// truncateLine cuts a line to a bound on a rune boundary, marking the cut.
+func truncateLine(line string, bound int) string {
+	if len(line) <= bound {
 		return line
 	}
 	const marker = " […]"
-	cut := maxPassEventLineBytes - len(marker)
+	cut := bound - len(marker)
 	for cut > 0 && !utf8.RuneStart(line[cut]) {
 		cut--
 	}
