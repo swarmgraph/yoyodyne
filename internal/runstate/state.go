@@ -5326,7 +5326,9 @@ func (s Status) InFlight() bool {
 // other sense: continuing it takes a slot again under the same limit, through
 // Store.ReclaimSlot. The reservation, the scheduler's free slots, the triage
 // actions' slot check, and the status's running line all count by this, so what
-// each says is free is one fact.
+// each says is free is one fact. The reservation, the scheduler and the triage
+// actions also leave out a run whose worker's process is gone, which needs the
+// store to ask: see Store.HoldsDeveloperSlotNow.
 //
 // A confirmed document's landing holds no developer slot either: it is counted
 // against execution.document_landings instead (HoldsDocumentLanding), so a
