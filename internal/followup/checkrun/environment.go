@@ -203,12 +203,15 @@ const (
 // developer slot it holds is empty, and its owner is whoever can clear the
 // cause. Accepting a license or logging a provider in needs the machine
 // owner's password or account, which is the operator's credential; a tool
-// missing from the search path is the development manager's to see to.
+// missing from the search path is the development manager's to see to. Who
+// the credential's owner is comes from the ownership registry, which alone
+// names the operator.
 func HoldFollowUp(hold string, check followup.Check, about []followup.Subject, now time.Time) followup.FollowUp {
 	owner, reason := ownership.MoverDevelopmentManager, ownership.OperatorReason("")
 	switch followup.EnvironmentCheck(check.Arguments[followup.ArgCheck]) {
 	case followup.EnvironmentXcodeLicense, followup.EnvironmentProviderLogin:
-		owner, reason = ownership.MoverOperator, ownership.OperatorCredential
+		reason = ownership.OperatorCredential
+		owner = ownership.ResolveBlockedOnAHuman(reason)
 	}
 	return followup.FollowUp{
 		SchemaVersion: followup.SchemaVersion,
