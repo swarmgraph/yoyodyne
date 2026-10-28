@@ -45,6 +45,18 @@
 //     every pass after it too: no cleanup runs while any of those items is
 //     missing, the pass looks for them again each time a cleanup is due, and
 //     cleanups resume on their own once all of them are back.
+//   - measure: the work tracker's store copied and measured on the
+//     copy (internal/beads, storemeasure.go): its size divided between current
+//     data, history, and leftover data a cleanup takes back, how long a listing
+//     of open items, a listing of ready items, and a read of one item take as
+//     it is, after the cleanup, and after squashing old history and then all of
+//     it, and whether a full export is the same after each. The live store is
+//     only read, and only to copy it, while no other process has it open. It
+//     runs after the cleanup, on the same goroutine, where none has been
+//     recorded, a week after the last that finished, or a day after the last
+//     that failed; it is recorded under the product's state, and its figures
+//     are said in full on the step. It holds the pass up while it runs, for as
+//     much as measureBound, which is why it is not taken more often.
 //   - rebuild: what the supervisor's rebuilder last came to — it builds the
 //     binary on its own thirty-second look when the branch lands something the
 //     binary is made of, so a deploy has a build to take up.
@@ -78,6 +90,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/releasecut"
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 )
@@ -87,6 +100,7 @@ const (
 	StepProvider        = "provider"
 	StepReconcile       = "reconcile"
 	StepTrackerCleanup  = "cleanup"
+	StepTrackerMeasure  = "measure"
 	StepRebuild         = "rebuild"
 	StepRestartRequests = "restart-requests"
 	StepRedeploy        = "redeploy"
@@ -105,6 +119,15 @@ const (
 	// StartedByMaintenance is what a `yoyo` this pass starts is marked as
 	// started by.
 	StartedByMaintenance = "the supervisor's maintenance pass"
+	// measureEvery is how long after a measurement of the tracker's store that
+	// finished the next is due, and measureRetry how long after one that failed.
+	// A measurement copies the whole store and runs a cleanup and two squashes
+	// over the copy, so it is taken rarely; one that failed is tried again
+	// sooner because its figures are what somebody is waiting on.
+	measureEvery = 7 * 24 * time.Hour
+	measureRetry = 24 * time.Hour
+	// measureBound bounds one measurement, every call on the copy included.
+	measureBound = 2 * time.Hour
 )
 
 // Claims is where the pass records its cadence and its report: the sweep
@@ -164,6 +187,22 @@ type Cleanups interface {
 	Record(runstate.TrackerStoreCleanup) error
 }
 
+// StoreMeasurer measures the work tracker's store on a copy of it. It is
+// satisfied by beads.Client.
+type StoreMeasurer interface {
+	MeasureStore(ctx context.Context, work *repowrite.PinnedRoot) (beads.StoreMeasurement, error)
+}
+
+// Measurements is the record of each measurement of the tracker's store, and
+// where the copy is made. It is satisfied by
+// *runstate.TrackerStoreMeasurementStore.
+type Measurements interface {
+	Read() (runstate.TrackerStoreMeasurements, error)
+	Record(runstate.TrackerStoreMeasurement) error
+	WorkDirectory() (*repowrite.PinnedRoot, error)
+	Path() string
+}
+
 // Releaser is the release step: a decided release cut and its tag pushed. It
 // is satisfied by *releasecut.Cutter.
 type Releaser interface {
@@ -204,6 +243,11 @@ type Pass struct {
 	Tracker        TrackerStore
 	Cleanups       Cleanups
 	TrackerCleanup config.TrackerCleanup
+	// Measurer is the primary checkout's tracker store as the measuring step
+	// copies it, and Measurements the record of its measurements; where either
+	// is nil the step says so.
+	Measurer     StoreMeasurer
+	Measurements Measurements
 
 	Now func() time.Time
 	Log func(format string, args ...any)
@@ -242,11 +286,13 @@ type underway struct {
 }
 
 // offGoroutine is what the pass does off the supervisor's goroutine: reconcile,
-// and then the tracker's cleanup, with the record of the cleanup where one ran.
+// then the tracker's cleanup, with the record of the cleanup where one ran,
+// and then the measurement of the tracker's store.
 type offGoroutine struct {
 	reconciled runstate.SweepStep
 	cleaned    runstate.SweepStep
 	cleanup    *runstate.TrackerStoreCleanup
+	measured   runstate.SweepStep
 }
 
 // Name is how the pass is named in what the supervisor says, and Service the
@@ -323,6 +369,7 @@ func (p *Pass) Look(ctx context.Context, now time.Time) {
 	go func() {
 		work := offGoroutine{reconciled: p.reconcile(ctx)}
 		work.cleaned, work.cleanup = p.cleanUpTracker(ctx)
+		work.measured = p.measureTracker(ctx)
 		done <- work
 	}()
 	if p.Release != nil && p.releasing == nil && p.released == nil {
@@ -392,6 +439,7 @@ func (p *Pass) finish(ctx context.Context, done offGoroutine) {
 	recorded.Steps = append(recorded.Steps, p.provider())
 	recorded.Steps = append(recorded.Steps, done.reconciled)
 	recorded.Steps = append(recorded.Steps, done.cleaned)
+	recorded.Steps = append(recorded.Steps, done.measured)
 	if done.cleanup != nil {
 		p.cleanedUp, p.cleanupsRead = done.cleanup, true
 	}
@@ -601,6 +649,80 @@ func (p *Pass) cleanUpTracker(ctx context.Context) (runstate.SweepStep, *runstat
 		}
 	}
 	return step, &record
+}
+
+// measureTracker measures the tracker's store on a copy of it where a
+// measurement is due, and records it where one started. It runs off the
+// supervisor's goroutine, after the cleanup, and touches nothing of the
+// supervisor's.
+func (p *Pass) measureTracker(ctx context.Context) runstate.SweepStep {
+	step := runstate.SweepStep{Name: StepTrackerMeasure}
+	if p.Measurer == nil || p.Measurements == nil {
+		step.Outcome, step.Detail = runstate.StepSkipped, "no measurement of the tracker's store is wired, so it is not measured"
+		return step
+	}
+	earlier, err := p.Measurements.Read()
+	if err != nil {
+		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the record of earlier measurements of the tracker's store could not be read, so whether one is due cannot be told: %v", err)
+		return step
+	}
+	if notDue := measurementDue(earlier, p.now()); notDue != "" {
+		step.Outcome, step.Detail = runstate.StepSkipped, notDue
+		return step
+	}
+	work, err := p.Measurements.WorkDirectory()
+	if err != nil {
+		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the directory the tracker's store is copied into to be measured could not be made: %v", err)
+		return step
+	}
+	defer work.Close()
+	bounded, cancel := context.WithTimeout(ctx, measureBound)
+	measured, err := p.Measurer.MeasureStore(bounded, work)
+	cancel()
+	switch {
+	case len(measured.Busy) > 0:
+		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("the tracker's store is due to be measured, and it was not copied because another process had it open: %s; the next pass tries again", beads.SayHolders(measured.Busy))
+		return step
+	case measured.Moved != "":
+		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("the tracker's store is due to be measured, and its copy was discarded because %s; the next pass tries again", measured.Moved)
+		return step
+	case measured.StartedAt.IsZero():
+		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the tracker's store is due to be measured, and it could not be copied: %v", err)
+		return step
+	}
+	record := runstate.TrackerStoreMeasurement{Measurement: measured}
+	if err != nil {
+		record.Failed = err.Error()
+	}
+	recordFailure := ""
+	if err := p.Measurements.Record(record); err != nil {
+		recordFailure = fmt.Sprintf("; it could not be recorded, so the next pass measures it again: %v", err)
+	} else {
+		recordFailure = "; recorded in " + p.Measurements.Path()
+	}
+	step.Outcome, step.Detail = runstate.StepRan, "measured the tracker's store on a copy of it "+record.Says()+recordFailure
+	if record.Failed != "" || record.StageFailed() || !record.ExportsUnchanged() || strings.HasPrefix(recordFailure, "; it could not") {
+		step.Outcome = runstate.StepFailed
+	}
+	return step
+}
+
+// measurementDue is why no measurement of the tracker's store is due and when
+// the next is, and empty where one is due.
+func measurementDue(earlier runstate.TrackerStoreMeasurements, now time.Time) string {
+	last, found := earlier.Latest()
+	if !found {
+		return ""
+	}
+	wait, said := measureEvery, "finished"
+	if last.Failed != "" || !last.Measurement.Measured() {
+		wait, said = measureRetry, "failed"
+	}
+	next := last.StartedAt().Add(wait)
+	if !now.Before(next) {
+		return ""
+	}
+	return fmt.Sprintf("the tracker's store was last measured at %s, and that measurement %s; the next is due at %s", local(last.StartedAt()), said, local(next))
 }
 
 // lookForMissing looks for the items a cleanup found missing, where a cleanup

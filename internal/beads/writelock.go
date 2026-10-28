@@ -69,7 +69,7 @@ func (c Client) lockItem(ctx context.Context, id string) (func(), error) {
 	if c.Dir == "" {
 		return func() {}, nil
 	}
-	store := storeDirectory(c.Dir, os.Getenv("BEADS_DIR"))
+	store := storeDirectory(c.Dir, c.beadsDirVariable())
 	if store == "" {
 		return func() {}, nil
 	}
@@ -104,7 +104,7 @@ func (c Client) storeDatabase() string {
 	if c.Dir == "" {
 		return ""
 	}
-	store := storeDirectory(c.Dir, os.Getenv("BEADS_DIR"))
+	store := storeDirectory(c.Dir, c.beadsDirVariable())
 	if store == "" {
 		return ""
 	}
