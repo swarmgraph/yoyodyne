@@ -38,11 +38,21 @@ hand — where the variable is not set and the whole module is what should run.
 [`scripts/check-scope.sh`](../scripts/check-scope.sh) decides what a named list
 becomes: the listed packages when the change, read from Git since its merge
 base with `main`, touches nothing else the target reads, and the whole module
-when it touches anything outside every package — a document, the Makefile, a
-script, the configuration — or a package the list leaves out, or cannot be
-read. For `make race`, Markdown outside every directory holding Go source does
-not widen it, and an empty list over a change made only of such Markdown runs
-the race detector over nothing and says so.
+when it touches anything else outside every package — the Makefile, a script,
+the configuration — or a package the list leaves out, or cannot be read.
+Markdown outside every directory holding Go source widens neither target. For
+`make race` it is left out, and an empty list over a change made only of such
+Markdown runs the race detector over nothing and says so. For `make test` it
+adds the tests that read documents, which `DOCUMENT_TESTS` in the `Makefile`
+names: the doccheck list [below](#what-a-document-landing-runs-make-doccheck)
+and every other test that reaches this checkout — the personas, the guides, the
+coined-term register, and the Go source some audits read — each by name, so a
+change to a guide never runs `internal/orchestrator` whole. An empty list over
+documents alone runs those tests and nothing else. `internal/composition` finds
+every test that climbs out of its package to the top of the checkout and fails
+when one is missing from `DOCUMENT_TESTS`, so a new test of that kind is added
+there in the same change; one it cannot see is still run by the whole check of
+the merge candidate before anything is promoted.
 
 `make race` with neither `CHANGED_GO_PACKAGES` nor `RACE_PACKAGES` named also
 skips by itself, saying so and why, when every file changed since the merge

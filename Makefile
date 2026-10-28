@@ -81,23 +81,55 @@ GOVERNED_DOCUMENT_GATES = ./internal/cli ./internal/doctor ./internal/doclink ./
 GOVERNED_DOCUMENT_TESTS = ^(TestThisRepositoryOwnArtifactsAreReadableByTheHarness|TestThisRepositoryReportsItsOwnArtifactHomesDocumented|TestThisRepositoryOwnDocumentationLinksResolve|TestYoyodynesOwnArtifactsLoadAndItsGoalsAreReadFromThem)$$
 GOVERNED_DOCUMENT_PREFIX = defect in a governed document (escalated;
 
+# For a change that also touches documents outside every package, the scope
+# script's second line says so, and the tests DOCUMENT_TESTS names run beside
+# the packages: the whole packages it names with them, in one `go test`, and
+# the named tests in a second, every name joined into one -run pattern. A
+# package the change already runs whole is left out of the second.
+#
 # The shipped-documentation gate warns for the length of a margin before it
 # fails, and `go test ./...` discards everything a passing test says -- so the
 # gate's size line and its warning are printed here, after the suite that
 # judges the set, where a person running the checks can read them. The grep
 # keeps the one or two lines that matter; the suite above is still the verdict.
 test: cachecheck
-	@if [ "$(origin CHANGED_GO_PACKAGES)" = undefined ]; then \
+	@documents=; \
+	if [ "$(origin CHANGED_GO_PACKAGES)" = undefined ]; then \
 		packages=./...; \
 	else \
-		packages=$$(sh scripts/check-scope.sh test '$(CHANGED_GO_PACKAGES)') || packages=./...; \
+		scope=$$(sh scripts/check-scope.sh test '$(CHANGED_GO_PACKAGES)') || scope=./...; \
+		packages=$$(printf '%s\n' "$$scope" | sed -n 1p); \
+		documents=$$(printf '%s\n' "$$scope" | sed -n 2p); \
 	fi; \
-	if [ -z "$$packages" ]; then \
+	named=; names=; \
+	if [ -n "$$documents" ]; then \
+		for entry in $(DOCUMENT_TESTS); do \
+			package=$${entry%%=*}; pattern=$${entry#*=}; \
+			case " $$packages " in *" $$package "*) continue ;; esac; \
+			if [ "$$pattern" = . ]; then packages="$$packages $$package"; continue; fi; \
+			case " $$named " in *" $$package "*) ;; *) named="$$named $$package" ;; esac; \
+			names="$$names|$$(printf '%s' "$$pattern" | sed -e 's/^^(//' -e 's/)\$$$$//')"; \
+		done; \
+		packages=$$(echo $$packages); \
+		for package in $$packages; do \
+			named=$$(echo " $$named " | sed "s| $$package | |"); \
+		done; \
+		named=$$(echo $$named); \
+	fi; \
+	failed=0; \
+	if [ -z "$$packages" ] && [ -z "$$named" ]; then \
 		echo "test: no Go package to run the tests of"; \
-	else \
+	fi; \
+	if [ -n "$$packages" ]; then \
 		echo "$(GO) test -timeout $(TEST_TIMEOUT) $$packages"; \
-		$(GO) test -timeout $(TEST_TIMEOUT) $$packages; \
-	fi
+		$(GO) test -timeout $(TEST_TIMEOUT) $$packages || failed=1; \
+	fi; \
+	if [ -n "$$named" ]; then \
+		pattern="^($${names#|})\$$"; \
+		echo "$(GO) test -timeout $(TEST_TIMEOUT) -run '$$pattern' $$named"; \
+		$(GO) test -timeout $(TEST_TIMEOUT) -run "$$pattern" $$named || failed=1; \
+	fi; \
+	exit $$failed
 	@$(GO) test -v -run '^TestShippedDocumentationNamesDocumentsThisRepositoryHas$$' ./internal/contextbundle \
 		| grep -E 'shipped documentation is|WARNING:'
 	@# The dashboard page's only behavioural evidence is its render comparison,
@@ -164,12 +196,15 @@ test: cachecheck
 # What the harness names is only where the changed Go files are, so
 # scripts/check-scope.sh reads the change from Git and runs the whole module
 # instead whenever the change touches a file outside every package that the
-# check reads, a package the list does not name, or cannot be read at all. Set
-# and empty is the harness saying the change touches no Go package: the race
-# check then runs over nothing and says so where the change is only Markdown
-# outside every package, and the whole module otherwise. That script says what
-# it compares and why. Left undefined, as `make check`, CI, and a person's own
-# run leave it, `make test` is the whole module.
+# check reads, a package the list does not name, or cannot be read at all.
+# Markdown outside every package is not one of those: the race check leaves it
+# out, and `make test` runs DOCUMENT_TESTS beside the packages for it. Set and
+# empty is the harness saying the change touches no Go package: where the
+# change is only such Markdown, the race check then runs over nothing and
+# `make test` over DOCUMENT_TESTS alone, each saying so, and the whole module
+# runs otherwise. That script says what it compares and why. Left undefined, as
+# `make check`, CI, and a person's own run leave it, `make test` is the whole
+# module.
 #
 # `make race` with neither variable named first asks scripts/race-skip.sh
 # whether the change can affect Go code at all, and skips -- saying so and why
@@ -243,6 +278,40 @@ DOCCHECK_TESTS = \
 	./internal/composition='^TestThisRepositoryIsAllAccountedFor$$' \
 	./internal/beads='^(TestEveryBeadsHomeThisRepositoryNamesIsTheCanonicalOne|TestTheReadmeAndTheInstallScriptAgreeOnTheBeadsHome|TestTheDocumentsStateTheRemedyDoctorPrints)$$' \
 	./internal/orchestrator='^(TestNonGoFixtureVerifiesTheLanguageAgnosticInvariant|TestThisRepositoryDeliversThePromotionInvariantToEveryRoleThatCouldBreakIt|TestRunAgainstAProjectRepositoryWithNoneOfTheHarnessFiles|TestTheReliabilitySlotPullsReliabilityWorkFirstAndFallsBackWhenNoneRemains)$$'
+
+# The tests that read this checkout -- its documents above all -- and nothing
+# else: what `make test` runs, beside the packages a change touches, for a
+# change that also touches Markdown outside every Go package, in place of the
+# whole module (scripts/check-scope.sh). It is the doccheck list and the tests
+# below it, which read documents outside the governed homes -- the guides, the
+# personas, the coined-term register -- or reach the checkout for something
+# else, and are listed by name so that internal/orchestrator, the slowest
+# package, is never run whole for a document. An entry's names are joined with
+# any other entry's for the same package, and `.` runs the whole package.
+# internal/composition finds every test that reaches the checkout and fails when
+# one is missing here, or when a name here matches no test.
+DOCUMENT_TESTS = $(DOCCHECK_TESTS) \
+	./internal/authority='^(TestThisRepositoryOwnAuthorityChecksAreListed)$$' \
+	./internal/chat='^(TestADecodedLaneReportAndDigestCarryCorrectionsToTheirPass|TestAnInteractiveConversationFlagsADigestAsSoonAsItIsFiled|TestConversationPostMortemsAreFlaggedWhetherStreamedOrHeld|TestStreamingFlagsTheWordsShownBeforeATurnIsCutOff|TestTheConversationReportsListingFlagsADigestsWords|TestTheReleaseNotesReadTheAdmissionsThisPackageWrites)$$' \
+	./internal/checks='^(TestTheAdoptionWalksListCoversTheReadmeAndTheProgram)$$' \
+	./internal/cli='^(TestAFailedOneShotTurnStillFlagsItsCollectedDigest|TestAOneShotConversationFlagsADigestAsSoonAsItIsFiled|TestAReleasesNotesSayWhatLanded|TestChatResolvesTheConfiguredProductManager|TestEveryConversationOpensThroughTheCallThatCarriesTheDefinitionsToolSet|TestEveryHarnessOpeningIsWrittenByTheHarness|TestEveryReaderOfAgentsLoadsThroughTheActivationRecord|TestNothingOpensTheStateRootUnguarded|TestPipelineGivesChecksTheConfiguredBudget|TestPipelineIsWiredToLandAndToFileARedLanding|TestRepositoryConfigurationEnforcesAutomaticIntegration|TestTheAccountScriptRefusesWithoutAYoyoToAsk|TestTheAccountScriptSignsInWhereTheHarnessReadsTheAccount|TestTheChecksNarrowOnlyToWhatTheChangeCanReach|TestTheRaceCheckSkipsOnlyChangesThatCannotReachGo|TestTheReleaseVerbExcusesOnlyExportsARunAllows|TestTheReleaseVerbRefusesWhatItShould|TestTheReleaseWorkflowPublishesTheCuratedNotesAlone|TestTheReportsCommandFlagsWordsInADigestAndItsHandling|TestTheSetupSkillExampleIsAReportThisBuildCouldHaveProduced|TestTheSetupSkillIsWrittenAgainstTheSchemaThisBuildEmits|TestTheSetupSkillNamesEveryFieldOfTheReportsItActsOn|TestTheSweepListingFlagsTheSummaryQuestionsAndFindings|TestThisRepositoryOwnOperatorsBindTheirNamespaces|TestThisRepositorySlackAllowListDerivesFromItsGrants)$$' \
+	./internal/composition='^(TestEveryShellFileInThisRepositoryParses|TestEveryStructuredFileInThisRepositoryDecodes|TestEveryTestThatReadsThisCheckoutIsAmongTheDocumentTests|TestEveryTestTheDoccheckTargetNamesExists|TestEveryTestTheDocumentTestsNameExists|TestEveryWorkflowInThisRepositoryIsShapedLikeOne|TestEveryWorkflowInThisRepositoryPinsWhatItInstalls|TestFmtcheck|TestTheAdoptionWalkthroughRefusesAScratchRootInsideARepository|TestTheCodexResumeCheckRunsOnlyForTheCodexAdapter|TestTheCodexResumeTargetSaysWhenItCouldNotRun|TestTheDoccheckTargetRunsEveryEntryAndFailsIfAnyFails|TestTheDocumentChecksAreTheDoccheckTarget|TestTheInstallScriptDoesWhatItSaysOnAMachineThatHasNothing|TestTheSessionInstructionFilesAreOneFile|TestTheSessionInstructionsCarryNoGeneratedTrackerSection|TestTheSessionInstructionsSayWhoseTheyAre)$$' \
+	./internal/config='^(TestEveryPersonaNamesTheReasonsTheResolverAccepts|TestNothingButTheMigrationNamesTheEarlierConfigurationsHome|TestPersonasAndPassPromptsApplyStandingGoals|TestPersonasPassPromptsAndRemitWriteForAPerson|TestRemitsApplyStandingGoals|TestReviewerPersonaJudgesEveryChangeAgainstStandingGoals|TestSchemaKeysReadEveryKeyTheTemplateAndThisProjectWrite|TestThisProjectsArchitectPassUsesPriorityThenAgeEvery45Minutes|TestThisRepositorysPersonasCarryEveryTemplatePassage)$$' \
+	./internal/contextbundle='^(TestTheHarnessRecognizesThisRepository)$$' \
+	./internal/directive='^(TestEveryReadOfADirectiveDispositionIsAudited)$$' \
+	./internal/doctor='^(TestThisRepositoryIsAskedAboutTheNodeItsDashboardNeeds)$$' \
+	./internal/goal='^(TestGoalStatementsAgreeWithTheGoalsPackage)$$' \
+	./internal/governeddoc='^(TestNoTestOfThisRepositorysOwnDocumentsFailsOnTheirReferences|TestTheMakefilePrintsWhatEveryEscalatingGateEscalates)$$' \
+	./internal/home='^(TestOnlyThisPackageNamesTheEarlierProductsDirectory)$$' \
+	./internal/landing='^(TestEveryRouteThatClosesAWorkItemIsAudited)$$' \
+	./internal/oneline='^(TestEveryCutAgainstAValidatedByteBoundFallsOnARuneBoundary|TestNoPackageTheConversationReadsThroughCutsASingleLineOfItsOwn)$$' \
+	./internal/orchestrator='^(TestAPassRecordsItsLanguageFindingsAndTellsTheNextPass|TestBaselineDocumentDisclosesEveryFieldNoTraceHolds|TestMeasureHeavyCheckPermits|TestPermanentCarryOutCausesAreNamedInTheRunStopInventory|TestRunEndingSitesAreInventoried|TestRunStopBoundValuesMatchInventory|TestTheModelARunStartsOnIsChosenByTheItemsLabels|TestThisRepositorysDeliveryDefinitionMatchesTheBuiltIn|TestThisRepositorysDeliveryDefinitionSaysWhereTheBuiltInIs|TestThisRepositorysOwnDeliveryDefinitionIsWhatItsRunsExecute)$$' \
+	./internal/protectedpath='^(TestNoGrantOpensTheWholeRepository)$$' \
+	./internal/readmodel='^(TestALaneReportWithARetiredWordIsFlaggedWithoutChangingTheRecord|TestTheAttentionLineFlagsARolesWords|TestTheSummaryReadsInOrdinaryWordsAndKeepsTheDetailBehindIt|TestWordingRenderIsRepeatableAndKeepsTheOriginalText)$$' \
+	./internal/rolecapability='^(TestEveryInventoriedCheckIsExpressedOrNamedAsAGap)$$' \
+	./internal/runstate='^(TestEveryStrictDecodeIsAWriterOrAValidator|TestOnlyTheCommandLineRecordsARoleActivation|TestOnlyTheCommandLineWritesARecordedHumanAct)$$' \
+	./internal/slack='^(TestEverySlackPostFlagsRetiredWordsEvenWithoutATracker)$$' \
+	./internal/toolcatalog='^(TestTheToolsSectionUsesOrdinaryWords)$$'
 
 doccheck: cachecheck
 	@failed=; \
