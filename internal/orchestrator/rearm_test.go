@@ -490,9 +490,7 @@ func TestARearmIsRefusedWhileTheWorkIsStillLive(t *testing.T) {
 		live.Status = runstate.StatusRunning
 		live.CompletedAt = nil
 		live.Blocker = ""
-		if err := harness.runs.Save(live); err != nil {
-			t.Fatalf("Save() error = %v", err)
-		}
+		saveRecord(t, harness.runs, live)
 
 		_, err := harness.rearmer().Rearm(context.Background(),
 			RearmRequest{Run: harness.state.RunID, Reason: rearmReasoning})

@@ -342,7 +342,12 @@ func (r IntegrationResumer) Resume(ctx context.Context, request IntegrationResum
 	if err := r.supersedeOnItem(ctx, entry.WorkItemID, result.Reason); err != nil {
 		return result, err
 	}
-	if _, err := r.supersedeOnRun(prior, result.Reason); err != nil {
+	if _, err := r.supersedeOnRun(ctx, prior, result.Reason); err != nil {
+		if capacity, taken := slotTakenMeanwhile(err); taken {
+			result.CapacityFull = &capacity
+			result.RecordProblem = noteSlotTaken(ctx, r.Items, entry.WorkItemID, prior.RunID, capacity)
+			return result, nil
+		}
 		return result, fmt.Errorf("record the resumption on run %s, whose item has already been put back and told why: %w", prior.RunID, err)
 	}
 	result.Resumed = true
@@ -580,7 +585,7 @@ func (r IntegrationResumer) supersedeOnItem(ctx context.Context, workItemID, rea
 // writes a number that describes an invocation nobody made. The review evidence
 // is what the resumed promotion is authorized by and is left exactly as the
 // reviewer left it.
-func (r IntegrationResumer) supersedeOnRun(prior runstate.State, reason string) (runstate.State, error) {
+func (r IntegrationResumer) supersedeOnRun(ctx context.Context, prior runstate.State, reason string) (runstate.State, error) {
 	resumed := prior
 	resumed.IntegrationResumptions = append(append([]runstate.IntegrationResumption{}, prior.IntegrationResumptions...),
 		runstate.IntegrationResumption{
@@ -613,7 +618,9 @@ func (r IntegrationResumer) supersedeOnRun(prior runstate.State, reason string) 
 	// answered by it.
 	resumed.TakeUpRecoveryContinuation(runstate.RecoverFinishMerge, r.now())
 	resumed.RecoveryHold = nil
-	if err := r.Runs.Save(resumed); err != nil {
+	// The slot is taken by this save, not by the reading the caller made, which a
+	// reservation beside this one can overtake.
+	if err := r.Runs.ReserveLive(ctx, resumed, r.Capacity); err != nil {
 		return runstate.State{}, err
 	}
 	return resumed, nil

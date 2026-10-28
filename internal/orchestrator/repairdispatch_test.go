@@ -175,9 +175,7 @@ func TestARepairDispatchRefusesARunThatIsNotAResumableRepair(t *testing.T) {
 	live.Phase = runstate.PhaseIntegrating
 	live.Blocker = ""
 	live.CompletedAt = nil
-	if err := store.Save(live); err != nil {
-		t.Fatalf("Save() error = %v", err)
-	}
+	saveRecord(t, store, live)
 
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		t.Errorf("a developer was invoked in %s for a run that is not owed a repair attempt", request.WorkingDirectory)

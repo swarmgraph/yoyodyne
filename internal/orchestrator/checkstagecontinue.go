@@ -259,7 +259,14 @@ func (c CheckStageContinuer) Continue(ctx context.Context, request CheckStageCon
 	if err := validateClaimedItem(claimed, entry.WorkItemID); err != nil {
 		return result, fmt.Errorf("validate the work item put back for its checks: %w", err)
 	}
-	if err := c.Runs.Save(continuedAtChecks(prior, result.Reason, c.now())); err != nil {
+	// The slot is taken by the save that makes the run live, not by the reading
+	// above, which a reservation beside this one can overtake.
+	if err := c.Runs.ReserveLive(ctx, continuedAtChecks(prior, result.Reason, c.now()), c.Capacity); err != nil {
+		if capacity, taken := slotTakenMeanwhile(err); taken {
+			result.CapacityFull = &capacity
+			result.RecordProblem = noteSlotTaken(ctx, c.Items, entry.WorkItemID, prior.RunID, capacity)
+			return result, nil
+		}
 		return result, fmt.Errorf("record the continuation on run %s, whose item has already been put back and told why: %w", prior.RunID, err)
 	}
 	result.Continued = true

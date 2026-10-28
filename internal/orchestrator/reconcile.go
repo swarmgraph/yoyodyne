@@ -99,6 +99,9 @@ type ReconcileStore interface {
 	Outstanding() ([]runstate.State, error)
 	AdoptRun(ctx context.Context, runID string) (runstate.State, *runstate.Lease, error)
 	Save(state runstate.State) error
+	// ReserveLive saves a run put back at its promotion and takes its developer
+	// slot in the same act (Store.ReserveLive).
+	ReserveLive(ctx context.Context, live runstate.State, maxConcurrent int) error
 	// Recorded is every run the harness holds, whatever became of it. Settling a
 	// run reads only the outstanding ones; converging local state reads all of
 	// them, because the branches and targets a finished run left behind are

@@ -642,9 +642,7 @@ func continueOnGrant(t *testing.T, store *runstate.Store, tracker *orchestratort
 	state.Status = runstate.StatusRunning
 	state.Phase = runstate.PhaseDeveloping
 	state.CompletedAt = nil
-	if err := store.Save(state); err != nil {
-		t.Fatalf("Save() error = %v", err)
-	}
+	saveRecord(t, store, state)
 	if _, _, err := tracker.Claim(context.Background(), tracker.Item.ID); err != nil {
 		t.Fatalf("Claim() error = %v", err)
 	}

@@ -13,6 +13,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -296,6 +297,23 @@ func emptyPreservedWorktree(t *testing.T, path string) {
 	}
 }
 
+// saveRecord writes a run record a test has arranged. A record in flight is
+// written through ReserveLive, because a stopped run put back in flight takes a
+// developer slot and a plain Save refuses that; the limit is no limit, since the
+// test is arranging a record rather than asking whether a slot is free.
+func saveRecord(t *testing.T, store *runstate.Store, state runstate.State) {
+	t.Helper()
+	var err error
+	if state.Status.InFlight() {
+		err = store.ReserveLive(context.Background(), state, math.MaxInt)
+	} else {
+		err = store.Save(state)
+	}
+	if err != nil {
+		t.Fatalf("save the arranged run record: %v", err)
+	}
+}
+
 // reEnterAt records what a re-entry records before the pipeline is asked to
 // continue a run: the run live again at the phase it is picked up in, and the
 // item put back so the resumed run is not one the pipeline refuses.
@@ -315,9 +333,7 @@ func reEnterAt(t *testing.T, store *runstate.Store, tracker recordingTracker, ru
 		// invoked, exactly as the repair loop's own attempts are counted.
 		state.RepairAttempts++
 	}
-	if err := store.Save(state); err != nil {
-		t.Fatalf("Save() error = %v", err)
-	}
+	saveRecord(t, store, state)
 	if _, _, err := tracker.Claim(context.Background(), tracker.Record().Item.ID); err != nil {
 		t.Fatalf("Claim() error = %v", err)
 	}
