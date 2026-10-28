@@ -1158,8 +1158,14 @@ func TestTrackerActionsAreBoundedAndTheirResultsAreNotLost(t *testing.T) {
 	if len(provider.requests) != maxTrackerRounds {
 		t.Fatalf("provider turns = %d, want %d", len(provider.requests), maxTrackerRounds)
 	}
-	if !reply.ResultsCarriedOver || len(reply.Actions) != maxTrackerRounds {
+	if !reply.ResultsCarriedOver || !reply.TrackerRoundsSpent || len(reply.Actions) != maxTrackerRounds {
 		t.Fatalf("reply = %#v", reply)
+	}
+	// The tracker's own rounds are what stopped it, so that is what is said.
+	var said strings.Builder
+	session.reportTrackerActions(&said, reply)
+	if !strings.Contains(said.String(), fmt.Sprintf("it stopped after %d rounds of actions", maxTrackerRounds)) {
+		t.Fatalf("the operator was not told the tracker's rounds ran out: %q", said.String())
 	}
 	// The results are owed to the product manager, so they are written down
 	// before this process can forget them. A one-shot message exits here.

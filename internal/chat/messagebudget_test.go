@@ -8,6 +8,7 @@ import (
 	"time"
 
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/budget"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -207,4 +208,40 @@ func messageStoppedEvents(t *testing.T, store Store, conversation string) []map[
 		stopped = append(stopped, payload)
 	}
 	return stopped
+}
+
+// A message the budget stops after a single tracker action keeps the action's
+// results for the next turn, and the operator is told the real reason it
+// stopped: nothing says the tracker ran out of rounds when it did not.
+func TestABudgetStopAfterOneTrackerActionIsNotSaidToBeTheTrackers(t *testing.T) {
+	t.Parallel()
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: trackerReply("Reading it.", `{"action":"read","id":"yoyodyne-ifd.22"}`)},
+		{SessionID: "session-1", FinalText: "That is what it says."},
+	}}
+	options := testOptions(t, provider)
+	options.Tracker = &fakeTracker{items: map[string]beads.WorkItem{
+		"yoyodyne-ifd.22": {ID: "yoyodyne-ifd.22", Title: "Readable conversations", Description: "Say who is speaking.", Status: "open"},
+	}}
+	options.MessageBudget = budget.Limits{Turns: 1}
+	session := openTestSession(t, options)
+
+	reply, err := session.Send(context.Background(), "Tell me about ifd.22.")
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if len(provider.requests) != 1 || len(reply.Actions) != 1 {
+		t.Fatalf("turns = %d, actions = %d", len(provider.requests), len(reply.Actions))
+	}
+	if !reply.ResultsCarriedOver || reply.TrackerRoundsSpent {
+		t.Fatalf("carried over = %v, tracker rounds spent = %v", reply.ResultsCarriedOver, reply.TrackerRoundsSpent)
+	}
+	if !strings.Contains(reply.Stopped, "this message has taken 1 provider turn,") {
+		t.Fatalf("reply.Stopped = %q", reply.Stopped)
+	}
+	var said strings.Builder
+	session.reportTrackerActions(&said, reply)
+	if strings.Contains(said.String(), "rounds of actions") {
+		t.Fatalf("the operator was told the tracker ran out of rounds: %q", said.String())
+	}
 }

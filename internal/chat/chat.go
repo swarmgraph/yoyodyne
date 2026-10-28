@@ -1088,12 +1088,14 @@ type Reply struct {
 	// Unlike proposals these already happened, which is why they are reported to
 	// the operator rather than put to them.
 	Actions []TrackerOutcome `json:"actions,omitempty"`
-	// ResultsCarriedOver reports that this message used up its rounds of tracker
-	// actions with results the product manager has not seen. They are recorded
-	// with the conversation and given to its next turn rather than dropped, so
-	// the operator knows the exchange stopped where it did because the budget ran
-	// out rather than because the product manager was finished.
+	// ResultsCarriedOver reports that this message ended with results the role
+	// has not seen. They are recorded with the conversation and given to its next
+	// turn rather than dropped, so the operator knows the exchange stopped where
+	// it did because a bound was reached rather than because the role was
+	// finished. TrackerRoundsSpent says the bound was the tracker's own rounds;
+	// any other stop is said by Stopped or by the exchange that was refused.
 	ResultsCarriedOver bool `json:"results_carried_over,omitempty"`
+	TrackerRoundsSpent bool `json:"tracker_rounds_spent,omitempty"`
 	// Stopped says, in ordinary words, why the harness stopped answering this
 	// message before the role had finished asking: its budget of turns, time or
 	// spend was used, or a tool's own limit was reached and the closing turn
@@ -1680,6 +1682,9 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			permit = decision.Permission
 			reply.HandedBack = append(reply.HandedBack, refused.Error())
 			prompt = renderHandedBackTrackerBlock(refused, maxTrackerRounds-trackerRounds)
+			if permit.Closing() {
+				prompt += closingTurnNotice
+			}
 			resultsInPrompt = renderRefusedTrackerBlock(refused)
 			continue
 		}
@@ -1824,6 +1829,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				// manager, so they are written down to wait for its next turn rather
 				// than being answered with another one now.
 				reply.ResultsCarriedOver = true
+				reply.TrackerRoundsSpent = true
 				if err := s.carryResults(renderTrackerResults(outcomes)); err != nil {
 					return reply, err
 				}
@@ -4396,7 +4402,7 @@ func (s *Session) reportTrackerActions(out io.Writer, reply Reply) {
 		return
 	}
 	fmt.Fprint(out, renderTrackerOutcomes(s.state.Role, reply.Actions))
-	if reply.ResultsCarriedOver {
+	if reply.TrackerRoundsSpent {
 		fmt.Fprintf(out, "it stopped after %d rounds of actions; what they returned is recorded with the conversation and reaches it when you next say something.\n", maxTrackerRounds)
 	}
 	fmt.Fprintln(out)

@@ -100,12 +100,14 @@ type chatOutput struct {
 	// only the beginning of, with where each cut falls and the reply's whole
 	// size. The reply above is whole; the durable record of it is not.
 	RecordCuts []execution.ReplyCut `json:"record_cuts,omitempty"`
-	// ResultsCarriedOver reports that the reply stopped where it did because the
-	// product manager ran out of rounds of tracker actions, with results it has
-	// not seen. They are recorded with the conversation and reach it when the
-	// conversation is next spoken to, which for a one-shot message is a later
-	// invocation.
+	// ResultsCarriedOver reports that the reply stopped where it did with results
+	// the role has not seen, because a bound was reached. They are recorded with
+	// the conversation and reach it when the conversation is next spoken to,
+	// which for a one-shot message is a later invocation.
 	ResultsCarriedOver bool `json:"results_carried_over,omitempty"`
+	// TrackerRoundsSpent says the reply stopped because the tracker's own rounds
+	// were used, which is the only stop the actions' closing line describes.
+	TrackerRoundsSpent bool `json:"tracker_rounds_spent,omitempty"`
 	// HandedBack is each tracker block the harness refused whole and handed back
 	// to the role within the same message, in the harness's own words. What the
 	// role re-issued after it is among the actions.
@@ -401,6 +403,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 			Evaluation:         reply.Evaluation,
 			EvaluationProblem:  reply.EvaluationProblem,
 			ResultsCarriedOver: reply.ResultsCarriedOver,
+			TrackerRoundsSpent: reply.TrackerRoundsSpent,
 			HandedBack:         reply.HandedBack,
 			Stopped:            reply.Stopped,
 			Reports:            reply.Reports,
@@ -413,7 +416,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 	// is the same answer an interactive conversation over the same stream gives.
 	theme := console.ThemeFor(stdout, os.Getenv)
 	printChatHandedBack(stdout, reply.HandedBack)
-	printChatActions(stdout, role, reply.Actions, reply.ResultsCarriedOver)
+	printChatActions(stdout, role, reply.Actions, reply.TrackerRoundsSpent)
 	printChatStopped(stdout, reply.Stopped)
 	printChatResearch(stdout, reply.Research)
 	printChatRepositoryReads(stdout, reply.RepositoryReads)
@@ -1453,6 +1456,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 		output.Evaluation = reply.Evaluation
 		output.EvaluationProblem = reply.EvaluationProblem
 		output.ResultsCarriedOver = reply.ResultsCarriedOver
+		output.TrackerRoundsSpent = reply.TrackerRoundsSpent
 		output.HandedBack = reply.HandedBack
 		output.Stopped = reply.Stopped
 		output.Reports = reply.Reports
@@ -1469,7 +1473,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 	}
 	theme := console.ThemeFor(stdout, os.Getenv)
 	printChatHandedBack(stdout, output.HandedBack)
-	printChatActions(stdout, role, output.Actions, output.ResultsCarriedOver)
+	printChatActions(stdout, role, output.Actions, output.TrackerRoundsSpent)
 	printChatStopped(stdout, output.Stopped)
 	printChatResearch(stdout, output.Research)
 	printChatRepositoryReads(stdout, output.RepositoryReads)
@@ -1603,7 +1607,7 @@ func printChatStopped(writer io.Writer, stopped string) {
 	}
 }
 
-func printChatActions(writer io.Writer, role domain.AgentRole, actions []chat.TrackerOutcome, resultsCarriedOver bool) {
+func printChatActions(writer io.Writer, role domain.AgentRole, actions []chat.TrackerOutcome, trackerRoundsSpent bool) {
 	if len(actions) == 0 {
 		return
 	}
@@ -1613,7 +1617,7 @@ func printChatActions(writer io.Writer, role domain.AgentRole, actions []chat.Tr
 	}
 	// A reply that ran out of rounds stopped for a reason nobody can see in the
 	// text, so it is said here rather than left to look like a finished thought.
-	if resultsCarriedOver {
+	if trackerRoundsSpent {
 		fmt.Fprintln(writer, "It ran out of rounds of actions; what the last ones returned is recorded with")
 		fmt.Fprintln(writer, "the conversation and reaches it the next time you say something to it.")
 	}
