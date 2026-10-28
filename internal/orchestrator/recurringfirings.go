@@ -299,6 +299,18 @@ func (t Trigger) candidates(ctx context.Context, outage runstate.ProviderOutage,
 			},
 		})
 	}
+	// The architect's wake over the needs-design label holds her conversation as
+	// a recurring task of hers does, so the two never take turns in it at once.
+	if t.needsDesignWakeWired() {
+		due := dues[NeedsDesignWakeTask]
+		candidates = append(candidates, candidate{
+			name: NeedsDesignWakeTask, role: domain.RoleArchitect, conversation: roleConversationKey(domain.RoleArchitect), kind: firingTask,
+			due: due, known: known[NeedsDesignWakeTask],
+			claim: func(ctx context.Context) (claimedFiring, bool, error) {
+				return t.needsDesignWake(ctx, outage, away)
+			},
+		})
+	}
 	for _, agent := range t.instanceNames() {
 		agent, instance := agent, t.Instances[agent]
 		due := dues[agent]

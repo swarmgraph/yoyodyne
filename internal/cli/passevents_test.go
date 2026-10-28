@@ -401,3 +401,51 @@ func TestAnInstancesPassRefusedByItsVersionCheckSaysWhatTheCheckCameTo(t *testin
 		t.Fatalf("Wake() over a failing claude error = %v, want a failed firing whose conversation could not be opened", err)
 	}
 }
+
+// The architect's wake reads the needs-design label off the tracker's export,
+// so the label wakes her whichever path added it: an item labelled by a
+// conversation's action, one created carrying it, and one the harness labelled
+// for a developer's raise, which comes back with its run's question in its
+// notes and may still be in progress. Finished work and unlabelled work wait on
+// no design.
+func TestTheNeedsDesignItemsAreTheOpenItemsCarryingTheLabel(t *testing.T) {
+	t.Parallel()
+
+	repository := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repository, ".beads"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	lines := []string{
+		`{"_type":"issue","id":"labelled-by-action","title":"labelled by a conversation","status":"open","priority":1,"labels":["reliability","needs-design"]}`,
+		`{"_type":"issue","id":"created-labelled","title":"created carrying it","status":"blocked","labels":["needs-design"]}`,
+		`{"_type":"issue","id":"raised-by-developer","title":"raised by a developer","status":"in_progress","priority":0,"labels":["needs-design"],"notes":"the developer asks: which store owns the record?"}`,
+		`{"_type":"issue","id":"closed-labelled","title":"finished","status":"closed","labels":["needs-design"]}`,
+		`{"_type":"issue","id":"unlabelled","title":"no design needed","status":"open","labels":["reliability"]}`,
+		`{"_type":"memory","id":"m-1","labels":["needs-design"]}`,
+		"{not json",
+	}
+	if err := os.WriteFile(filepath.Join(repository, issuesExport), []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refreshed := false
+	items, err := needsDesignItems{repository: repository, refresh: func(context.Context) error { refreshed = true; return nil }}.Labelled(context.Background())
+	if err != nil {
+		t.Fatalf("Labelled() error = %v", err)
+	}
+	if !refreshed {
+		t.Error("Labelled() read the export without refreshing it first")
+	}
+	var ids []string
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	if got, want := strings.Join(ids, ","), "labelled-by-action,created-labelled,raised-by-developer"; got != want {
+		t.Fatalf("labelled = %s, want %s", got, want)
+	}
+	if items[2].Priority == nil || *items[2].Priority != 0 || items[2].Title != "raised by a developer" {
+		t.Fatalf("raised item = %+v, want its priority and title read", items[2])
+	}
+	if _, err := (needsDesignItems{repository: repository, refresh: func(context.Context) error { return errors.New("export refused") }}).Labelled(context.Background()); err == nil {
+		t.Fatal("Labelled() over an export that could not be refreshed succeeded, want it refused")
+	}
+}

@@ -8530,6 +8530,22 @@ project chooses its own cadence; this repository uses `45m` to keep passes
 closer together after the operator observed more cached opening input below
 an hour. That observation is a reason for the setting, not a provider guarantee.
 
+The architect is also woken without any recurring task, by the `needs-design`
+label. In a project with an agent in the architect's role, a work item
+carrying the label that she has not yet been woken for wakes her conversation
+at the next pull, with the item named; an item labelled twice wakes her once,
+and one that loses the label and gets it again later wakes her again. The
+label is read from the tracker as it stands, so it wakes her whichever path
+added it: a conversation's label action, an item created with it, or a
+developer's raise. If any item still carries the label a day after her last
+such pass, she is woken once more with all of them listed, which catches a wake
+that was lost; while no item carries it, nothing is taken. While a turn is
+going in her conversation, the wake waits for it rather than being refused.
+These passes are recorded under `architect-needs-design`, which `yoyo sweeps
+--task architect-needs-design` reads, and a recurring task may not take that
+name. The wake has no key of its own, so nothing here is needed to turn it on,
+and an `architect-pass` is not needed to catch labelled work.
+
 | Key | What it says |
 | --- | --- |
 | `role` | which role is woken. It must be a role this project configures an agent for; a task naming a role nobody fills is refused rather than discovered as silence. |

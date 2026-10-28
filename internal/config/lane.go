@@ -190,14 +190,28 @@ func (c Config) ProgramManagerPasses() map[string]AgentConfig {
 	return passes
 }
 
+// NeedsDesignWakeTask is the name the architect's passes over the needs-design
+// label are claimed, paced, and recorded under (internal/orchestrator,
+// needsdesignwake.go). It is reserved here, where recurring task names are
+// validated, so no configured task can share its cadence.
+const NeedsDesignWakeTask = "architect-needs-design"
+
 // passNameProblems refuses a recurring task named for a program manager
 // instance. An instance's passes — on its triggers or on request — are recorded
 // and paced under the agent's own name — it is what `yoyo sweeps --task` finds
 // them by — so a task written under the same name would share one cadence and
 // one record with it, and each would fire the other's passes.
+//
+// It refuses a task named NeedsDesignWakeTask for the same reason: the
+// architect's wake over the needs-design label is paced and recorded under that
+// name.
 func passNameProblems(c Config) []string {
 	var problems []string
 	for _, name := range c.RecurringTaskNames() {
+		if name == NeedsDesignWakeTask {
+			problems = append(problems, fmt.Sprintf("recurring task %q has the name the architect's wake over the needs-design label is recorded and paced under; name the task something else",
+				name))
+		}
 		agent, isAgent := c.Agents[name]
 		if isAgent && agent.Role == domain.RoleProgramManager {
 			problems = append(problems, fmt.Sprintf("recurring task %q has the name of a program manager instance, and an instance's passes are recorded and paced under that name; name the task something else",

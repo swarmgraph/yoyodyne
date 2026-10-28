@@ -261,3 +261,21 @@ func TestARecurringTaskNamedForATriggeredInstanceIsRefused(t *testing.T) {
 		t.Fatalf("LoadResolved() error = %v, want the shared name refused", err)
 	}
 }
+
+// The architect's wake over the needs-design label is recorded and paced under
+// a name of its own, so a recurring task written under that name is refused
+// rather than sharing one cadence with it.
+func TestARecurringTaskNamedForTheNeedsDesignWakeIsRefused(t *testing.T) {
+	t.Parallel()
+
+	_, err := loadProjectError(t, minimalProjectConfig+`recurring_tasks:
+  architect-needs-design:
+    role: architect
+    every: 1h
+    enabled: true
+    prompt: look at the labelled work
+`, nil)
+	if err == nil || !strings.Contains(err.Error(), `recurring task "architect-needs-design" has the name the architect's wake over the needs-design label`) {
+		t.Fatalf("LoadResolved() error = %v, want the reserved name refused", err)
+	}
+}

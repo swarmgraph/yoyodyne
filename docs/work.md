@@ -1601,7 +1601,10 @@ says what it waits on, and a pull passes it over as **waiting on the architect's
 design**, naming her as the one to move. Labelling an item whose run is already
 going holds only new starts: that run carries on as it would have. Naming the
 item yourself is not held either, and the run records in why it was started that
-your naming overrode the label.
+your naming overrode the label. Adding the label wakes the architect's
+conversation with the item named, whichever path added it, and once a day
+she is woken again for every item still carrying it
+([the recurring tasks](configuration.md#recurring-tasks) say how).
 
 **An item the tree cannot serve is not dispatched, and the read that says so is
 free.** Four items in a fortnight were handed to a developer that could not do
