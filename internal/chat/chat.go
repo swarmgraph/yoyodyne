@@ -23,6 +23,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/budget"
 	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/console"
@@ -379,6 +380,10 @@ type Options struct {
 	// thread. Zero takes the harness default, which is the same number an exchange
 	// is allowed by default — one message asks at most as much as one exchange may.
 	AskRoundsPerMessage int
+	// MessageBudget is what one message may spend in provider turns, elapsed
+	// time and, where it is set, money. Every turn after the first is taken
+	// only where budget.Decide permits it; a zero field takes the default.
+	MessageBudget budget.Limits
 	// Amendments is the durable log of changes other roles have proposed to
 	// documents they do not own. It is read here so the ones this role owns reach
 	// it: an owner that never hears the argument cannot answer it. It is optional
@@ -1089,6 +1094,11 @@ type Reply struct {
 	// the operator knows the exchange stopped where it did because the budget ran
 	// out rather than because the product manager was finished.
 	ResultsCarriedOver bool `json:"results_carried_over,omitempty"`
+	// Stopped says, in ordinary words, why the harness stopped answering this
+	// message before the role had finished asking: its budget of turns, time or
+	// spend was used, or a tool's own limit was reached and the closing turn
+	// after it was taken. Empty when the role finished on its own.
+	Stopped string `json:"stopped,omitempty"`
 	// HandedBack is each tracker block the harness refused whole while answering
 	// and handed back to the role as a further round of this message, in the
 	// harness's own words. The actions it asked for did not happen as that block
@@ -1595,8 +1605,21 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	// is the one built around it. The rounds after it are the harness handing back
 	// what that round asked for, and record nothing as the operator's.
 	operatorMessage := trimmed
+	// Whether each turn may be taken is decided in one place, budget.Decide,
+	// against what the whole message has spent. A tool's own limit is not a
+	// stop by itself: reaching one is reported to the decision, which allows one
+	// closing turn after it and no more, whichever tool the role asks for next.
+	began := s.options.clock().Now()
+	var spent budget.Spent
+	messageSpent := func() budget.Spent {
+		spent.Elapsed = s.options.clock().Now().Sub(began) - s.usageLimitWaited
+		spent.SpendUSD = s.turnCostUSD
+		return spent
+	}
+	permit := budget.Decide(messageSpent(), s.options.MessageBudget).Permission
 	for round := 0; ; round++ {
-		answer, err := s.takeTurn(ctx, prompt, operatorMessage, &reply, false, resultsInPrompt)
+		answer, err := s.takeTurn(ctx, permit, prompt, operatorMessage, &reply, false, resultsInPrompt)
+		spent.Turns++
 		s.freshPass = false
 		if round == 0 && errors.Is(err, errTurnInputTooLarge) {
 			err = fmt.Errorf("%w: %w", ErrTurnUnassembled, err)
@@ -1645,10 +1668,16 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				return reply, errors.Join(err, auditErr)
 			}
 			trackerRounds++
-			handBack := s.state.RefusedBlock == nil && trackerRounds < maxTrackerRounds
+			noteToolLimit(&spent, toolTracker, trackerRounds, maxTrackerRounds)
+			decision := budget.Decide(messageSpent(), s.options.MessageBudget)
+			handBack := s.state.RefusedBlock == nil && trackerRounds < maxTrackerRounds && decision.Stop == ""
 			if problem := s.recordRefusedTrackerBlock(refused, handBack); problem != nil || !handBack {
+				if decision.Stop != "" && problem == nil {
+					problem = s.recordMessageStopped(&reply, decision.Stop, messageSpent())
+				}
 				return reply, errors.Join(err, problem)
 			}
+			permit = decision.Permission
 			reply.HandedBack = append(reply.HandedBack, refused.Error())
 			prompt = renderHandedBackTrackerBlock(refused, maxTrackerRounds-trackerRounds)
 			resultsInPrompt = renderRefusedTrackerBlock(refused)
@@ -1789,6 +1818,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				return reply, err
 			}
 			trackerRounds++
+			noteToolLimit(&spent, toolTracker, trackerRounds, maxTrackerRounds)
 			if trackerRounds >= maxTrackerRounds {
 				// The rounds are spent. The results are still owed to the product
 				// manager, so they are written down to wait for its next turn rather
@@ -1801,6 +1831,12 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				undelivered += renderTrackerResults(outcomes)
 			}
 		}
+		// Every tool below is bounded per message the same way. A round that
+		// reaches a tool's limit is reported to the message's budget, which then
+		// allows one closing turn and no more (budget.Decide). A request made
+		// after the limit is refused, shown on the reply and in the audit log,
+		// and not handed back: the turn that made it is already the last.
+		refusedPastLimit := false
 		// Evidence from outside the repository, gathered on the role's behalf. It
 		// is retrieved after the tracker so a reply that did both hands them back in
 		// the order it asked for them, and it never fails the turn: a source that
@@ -1808,10 +1844,15 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// could not find out.
 		if len(parsed.Queries) > 0 {
 			s.activity.doing(phaseResearch)
+			wasSpent := researchRounds >= maxResearchRounds
 			findings, problem := s.performResearch(ctx, parsed.Queries, &researchRounds)
 			reply.Research = append(reply.Research, ResearchRound{Findings: findings, Problem: problem})
+			noteToolLimit(&spent, toolResearch, researchRounds, maxResearchRounds)
 			if problem != "" {
-				undelivered += "# Research results\n\nNothing was retrieved: " + problem + "\n\n"
+				refusedPastLimit = refusedPastLimit || wasSpent
+				if !wasSpent {
+					undelivered += "# Research results\n\nNothing was retrieved: " + problem + "\n\n"
+				}
 			} else {
 				undelivered += research.Render(findings)
 			}
@@ -1822,21 +1863,27 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// nothing is something the role has to be told so it can say so.
 		if len(parsed.Reads) > 0 {
 			s.activity.doing(phaseRepository)
+			wasSpent := repositoryRounds >= maxRepositoryRounds
 			results, problem := s.performRepositoryReads(ctx, parsed.Reads, &repositoryRounds)
 			reply.RepositoryReads = append(reply.RepositoryReads, RepositoryRound{Results: results, Problem: problem})
+			noteToolLimit(&spent, toolRepository, repositoryRounds, maxRepositoryRounds)
 			if problem != "" {
-				undelivered += "# Repository content\n\nNothing was read: " + problem + "\n\n"
+				refusedPastLimit = refusedPastLimit || wasSpent
+				if !wasSpent {
+					undelivered += "# Repository content\n\nNothing was read: " + problem + "\n\n"
+				}
 			} else {
 				undelivered += repositoryread.Render(results, s.repositoryFraming())
 			}
 		}
 		if len(parsed.LogReads) > 0 {
+			wasSpent := logRounds >= logread.MaxRoundsPerMessage
 			round := s.performLogReads(ctx, parsed.LogReads, &logRounds)
 			reply.LogReads = append(reply.LogReads, round)
+			noteToolLimit(&spent, toolLogs, logRounds, logread.MaxRoundsPerMessage)
 			if round.Problem != "" {
-				// A spent bound ends log retrieval for this message. A refusal
-				// is visible on the reply and cannot start an endless loop.
-				if logRounds < logread.MaxRoundsPerMessage {
+				refusedPastLimit = refusedPastLimit || wasSpent
+				if !wasSpent {
 					undelivered += "# Operational records\n\nNothing was read: " + round.Problem + "\n\n"
 				}
 			} else {
@@ -1844,13 +1891,15 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			}
 		}
 		// One run as it stands, or one expected state of it, read on a manager's
-		// behalf. Like the log reads it never fails the turn, and a spent bound
-		// ends run reads for this message.
+		// behalf. Like the log reads it never fails the turn.
 		if len(parsed.RunReads) > 0 {
+			wasSpent := runRounds >= runinspect.MaxRoundsPerMessage
 			round := s.performRunReads(ctx, parsed.RunReads, &runRounds)
 			reply.RunReads = append(reply.RunReads, round)
+			noteToolLimit(&spent, toolRuns, runRounds, runinspect.MaxRoundsPerMessage)
 			if round.Problem != "" {
-				if runRounds < runinspect.MaxRoundsPerMessage {
+				refusedPastLimit = refusedPastLimit || wasSpent
+				if !wasSpent {
 					undelivered += "# Runs\n\nNothing was read: " + round.Problem + "\n\n"
 				}
 			} else {
@@ -1860,10 +1909,13 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// The factory's health observed, or the next part of an observation,
 		// on a manager's behalf. Like the run reads it never fails the turn.
 		if len(parsed.HealthReads) > 0 {
+			wasSpent := healthRounds >= health.MaxRoundsPerMessage
 			round := s.performHealthReads(ctx, parsed.HealthReads, &healthRounds)
 			reply.HealthReads = append(reply.HealthReads, round)
+			noteToolLimit(&spent, toolHealth, healthRounds, health.MaxRoundsPerMessage)
 			if round.Problem != "" {
-				if healthRounds < health.MaxRoundsPerMessage {
+				refusedPastLimit = refusedPastLimit || wasSpent
+				if !wasSpent {
 					undelivered += "# Factory health\n\nNothing was read: " + round.Problem + "\n\n"
 				}
 			} else {
@@ -1872,13 +1924,17 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		}
 		// A recovery decision carried out on a run, on the development manager's
 		// behalf. It never fails the turn: what each request came to — applied,
-		// refused, or unknown — is handed back for her to check, and a spent bound
-		// ends recoveries for this message.
+		// refused, or unknown — is handed back for her to check.
 		if len(parsed.Recoveries) > 0 {
+			wasSpent := recoveryRounds >= runrecover.MaxRoundsPerMessage
 			round := s.performRecoveries(ctx, parsed.Recoveries, &recoveryRounds)
 			reply.Recoveries = append(reply.Recoveries, round)
+			noteToolLimit(&spent, toolRecovery, recoveryRounds, runrecover.MaxRoundsPerMessage)
 			if round.Problem != "" {
-				undelivered += "# Recovery\n\nNothing more is said: " + round.Problem + "\n\n"
+				refusedPastLimit = refusedPastLimit || wasSpent
+				if !wasSpent {
+					undelivered += "# Recovery\n\nNothing more is said: " + round.Problem + "\n\n"
+				}
 			} else {
 				undelivered += runrecover.Render(round.Results)
 			}
@@ -1981,6 +2037,10 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				return reply, err
 			}
 		}
+		// owed is what the continuation carries that the role has not yet seen,
+		// without the instruction to carry on, so a message the budget stops can
+		// write it down for the next turn rather than drop it.
+		owed := undelivered
 		if undelivered != "" {
 			continuation = undelivered + continueAfterResults
 		}
@@ -2000,6 +2060,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			}
 			asksTaken++
 			continuation += askRefused(askRefusal)
+			owed += askRefused(askRefusal)
 		}
 		if parsed.Ask != nil {
 			if asksTaken >= s.options.askRounds() {
@@ -2026,12 +2087,36 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			asked := s.conductAsk(ctx, *parsed.Ask)
 			reply.Exchanges = append(reply.Exchanges, asked.round)
 			continuation += asked.delivery
+			owed += asked.delivery
 			chargeTo = asked.chargeTo
+		}
+		// A request refused past a tool's limit hands nothing back, but the
+		// role was still asking, so the decision is what ends the message and
+		// the stop is recorded rather than read as the role finishing.
+		if continuation == "" && !refusedPastLimit {
+			break
+		}
+		decision := budget.Decide(messageSpent(), s.options.MessageBudget)
+		if decision.Stop != "" {
+			if owed != "" {
+				reply.ResultsCarriedOver = true
+				if err := s.carryResults(owed); err != nil {
+					return reply, err
+				}
+			}
+			if err := s.recordMessageStopped(&reply, decision.Stop, messageSpent()); err != nil {
+				return reply, err
+			}
+			break
 		}
 		if continuation == "" {
 			break
 		}
+		permit = decision.Permission
 		prompt = continuation
+		if permit.Closing() {
+			prompt += closingTurnNotice
+		}
 	}
 
 	// What a recurring turn said is kept for the next one, which starts in a
@@ -2058,6 +2143,45 @@ const continueAfterResults = `# Continue
 Carry on answering the operator using these results. Say what you did, including anything that failed. Ask for further tracker actions only if you still need them.
 `
 
+// closingTurnNotice ends the prompt of the one turn a message takes after a
+// tool's own limit is reached (budget.Decide).
+const closingTurnNotice = `
+This is the last turn this message may take, because one of your tools has done the most one message may. Finish your answer now. Anything you ask for is still carried out, but what it returns reaches you only with the next message.
+`
+
+// The tools whose own per-message limits are reported to the message's budget,
+// named as the stop says them to a person.
+const (
+	toolTracker    = "acting on the tracker"
+	toolResearch   = "looking things up outside this machine"
+	toolRepository = "reading the repository"
+	toolLogs       = "reading the logs"
+	toolRuns       = "reading runs"
+	toolHealth     = "reading the factory's health"
+	toolRecovery   = "carrying out recoveries"
+)
+
+// noteToolLimit tells the message's budget that a tool has reached its own
+// limit, the first time any tool does. What follows is budget.Decide's to say.
+func noteToolLimit(spent *budget.Spent, tool string, rounds, limit int) {
+	if rounds >= limit && spent.ToolLimit == "" {
+		spent.ToolLimit, spent.ToolLimitTurn = tool, spent.Turns
+	}
+}
+
+// recordMessageStopped records that the budget stopped this message, on the
+// conversation's log and on the reply, in the words the operator reads.
+func (s *Session) recordMessageStopped(reply *Reply, reason string, spent budget.Spent) error {
+	reply.Stopped = "The harness stopped answering this message: " + reason + "."
+	return s.emit(execution.EventMessageStopped, map[string]any{
+		"reason":          reason,
+		"turns":           spent.Turns,
+		"elapsed_seconds": int(spent.Elapsed / time.Second),
+		"spend_usd":       spent.SpendUSD,
+		"tool_limit":      spent.ToolLimit,
+	})
+}
+
 // takeTurn runs one provider invocation and records everything it changed about
 // the conversation. The record advances whether or not the turn succeeded,
 // because the events it emitted exist either way.
@@ -2068,7 +2192,13 @@ Carry on answering the operator using these results. Say what you did, including
 // for. It is recorded before the provider is asked, so the log holds the question
 // ahead of its answer; the prompt itself is not recorded, because the picture and
 // the notices it carries are recorded already, elsewhere, and once.
-func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, reply *Reply, savingMemory bool, resultsInPrompt string) (string, error) {
+//
+// permit is the message budget's leave to take it (budget.Decide); a turn is
+// never taken without one, and a memory save taken before it spends the same.
+func (s *Session) takeTurn(ctx context.Context, permit budget.Permission, prompt, operatorMessage string, reply *Reply, savingMemory bool, resultsInPrompt string) (string, error) {
+	if !permit.Granted() {
+		return "", errors.New("a conversation turn was asked for without the message budget's permission")
+	}
 	retryMessage := operatorMessage
 	if retryMessage == "" {
 		retryMessage = "Continue the interrupted turn using these results:\n\n" + prompt
@@ -2129,7 +2259,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 			s.turnOperatorSequence = operatorSequence
 			memoriesBeforeSave := len(reply.Memories)
 			turnsBeforeSave := s.state.Turns
-			if err := s.saveBeforeCompaction(ctx, *due, reply); err != nil {
+			if err := s.saveBeforeCompaction(ctx, permit, *due, reply); err != nil {
 				return "", err
 			}
 			if s.state.Turns > turnsBeforeSave+1 {
@@ -2479,7 +2609,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 					if s.keepsMemory() {
 						memoriesBeforeSave := len(reply.Memories)
 						turnsBeforeSave := s.state.Turns
-						if saveErr := s.saveBeforeCompaction(ctx, *due, reply); saveErr != nil {
+						if saveErr := s.saveBeforeCompaction(ctx, permit, *due, reply); saveErr != nil {
 							return "", saveErr
 						}
 						if s.state.Turns > turnsBeforeSave+1 {
@@ -3734,6 +3864,11 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// and one more: an exchange nobody is told about is exactly the side
 		// conversation this channel exists not to be.
 		s.reportExchanges(out, reply)
+		// That the harness, not the role, ended the answer, because an answer cut
+		// short reads as one the role finished otherwise.
+		if reply.Stopped != "" {
+			fmt.Fprintf(out, "%s\n\n", reply.Stopped)
+		}
 		// What the harness put in the queue without asking is said before anything
 		// it is about to ask about, so the operator reads what already happened
 		// first and is not answering a prompt while unaware of it.

@@ -258,6 +258,11 @@ const (
 	// any failed turn's is; this says who ended it, because a turn the operator
 	// withdrew and a turn that broke read alike in the log otherwise.
 	EventTurnStopped EventType = "turn.stopped"
+	// A message the harness stopped answering because its budget was used: the
+	// turns, time or spend one message may take, or the one closing turn after a
+	// tool's own limit was reached. It carries the reason in the words the
+	// operator is shown, and what the message had spent.
+	EventMessageStopped EventType = "message.stopped"
 )
 
 // MaxEventTextBytes bounds the text one recorded event carries — a command's

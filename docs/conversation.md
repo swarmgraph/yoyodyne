@@ -1804,6 +1804,20 @@ list: only the tools a run carries out, which are filing a report and, for the
 developer, proposing a change to a document. Reading or surveying work items is
 part of a conversation and is not offered inside a run.
 
+**One message has one budget, whichever tools it uses.** Each tool below has its
+own limit on rounds a message, and every further provider turn a message takes
+is decided in one place against what the whole message has spent: at most 16
+turns and 45 minutes, not counting time spent waiting out a provider that
+refused. Once any tool reaches its own limit, the role gets one closing turn,
+told that it is the last, to finish its answer, and no more, whichever tool it
+asks for next. A request made after a limit is refused, shown with the reply,
+and not answered with another paid turn; results the role has not yet seen wait
+for its next message rather than being dropped. When the harness rather than the
+role ends the answer, the reply says so in a line beginning "The harness stopped
+answering this message", and the conversation's record gains a
+`message.stopped` event with the reason, the turns taken, the time and the
+spend.
+
 The program manager holds `log.read`. It may request pass records, watch
 transitions or scheduler output, the docket, a named run record, the usage-limit
 log, the provider-outage record, and the record of the operator's hand steps and

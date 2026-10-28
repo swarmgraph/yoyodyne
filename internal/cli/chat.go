@@ -110,6 +110,10 @@ type chatOutput struct {
 	// to the role within the same message, in the harness's own words. What the
 	// role re-issued after it is among the actions.
 	HandedBack []string `json:"handed_back,omitempty"`
+	// Stopped says why the harness, rather than the role, ended the answer: the
+	// message used its budget of turns, time or spend, or took its one closing
+	// turn after a tool reached its own limit.
+	Stopped string `json:"stopped,omitempty"`
 	// Reports are what the product manager filed for the operator while it
 	// answered, and ReportProblem is one that could not be read or kept. Both
 	// are reported here for the same reason the actions are: they already
@@ -398,6 +402,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 			EvaluationProblem:  reply.EvaluationProblem,
 			ResultsCarriedOver: reply.ResultsCarriedOver,
 			HandedBack:         reply.HandedBack,
+			Stopped:            reply.Stopped,
 			Reports:            reply.Reports,
 			ReportProblem:      reply.ReportProblem,
 		})
@@ -409,6 +414,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 	theme := console.ThemeFor(stdout, os.Getenv)
 	printChatHandedBack(stdout, reply.HandedBack)
 	printChatActions(stdout, role, reply.Actions, reply.ResultsCarriedOver)
+	printChatStopped(stdout, reply.Stopped)
 	printChatResearch(stdout, reply.Research)
 	printChatRepositoryReads(stdout, reply.RepositoryReads)
 	printChatLogReads(stdout, reply.LogReads)
@@ -1448,6 +1454,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 		output.EvaluationProblem = reply.EvaluationProblem
 		output.ResultsCarriedOver = reply.ResultsCarriedOver
 		output.HandedBack = reply.HandedBack
+		output.Stopped = reply.Stopped
 		output.Reports = reply.Reports
 		output.ReportProblem = reply.ReportProblem
 	}
@@ -1463,6 +1470,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 	theme := console.ThemeFor(stdout, os.Getenv)
 	printChatHandedBack(stdout, output.HandedBack)
 	printChatActions(stdout, role, output.Actions, output.ResultsCarriedOver)
+	printChatStopped(stdout, output.Stopped)
 	printChatResearch(stdout, output.Research)
 	printChatRepositoryReads(stdout, output.RepositoryReads)
 	printChatLogReads(stdout, output.LogReads)
@@ -1585,6 +1593,13 @@ func printOtherRoleHeader(writer io.Writer, role domain.AgentRole) {
 func printChatHandedBack(writer io.Writer, refusals []string) {
 	for _, refusal := range refusals {
 		fmt.Fprintf(writer, "\n%s\nNothing in that block was carried out; the harness handed the refusal back within this message so it could re-issue the actions.\n", refusal)
+	}
+}
+
+// printChatStopped says the harness ended the answer, where it did.
+func printChatStopped(writer io.Writer, stopped string) {
+	if stopped != "" {
+		fmt.Fprintf(writer, "\n%s\n", stopped)
 	}
 }
 
