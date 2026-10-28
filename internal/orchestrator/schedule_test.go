@@ -4447,6 +4447,8 @@ type recordedTransition struct {
 	// ending, which is what every surface reads to tell the operator whether
 	// anything is waiting on them.
 	restarting bool
+	// released is a resume that is the harness releasing its own hold.
+	released bool
 	// window and windowResetsAt are the provider's usage window the poll was made
 	// inside, which is what every surface reads to tell this silence from one
 	// nothing accounts for.
@@ -4479,6 +4481,7 @@ func (r *recordedSessions) Record(transition SessionState) error {
 		executor:   transition.Executor,
 		unreadable: transition.Unreadable,
 		restarting: transition.Restarting,
+		released:   transition.Released,
 
 		window:         transition.ProviderWindow,
 		windowResetsAt: transition.ProviderWindowResetsAt,

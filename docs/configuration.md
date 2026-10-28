@@ -3546,11 +3546,38 @@ cannot run.
 
 What stops every check is usually the machine, so every other ready item would
 stop the same way. The session that started the run therefore says so once and
-starts no new work for the interval `execution.usage_limit_unknown_reset_pause`
-gives (30 minutes by default). After that it starts one run, however many
-developer places are free, to find out whether the checks can run again, and
-starts nothing else until that run ends: if the checks ran, work goes on as
-normal, and if not, it holds again for the same interval.
+starts no new work.
+
+Where the harness recognises the cause, the hold waits on a follow-up
+(see [the follow-ups design](designs/follow-ups.md)). The causes it recognises
+are an Xcode license nobody has accepted and a tool missing from the search
+path. The follow-up carries a check the harness runs itself:
+`xcodebuild -license check` passing, or the tool being found on the search path.
+The watch session runs open follow-ups' checks at the top of its polls: an
+environment check every 10 minutes, any other check every 5 minutes, one at a
+time. Each check's result is recorded on its follow-up only when it changes, and
+a check that cannot be run counts as not passed and says why. Once the check
+passes, the harness closes the follow-up with the time, releases the hold,
+starts work again, and says so. The message goes on the watch log `yoyo status`
+prints and in the channel. The development manager, who waits on the follow-up,
+is told by a report addressed to her, which is put in front of her next pass.
+Nothing else re-checks the cause: no run is started to find out. The two
+intervals are fixed for now. The settings the design names for them,
+`follow_ups.check_interval` and `follow_ups.command_check_interval`, do not
+exist yet; they come with the follow-ups' deadlines.
+
+A provider whose login has lapsed is handled the same way. The outage waits on
+a follow-up whose check asks the provider whether it is logged in, and is
+cleared when that check passes. If the follow-up cannot be written, the outage
+stands and the session says why; it does not ask the provider itself.
+
+A cause the harness does not recognise gets no follow-up. For that cause the
+session keeps the old behaviour: it starts no new work for the interval
+`execution.usage_limit_unknown_reset_pause` gives (30 minutes by default). After
+that it starts one run, however many developer places are free, to find out
+whether the checks can run again, and starts nothing else until that run ends.
+If the checks ran, work goes on as normal; if not, it holds again for the same
+interval. The operator's own pause is never released by a follow-up.
 
 A real failure is still a failure: a check that ran and exited non-zero without
 that line is handed back to the developer exactly as before, whatever another

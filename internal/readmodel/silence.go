@@ -311,6 +311,8 @@ func SessionSays(transition runstate.WatchTransition) string {
 		said = "stopped to restart into the build deployed over it"
 	case transition.RetryingRead():
 		said = "retrying a failed read of the harness's store"
+	case transition.Released:
+		said = "choosing work again after the harness released its own hold"
 	}
 	if transition.Draining != nil {
 		said += ", " + transition.Draining.Says()

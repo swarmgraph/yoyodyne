@@ -224,6 +224,9 @@ var reaches = map[Kind]Reach{
 	// says the same outage, attributed to the harness, once there is work a
 	// stopped line would have started.
 	KindWatchReadRetrying: ReachRecord,
+	// A hold the harness released itself, once the check it waited on passed.
+	// The stop was said in the channel, so its ending is said there too.
+	KindWatchHoldReleased: ReachChannel,
 	// A braked line has stopped and stays stopped until intake is released.
 	KindWatchBraked: ReachChannel,
 	// A machine refusing every start needs its cause visible beside the hold.

@@ -758,6 +758,11 @@ func FromWatch(transition runstate.WatchTransition) (Notification, error) {
 	if transition.RetryingRead() {
 		kind = KindWatchReadRetrying
 	}
+	// A resume that is the harness releasing its own hold is said as that, so the
+	// channel that was told of the stop is told it ended and why.
+	if transition.Released {
+		kind = KindWatchHoldReleased
+	}
 	// A braked session is the one an operator has to do something about: the
 	// line has stopped and it stays stopped until intake is released.
 	severity := report.SeverityNote

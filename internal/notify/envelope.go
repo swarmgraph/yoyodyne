@@ -284,6 +284,12 @@ const (
 	// reader for the whole of a store outage that the session had found nothing to
 	// start.
 	KindWatchReadRetrying Kind = "watch.read-retrying"
+	// A session choosing again because the harness released a hold it had placed
+	// itself, once the check that hold's follow-up waited on passed. It is the
+	// same recorded resume as KindWatchResumed and is said apart from it, on the
+	// precedent above: an ordinary resume is narration, and this is a stop the
+	// channel was told of ending, which whoever read the stop is owed.
+	KindWatchHoldReleased Kind = "watch.hold-released"
 	// A line that is choosing nothing while work is ready to be chosen. Every
 	// kind above is a transition said once; this one is a state said again while
 	// it stands, because the fact somebody needs is not that it began but that it
@@ -490,6 +496,7 @@ func Kinds() []Kind {
 		KindWatchStopped,
 		KindWatchRedeploying,
 		KindWatchReadRetrying,
+		KindWatchHoldReleased,
 		KindLineWaiting,
 		KindResidentStale,
 		KindStallNoticed,
@@ -526,7 +533,7 @@ func (k Kind) Valid() bool {
 		KindIntakeHeld, KindIntakeReleased, KindIntakeEscalated, KindHoldPlaced, KindHoldLifted, KindOperatorAction,
 		KindInterventionRecorded,
 		KindWatchStarted, KindWatchIdle, KindWatchBraked, KindWatchBlocked, KindWatchResumed, KindWatchStopped,
-		KindWatchRedeploying, KindWatchReadRetrying, KindLineWaiting, KindResidentStale, KindStallNoticed,
+		KindWatchRedeploying, KindWatchReadRetrying, KindWatchHoldReleased, KindLineWaiting, KindResidentStale, KindStallNoticed,
 		KindProviderWindow, KindCapacityHold, KindProviderOutage, KindProviderRestored,
 		KindRecurringTaskFailing, KindClaimReleased,
 		KindBundleImprovement, KindBundleImprovements, KindCatchUpDigest, KindLogLineSkipped:

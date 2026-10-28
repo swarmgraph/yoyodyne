@@ -388,6 +388,12 @@ type WatchTransition struct {
 	// because the entry stays in it. An unknown field is ignored by the same
 	// reader, so what an older one loses is the distinction and not the log.
 	Restarting bool `json:"restarting,omitempty"`
+	// Released marks a resume that is the harness releasing a hold it placed
+	// itself, because the check that hold's follow-up waited on passed. The
+	// reason says which hold and what the check found. Only a resumed entry
+	// carries it, and it is a field beside the state for the reason Restarting
+	// is.
+	Released bool `json:"released,omitempty"`
 	// DispatchWait is a dispatch this session started waiting out a tracker failure
 	// before it has claimed anything, recorded as the wait is taken. It is the one
 	// entry here that is not a transition of the session at all: the session is
@@ -873,6 +879,9 @@ func (t WatchTransition) Validate() error {
 	// under way that nothing is going to make.
 	if t.Restarting && t.State != WatchStopped {
 		problems = append(problems, fmt.Errorf("a %s transition cannot be a restart, which is a thing only a stop is", t.State))
+	}
+	if t.Released && t.State != WatchResumed {
+		problems = append(problems, fmt.Errorf("a %s transition cannot be a hold released, which is a thing only a resume is", t.State))
 	}
 	// A dispatch wait is written only as a watching entry, which is what an older
 	// reader will take it for; on any other state it would tell that reader the
