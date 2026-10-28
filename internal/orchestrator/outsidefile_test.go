@@ -699,18 +699,13 @@ func TestAFileIsBroughtInTogetherWithTheLicenseItsRecordNames(t *testing.T) {
 	}
 }
 
-// A run the merge step refuses because its record does not show it earned its
-// checks and review is not picked up again while the record is unchanged: the
-// record is stopped and one report says what the merge step found missing.
-func TestARunRefusedAtTheMergeStepIsNotPickedUpAgainUnchanged(t *testing.T) {
-	t.Parallel()
-
-	_, _, provider, pipeline, store, reports, clock := outsideFileFixture(t, nil)
+// movedUnderReview makes every review of a run that brings a file in move the
+// pinned file in that run's checkout, so what is about to be promoted is not
+// what the checks passed over, and the merge step refuses it.
+func movedUnderReview(provider *orchestratortest.Backend, store *runstate.Store) {
 	approve := provider.Respond
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
 		if request.Role == domain.RoleReviewer {
-			// The change moves under the approval, so what is about to be promoted
-			// is not what the checks passed over.
 			inFlight, err := store.Incomplete()
 			if err != nil {
 				return backend.RunResult{}, err
@@ -725,6 +720,61 @@ func TestARunRefusedAtTheMergeStepIsNotPickedUpAgainUnchanged(t *testing.T) {
 		}
 		return approve(request)
 	}
+}
+
+// A run the merge step refuses for a cause another run would meet again — here
+// checks that ran over only part of the module — is not picked up again while
+// the record is unchanged: the record is stopped and one report says which
+// check the merge step found missing.
+func TestARunRefusedAtTheMergeStepForALastingCauseIsNotPickedUpAgainUnchanged(t *testing.T) {
+	t.Parallel()
+
+	_, _, provider, pipeline, store, reports, clock := outsideFileFixture(t, nil)
+	movedUnderReview(provider, store)
+	ctx := context.Background()
+	landing, due, err := pipeline.NextOutsideFile(ctx)
+	if err != nil || !due {
+		t.Fatalf("NextOutsideFile() = %v, %v", due, err)
+	}
+	if _, err := pipeline.BringInOutsideFile(ctx, landing); err != nil {
+		t.Fatalf("BringInOutsideFile() error = %v", err)
+	}
+	// The run ended at the merge step; the cause it is settled on is the one
+	// narrowed checks give, read from the promotion's own gate.
+	narrowed := (&activeRun{state: runstate.State{
+		ReviewDecision: runstate.ReviewApprove,
+		ChecksPassed:   &runstate.ChecksPassed{Content: "content", Narrowed: "./internal/dashboard"},
+	}}).integrationEarned(ctx)
+	if !refusedForGood(narrowed) {
+		t.Fatalf("narrowed checks = %v; want a lasting refusal", narrowed)
+	}
+	if _, err := pipeline.settleOutsideFile(ctx, store, landing.RunID(), outsideFileRecorder{}, narrowed); err != nil {
+		t.Fatalf("settleOutsideFile() error = %v", err)
+	}
+	attempt, _, _ := store.OutsideFileAttempt(pinnedRecord)
+	if attempt.Stopped == "" || !attempt.Reported || len(reports.reported) != 1 {
+		t.Fatalf("attempt = %+v, reports %d; want the record stopped and one report", attempt, len(reports.reported))
+	}
+	if message := reports.reported[0].Message; !strings.Contains(message, "merge step refused it because the checks passed only over ./internal/dashboard, and the full checks were never run") {
+		t.Fatalf("the report does not say which check was missing: %s", message)
+	}
+	clock.advance(outsidefile.RetryAfter + time.Hour)
+	if _, due, err := pipeline.NextOutsideFile(ctx); err != nil || due {
+		t.Fatalf("NextOutsideFile() after the refusal = %v, %v; want the unchanged record not picked up again", due, err)
+	}
+	if got := len(provider.RequestsForRole(domain.RoleReviewer)); got != 1 {
+		t.Fatalf("the reviewer was invoked %d times, want once", got)
+	}
+}
+
+// A run the merge step refuses for a cause that passes — the change moved
+// under its evidence, or could not be named — is tried again after the wait
+// rather than stopping the record, and nothing is reported.
+func TestARunRefusedAtTheMergeStepForAPassingCauseIsTriedAgainAfterTheWait(t *testing.T) {
+	t.Parallel()
+
+	_, _, provider, pipeline, store, reports, clock := outsideFileFixture(t, nil)
+	movedUnderReview(provider, store)
 	ctx := context.Background()
 	landing, due, err := pipeline.NextOutsideFile(ctx)
 	if err != nil || !due {
@@ -741,17 +791,20 @@ func TestARunRefusedAtTheMergeStepIsNotPickedUpAgainUnchanged(t *testing.T) {
 		t.Fatalf("run = %s: %s; want it refused at the merge step", saved.Status, saved.Failure)
 	}
 	attempt, _, _ := store.OutsideFileAttempt(pinnedRecord)
-	if attempt.Stopped == "" || !attempt.Reported || len(reports.reported) != 1 {
-		t.Fatalf("attempt = %+v, reports %d; want the record stopped and one report", attempt, len(reports.reported))
+	if attempt.Stopped != "" || attempt.RetryFrom == nil || attempt.Attempt != 1 || len(reports.reported) != 0 {
+		t.Fatalf("attempt = %+v, reports %d; want a wait, the next attempt, and no report", attempt, len(reports.reported))
 	}
-	if message := reports.reported[0].Message; !strings.Contains(message, "merge step refused it because the checks passed over content") {
-		t.Fatalf("the report does not say what the merge step found missing: %s", message)
+	// A change that could not be named is the same kind of refusal.
+	unnamed := fmt.Errorf("%w: the change about to be promoted could not be named: %v", ErrIntegrationUnearned, errors.New("git timed out"))
+	if refusedForGood(unnamed) {
+		t.Fatal("a change that could not be named was read as a lasting refusal")
 	}
-	clock.advance(outsidefile.RetryAfter + time.Hour)
-	if _, due, err := pipeline.NextOutsideFile(ctx); err != nil || due {
-		t.Fatalf("NextOutsideFile() after the refusal = %v, %v; want the unchanged record not picked up again", due, err)
+	if _, due, _ := pipeline.NextOutsideFile(ctx); due {
+		t.Fatal("the record was due again before the wait had passed")
 	}
-	if got := len(provider.RequestsForRole(domain.RoleReviewer)); got != 1 {
-		t.Fatalf("the reviewer was invoked %d times, want once", got)
+	clock.advance(outsidefile.RetryAfter + time.Minute)
+	again, due, err := pipeline.NextOutsideFile(ctx)
+	if err != nil || !due || again.Attempt != 1 {
+		t.Fatalf("NextOutsideFile() after the wait = %+v, %v, %v; want the next attempt due", again, due, err)
 	}
 }

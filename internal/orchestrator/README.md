@@ -341,7 +341,8 @@ run of its own — `runstate.State.OutsideFile`, reserved by
 `ReserveOutsideFileLanding`, holding no developer slot, reviewed through
 `reviewDocument` like a document landing, with its checks told the whole
 module — and `settleOutsideFile` decides what becomes of the record, stopping
-it where the merge step refused the run (`refusedAtTheMergeStep`).
+it where the merge step refused the run for a cause another run would meet
+again (`refusedForGood`, `lastingRefusal` in `pipeline.go`).
 `licenseLanding` is the license file a record names, brought in by the same
 run (`runstate.OutsideFileLanding.License`) where it is pinned too and not yet
 on the target branch. `pinnedfiles.go` is `gatePinnedFiles`, the comparison

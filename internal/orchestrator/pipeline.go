@@ -6623,6 +6623,27 @@ func (a *activeRun) verify(ctx context.Context) error {
 // route into the promotion, which is the code that will never mention it.
 var ErrIntegrationUnearned = errors.New("integration refused: the record does not show the change passed its gate")
 
+// lastingRefusal marks an ErrIntegrationUnearned refusal that says something
+// about how the change was put through its gate rather than about the moment of
+// the promotion: checks that were narrowed, or run as another check set, or
+// never recorded, a refusal or failure still standing, no approval. Where no
+// developer can change what the next attempt does — a run the harness wrote
+// itself — another run is refused the same way. A change that could not be
+// named, or whose content or commit is not the one the evidence is for, is not
+// marked: the next run starts from a fresh checkout and may well pass.
+type lastingRefusal struct{ cause error }
+
+func (e lastingRefusal) Error() string { return e.cause.Error() }
+func (e lastingRefusal) Unwrap() error { return e.cause }
+
+func lasting(err error) error { return lastingRefusal{cause: err} }
+
+// refusedForGood reports a promotion refused for a lasting cause (lastingRefusal).
+func refusedForGood(err error) bool {
+	var refused lastingRefusal
+	return errors.As(err, &refused)
+}
+
 // integrationEarned is the promotion's own reading of the gate. It asks the
 // durable record rather than trusting that the caller ran the checks first,
 // because control flow is a property of one caller: a definition that routed
@@ -6653,19 +6674,19 @@ func (a *activeRun) integrationEarned(ctx context.Context) error {
 		// passed leaves the landing without evidence for the list now in force.
 		if state.ChecksPassed != nil {
 			if want := a.documentCheckSet(changed); state.ChecksPassed.CheckSet != want {
-				return fmt.Errorf("%w: the checks passed as check set %q and the document's landing now runs %q",
-					ErrIntegrationUnearned, state.ChecksPassed.CheckSet, want)
+				return lasting(fmt.Errorf("%w: the checks passed as check set %q and the document's landing now runs %q",
+					ErrIntegrationUnearned, state.ChecksPassed.CheckSet, want))
 			}
 		}
 	}
 	switch {
 	case state.PathRefusal != nil:
-		return fmt.Errorf("%w: a protected-path refusal is still recorded against the change", ErrIntegrationUnearned)
+		return lasting(fmt.Errorf("%w: a protected-path refusal is still recorded against the change", ErrIntegrationUnearned))
 	case state.CheckFailure != nil:
-		return fmt.Errorf("%w: %s exited with %d and nothing has passed the checks over the change since",
-			ErrIntegrationUnearned, state.CheckFailure.Command, state.CheckFailure.ExitCode)
+		return lasting(fmt.Errorf("%w: %s exited with %d and nothing has passed the checks over the change since",
+			ErrIntegrationUnearned, state.CheckFailure.Command, state.CheckFailure.ExitCode))
 	case state.ChecksPassed == nil:
-		return fmt.Errorf("%w: no configured check is recorded as having passed over the change", ErrIntegrationUnearned)
+		return lasting(fmt.Errorf("%w: no configured check is recorded as having passed over the change", ErrIntegrationUnearned))
 	case len(state.ChecksPassed.Commands) == 0 && len(state.ChecksPassed.CouldNotRun) > 0:
 		return fmt.Errorf("%w: no check verified the change, because every configured check could not run", ErrIntegrationUnearned)
 	case state.ChecksPassed.Attempt != state.RepairAttempts:
@@ -6675,11 +6696,11 @@ func (a *activeRun) integrationEarned(ctx context.Context) error {
 		return fmt.Errorf("%w: the checks passed at commit %q and the change being promoted is at %q",
 			ErrIntegrationUnearned, state.ChecksPassed.Commit, state.HarnessCommit)
 	case state.ChecksPassed.Narrowed != "":
-		return fmt.Errorf("%w: the checks passed only over %s, and the full checks were never run over the change as it would be merged",
-			ErrIntegrationUnearned, state.ChecksPassed.Narrowed)
+		return lasting(fmt.Errorf("%w: the checks passed only over %s, and the full checks were never run over the change as it would be merged",
+			ErrIntegrationUnearned, state.ChecksPassed.Narrowed))
 	case state.ReviewDecision != runstate.ReviewApprove:
-		return fmt.Errorf("%w: the recorded review decision is %q rather than an approval",
-			ErrIntegrationUnearned, state.ReviewDecision)
+		return lasting(fmt.Errorf("%w: the recorded review decision is %q rather than an approval",
+			ErrIntegrationUnearned, state.ReviewDecision))
 	}
 	content, err := a.pipeline.Worktrees.ContentIdentity(ctx, a.worktree)
 	if err != nil {

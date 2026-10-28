@@ -774,13 +774,16 @@ func (p Pipeline) settleOutsideFile(ctx context.Context, store OutsideFileStore,
 			return outcome, stopErr
 		}
 		outcome.Summary = why
-	case refusedAtTheMergeStep(saved, err):
+	case refusedForGood(err):
 		// The change passed its checks and its review, and the promotion found the
-		// record does not show it earned them. Nothing about this run's change is
-		// what a later run would do differently, so another run would be refused
-		// in the same words: the record is stopped rather than tried again, and
-		// the report says which check the promotion found missing.
-		why := fmt.Sprintf("run %s passed its checks and its review, and the merge step refused it because %s", saved.RunID, strings.TrimPrefix(oneline.Fold(saved.Failure, 900), ErrIntegrationUnearned.Error()+": "))
+		// record does not show it earned them, for a cause a later run would meet
+		// again (lastingRefusal): no developer changes what the next run does. The
+		// record is stopped rather than tried again, and the report says which
+		// check the promotion found missing. A refusal for a passing cause — the
+		// change could not be named, or moved under its evidence — takes the wait
+		// below like any stop that judged nothing. So does a run another process
+		// ended, whose error is gone; the attempts it is given still bound it.
+		why := fmt.Sprintf("run %s passed its checks and its review, and the merge step refused it because %s", saved.RunID, strings.TrimPrefix(oneline.Fold(lastingCause(err), 900), ErrIntegrationUnearned.Error()+": "))
 		record.note(ctx, fmt.Sprintf("Yoyodyne's run %s did not bring in %s: %s. Another run would be refused the same way, so the record is stopped until it changes on the target branch.", saved.RunID, pinnedPath, strings.TrimPrefix(why, "run "+saved.RunID+" ")))
 		if stopErr := p.stopOutsideFile(store, runstate.OutsideFileAttempt{Record: landing.Record, RecordDigest: landing.RecordDigest, Attempt: landing.Attempt}, landing.For, why); stopErr != nil {
 			return outcome, stopErr
@@ -799,13 +802,14 @@ func (p Pipeline) settleOutsideFile(ctx context.Context, store OutsideFileStore,
 	return outcome, nil
 }
 
-// refusedAtTheMergeStep reports a run the promotion refused because its record
-// does not show it earned its checks and review (integrationEarned). The error
-// the run ended on says so where this process ended it; the recorded failure
-// says so where another process did, because it opens with the refusal's own
-// words.
-func refusedAtTheMergeStep(saved runstate.State, err error) bool {
-	return errors.Is(err, ErrIntegrationUnearned) || strings.HasPrefix(saved.Failure, ErrIntegrationUnearned.Error())
+// lastingCause is what a lasting refusal says (refusedForGood), without what
+// the error that carried it to the run's end added around it.
+func lastingCause(err error) string {
+	var refused lastingRefusal
+	if errors.As(err, &refused) {
+		return refused.Error()
+	}
+	return err.Error()
 }
 
 // outsideFileItem is the bookkeeping item a run that brings a file in is

@@ -6671,8 +6671,11 @@ refuse, a missing file, a file over the limit, a checksum that does not match,
 a `for` naming no work item, a check or a reviewer refusing the file — stops the
 record until it changes on the target branch, and files one warning report for
 the development manager. So does a run the merge step refuses because its
-record does not show the checks and review it needs, since another run would be
-refused the same way; the report says which check was missing.
+record does not show the checks and review it needs in a way another run would
+repeat, such as checks that ran over only part of the module; the report says
+which check was missing. A merge step that could not read the change, or found
+it moved since its checks, is tried again after a wait, and three such runs
+in a row stop the record.
 
 ## Reading the repository from a conversation
 
