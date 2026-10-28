@@ -3227,10 +3227,15 @@ tests also read its documents, scripts, Makefile, and configuration, so
 [`scripts/check-scope.sh`](../scripts/check-scope.sh) reads the change from Git
 and widens a target to the whole module whenever the change touches a file
 outside every package that the target reads, a package the variable does not
-name, or cannot be read at all; the race check alone leaves out Markdown outside
-every package, which cannot change what the race detector finds. An empty
-variable runs the race check over nothing, saying so, only for a change that is
-nothing but such Markdown. This project names no `landing_checks`: the whole
+name, or cannot be read at all. Markdown outside every package does not widen
+either target: it cannot change what the race detector finds, and `make test`
+runs the tests that read documents, which the Makefile's `DOCUMENT_TESTS` names,
+beside the packages instead. So a change made only of such Markdown runs the
+race check over nothing and `make test` over those tests alone, each saying so,
+and a change to code and a guide runs its packages and those tests rather than
+the whole module. A test that reads a document and is missing from that list is
+still run by the whole check of the merge candidate before anything is
+promoted. This project names no `landing_checks`: the whole
 check of the merge candidate is the whole suite on this machine, and CI's
 required build check runs `make check` on every pull request, as it did before
 the gate was narrowed.

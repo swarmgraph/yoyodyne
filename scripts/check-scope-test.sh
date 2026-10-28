@@ -28,9 +28,11 @@ root=$(mktemp -d "${TMPDIR:-/tmp}/check-scope-test.XXXXXX")
 trap 'rm -rf "$root"' EXIT
 
 # The stub stands in for the Go command: `go env GOCACHE` names a writable
-# cache for the Makefile's cachecheck, a `go test -run` -- the named tests
+# cache for the Makefile's cachecheck, a `go test -v -run` -- the named tests
 # `make test` runs after its suite -- prints the lines those steps look for,
-# and any other `go test` writes the packages it was given to a marker.
+# a `go test -run` without -v -- the tests that read documents -- writes its
+# pattern and packages to one marker, and any other `go test` writes the
+# packages it was given to another.
 stub="$root/go"
 cat >"$stub" <<'STUB'
 #!/bin/sh
@@ -38,22 +40,32 @@ case "$1" in
 env) echo "$STUB_ROOT/cache" ;;
 test)
 	shift
-	for arg in "$@"; do
-		if [ "$arg" = -run ]; then
-			echo "shipped documentation is within its margin"
-			echo "--- PASS: TestThePageRendersEverySectionInEveryState (0.00s)"
-			exit 0
-		fi
-	done
+	verbose=
+	pattern=
 	packages=
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		-timeout) shift ;;
+		-run)
+			shift
+			pattern=$1
+			;;
+		-v) verbose=1 ;;
 		-*) ;;
 		*) packages="$packages $1" ;;
 		esac
 		shift
 	done
+	if [ -n "$verbose" ]; then
+		echo "shipped documentation is within its margin"
+		echo "--- PASS: TestThePageRendersEverySectionInEveryState (0.00s)"
+		exit 0
+	fi
+	if [ -n "$pattern" ]; then
+		echo "stub go test -run $pattern over${packages}"
+		echo "$pattern${packages}" >"$STUB_ROOT/named"
+		exit 0
+	fi
 	echo "stub go test over${packages}"
 	echo "${packages# }" >"$STUB_ROOT/ran"
 	;;
@@ -94,23 +106,38 @@ fabricate() {
 	printf '%s\n' "$repo"
 }
 
+# The tests that read documents, in place of the Makefile's own list: a
+# package run whole, one of the fabricated packages with a test named, and the
+# other with two, so which are left out and how the names are joined is exact.
+documents_list="./reader=. ./pkg='^(TestReadsTheNotes)\$\$' ./other='^(TestReadsTheGuide|TestReadsTheReadme)\$\$'"
+
 # expect runs a target in a repository and checks the packages the suite ran
-# over -- "none" where it did not run -- and that the line saying why was
-# printed.
+# over -- "none" where it did not run -- the tests that read documents it ran
+# by name -- "none" where it ran none, and otherwise the pattern and the
+# packages -- and that the line saying why was printed.
 expect() {
-	local name=$1 target=$2 want=$3 line=$4
-	shift 4
-	rm -f "$root/ran"
-	local output ran=none
-	if ! output=$(cd "$repo" && make --no-print-directory "$target" GO="$stub" "$@" 2>&1); then
+	expect_named "$1" "$2" "$3" none "$4" "${@:5}"
+}
+
+expect_named() {
+	local name=$1 target=$2 want=$3 want_named=$4 line=$5
+	shift 5
+	rm -f "$root/ran" "$root/named"
+	local output ran=none named=none
+	if ! output=$(cd "$repo" && make --no-print-directory "$target" GO="$stub" "DOCUMENT_TESTS=$documents_list" "$@" 2>&1); then
 		echo "FAIL $name: make $target failed:"
 		printf '%s\n' "$output" | sed 's/^/    /'
 		failures=$((failures + 1))
 		return
 	fi
 	[ -e "$root/ran" ] && ran=$(cat "$root/ran")
+	[ -e "$root/named" ] && named=$(cat "$root/named")
 	if [ "$ran" != "$want" ]; then
 		echo "FAIL $name: make $target ran over \"$ran\", want \"$want\"; make printed:"
+		printf '%s\n' "$output" | sed 's/^/    /'
+		failures=$((failures + 1))
+	elif [ "$named" != "$want_named" ]; then
+		echo "FAIL $name: make $target ran the document tests \"$named\", want \"$want_named\"; make printed:"
 		printf '%s\n' "$output" | sed 's/^/    /'
 		failures=$((failures + 1))
 	elif ! grep -qF -- "$line" <<<"$output"; then
@@ -151,17 +178,34 @@ expect "a change to two packages tests both" test "./other ./pkg" \
 next
 printf 'package pkg\n\nvar X = 1\n' >"$repo/pkg/pkg.go"
 printf '# Guide, revised\n' >"$repo/docs/guide.md"
-expect "a document outside every package tests the whole module" test ./... \
-	"test: the change touches docs/guide.md, outside every Go package, which the checks read, so the whole module runs" CHANGED_GO_PACKAGES=./pkg
+expect_named "a document outside every package tests the package and the tests that read documents" test "./pkg ./reader" \
+	"^(TestReadsTheGuide|TestReadsTheReadme)\$ ./other" \
+	"test: runs over ./pkg, the packages holding the 2 files this change touches since its merge base with main, and the tests that read documents, for the 1 documents it touches outside every package" CHANGED_GO_PACKAGES=./pkg
 expect "a document outside every package races only the package" race ./pkg \
 	"race: runs over ./pkg, the packages holding the 2 files" CHANGED_GO_PACKAGES=./pkg
 
 next
 printf '# Guide, revised\n' >"$repo/docs/guide.md"
+printf '# Readme\n' >"$repo/README.md"
+printf '{"id":"x"}\n' >"$repo/.beads/issues.jsonl"
 expect "an empty scope over documents races nothing and says so" race none \
-	"race: the change touches no Go package, and none of the 1 files it touches since its merge base with main is one this check reads, so there is no package to run it over" CHANGED_GO_PACKAGES=
-expect "an empty scope over documents tests the whole module" test ./... \
-	"test: the change touches docs/guide.md, outside every Go package, which the checks read, so the whole module runs" CHANGED_GO_PACKAGES=
+	"race: the change touches no Go package, and none of the 3 files it touches since its merge base with main is one this check reads, so there is no package to run it over" CHANGED_GO_PACKAGES=
+expect_named "an empty scope over documents runs only the tests that read documents" test ./reader \
+	"^(TestReadsTheNotes|TestReadsTheGuide|TestReadsTheReadme)\$ ./pkg ./other" \
+	"test: the change touches no Go package, and all 3 files it touches since its merge base with main are documents outside every package or tracker exports, so only the tests that read documents run" CHANGED_GO_PACKAGES=
+
+next
+printf '# Guide, revised\n' >"$repo/docs/guide.md"
+expect_named "the document tests of a package the change runs whole are not run again by name" test "./other ./reader" \
+	"^(TestReadsTheNotes)\$ ./pkg" \
+	"test: runs over ./other, the packages holding the 1 files" CHANGED_GO_PACKAGES=./other
+
+next
+printf '# Guide, revised\n' >"$repo/docs/guide.md"
+printf 'package other\n\nvar Y = 1\n' >"$repo/other/other.go"
+printf '\n' >>"$repo/scripts/check-scope.sh"
+expect "a document beside a script outside every package tests the whole module" test ./... \
+	"test: the change touches scripts/check-scope.sh, outside every Go package, which the checks read, so the whole module runs" CHANGED_GO_PACKAGES=./other
 
 next
 printf '\n' >>"$repo/Makefile"

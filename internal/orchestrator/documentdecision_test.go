@@ -69,6 +69,8 @@ var developmentManagersDecision = runstate.DocumentDecision{Reason: "the newest 
 // and its pull request in plain words and the two decisions that answer it,
 // with no work item's budgets beside it.
 func TestAStoppedDocumentPublicationIsOnTheDocketNamingItsDocumentAndPullRequest(t *testing.T) {
+	t.Parallel()
+
 	_, docketer, _, _, last := stoppedPublication(t)
 	built, err := docketer.Build()
 	if err != nil {
@@ -95,6 +97,8 @@ func TestAStoppedDocumentPublicationIsOnTheDocketNamingItsDocumentAndPullRequest
 // Retrying lands the same confirmed text through a fresh run the scheduler
 // starts, which records why it exists, and closes the stopped run's request.
 func TestRetryingAStoppedDocumentPublicationLandsTheSameTextThroughAFreshRun(t *testing.T) {
+	t.Parallel()
+
 	pipeline, _, forge, runs, last := stoppedPublication(t)
 	said, err := decider(runs, forge).RetryDocument(context.Background(), last.RunID, developmentManagersDecision)
 	if err != nil {
@@ -138,6 +142,8 @@ func TestRetryingAStoppedDocumentPublicationLandsTheSameTextThroughAFreshRun(t *
 // Retiring closes the request with the reason and lands nothing; a request the
 // forge would not close records nothing, so she is asked again.
 func TestRetiringAStoppedDocumentPublicationClosesItsPullRequestAndRecordsWhy(t *testing.T) {
+	t.Parallel()
+
 	_, _, forge, runs, last := stoppedPublication(t)
 	forge.CloseErr = errors.New("HTTP 502")
 	if _, err := decider(runs, forge).RetireDocument(context.Background(), last.RunID, developmentManagersDecision); err == nil || !strings.Contains(err.Error(), "not recorded") {
@@ -174,6 +180,8 @@ func TestRetiringAStoppedDocumentPublicationClosesItsPullRequestAndRecordsWhy(t 
 // conversation's latest word on it is hers once it has stood stopped for the
 // stuck-merge age, or at once where another copy has landed since.
 func TestWhichStoppedDocumentPublicationsAreTheDevelopmentManagers(t *testing.T) {
+	t.Parallel()
+
 	_, _, _, _, last := stoppedPublication(t)
 	base := last
 	base.DocumentRetry = nil
@@ -227,6 +235,8 @@ func TestWhichStoppedDocumentPublicationsAreTheDevelopmentManagers(t *testing.T)
 // that stops without judging the document leaves its next attempt where the
 // scheduler starts it.
 func TestARetriedDocumentPublicationThatStopsAgainIsContinuedByTheScheduler(t *testing.T) {
+	t.Parallel()
+
 	pipeline, _, forge, runs, last := stoppedPublication(t)
 	if _, err := decider(runs, forge).RetryDocument(context.Background(), last.RunID, developmentManagersDecision); err != nil {
 		t.Fatal(err)

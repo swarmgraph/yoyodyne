@@ -114,6 +114,8 @@ func branchProvider(reply string) *orchestratortest.Backend {
 }
 
 func TestBranchReviewSuppliesStandingGoalsAtItsBase(t *testing.T) {
+	t.Parallel()
+
 	for _, checkout := range []string{"edited", "deleted", "renamed", "home removed"} {
 		t.Run(checkout, func(t *testing.T) {
 			repository := pipelineRepository(t)
@@ -207,6 +209,8 @@ func (r intentListingReader) FilesAtCommit(ctx context.Context, commit string, m
 }
 
 func TestBranchReviewRefusesAnUnreadableOrPartialBaseIntentListing(t *testing.T) {
+	t.Parallel()
+
 	for _, test := range []struct {
 		name, want string
 		err        error
@@ -629,6 +633,8 @@ func TestAShadowBranchReviewIsRecordedAndApprovesNothing(t *testing.T) {
 }
 
 func TestReviewIntentPathChangesUseTheCandidateInsteadOfThePrimaryCheckout(t *testing.T) {
+	t.Parallel()
+
 	repository := pipelineRepository(t)
 	write := func(root, name, content string) {
 		t.Helper()

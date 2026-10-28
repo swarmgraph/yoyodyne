@@ -11,9 +11,12 @@
 # on as CHANGED_GO_PACKAGES.
 #
 # It prints the packages to run on standard output -- the patterns, "./...", or
-# an empty line for none -- and why on standard error, and exits 0. It exits
-# non-zero only when it could not decide, and the Makefile then runs the whole
-# module: every doubt costs time rather than a check.
+# an empty line for none -- and why on standard error, and exits 0. For `test`,
+# a second line reading "documents" says the change also touches documents
+# outside every package, and the Makefile then runs the tests that read
+# documents (DOCUMENT_TESTS) beside the packages. It exits non-zero only when it
+# could not decide, and the Makefile then runs the whole module: every doubt
+# costs time rather than a check.
 #
 # The harness's list names the packages that hold a changed file, and nothing
 # about the files outside every package, which the checks here read too: the
@@ -27,14 +30,23 @@
 #     exactly as `make race` with nothing named does.
 #   - A list runs those packages, unless the change touches a file outside every
 #     package that the check reads, or a package the list does not name, or Git
-#     cannot say what changed. Then the whole module runs. For `test`, any file
-#     outside every package counts except the tracker's exports; for `race`,
-#     Markdown outside every Go package's directory does not count either, which
-#     is the rule scripts/race-skip.sh already applies.
-#   - Nothing is a change that touches no Go package. The race check runs over
-#     nothing, and says so, when the change touches only files the race check
-#     does not read; otherwise the whole module runs. `test` reads every file
-#     outside the packages, so it runs the whole module for any such change.
+#     cannot say what changed. Then the whole module runs. Neither check counts
+#     the tracker's exports, and neither counts Markdown outside every Go
+#     package's directory, which is the rule scripts/race-skip.sh already
+#     applies: the race detector cannot find anything in a document, and the
+#     tests that read documents are named in the Makefile's DOCUMENT_TESTS, so
+#     `test` runs those beside the packages rather than the whole module.
+#   - Nothing is a change that touches no Go package. Where the change touches
+#     only such Markdown and tracker exports, the race check runs over nothing
+#     and `test` runs only the tests that read documents, each saying so;
+#     otherwise the whole module runs.
+#
+# Narrowing here is safe because it is not the last word: the harness checks
+# the approved merge candidate once more with the whole module before it is
+# promoted (docs/configuration.md, "Where the whole suite runs"), so a test
+# that reads a document and is missing from DOCUMENT_TESTS fails there rather
+# than on the target branch. internal/composition holds the list against the
+# tests that reach this checkout.
 #
 # The change is everything between the merge base with the target branch and
 # the working tree, as scripts/race-skip.sh reads it: committed, staged or not,
@@ -158,6 +170,7 @@ holds_go() {
 }
 
 count=0
+documents=0
 while IFS= read -r path; do
 	[ -n "$path" ] || continue
 	count=$((count + 1))
@@ -171,26 +184,37 @@ while IFS= read -r path; do
 	case "$path" in
 	.beads/issues.jsonl | .beads/interactions.jsonl) continue ;;
 	esac
-	if [ "$kind" = race ]; then
+	case "$path" in
+	*.md)
 		case "$path" in
-		*.md)
-			case "$path" in
-			*/*) parent=${path%/*} ;;
-			*) parent=. ;;
-			esac
-			holds_go "$parent" || continue
-			;;
+		*/*) parent=${path%/*} ;;
+		*) parent=. ;;
 		esac
-	fi
+		if ! holds_go "$parent"; then
+			documents=$((documents + 1))
+			continue
+		fi
+		;;
+	esac
 	whole "the change touches $path, outside every Go package, which the checks read"
 done <<EOF
 $changed
 EOF
 
-if [ -z "$given" ]; then
-	say "the change touches no Go package, and none of the $count files it touches since its merge base with $target is one this check reads, so there is no package to run it over"
-	echo ""
+# The race check reads no document; `test` runs the tests that read them.
+if [ "$kind" = race ] || [ "$documents" -eq 0 ]; then
+	if [ -z "$given" ]; then
+		say "the change touches no Go package, and none of the $count files it touches since its merge base with $target is one this check reads, so there is no package to run it over"
+		echo ""
+		exit 0
+	fi
+	say "runs over $given, the packages holding the $count files this change touches since its merge base with $target"
+	echo "$given"
 	exit 0
 fi
-say "runs over $given, the packages holding the $count files this change touches since its merge base with $target"
-echo "$given"
+if [ -z "$given" ]; then
+	say "the change touches no Go package, and all $count files it touches since its merge base with $target are documents outside every package or tracker exports, so only the tests that read documents run"
+else
+	say "runs over $given, the packages holding the $count files this change touches since its merge base with $target, and the tests that read documents, for the $documents documents it touches outside every package"
+fi
+printf '%s\ndocuments\n' "$given"

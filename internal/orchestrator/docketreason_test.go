@@ -14,6 +14,8 @@ import (
 // document stopped, and the docket takes that as the reason rather than
 // refusing the entry and failing the build over it.
 func TestAStoppedDocumentPublicationWithNoWorkItemIsDocketedOnWhyItsDocumentStopped(t *testing.T) {
+	t.Parallel()
+
 	_, docketer, _, runs, last := stoppedPublication(t)
 	older := runByID(t, runs, last.Document.RunIDFor(0))
 	older.Blocker = ""

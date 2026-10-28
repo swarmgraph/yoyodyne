@@ -41,6 +41,8 @@ func submittedDesign(id, body string) string {
 }
 
 func TestAutomaticDocumentFromConversationLandsThroughIndependentReview(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	original := provider.Respond
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
@@ -88,6 +90,8 @@ func TestAutomaticDocumentFromConversationLandsThroughIndependentReview(t *testi
 }
 
 func TestAlreadyWaitingAutomaticDocumentsKeepTheirStoredIdentityAndContent(t *testing.T) {
+	t.Parallel()
+
 	for _, writeID := range []string{"document-45.1", "document-54.1", "document-135.1", "document-147.1"} {
 		t.Run(writeID, func(t *testing.T) {
 			repository, _, provider, pipeline, runs := automaticFixture(t)
@@ -143,6 +147,8 @@ func TestAlreadyWaitingAutomaticDocumentsKeepTheirStoredIdentityAndContent(t *te
 // a coined word in it goes back to its owner instead of failing the run that
 // would have landed it.
 func TestAWaitingDocumentTheDocumentChecksRefuseGoesBackToItsOwnerWithNoRun(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	register := "# Terms\n\n" + terms.RegisterHeading + "\n\n| Term | In plain words | Where it is used |\n| --- | --- | --- |\n"
 	if err := os.WriteFile(filepath.Join(repository, filepath.FromSlash(terms.RegisterPath)), []byte(register), 0o600); err != nil {
@@ -191,6 +197,8 @@ func TestAWaitingDocumentTheDocumentChecksRefuseGoesBackToItsOwnerWithNoRun(t *t
 }
 
 func TestNonautomaticDocumentStillWaitsForOperatorConfirmation(t *testing.T) {
+	t.Parallel()
+
 	_, _, provider, pipeline, runs := automaticFixture(t)
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
 		return backend.RunResult{SessionID: "author", FinalText: submittedDesign("human-design", "# Waiting")}, nil
@@ -218,6 +226,8 @@ func TestNonautomaticDocumentStillWaitsForOperatorConfirmation(t *testing.T) {
 // a run with its own checks and an independent review, with the approval in
 // the file, and never as an uncommitted change in the primary checkout.
 func TestOperatorApprovedDocumentLandsThroughReviewedRunAndLeavesCheckoutClean(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	original := provider.Respond
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
@@ -301,6 +311,8 @@ func TestOperatorApprovedDocumentLandsThroughReviewedRunAndLeavesCheckoutClean(t
 // review, and is left on its branch for the operator to merge, as every change
 // there is. Nothing is written into the primary checkout.
 func TestOperatorApprovedDocumentIsReviewedAndHeldForMergeWhereIntegrationIsNotAutomatic(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	original := provider.Respond
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
@@ -361,6 +373,8 @@ func TestOperatorApprovedDocumentIsReviewedAndHeldForMergeWhereIntegrationIsNotA
 // Where no independent reviewer is configured no reviewed run can be made, so
 // the approved document is written into the working tree as before.
 func TestOperatorApprovedDocumentIsWrittenWhereNoReviewerIsConfigured(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
 		return backend.RunResult{SessionID: "author", FinalText: submittedDesign("manual-design", "# Manual")}, nil
@@ -396,6 +410,8 @@ func TestOperatorApprovedDocumentIsWrittenWhereNoReviewerIsConfigured(t *testing
 // that changes only that document, and never as an uncommitted change in the
 // primary checkout.
 func TestStandingApprovalLandsThroughReviewedRunAndLeavesCheckoutClean(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	store := artifact.StoreFor(repository, pipeline.Config.Product)
 	if _, err := store.Create(domain.RoleArchitect, artifact.Draft{ID: "standing-design", Kind: artifact.KindDesign, Title: "Standing design", Directory: "docs/designs", Body: "# Standing\n\nThe owner's words.", Reason: "written by the architect"}, time.Now()); err != nil {
@@ -446,6 +462,8 @@ func (p interruptedPublication) PublishDocument(context.Context, runstate.Docume
 }
 
 func TestDocumentConfirmationSurvivesRestartAndNeverLandsTwice(t *testing.T) {
+	t.Parallel()
+
 	_, _, provider, pipeline, runs := automaticFixture(t)
 	original := provider.Respond
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
@@ -507,6 +525,8 @@ func TestDocumentConfirmationSurvivesRestartAndNeverLandsTwice(t *testing.T) {
 }
 
 func TestHumanIntegrationKeepsOperatorConfirmationAndTheConversationWorking(t *testing.T) {
+	t.Parallel()
+
 	_, _, provider, pipeline, runs := automaticFixture(t)
 	pipeline.Config.Approvals.Integration = domain.ApprovalHuman
 	turn := 0
@@ -545,6 +565,8 @@ func TestHumanIntegrationKeepsOperatorConfirmationAndTheConversationWorking(t *t
 }
 
 func TestSavedPublicationUnderHumanIntegrationReturnsToTheOperator(t *testing.T) {
+	t.Parallel()
+
 	_, _, provider, pipeline, runs := automaticFixture(t)
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
 		if request.Role == domain.RoleArchitect {
@@ -587,6 +609,8 @@ func TestSavedPublicationUnderHumanIntegrationReturnsToTheOperator(t *testing.T)
 }
 
 func TestDocumentReviewAndCheckFailuresReturnToOwnerAndRevisionUsesFreshRun(t *testing.T) {
+	t.Parallel()
+
 	for _, cause := range []string{"review", "check"} {
 		t.Run(cause, func(t *testing.T) {
 			_, _, provider, pipeline, runs := automaticFixture(t)
@@ -674,6 +698,8 @@ func (w *documentConflictWorktrees) Integrate(ctx context.Context, tree gitworkt
 }
 
 func TestDocumentTargetConflictReturnsPathsToOwnerAndFreshRevisionLands(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	original := provider.Respond
 	authored := 0
@@ -731,6 +757,8 @@ func TestDocumentTargetConflictReturnsPathsToOwnerAndFreshRevisionLands(t *testi
 }
 
 func TestDocumentReturnsStopAtBoundAndTellOwner(t *testing.T) {
+	t.Parallel()
+
 	_, _, provider, pipeline, runs := automaticFixture(t)
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
 		if request.Role == domain.RoleArchitect {
@@ -765,6 +793,8 @@ func TestDocumentReturnsStopAtBoundAndTellOwner(t *testing.T) {
 }
 
 func TestDocumentPublicationRefusesExtraFilesAndChangedContent(t *testing.T) {
+	t.Parallel()
+
 	for _, tamper := range []string{"extra-file", "changed-content"} {
 		t.Run(tamper, func(t *testing.T) {
 			repository, _, _, pipeline, _ := automaticFixture(t)
@@ -827,6 +857,8 @@ func (w *interruptedDocumentWorktrees) Integrate(ctx context.Context, tree gitwo
 }
 
 func TestDocumentRestartDuringReviewOrAfterTargetMoved(t *testing.T) {
+	t.Parallel()
+
 	for _, step := range []string{"checkout created", "document committed", "review", "target moved"} {
 		t.Run(step, func(t *testing.T) {
 			repository, _, provider, pipeline, runs := automaticFixture(t)
@@ -891,6 +923,8 @@ func TestDocumentRestartDuringReviewOrAfterTargetMoved(t *testing.T) {
 }
 
 func TestDocumentQueuedPublicationSettlesWithoutBacklogOrDeveloper(t *testing.T) {
+	t.Parallel()
+
 	for _, protected := range []bool{false, true} {
 		t.Run(fmt.Sprint(protected), func(t *testing.T) {
 			fixture := newQueuedFixture(t)
@@ -969,6 +1003,8 @@ func (w *interruptedDocumentCheckpoint) CommitAttempt(ctx context.Context, tree 
 }
 
 func TestDocumentReviewerCannotReuseAuthorSession(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	original := provider.Respond
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
@@ -1001,6 +1037,8 @@ func TestDocumentReviewerCannotReuseAuthorSession(t *testing.T) {
 }
 
 func TestDocumentReconciliationNamesItsOwner(t *testing.T) {
+	t.Parallel()
+
 	state := runstate.State{RunID: "run-document", Document: &runstate.DocumentPublication{Owner: domain.RoleArchitect, WriteID: "document-4.1", ConversationID: "chat-owner", Candidate: artifact.ConfirmedDocument{Artifact: artifact.Artifact{Title: "Recovery design"}}}}
 	notes := renderReconcileBlockerNotes(state, gitworktree.Observation{}, "the forge refused the merge")
 	if !strings.Contains(notes, "The architect must revise document document-4.1 (Recovery design) in conversation chat-owner") || strings.Contains(notes, "operator") {
@@ -1013,6 +1051,8 @@ func TestDocumentReconciliationNamesItsOwner(t *testing.T) {
 // the project's repository, and opens no run; it stays confirmed and saved, and
 // the owning role is told once what holds it.
 func TestCompanionIntentDocumentIsHeldConfirmedRatherThanPutToTheOperator(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	intent := t.TempDir()
 	pipeline.Config.Intent.Repository = "intent"
@@ -1120,6 +1160,8 @@ func TestWaitingCopiesOfADecisionRecordAreResolvedAtTheNextTurn(t *testing.T) {
 // Only a change wholly inside the artifact homes takes the document landing
 // route, a home's directory index included.
 func TestTheDocumentRouteTakesOnlyChangesInsideTheArtifactHomes(t *testing.T) {
+	t.Parallel()
+
 	cfg := config.Config{Product: config.Product{Specifications: config.DefaultSpecifications, Designs: config.DefaultDesigns, Decisions: config.DefaultDecisions, Invariants: config.DefaultInvariants}}
 	for _, inside := range [][]string{
 		{"docs/designs/recovery-design.md"},
@@ -1147,6 +1189,8 @@ func TestTheDocumentRouteTakesOnlyChangesInsideTheArtifactHomes(t *testing.T) {
 // A document run whose change reaches outside the artifact homes is refused
 // from the route before any check runs.
 func TestAMixedChangeIsRefusedFromTheDocumentRouteBeforeAnyCheck(t *testing.T) {
+	t.Parallel()
+
 	repository, _, _, pipeline, _ := automaticFixture(t)
 	marker := filepath.Join(t.TempDir(), "checks-ran")
 	pipeline.Config.Checks = []string{"touch " + marker}
@@ -1217,6 +1261,8 @@ func landDesign(t *testing.T, pipeline Pipeline, provider *orchestratortest.Back
 // evidence names the check set, and the landing is still independently
 // reviewed.
 func TestADocumentLandingRunsTheDeclaredDocumentChecksAndNeverTheRaceCheck(t *testing.T) {
+	t.Parallel()
+
 	_, _, provider, pipeline, runs := automaticFixture(t)
 	full, document, fullChecks, documentChecks := documentCheckMarkers(t)
 	pipeline.Config.Checks, pipeline.Config.DocumentChecks = fullChecks, documentChecks
@@ -1241,6 +1287,8 @@ func TestADocumentLandingRunsTheDeclaredDocumentChecksAndNeverTheRaceCheck(t *te
 // A project that declares no document checks has its document landings run the
 // full checks, as every other run does.
 func TestADocumentLandingRunsTheFullChecksWhereNoneAreDeclared(t *testing.T) {
+	t.Parallel()
+
 	_, _, provider, pipeline, runs := automaticFixture(t)
 	full, document, fullChecks, _ := documentCheckMarkers(t)
 	pipeline.Config.Checks = fullChecks
@@ -1265,6 +1313,8 @@ func TestADocumentLandingRunsTheFullChecksWhereNoneAreDeclared(t *testing.T) {
 // packages it touches (none) would leave the promotion with nothing it can
 // land on.
 func TestADocumentLandingInAGoModuleRunsTheFullChecksWhole(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	writeCommitted(t, repository, "go.mod", "module example.com/project\n")
 	writeCommitted(t, repository, "internal/checks/runner.go", "package checks\n")
@@ -1289,6 +1339,8 @@ func TestADocumentLandingInAGoModuleRunsTheFullChecksWhole(t *testing.T) {
 // The document checks narrow the checks and nothing else: a reviewer that
 // refuses the document still keeps it from landing.
 func TestADocumentUnderDeclaredChecksStillNeedsItsReviewersApproval(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	_, _, fullChecks, documentChecks := documentCheckMarkers(t)
 	pipeline.Config.Checks, pipeline.Config.DocumentChecks = fullChecks, documentChecks
@@ -1311,6 +1363,8 @@ func TestADocumentUnderDeclaredChecksStillNeedsItsReviewersApproval(t *testing.T
 // the checks passed and before the promotion leaves the landing without
 // evidence for the list in force, and nothing lands.
 func TestADocumentCheckSetChangedBeforeThePromotionRefusesIt(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	_, _, fullChecks, documentChecks := documentCheckMarkers(t)
 	pipeline.Config.Checks, pipeline.Config.DocumentChecks = fullChecks, documentChecks
@@ -1334,6 +1388,8 @@ func TestADocumentCheckSetChangedBeforeThePromotionRefusesIt(t *testing.T) {
 // Under declared document checks, runs that keep handing the document back to
 // its owner still stop automatic publication at the bound and tell the owner.
 func TestDocumentReturnsUnderDocumentChecksStillStopAtBound(t *testing.T) {
+	t.Parallel()
+
 	_, _, provider, pipeline, runs := automaticFixture(t)
 	full, _, fullChecks, _ := documentCheckMarkers(t)
 	pipeline.Config.Checks = fullChecks
