@@ -555,9 +555,7 @@ func TestAnInterruptedLandingTheTargetDoesNotCarryIsLeftAtItsMerge(t *testing.T)
 	if killed.Integration == nil || !killed.Integration.ThroughPullRequest || killed.Status.Terminal() {
 		t.Fatalf("record at the merge request = status %q, integration %#v; want a live landing on the record", killed.Status, killed.Integration)
 	}
-	if err := fixture.store.Save(killed); err != nil {
-		t.Fatalf("Save() error = %v", err)
-	}
+	saveRecord(t, fixture.store, killed)
 	fixture.tracker.ForgetSettlement()
 	fixture.tracker.SetItemStatus("in_progress")
 	forge.SetMergeErr(nil)

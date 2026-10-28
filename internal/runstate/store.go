@@ -229,11 +229,27 @@ func (s *Store) Reserve(ctx context.Context, state State, maxConcurrent int) (*L
 		// A run paused on work its item waits on is in flight for the duplicate
 		// check and holds no slot here: see State.HoldsDeveloperSlot. Nor does a
 		// run whose worker is gone: see HoldsDeveloperSlotNow.
-		if holding := s.HoldingDeveloperSlotsNow(active, time.Now()); holding >= maxConcurrent {
-			return CapacityError{Limit: maxConcurrent, Active: holding}
-		}
-		return nil
+		return s.developerSlotsFull(active, state.RunID, maxConcurrent, time.Now())
 	})
+}
+
+// developerSlotsFull is the one count every way of taking a developer slot
+// refuses by: the runs among active that hold a slot by HoldsDeveloperSlotNow,
+// other than runID itself, against maxConcurrent. It is only meaningful under
+// the reservation lock, with active read inside it, which is what makes the
+// count and the write that takes the slot one act (Reserve, ReclaimSlot,
+// ReserveLive).
+func (s *Store) developerSlotsFull(active []State, runID string, maxConcurrent int, now time.Time) error {
+	holding := 0
+	for _, existing := range active {
+		if existing.RunID != runID && s.HoldsDeveloperSlotNow(existing, now) {
+			holding++
+		}
+	}
+	if holding >= maxConcurrent {
+		return CapacityError{Limit: maxConcurrent, Active: holding}
+	}
+	return nil
 }
 
 // ReserveDocumentLanding is Reserve for a confirmed document's landing, counted
@@ -396,15 +412,8 @@ func (s *Store) ReclaimSlot(ctx context.Context, state State, maxConcurrent int)
 	if err != nil {
 		return state, fmt.Errorf("discover incomplete runs while reclaiming a developer slot: %w", err)
 	}
-	holding := 0
-	now := time.Now()
-	for _, existing := range active {
-		if existing.RunID != state.RunID && s.HoldsDeveloperSlotNow(existing, now) {
-			holding++
-		}
-	}
-	if holding >= maxConcurrent {
-		return state, CapacityError{Limit: maxConcurrent, Active: holding}
+	if err := s.developerSlotsFull(active, state.RunID, maxConcurrent, time.Now()); err != nil {
+		return state, err
 	}
 	reclaimed := state
 	reclaimed.DependencyPause = nil
@@ -412,6 +421,44 @@ func (s *Store) ReclaimSlot(ctx context.Context, state State, maxConcurrent int)
 		return state, fmt.Errorf("clear the dependency pause: %w", err)
 	}
 	return reclaimed, nil
+}
+
+// ReserveLive is how a run already recorded is made live again: a repair, stall
+// or check-stage continuation, an integration resumption, or the reconcile
+// sweep putting a queued merge back at its promotion. It saves live — the
+// record the caller built with the run in flight again — and, where that record
+// holds a developer slot, takes the slot in the same act: under the reservation
+// lock, against the same limit and the same count Reserve and ReclaimSlot use,
+// refusing with the same CapacityError. Counting free slots first and saving
+// later is two acts, and a reservation beside them can take the last slot in
+// between; this is why no path that makes a run live saves it any other way.
+//
+// A refusal writes nothing, so the run stays as it was recorded and holds no
+// slot. The caller holds the run's lease, as it does for every write to the
+// run.
+func (s *Store) ReserveLive(ctx context.Context, live State, maxConcurrent int) error {
+	if !live.Status.InFlight() {
+		return fmt.Errorf("a run made live must be in flight, got %q", live.Status)
+	}
+	if maxConcurrent < 1 {
+		return errors.New("max concurrent developers must be greater than zero")
+	}
+	release, err := s.lockReservations(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	if live.HoldsDeveloperSlot() {
+		active, err := s.Incomplete()
+		if err != nil {
+			return fmt.Errorf("discover incomplete runs while reserving a developer slot for run %s: %w", live.RunID, err)
+		}
+		if err := s.developerSlotsFull(active, live.RunID, maxConcurrent, time.Now()); err != nil {
+			return err
+		}
+	}
+	return s.save(live, true)
 }
 
 // Adopt takes exclusive ownership of the run already in flight for a work item,
@@ -615,6 +662,18 @@ func (s *Store) Create(state State) error {
 // routing here, and writing either would lose or forge it. Every other field is
 // the caller's, as it always was.
 func (s *Store) Save(state State) error {
+	return s.save(state, false)
+}
+
+// ErrMadeLiveWithoutASlot is a plain Save refused because it would make a run
+// that is not in flight live again holding a developer slot. That is taking a
+// slot, and a slot is only taken where it is counted, under the reservation
+// lock: Store.ReserveLive is the way in.
+var ErrMadeLiveWithoutASlot = errors.New("a run that is not in flight is made live only through Store.ReserveLive, which takes its developer slot")
+
+// save is Save, with reserved set only by ReserveLive, which has already
+// counted the slot the write takes under the reservation lock.
+func (s *Store) save(state State, reserved bool) error {
 	// The caller's worker is never what is written (see below), so it is not
 	// what is validated either.
 	state.Worker = nil
@@ -630,9 +689,12 @@ func (s *Store) Save(state State) error {
 		return err
 	}
 	defer unlock()
-	worker, err := s.checkRoutingWrite(state)
+	worker, stored, err := s.checkRoutingWrite(state)
 	if err != nil {
 		return err
+	}
+	if !reserved && !stored.InFlight() && state.HoldsDeveloperSlot() {
+		return RefusedStateError{Problem: fmt.Errorf("%w: run %s is recorded %s and this save would make it %s", ErrMadeLiveWithoutASlot, state.RunID, stored, state.Status)}
 	}
 	// The worker is the store's to write (worker.go), whatever the caller's
 	// copy says.

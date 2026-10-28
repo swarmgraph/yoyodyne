@@ -194,47 +194,49 @@ func (s *Store) lockRunWrites(ctx context.Context, runID string) (func(), error)
 // every other field, so a write can still replace a record it could not
 // otherwise decode, as it always could; what it refuses is a record whose
 // routing or schema this build does not understand.
-func (s *Store) storedHead(runID string) (*RunRouting, *WorkerIdentity, error) {
+func (s *Store) storedHead(runID string) (*RunRouting, *WorkerIdentity, Status, error) {
 	path, err := s.statePath(runID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	encoded, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load existing run state before save: %w", err)
+		return nil, nil, "", fmt.Errorf("load existing run state before save: %w", err)
 	}
 	var stored struct {
 		SchemaVersion int             `json:"schema_version"`
+		Status        Status          `json:"status"`
 		Routing       *RunRouting     `json:"routing"`
 		Worker        *WorkerIdentity `json:"worker"`
 	}
 	if err := json.Unmarshal(encoded, &stored); err != nil {
-		return nil, nil, RefusedStateError{Problem: fmt.Errorf("the stored run %s cannot be read to compare its routing: %w", runID, err)}
+		return nil, nil, "", RefusedStateError{Problem: fmt.Errorf("the stored run %s cannot be read to compare its routing: %w", runID, err)}
 	}
 	if stored.SchemaVersion > StateSchemaVersion {
-		return nil, nil, RefusedStateError{Problem: fmt.Errorf("the stored run %s has schema version %d, newer than this build's %d", runID, stored.SchemaVersion, StateSchemaVersion)}
+		return nil, nil, "", RefusedStateError{Problem: fmt.Errorf("the stored run %s has schema version %d, newer than this build's %d", runID, stored.SchemaVersion, StateSchemaVersion)}
 	}
 	if stored.Routing != nil && stored.Routing.Version > RoutingVersion {
-		return nil, nil, RefusedStateError{Problem: fmt.Errorf("%w: run %s has routing version %d and this build reads %d", ErrUnsupportedRouting, runID, stored.Routing.Version, RoutingVersion)}
+		return nil, nil, "", RefusedStateError{Problem: fmt.Errorf("%w: run %s has routing version %d and this build reads %d", ErrUnsupportedRouting, runID, stored.Routing.Version, RoutingVersion)}
 	}
-	return stored.Routing, stored.Worker, nil
+	return stored.Routing, stored.Worker, stored.Status, nil
 }
 
 // checkRoutingWrite refuses a whole-record write whose routing is not what is
 // stored: a stale copy, or a caller that changed routing other than through
 // UpdateRouting.
 //
-// It hands back the stored worker, which the write keeps.
-func (s *Store) checkRoutingWrite(state State) (*WorkerIdentity, error) {
-	stored, worker, err := s.storedHead(state.RunID)
+// It hands back the stored worker, which the write keeps, and the stored
+// status, which says whether the write would make a run live.
+func (s *Store) checkRoutingWrite(state State) (*WorkerIdentity, Status, error) {
+	stored, worker, status, err := s.storedHead(state.RunID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if equalRouting(stored, state.Routing) {
-		return worker, nil
+		return worker, status, nil
 	}
 	if stored.generation() != state.Routing.generation() || (stored == nil) != (state.Routing == nil) {
-		return nil, StaleRoutingError{RunID: state.RunID, Held: state.Routing.generation(), Stored: stored.generation()}
+		return nil, "", StaleRoutingError{RunID: state.RunID, Held: state.Routing.generation(), Stored: stored.generation()}
 	}
-	return nil, RefusedStateError{Problem: fmt.Errorf("%w: run %s routing changes only through UpdateRouting", ErrRoutingConflict, state.RunID)}
+	return nil, "", RefusedStateError{Problem: fmt.Errorf("%w: run %s routing changes only through UpdateRouting", ErrRoutingConflict, state.RunID)}
 }

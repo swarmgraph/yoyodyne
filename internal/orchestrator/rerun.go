@@ -1085,6 +1085,40 @@ func holdingDeveloperSlots(runs any, states []runstate.State, now time.Time) int
 	return holding
 }
 
+// slotTakenMeanwhile reports the reservation having refused to make a stopped
+// run live because every developer slot was taken. slotIsFree is read before
+// anything is spent, and a fresh run or another continuation can take the last
+// slot between that reading and the save that makes the run live; the save
+// (Store.ReserveLive) is what decides, and this is how its refusal is told
+// apart from a write that failed.
+func slotTakenMeanwhile(err error) (runstate.CapacityError, bool) {
+	var capacity runstate.CapacityError
+	if !errors.As(err, &capacity) {
+		return runstate.CapacityError{}, false
+	}
+	return capacity, true
+}
+
+// slotTakenNote tells a work item its stopped run was not made live because the
+// last developer slot went to another run first.
+func slotTakenNote(runID string, capacity runstate.CapacityError) string {
+	return fmt.Sprintf("Run %s was not made live: the last free developer slot went to another run before this one could take it (%d active, limit %d). Nothing was spent and the run is unchanged; it goes again once a slot is free.",
+		runID, capacity.Active, capacity.Limit)
+}
+
+// noteSlotTaken tells the work item its stopped run waits for a slot after the
+// reservation refused it, and reports a note that could not be written as the
+// result's record problem rather than as a failure: the run is unchanged and the
+// next pass asks again either way.
+func noteSlotTaken(ctx context.Context, items interface {
+	RecordOutcome(ctx context.Context, id, notes string) (beads.WorkItem, error)
+}, workItemID, runID string, capacity runstate.CapacityError) string {
+	if _, err := items.RecordOutcome(ctx, workItemID, slotTakenNote(runID, capacity)); err != nil {
+		return fmt.Sprintf("the wait for a developer slot could not be appended to %s's notes: %v", workItemID, err)
+	}
+	return ""
+}
+
 // capacityRefused reports the fresh run having been refused a developer slot and
 // nothing else having happened. Both halves are the condition: the reservation
 // is what refuses for capacity and it is taken before the run's record exists,

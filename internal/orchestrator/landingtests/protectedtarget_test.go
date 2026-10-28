@@ -476,9 +476,10 @@ func TestAnInterruptedLandingIsSettledOnTheForgesAnswer(t *testing.T) {
 				t.Fatalf("record at the merge request = status %q, integration %#v; want a live landing on the record", killed.Status, killed.Integration)
 			}
 			// The process dies there: the record is what it had written, and the item
-			// is still claimed by it.
-			if err := fixture.Store.Save(killed); err != nil {
-				t.Fatalf("Save() error = %v", err)
+			// is still claimed by it. Putting a stopped run's record back in flight
+			// takes its developer slot again, so it goes through the reservation.
+			if err := fixture.Store.ReserveLive(context.Background(), killed, 1); err != nil {
+				t.Fatalf("ReserveLive() error = %v", err)
 			}
 			fixture.Tracker.ForgetSettlement()
 			fixture.Tracker.SetItemStatus("in_progress")

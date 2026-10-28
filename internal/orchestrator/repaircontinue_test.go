@@ -175,9 +175,7 @@ func (h *continueHarness) reload(t *testing.T) runstate.State {
 
 func (h *continueHarness) save(t *testing.T, state runstate.State) {
 	t.Helper()
-	if err := h.runs.Save(state); err != nil {
-		t.Fatalf("Save() error = %v", err)
-	}
+	saveRecord(t, h.runs, state)
 }
 
 // What the action is for: the same run goes on, on the change it already has,
@@ -537,6 +535,18 @@ func (f *repairRecordRuns) Save(state runstate.State) error {
 		return f.saveErr
 	}
 	if err := f.RepairRuns.Save(state); err != nil {
+		return err
+	}
+	return f.saveErr
+}
+
+// ReserveLive fails exactly as Save does, because making a stopped run live is
+// a save that also takes the slot.
+func (f *repairRecordRuns) ReserveLive(ctx context.Context, state runstate.State, maxConcurrent int) error {
+	if f.saveErr != nil && !f.writeBeforeErr {
+		return f.saveErr
+	}
+	if err := f.RepairRuns.ReserveLive(ctx, state, maxConcurrent); err != nil {
 		return err
 	}
 	return f.saveErr

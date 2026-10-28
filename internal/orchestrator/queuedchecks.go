@@ -469,7 +469,19 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 	resumed.CompletedAt = nil
 	resumed.SettledQuietSince = nil
 	resumed.UpdatedAt = now
-	if err := r.Store.Save(resumed); err != nil {
+	// The slot is taken by this save, not by slotFree above, which a reservation
+	// beside this sweep can overtake. A refusal wrote nothing to the run, and the
+	// merge withdrawn above stays withdrawn: the next sweep finds it no longer
+	// held by the forge and puts the run back as it does any dropped merge.
+	if err := r.Store.ReserveLive(ctx, resumed, r.Capacity); err != nil {
+		if capacity, taken := slotTakenMeanwhile(err); taken {
+			if dropped {
+				return waiting("every developer slot was taken before the run could be put back at its promotion")
+			}
+			result.Detail += fmt.Sprintf("; the queued merge of pull request %d was withdrawn to bring its head up to date onto %s, and the last developer slot went to another run before this one could take it (%d active, limit %d), so the next sweep puts it back at its promotion as a dropped merge",
+				published.Number, target, capacity.Active, capacity.Limit)
+			return result, nil
+		}
 		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("put run %s back at its promotion, whose queued merge the forge no longer holds: %w", state.RunID, err)
 	}
 	updating := reconciliationOf(resumed, ActionUpdating)
@@ -589,8 +601,10 @@ func boundedReason(reason string) string {
 	return oneline.Bound(reason, runstate.MaxSelectionReasonBytes)
 }
 
-// slotFree counts the runs in flight against the configured limit, from the same
-// records the reservation counts. A reconciler with no limit set has no room.
+// slotFree counts the runs holding a developer slot against the configured
+// limit, by the same rule the reservation counts. It is read before the merge
+// is withdrawn, so a full harness withdraws nothing; Store.ReserveLive is what
+// takes the slot. A reconciler with no limit set has no room.
 func (r Reconciler) slotFree() (bool, error) {
 	if r.Capacity <= 0 {
 		return false, nil
@@ -599,13 +613,7 @@ func (r Reconciler) slotFree() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	inFlight := 0
-	for _, state := range outstanding {
-		if state.Status.InFlight() {
-			inFlight++
-		}
-	}
-	return inFlight < r.Capacity, nil
+	return holdingDeveloperSlots(r.Store, outstanding, time.Now()) < r.Capacity, nil
 }
 
 // renderQueuedUpdateNotes tells the work item its queued merge was withdrawn —

@@ -510,6 +510,75 @@ func TestAResumptionWaitsOnAHeldIntakeOrAFullHarness(t *testing.T) {
 	full.assertNothingWritten(t)
 }
 
+// slotTakenAfterReading is a run store whose last free slot a fresh start takes
+// after a recovery path has read it free and before the save that makes the
+// stopped run live, exactly as a scheduler beside the recovery would.
+type slotTakenAfterReading struct {
+	RepairRuns
+	take func()
+}
+
+func (s *slotTakenAfterReading) ReserveLive(ctx context.Context, live runstate.State, maxConcurrent int) error {
+	if s.take != nil {
+		s.take()
+		s.take = nil
+	}
+	return s.RepairRuns.ReserveLive(ctx, live, maxConcurrent)
+}
+
+// A fresh start that takes the last slot after the resumption read it free
+// wins it: making the stopped run live is where the slot is taken, so the
+// resumption waits as it would on a full harness, leaves the run stopped, and
+// tells the item why, rather than running two developers in one slot.
+func TestAResumptionWaitsWhenAFreshStartTakesTheLastSlotAfterItWasReadFree(t *testing.T) {
+	t.Parallel()
+
+	harness := newResumeHarness(t, approvedStoppedState())
+	harness.capacity = 1
+	fresh := approvedStoppedState()
+	fresh.RunID = "run-ffffffffffffffffffffffffffffffff"
+	fresh.WorkItemID = "yoyodyne-fresh"
+	fresh.Status = runstate.StatusPending
+	fresh.Phase = ""
+	fresh.CompletedAt = nil
+	fresh.IntegrationStop = nil
+	fresh.Environmental = nil
+	fresh.Failure = ""
+	resumer := harness.resumer()
+	resumer.Runs = &slotTakenAfterReading{RepairRuns: harness.runs, take: func() {
+		lease, err := harness.runs.Reserve(context.Background(), fresh, 1)
+		if err != nil {
+			t.Errorf("Reserve() of the fresh start error = %v", err)
+			return
+		}
+		t.Cleanup(func() { lease.Release() })
+	}}
+
+	result, err := resumer.Resume(context.Background(), resumeRequest())
+	if err != nil || result.Resumed || result.CapacityFull == nil || result.CapacityFull.Active != 1 {
+		t.Fatalf("Resume() = %#v, error = %v; want the slot reported taken and nothing resumed", result, err)
+	}
+	if state := harness.reload(t); state.Status != runstate.StatusFailed || len(state.IntegrationResumptions) != 0 {
+		t.Fatalf("the refused resumption changed the run: %s/%s, resumptions %#v", state.Status, state.Phase, state.IntegrationResumptions)
+	}
+	if len(harness.started) != 0 {
+		t.Fatalf("the refused resumption dispatched something: %#v", harness.started)
+	}
+	if _, closed := harness.closure(t); closed {
+		t.Fatal("the refused resumption closed the docket entry")
+	}
+	if !strings.Contains(harness.tracker.Notes, "the last free developer slot went to another run") {
+		t.Fatalf("item notes = %q, want the wait for a slot said", harness.tracker.Notes)
+	}
+	active, err := harness.runs.Incomplete()
+	if err != nil {
+		t.Fatalf("Incomplete() error = %v", err)
+	}
+	if held := runstate.HoldingDeveloperSlots(active); held != 1 {
+		t.Fatalf("developer slots held = %d, want exactly the fresh start's", held)
+	}
+}
+
 // The pipeline's own reading of a resumed run: it is picked up at its promotion
 // and nowhere else, and a run at that phase nothing resumed on purpose is not.
 func TestOnlyARunResumedOnPurposeIsPickedUpAtItsPromotion(t *testing.T) {

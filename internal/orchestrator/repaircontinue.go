@@ -134,6 +134,10 @@ import (
 type RepairRuns interface {
 	RerunRuns
 	Recorded() ([]runstate.State, error)
+	// ReserveLive saves a stopped run made live again and takes its developer
+	// slot in the same act (Store.ReserveLive). It is the only way a continuation
+	// or resumption writes the record that makes a run live.
+	ReserveLive(ctx context.Context, live runstate.State, maxConcurrent int) error
 }
 
 // RepairItems is the work item the stopped run is about. Unlike a re-run's, this
@@ -653,7 +657,10 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	if err := c.supersedeOnItem(ctx, item, prior, granted); err != nil {
 		return c.unconfirmedContinuation(ctx, result, err)
 	}
-	continued, err := c.supersedeOnRun(prior, granted, reason, result.Stall, result.FreshSession, replay)
+	continued, err := c.supersedeOnRun(ctx, prior, granted, reason, result.Stall, result.FreshSession, replay)
+	if capacity, taken := slotTakenMeanwhile(err); taken {
+		return c.slotTakenBeforeContinuing(ctx, result, capacity)
+	}
 	if err != nil {
 		return c.unconfirmedContinuation(ctx, result, fmt.Errorf("record the continuation on run %s, whose item claim was confirmed: %w", prior.RunID, err))
 	}
@@ -710,7 +717,7 @@ func (c RepairContinuer) recoverContinuation(ctx context.Context, prior runstate
 	// Save the existing record unchanged: an earlier save may have replaced the
 	// file and then failed to sync its directory. This confirms durability without
 	// appending a continuation or charging an attempt again.
-	confirmed, err := c.saveContinuation(prior)
+	confirmed, err := c.saveContinuation(ctx, prior, false)
 	if err != nil {
 		return c.unconfirmedContinuation(ctx, result, err)
 	}
@@ -830,6 +837,18 @@ func (c RepairContinuer) unconfirmedContinuation(ctx context.Context, result Rep
 		err = errors.Join(err, fmt.Errorf("append the unconfirmed repair outcome to %s: %w", result.WorkItemID, noteErr))
 	}
 	return result, err
+}
+
+// slotTakenBeforeContinuing is the reservation refusing the continuation
+// because another run took the last developer slot after the slot was read
+// free. Nothing was written to the run and no grant was spent, so it is the same
+// wait a full harness is before anything is asked: the item is told, the
+// decision stands, and the next pass carries it out once a slot is free. The
+// claim already taken is the one supersedeOnItem accepts on that pass.
+func (c RepairContinuer) slotTakenBeforeContinuing(ctx context.Context, result RepairContinueResult, capacity runstate.CapacityError) (RepairContinueResult, error) {
+	result.CapacityFull = &capacity
+	result.RecordProblem = noteSlotTaken(ctx, c.Items, result.WorkItemID, result.RunID, capacity)
+	return result, nil
 }
 
 func (c RepairContinuer) dispatchContinuation(ctx context.Context, result RepairContinueResult, continuation runstate.RepairContinuation, lease *runstate.Lease) (RepairContinueResult, error) {
@@ -1299,7 +1318,7 @@ func (c RepairContinuer) supersedeOnItem(ctx context.Context, item beads.WorkIte
 // a developer, and what it does first is bring the change up to date, which is
 // a lost race and costs nothing. The grant pays for what follows — a conflict
 // the replay hands the developer is repaired under it.
-func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGrant, reason string, stalled bool, fresh string, replay bool) (runstate.State, error) {
+func (c RepairContinuer) supersedeOnRun(ctx context.Context, prior runstate.State, granted repairGrant, reason string, stalled bool, fresh string, replay bool) (runstate.State, error) {
 	continued := prior
 	// Also correct stale flags when a process restored and verified the checkout
 	// but died before its final save. Captured work still keeps its ref and sweep
@@ -1389,14 +1408,27 @@ func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGran
 	continued.CompletedAt = nil
 	continued.SettledQuietSince = nil
 	continued.UpdatedAt = c.now()
-	return c.saveContinuation(continued)
+	return c.saveContinuation(ctx, continued, true)
 }
 
 // saveContinuation reads the record back even when Save reports an error: a
 // failure after replacement leaves a different recovery from a refused write.
 // Only a successful save and matching read-back confirm the transition.
-func (c RepairContinuer) saveContinuation(continued runstate.State) (runstate.State, error) {
-	saveErr := c.Runs.Save(continued)
+//
+// makeLive is a stopped run going again, which takes its developer slot in the
+// same act as the save (Store.ReserveLive); a refusal for capacity wrote
+// nothing and is returned as it is. A record already running holds its slot and
+// is only saved again.
+func (c RepairContinuer) saveContinuation(ctx context.Context, continued runstate.State, makeLive bool) (runstate.State, error) {
+	var saveErr error
+	if makeLive {
+		saveErr = c.Runs.ReserveLive(ctx, continued, c.Capacity)
+		if _, taken := slotTakenMeanwhile(saveErr); taken {
+			return runstate.State{}, saveErr
+		}
+	} else {
+		saveErr = c.Runs.Save(continued)
+	}
 	recorded, readErr := c.Runs.Load(continued.RunID)
 	if readErr != nil {
 		return runstate.State{}, errors.Join(saveErr, fmt.Errorf("read back the repair continuation; its outcome is uncertain: %w", readErr))

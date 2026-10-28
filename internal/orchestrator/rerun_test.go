@@ -433,9 +433,7 @@ func TestARerunIsRefusedWhileAnythingOfTheStoppedRunIsStillLive(t *testing.T) {
 			// record then moves on: that is exactly the disagreement this checks.
 			harness := newRerunHarness(t, stoppedState())
 			moved := refusal.state(stoppedState())
-			if err := harness.runs.Save(moved); err != nil {
-				t.Fatalf("Save() error = %v", err)
-			}
+			saveRecord(t, harness.runs, moved)
 			_, err := harness.rerunner().Rerun(context.Background(), rerunRequest())
 			if err == nil || !strings.Contains(err.Error(), refusal.want) {
 				t.Fatalf("Rerun() error = %v, want a refusal naming %q", err, refusal.want)

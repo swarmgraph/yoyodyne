@@ -9,13 +9,18 @@ package runstate
 // those two, or through Create, which makes a record that does not exist yet
 // and so has no stored routing to lose. A writer that replaced the record file
 // any other way would drop or forge a run's routing without either check seeing
-// it, and the run would be resumed on a backend nobody chose.
+// it, and the run would be resumed on a backend nobody chose. Save also refuses
+// a write that would make a run that is not in flight live again holding a
+// developer slot, which only ReserveLive may do, under the reservation lock;
+// both reach the record through save, so a writer going round it would take a
+// slot nobody counted as well.
 //
 // So the sweep below fails on:
 //
 //   - a function naming a run record's path (statePath) that is not listed in
 //     runRecordPathSites;
-//   - a function calling writeState other than Save and UpdateRouting;
+//   - a function calling writeState other than save (behind Save and
+//     ReserveLive) and UpdateRouting;
 //   - a *Store method other than statePath building a name ending in exactly
 //     ".json" by concatenation, which is how a writer would name the record
 //     without asking statePath for it. The other stores in this package name
@@ -41,7 +46,7 @@ import (
 // it does with it.
 var runRecordPathSites = map[string]string{
 	"(*Store).Create":      "writes a record that must not exist yet, with O_EXCL, so there is no stored routing to lose or overwrite",
-	"(*Store).writeState":  "the one replacement of an existing record; only Save and UpdateRouting call it, under the run's write lock",
+	"(*Store).writeState":  "the one replacement of an existing record; only save (behind Save and ReserveLive) and UpdateRouting call it, under the run's write lock",
 	"(*Store).load":        "reads the record; Load and Read both go through it",
 	"(*Store).storedHead":  "reads the stored routing and worker so Save can compare the one and keep the other before writing",
 	"(*Store).WaitForSlot": "asks only whether the document's run is recorded, under the reservation lock, before writing a wait of its own beside it",
@@ -49,7 +54,7 @@ var runRecordPathSites = map[string]string{
 
 // runRecordReplacers is every function allowed to call writeState.
 var runRecordReplacers = map[string]bool{
-	"(*Store).Save":          true,
+	"(*Store).save":          true,
 	"(*Store).UpdateRouting": true,
 }
 
@@ -109,7 +114,8 @@ func TestTheRunRecordSweepCatchesABypassingWriter(t *testing.T) {
 
 func (s *Store) statePath(runID string) (string, error) { return filepath.Join(s.root, runID+".json"), nil }
 func (s *Store) writeState(state State) error { return nil }
-func (s *Store) Save(state State) error { return s.writeState(state) }
+func (s *Store) Save(state State) error { return s.save(state, false) }
+func (s *Store) save(state State, reserved bool) error { return s.writeState(state) }
 func (s *Store) StopQuietly(state State) error {
 	path, _ := s.statePath(state.RunID)
 	return replaceJSONFile(s.root, path, "run state", state)
@@ -131,7 +137,7 @@ func (s *Store) Sideways(state State) error {
 			t.Errorf("the sweep did not report %q; it reported:\n%s", want, problems)
 		}
 	}
-	if strings.Contains(problems, "(*Store).Save replaces") || strings.Contains(problems, "(*Store).statePath builds") {
+	if strings.Contains(problems, "(*Store).Save replaces") || strings.Contains(problems, "(*Store).save replaces") || strings.Contains(problems, "(*Store).statePath builds") {
 		t.Errorf("the sweep reported an allowed site:\n%s", problems)
 	}
 }
@@ -182,7 +188,7 @@ func runRecordWriteProblems(fileSet *token.FileSet, files []*ast.File) ([]string
 			}
 		}
 		if at.replaces && !runRecordReplacers[key] {
-			problems = append(problems, key+" replaces a run record through writeState (at "+at.at.String()+"). Only Save and UpdateRouting may, because they hold the run's write lock and compare the stored routing first; call Save instead.")
+			problems = append(problems, key+" replaces a run record through writeState (at "+at.at.String()+"). Only save, behind Save and ReserveLive, and UpdateRouting may, because they hold the run's write lock, compare the stored routing, and refuse a run made live without a developer slot first; call Save, or ReserveLive to make a run live.")
 		}
 		if at.builds && key != "(*Store).statePath" {
 			problems = append(problems, key+" builds a name ending in \".json\" (at "+at.at.String()+"), which is how a run record is named. Ask statePath for a run record's name and write it through Save; another record wants a suffix of its own, such as \".stop.json\".")
