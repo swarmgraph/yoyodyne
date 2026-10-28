@@ -107,6 +107,15 @@ type RunPresence interface {
 	Presence(state runstate.State, quiet time.Duration, now time.Time) (runstate.RunPresence, error)
 }
 
+// RunSlots reads whether a run in flight holds a developer slot by the rule the
+// reservation and the scheduler count by: a run whose worker's process is gone
+// holds none (runstate.Store.HoldsDeveloperSlotNow). Every wired store
+// satisfies it; readings over fixtures may omit it, and then a run in flight
+// is counted by its record alone.
+type RunSlots interface {
+	HoldsDeveloperSlotNow(state runstate.State, now time.Time) bool
+}
+
 // RunHolder observes a lease's process even after the run's record went
 // terminal, while landing checks may still be running. Every wired store
 // satisfies it; readings over fixtures may omit it.
@@ -502,12 +511,18 @@ type RunningRun struct {
 	// NoProcessRemedy is what ends such a run, which is not the same for every
 	// park: runstate.DeadRunRemedy, from the sweep's own rules. It is set exactly
 	// where NoProcess is.
-	NoProcessRemedy string              `json:"no_process_remedy,omitempty"`
-	StartedAt       time.Time           `json:"started_at"`
-	Elapsed         time.Duration       `json:"elapsed"`
-	CostText        string              `json:"cost_text"`
-	Tokens          runstate.TokenUsage `json:"tokens"`
-	CostUSD         float64             `json:"cost_usd"`
+	NoProcessRemedy string `json:"no_process_remedy,omitempty"`
+	// HoldsNoSlot is why a run whose record says it is in flight holds no
+	// developer slot: its worker's process is gone. It is read by the rule the
+	// reservation and the scheduler count by (RunSlots), so the slots this
+	// reading says are taken are the ones the scheduler will not fill. Such a run
+	// stays on the running line, because its record still says it is going.
+	HoldsNoSlot string              `json:"holds_no_slot,omitempty"`
+	StartedAt   time.Time           `json:"started_at"`
+	Elapsed     time.Duration       `json:"elapsed"`
+	CostText    string              `json:"cost_text"`
+	Tokens      runstate.TokenUsage `json:"tokens"`
+	CostUSD     float64             `json:"cost_usd"`
 	// UnknownCost says why there is no figure rather than reporting one of zero: a
 	// run whose evidence cannot be read has not cost nothing.
 	UnknownCost string `json:"unknown_cost,omitempty"`
@@ -922,7 +937,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	if switches.intakeHeld {
 		busy, slotsProblem := len(standing.Dispatching), runningProblem
 		for _, run := range running {
-			if !run.documentLanding {
+			if !run.documentLanding && run.HoldsNoSlot == "" {
 				busy++
 			}
 		}
@@ -1375,6 +1390,9 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 				run.NoProcessRemedy = runstate.DeadRunRemedy(state, DefaultDeadClaimThreshold)
 			}
 		}
+		if slots, ok := sources.Runs.(RunSlots); ok && state.HoldsDeveloperSlot() && !slots.HoldsDeveloperSlotNow(state, now) {
+			run.HoldsNoSlot = "the process that was working on it is gone, so it holds no developer slot and the scheduler counts that slot free"
+		}
 		price, err := sources.Runs.Price(state.WorkItemID)
 		if err != nil {
 			run.UnknownCost = fmt.Sprintf("what it has spent could not be read: %v", err)
@@ -1446,7 +1464,7 @@ func readSlots(sources Sources, running []RunningRun) []DeveloperSlotStanding {
 	}
 	inFlight := make([]developerslot.Run, 0, len(running))
 	for _, run := range running {
-		if run.documentLanding {
+		if run.documentLanding || run.HoldsNoSlot != "" {
 			continue
 		}
 		inFlight = append(inFlight, developerslot.Run{

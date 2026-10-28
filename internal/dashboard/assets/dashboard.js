@@ -273,9 +273,11 @@ var standingWarningAgeSeconds = 5 * 60;
     return "held since " + localMoment(item.held_since) + ", " + agoSaid(new Date(standing.observed_at) - new Date(item.held_since)) + "; ";
   }
 
-  // A run with no process behind it is still in flight and still holds its
-  // slot, but the phase is only what the dead process last wrote, so the card
-  // says it is not running rather than printing that phase as work under way.
+  // A run with no process behind it is still in flight by its record, but the
+  // phase is only what the dead process last wrote, so the card says it is not
+  // running rather than printing that phase as work under way. One whose
+  // worker's process is shown to be gone also holds no developer slot
+  // (holds_no_slot), which the card says too.
   function phaseOf(run) {
     if (run.no_process) {
       return "no process behind it, recorded as " + (run.phase || "no phase");
@@ -861,6 +863,9 @@ var standingWarningAgeSeconds = 5 * 60;
     card.appendChild(meta);
     if (run.no_process) {
       card.appendChild(el("p", "problem", "No process can be found behind this run: " + run.no_process + (run.no_process_remedy ? "; " + run.no_process_remedy : "") + "."));
+    }
+    if (run.holds_no_slot) {
+      card.appendChild(el("p", "problem", "It holds no developer slot: " + run.holds_no_slot + "."));
     }
     var where = provenance(run);
     if (where) {

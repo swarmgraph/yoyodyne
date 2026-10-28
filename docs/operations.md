@@ -5008,13 +5008,24 @@ has the rule.
 
   **A run with no process behind it is named as one rather than as running.**
   Its record says `running` until something writes its ending, and a process
-  that dies writes nothing, so it stays on this line — it still holds its
-  slot — but in place of the phase the line says so, with what ends it, and
-  the head counts it:
+  that dies writes nothing, so it stays on this line, but in place of the
+  phase the line says so, with what ends it, and the head counts it.
+
+  Whether it still holds its developer slot depends on what became of its
+  worker. Where the worker's process is shown to be gone — it exited, its
+  process number now belongs to another program, or the program it ran was
+  replaced by a restart — the run holds no slot: the scheduler and the
+  reservation count that slot free and fill it, and the line says so, in its
+  head and against the run. Three such runs still hold their slot: one its
+  session stopped for a restart, whose slot is kept for the session that comes
+  back and picks it up; one whose worker cannot be shown gone or present, so
+  the configured number of developers is never exceeded; and one whose program
+  is still running with nothing holding the run's lease for the moment, which
+  is the gap between one step of a run and the next.
 
   ```text
-  Running (2 developer runs, 1 with no process behind it):
-    yoyodyne-ifd.428.34 (…) — no process can be found behind it: no process holds it, and nothing has been written to it since 2026-09-27T01:05:29Z; recorded as checking; `yoyo reconcile` settles it — a parked run once its record has not moved for 30m0s — and `yoyo run yoyodyne-ifd.428.34` continues it before then, 20h02m elapsed, $41.20 so far
+  Running (2 developer runs, 1 with no process behind it, 1 holding no developer slot):
+    yoyodyne-ifd.428.34 (…) — no process can be found behind it: no process holds it, and nothing has been written to it since 2026-09-27T01:05:29Z; recorded as checking; it holds no developer slot; `yoyo reconcile` settles it — a parked run once its record has not moved for 30m0s — and `yoyo run yoyodyne-ifd.428.34` continues it before then, 20h02m elapsed, $41.20 so far
   ```
 
   What ends it depends on what it was parked on, because the

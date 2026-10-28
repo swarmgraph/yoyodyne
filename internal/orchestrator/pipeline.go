@@ -1492,6 +1492,11 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		return Outcome{}, err
 	}
 	defer reservation.Release()
+	// The run holds its slot from here, and nothing before this point started
+	// it: a re-run the pipeline paused or refused before its reservation came
+	// back without one. So this, and nothing earlier, tells a pull waiting to
+	// hear whether the re-run it fired began that it did (carryoutstart.go).
+	carryOutBegun(ctx)
 	run := &activeRun{
 		pipeline:   p,
 		state:      state,

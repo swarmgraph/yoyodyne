@@ -114,6 +114,18 @@ type WorkerReading struct {
 	// Says is why, in a sentence a person reads.
 	Says       string    `json:"says"`
 	ObservedAt time.Time `json:"observed_at"`
+	// processGone marks an absent worker whose process is itself gone: it
+	// exited, its pid now belongs to another process, or the program it ran was
+	// replaced. A worker still running the program that took the run, with
+	// nothing holding the lease, is absent without it, because the harness
+	// lets go of a run's lease for a moment between one step and the next.
+	processGone bool
+}
+
+// ProcessGone reports a worker shown to be absent because its process is gone,
+// rather than only because nothing holds the run's lease this moment.
+func (r WorkerReading) ProcessGone() bool {
+	return r.Liveness == WorkerAbsent && r.processGone
 }
 
 // LeaseHolder is the stamp a process holding a run's lease writes beside it.
@@ -239,6 +251,10 @@ func (s *Store) Worker(state State, now time.Time) WorkerReading {
 		reading.Liveness, reading.Says = WorkerAbsent, says
 		return reading
 	}
+	gone := func(says string) WorkerReading {
+		reading.processGone = true
+		return absent(says)
+	}
 	recorded := state.Worker
 	if recorded == nil {
 		return uncertain("the run was recorded by a build that wrote down no worker identity, so no process can be shown to be its worker")
@@ -251,13 +267,13 @@ func (s *Store) Worker(state State, now time.Time) WorkerReading {
 		return uncertain(fmt.Sprintf("the operating system could not be asked about pid %d: %v", recorded.PID, err))
 	}
 	if !look.Running() {
-		return absent(fmt.Sprintf("attempt %d's worker, pid %d, has exited", recorded.Attempt, recorded.PID))
+		return gone(fmt.Sprintf("attempt %d's worker, pid %d, has exited", recorded.Attempt, recorded.PID))
 	}
 	if look.StartedAt.IsZero() || recorded.StartedAt.IsZero() {
 		return uncertain(fmt.Sprintf("a process has pid %d, but the start time that would show it is attempt %d's worker is not known", recorded.PID, recorded.Attempt))
 	}
 	if !sameStart(look.StartedAt, recorded.StartedAt) {
-		return absent(fmt.Sprintf("pid %d now belongs to a process started at %s, not attempt %d's worker, which started at %s",
+		return gone(fmt.Sprintf("pid %d now belongs to a process started at %s, not attempt %d's worker, which started at %s",
 			recorded.PID, look.StartedAt.UTC().Format(time.RFC3339), recorded.Attempt, recorded.StartedAt.UTC().Format(time.RFC3339)))
 	}
 	program, programSays := s.programVerdict(recorded.PID, recorded, look)
@@ -266,7 +282,7 @@ func (s *Store) Worker(state State, now time.Time) WorkerReading {
 		if released := state.EarlierProgram; released != nil && released.Worker.Same(*recorded) {
 			programSays += fmt.Sprintf("; the program that replaced it let go of the run's lease at %s", released.ReleasedAt.Local().Format(personTime))
 		}
-		return absent(programSays)
+		return gone(programSays)
 	case programUnknown:
 		// The design's rule: a program nothing recorded is never live and never
 		// gone, whatever the lease shows.

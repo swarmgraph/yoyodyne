@@ -833,6 +833,10 @@ func (c RepairContinuer) unconfirmedContinuation(ctx context.Context, result Rep
 }
 
 func (c RepairContinuer) dispatchContinuation(ctx context.Context, result RepairContinueResult, continuation runstate.RepairContinuation, lease *runstate.Lease) (RepairContinueResult, error) {
+	// The run is recorded as in flight again by now, so it holds its slot; a
+	// pull waiting to hear whether the repair it fired began is told it did
+	// (carryoutstart.go).
+	carryOutBegun(ctx)
 	// The finding a refused carry-out left is taken back here, once the re-entry is
 	// recorded and before the run goes: a finding that stood for the length of the
 	// run would have the docket say the decision is not happening while it runs.
@@ -1125,6 +1129,19 @@ func continuableRepair(prior runstate.State, found triage.Found) error {
 			}
 			return permanentCarryOut(triage.CarryOutMergeDropped, fmt.Errorf("run %s's change was approved and handed to the forge to merge, and the forge did not merge it: %s. Nothing was ever returned to its developer, and the change cannot be brought up to date from the run because %s",
 				prior.RunID, oneline.Bound(prior.MergeDrop.Reason, 1200), why))
+		}
+		// A run that stopped while its developer was still working, with its
+		// change kept, is the case this is refused on most, and the generic words
+		// below left the development manager to work out what would apply. It is
+		// said plainly: what stopped it, that nothing judged the change, and the
+		// decision that does apply.
+		if prior.Phase == runstate.PhaseDeveloping && prior.Status.Terminal() && found.BranchThere {
+			stopped := "it recorded no reason"
+			if failure := strings.TrimSpace(prior.Failure); failure != "" {
+				stopped = oneline.Bound(failure, 600)
+			}
+			return fmt.Errorf("run %s stopped while its developer was still working (%s), before any check or review judged its change, so no failure was ever handed back for a repair to answer. Its change is kept on branch %s. A re-run of %s is the decision that applies: it starts a fresh developer, who can bring that branch's commits in rather than rebuild them, and has the change checked and reviewed",
+				prior.RunID, stopped, prior.Branch, prior.WorkItemID)
 		}
 		return fmt.Errorf("run %s recorded no reviewer findings, failing check, refused paths, or replay conflict, and is not a provider the harness stopped with its session preserved, so no failure was ever returned to its developer and there is no attempt to carry on with: %s stopped for something a repair budget does not answer",
 			prior.RunID, prior.RunID)

@@ -1050,10 +1050,39 @@ func slotIsFree(runs RerunRuns, capacity int) (runstate.CapacityError, bool, err
 	if err != nil {
 		return runstate.CapacityError{}, false, fmt.Errorf("read what is already in flight: %w", err)
 	}
-	if holding := runstate.HoldingDeveloperSlots(incomplete); holding >= capacity {
+	if holding := holdingDeveloperSlots(runs, incomplete, time.Now()); holding >= capacity {
 		return runstate.CapacityError{Limit: capacity, Active: holding}, false, nil
 	}
 	return runstate.CapacityError{}, true, nil
+}
+
+// slotHolders reads, where the run store can say, whether a run's worker is
+// still working on it, by the rule the reservation counts by
+// (runstate.Store.HoldsDeveloperSlotNow). It is satisfied by *runstate.Store.
+type slotHolders interface {
+	HoldsDeveloperSlotNow(state runstate.State, now time.Time) bool
+}
+
+// holdsDeveloperSlot is whether one run counts against the developer slots: by
+// its worker as well as its record where the store can read the worker, and by
+// its record alone where it cannot.
+func holdsDeveloperSlot(runs any, state runstate.State, now time.Time) bool {
+	if holders, ok := runs.(slotHolders); ok {
+		return holders.HoldsDeveloperSlotNow(state, now)
+	}
+	return state.HoldsDeveloperSlot()
+}
+
+// holdingDeveloperSlots counts the runs among states that hold a developer slot
+// by holdsDeveloperSlot.
+func holdingDeveloperSlots(runs any, states []runstate.State, now time.Time) int {
+	holding := 0
+	for _, state := range states {
+		if holdsDeveloperSlot(runs, state, now) {
+			holding++
+		}
+	}
+	return holding
 }
 
 // capacityRefused reports the fresh run having been refused a developer slot and
