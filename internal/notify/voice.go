@@ -216,6 +216,7 @@ var harnessVoice = voice{
 		KindWatchResumed:             "The watch session is choosing work again: {why}",
 		KindWatchStopped:             "The watch session ended: {why}",
 		KindWatchRedeploying:         "The watch session is restarting into the build deployed over it, having waited out every run it started: {why}",
+		KindWatchHoldReleased:        "The harness released a hold it had placed on new work, because the check that hold waited on passed: {why}",
 		KindWatchReadRetrying:        "The watch session could not read the harness's store at this poll and is reading it again, so nothing is known about the queue from it: {why}",
 		KindLineWaiting:              "Nothing is being chosen on this product: {stopped}, for {age} now, with {ready} ready to pull and {publications}.\n\n{standing}",
 		KindStallNoticed:             "Nothing at all has started on this product for {age}, with {ready} ready to pull: {cause}. {stopped}.\n\n{standing}",
@@ -298,6 +299,7 @@ var developerVoice = voice{
 		KindWatchResumed:             "Work is being handed out again, and I'll take what I'm given: {why}",
 		KindWatchStopped:             "Nothing more will be handed to me until somebody starts it again: {why}",
 		KindWatchRedeploying:         "The session that hands me work is restarting into a newer build of itself; work will keep arriving once it is back: {why}",
+		KindWatchHoldReleased:        "A hold on new work has been released by the harness, so work will reach me again: {why}",
 		KindWatchReadRetrying:        "Nothing was handed to me because the harness's store could not be read, not because the queue is empty; it is being read again: {why}",
 		KindLineWaiting:              "Nothing has been handed to me for {age}: {stopped}, with {ready} in the queue that could have been and {publications} from work already done.\n\n{standing}",
 		KindStallNoticed:             "Nothing has been handed to me for {age} — {ready} sat ready the whole time: {cause}. {stopped}.\n\n{standing}",
@@ -380,6 +382,7 @@ var reviewerVoice = voice{
 		KindWatchResumed:             "Work is starting again, so changes will come back to me: {why}",
 		KindWatchStopped:             "No more changes will arrive from this session; what I judged already stands: {why}",
 		KindWatchRedeploying:         "The session sending me changes is restarting into a newer build of itself, so what arrives next was chosen by the build that was deployed: {why}",
+		KindWatchHoldReleased:        "A hold on new work has been released by the harness, so changes will come back to me again: {why}",
 		KindWatchReadRetrying:        "The session sending me changes could not read the harness's store, so nothing new reaches me until it answers again: {why}",
 		KindLineWaiting:              "No change has come to me for a verdict in {age}: {stopped}, with {ready} waiting behind it and {publications} I have already approved.\n\n{standing}",
 		KindStallNoticed:             "No change has reached me for a verdict in {age}, and none was written — {ready} ready and no run started: {cause}. {stopped}.\n\n{standing}",
@@ -461,6 +464,7 @@ var developmentManagerVoice = voice{
 		KindWatchResumed:             "I'm pulling from the top of the queue again: {why}",
 		KindWatchStopped:             "The queue stops being pulled from here; what is in it stays in it: {why}",
 		KindWatchRedeploying:         "The queue stops being pulled from only until the session is back on the build deployed over it, and nothing in it moved: {why}",
+		KindWatchHoldReleased:        "The harness released its own hold on new work, so the queue is being pulled from again: {why}",
 		KindWatchReadRetrying:        "The queue could not be read at this poll, so what is in it is unknown rather than empty, and it is being read again: {why}",
 		KindLineWaiting:              "The queue has not been pulled from for {age}: {stopped}, with {ready} pullable right now and {publications} still counting as in flight.\n\n{standing}",
 		KindStallNoticed:             "My queue has not been pulled from in {age} — {ready} pullable, no hold on the line, no full machine, no run in flight: {cause}. {stopped}.\n\n{standing}",
@@ -543,6 +547,7 @@ var productManagerVoice = voice{
 		KindWatchResumed:             "Work is being chosen again, and what I admit is what gets spent on: {why}",
 		KindWatchStopped:             "Nothing further is being chosen or spent, and the backlog is untouched by that: {why}",
 		KindWatchRedeploying:         "Choosing and spending pause only while the session restarts into the build deployed over it, and the backlog is untouched by that: {why}",
+		KindWatchHoldReleased:        "The harness released its own hold on new work, so choosing and spending resume: {why}",
 		KindWatchReadRetrying:        "The backlog could not be read at this poll, so nothing new was started and nothing about it is known; it is being read again: {why}",
 		KindLineWaiting:              "Nothing has been spent on this product for {age}: {stopped}, with {ready} admitted and ready to be worked on, and {publications} paid for and not yet delivered.\n\n{standing}",
 		KindStallNoticed:             "Nothing has been spent on this product for {age}, and {ready} I admitted is still waiting: {cause}. This is not a quiet queue; it is a queue nothing has been started from. {stopped}.\n\n{standing}",
@@ -625,6 +630,7 @@ var architectVoice = voice{
 		KindWatchResumed:             "Selection resumes where it left off, from a queue read fresh rather than remembered: {why}",
 		KindWatchStopped:             "The selection loop is closed; every run it started was waited out rather than abandoned: {why}",
 		KindWatchRedeploying:         "The selection loop closes and restarts on the build deployed over it; every run it started was waited out rather than abandoned: {why}",
+		KindWatchHoldReleased:        "The harness released a hold it had placed itself once the check behind it passed, and selection resumes: {why}",
 		KindWatchReadRetrying:        "Selection could not read the harness's store at this poll and is reading it again, with no provider call spent on it: {why}",
 		KindLineWaiting:              "Selection has chosen nothing for {age}: {stopped}, with {ready} a run could have been started for behind it and {publications}. Quiet nobody chose is the failure mode this exists to say out loud.\n\n{standing}",
 		KindStallNoticed:             "Selection has started nothing for {age} over {ready} ready: {cause}. The failure this watches for is the one where the process that would have said why is the process that died. {stopped}.\n\n{standing}",
@@ -708,6 +714,7 @@ var programManagerVoice = voice{
 		KindWatchResumed:             "The line is choosing again, from a fresh read of the queue: {why}",
 		KindWatchStopped:             "The loop watching the line has closed, after waiting out every run it started: {why}",
 		KindWatchRedeploying:         "The loop is closing to restart on the build installed over it, after waiting out every run it started: {why}",
+		KindWatchHoldReleased:        "The harness released the hold it had placed on the line once the check behind it passed: {why}",
 		KindWatchReadRetrying:        "The line could not read the harness's store at this poll and is trying again, with no provider call spent: {why}",
 		KindLineWaiting:              "The line has chosen nothing for {age}: {stopped}, with {ready} a run could start on behind it and {publications}. A quiet line with a reason is a line I can report on.\n\n{standing}",
 		KindStallNoticed:             "The line has started nothing for {age} over {ready} ready: {cause}. A stall is the outcome I exist to notice, and the process that would explain it may be the one that stopped. {stopped}.\n\n{standing}",
@@ -919,6 +926,9 @@ var nextMoves = map[Kind]string{
 	// start a session would be handing them a move they do not have — once per
 	// deploy, which is exactly the standing chore self-redeployment removes.
 	KindWatchRedeploying: "nobody's — the session is coming back on the build that was deployed, and the queue is read again when it does.",
+	// A hold the harness placed and released itself: what stopped the work was
+	// checked and found cleared, so nobody is waiting on anything.
+	KindWatchHoldReleased: "nobody's — the check the hold waited on passed, and the harness released the hold itself.",
 	// A read of the store that failed is the harness's to retry, and it retries
 	// it itself: nothing a person admits, releases, or opens reaches a store that
 	// will not answer, and a session that gives up on it records a stop that is

@@ -96,6 +96,35 @@ func (s *FollowUpStore) Pass(id string, at time.Time, result string) (followup.F
 	})
 }
 
+// Record keeps what the check runner found of an open follow-up's check, and
+// reports whether anything was written: a finding that says what the last one
+// said writes nothing.
+func (s *FollowUpStore) Record(id string, result followup.CheckResult) (followup.FollowUp, bool, error) {
+	if !followup.ValidID(id) {
+		return followup.FollowUp{}, false, fmt.Errorf("%w: %q is not a follow-up identifier", ErrFollowUpUnknown, id)
+	}
+	var stored followup.FollowUp
+	var changed bool
+	err := s.locked(func(root *repowrite.PinnedRoot) error {
+		standing, err := s.readStrictly(root, id)
+		if err != nil {
+			return err
+		}
+		recorded, differs, err := standing.Record(result)
+		if err != nil {
+			return fmt.Errorf("follow-up %s: %w", id, err)
+		}
+		if !differs {
+			stored = standing
+			return nil
+		}
+		stored, err = s.write(root, recorded, false)
+		changed = err == nil
+		return err
+	})
+	return stored, changed, err
+}
+
 // Close ends an open follow-up by its owner closing it, whoever waits
 // withdrawing it, or the operator closing it, with a reason. Whether the one
 // asking is that person is the caller's to establish; what this refuses is an
@@ -112,14 +141,7 @@ func (s *FollowUpStore) change(id string, apply func(followup.FollowUp) (followu
 	}
 	var stored followup.FollowUp
 	err := s.locked(func(root *repowrite.PinnedRoot) error {
-		encoded, err := root.ReadFile(s.path(id))
-		if errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("%w: %s", ErrFollowUpUnknown, id)
-		}
-		if err != nil {
-			return fmt.Errorf("read follow-up %s: %w", id, err)
-		}
-		standing, err := s.decode(id, encoded, true)
+		standing, err := s.readStrictly(root, id)
 		if err != nil {
 			return err
 		}
@@ -131,6 +153,19 @@ func (s *FollowUpStore) change(id string, apply func(followup.FollowUp) (followu
 		return err
 	})
 	return stored, err
+}
+
+// readStrictly reads one follow-up under the lock the caller holds, for a
+// change about to be written from it.
+func (s *FollowUpStore) readStrictly(root *repowrite.PinnedRoot, id string) (followup.FollowUp, error) {
+	encoded, err := root.ReadFile(s.path(id))
+	if errors.Is(err, fs.ErrNotExist) {
+		return followup.FollowUp{}, fmt.Errorf("%w: %s", ErrFollowUpUnknown, id)
+	}
+	if err != nil {
+		return followup.FollowUp{}, fmt.Errorf("read follow-up %s: %w", id, err)
+	}
+	return s.decode(id, encoded, true)
 }
 
 // write puts one follow-up on the disk, under the lock the caller holds, and

@@ -61,6 +61,93 @@ type FollowUp struct {
 	// withdrew it; never both.
 	Passed *Passed `json:"passed,omitempty"`
 	Closed *Closed `json:"closed,omitempty"`
+	// LastResult is what the check runner last found while the follow-up was
+	// open. It is written only when the finding changes, so it says when the
+	// current answer began rather than when the check last ran.
+	LastResult *CheckResult `json:"last_result,omitempty"`
+}
+
+// CheckResult is one finding of the check runner: whether the check passed,
+// or, where it could not be run at all, why not. A check that could not be run
+// has not passed.
+type CheckResult struct {
+	At          time.Time `json:"at"`
+	Passed      bool      `json:"passed,omitempty"`
+	CouldNotRun string    `json:"could_not_run,omitempty"`
+	// Detail is what the check found, in a sentence: the command's own words
+	// where it ran one.
+	Detail string `json:"detail,omitempty"`
+}
+
+// Same reports two findings that say the same thing, whenever each was made.
+func (r CheckResult) Same(other CheckResult) bool {
+	return r.Passed == other.Passed && r.CouldNotRun == other.CouldNotRun && r.Detail == other.Detail
+}
+
+// Says is the finding in ordinary words.
+func (r CheckResult) Says() string {
+	switch {
+	case r.Passed:
+		return joinSaid("it passed", r.Detail)
+	case r.CouldNotRun != "":
+		return "it could not be run, so it has not passed: " + r.CouldNotRun
+	}
+	return joinSaid("it has not passed", r.Detail)
+}
+
+func joinSaid(said, detail string) string {
+	if detail = strings.TrimSpace(detail); detail != "" {
+		return said + ": " + detail
+	}
+	return said
+}
+
+func (r CheckResult) validate() error {
+	var problems []error
+	if r.At.IsZero() {
+		problems = append(problems, errors.New("a check's result records when it was found"))
+	}
+	if r.Passed && r.CouldNotRun != "" {
+		problems = append(problems, errors.New("a check that could not be run has not passed"))
+	}
+	if err := validText("result", r.Detail, false); err != nil {
+		problems = append(problems, err)
+	}
+	if err := validText("reason it could not be run", r.CouldNotRun, false); err != nil {
+		problems = append(problems, err)
+	}
+	return errors.Join(problems...)
+}
+
+// Holds is every hold the follow-up is about, by identifier: the holds its
+// check passing may release.
+func (f FollowUp) Holds() []string {
+	var holds []string
+	for _, subject := range f.About {
+		if subject.Kind == SubjectHold {
+			holds = append(holds, subject.ID)
+		}
+	}
+	return holds
+}
+
+// Record is the follow-up with a new finding of its check, and whether that
+// finding differs from the last one recorded. A finding that says what the last
+// one said changes nothing, so the record keeps the time the answer began. Only
+// an open follow-up's check is run.
+func (f FollowUp) Record(result CheckResult) (FollowUp, bool, error) {
+	if f.State != StateOpen {
+		return FollowUp{}, false, fmt.Errorf("%w: it is %s", ErrNotOpen, f.State)
+	}
+	if err := result.validate(); err != nil {
+		return FollowUp{}, false, err
+	}
+	if f.LastResult != nil && f.LastResult.Same(result) {
+		return f, false, nil
+	}
+	result.At = result.At.UTC()
+	f.LastResult = &result
+	return f, true, f.Validate()
 }
 
 // SubjectKind is what sort of record a follow-up is about.
@@ -265,6 +352,11 @@ func (f FollowUp) Validate() error {
 	}
 	if err := f.Origin.validate(); err != nil {
 		problems = append(problems, err)
+	}
+	if f.LastResult != nil {
+		if err := f.LastResult.validate(); err != nil {
+			problems = append(problems, err)
+		}
 	}
 	problems = append(problems, f.validateState()...)
 	return errors.Join(problems...)

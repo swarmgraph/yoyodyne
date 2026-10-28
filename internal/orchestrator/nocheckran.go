@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/checks"
+	"github.com/mason-bryant/yoyodyne/internal/followup/checkrun"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -116,6 +117,13 @@ type machineChecksHold struct {
 	// apart from any other run's.
 	probeStarted bool
 	probeIndex   int
+	// followUp is the follow-up the hold waits on where the session recognised
+	// the cause and wrote one, hold the hold's name on it, and check what its
+	// check confirms in ordinary words. A hold with a follow-up starts no run to
+	// find out: the check runner is what re-checks its cause (followups.go).
+	followUp string
+	hold     string
+	check    string
 }
 
 // machineChecksState is what a session does about the hold at one pull.
@@ -163,6 +171,10 @@ func (h machineChecksHold) state(now time.Time, probe time.Duration) (string, ma
 	}
 	met := fmt.Sprintf("on run %s of %s, %s; the stopped run is with the development manager",
 		h.runID, h.item(), singleLine(h.detail, runstate.MaxEnvironmentalDetailBytes))
+	if h.followUp != "" {
+		return fmt.Sprintf("runs are not being started: %s, and the harness checks every %s whether %s and starts work again once it has (follow-up %s)",
+			met, checkrun.DefaultCommandInterval, h.check, h.followUp), machineChecksWaiting
+	}
 	if h.probeStarted {
 		return "runs are not being started: " + met + ", and the one run started to find out whether the checks can run again is still going", machineChecksWaiting
 	}

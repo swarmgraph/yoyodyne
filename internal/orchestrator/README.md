@@ -104,7 +104,10 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     `pathRefusal`, `checkFailure`. A stage every check of which could not run
     stops the run instead of earning evidence (`noCheckVerified`,
     `blockOnNoCheckRan` in `nocheckran.go`), and the scheduler then holds new
-    work until a probe (`machineChecksHold`, same file). Which checks a stage runs after a restart
+    work (`machineChecksHold`, same file): where `followups.go` recognises the
+    cause it waits on a follow-up whose check the check runner
+    (`internal/followup/checkrun`) re-checks at the top of every poll
+    (`followUpRound`), and otherwise until a probe run. Which checks a stage runs after a restart
     onto a new build stopped the run at its checks is `keepChecks` in
     `keptchecks.go`: checks that already passed on the same change keep their
     results, and `keepPassed` records each check as it passes. A heavy check

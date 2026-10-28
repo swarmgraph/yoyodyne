@@ -37,6 +37,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/followup/checkrun"
 	"github.com/mason-bryant/yoyodyne/internal/goal"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/readiness"
@@ -114,6 +115,15 @@ func scheduleWork(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		// steered. A run already in flight keeps the configuration its own pull
 		// read, because a run's parameters are fixed when it is reserved.
 		Open: func(context.Context) (orchestrator.Pull, error) { return openPull(*configPath, stderr) },
+	}
+	// The check runner, whose round every poll runs, and where a hold whose cause
+	// a check can confirm records the follow-up it waits on. A runner that could
+	// not be assembled is said and the session holds as it did before follow-ups
+	// existed, rather than refusing to choose work over it.
+	if runner, err := openCheckRunner(*configPath); err != nil {
+		fmt.Fprintf(stderr, "this session will re-check no hold's cause through a follow-up: %v\n", err)
+	} else {
+		scheduler.FollowUps = runner
 	}
 	// A session that stays open says so where somebody who is not at this
 	// terminal can read it. Failing to open that log fails the command rather
@@ -549,6 +559,30 @@ func openWatchSession(configPath, sessionID string) (orchestrator.WatchSessions,
 	}, nil
 }
 
+// openCheckRunner builds the check runner over the product's follow-ups. The
+// login check asks the developer's provider, which is the provider whose
+// lapsed login holds new work; no command check is declared yet, so a
+// follow-up naming one is recorded as a check that could not be run.
+func openCheckRunner(configPath string) (*checkrun.Runner, error) {
+	parts, err := buildComponents(configPath)
+	if err != nil {
+		return nil, err
+	}
+	store, err := runstate.NewFollowUpStore(parts.stateRoot, parts.config.Product.ID)
+	if err != nil {
+		return nil, err
+	}
+	logins := map[string]checkrun.Login{}
+	if developer := agentForRole(parts.config, domain.RoleDeveloper).Backend; developer != "" {
+		logins[string(developer)] = pipelineFrom(parts).Backend
+	}
+	return &checkrun.Runner{
+		Store:       store,
+		Environment: checkrun.Environment{Logins: logins},
+		Commands:    checkrun.Commands{Directory: parts.repository},
+	}, nil
+}
+
 // openStallWatch builds the stall reading this session takes of itself, gated so
 // a loop that polls in seconds does not spawn a tracker process every poll.
 //
@@ -691,6 +725,9 @@ func (w watchSessionLog) Record(transition orchestrator.SessionState) error {
 		// A stop that is a restart says so, so the reader who is not at this
 		// terminal is told a session is coming back rather than told to start one.
 		Restarting: transition.Restarting,
+		// A resume that is the harness releasing its own hold once the check
+		// that hold waited on passed, which the channel is told of.
+		Released: transition.Released,
 		// A dispatch holding a slot while it waits out the tracker before it has
 		// claimed anything, which no run record exists yet to say.
 		DispatchWait: transition.DispatchWait,

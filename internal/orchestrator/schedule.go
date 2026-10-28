@@ -438,6 +438,10 @@ type SessionState struct {
 	// already on its way back, which is the standing chore this whole mechanism
 	// exists to end rather than reproduce once per deploy.
 	Restarting bool
+	// Released marks a resume that is the harness releasing a hold it placed
+	// itself because the check that hold's follow-up waited on passed
+	// (followups.go).
+	Released bool
 	// Mover is whose move follows a braked poll, worded by the hold's own record
 	// where the hold carries one. It travels for the reason the executor does:
 	// the clause a channel closes a braked message on used to name the operator
@@ -1004,6 +1008,10 @@ type Scheduler struct {
 	Interval func(interval time.Duration) <-chan time.Time
 	// Now stamps the recorded transitions. It defaults to the wall clock.
 	Now func() time.Time
+	// FollowUps is the check runner, whose round each poll runs before any hold
+	// is read, and where a hold whose cause a check can confirm records the
+	// follow-up it waits on. Optional; see ScheduleFollowUps.
+	FollowUps ScheduleFollowUps
 	// Log is where the session says what it met and could not sort, such as a
 	// stop cause this build does not recognise. The command wires its error
 	// output, which is the session's log; a scheduler without one says nothing.
@@ -1271,6 +1279,12 @@ type Schedule struct {
 	// the pass its wait between pulls and nothing else, so it is reported beside
 	// the pull rather than stopping it.
 	OutageProblem string `json:"outage_problem,omitempty"`
+	// FollowUpReleased is every hold of the session's own it released because the check
+	// that hold's follow-up waited on passed, each said as the channel was told
+	// it, and FollowUpProblem names a follow-up that could not be read or
+	// written. Neither stops the pass.
+	FollowUpReleased []string `json:"follow_up_released,omitempty"`
+	FollowUpProblem  string   `json:"follow_up_problem,omitempty"`
 	// DivergedTargets is every target branch the last pull found recorded as one
 	// the harness will not catch up to the remote's, empty once the convergence
 	// sweep has lifted them. While any stands the session chooses nothing.
@@ -1789,7 +1803,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			refused, schedule.Blocked = refusal, refusal
 		}
 		if held, holds := machineChecksHeldBy(started.Outcome, tried[started.WorkItemID].title, s.now()); holds {
-			checksHeld = held
+			checksHeld = s.attachChecksFollowUp(&schedule, held)
 		} else {
 			checksHeld = checksHeld.settled(done.index, started.Outcome)
 		}
@@ -2390,6 +2404,9 @@ pulling:
 			schedule.Drain.Bound = drain.limit
 			session.draining(drain.record(running))
 		}
+		// The check runner's round, before any hold is read, so a hold whose
+		// follow-up passed is released at the pull that found it (followups.go).
+		s.followUpRound(ctx, &schedule, session, pull, &checksHeld)
 		// Stopped work reaches the development manager here, rather than by
 		// somebody carrying it to her. It is done before the brake and before the
 		// hold, because it chooses nothing and starts nothing: what it produces is
@@ -4623,7 +4640,9 @@ func probeReason(hold runstate.IntakeHold, selected string) string {
 // worse failure than dispatching into a refusal.
 //
 // The two causes are asked about differently, because what ends them is
-// different. A login is asked about cheaply — the provider's own availability
+// different. A login whose provider the outage names, in a session wired with
+// the check runner, waits on its follow-up and is asked about by that runner
+// alone (loginFollowUp in followups.go). Otherwise a login is asked about cheaply — the provider's own availability
 // check reads its local record of being signed in — so while that stands the
 // session asks at every pull and clears the outage the moment the answer is
 // yes. Nothing cheaper than an invocation says whether the network is back, so
@@ -4642,6 +4661,12 @@ func (s Scheduler) providerAway(ctx context.Context, schedule *Schedule, pull Pu
 	if !standing {
 		schedule.ProviderOutage = nil
 		return runstate.ProviderOutage{}, false
+	}
+	// A lapsed login the check runner can ask about is its to re-check: the
+	// outage waits on its follow-up and asks the provider nothing itself.
+	if waiting, followed := s.loginFollowUp(schedule, outage); followed {
+		schedule.ProviderOutage = &outage
+		return waiting, true
 	}
 	if outage.Cause == domain.ProviderUnauthenticated && pull.Provider != nil {
 		availability, err := pull.Provider.CheckAvailability(ctx)
@@ -7597,6 +7622,12 @@ func (s Schedule) Render() string {
 	}
 	if s.ProviderAway > 0 {
 		fmt.Fprintf(&rendered, "%d dispatch(es) were turned away by the provider and counted toward nothing; the items are started when it answers\n", s.ProviderAway)
+	}
+	for _, released := range s.FollowUpReleased {
+		fmt.Fprintf(&rendered, "%s\n", released)
+	}
+	if s.FollowUpProblem != "" {
+		fmt.Fprintf(&rendered, "%s\n", s.FollowUpProblem)
 	}
 	if s.OutageProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.OutageProblem)
