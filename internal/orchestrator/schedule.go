@@ -5296,12 +5296,12 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 			continue
 		}
 		if !reusesSlot && len(newSlots) >= slots {
-			// With no slot free the pull still attempts one decision, so the full
+			// With no slot free the pull still attempts a decision, so the full
 			// harness is recorded where the development manager reads it; what
-			// keeps the rest back then is the runs holding the slots, not that one
+			// keeps the rest back then is the runs holding the slots, not that
 			// attempt, and the reason says so.
 			if free < 1 {
-				pass(task, fmt.Sprintf("no developer slot was free at this pull: all %d are held by runs in flight, and a pull with none free attempts only one decision, to record that", pull.Capacity))
+				pass(task, fmt.Sprintf("no developer slot was free at this pull: all %d are held by runs in flight, so the pull started nothing and tried the decisions ahead of this one only to record that the slots are full", pull.Capacity))
 			} else {
 				pass(task, fmt.Sprintf("every developer slot this pull had was spent on %d decision(s) ahead of it on the docket", len(newSlots)))
 			}

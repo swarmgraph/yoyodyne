@@ -524,10 +524,6 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 	// the docket say the decision is not happening while it runs. A refusal past
 	// this point writes a fresh finding of its own.
 	result.note(clearCarryOutFinding(ctx, r.Decisions, entry.WorkItemID, entry.RunID, r.now()))
-	// Everything that refuses a re-run has been asked and the stoppage's re-run is
-	// claimed, so the fresh run starts from here: a pull waiting to hear whether
-	// the re-run it fired began is told it did (carryoutstart.go).
-	carryOutBegun(ctx)
 	outcome, runErr := r.Start(ctx, entry.WorkItemID, runstate.Selection{
 		By:     runstate.SelectedByDevelopmentManager,
 		Reason: result.Reason,

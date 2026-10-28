@@ -873,6 +873,50 @@ func TestARunWithNoProcessBehindItIsNamedAsSuchOnTheRunningLine(t *testing.T) {
 	}
 }
 
+// runsWithSlots is a run source that can also say which runs in flight hold a
+// developer slot, by the rule the reservation and the scheduler count by.
+type runsWithSlots struct {
+	runsWithPresence
+	slotless map[string]bool
+}
+
+func (f runsWithSlots) HoldsDeveloperSlotNow(state runstate.State, _ time.Time) bool {
+	return state.HoldsDeveloperSlot() && !f.slotless[state.RunID]
+}
+
+// A run whose worker's process is gone holds no developer slot for the
+// scheduler, so the status says so too: the head of the running line counts it
+// apart and the run's own line says it, rather than showing a slot taken that
+// the next pull fills.
+func TestARunWhoseWorkerIsGoneIsSaidToHoldNoSlot(t *testing.T) {
+	t.Parallel()
+	sources := quietSources()
+	sources.Runs = runsWithSlots{
+		runsWithPresence: runsWithPresence{
+			fakeRuns: fakeRuns{incomplete: []runstate.State{
+				{RunID: "run-a", WorkItemID: "yoyodyne-2kr.2", Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping, StartedAt: moment.Add(-20 * time.Hour)},
+				{RunID: "run-b", WorkItemID: "yoyodyne-ifd.194", Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping, StartedAt: moment.Add(-12 * time.Minute)},
+			}},
+			missing: map[string]string{"run-a": "the program that took it was replaced"},
+		},
+		slotless: map[string]bool{"run-a": true},
+	}
+	standing := ReadStanding(context.Background(), sources)
+	if len(standing.Running) != 2 || standing.Running[0].HoldsNoSlot == "" || standing.Running[1].HoldsNoSlot != "" {
+		t.Fatalf("running = %+v, want only the run whose worker is gone said to hold no slot", standing.Running)
+	}
+	rendered := standing.Render()
+	for _, want := range []string{
+		"Running (2 developer runs, 1 with no process behind it, 1 holding no developer slot):\n",
+		"no process can be found behind it: the program that took it was replaced; recorded as developing; it holds no developer slot",
+		"  yoyodyne-ifd.194 (not in the tracker) — developing, 12m elapsed",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered:\n%s\nmissing: %q", rendered, want)
+		}
+	}
+}
+
 // A run in its checks says where the stage stands in place of the bare phase:
 // what it has spent of the bound, and which check it is on. That is the line
 // the 2026-09-19 stage would have been visible on — two hours into a stage

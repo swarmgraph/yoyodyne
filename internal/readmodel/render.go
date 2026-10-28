@@ -235,8 +235,10 @@ func (s Standing) named(id, recorded string) string {
 // withNoProcess is how many of the runs in flight have no process behind them,
 // said in the head of the line because the head is what the channel carries: a
 // run holding a slot with nothing working on it is the one entry a reader of the
-// brief rendering must not be left to think is running. It is empty where every
-// run has a process.
+// brief rendering must not be left to think is running. It also says how many
+// hold no developer slot because their worker's process is gone, so the head
+// counts the slots the way the scheduler does. It is empty where every run has
+// a process and a slot.
 func withNoProcess(running []RunningRun) string {
 	missing := 0
 	for _, run := range running {
@@ -244,10 +246,20 @@ func withNoProcess(running []RunningRun) string {
 			missing++
 		}
 	}
-	if missing == 0 {
-		return ""
+	slotless := 0
+	for _, run := range running {
+		if run.HoldsNoSlot != "" {
+			slotless++
+		}
 	}
-	return fmt.Sprintf(", %d with no process behind it", missing)
+	said := ""
+	if missing > 0 {
+		said = fmt.Sprintf(", %d with no process behind it", missing)
+	}
+	if slotless > 0 {
+		said += fmt.Sprintf(", %d holding no developer slot", slotless)
+	}
+	return said
 }
 
 // renderPaused is the runs paused on work their items wait on, and nothing
@@ -635,10 +647,16 @@ func phaseOf(run RunningRun) string {
 			recorded = "no phase"
 		}
 		said := "no process can be found behind it: " + run.NoProcess + "; recorded as " + recorded
+		if run.HoldsNoSlot != "" {
+			said += "; it holds no developer slot"
+		}
 		if run.NoProcessRemedy != "" {
 			said += "; " + run.NoProcessRemedy
 		}
 		return said
+	}
+	if run.HoldsNoSlot != "" {
+		return run.HoldsNoSlot
 	}
 	if run.ResumingIntegration {
 		return runstate.ResumingIntegrationSays

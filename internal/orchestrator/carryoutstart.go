@@ -19,8 +19,8 @@ import (
 // decision recorded after it from ever starting (yoyodyne-ifd.428.115).
 //
 // So the pull waits, briefly, for each decided recovery it fired to say either
-// that its run has begun — a re-run past every refusal with its claim taken, or
-// a stopped run put back in flight by a repair — or that the carry-out came
+// that its run has begun — a re-run whose fresh run has reserved its slot, or a
+// stopped run put back in flight by a repair — or that the carry-out came
 // back without starting one.
 // One that came back gives its slot to the next decision on the docket, or to
 // the queue, in the same pull. One that says neither within the bound is
@@ -61,8 +61,8 @@ type carryOutStarts interface {
 }
 
 // SaysWhenStarted reports that the re-run and the repair this carries out tell
-// the pull when their run has begun: the re-run once its claim is taken and its
-// fresh run is started, the repair as it puts the stopped run back in flight.
+// the pull when their run has begun: the re-run as its fresh run reserves its
+// slot, the repair as it puts the stopped run back in flight.
 func (c CarryOut) SaysWhenStarted() bool { return true }
 
 // carryOutSignal is what one fired decision tells the pull first: that its run

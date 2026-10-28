@@ -263,3 +263,51 @@ func TestARepairOfARunFailedAtDevelopingStartsOrRecordsWhy(t *testing.T) {
 		}
 	})
 }
+
+// A re-run tells the pull it began only once its fresh run has reserved a
+// slot. One the fresh run's own start turns away — a hold met where it would
+// start, or the last slot taken by another run first — has begun nothing, so
+// the pull that fired it gives its slot to the decisions behind it.
+func TestARerunTellsThePullItBeganOnlyOnceItsRunHoldsASlot(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name  string
+		meet  func(t *testing.T, pipelined *pipelinedRerun)
+		began bool
+	}{
+		{name: "a run that starts", began: true},
+		{name: "a hold met where the fresh run would start", meet: func(t *testing.T, pipelined *pipelinedRerun) {
+			if _, err := pipelined.intake.Hold(runstate.IntakeHolderOperator, "stop choosing while I reorder the queue", docketedNow); err != nil {
+				t.Fatalf("Hold() error = %v", err)
+			}
+		}},
+		{name: "the last slot taken first", meet: func(t *testing.T, pipelined *pipelinedRerun) {
+			if err := pipelined.runs.Create(runningState("run-11112222333344445555666677778888", "yoyodyne-ifd.other")); err != nil {
+				t.Fatalf("Create() error = %v", err)
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			var pipelined *pipelinedRerun
+			met := false
+			pipelined = newPipelinedRerun(t, func() {
+				if test.meet == nil || met {
+					return
+				}
+				met = true
+				test.meet(t, pipelined)
+			})
+			began := false
+			ctx := withCarryOutBegun(context.Background(), func() { began = true })
+			result, err := pipelined.rerunner.Rerun(ctx, RerunRequest{Run: priorRunID})
+			if err != nil {
+				t.Fatalf("Rerun() error = %v", err)
+			}
+			if began != test.began || result.Started != test.began {
+				t.Fatalf("began = %t, started = %t; want the pull told the re-run began %t", began, result.Started, test.began)
+			}
+		})
+	}
+}
