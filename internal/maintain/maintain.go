@@ -45,7 +45,7 @@
 //     every pass after it too: no cleanup runs while any of those items is
 //     missing, the pass looks for them again each time a cleanup is due, and
 //     cleanups resume on their own once all of them are back.
-//   - tracker-measure: the work tracker's store copied and measured on the
+//   - measure: the work tracker's store copied and measured on the
 //     copy (internal/beads, storemeasure.go): its size divided between current
 //     data, history, and leftover data a cleanup takes back, how long a listing
 //     of open items, a listing of ready items, and a read of one item take as
@@ -100,7 +100,7 @@ const (
 	StepProvider        = "provider"
 	StepReconcile       = "reconcile"
 	StepTrackerCleanup  = "cleanup"
-	StepTrackerMeasure  = "tracker-measure"
+	StepTrackerMeasure  = "measure"
 	StepRebuild         = "rebuild"
 	StepRestartRequests = "restart-requests"
 	StepRedeploy        = "redeploy"

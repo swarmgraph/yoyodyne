@@ -445,7 +445,7 @@ Each pass takes nine steps, in this order, and each is recorded:
   saying so and starts no cleanup; the pass looks for the missing items again
   each time a cleanup is due, at most once a cleanup interval, and cleanups
   resume on their own once every one of them is back in the store.
-- **tracker-measure** — the work tracker's store copied and measured on the
+- **measure** — the work tracker's store copied and measured on the
   copy, for whoever decides how to keep it small. While no other process has
   the store open, the pass copies the store directory under the product's state
   in `tracker-store-measurement-copy/`, and keeps the copy only if no file in
