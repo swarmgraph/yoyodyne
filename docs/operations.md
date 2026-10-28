@@ -398,7 +398,7 @@ services:
       max_hold: 15s        # the longest one cleanup holds the store; 20s at most
 ```
 
-Each pass takes eight steps, in this order, and each is recorded:
+Each pass takes nine steps, in this order, and each is recorded:
 
 - **provider** — whether the provider is answering, read from the product's
   [outage record](#waiting-out-a-provider-nobody-can-reach). While it stands,
@@ -445,6 +445,32 @@ Each pass takes eight steps, in this order, and each is recorded:
   saying so and starts no cleanup; the pass looks for the missing items again
   each time a cleanup is due, at most once a cleanup interval, and cleanups
   resume on their own once every one of them is back in the store.
+- **tracker-measure** — the work tracker's store copied and measured on the
+  copy, for whoever decides how to keep it small. While no other process has
+  the store open, the pass copies the store directory under the product's state
+  in `tracker-store-measurement-copy/`, and keeps the copy only if no file in
+  the store changed while it was copied. On the copy it runs, one after
+  another, the cleanup above (`bd gc --skip-decay --force`), a squash of the
+  history older than thirty days (`bd compact --days 30 --force`), and a squash
+  of all history (`bd flatten --force`). Before the first and after each, it
+  measures the copy's size, times a listing of open items, a listing of ready
+  items, and a read of one item, and takes a full export, compared record by
+  record with the export before it. The sizes between the stages divide the
+  store into leftover data a cleanup takes back, history older than thirty
+  days, history of the last thirty days, and current data. Every bd command is
+  run in the copy's directory with `BEADS_DIR` naming the copy, so none of them
+  reaches the live store, which is only read to be copied; the copy is removed
+  when the measurement ends. The first measurement is taken at the first pass
+  after this step lands, and the next a week after the last one that finished,
+  or a day after the last that failed. While it runs, which can take a while
+  on a large store and is bounded at two hours, the pass waits for it.
+  Each measurement is recorded under the product's state in
+  `tracker-store-measurements/`, and its figures are said in full on the step
+  in `yoyo sweeps`. A store in use, or one written to while it was copied, is a
+  skip, and the next pass tries again. A measurement whose export changed after
+  a stage — an item or a note that is different, missing, or added — or one of
+  whose commands failed, is a failure of the pass, naming what changed or what
+  bd said.
 - **rebuild** — what the supervisor's rebuilder last came to. It builds the
   binary on its own thirty-second look when the branch lands something the
   binary is made of (above), so a deploy has a build to take up.

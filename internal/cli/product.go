@@ -750,6 +750,12 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 		pass.Tracker = beads.Client{Runner: p.runner, Dir: repository}
 		pass.Cleanups = cleanups
 		pass.TrackerCleanup = maintenance.TrackerCleanup
+		measurements, err := runstate.NewTrackerStoreMeasurementStore(p.stateRoot, productID)
+		if err != nil {
+			return nil, nil, err
+		}
+		pass.Measurer = beads.Client{Runner: p.runner, Dir: repository}
+		pass.Measurements = measurements
 	}
 	return append(residents, pass), pass, nil
 }

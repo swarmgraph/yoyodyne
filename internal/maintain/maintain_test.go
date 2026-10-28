@@ -212,7 +212,7 @@ func TestAPassRecordsEveryStepAndWhySkippedOnesWereSkipped(t *testing.T) {
 			t.Errorf("step %s was %s and says nothing about why", step.Name, step.Outcome)
 		}
 	}
-	want := []string{StepProvider, StepReconcile, StepTrackerCleanup, StepRebuild, StepRestartRequests, StepRedeploy, StepSlack, StepRelease}
+	want := []string{StepProvider, StepReconcile, StepTrackerCleanup, StepTrackerMeasure, StepRebuild, StepRestartRequests, StepRedeploy, StepSlack, StepRelease}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("steps = %v, want %v", names, want)
 	}

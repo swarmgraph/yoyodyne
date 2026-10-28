@@ -523,6 +523,41 @@ type Client struct {
 	// writes; a reader whose answer must not change with the zone of the machine
 	// reading it names the writers' zone here instead.
 	WriterZone *time.Location
+	// beadsDir pins bd to one store directory, given to it as BEADS_DIR in place
+	// of any this process inherited. It is set only for the copy of the store a
+	// measurement runs bd over (storemeasure.go), so that no BEADS_DIR in the
+	// supervisor's environment can turn bd back to the live store.
+	beadsDir string
+	// storeCopied is called once a measurement has copied the store and before
+	// it looks at the store again. It is set only by this package's tests, which
+	// write to the store at that moment to show a copy made while the store
+	// changed is discarded.
+	storeCopied func()
+}
+
+// beadsDirVariable is the BEADS_DIR bd is run under: the store this client is
+// pinned to, or the one this process inherited.
+func (c Client) beadsDirVariable() string {
+	if c.beadsDir != "" {
+		return c.beadsDir
+	}
+	return os.Getenv("BEADS_DIR")
+}
+
+// environment is what bd is run with: this process's environment, with
+// BEADS_DIR replaced where the client is pinned to a store.
+func (c Client) environment() []string {
+	environment := os.Environ()
+	if c.beadsDir == "" {
+		return environment
+	}
+	pinned := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		if !strings.HasPrefix(entry, "BEADS_DIR=") {
+			pinned = append(pinned, entry)
+		}
+	}
+	return append(pinned, "BEADS_DIR="+c.beadsDir)
 }
 
 // writerZone is the zone a listing corrects dependency stamps in.
@@ -1984,7 +2019,7 @@ func (c Client) runWithin(ctx context.Context, limit time.Duration, args ...stri
 		Name:           binary,
 		Args:           args,
 		Dir:            c.Dir,
-		Env:            inUTC(withoutAutoExport(os.Environ())),
+		Env:            inUTC(withoutAutoExport(c.environment())),
 		Timeout:        limit,
 		MaxOutputBytes: maxBDOutputBytes,
 	}

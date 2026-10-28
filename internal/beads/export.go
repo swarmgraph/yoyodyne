@@ -74,7 +74,7 @@ func (c Client) RefreshExportIfDue(ctx context.Context) error {
 
 func (c Client) refreshExport(ctx context.Context, interval time.Duration) error {
 	asked := time.Now()
-	if c.Dir == "" || storeDirectory(c.Dir, os.Getenv("BEADS_DIR")) == "" {
+	if c.Dir == "" || storeDirectory(c.Dir, c.beadsDirVariable()) == "" {
 		return nil
 	}
 	declared, err := repowrite.NewRoot(c.Dir)
