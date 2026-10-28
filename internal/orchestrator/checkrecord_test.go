@@ -13,6 +13,8 @@ import (
 )
 
 func TestFailedCheckRecordsNamesAndOutputOnItemAndDocket(t *testing.T) {
+	t.Parallel()
+
 	for _, scenario := range []struct{ named, verbose bool }{{true, false}, {false, false}, {true, true}} {
 		named := scenario.named
 		output := strings.Repeat("earlier output\n", 1000)
@@ -72,6 +74,8 @@ func TestFailedCheckRecordsNamesAndOutputOnItemAndDocket(t *testing.T) {
 // its summary after them does: the record keeps them, bounded with the cut
 // declared, beside the end of the output.
 func TestFailedCheckRecordsOutputAroundTheFirstFailure(t *testing.T) {
+	t.Parallel()
+
 	var output strings.Builder
 	output.WriteString(strings.Repeat("ok  \tearlier/package\t0.1s\n", 50))
 	output.WriteString("=== RUN   TestBroken\n--- FAIL: TestBroken (0.01s)\n    broken_test.go:12: wanted 3, got 4 secret-value\n")
@@ -115,6 +119,8 @@ func TestFailedCheckRecordsOutputAroundTheFirstFailure(t *testing.T) {
 }
 
 func TestDocketReportsRemainingAttemptsAndReviewRounds(t *testing.T) {
+	t.Parallel()
+
 	d := Docketer{Caps: runstate.TriageCaps{ReviewRounds: 5}, RepairLimit: 4}
 	counters := d.counters(runstate.TriageCounters{ReviewRounds: 2}, runstate.State{}, 3, 0, publicationRearms{})
 	text := (triage.Entry{Counters: counters}).Render()

@@ -38,6 +38,8 @@ func rulesConversation(t *testing.T, pipeline Pipeline, provider chat.Backend) c
 // human: it lands through a reviewed run, carrying an approval recorded as hers
 // that names her and that item.
 func TestARulesDocumentMarkedConsistentIsNotPutToTheOperator(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	pipeline.Config.Approvals.Goals = domain.ApprovalHuman
 	original := provider.Respond
@@ -98,6 +100,8 @@ func TestARulesDocumentMarkedConsistentIsNotPutToTheOperator(t *testing.T) {
 // through a reviewed run, left on its branch for the operator to merge as every
 // change there is, rather than being put to him as an approval.
 func TestTheLeadProductManagersApprovalIsReviewedAndHeldForMergeWhereIntegrationIsNotAutomatic(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	pipeline.Config.Approvals.Integration = domain.ApprovalHuman
 	original := provider.Respond
@@ -133,6 +137,8 @@ func TestTheLeadProductManagersApprovalIsReviewedAndHeldForMergeWhereIntegration
 // A creation that says nothing about intent, or says it is fundamental, is new
 // product intent and the operator's, whatever approvals.goals says.
 func TestARulesDocumentNotMarkedConsistentWaitsForTheOperator(t *testing.T) {
+	t.Parallel()
+
 	for _, intent := range []artifact.Intent{"", artifact.IntentFundamental} {
 		t.Run(string(intent), func(t *testing.T) {
 			_, _, provider, pipeline, runs := automaticFixture(t)
@@ -164,6 +170,8 @@ func TestARulesDocumentNotMarkedConsistentWaitsForTheOperator(t *testing.T) {
 // waits for him under an automatic approvals.goals, no run is opened for it, and
 // she is told why so she can tell him it is his to decide.
 func TestAGoalsDocumentCreatedConsistentWaitsForTheOperator(t *testing.T) {
+	t.Parallel()
+
 	_, _, provider, pipeline, runs := automaticFixture(t)
 	pipeline.Config.Approvals.Goals = domain.ApprovalAutomatic
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
@@ -201,6 +209,8 @@ func TestAGoalsDocumentCreatedConsistentWaitsForTheOperator(t *testing.T) {
 // was not asked: a design is not product intent, and a revision the operator
 // approved himself, or one not marked consistent, is his already.
 func TestTheReviewerTestsTheConsistentMarkOnlyWhereItStandsInForTheOperator(t *testing.T) {
+	t.Parallel()
+
 	marked := artifact.Artifact{Kind: artifact.KindGoals, Revisions: []artifact.Revision{{Action: artifact.ActionAmended, Intent: artifact.IntentConsistent}}}
 	approval := func(by artifact.Approver) []artifact.Approval {
 		return []artifact.Approval{{Revision: 0, By: by}}
@@ -229,6 +239,8 @@ func withApprovals(recorded artifact.Artifact, approvals []artifact.Approval) ar
 // operator as before, but the Lead Product Manager is not told to take it to
 // him: the gap is in her own record and is hers to put right.
 func TestAConsistentMarkShortOfADirectingItemIsNotSentToTheOperator(t *testing.T) {
+	t.Parallel()
+
 	_, _, provider, pipeline, runs := automaticFixture(t)
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
 		return backend.RunResult{Backend: domain.BackendClaudeCode, SessionID: "author-session", FinalText: fmt.Sprintf("Recorded.\n%s\n{\"documents\":[{\"action\":\"create\",\"id\":\"operating-rules\",\"kind\":\"rules\",\"title\":\"Operating rules\",\"directory\":\"docs/product\",\"body\":%q,\"reason\":\"the standing rules the operator already gave\",\"intent\":\"consistent\"}]}\n```",

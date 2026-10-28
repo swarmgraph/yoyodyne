@@ -52,6 +52,8 @@ func heldDesign(id, body, answers, until string) string {
 // to the operator; the turn after the hold's item closes sends it from the kept
 // text without the role writing it again.
 func TestADocumentHeldForSendingIsKeptNotedAndSentOnceItsHoldLifts(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	const body = "# Callable contract addendum\n\nThe remaining contract fields, decided."
 	original := provider.Respond
@@ -145,6 +147,8 @@ func TestADocumentHeldForSendingIsKeptNotedAndSentOnceItsHoldLifts(t *testing.T)
 // A hold naming a work item the tracker does not hold could never lift, so the
 // document is refused before anything is kept or noted.
 func TestAHoldNamingNoWorkItemIsRefused(t *testing.T) {
+	t.Parallel()
+
 	_, _, provider, pipeline, runs := automaticFixture(t)
 	original := provider.Respond
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
@@ -243,6 +247,8 @@ func (p *slowPublisher) PublishDocument(_ context.Context, publication runstate.
 // let go; the rest stay held and are sent once the first are settled, and no
 // document is ever cut from the saved record.
 func TestHeldDocumentsLiftingTogetherAreNeverCutFromTheRecord(t *testing.T) {
+	t.Parallel()
+
 	_, _, provider, pipeline, _ := automaticFixture(t)
 	publisher := &slowPublisher{}
 	tracker := &holdTracker{status: map[string]string{"yoyodyne-ifd.433.21.2": "closed"}}

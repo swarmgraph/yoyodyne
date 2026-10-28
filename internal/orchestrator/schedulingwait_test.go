@@ -25,6 +25,8 @@ func (h *scheduleHarness) RecordSchedulingWait(_ context.Context, id, class, rea
 }
 
 func TestSchedulerKeepsTheReasonOnEarlierReadyWork(t *testing.T) {
+	t.Parallel()
+
 	// Priority 0 is never walked past for a label, so the earlier item is at 1.
 	h := newScheduleHarness(labelled("yoyodyne-earlier", 1), labelled("yoyodyne-later", 2, "reliability"))
 	h.capacity = 1
@@ -48,6 +50,8 @@ func TestSchedulerKeepsTheReasonOnEarlierReadyWork(t *testing.T) {
 }
 
 func TestDecidedRepairLeftUnstartedKeepsItsCurrentReason(t *testing.T) {
+	t.Parallel()
+
 	h := newRerunHarness(t, continuableState())
 	recordRepairDecision(t, h.runs, docketedItem)
 	carrying := h.carryOutAt(2 * time.Minute)
@@ -82,6 +86,8 @@ func TestDecidedRepairLeftUnstartedKeepsItsCurrentReason(t *testing.T) {
 }
 
 func TestSchedulingWaitNamesAreExpandedOnceWithoutChangingRunIdentifiers(t *testing.T) {
+	t.Parallel()
+
 	items := map[string]beads.WorkItem{"yoyodyne-task": {ID: "yoyodyne-task", Title: "Earlier work"}}
 	reason := "run-yoyodyne-task holds yoyodyne-task"
 	want := "run-yoyodyne-task holds Earlier work (yoyodyne-task)"
@@ -108,6 +114,8 @@ func unreadyWaitHarness(parentStatus string) *scheduleHarness {
 }
 
 func TestAnItemHeldBackThroughItsParentKeepsAReasonNamingTheParent(t *testing.T) {
+	t.Parallel()
+
 	// The parent is being worked, so it has left the backlog and only the pull's
 	// reading of the claimed work can name it; and the parent still in the
 	// backlog, waiting, which the queue names itself.
@@ -133,6 +141,8 @@ func TestAnItemHeldBackThroughItsParentKeepsAReasonNamingTheParent(t *testing.T)
 }
 
 func TestAnItemHeldByAnUnfinishedDependencyKeepsAReasonNamingIt(t *testing.T) {
+	t.Parallel()
+
 	h := unreadyWaitHarness("in_progress")
 	if _, err := (Scheduler{Open: h.open, Limit: 1}).Schedule(context.Background()); err != nil {
 		t.Fatal(err)
@@ -152,6 +162,8 @@ func TestAnItemHeldByAnUnfinishedDependencyKeepsAReasonNamingIt(t *testing.T) {
 }
 
 func TestAWaitOnOtherWorkIsClearedOnceNothingHoldsTheItem(t *testing.T) {
+	t.Parallel()
+
 	at := time.Date(2026, 10, 16, 7, 0, 0, 0, time.UTC)
 	waiting, _ := beads.NextSchedulingWait(nil, string(runstate.PassedOverWaitingOnOtherWork), "waiting on yoyodyne-blocker", at)
 	sequenced, _ := beads.NextSchedulingWait(nil, string(runstate.PassedOverSequencedBehindWork), "would race run-1", at)

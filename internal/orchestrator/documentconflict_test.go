@@ -84,6 +84,8 @@ func landLaterRevision(t *testing.T, repository string, pipeline Pipeline, confi
 // written stops once, keeps a record that says what conflicted, and goes to the
 // development manager: nothing starts the same text again on its own.
 func TestADocumentWhoseCopyOnMainChangedIsStoppedOnceAndHeldForTheDevelopmentManager(t *testing.T) {
+	t.Parallel()
+
 	repository, provider, pipeline, runs, written := contestedFixture(t)
 	docket, err := runstate.NewDocketStore(t.TempDir(), "yoyodyne")
 	if err != nil {
@@ -182,6 +184,8 @@ func TestADocumentWhoseCopyOnMainChangedIsStoppedOnceAndHeldForTheDevelopmentMan
 // A retry of a stopped publication is refused before any run starts when main
 // already carries a later confirmed revision of the same document, naming it.
 func TestRetryingADocumentIsRefusedWhenMainCarriesALaterConfirmedRevision(t *testing.T) {
+	t.Parallel()
+
 	repository, provider, pipeline, runs, _ := contestedFixture(t)
 	pipeline.Worktrees = &changedBeforeCut{WorktreeManager: pipeline.Worktrees, change: func() { landLaterRevision(t, repository, pipeline, true) }}
 	options, _ := publicationConversation(t, pipeline, provider)
@@ -222,6 +226,8 @@ func TestRetryingADocumentIsRefusedWhenMainCarriesALaterConfirmedRevision(t *tes
 // A revision whose copy on main is the one it was written against lands as it
 // always has, with no conflict recorded.
 func TestADocumentWhoseCopyOnMainIsUnchangedIsPublished(t *testing.T) {
+	t.Parallel()
+
 	repository, provider, pipeline, runs, _ := contestedFixture(t)
 	options, _ := publicationConversation(t, pipeline, provider)
 	session, err := chat.Open(options)

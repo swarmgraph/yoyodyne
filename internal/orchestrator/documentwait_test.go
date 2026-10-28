@@ -269,6 +269,8 @@ func holdTheLanding(t *testing.T, repository string, store *runstate.Store, pipe
 // developer run is refused only by the developer slots, a landing only by the
 // landings, and neither reservation takes a run of the other kind.
 func TestTheDocumentLandingsAndTheDeveloperSlotsNeverRefuseEachOther(t *testing.T) {
+	t.Parallel()
+
 	repository, _, _, pipeline, store := documentPipeline(t)
 	holdTheDeveloperSlot(t, store, pipeline)
 	holdTheLanding(t, repository, store, pipeline)
@@ -342,6 +344,8 @@ func waitingForALanding(t *testing.T) *documentWaitFixture {
 // development work lands at once through its reviewed run: the landing is
 // counted on its own, so nothing waits, and the development run is untouched.
 func TestADocumentLandsWhileEveryDeveloperSlotIsTaken(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, store := documentPipeline(t)
 	developer := holdTheDeveloperSlot(t, store, pipeline)
 	options, _ := publicationConversation(t, pipeline, provider)
@@ -423,6 +427,8 @@ func (d pipelineDocuments) Publish(ctx context.Context, document runstate.Docume
 // without any message to the conversation and while the developer slot is
 // still held; the conversation then reads the landing back.
 func TestADocumentThatFoundEveryLandingTakenWaitsThroughARestartAndLandsWhenOneFrees(t *testing.T) {
+	t.Parallel()
+
 	fixture := waitingForALanding(t)
 
 	recorded, err := fixture.store.Recorded()
@@ -543,6 +549,8 @@ func TestADocumentThatFoundEveryLandingTakenWaitsThroughARestartAndLandsWhenOneF
 // nothing is wrong, starts nothing, and takes the document off the wait; the
 // scheduler's start of it is the same.
 func TestADocumentWaitingWhileItsRunIsInFlightElsewhereIsNeverStartedTwice(t *testing.T) {
+	t.Parallel()
+
 	fixture := waitingForALanding(t)
 	waits := fixture.waits(t, fixture.store)
 	if len(waits) != 1 {
@@ -603,6 +611,8 @@ func TestADocumentWaitingWhileItsRunIsInFlightElsewhereIsNeverStartedTwice(t *te
 // waiting, a run of an earlier attempt does not count as the retry's, and the
 // scheduler's start lands the retry once a landing frees.
 func TestARetryOfADocumentThatFindsEveryLandingTakenWaitsAndLandsWhenOneFrees(t *testing.T) {
+	t.Parallel()
+
 	fixture := waitingForALanding(t)
 	waits := fixture.waits(t, fixture.store)
 	if len(waits) != 1 || waits[0].Attempt != 0 {
@@ -654,6 +664,8 @@ func TestARetryOfADocumentThatFindsEveryLandingTakenWaitsAndLandsWhenOneFrees(t 
 // else: once the landing frees, the scheduler's start lands it while the one
 // developer slot is still held by development work.
 func TestARetryAfterATimeLimitWaitsWhileEveryLandingIsTaken(t *testing.T) {
+	t.Parallel()
+
 	fixture := waitingForALanding(t)
 	waits := fixture.waits(t, fixture.store)
 	if len(waits) != 1 || waits[0].Attempt != 0 {

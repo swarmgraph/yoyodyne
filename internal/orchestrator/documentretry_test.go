@@ -104,6 +104,8 @@ func runByID(t *testing.T, runs *runstate.Store, id string) runstate.State {
 // again, counts nothing against it, and writes both runs onto the work item the
 // revision names.
 func TestADocumentRunStoppedByACheckTimeLimitIsRunAgainWithTheSameText(t *testing.T) {
+	t.Parallel()
+
 	repository, tracker, provider, pipeline, runs := automaticFixture(t)
 	retryDesign(provider, "retried-design")
 	pipeline.Config.Execution.CheckTimeout = config.Duration(time.Second)
@@ -165,6 +167,8 @@ func TestADocumentRunStoppedByACheckTimeLimitIsRunAgainWithTheSameText(t *testin
 
 // A forge that answers a push with its own server error judged nothing either.
 func TestADocumentRunStoppedByAForgeErrorIsRunAgainWithTheSameText(t *testing.T) {
+	t.Parallel()
+
 	_, _, provider, pipeline, runs := automaticFixture(t)
 	retryDesign(provider, "forge-design")
 	pipeline.Worktrees = &forgeFailing{WorktreeManager: pipeline.Worktrees, failures: 1}
@@ -199,6 +203,8 @@ func TestADocumentRunStoppedByAForgeErrorIsRunAgainWithTheSameText(t *testing.T)
 // A check that ran and failed, and a reviewer that refused, did judge the
 // document: it goes back to its owner as before, counted, and is not run again.
 func TestADocumentRunThatJudgedTheDocumentIsHandedBackAndNotRunAgain(t *testing.T) {
+	t.Parallel()
+
 	for _, cause := range []string{"check", "review"} {
 		t.Run(cause, func(t *testing.T) {
 			_, _, provider, pipeline, runs := automaticFixture(t)
@@ -241,6 +247,8 @@ func TestADocumentRunThatJudgedTheDocumentIsHandedBackAndNotRunAgain(t *testing.
 // put to the development manager as a stopped run with the text kept on it, and
 // the architect is told it does not need to write it again.
 func TestADocumentWhoseEveryAttemptJudgedNothingIsHandedToTheDevelopmentManager(t *testing.T) {
+	t.Parallel()
+
 	_, _, provider, pipeline, runs := automaticFixture(t)
 	retryDesign(provider, "stubborn-design")
 	pipeline.Worktrees = &forgeFailing{WorktreeManager: pipeline.Worktrees, failures: -1}
@@ -289,6 +297,8 @@ func TestADocumentWhoseEveryAttemptJudgedNothingIsHandedToTheDevelopmentManager(
 // run's next attempt starts at the next offer, lands, and records that how many
 // developer runs were going was not waited on.
 func TestADocumentRetryAfterATimeLimitStartsWhileEveryDeveloperSlotIsTaken(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, store := documentPipeline(t)
 	developer := holdTheDeveloperSlot(t, store, pipeline)
 	pipeline.Config.Execution.CheckTimeout = config.Duration(time.Second)
@@ -343,6 +353,8 @@ func TestADocumentRetryAfterATimeLimitStartsWhileEveryDeveloperSlotIsTaken(t *te
 // nothing is published again from its kept text when its conversation opens,
 // and the returns that judged nothing stop counting.
 func TestADocumentStoppedOverReturnsThatJudgedNothingIsResumed(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	retryDesign(provider, "stopped-design")
 	pipeline.Config.Execution.CheckTimeout = config.Duration(time.Second)
@@ -391,6 +403,8 @@ func TestADocumentStoppedOverReturnsThatJudgedNothingIsResumed(t *testing.T) {
 // its count, is said to be waiting, and is published again at a later open
 // once room has come free, rather than being lost with its count lowered.
 func TestAStoppedDocumentWaitingForRoomIsResumedAtALaterOpen(t *testing.T) {
+	t.Parallel()
+
 	repository, _, provider, pipeline, runs := automaticFixture(t)
 	retryDesign(provider, "crowded-design")
 	pipeline.Config.Execution.CheckTimeout = config.Duration(time.Second)
@@ -456,6 +470,8 @@ func TestAStoppedDocumentWaitingForRoomIsResumedAtALaterOpen(t *testing.T) {
 // stopped by that, never by the thirty-minute budget it did not reach; and a
 // timed-out check that stopped short of its budget does not claim the budget.
 func TestACheckStopNeverClaimsABudgetItDidNotReach(t *testing.T) {
+	t.Parallel()
+
 	started := time.Date(2026, 10, 9, 7, 0, 0, 0, time.UTC)
 	check := checks.Result{Command: "make race", Timeout: 30 * time.Minute, Process: execution.ProcessResult{Status: execution.ProcessTimedOut, StartedAt: started, FinishedAt: started.Add(6*time.Minute + 43*time.Second)}, StoppedByCaller: true}
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))

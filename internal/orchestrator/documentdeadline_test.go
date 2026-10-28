@@ -103,6 +103,8 @@ func onlyDocumentRun(t *testing.T, runs *runstate.Store) runstate.State {
 // run it starts outlives that deadline and is bounded by its own limits, so its
 // checks finish and the document lands.
 func TestADocumentRunOutlivesTheDeadlineOfTheMessageThatStartedIt(t *testing.T) {
+	t.Parallel()
+
 	_, runs, options, started := slowPublicationFixture(t)
 	session, err := chat.Open(options)
 	if err != nil {
@@ -129,6 +131,8 @@ func TestADocumentRunOutlivesTheDeadlineOfTheMessageThatStartedIt(t *testing.T) 
 // Cancelling the message — a person ending the conversation's process — still
 // stops the run's checks.
 func TestCancellingTheMessageStillStopsItsDocumentRun(t *testing.T) {
+	t.Parallel()
+
 	_, runs, options, started := slowPublicationFixture(t)
 	session, err := chat.Open(options)
 	if err != nil {
@@ -150,6 +154,8 @@ func TestCancellingTheMessageStillStopsItsDocumentRun(t *testing.T) {
 // A stop the development manager asks for still ends a document run whose
 // message's deadline has passed, at the run's next boundary.
 func TestAStopRequestStillEndsADocumentRunPastItsMessageDeadline(t *testing.T) {
+	t.Parallel()
+
 	provider, runs, options, started := slowPublicationFixture(t)
 	session, err := chat.Open(options)
 	if err != nil {

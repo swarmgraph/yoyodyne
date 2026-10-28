@@ -137,6 +137,8 @@ func outsideFileFixture(t *testing.T, down *bool) (string, *orchestratortest.Tra
 // invoked, no developer slot is held, the change is the file and the record's
 // harness fields, and the item the record is for is told.
 func TestARecordOnMainIsBroughtInThroughAReviewedRunOfTheHarnessesOwn(t *testing.T) {
+	t.Parallel()
+
 	repository, tracker, provider, pipeline, store, _, _ := outsideFileFixture(t, nil)
 	ctx := context.Background()
 	landing, due, err := pipeline.NextOutsideFile(ctx)
@@ -199,6 +201,8 @@ func TestARecordOnMainIsBroughtInThroughAReviewedRunOfTheHarnessesOwn(t *testing
 // Nothing is due from a record that is not on main, or from a project that
 // lists no host, and nothing is fetched for either.
 func TestARecordNotOnMainAndAnEmptyHostListAreNeverFetched(t *testing.T) {
+	t.Parallel()
+
 	repository, _, _, pipeline, _, _, _ := outsideFileFixture(t, nil)
 	ctx := context.Background()
 	empty := pipeline
@@ -222,6 +226,8 @@ func TestARecordNotOnMainAndAnEmptyHostListAreNeverFetched(t *testing.T) {
 // A record the rules refuse is stopped before any request, and reported once
 // to the development manager rather than the operator.
 func TestARefusedRecordIsStoppedAndReportedOnceToTheDevelopmentManager(t *testing.T) {
+	t.Parallel()
+
 	for name, edit := range map[string]func(string) string{
 		"plain http": func(text string) string { return strings.Replace(text, "url: https://", "url: http://", 1) },
 		"host not listed": func(text string) string {
@@ -263,6 +269,8 @@ func TestARefusedRecordIsStoppedAndReportedOnceToTheDevelopmentManager(t *testin
 // A fetch whose file is over the size limit, or does not match the checksum
 // the record gives, is refused and not written; the record is stopped.
 func TestAnOversizedFileAndAChecksumMismatchAreRefusedAndNotWritten(t *testing.T) {
+	t.Parallel()
+
 	for name, set := range map[string]func(*Pipeline, string) string{
 		"over the size limit": func(p *Pipeline, text string) string { p.Config.OutsideFiles.MaxBytes = 10; return text },
 		"checksum mismatch": func(_ *Pipeline, text string) string {
@@ -302,6 +310,8 @@ func TestAnOversizedFileAndAChecksumMismatchAreRefusedAndNotWritten(t *testing.T
 // A network that fails is waited out: no run is recorded, nothing is counted
 // against the record, and it is due again once the wait has passed.
 func TestANetworkFailureIsRetriedLaterWithoutBeingCounted(t *testing.T) {
+	t.Parallel()
+
 	down := true
 	_, _, _, pipeline, store, reports, clock := outsideFileFixture(t, &down)
 	ctx := context.Background()
@@ -354,6 +364,8 @@ func committedPinnedFixture(t *testing.T, develop func(directory string) error) 
 // that is not the run that brings the file in, each fail that change's checks
 // naming the file or the record.
 func TestAPinnedFileChangedByHandAndHarnessFieldsWrittenByAnotherChangeFailTheChecks(t *testing.T) {
+	t.Parallel()
+
 	for name, test := range map[string]struct {
 		develop func(string) error
 		names   string
@@ -436,6 +448,8 @@ func queuedOutsideFile(t *testing.T) (string, *orchestratortest.Tracker, *orches
 // any approved change, and the queue lands it and tells the item the record is
 // for.
 func TestWithTheQueueOnARunThatBringsAFileInIsAdmittedAndLandedByTheQueue(t *testing.T) {
+	t.Parallel()
+
 	repository, tracker, _, pipeline, store, _, _, driver := queuedOutsideFile(t)
 	ctx := context.Background()
 	landing, due, err := pipeline.NextOutsideFile(ctx)
@@ -472,6 +486,8 @@ func TestWithTheQueueOnARunThatBringsAFileInIsAdmittedAndLandedByTheQueue(t *tes
 // the record is for, hands nothing to a developer, and a later pull starts a
 // fresh run.
 func TestAQueueRefusalEndsTheRunAndALaterPullStartsAFreshOne(t *testing.T) {
+	t.Parallel()
+
 	_, tracker, provider, pipeline, store, reports, _, driver := queuedOutsideFile(t)
 	approve := provider.Respond
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
@@ -522,6 +538,8 @@ func TestAQueueRefusalEndsTheRunAndALaterPullStartsAFreshOne(t *testing.T) {
 // Three refusals in a row for one record stop it and file one report naming
 // the record and the three reasons.
 func TestThreeQueueRefusalsInARowStopTheRecordAndReportOnce(t *testing.T) {
+	t.Parallel()
+
 	_, _, _, pipeline, store, reports, _, _ := queuedOutsideFile(t)
 	landing, _, _ := pipeline.NextOutsideFile(context.Background())
 	for attempt, why := range []string{"the first reason", "the second reason", "the third reason"} {
