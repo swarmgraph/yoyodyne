@@ -307,3 +307,32 @@ func TestTheOperatorsHoldIsNeverReleasedByAFollowUp(t *testing.T) {
 		t.Fatalf("held = %t, released %q; want the operator's hold standing", held, schedule.FollowUpReleased)
 	}
 }
+
+// A login follow-up that passes for one provider leaves an outage standing for
+// another provider where it was.
+func TestALoginPassingForOneProviderLeavesAnotherProvidersOutage(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-one")...)
+	outages := newOutageStore(t)
+	if _, err := outages.Notice(runstate.ProviderOutageObservation{Cause: domain.ProviderUnauthenticated, Provider: "codex", Waiting: "an earlier dispatch", At: harness.now}); err != nil {
+		t.Fatal(err)
+	}
+	harness.outages, harness.provider = outages, &orchestratortest.LoginProbe{}
+	harness.run = func(h *scheduleHarness, id string) (Outcome, error) { return h.complete(id), nil }
+	harness.onSleep = func(_ *scheduleHarness, sleeps int) bool { return sleeps < 3 }
+	store := followUpStore(t)
+	runner := &checkrun.Runner{Store: store, Environment: checkrun.Environment{Logins: map[string]checkrun.Login{"claude-code": &orchestratortest.LoginProbe{Authenticated: true}}}}
+	if _, err := runner.Attach(checkrun.HoldFollowUp(checkrun.HoldID(checkrun.HoldProviderLogin, "claude-code"),
+		checkrun.EnvironmentCheck(followup.EnvironmentProviderLogin, "claude-code"), nil, harness.clock())); err != nil {
+		t.Fatal(err)
+	}
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Now: harness.clock, FollowUps: runner}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if _, standing, _ := outages.Standing(); !standing || len(schedule.FollowUpReleased) != 0 {
+		t.Fatalf("standing = %t, released %q; want codex's outage left where it was", standing, schedule.FollowUpReleased)
+	}
+}

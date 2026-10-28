@@ -102,6 +102,21 @@ func (s Scheduler) loginFollowUp(schedule *Schedule, outage runstate.ProviderOut
 	return outage, true
 }
 
+// loginOutageFor reports the standing outage being a lapsed login of the
+// provider a login hold names, an outage naming no provider being the
+// developer's provider's, as loginFollowUp reads it.
+func loginOutageFor(pull Pull, hold string) bool {
+	outage, standing, err := pull.Outages.Standing()
+	if err != nil || !standing || outage.Cause != domain.ProviderUnauthenticated {
+		return false
+	}
+	provider := outage.Provider
+	if provider == "" {
+		provider = pull.DeveloperProvider
+	}
+	return hold == checkrun.HoldID(checkrun.HoldProviderLogin, string(provider))
+}
+
 // loginAskedWithoutARunner is the one place a watch session asks a provider
 // about its login itself: a session wired with no check runner, which is a
 // drain or a session whose runner could not be assembled. Wired with one,
@@ -134,6 +149,11 @@ func (s Scheduler) followUpRound(ctx context.Context, schedule *Schedule, sessio
 					checksHeld.check, localTime(passed.Passed.At), checksHeld.runID, passed.ID))
 				*checksHeld = machineChecksHold{}
 			case strings.HasPrefix(hold, checkrun.HoldProviderLogin+":") && pull.Outages != nil:
+				// Only the outage of the provider whose login passed is cleared:
+				// one standing for another provider is not this follow-up's.
+				if !loginOutageFor(pull, hold) {
+					continue
+				}
 				if _, _, err := pull.Outages.Clear(); err != nil {
 					schedule.OutageProblem = fmt.Sprintf("the provider's login passed its check and the outage could not be cleared: %v", err)
 					continue
