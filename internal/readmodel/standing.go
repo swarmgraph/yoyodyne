@@ -116,6 +116,13 @@ type RunSlots interface {
 	HoldsDeveloperSlotNow(state runstate.State, now time.Time) bool
 }
 
+// RunSlotHolders lists what the harness counts as holding each developer slot
+// (runstate.Store.SlotHolders). Every wired store satisfies it; readings over
+// fixtures may omit it, and then no holders are listed.
+type RunSlotHolders interface {
+	SlotHolders(states []runstate.State, now time.Time) []runstate.SlotHolder
+}
+
 // RunHolder observes a lease's process even after the run's record went
 // terminal, while landing checks may still be running. Every wired store
 // satisfies it; readings over fixtures may omit it.
@@ -712,6 +719,14 @@ type Standing struct {
 	// own entry says which slot it is in, so this is for the surface that wants
 	// the whole set rather than the lines.
 	DeveloperSlots []DeveloperSlotStanding `json:"developer_slots,omitempty"`
+	// SlotHolders is every run in flight the harness reads against the developer
+	// slots — counted against them or recording a slot number — with whether it
+	// counts now, since when, the provider attempt that may still be executing
+	// under it, and why (runstate.Store.SlotHolders). It is read whatever the
+	// slots prefer, because it is what says what is holding a slot that reads
+	// taken. SlotHoldersProblem is why it could not be read.
+	SlotHolders        []runstate.SlotHolder `json:"slot_holders,omitempty"`
+	SlotHoldersProblem string                `json:"slot_holders_problem,omitempty"`
 	// HeldLine is the brake's hold on new work with what it is costing, and nil
 	// where the brake holds nothing. It is what every pass of the development
 	// manager's is shown while the hold stands (heldline.go).
@@ -917,6 +932,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	if runningProblem == "" {
 		standing.DeveloperSlots = readSlots(sources, standing.Running)
 	}
+	standing.SlotHolders, standing.SlotHoldersProblem = readSlotHolders(sources, now)
 
 	standing.Working, standing.WorkingProblem = readWorking(sources, now)
 	if waits, ok := sources.Conversations.(interface {
@@ -1392,6 +1408,9 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 		}
 		if slots, ok := sources.Runs.(RunSlots); ok && state.HoldsDeveloperSlot() && !slots.HoldsDeveloperSlotNow(state, now) {
 			run.HoldsNoSlot = "the process that was working on it is gone, so it holds no developer slot and the scheduler counts that slot free"
+			if state.SlotReleased() {
+				run.HoldsNoSlot = "the harness freed its developer slot because no live worker is behind it, so the scheduler counts that slot free"
+			}
 		}
 		price, err := sources.Runs.Price(state.WorkItemID)
 		if err != nil {
@@ -1488,6 +1507,20 @@ func readSlots(sources Sources, running []RunningRun) []DeveloperSlotStanding {
 		}
 	}
 	return assignment.Slots
+}
+
+// readSlotHolders is what the harness counts as holding each developer slot,
+// read off the runs in flight by the store's own rule.
+func readSlotHolders(sources Sources, now time.Time) ([]runstate.SlotHolder, string) {
+	holders, ok := sources.Runs.(RunSlotHolders)
+	if sources.Runs == nil || !ok {
+		return nil, ""
+	}
+	states, err := sources.Runs.Incomplete()
+	if err != nil {
+		return nil, fmt.Sprintf("what holds the developer slots could not be read: %v", err)
+	}
+	return holders.SlotHolders(states, now), ""
 }
 
 // checksOf is where a run's check stage stands, for a run that is in it: what

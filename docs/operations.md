@@ -5045,9 +5045,20 @@ has the rule.
   head and against the run. Three such runs still hold their slot: one its
   session stopped for a restart, whose slot is kept for the session that comes
   back and picks it up; one whose worker cannot be shown gone or present, so
-  the configured number of developers is never exceeded; and one whose program
-  is still running with nothing holding the run's lease for the moment, which
-  is the gap between one step of a run and the next.
+  the configured number of developers is never exceeded, until nothing has
+  held or written the run for thirty minutes; and one whose program is still
+  running with nothing holding the run's lease for the moment, which is the gap
+  between one step of a run and the next.
+
+  At every pull, and so as a scheduler starts, the harness frees the slot of a
+  run whose worker is shown gone, or cannot be shown either way and has gone
+  that quiet. Under the run's lease it ends each provider attempt whose process
+  has stopped as interrupted, leaves open and names one it cannot show
+  stopped, and writes on the run what it freed and why. The run then holds no
+  slot, by number or in the count, until a repair or a continuation takes it up
+  with a new worker; the pass's summary names each release, and the health
+  check the development manager's passes carry lists the run as a condition of
+  hers, beside the list of what holds each developer slot, since when, and why.
 
   ```text
   Running (2 developer runs, 1 with no process behind it, 1 holding no developer slot):

@@ -313,6 +313,16 @@ type ScheduleRuns interface {
 	Incomplete() ([]runstate.State, error)
 }
 
+// ScheduleSlotRelease lets go of the developer slot of every run in flight that
+// counts against the slots with no live worker behind it, and records on each
+// run what it released and why (runstate.Store.ReleaseSlotsWithNoLiveWorker).
+// A pull asks it of its runs where they satisfy it, which *runstate.Store does;
+// a pull over runs that do not frees nothing, which is what every pull did
+// before this existed.
+type ScheduleSlotRelease interface {
+	ReleaseSlotsWithNoLiveWorker(ctx context.Context, now time.Time) ([]runstate.ReleasedSlot, error)
+}
+
 // ScheduleGates is the human gates a person has recorded passing. It is required
 // rather than optional, and it is required of the pull rather than read from the
 // tracker, because it is the one refusal the tracker cannot express: a step
@@ -1319,6 +1329,12 @@ type Schedule struct {
 	// is exactly what the audit exists to stop being invisible.
 	ReleasedClaims []runstate.ReleasedClaim `json:"released_claims,omitempty"`
 	ClaimProblem   string                   `json:"claim_problem,omitempty"`
+	// ReleasedSlots is the developer slots this pass let go because no live
+	// worker was behind the run counting in them (ScheduleSlotRelease), each as
+	// it was recorded on its run. SlotReleaseProblem is what could not be read or
+	// written while doing so; it stops nothing.
+	ReleasedSlots      []runstate.ReleasedSlot `json:"released_slots,omitempty"`
+	SlotReleaseProblem string                  `json:"slot_release_problem,omitempty"`
 	// Landed is the conversation-carried items this pass found landed in the
 	// repository and closed. It is on the schedule for the reason the released
 	// claims are: a pass that closed work somebody would otherwise have closed by
@@ -2398,6 +2414,12 @@ pulling:
 		brake, summons, cooldown, cycleBound = pull.Brake, pull.Summons, pull.BrakeCooldown, pull.BrakeEscalationCycles
 		runs = pull.Runs
 		poll = pull.Poll
+		// Before anything counts the slots, every run counting against them with
+		// no live worker behind it lets its slot go. It is the first thing each
+		// pull does, so it is also the first thing a scheduler does as it starts:
+		// a worker that vanished with the scheduler before it is found at once
+		// rather than at some later pull.
+		s.releaseSlots(ctx, &schedule, pull)
 		// The bound is read at every pull like everything else, so a session
 		// draining under a bound somebody lengthens moves its deadline at the next
 		// pull rather than at the next deploy.
@@ -5917,6 +5939,26 @@ func (s Scheduler) audit(ctx context.Context, schedule *Schedule, pull Pull) ([]
 	return claimed, true, sweep.Died
 }
 
+// releaseSlots frees the developer slots no live worker is behind, before the
+// pull counts what is free, and records what it freed on the schedule. The
+// development manager is told of each from the run's own record: the health
+// check her passes carry names every released run that is still in flight
+// (health.ClassSlotReleased), with what the release did and what would finish
+// the run. What could not be read or written is said beside the pull and stops
+// nothing, because a pull that frees nothing still counts exactly as before.
+func (s Scheduler) releaseSlots(ctx context.Context, schedule *Schedule, pull Pull) {
+	releaser, ok := pull.Runs.(ScheduleSlotRelease)
+	if !ok {
+		return
+	}
+	released, err := releaser.ReleaseSlotsWithNoLiveWorker(ctx, s.now())
+	schedule.ReleasedSlots = append(schedule.ReleasedSlots, released...)
+	schedule.SlotReleaseProblem = ""
+	if err != nil {
+		schedule.SlotReleaseProblem = fmt.Sprintf("a developer slot with no live worker behind it could not be freed, so it may still read as taken: %v", err)
+	}
+}
+
 // diedTogether is the one stop the hold on new work counts for the runs one
 // claim audit found dead together, named by the first of them and listing the
 // rest, so the development manager summoned over it reads every run it ended.
@@ -7735,6 +7777,12 @@ func (s Schedule) Render() string {
 	}
 	if s.ClaimProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.ClaimProblem)
+	}
+	for _, released := range s.ReleasedSlots {
+		fmt.Fprintf(&rendered, "run %s of %s: %s\n", released.RunID, released.WorkItemID, released.Release.Says)
+	}
+	if s.SlotReleaseProblem != "" {
+		fmt.Fprintf(&rendered, "%s\n", s.SlotReleaseProblem)
 	}
 	// What the pass closed because its landing was already in the tree, said
 	// beside what it pulled: an item closed by the harness rather than by the

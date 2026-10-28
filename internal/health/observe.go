@@ -33,6 +33,7 @@ const (
 	SourceServices    = "the supervisor's record of the services"
 	SourceEnvironment = "what each running copy recorded as it started"
 	SourcePasses      = "pass records"
+	SourceSlots       = "what holds each developer slot"
 )
 
 // launchesRoles is the parts that launch a provider's command: the scheduler,
@@ -114,6 +115,7 @@ type reading struct {
 	failures   []string
 	found      []Anomaly
 	services   []Service
+	slots      []runstate.SlotHolder
 }
 
 func (r *reading) source(name, problem string) {
@@ -148,6 +150,8 @@ func (o Observer) Observe(ctx context.Context, caller Caller, runs []string) Obs
 	o.readRuns(r)
 	standing := o.standing(ctx)
 	o.readHeld(r, standing)
+	r.source(SourceSlots, standing.SlotHoldersProblem)
+	r.slots = standing.SlotHolders
 	o.readFactory(r, standing)
 	o.readServices(r, standing)
 	passes := o.readPasses(r)
@@ -157,7 +161,7 @@ func (o Observer) Observe(ctx context.Context, caller Caller, runs []string) Obs
 	history(all, passes, now)
 	observation := Observation{
 		ID: newID(now), Product: o.Product, ObservedAt: now,
-		Sources: r.sources, Failures: r.failures, Services: r.services,
+		Sources: r.sources, Failures: r.failures, Services: r.services, Slots: r.slots,
 		Maintenance: maintenance, MaintenanceSince: since,
 	}
 	if len(runs) > 0 {
@@ -287,6 +291,15 @@ func (o Observer) readRuns(r *reading) {
 			anomaly.Says = fmt.Sprintf("run %s of %s is parked on %s", state.RunID, state.WorkItemID, wait.Kind)
 			anomaly.Owner = ownership.MoverHarness
 			anomaly.Needs = "released by " + wait.Release + "; " + runstate.DeadRunRemedy(state, readmodel.DefaultDeadClaimThreshold)
+			r.add(anomaly)
+			continue
+		}
+		if release := state.SlotRelease; state.SlotReleased() {
+			anomaly := base
+			anomaly.Classification, anomaly.Identity.Condition = ClassSlotReleased, "slot-released"
+			anomaly.Says = fmt.Sprintf("run %s of %s is %s at %s with no live worker. %s", state.RunID, state.WorkItemID, state.Status, state.Phase, release.Says)
+			anomaly.Owner = ownership.MoverDevelopmentManager
+			anomaly.Needs = runstate.DeadRunRemedy(state, readmodel.DefaultDeadClaimThreshold)
 			r.add(anomaly)
 			continue
 		}
@@ -622,9 +635,9 @@ func history(all []Anomaly, passes []runstate.Sweep, now time.Time) {
 // classOrder is the order conditions are listed in: what needs a decision on a
 // run first, then the factory around the runs, then the waits.
 var classOrder = map[Classification]int{
-	ClassWorkerless: 0, ClassWorkerUncertain: 1, ClassHeldStoppage: 2, ClassUndeliveredMaintenance: 3,
-	ClassMissingCommand: 4, ClassMissingConfig: 5, ClassServiceDown: 6, ClassOldBuild: 7, ClassExtraCopy: 8,
-	ClassFactoryProblem: 9, ClassDependencyWait: 10, ClassWait: 11,
+	ClassSlotReleased: 0, ClassWorkerless: 1, ClassWorkerUncertain: 2, ClassHeldStoppage: 3, ClassUndeliveredMaintenance: 4,
+	ClassMissingCommand: 5, ClassMissingConfig: 6, ClassServiceDown: 7, ClassOldBuild: 8, ClassExtraCopy: 9,
+	ClassFactoryProblem: 10, ClassDependencyWait: 11, ClassWait: 12,
 }
 
 func dedupe(found []Anomaly) []Anomaly {

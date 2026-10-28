@@ -166,3 +166,33 @@ func TestADocumentLandingIsSaidAsRunningAndHoldsNoDeveloperSlot(t *testing.T) {
 		t.Fatalf("developer slots = %+v, want the one slot free beside the landing", standing.DeveloperSlots)
 	}
 }
+
+// holdingRuns is a run store that lists what holds each developer slot, as
+// runstate.Store.SlotHolders does.
+type holdingRuns struct {
+	fakeRuns
+}
+
+func (holdingRuns) SlotHolders(states []runstate.State, now time.Time) []runstate.SlotHolder {
+	holders := make([]runstate.SlotHolder, 0, len(states))
+	for _, state := range states {
+		holders = append(holders, runstate.SlotHolder{Slot: 1, RunID: state.RunID, WorkItemID: state.WorkItemID, Since: state.StartedAt, Says: "counted"})
+	}
+	return holders
+}
+
+// What holds each developer slot is read off the runs in flight by the store's
+// own rule, whatever the slots prefer, so it is there to be shown where no
+// slot prefers anything.
+func TestTheStandingCarriesWhatHoldsEachDeveloperSlot(t *testing.T) {
+	t.Parallel()
+	sources := quietSources()
+	sources.Capacity = 1
+	sources.Runs = holdingRuns{fakeRuns{incomplete: []runstate.State{
+		{RunID: "run-a", WorkItemID: "yoyodyne-ifd.1", Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping, StartedAt: moment.Add(-time.Hour)},
+	}}}
+	standing := ReadStanding(context.Background(), sources)
+	if len(standing.SlotHolders) != 1 || standing.SlotHolders[0].RunID != "run-a" || standing.SlotHoldersProblem != "" {
+		t.Fatalf("SlotHolders = %+v, problem %q; want run-a listed", standing.SlotHolders, standing.SlotHoldersProblem)
+	}
+}

@@ -348,8 +348,15 @@ func HoldingDeveloperSlots(states []State) int {
 // between one step and the next. A run its session stopped for a redeploy is
 // counted too: its worker is the program that was replaced, and the slot is
 // kept for the session that comes back and picks it up.
+//
+// A run whose slot the harness released for the worker it names now
+// (ReleaseSlotsWithNoLiveWorker) holds none either, whatever that worker reads
+// as, until a new worker attempt takes it up.
 func (s *Store) HoldsDeveloperSlotNow(state State, now time.Time) bool {
 	if !state.HoldsDeveloperSlot() {
+		return false
+	}
+	if state.SlotRelease.releasesWorker(state.Worker) {
 		return false
 	}
 	if state.RedeployStop != nil {
