@@ -1834,8 +1834,8 @@ look that fails proves nothing and leaves the decision where the order puts it.
 What stops one change holding slots for ever is the bound each of these already
 has: the item's repair grant and re-run caps, which the development manager may
 cross five times before only the operator can, the bound on check-stage
-continuations of one candidate, the one stall continuation, and the bound on
-resuming one run's integration. **Every other decision is ordered by priority,
+continuations of one candidate, the single time the harness continues a run
+whose AI session went silent, and the bound on resuming one run's integration. **Every other decision is ordered by priority,
 and wins only a tie.** A re-run that starts the developer over from the target
 is fresh work, whether or not the stopped run's branch is still there. Such a
 decision goes ahead of the queue's own work at its item's priority and below,
