@@ -580,6 +580,14 @@ func openCheckRunner(configPath string) (*checkrun.Runner, error) {
 		Store:       store,
 		Environment: checkrun.Environment{Logins: logins},
 		Commands:    checkrun.Commands{Directory: parts.repository},
+		// Whoever waits on a follow-up is told its check passed by a report
+		// addressed to that role, which is put in front of its next pass.
+		Tell: &checkrun.Teller{
+			Reports:      parts.reports,
+			ProductID:    parts.config.Product.ID,
+			RepositoryID: string(parts.config.Product.RepositoryID),
+			Build:        buildinfo.Commit(),
+		},
 	}, nil
 }
 

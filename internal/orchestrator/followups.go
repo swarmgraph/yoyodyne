@@ -71,26 +71,45 @@ func (s Scheduler) attachChecksFollowUp(schedule *Schedule, held machineChecksHo
 // follow-up where the outage has none yet. It reports false where the runner
 // cannot take the login on: no runner, an outage that is not a login, or one
 // naming no provider. The outage is then asked about as before.
-func (s Scheduler) loginFollowUp(schedule *Schedule, outage runstate.ProviderOutage) (runstate.ProviderOutage, bool) {
-	if s.FollowUps == nil || !loginLapsed(outage) {
+func (s Scheduler) loginFollowUp(schedule *Schedule, outage runstate.ProviderOutage, pull Pull) (runstate.ProviderOutage, bool) {
+	if s.FollowUps == nil || outage.Cause != domain.ProviderUnauthenticated {
 		return runstate.ProviderOutage{}, false
 	}
-	hold := checkrun.HoldID(checkrun.HoldProviderLogin, string(outage.Provider))
+	// An outage that names no provider is the developer's provider's, which is
+	// the one a dispatch the outage turned away was sent to.
+	provider := outage.Provider
+	if provider == "" {
+		provider = pull.DeveloperProvider
+	}
+	if provider == "" {
+		schedule.FollowUpProblem = "the lapsed login names no provider and the pull names no developer provider, so no follow-up can check it; the session keeps the hold and asks nobody itself"
+		return outage, true
+	}
+	hold := checkrun.HoldID(checkrun.HoldProviderLogin, string(provider))
 	if _, open, err := s.FollowUps.OpenAbout(hold); open {
 		return outage, true
 	} else if err != nil {
 		schedule.FollowUpProblem = fmt.Sprintf("some follow-ups could not be read: %v", err)
 	}
-	check := checkrun.EnvironmentCheck(followup.EnvironmentProviderLogin, string(outage.Provider))
+	check := checkrun.EnvironmentCheck(followup.EnvironmentProviderLogin, string(provider))
 	if _, err := s.FollowUps.Attach(checkrun.HoldFollowUp(hold, check, nil, s.now())); err != nil {
-		schedule.FollowUpProblem = fmt.Sprintf("the follow-up for %s's login could not be written, so the session asks the provider itself: %v", outage.Provider, err)
-		return runstate.ProviderOutage{}, false
+		// The session does not fall back to asking the provider itself: the
+		// check runner is the one schedule that re-checks a hold's cause. The
+		// hold stands, this is said, and the follow-up is written at the next
+		// poll that can.
+		schedule.FollowUpProblem = fmt.Sprintf("the follow-up for %s's login could not be written, so the hold stands until it can be and the session asks the provider nothing itself: %v", provider, err)
 	}
 	return outage, true
 }
 
-func loginLapsed(outage runstate.ProviderOutage) bool {
-	return outage.Cause == domain.ProviderUnauthenticated && outage.Provider != ""
+// loginAskedWithoutARunner is the one place a watch session asks a provider
+// about its login itself: a session wired with no check runner, which is a
+// drain or a session whose runner could not be assembled. Wired with one,
+// the runner alone asks (loginFollowUp). A test over the scheduler's code
+// fails where anything else in it asks.
+func loginAskedWithoutARunner(ctx context.Context, provider ScheduleProvider) bool {
+	availability, err := provider.CheckAvailability(ctx)
+	return err == nil && availability.Installed && availability.Authenticated
 }
 
 // followUpRound runs the check runner's round and releases every hold of the

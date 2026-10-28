@@ -25,7 +25,10 @@ import (
 
 // DefaultInterval is how often an open follow-up's check is run, and
 // DefaultCommandInterval how often an environment or command check is: those
-// start a process on the machine, so they are run half as often.
+// start a process on the machine, so they are run half as often. The design
+// names configuration settings for both (follow_ups.check_interval and
+// follow_ups.command_check_interval); they are not read yet, and come with the
+// deadlines piece of the design, which adds the follow_ups settings.
 const (
 	DefaultInterval        = 5 * time.Minute
 	DefaultCommandInterval = 10 * time.Minute
@@ -69,6 +72,9 @@ type Runner struct {
 	// DefaultCommandInterval where they are not positive.
 	Interval        time.Duration
 	CommandInterval time.Duration
+	// Tell is how whoever waits on a follow-up is told its check passed. A
+	// runner without one closes the follow-up and tells nobody.
+	Tell *Teller
 
 	mu sync.Mutex
 	// last is when each follow-up's check last ran in this process. A process
@@ -84,6 +90,8 @@ type Round struct {
 	// ended because its check passed.
 	Changed []followup.FollowUp
 	Passed  []followup.FollowUp
+	// Told counts the passed follow-ups whose waiting role was told.
+	Told int
 	// Problems is what it could not read or write, in words.
 	Problems []string
 }
@@ -163,6 +171,15 @@ func (r *Runner) Round(ctx context.Context, now time.Time) Round {
 		}
 		delete(r.last, standing.ID)
 		round.Passed = append(round.Passed, passed)
+		if r.Tell == nil {
+			continue
+		}
+		told, err := r.Tell.tell(passed)
+		if err != nil {
+			round.Problems = append(round.Problems, fmt.Sprintf("follow-up %s passed its check and %s, who waits on it, could not be told: %v", passed.ID, passed.Waits, err))
+		} else if told {
+			round.Told++
+		}
 	}
 	for id := range r.last {
 		if !open[id] {

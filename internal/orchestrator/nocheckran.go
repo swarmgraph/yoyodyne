@@ -172,8 +172,8 @@ func (h machineChecksHold) state(now time.Time, probe time.Duration) (string, ma
 	met := fmt.Sprintf("on run %s of %s, %s; the stopped run is with the development manager",
 		h.runID, h.item(), singleLine(h.detail, runstate.MaxEnvironmentalDetailBytes))
 	if h.followUp != "" {
-		return fmt.Sprintf("runs are not being started: %s, and the harness checks every %s whether %s and starts work again once it has (follow-up %s)",
-			met, checkrun.DefaultCommandInterval, h.check, h.followUp), machineChecksWaiting
+		return fmt.Sprintf("runs are not being started: %s, and the harness checks every %d minutes whether %s and starts work again once it has (follow-up %s)",
+			met, int(checkrun.DefaultCommandInterval/time.Minute), h.check, h.followUp), machineChecksWaiting
 	}
 	if h.probeStarted {
 		return "runs are not being started: " + met + ", and the one run started to find out whether the checks can run again is still going", machineChecksWaiting

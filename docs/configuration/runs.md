@@ -617,12 +617,17 @@ time. Each check's result is recorded on its follow-up only when it changes, and
 a check that cannot be run counts as not passed and says why. Once the check
 passes, the harness closes the follow-up with the time, releases the hold,
 starts work again, and says so. The message goes on the watch log `yoyo status`
-prints and in the channel. Nothing else re-checks the cause: no run is started
-to find out.
+prints and in the channel. The development manager, who waits on the follow-up,
+is told by a report addressed to her, which is put in front of her next pass.
+Nothing else re-checks the cause: no run is started to find out. The two
+intervals are fixed for now. The settings the design names for them,
+`follow_ups.check_interval` and `follow_ups.command_check_interval`, do not
+exist yet; they come with the follow-ups' deadlines.
 
 A provider whose login has lapsed is handled the same way. The outage waits on
 a follow-up whose check asks the provider whether it is logged in, and is
-cleared when that check passes.
+cleared when that check passes. If the follow-up cannot be written, the outage
+stands and the session says why; it does not ask the provider itself.
 
 A cause the harness does not recognise gets no follow-up. For that cause the
 session keeps the old behaviour: it starts no new work for the interval

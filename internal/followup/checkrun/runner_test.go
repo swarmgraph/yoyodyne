@@ -13,6 +13,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/followup"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -296,5 +297,44 @@ func TestADeclaredCommandCheck(t *testing.T) {
 		}}
 	if found := commands.Evaluate(context.Background(), check); !found.Passed {
 		t.Fatalf("the declared check found %+v, want it passed", found)
+	}
+}
+
+type filedReports struct{ filed []report.Report }
+
+func (r *filedReports) Append(reported report.Report) error {
+	r.filed = append(r.filed, reported)
+	return nil
+}
+
+// Whoever waits on a follow-up is told its check passed, by a report addressed
+// to that role; nobody is told twice, and the operator is never sent a report.
+func TestWhoeverWaitsIsToldTheCheckPassed(t *testing.T) {
+	t.Parallel()
+	store := newStore(t)
+	told := &filedReports{}
+	runner := &Runner{Store: store, Tell: &Teller{Reports: told, ProductID: "yoyodyne", RepositoryID: "yoyodyne"},
+		Environment: Environment{LookPath: func(string) (string, error) { return "/usr/bin/shellcheck", nil }}}
+	written, err := runner.Attach(HoldFollowUp(HoldID(HoldChecksCouldNotRun, "run-one"), EnvironmentCheck(followup.EnvironmentToolOnPath, "shellcheck"), nil, start))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operators := HoldFollowUp(HoldID(HoldChecksCouldNotRun, "run-two"), EnvironmentCheck(followup.EnvironmentToolOnPath, "shellcheck"), nil, start)
+	operators.Waits = ownership.MoverOperator
+	if _, err := runner.Attach(operators); err != nil {
+		t.Fatal(err)
+	}
+	round := runner.Round(context.Background(), start)
+	if len(round.Passed) != 2 || round.Told != 1 || len(told.filed) != 1 {
+		t.Fatalf("round = %+v, filed %d; want both passed and only the development manager told", round, len(told.filed))
+	}
+	filed := told.filed[0]
+	if filed.Addressee() != domain.RoleDevelopmentManager || filed.Role != report.HarnessReporter || !strings.Contains(filed.Message, written.ID) ||
+		!strings.Contains(filed.Message, "shellcheck is on the search path") {
+		t.Fatalf("report = %+v, want it addressed to the development manager naming the follow-up and what was found", filed)
+	}
+	runner.Round(context.Background(), start.Add(time.Hour))
+	if len(told.filed) != 1 {
+		t.Fatalf("filed %d reports, want the waiting role told once", len(told.filed))
 	}
 }

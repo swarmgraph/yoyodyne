@@ -4664,13 +4664,12 @@ func (s Scheduler) providerAway(ctx context.Context, schedule *Schedule, pull Pu
 	}
 	// A lapsed login the check runner can ask about is its to re-check: the
 	// outage waits on its follow-up and asks the provider nothing itself.
-	if waiting, followed := s.loginFollowUp(schedule, outage); followed {
+	if waiting, followed := s.loginFollowUp(schedule, outage, pull); followed {
 		schedule.ProviderOutage = &outage
 		return waiting, true
 	}
 	if outage.Cause == domain.ProviderUnauthenticated && pull.Provider != nil {
-		availability, err := pull.Provider.CheckAvailability(ctx)
-		if err == nil && availability.Installed && availability.Authenticated {
+		if loginAskedWithoutARunner(ctx, pull.Provider) {
 			if _, _, err := pull.Outages.Clear(); err != nil {
 				schedule.OutageProblem = fmt.Sprintf("the provider is logged in again and the outage could not be cleared: %v", err)
 			}

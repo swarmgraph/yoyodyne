@@ -12,6 +12,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/followup"
 	"github.com/mason-bryant/yoyodyne/internal/followup/checkrun"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -77,7 +78,9 @@ func TestALicenseHoldIsReleasedWithinOneIntervalOfItsCheckPassing(t *testing.T) 
 		return sleeps < 90
 	}
 	store := followUpStore(t)
-	runner := &checkrun.Runner{Store: store, Environment: checkrun.Environment{Command: machine.command}}
+	told := &toldReports{}
+	runner := &checkrun.Runner{Store: store, Environment: checkrun.Environment{Command: machine.command},
+		Tell: &checkrun.Teller{Reports: told, ProductID: "yoyodyne", RepositoryID: "yoyodyne"}}
 	sessions := &recordedSessions{}
 	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Sessions: sessions, Now: harness.clock, FollowUps: runner}
 	schedule, err := scheduler.Schedule(context.Background())
@@ -111,7 +114,7 @@ func TestALicenseHoldIsReleasedWithinOneIntervalOfItsCheckPassing(t *testing.T) 
 		t.Fatalf("released = %q, want the release said with its reason", schedule.FollowUpReleased)
 	}
 	waiting, ok := sessions.entered(runstate.WatchBlocked)
-	if !ok || !strings.Contains(waiting.reason, "the harness checks every 10m0s whether the Xcode license has been accepted") {
+	if !ok || !strings.Contains(waiting.reason, "the harness checks every 10 minutes whether the Xcode license has been accepted") {
 		t.Fatalf("blocked transition = %+v, want it to say what the harness is checking", waiting)
 	}
 	resumed, ok := releasedTransition(sessions)
@@ -120,6 +123,62 @@ func TestALicenseHoldIsReleasedWithinOneIntervalOfItsCheckPassing(t *testing.T) 
 	}
 	if schedule.FollowUpProblem != "" {
 		t.Fatalf("follow-up problem = %q", schedule.FollowUpProblem)
+	}
+	// The development manager, who waits on the hold's follow-up, is told by a
+	// report addressed to her, which is put in front of her next pass.
+	if len(told.filed) != 1 || told.filed[0].Addressee() != domain.RoleDevelopmentManager || told.filed[0].Role != report.HarnessReporter ||
+		!strings.Contains(told.filed[0].Message, passed.ID) || !strings.Contains(told.filed[0].Message, "the Xcode license is accepted") {
+		t.Fatalf("reports filed = %+v, want one telling the development manager the follow-up passed", told.filed)
+	}
+}
+
+type toldReports struct {
+	mu    sync.Mutex
+	filed []report.Report
+}
+
+func (r *toldReports) Append(reported report.Report) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.filed = append(r.filed, reported)
+	return nil
+}
+
+// unwritable is a check runner whose store will not take a new follow-up.
+type unwritable struct{ checkrun.Runner }
+
+func (u *unwritable) Attach(followup.FollowUp) (followup.FollowUp, error) {
+	return followup.FollowUp{}, errors.New("the state directory is read-only")
+}
+
+// A lapsed login whose follow-up cannot be written stays held, and the session
+// still asks the provider nothing itself: it says why and tries the follow-up
+// again at the next poll, rather than re-checking the login on its own.
+func TestALapsedLoginWhoseFollowUpCannotBeWrittenIsNotReCheckedByTheSession(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-one")...)
+	harness.developerProvider = "claude-code"
+	outages := newOutageStore(t)
+	if _, err := outages.Notice(runstate.ProviderOutageObservation{Cause: domain.ProviderUnauthenticated, Waiting: "an earlier dispatch", At: harness.now}); err != nil {
+		t.Fatal(err)
+	}
+	session := &orchestratortest.LoginProbe{Authenticated: true}
+	harness.outages, harness.provider = outages, session
+	started := 0
+	harness.run = func(h *scheduleHarness, id string) (Outcome, error) { started++; return h.complete(id), nil }
+	harness.onSleep = func(_ *scheduleHarness, sleeps int) bool { return sleeps < 15 }
+	runner := &unwritable{checkrun.Runner{Store: followUpStore(t)}}
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Now: harness.clock, FollowUps: runner}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if session.Asked != 0 || started != 0 {
+		t.Fatalf("the session asked the provider %d times and started %d runs; want the hold standing and nothing asked by the session", session.Asked, started)
+	}
+	if !strings.Contains(schedule.FollowUpProblem, "could not be written, so the hold stands") {
+		t.Fatalf("follow-up problem = %q, want the session to say the follow-up could not be written", schedule.FollowUpProblem)
 	}
 }
 
