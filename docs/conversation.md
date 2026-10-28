@@ -2900,8 +2900,10 @@ says why there is none to carry out.
 
 Neither of the first two waits on being typed. A watching `yoyo work` session
 fires a recorded repair or re-run itself, oldest decision first and as many per
-pull as there are developer slots for them — ahead of ready work at its item's
-priority or below, and behind any ready work of a higher priority than its item
+pull as there are developer slots for them — ahead of fresh work of any
+priority where it builds on a change a run already wrote and kept, and otherwise
+ahead of ready work at its item's priority or below and behind any ready work of
+a higher priority than its item
 ([how work flows](work.md#letting-the-harness-choose-the-work) says why) —
 through these same two actions and under every condition
 each of them asks — so
