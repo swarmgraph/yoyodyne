@@ -315,7 +315,9 @@ func TestAReadThatReturnedNothingIsSaidRatherThanSwallowed(t *testing.T) {
 }
 
 // One message reads at most twice, so a role that reads its way through the
-// tree is stopped and told, with the reply and the earlier reads intact.
+// tree is stopped, with the reply and the earlier reads intact. The turn after
+// the second read is the message's last, so a third read is refused on the
+// reply and not answered with another paid turn.
 func TestOneMessageReadsTheRepositoryABoundedNumberOfTimes(t *testing.T) {
 	t.Parallel()
 
@@ -344,8 +346,14 @@ func TestOneMessageReadsTheRepositoryABoundedNumberOfTimes(t *testing.T) {
 	if len(reply.RepositoryReads) != 3 || reply.RepositoryReads[2].Problem == "" || !strings.Contains(reply.RepositoryReads[2].Problem, "at most 2 time(s)") {
 		t.Fatalf("reply repository reads = %#v", reply.RepositoryReads)
 	}
-	if !strings.Contains(provider.requests[3].Prompt, "Nothing was read: one message reads the repository at most 2 time(s)") {
-		t.Fatalf("the role was not told the bound: %q", provider.requests[3].Prompt)
+	if len(provider.requests) != 3 {
+		t.Fatalf("provider turns = %d, want 3: the turn after the limit is the last", len(provider.requests))
+	}
+	if !strings.Contains(provider.requests[2].Prompt, "This is the last turn this message may take") {
+		t.Fatalf("the closing turn was not told it was the last: %q", provider.requests[2].Prompt)
+	}
+	if !strings.Contains(reply.Stopped, "reading the repository reached the most one message may do") {
+		t.Fatalf("the stop was not stated: %q", reply.Stopped)
 	}
 }
 

@@ -52,7 +52,11 @@ func TestChatReportsLogReadsAndAuditFailures(t *testing.T) {
 				ask := logread.Fence + "\n" + string(payload) + "\n```"
 				results := []backendapi.RunResult{{SessionID: "session-1", FinalText: ask}}
 				if test.failAudit == 2 {
-					results = append(results, backendapi.RunResult{SessionID: "session-1", FinalText: ask})
+					// The second round reaches the log tool's limit, so its outcome is
+					// answered in the message's one closing turn.
+					results = append(results,
+						backendapi.RunResult{SessionID: "session-1", FinalText: ask},
+						backendapi.RunResult{SessionID: "session-1", FinalText: "The watch stopped."})
 				} else {
 					results = append(results, backendapi.RunResult{SessionID: "session-1", FinalText: "The watch stopped.", IsError: test.failTurn})
 				}

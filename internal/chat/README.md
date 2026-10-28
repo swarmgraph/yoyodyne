@@ -102,7 +102,12 @@ loops: `takeTurn` → `splitReply` → `collectReply` → `authorize` (`role.go`
 `health.go`) → `recordEvaluation` →
 `performMemoryWrites` → `writeLaneReport` → `performRestartRequest` →
 `conductAsk` (`exchange.go`). Whatever came back is carried into the next
-turn's prompt; the loop ends when a round asks for nothing more.
+turn's prompt; the loop ends when a round asks for nothing more, or when
+`budget.Decide` (`internal/budget`) refuses the next turn. `takeTurn` requires
+the `budget.Permission` that decision grants. Each tool's round counter reports
+its limit to the decision through `noteToolLimit`, after which one closing turn
+is allowed; a stop is recorded by `recordMessageStopped` as `message.stopped`
+and on `Reply.Stopped`.
 
 ### What does one provider turn do?
 `takeTurn`: checks `heldByOperator` (`hold.go`); builds the system prompt

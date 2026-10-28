@@ -42,6 +42,7 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/budget"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/modelfailover"
 )
@@ -88,7 +89,7 @@ func (s *Session) memorySaveRequest(request backend.RunRequest) (backend.RunRequ
 	return request, modelfailover.Policy{Endpoint: endpoint}
 }
 
-func (s *Session) saveBeforeCompaction(ctx context.Context, due compaction, reply *Reply) error {
+func (s *Session) saveBeforeCompaction(ctx context.Context, permit budget.Permission, due compaction, reply *Reply) error {
 	// Do not spend a save turn when the record cannot support the rebuild.
 	if _, err := s.options.Store.LoadEvents(s.state.ConversationID); err != nil {
 		return errors.Join(fmt.Errorf("%w: read what this conversation has recorded: %w", ErrCompactionFailed, err),
@@ -107,7 +108,7 @@ func (s *Session) saveBeforeCompaction(ctx context.Context, due compaction, repl
 	stream := s.stream
 	s.stream = nil
 	defer func() { s.stream = stream }()
-	answer, err := s.takeTurn(ctx, notice, "", nil, true, "")
+	answer, err := s.takeTurn(ctx, permit, notice, "", nil, true, "")
 	reply.RecordCuts = append(reply.RecordCuts, s.turnCuts...)
 	s.turnCuts = nil
 	reply.SpendProblem = appendProblem(reply.SpendProblem, s.spendProblem)

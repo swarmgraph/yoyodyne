@@ -225,7 +225,7 @@ func TestEvidenceThatCouldNotBeObtainedIsSaidRatherThanSwallowed(t *testing.T) {
 }
 
 // One message gathers evidence a bounded number of times. Past the budget
-// nothing further is asked, the role is told why, and the reply still lands.
+// nothing further is asked, the refusal is on the reply, and the reply still lands.
 func TestOneMessageGathersEvidenceABoundedNumberOfTimes(t *testing.T) {
 	t.Parallel()
 
