@@ -6306,13 +6306,15 @@ func (a *activeRun) verifyCandidate(ctx context.Context) error {
 // a change that passed both on the change being judged. The checks are told the
 // Go packages the change touches, so a check written to narrow itself runs over
 // those alone, except over the merge candidate (verifyCandidate) and over a
-// confirmed document, where they are told the whole module.
+// change the harness wrote itself, where they are told the whole module.
 func (a *activeRun) verify(ctx context.Context) error {
 	p := a.pipeline
-	// A confirmed document is the whole change and nothing checks it again after
-	// its review, so where it runs the configured checks rather than the
-	// project's document checks they are told the whole module too.
-	whole := a.checkingCandidate || a.state.Document != nil
+	// A confirmed document, and a pinned outside file the harness brings in, is
+	// the whole change and nothing checks it again after its review, so where it
+	// runs the configured checks rather than the project's document checks they
+	// are told the whole module too: its checks are the merge candidate's, and a
+	// promotion refuses evidence that was narrowed (integrationEarned).
+	whole := a.checkingCandidate || a.state.HarnessAuthored()
 	before := a.state.ChecksPassed
 	a.state.Phase = runstate.PhaseChecking
 	// Scope is settled before the suite runs, because it costs a listing of names
@@ -6673,7 +6675,7 @@ func (a *activeRun) integrationEarned(ctx context.Context) error {
 		return fmt.Errorf("%w: the checks passed at commit %q and the change being promoted is at %q",
 			ErrIntegrationUnearned, state.ChecksPassed.Commit, state.HarnessCommit)
 	case state.ChecksPassed.Narrowed != "":
-		return fmt.Errorf("%w: the checks passed narrowed to %s, and the merge candidate has not been checked whole",
+		return fmt.Errorf("%w: the checks passed only over %s, and the full checks were never run over the change as it would be merged",
 			ErrIntegrationUnearned, state.ChecksPassed.Narrowed)
 	case state.ReviewDecision != runstate.ReviewApprove:
 		return fmt.Errorf("%w: the recorded review decision is %q rather than an approval",

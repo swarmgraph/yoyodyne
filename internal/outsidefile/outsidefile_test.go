@@ -248,7 +248,11 @@ func TestCompareNamesAPinnedFileChangedByHandAndHarnessFieldsWrittenByAnyOtherCh
 	file := PinnedPath(recordPath)
 	onMain := map[string]string{recordPath: recordText(fetched), file: pinned}
 	compare := func(candidate map[string]string, landing string) []Problem {
-		return Compare(Comparison{Records: []string{recordPath}, Candidate: tree(candidate), Base: tree(onMain), Landing: landing})
+		var landings []string
+		if landing != "" {
+			landings = []string{landing}
+		}
+		return Compare(Comparison{Records: []string{recordPath}, Candidate: tree(candidate), Base: tree(onMain), Landings: landings})
 	}
 	if problems := compare(onMain, ""); len(problems) != 0 {
 		t.Fatalf("an unchanged pinned file was refused: %v", problems)
@@ -267,7 +271,7 @@ func TestCompareNamesAPinnedFileChangedByHandAndHarnessFieldsWrittenByAnyOtherCh
 		t.Fatalf("Compare() of harness fields written by another change = %v", written)
 	}
 	// The same change is the landing's to make.
-	if problems := Compare(Comparison{Records: []string{recordPath}, Candidate: tree(map[string]string{recordPath: recordText(fetched), file: pinned}), Base: tree(notYet), Landing: recordPath}); len(problems) != 0 {
+	if problems := Compare(Comparison{Records: []string{recordPath}, Candidate: tree(map[string]string{recordPath: recordText(fetched), file: pinned}), Base: tree(notYet), Landings: []string{recordPath}}); len(problems) != 0 {
 		t.Fatalf("the landing's own change was refused: %v", problems)
 	}
 	// A pinned file added by hand beside a record not yet fetched.
@@ -289,7 +293,7 @@ func TestCompareNamesAPinnedFileChangedByHandAndHarnessFieldsWrittenByAnyOtherCh
 	// The landing changes nothing but the harness's fields.
 	moved := fetched
 	moved.For = "yoyodyne-ifd.1"
-	if problems := Compare(Comparison{Records: []string{recordPath}, Candidate: tree(map[string]string{recordPath: recordText(moved), file: pinned}), Base: tree(notYet), Landing: recordPath}); len(problems) != 1 || !strings.Contains(problems[0].Says, "other than the harness's own") {
+	if problems := Compare(Comparison{Records: []string{recordPath}, Candidate: tree(map[string]string{recordPath: recordText(moved), file: pinned}), Base: tree(notYet), Landings: []string{recordPath}}); len(problems) != 1 || !strings.Contains(problems[0].Says, "other than the harness's own") {
 		t.Fatalf("Compare() of a landing that changed a declared field = %v", problems)
 	}
 }

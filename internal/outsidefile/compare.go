@@ -2,6 +2,7 @@ package outsidefile
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -26,10 +27,11 @@ type Comparison struct {
 	Candidate Reader
 	// Base reads the target branch the change was cut from.
 	Base Reader
-	// Landing is the record the run that brings a file in is landing, which is
-	// the only record whose harness fields a change may write; empty for every
-	// other run.
-	Landing string
+	// Landings are the records the run that brings a file in is landing: its
+	// record, and the record of the license file it brings in with it where it
+	// brings one. They are the only records whose harness fields a change may
+	// write; empty for every other run.
+	Landings []string
 }
 
 // Compare checks every pinned file against its record, and every record's
@@ -68,7 +70,7 @@ func Compare(comparison Comparison) []Problem {
 			add(recordPath, "the target branch's copy of the record cannot be read: %v", err)
 			continue
 		}
-		if recordPath == comparison.Landing {
+		if slices.Contains(comparison.Landings, recordPath) {
 			problems = append(problems, landingProblems(recordPath, base, record)...)
 		} else {
 			problems = append(problems, harnessFieldProblems(recordPath, base, record)...)

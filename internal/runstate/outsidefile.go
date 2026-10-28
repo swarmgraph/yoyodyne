@@ -4,8 +4,10 @@ package runstate
 // about each record between its attempts (docs/designs/pinned-outside-files.md).
 //
 // The run is the harness's own: it fetches the file a record on the target
-// branch declares, writes it and the record's harness fields, and puts that
-// through the full checks and an independent review like any change. It holds
+// branch declares, and the license file the record names where that is pinned
+// too and not yet on the target branch, writes them and their records' harness
+// fields, and puts that through the full checks and an independent review like
+// any change. It holds
 // no developer slot, and at most one is in flight at a time
 // (State.HoldsOutsideFileLanding), so no developer run waits on it.
 
@@ -72,6 +74,32 @@ type OutsideFileLanding struct {
 	Attempt int `json:"attempt,omitempty"`
 	// Fetched is what the fetch found, once it has.
 	Fetched *OutsideFileFetch `json:"fetched,omitempty"`
+	// License is the license file the record names, brought in by the same run
+	// where it is itself a pinned file with a record on the target branch and
+	// the target branch does not hold it yet. One run brings both in, so the
+	// file's checks see the license its record names. It never names a license
+	// of its own.
+	License *OutsideFileLanding `json:"license,omitempty"`
+}
+
+// Records is every record the landing writes: its own, and its license's
+// where it brings the license in with it.
+func (o OutsideFileLanding) Records() []string {
+	records := []string{o.Record}
+	if o.License != nil {
+		records = append(records, o.License.Record)
+	}
+	return records
+}
+
+// Paths is every path the landing may change: each record it writes and the
+// file each declares.
+func (o OutsideFileLanding) Paths() []string {
+	var paths []string
+	for _, record := range o.Records() {
+		paths = append(paths, outsidefile.PinnedPath(record), record)
+	}
+	return paths
 }
 
 // OutsideFileFetch is what one fetch found, as the reviewer is shown it.
@@ -147,6 +175,19 @@ func (o OutsideFileLanding) Validate() error {
 	}
 	if f := o.Fetched; f != nil && (f.FinalURL == "" || len(f.SHA256) != 64 || f.Size <= 0 || f.At.IsZero()) {
 		problems = append(problems, "a fetch records its final address, checksum, size and time")
+	}
+	if license := o.License; license != nil {
+		switch {
+		case license.License != nil:
+			problems = append(problems, "the license brought in with a file brings in no license of its own")
+		case license.Record == o.Record:
+			problems = append(problems, "the license brought in with a file is a record of its own")
+		case license.TargetCommit != o.TargetCommit:
+			problems = append(problems, "the license brought in with a file is read at the same target commit as the file")
+		}
+		if err := license.Validate(); err != nil {
+			problems = append(problems, "license: "+err.Error())
+		}
 	}
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "; "))

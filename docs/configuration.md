@@ -6644,9 +6644,14 @@ no credentials are sent; and the file is never unpacked or run. What the fetch
 brought is landed by a run of the harness's own: one at a time, holding no
 developer slot, changing only the file and the record's four fields, with the
 full checks and an independent review shown the record, the final address, the
-size, the checksum, and the license file. It merges through its pull request,
-and through the merge queue when `execution.merge_queue` is on, like any
-approved change. Where the queue's combined change fails its checks or its
+size, the checksum, and the license file. The checks are told the whole module
+rather than only the packages the file sits in, so what passes is what the
+merge step needs. Where the record's `license_file` has a record of its own and
+the target branch does not hold it yet, the same run fetches and lands the
+license too, so the file's checks see the license beside it; while the
+license's record is stopped or waiting, the file waits with it. It merges
+through its pull request, and through the merge queue when
+`execution.merge_queue` is on, like any approved change. Where the queue's combined change fails its checks or its
 review, or will not apply to the target as it then stands, the run ends with the
 reason written on the work item the record names, nothing is handed to a
 developer, and a later pull starts a fresh run from the record as the target
@@ -6665,7 +6670,9 @@ later and counts for nothing. A failure about the record — an address the rule
 refuse, a missing file, a file over the limit, a checksum that does not match,
 a `for` naming no work item, a check or a reviewer refusing the file — stops the
 record until it changes on the target branch, and files one warning report for
-the development manager.
+the development manager. So does a run the merge step refuses because its
+record does not show the checks and review it needs, since another run would be
+refused the same way; the report says which check was missing.
 
 ## Reading the repository from a conversation
 

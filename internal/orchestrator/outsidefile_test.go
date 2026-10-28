@@ -28,6 +28,8 @@ const (
 	pinnedFile    = "assets/chart.umd.js"
 	pinnedFor     = "yoyodyne-ifd.432.33"
 	pinnedContent = "/*! Chart.js v4.4.1 | MIT */\nvar Chart = {};\n"
+	// licenseContent is what the test server serves as the library's license.
+	licenseContent = "The MIT License (MIT)\n\nCopyright (c) 2014-2022 Chart.js Contributors\n"
 )
 
 // collectedReports keeps what the harness reported.
@@ -86,11 +88,14 @@ func chartServer(t *testing.T, down *bool) (*httptest.Server, string) {
 			w.WriteHeader(http.StatusBadGateway)
 			return
 		}
-		if r.URL.Path != "/npm/chart.js@4.4.1/dist/chart.umd.js" {
+		switch r.URL.Path {
+		case "/npm/chart.js@4.4.1/dist/chart.umd.js":
+			_, _ = w.Write([]byte(pinnedContent))
+		case "/npm/chart.js@4.4.1/LICENSE.md":
+			_, _ = w.Write([]byte(licenseContent))
+		default:
 			http.NotFound(w, r)
-			return
 		}
-		_, _ = w.Write([]byte(pinnedContent))
 	}))
 	t.Cleanup(srv.Close)
 	return srv, strings.TrimPrefix(srv.URL, "https://")
@@ -567,5 +572,186 @@ func TestThreeQueueRefusalsInARowStopTheRecordAndReportOnce(t *testing.T) {
 	}
 	if _, due, _ := pipeline.NextOutsideFile(context.Background()); due {
 		t.Fatal("a stopped record was due again")
+	}
+}
+
+// asGoModule makes the fixture's repository a Go module whose assets directory
+// is a package, and commits it, so a change to the pinned file narrows the
+// checks to that package where anything lets it.
+func asGoModule(t *testing.T, repository string) {
+	t.Helper()
+	writePinnedFixtureFile(t, repository, "go.mod", "module example.invalid/charts\n\ngo 1.22\n")
+	writePinnedFixtureFile(t, repository, "assets/assets.go", "package assets\n")
+	runPipelineGit(t, repository, "add", ".")
+	runPipelineGit(t, repository, "commit", "-m", "make the repository a Go module")
+}
+
+// A run that brings a file in, in a Go module where its change touches one
+// package, runs its checks told the whole module, so its checks and review
+// passing is what lets it through the merge step rather than a refusal for
+// checks that were narrowed.
+func TestARunThatBringsAFileInIsCheckedWholeAndGetsThroughTheMergeStep(t *testing.T) {
+	t.Parallel()
+
+	repository, _, _, pipeline, store, reports, _ := outsideFileFixture(t, nil)
+	asGoModule(t, repository)
+	ctx := context.Background()
+	landing, due, err := pipeline.NextOutsideFile(ctx)
+	if err != nil || !due {
+		t.Fatalf("NextOutsideFile() = %+v, %v, %v; want the record due", landing, due, err)
+	}
+	if _, err := pipeline.BringInOutsideFile(ctx, landing); err != nil {
+		t.Fatalf("BringInOutsideFile() error = %v", err)
+	}
+	saved, err := store.Load(landing.RunID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Status != runstate.StatusSucceeded || saved.Integration == nil {
+		t.Fatalf("run = %s: %s; want it through the merge step", saved.Status, saved.Failure)
+	}
+	if saved.ChecksPassed == nil || saved.ChecksPassed.Narrowed != "" {
+		t.Fatalf("checks passed = %+v; want them told the whole module", saved.ChecksPassed)
+	}
+	if strings.TrimSpace(publicationGit(t, repository, "show", "main:"+pinnedFile)) != strings.TrimSpace(pinnedContent) {
+		t.Fatal("main does not carry the file")
+	}
+	if len(reports.reported) != 0 {
+		t.Fatalf("reports = %+v; want none", reports.reported)
+	}
+}
+
+// A file whose record names a license file that is itself pinned and not yet
+// on main is brought in by one run together with that license, so the file's
+// checks, which refuse the file without its license beside it, see both.
+func TestAFileIsBroughtInTogetherWithTheLicenseItsRecordNames(t *testing.T) {
+	t.Parallel()
+
+	repository, tracker, provider, pipeline, store, _, _ := outsideFileFixture(t, nil)
+	const (
+		license       = "assets/vendored-LICENSE.md"
+		licenseRecord = license + outsidefile.RecordSuffix
+	)
+	// The test server's address, as the fixture's record gives it.
+	declared, err := outsidefile.ParseRecord(pinnedRecord, []byte(publicationGit(t, repository, "show", "main:"+pinnedRecord)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	address, _, _ := strings.Cut(declared.URL, "/npm/")
+	runPipelineGit(t, repository, "rm", "-q", "assets/chart.js-LICENSE.md")
+	writePinnedFixtureFile(t, repository, pinnedRecord, strings.Replace(pinnedRecordText(address), "license_file: chart.js-LICENSE.md", "license_file: vendored-LICENSE.md", 1))
+	writePinnedFixtureFile(t, repository, licenseRecord, fmt.Sprintf("file: vendored-LICENSE.md\nurl: %s/npm/chart.js@4.4.1/LICENSE.md\nversion: 4.4.1\nlicense: MIT\nlicense_file: vendored-LICENSE.md\nfor: %s\n", address, pinnedFor))
+	runPipelineGit(t, repository, "add", ".")
+	runPipelineGit(t, repository, "commit", "-m", "the license is pinned too")
+	// The file's own check: the library is never in the tree without its license.
+	pipeline.Config.Checks = []string{"test ! -e " + pinnedFile + " || test -e " + license}
+	ctx := context.Background()
+	landing, due, err := pipeline.NextOutsideFile(ctx)
+	if err != nil || !due {
+		t.Fatalf("NextOutsideFile() = %+v, %v, %v; want the record due", landing, due, err)
+	}
+	if landing.Record != pinnedRecord || landing.License == nil || landing.License.Record != licenseRecord {
+		t.Fatalf("NextOutsideFile() = %+v; want %s brought in with the license %s", landing, pinnedRecord, licenseRecord)
+	}
+	if _, err := pipeline.BringInOutsideFile(ctx, landing); err != nil {
+		t.Fatalf("BringInOutsideFile() error = %v", err)
+	}
+	saved, err := store.Load(landing.RunID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Status != runstate.StatusSucceeded || saved.Integration == nil {
+		t.Fatalf("run = %s: %s; want both files landed", saved.Status, saved.Failure)
+	}
+	if err := saved.Validate(); err != nil {
+		t.Fatalf("the run's record is not valid: %v", err)
+	}
+	if got := len(provider.RequestsForRole(domain.RoleReviewer)); got != 1 {
+		t.Fatalf("the reviewer was invoked %d times, want once", got)
+	}
+	review := provider.RequestsForRole(domain.RoleReviewer)[0].Prompt
+	for _, want := range []string{"brings in the license file " + license, "SHA-256: " + outsidefile.Checksum([]byte(licenseContent)), "vendored-LICENSE.md, which is in the repository"} {
+		if !strings.Contains(review, want) {
+			t.Errorf("the reviewer was not shown %q", want)
+		}
+	}
+	if strings.TrimSpace(publicationGit(t, repository, "show", "main:"+license)) != strings.TrimSpace(licenseContent) {
+		t.Fatal("main does not carry the license")
+	}
+	for path, content := range map[string]string{pinnedRecord: pinnedContent, licenseRecord: licenseContent} {
+		record, err := outsidefile.ParseRecord(path, []byte(publicationGit(t, repository, "show", "main:"+path)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.SHA256 != outsidefile.Checksum([]byte(content)) {
+			t.Fatalf("main's record %s = %+v; want the harness's fields written", path, record)
+		}
+	}
+	changed := strings.Fields(publicationGit(t, repository, "diff", "--name-only", "main~1", "main"))
+	if len(changed) != 4 {
+		t.Fatalf("the landing changed %v; want the file, the license, and their records", changed)
+	}
+	if !strings.Contains(tracker.Notes, "with its license file "+license) {
+		t.Fatalf("the item the record is for was told %q", tracker.Notes)
+	}
+	if _, due, err := pipeline.NextOutsideFile(ctx); err != nil || due {
+		t.Fatalf("NextOutsideFile() after landing = %v, %v; want nothing due", due, err)
+	}
+}
+
+// A run the merge step refuses because its record does not show it earned its
+// checks and review is not picked up again while the record is unchanged: the
+// record is stopped and one report says what the merge step found missing.
+func TestARunRefusedAtTheMergeStepIsNotPickedUpAgainUnchanged(t *testing.T) {
+	t.Parallel()
+
+	_, _, provider, pipeline, store, reports, clock := outsideFileFixture(t, nil)
+	approve := provider.Respond
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleReviewer {
+			// The change moves under the approval, so what is about to be promoted
+			// is not what the checks passed over.
+			inFlight, err := store.Incomplete()
+			if err != nil {
+				return backend.RunResult{}, err
+			}
+			for _, state := range inFlight {
+				if state.OutsideFile != nil && state.WorktreePath != "" {
+					if err := os.WriteFile(filepath.Join(state.WorktreePath, pinnedFile), []byte(pinnedContent+"// moved\n"), 0o600); err != nil {
+						return backend.RunResult{}, err
+					}
+				}
+			}
+		}
+		return approve(request)
+	}
+	ctx := context.Background()
+	landing, due, err := pipeline.NextOutsideFile(ctx)
+	if err != nil || !due {
+		t.Fatalf("NextOutsideFile() = %v, %v", due, err)
+	}
+	if _, err := pipeline.BringInOutsideFile(ctx, landing); err != nil {
+		t.Fatalf("BringInOutsideFile() error = %v", err)
+	}
+	saved, err := store.Load(landing.RunID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Status == runstate.StatusSucceeded || !strings.HasPrefix(saved.Failure, ErrIntegrationUnearned.Error()) {
+		t.Fatalf("run = %s: %s; want it refused at the merge step", saved.Status, saved.Failure)
+	}
+	attempt, _, _ := store.OutsideFileAttempt(pinnedRecord)
+	if attempt.Stopped == "" || !attempt.Reported || len(reports.reported) != 1 {
+		t.Fatalf("attempt = %+v, reports %d; want the record stopped and one report", attempt, len(reports.reported))
+	}
+	if message := reports.reported[0].Message; !strings.Contains(message, "merge step refused it because the checks passed over content") {
+		t.Fatalf("the report does not say what the merge step found missing: %s", message)
+	}
+	clock.advance(outsidefile.RetryAfter + time.Hour)
+	if _, due, err := pipeline.NextOutsideFile(ctx); err != nil || due {
+		t.Fatalf("NextOutsideFile() after the refusal = %v, %v; want the unchanged record not picked up again", due, err)
+	}
+	if got := len(provider.RequestsForRole(domain.RoleReviewer)); got != 1 {
+		t.Fatalf("the reviewer was invoked %d times, want once", got)
 	}
 }

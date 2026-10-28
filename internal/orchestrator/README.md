@@ -339,8 +339,12 @@ moves a group.
 `BringInOutsideFile` fetches it (internal/outsidefile) and lands it through a
 run of its own — `runstate.State.OutsideFile`, reserved by
 `ReserveOutsideFileLanding`, holding no developer slot, reviewed through
-`reviewDocument` like a document landing — and `settleOutsideFile` decides what
-becomes of the record. `pinnedfiles.go` is `gatePinnedFiles`, the comparison
+`reviewDocument` like a document landing, with its checks told the whole
+module — and `settleOutsideFile` decides what becomes of the record, stopping
+it where the merge step refused the run (`refusedAtTheMergeStep`).
+`licenseLanding` is the license file a record names, brought in by the same
+run (`runstate.OutsideFileLanding.License`) where it is pinned too and not yet
+on the target branch. `pinnedfiles.go` is `gatePinnedFiles`, the comparison
 `verify` makes of every pinned file with its record before the checks.
 `runstate.State.HarnessAuthored` is what the places that treat a document
 landing specially ask, so they treat this run the same way — except the merge

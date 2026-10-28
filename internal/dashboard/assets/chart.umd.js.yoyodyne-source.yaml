@@ -1,5 +1,6 @@
 # Chart.js for the dashboard's charts, brought in by the harness from this
-# record once it is on main (docs/designs/pinned-outside-files.md). The
+# record once it is on main (docs/designs/pinned-outside-files.md), in the
+# same run as its license file where main does not hold that yet. The
 # harness alone writes sha256, size, fetched_from and fetched_at.
 file: chart.umd.js
 url: https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js

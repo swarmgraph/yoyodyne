@@ -26,6 +26,14 @@ var structuredStrings = map[string]string{
 	"outside_file.version":                           "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
 	"outside_file.fetched.final_url":                 "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
 	"outside_file.fetched.sha256":                    "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
+	"outside_file.license.record":                    "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
+	"outside_file.license.record_digest":             "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
+	"outside_file.license.target_commit":             "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
+	"outside_file.license.for":                       "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
+	"outside_file.license.url":                       "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
+	"outside_file.license.version":                   "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
+	"outside_file.license.fetched.final_url":         "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
+	"outside_file.license.fetched.sha256":            "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
 	"document.candidate.artifact.id":                 "validated publication identity, policy, or author attribution",
 	"document.candidate.artifact.kind":               "validated publication identity, policy, or author attribution",
 	"document.candidate.artifact.supports[]":         "validated publication identity, policy, or author attribution",
@@ -416,24 +424,35 @@ func walkRecord(t *testing.T, value reflect.Value, key string, visit func(key st
 // populated fills value so that every nested record is present and every list
 // holds one element, and every string holds a short piece of text: the record
 // with every string it can carry actually there, which is what the walk and the
-// bound are both asked about.
+// bound are both asked about. A record that holds one of its own kind — the
+// license a pinned file is brought in with — is filled one level down and left
+// empty below that, which is as deep as Validate lets one go.
 func populated(value reflect.Value) {
+	populatedWithin(value, map[reflect.Type]int{})
+}
+
+func populatedWithin(value reflect.Value, within map[reflect.Type]int) {
 	switch value.Kind() {
 	case reflect.String:
 		value.SetString("x")
 	case reflect.Pointer:
+		if within[value.Type().Elem()] >= 2 {
+			return
+		}
 		value.Set(reflect.New(value.Type().Elem()))
-		populated(value.Elem())
+		populatedWithin(value.Elem(), within)
 	case reflect.Slice:
 		value.Set(reflect.MakeSlice(value.Type(), 1, 1))
-		populated(value.Index(0))
+		populatedWithin(value.Index(0), within)
 	case reflect.Struct:
 		if value.Type() == timeType {
 			return
 		}
+		within[value.Type()]++
+		defer func() { within[value.Type()]-- }()
 		for index := 0; index < value.NumField(); index++ {
 			if value.Type().Field(index).IsExported() {
-				populated(value.Field(index))
+				populatedWithin(value.Field(index), within)
 			}
 		}
 	}

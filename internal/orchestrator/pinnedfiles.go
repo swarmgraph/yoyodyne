@@ -50,15 +50,15 @@ func (a *activeRun) gatePinnedFiles(ctx context.Context, changed []string) error
 	if err != nil {
 		return stoppedBy(runstate.StopChecks, err)
 	}
-	landing := ""
+	var landings []string
 	if a.state.OutsideFile != nil {
-		landing = a.state.OutsideFile.Record
+		landings = a.state.OutsideFile.Records()
 	}
 	problems := outsidefile.Compare(outsidefile.Comparison{
 		Records:   records,
 		Candidate: worktreeReader(root),
 		Base:      commitReader(ctx, a.pipeline.Worktrees, a.worktree.BaseCommit),
-		Landing:   landing,
+		Landings:  landings,
 	})
 	if len(problems) == 0 {
 		return nil

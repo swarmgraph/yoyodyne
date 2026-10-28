@@ -767,7 +767,7 @@ func TestNarrowedEvidenceDoesNotPromote(t *testing.T) {
 	}
 	run := &activeRun{state: state}
 	err := run.integrationEarned(context.Background())
-	if !errors.Is(err, ErrIntegrationUnearned) || !strings.Contains(err.Error(), "has not been checked whole") {
+	if !errors.Is(err, ErrIntegrationUnearned) || !strings.Contains(err.Error(), "the full checks were never run over the change as it would be merged") {
 		t.Fatalf("integrationEarned() = %v, want narrowed evidence refused", err)
 	}
 }

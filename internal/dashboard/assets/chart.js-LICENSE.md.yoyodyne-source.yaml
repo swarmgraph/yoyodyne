@@ -1,5 +1,6 @@
 # Chart.js's license text, from the same package and version as chart.umd.js,
-# brought in by the harness from this record once it is on main
+# brought in by the harness from this record once it is on main, on its own
+# or in the same run as chart.umd.js, whose record names it
 # (docs/designs/pinned-outside-files.md). The harness alone writes sha256,
 # size, fetched_from and fetched_at.
 file: chart.js-LICENSE.md
