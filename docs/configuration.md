@@ -3107,12 +3107,13 @@ touched, and is handed back to the developer as repair input exactly as a
 failing check before review is, spending a repair attempt; the approval is
 cleared with it, so the repaired change is checked, reviewed, and checked whole
 again. A gate already told the whole module — a change to `go.mod`, a
-repository that is no Go module — runs nothing more. Two kinds of run have
+repository that is no Go module — runs nothing more. Three kinds of run have
 their checks told the whole module from the start, because nothing later
-checks them whole: a run whose integration a person approves, and a confirmed
+checks them whole: a run whose integration a person approves; a confirmed
 document's landing, which runs the project's
 [document checks](#the-document-checks) where it declares them and otherwise
-the configured checks over the whole module. Its heavy checks are let start ahead of every run's gate, as a
+the configured checks over the whole module; and a run of the harness's own
+that brings in a [pinned outside file](#pinned-outside-files). Its heavy checks are let start ahead of every run's gate, as a
 landing's are. The stage's record says `the whole module (the merge candidate
 is checked whole before it is promoted); before review: ` and what the gate was
 narrowed to, so the two passes are never read as one. Every configured check
