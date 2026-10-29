@@ -3107,12 +3107,13 @@ touched, and is handed back to the developer as repair input exactly as a
 failing check before review is, spending a repair attempt; the approval is
 cleared with it, so the repaired change is checked, reviewed, and checked whole
 again. A gate already told the whole module — a change to `go.mod`, a
-repository that is no Go module — runs nothing more. Two kinds of run have
+repository that is no Go module — runs nothing more. Three kinds of run have
 their checks told the whole module from the start, because nothing later
-checks them whole: a run whose integration a person approves, and a confirmed
+checks them whole: a run whose integration a person approves; a confirmed
 document's landing, which runs the project's
 [document checks](#the-document-checks) where it declares them and otherwise
-the configured checks over the whole module. Its heavy checks are let start ahead of every run's gate, as a
+the configured checks over the whole module; and a run of the harness's own
+that brings in a [pinned outside file](#pinned-outside-files). Its heavy checks are let start ahead of every run's gate, as a
 landing's are. The stage's record says `the whole module (the merge candidate
 is checked whole before it is promoted); before review: ` and what the gate was
 narrowed to, so the two passes are never read as one. Every configured check
@@ -6644,9 +6645,15 @@ no credentials are sent; and the file is never unpacked or run. What the fetch
 brought is landed by a run of the harness's own: one at a time, holding no
 developer slot, changing only the file and the record's four fields, with the
 full checks and an independent review shown the record, the final address, the
-size, the checksum, and the license file. It merges through its pull request,
-and through the merge queue when `execution.merge_queue` is on, like any
-approved change. Where the queue's combined change fails its checks or its
+size, the checksum, and the license file. The checks are told the whole module
+rather than only the packages the file sits in, so what passes is what the
+merge step needs. Where the record's `license_file` has a record of its own and
+the target branch does not hold it yet, the same run fetches and lands the
+license too, so the file's checks see the license beside it, and the license's
+record does not start a run of its own meanwhile. While the license's record is
+stopped or waiting, the file waits with it, and the other way round. It merges
+through its pull request, and through the merge queue when
+`execution.merge_queue` is on, like any approved change. Where the queue's combined change fails its checks or its
 review, or will not apply to the target as it then stands, the run ends with the
 reason written on the work item the record names, nothing is handed to a
 developer, and a later pull starts a fresh run from the record as the target
@@ -6665,7 +6672,16 @@ later and counts for nothing. A failure about the record — an address the rule
 refuse, a missing file, a file over the limit, a checksum that does not match,
 a `for` naming no work item, a check or a reviewer refusing the file — stops the
 record until it changes on the target branch, and files one warning report for
-the development manager.
+the development manager. A failure about either the file's record or its
+license's record, where one run brings both in, stops both and brings in
+neither. A run the merge step refuses because its record does not show the
+checks and review it needs in a way another run would repeat, such as checks
+that ran over only part of the module, stops the record too, and the report
+says which check was missing; since the record is not at fault, it is tried
+again once a new build of the harness is running, as well as when the record
+changes. A merge step that could not read the change, or found
+it moved since its checks, is tried again after a wait, and three such runs
+in a row stop the record.
 
 ## Reading the repository from a conversation
 

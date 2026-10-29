@@ -16,7 +16,11 @@ package orchestrator
 // writes the file and the record's harness fields through the confined writer
 // and nothing else, runs the full checks, and is reviewed independently before
 // it merges through its pull request, and through the merge queue when that is
-// switched on (outsidefilequeue.go). A failure that is about the record stops
+// switched on (outsidefilequeue.go). Where the license file a record names is
+// itself pinned and not yet on the target branch, the same run brings it in
+// too, so the file's checks see its license (licenseLanding). A failure that is
+// about the record, or a promotion refused for want of evidence that the next
+// run would be refused for again, stops
 // the record until it changes on the target branch, and files one warning
 // report for the development manager; a network that fails is waited out and
 // counts for nothing.
@@ -112,22 +116,37 @@ func (p Pipeline) NextOutsideFile(ctx context.Context) (runstate.OutsideFileLand
 		return runstate.OutsideFileLanding{}, false, fmt.Errorf("the listing of %s at %s omitted %d path(s), so not every record of a pinned outside file could be found", branch, commit, listing.Omitted)
 	}
 	now := p.clock().Now()
+	// Every record is decided before one is chosen, because a record due only
+	// as the license another due record brings in does not start a run of its
+	// own, and the record that brings it in may come later in the listing.
 	var problems []error
+	var due []runstate.OutsideFileLanding
+	licenses := map[string]bool{}
 	for _, recordPath := range outsidefile.Records(listing.Files) {
-		landing, due, err := p.dueOutsideFile(ctx, store, tree, policy, branch, commit, recordPath, now)
+		landing, isDue, err := p.dueOutsideFile(ctx, store, tree, policy, branch, commit, recordPath, now, false)
 		if err != nil {
 			problems = append(problems, err)
 			continue
 		}
-		if due {
+		if isDue {
+			due = append(due, landing)
+			if landing.License != nil {
+				licenses[landing.License.Record] = true
+			}
+		}
+	}
+	for _, landing := range due {
+		if !licenses[landing.Record] {
 			return landing, true, nil
 		}
 	}
 	return runstate.OutsideFileLanding{}, false, errors.Join(problems...)
 }
 
-// dueOutsideFile decides one record on the target branch.
-func (p Pipeline) dueOutsideFile(ctx context.Context, store OutsideFileStore, tree targetReader, policy outsidefile.Policy, branch, commit, recordPath string, now time.Time) (runstate.OutsideFileLanding, bool, error) {
+// dueOutsideFile decides one record on the target branch. asLicense is a record
+// asked about as the license another record names, whose own license is not
+// looked for again.
+func (p Pipeline) dueOutsideFile(ctx context.Context, store OutsideFileStore, tree targetReader, policy outsidefile.Policy, branch, commit, recordPath string, now time.Time, asLicense bool) (runstate.OutsideFileLanding, bool, error) {
 	none := runstate.OutsideFileLanding{}
 	file, err := tree.FileAtCommit(ctx, commit, recordPath, outsidefile.MaxRecordBytes)
 	if errors.Is(err, gitworktree.ErrNotAtCommit) {
@@ -143,6 +162,17 @@ func (p Pipeline) dueOutsideFile(ctx context.Context, store OutsideFileStore, tr
 	}
 	if !found || !attempt.For(digest) {
 		attempt = runstate.OutsideFileAttempt{Record: recordPath, RecordDigest: digest}
+	}
+	if attempt.Stopped != "" && attempt.StoppedBuild != "" && p.Build != "" && p.Build != attempt.StoppedBuild && attempt.Attempt < runstate.MaxOutsideFileRuns {
+		// A stop at the merge step was a fault in how the harness ran the checks,
+		// not in the record, so a new build is a change that may have fixed it:
+		// the record starts again with the attempts it has left, and nobody edits
+		// a correct record to start it. A stop for anything else waits for the
+		// record to change.
+		attempt = runstate.OutsideFileAttempt{Record: recordPath, RecordDigest: digest, Attempt: attempt.Attempt}
+		if err := store.SaveOutsideFileAttempt(attempt); err != nil {
+			return none, false, err
+		}
 	}
 	if attempt.Stopped != "" {
 		return none, false, p.reportStoppedOutsideFile(store, attempt)
@@ -179,10 +209,58 @@ func (p Pipeline) dueOutsideFile(ctx context.Context, store OutsideFileStore, tr
 		// next pull asks again.
 		return none, false, nil
 	}
-	return runstate.OutsideFileLanding{
+	landing := runstate.OutsideFileLanding{
 		Record: recordPath, RecordDigest: digest, TargetCommit: commit, For: record.For,
 		URL: record.URL, Version: record.Version, Attempt: attempt.Attempt,
-	}, true, nil
+	}
+	if asLicense {
+		return landing, true, nil
+	}
+	license, ready, err := p.licenseLanding(ctx, store, tree, policy, branch, commit, recordPath, record, now)
+	if err != nil || !ready {
+		return none, false, err
+	}
+	landing.License = license
+	return landing, true, nil
+}
+
+// licenseLanding is the license a due record's file is brought in with: nil
+// where the record's license file is the pinned file itself, is already on the
+// target branch, or has no record there to bring it in by, and the license's own
+// landing where it is a pinned file the target branch does not hold yet. A file
+// whose license is brought in separately fails its own checks wherever they
+// read the license beside it, so the two are one run.
+//
+// It is not ready where the license's record is not due itself — stopped,
+// waiting out a failed try, or refused on its face — and then the file waits
+// with it. Whatever is wrong with the license's record is stopped and reported
+// when the scheduler reads that record in its own turn, so the error is not
+// returned here as well.
+func (p Pipeline) licenseLanding(ctx context.Context, store OutsideFileStore, tree targetReader, policy outsidefile.Policy, branch, commit, recordPath string, record outsidefile.Record, now time.Time) (*runstate.OutsideFileLanding, bool, error) {
+	licensePath := record.LicensePath(recordPath)
+	if licensePath == outsidefile.PinnedPath(recordPath) {
+		return nil, true, nil
+	}
+	_, err := tree.FileAtCommit(ctx, commit, licensePath, 0)
+	if err == nil {
+		return nil, true, nil
+	}
+	if !errors.Is(err, gitworktree.ErrNotAtCommit) {
+		return nil, false, err
+	}
+	licenseRecord := licensePath + outsidefile.RecordSuffix
+	if _, err := tree.FileAtCommit(ctx, commit, licenseRecord, 0); errors.Is(err, gitworktree.ErrNotAtCommit) {
+		// Nothing would bring the license in, so the file's checks and its
+		// reviewer judge it without one, as they always have.
+		return nil, true, nil
+	} else if err != nil {
+		return nil, false, err
+	}
+	license, due, err := p.dueOutsideFile(ctx, store, tree, policy, branch, commit, licenseRecord, now, true)
+	if err != nil || !due {
+		return nil, false, nil
+	}
+	return &license, true, nil
 }
 
 // recordReason is a record error's reason without the record's path, which
@@ -208,6 +286,31 @@ func (p Pipeline) stopOutsideFile(store OutsideFileStore, attempt runstate.Outsi
 	return p.reportStoppedOutsideFile(store, attempt)
 }
 
+// stopLanding stops a landing's record for a failure about it, and the record
+// of the license file it brings in with it, where it brings one, with it: a
+// failure about either stops both, so the license is not brought in alone
+// while the file that needs it is stopped. One report is filed, by the file's
+// record, naming both; the license's stop is recorded as reported by it.
+// attempt is the file record's, as the caller has it; its StoppedBuild is
+// given to the license's stop too.
+func (p Pipeline) stopLanding(store OutsideFileStore, attempt runstate.OutsideFileAttempt, landing runstate.OutsideFileLanding, why string) error {
+	if license := landing.License; license != nil {
+		now := p.clock().Now().UTC()
+		stopped := runstate.OutsideFileAttempt{Record: license.Record, RecordDigest: license.RecordDigest, Attempt: license.Attempt,
+			Stopped: fmt.Sprintf("stopped with %s, which brings it in: %s", landing.Record, why), StoppedAt: &now, Reported: true, StoppedBuild: attempt.StoppedBuild}
+		if kept, found, err := store.OutsideFileAttempt(license.Record); err != nil {
+			return err
+		} else if found && kept.For(license.RecordDigest) {
+			stopped.Attempt = kept.Attempt
+		}
+		if err := store.SaveOutsideFileAttempt(stopped); err != nil {
+			return fmt.Errorf("record that the record %s is stopped: %w", license.Record, err)
+		}
+		why += fmt.Sprintf("; the record %s of the license file it brings in is stopped with it", license.Record)
+	}
+	return p.stopOutsideFile(store, attempt, landing.For, why)
+}
+
 // reportStoppedOutsideFile files the one warning report a stopped record is
 // owed, for the development manager, and remembers that it did. A report that
 // could not be filed is tried again at the next pull.
@@ -215,9 +318,14 @@ func (p Pipeline) reportStoppedOutsideFile(store OutsideFileStore, attempt runst
 	if attempt.Reported || p.Reports == nil {
 		return nil
 	}
-	message := fmt.Sprintf("The harness stopped bringing in the pinned outside file declared by %s: %s. "+
-		"It is not fetched again until the record changes on the target branch, so the record has to be corrected, or the file taken out of the project.",
-		attempt.Record, oneline.Fold(strings.TrimSuffix(attempt.Stopped, "."), report.MaxMessageBytes*3/4))
+	next := "It is not fetched again until the record changes on the target branch, so the record has to be corrected, or the file taken out of the project."
+	if attempt.StoppedBuild != "" {
+		// The merge step's stop is the harness's fault, so nothing in the record
+		// is asked to change.
+		next = "The record is not at fault: it is tried again once a build of the harness other than " + attempt.StoppedBuild + " is running, or when the record changes on the target branch."
+	}
+	message := fmt.Sprintf("The harness stopped bringing in the pinned outside file declared by %s: %s. %s",
+		attempt.Record, oneline.Fold(strings.TrimSuffix(attempt.Stopped, "."), report.MaxMessageBytes*3/4), next)
 	collected, err := report.Collect([]report.Entry{{Severity: report.SeverityWarning, Message: message, For: domain.RoleDevelopmentManager}}, report.Attribution{
 		Role:         report.HarnessReporter,
 		RunID:        "outsidefile@" + attempt.RecordDigest[:16],
@@ -255,8 +363,25 @@ func (p Pipeline) waitOutOutsideFile(store OutsideFileStore, landing runstate.Ou
 		attempt.Attempt = landing.Attempt + 1
 		attempt.Unjudged++
 	}
+	if license := landing.License; license != nil {
+		// The license the run brings in waits with the file, so it does not come
+		// due alone while the file that needs it waits.
+		kept, found, err := store.OutsideFileAttempt(license.Record)
+		if err != nil {
+			return err
+		}
+		if !found || !kept.For(license.RecordDigest) {
+			kept = runstate.OutsideFileAttempt{Record: license.Record, RecordDigest: license.RecordDigest}
+		}
+		if kept.Stopped == "" {
+			kept.RetryFrom, kept.Waited = &now, "waiting with "+landing.Record+", which brings it in: "+why
+			if err := store.SaveOutsideFileAttempt(kept); err != nil {
+				return err
+			}
+		}
+	}
 	if attempt.Unjudged >= runstate.MaxOutsideFileAttempts {
-		return p.stopOutsideFile(store, attempt, landing.For, fmt.Sprintf("%d runs in a row stopped without anything judging the file, the last because %s", runstate.MaxOutsideFileAttempts, why))
+		return p.stopLanding(store, attempt, landing, fmt.Sprintf("%d runs in a row stopped without anything judging the file, the last because %s", runstate.MaxOutsideFileAttempts, why))
 	}
 	return store.SaveOutsideFileAttempt(attempt)
 }
@@ -286,7 +411,7 @@ func (p Pipeline) queueRefusedOutsideFile(store OutsideFileStore, landing runsta
 		for i, reason := range attempt.QueueFailures {
 			reasons[i] = fmt.Sprintf("(%d) %s", i+1, strings.TrimSuffix(oneline.Fold(reason, 700), "."))
 		}
-		return p.stopOutsideFile(store, attempt, landing.For, fmt.Sprintf("the merge queue refused the change of %d runs in a row: %s", len(attempt.QueueFailures), strings.Join(reasons, "; ")))
+		return p.stopLanding(store, attempt, landing, fmt.Sprintf("the merge queue refused the change of %d runs in a row: %s", len(attempt.QueueFailures), strings.Join(reasons, "; ")))
 	}
 	return store.SaveOutsideFileAttempt(attempt)
 }
@@ -357,11 +482,29 @@ func (p Pipeline) BringInOutsideFile(ctx context.Context, landing runstate.Outsi
 	fetched, err := p.outsideFileFetcher().Fetch(ctx, landing.Record, declared, p.Config.OutsideFiles.Policy())
 	if err != nil {
 		if outsidefile.IsRecordError(err) {
-			return Outcome{WorkItemID: item.ID, Summary: err.Error()}, p.stopOutsideFile(store, runstate.OutsideFileAttempt{Record: landing.Record, RecordDigest: landing.RecordDigest, Attempt: landing.Attempt}, landing.For, recordReason(err))
+			return Outcome{WorkItemID: item.ID, Summary: err.Error()}, p.stopLanding(store, runstate.OutsideFileAttempt{Record: landing.Record, RecordDigest: landing.RecordDigest, Attempt: landing.Attempt}, landing, recordReason(err))
 		}
 		return Outcome{WorkItemID: item.ID, Summary: err.Error()}, p.waitOutOutsideFile(store, landing, false, oneline.Fold(err.Error(), 600))
 	}
 	landing.Fetched = &runstate.OutsideFileFetch{FinalURL: fetched.FinalURL, SHA256: fetched.SHA256, Size: fetched.Size, Given: fetched.Given, At: fetched.At}
+	var license *outsidefile.Fetched
+	if landing.License != nil {
+		declaredLicense, err := p.readTargetRecord(ctx, *landing.License)
+		if err != nil {
+			return Outcome{}, err
+		}
+		fetchedLicense, err := p.outsideFileFetcher().Fetch(ctx, landing.License.Record, declaredLicense, p.Config.OutsideFiles.Policy())
+		if err != nil {
+			// Neither file is brought in. A failure about the license's record stops
+			// both records (stopLanding); one the network caused is waited out.
+			if outsidefile.IsRecordError(err) {
+				return Outcome{WorkItemID: item.ID, Summary: err.Error()}, p.stopLanding(store, runstate.OutsideFileAttempt{Record: landing.Record, RecordDigest: landing.RecordDigest, Attempt: landing.Attempt}, landing, "the license file it brings in could not be fetched: "+err.Error())
+			}
+			return Outcome{WorkItemID: item.ID, Summary: err.Error()}, p.waitOutOutsideFile(store, landing, false, oneline.Fold(err.Error(), 600))
+		}
+		landing.License.Fetched = &runstate.OutsideFileFetch{FinalURL: fetchedLicense.FinalURL, SHA256: fetchedLicense.SHA256, Size: fetchedLicense.Size, Given: fetchedLicense.Given, At: fetchedLicense.At}
+		license = &fetchedLicense
+	}
 	target, err := p.Worktrees.CurrentBranch(ctx)
 	if err != nil {
 		return Outcome{}, err
@@ -379,7 +522,11 @@ func (p Pipeline) BringInOutsideFile(ctx context.Context, landing runstate.Outsi
 		return Outcome{}, err
 	}
 	defer lease.Release()
-	record.note(ctx, fmt.Sprintf("Yoyodyne started run %s to bring in %s from %s, as the record %s asks; it is reviewed independently and merges through a pull request.", runID, outsidefile.PinnedPath(landing.Record), fetched.FinalURL, landing.Record))
+	withLicense := ""
+	if landing.License != nil {
+		withLicense = fmt.Sprintf(", with its license file %s from %s", outsidefile.PinnedPath(landing.License.Record), landing.License.Fetched.FinalURL)
+	}
+	record.note(ctx, fmt.Sprintf("Yoyodyne started run %s to bring in %s from %s%s, as the record %s asks; it is reviewed independently and merges through a pull request.", runID, outsidefile.PinnedPath(landing.Record), fetched.FinalURL, withLicense, landing.Record))
 	a, err := p.outsideFileRun(ctx, state, item)
 	if err != nil {
 		return Outcome{}, err
@@ -394,7 +541,7 @@ func (p Pipeline) BringInOutsideFile(ctx context.Context, landing runstate.Outsi
 	if err := p.Store.Save(a.state); err != nil {
 		return Outcome{}, err
 	}
-	if err := a.writeOutsideFile(ctx, fetched); err != nil {
+	if err := a.writeOutsideFile(ctx, fetched, license); err != nil {
 		_, failErr := a.fail(err, runstate.StatusFailed)
 		return p.settleOutsideFile(ctx, store, state.RunID, record, failErr)
 	}
@@ -505,32 +652,25 @@ func (p Pipeline) readTargetRecord(ctx context.Context, landing runstate.Outside
 }
 
 // writeOutsideFile writes what the fetch brought and the record's harness
-// fields into the run's worktree through the confined writer, and commits and
-// publishes them as the run's one attempt. The worktree's record has to be the
-// one that was chosen: a target branch that moved on and changed it is a new
-// landing, and this one stops without judging anything.
-func (a *activeRun) writeOutsideFile(ctx context.Context, fetched outsidefile.Fetched) error {
+// fields into the run's worktree through the confined writer — the license's
+// too, where license is what the fetch of the license the run brings in with
+// the file brought — and commits and publishes them as the run's one attempt.
+func (a *activeRun) writeOutsideFile(ctx context.Context, fetched outsidefile.Fetched, license *outsidefile.Fetched) error {
 	landing := a.state.OutsideFile
 	root, err := repowrite.NewRoot(a.worktree.Path)
 	if err != nil {
 		return err
 	}
-	current, present, err := worktreeReader(root)(landing.Record, outsidefile.MaxRecordBytes)
-	if err != nil {
+	if err := writePinnedFile(root, *landing, fetched); err != nil {
 		return err
 	}
-	if !present || outsidefile.Checksum(current) != landing.RecordDigest {
-		return stoppedBy(runstate.StopOutside, fmt.Errorf("the record %s on the target branch changed after it was chosen, so this landing stops and the changed record is looked at afresh", landing.Record))
-	}
-	written, err := outsidefile.WithHarnessFields(landing.Record, current, fetched)
-	if err != nil {
-		return err
-	}
-	if _, err := root.WriteFile(outsidefile.PinnedPath(landing.Record), fetched.Content); err != nil {
-		return err
-	}
-	if _, err := root.WriteFile(landing.Record, written); err != nil {
-		return err
+	if landing.License != nil {
+		if license == nil {
+			return errors.New("the run brings in a license file with its file and has nothing fetched for it")
+		}
+		if err := writePinnedFile(root, *landing.License, *license); err != nil {
+			return err
+		}
 	}
 	if err := a.commitAttempt(ctx); err != nil {
 		return err
@@ -546,11 +686,35 @@ func (a *activeRun) writeOutsideFile(ctx context.Context, fetched outsidefile.Fe
 	return a.publishAttempt(ctx)
 }
 
+// writePinnedFile writes one fetched file and its record's harness fields. The
+// worktree's record has to be the one that was chosen: a target branch that
+// moved on and changed it is a new landing, and this one stops without judging
+// anything.
+func writePinnedFile(root repowrite.Root, landing runstate.OutsideFileLanding, fetched outsidefile.Fetched) error {
+	current, present, err := worktreeReader(root)(landing.Record, outsidefile.MaxRecordBytes)
+	if err != nil {
+		return err
+	}
+	if !present || outsidefile.Checksum(current) != landing.RecordDigest {
+		return stoppedBy(runstate.StopOutside, fmt.Errorf("the record %s on the target branch changed after it was chosen, so this landing stops and the changed record is looked at afresh", landing.Record))
+	}
+	written, err := outsidefile.WithHarnessFields(landing.Record, current, fetched)
+	if err != nil {
+		return err
+	}
+	if _, err := root.WriteFile(outsidefile.PinnedPath(landing.Record), fetched.Content); err != nil {
+		return err
+	}
+	_, err = root.WriteFile(landing.Record, written)
+	return err
+}
+
 // gateOutsideFile refuses a run that brings a file in whose change is anything
-// but its pinned file and its record. It is settled before any check runs.
+// but its pinned file and its record, and the license file and its record
+// where it brings one in with them. It is settled before any check runs.
 func (a *activeRun) gateOutsideFile(changed []string) error {
 	landing := a.state.OutsideFile
-	allowed := []string{outsidefile.PinnedPath(landing.Record), landing.Record}
+	allowed := landing.Paths()
 	var outside []string
 	for _, path := range changed {
 		if !slices.Contains(allowed, path) {
@@ -594,6 +758,22 @@ func (a *activeRun) outsideFileAccount() (string, error) {
 			account.WriteString("The record gave no checksum, so this file is trusted on its first fetch and the checksum above is the one this fetch recorded.\n")
 		}
 	}
+	if license := landing.License; license != nil {
+		licenseRecord, _, err := read(license.Record, outsidefile.MaxRecordBytes)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&account, "\nThe same change brings in the license file %s, as the record %s on the target branch declares, because the target branch does not hold it yet and the file's checks read it. Its record as this change leaves it:\n\n%s\n", outsidefile.PinnedPath(license.Record), license.Record, strings.TrimRight(string(licenseRecord), "\n"))
+		if fetched := license.Fetched; fetched != nil {
+			fmt.Fprintf(&account, "\nFetched from: %s\nFinal address after any redirects: %s\nSize: %d bytes\nSHA-256: %s\n", license.URL, fetched.FinalURL, fetched.Size, fetched.SHA256)
+			if fetched.Given {
+				account.WriteString("The record gave this checksum before the fetch, and the license file matched it.\n")
+			} else {
+				account.WriteString("The record gave no checksum, so the license file is trusted on its first fetch and the checksum above is the one this fetch recorded.\n")
+			}
+		}
+		account.WriteString("\n")
+	}
 	declared, err := outsidefile.ParseRecord(landing.Record, recordText)
 	if err == nil {
 		licensePath := declared.LicensePath(landing.Record)
@@ -633,6 +813,9 @@ func (p Pipeline) settleOutsideFile(ctx context.Context, store OutsideFileStore,
 	}
 	landing := *saved.OutsideFile
 	pinnedPath := outsidefile.PinnedPath(landing.Record)
+	if landing.License != nil {
+		pinnedPath += " with its license file " + outsidefile.PinnedPath(landing.License.Record)
+	}
 	stop := runstate.StopReason(saved.RecordedStopClass(), saved.Failure)
 	switch {
 	case saved.Status == runstate.StatusSucceeded && saved.MergeQueue != nil && saved.Integration == nil:
@@ -657,7 +840,25 @@ func (p Pipeline) settleOutsideFile(ctx context.Context, store OutsideFileStore,
 		// not touch is a judgement of the file the record brings in.
 		why := fmt.Sprintf("run %s did not land the file: %s", saved.RunID, nonEmpty(oneline.Fold(stop, 900), "it was refused"))
 		record.note(ctx, fmt.Sprintf("Yoyodyne's run %s did not bring in %s: %s. The record is stopped until it changes on the target branch.", saved.RunID, pinnedPath, nonEmpty(oneline.Fold(stop, 900), "it was refused")))
-		if stopErr := p.stopOutsideFile(store, runstate.OutsideFileAttempt{Record: landing.Record, RecordDigest: landing.RecordDigest, Attempt: landing.Attempt}, landing.For, why); stopErr != nil {
+		if stopErr := p.stopLanding(store, runstate.OutsideFileAttempt{Record: landing.Record, RecordDigest: landing.RecordDigest, Attempt: landing.Attempt}, landing, why); stopErr != nil {
+			return outcome, stopErr
+		}
+		outcome.Summary = why
+	case refusedForGood(err):
+		// The change passed its checks and its review, and the promotion found the
+		// record does not show it earned them, for a cause a later run would meet
+		// again (lastingRefusal): no developer changes what the next run does. The
+		// record is stopped rather than tried again, and the report says which
+		// check the promotion found missing. The fault is the harness's rather
+		// than the record's, so the stop names the build that made it and lifts
+		// once another build is running (dueOutsideFile), and the next run is a
+		// fresh attempt rather than this one again. A refusal for a passing cause — the
+		// change could not be named, or moved under its evidence — takes the wait
+		// below like any stop that judged nothing. So does a run another process
+		// ended, whose error is gone; the attempts it is given still bound it.
+		why := fmt.Sprintf("run %s passed its checks and its review, and the merge step refused it because %s", saved.RunID, strings.TrimPrefix(oneline.Fold(lastingCause(err), 900), ErrIntegrationUnearned.Error()+": "))
+		record.note(ctx, fmt.Sprintf("Yoyodyne's run %s did not bring in %s: %s. Another run of this build would be refused the same way, so the record is stopped until it changes on the target branch or a new build of the harness is running.", saved.RunID, pinnedPath, strings.TrimPrefix(why, "run "+saved.RunID+" ")))
+		if stopErr := p.stopLanding(store, runstate.OutsideFileAttempt{Record: landing.Record, RecordDigest: landing.RecordDigest, Attempt: min(landing.Attempt+1, runstate.MaxOutsideFileRuns), StoppedBuild: p.Build}, landing, why); stopErr != nil {
 			return outcome, stopErr
 		}
 		outcome.Summary = why
@@ -674,12 +875,29 @@ func (p Pipeline) settleOutsideFile(ctx context.Context, store OutsideFileStore,
 	return outcome, nil
 }
 
+// lastingCause is what a lasting refusal says (refusedForGood), without what
+// the error that carried it to the run's end added around it.
+func lastingCause(err error) string {
+	var refused lastingRefusal
+	if errors.As(err, &refused) {
+		return refused.Error()
+	}
+	return err.Error()
+}
+
 // outsideFileItem is the bookkeeping item a run that brings a file in is
-// recorded under. Its grant names the two paths the run may write.
+// recorded under. Its grant names the paths the run may write: the file and
+// its record, and the license file and its record where it brings one in.
 func outsideFileItem(landing runstate.OutsideFileLanding) beads.WorkItem {
 	pinnedPath := outsidefile.PinnedPath(landing.Record)
-	return beads.WorkItem{ID: landing.WorkItemID(), Title: "Bringing in " + pinnedPath, Status: "open",
-		Description: fmt.Sprintf("Bring in the pinned outside file %s exactly as fetched, as the record %s declares, for %s.\nprotected-path grant: %s\nprotected-path grant: %s", pinnedPath, landing.Record, landing.For, pinnedPath, landing.Record)}
+	description := fmt.Sprintf("Bring in the pinned outside file %s exactly as fetched, as the record %s declares, for %s.", pinnedPath, landing.Record, landing.For)
+	if landing.License != nil {
+		description += fmt.Sprintf(" Bring in its license file %s with it, as the record %s declares.", outsidefile.PinnedPath(landing.License.Record), landing.License.Record)
+	}
+	for _, path := range landing.Paths() {
+		description += "\nprotected-path grant: " + path
+	}
+	return beads.WorkItem{ID: landing.WorkItemID(), Title: "Bringing in " + pinnedPath, Status: "open", Description: description}
 }
 
 // outsideFileRecorder writes a run's start and end onto the item its record is
