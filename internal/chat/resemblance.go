@@ -221,7 +221,9 @@ func duplicateRemedy(matches []admission.Match) string {
 				match.Source, match.Source)
 		}
 	}
-	return remedy
+	// A scope match reads the titles, and siblings written on one template are
+	// compared on what the template frames; see admission.Resembling.
+	return remedy + " Where this is a separate piece of the same parent, say in its title what separates it, or name in its description the files or packages it covers that the other does not: the wording two siblings share at the start and end of their titles is read as their common template, and siblings naming different files are different work."
 }
 
 // citedReport is the collected report an admission says the work came from, and
@@ -304,8 +306,9 @@ func (s *Session) resemblingProposals(ctx context.Context, proposals []Proposal)
 	}
 	for i, proposal := range proposals {
 		matches := admission.Resembling(admission.Candidate{
-			Title:  strings.TrimSpace(proposal.Title),
-			Parent: strings.TrimSpace(proposal.Parent),
+			Title:       strings.TrimSpace(proposal.Title),
+			Description: strings.TrimSpace(proposal.Description),
+			Parent:      strings.TrimSpace(proposal.Parent),
 		}, admitted)
 		if len(matches) == 0 {
 			continue

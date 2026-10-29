@@ -252,6 +252,49 @@ func TestOneParentIsNotDecomposedTwiceIntoTheSameChild(t *testing.T) {
 	}
 }
 
+// The duplicate check reads a creation's description for the files it names, so
+// a sibling written on the same template as one already carved out, but naming
+// different files, is created through the same door that refuses a repeat.
+func TestASiblingNamingDifferentFilesIsCreated(t *testing.T) {
+	t.Parallel()
+
+	const title = "Run lifecycle move: these files write run records through narrow updates"
+	tracker := &fakeTracker{
+		items: map[string]beads.WorkItem{
+			"yoyodyne-ifd.428.126.1": {ID: "yoyodyne-ifd.428.126.1", Title: "Run lifecycle has one owner", Status: "open"},
+		},
+		all: []beads.WorkItem{
+			{ID: "yoyodyne-ifd.428.126.1", Title: "Run lifecycle has one owner", Status: "open"},
+			{
+				ID:          "yoyodyne-ifd.428.126.1.3",
+				Title:       title,
+				Description: "Moves repaircontinue.go and continue.go.",
+				Parent:      "yoyodyne-ifd.428.126.1",
+				Status:      "open",
+			},
+		},
+	}
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: trackerReply("Splitting it.",
+			`{"action":"create","kind":"feature","parent":"yoyodyne-ifd.428.126.1","title":"`+title+`",`+
+				`"description":"Moves pause.go and pipelinepause.go.","goal":"`+theGoal+`","reason":"decomposing the parent"}`)},
+		{SessionID: "session-1", FinalText: "Created."},
+	}}
+	options := testOptions(t, provider)
+	options.Role = domain.RoleDevelopmentManager
+	options.Tracker = tracker
+	options.Goals = recordedGoals(theGoal)
+	session := openTestSession(t, options)
+
+	reply, err := session.Send(context.Background(), "Split the run lifecycle work.")
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if len(reply.Actions) != 1 || !reply.Actions[0].Applied || len(tracker.created) != 1 {
+		t.Fatalf("actions = %#v, created = %#v, want the sibling naming different files created", reply.Actions, tracker.created)
+	}
+}
+
 // The 2026-09-18 shape: the listing the duplicate check needs timed out under an
 // admission, and the admission went in unchecked. The guard cost two runs to
 // earn, and a listing that still fails once the recovery rule has retried it is
