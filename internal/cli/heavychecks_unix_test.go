@@ -39,11 +39,13 @@ func TestAKeptHeavyCheckPlaceIsListedAndGivenBackByHand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The leftover process runs until the test ends, or for at most sixty
-	// seconds, so it outlives its check however loaded the machine is.
+	// The leftover process runs until the test ends, or for at most five
+	// minutes, so it outlives its check however loaded the machine is: under a
+	// full test suite the check's own exit alone has taken over half a minute to
+	// be recorded, and a deadline of one minute ended the leftover first.
 	marker := filepath.Join(t.TempDir(), "stop")
 	t.Cleanup(func() { _ = os.WriteFile(marker, nil, 0o600) })
-	command := exec.Command("/bin/sh", "-c", "end=$(( $(date +%s) + 60 )); ( while [ ! -e '"+marker+"' ] && [ \"$(date +%s)\" -lt \"$end\" ]; do sleep 0.1; done ) & exit 0")
+	command := exec.Command("/bin/sh", "-c", "end=$(( $(date +%s) + 300 )); ( while [ ! -e '"+marker+"' ] && [ \"$(date +%s)\" -lt \"$end\" ]; do sleep 0.1; done ) & exit 0")
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	command.ExtraFiles = []*os.File{grant.Hold()}
 	if err := command.Start(); err != nil {
