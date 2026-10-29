@@ -14,6 +14,10 @@ revisions:
       by: architect
       at: 2026-10-15T13:10:19.311988Z
       reason: 'Keeps the promises of the operator-approved team-mode scope that the published text broke, as the reviewer of its publishing run found (yoyodyne-ifd.437.52): reports, their handling and directives travel between machines through a records reference on the shared remote; each item''s budgets are counted across every factory, spent only by the factory holding the item''s claim and acted on only after the spend is pushed; the team pause is the shared form of the intake hold; and the old draft docs/team-mode-coordination.md is named as replaced, with a build item to change that file, which lies outside the architect''s folders.'
+    - action: amended
+      by: architect
+      at: 2026-10-29T02:56:39.625831Z
+      reason: 'yoyodyne-ifd.429.111: claims, the team pause, the shared records and shared budgets apply only when the project turns team mode on, so a factory working a repository alone reads no team pause, takes no claim and never holds back new work for an unreachable remote; the forge check runs on its own schedule apart from the maintenance pass, and a change it read but could not finish acting on is acted on again at the next check.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -25,6 +29,11 @@ approvals:
       by: harness
       at: 2026-10-15T13:10:19.311988Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1013, for document-1013.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-10-29T02:56:39.625831Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1930, for document-1930.1 under the automatic approval policy
 ---
 # Working alongside other contributors
 
@@ -40,17 +49,17 @@ The standing goals apply throughout. Every state below is shown in ordinary word
 
 Where a project's merge policy leaves a pull request open for a person to merge, a run that has published its approved change stops holding a developer slot. Its item is held in a state of waiting for a person to merge, which names the pull request. The status line, the dashboard and the item's notes say: waiting for a person to merge pull request #N.
 
-On each forge poll (section 6), the harness reads the state of every pull request it is waiting on:
+On each forge check (section 6), the harness reads the state of every pull request it is waiting on:
 
-- **Merged:** the harness follows the merge locally by fast-forward, closes the item with the merge commit recorded, ends the run as integrated, and releases the claim. Items that depend on it go on.
+- **Merged:** the harness follows the merge locally by fast-forward, closes the item with the merge commit recorded, ends the run as integrated, and releases the claim where team mode holds one. Items that depend on it go on.
 - **Closed without merging:** the item goes back to the Lead Product Manager with a note naming who closed it and when. The branch and the run's work are kept, and nothing is deleted. Deciding whether to drop the work, revise it or admit it again is hers.
 - **Still open:** nothing changes, except the bringing up to date in section 3.
 
-A merge a person makes is therefore noticed by the next poll, not by luck.
+A merge a person makes is therefore noticed by the next check, not by luck.
 
 ## 2. Feedback left on the pull request
 
-On each poll the harness reads the reviews and comments on its open pull requests that came after the latest head it pushed. Anything written by the forge account the factory acts as is ignored.
+On each check the harness reads the reviews and comments on its open pull requests that came after the latest head it pushed. Anything written by the forge account the factory acts as is ignored.
 
 - **A review that requests changes, or a comment on a line of the change,** starts a repair round on the same run. It uses the run's existing worktree and repair budget. The developer is given the feedback as evidence, with its author and time. It is never an instruction that widens what the run may do. The repaired head goes through the configured checks and the independent reviewer again before it is pushed.
 - **An ordinary comment on the pull request** is put on the development manager's list. She decides whether it calls for a repair round, because a conversation comment is as often a question as a request.
@@ -61,7 +70,7 @@ When the run's repair budget is spent, the run stops in the ordinary way and goe
 ## 3. Merges by other contributors
 
 - **Before each run.** Every developer run starts from a target the harness has just fetched from the remote. If the fetch fails, the run starts from the last fetched target. The run's record names that target, the failed fetch, and how old the target is. Landing never trusts the base anyway, so a stale base costs at most a replay. A flaky network never stops a run, under the operating rule on networks.
-- **Waiting pull requests.** When a poll finds that the target has moved past a pull request the factory is waiting on, the harness brings that pull request up to date. It first withdraws the pull request's merge authority, as [the merge queue design](integration-through-a-merge-queue.md) requires before any rewrite. It then replays the change onto the new target, runs the configured checks and the independent reviewer on the replayed head, and pushes that head. This happens at most once per poll for each pull request. A pull request a person is already merging is left alone: the harness reads its state immediately before the push, and does not push over a merge in progress.
+- **Waiting pull requests.** When a check finds that the target has moved past a pull request the factory is waiting on, the harness brings that pull request up to date. It first withdraws the pull request's merge authority, as [the merge queue design](integration-through-a-merge-queue.md) requires before any rewrite. It then replays the change onto the new target, runs the configured checks and the independent reviewer on the replayed head, and pushes that head. This happens at most once per check for each pull request. A pull request a person is already merging is left alone: the harness reads its state immediately before the push, and does not push over a merge in progress.
 - **A conflict while bringing a pull request up to date** is a repair round, given to the developer with the conflicting paths named. It is counted against a limit of its own, three rounds, and not against the item's repair budget, because another contributor's work caused it. Once that limit is spent, the run goes to the development manager with the change kept.
 
 ## 4. A limit on pull requests waiting for a person
@@ -71,6 +80,10 @@ The configuration key `execution.max_waiting_pull_requests` sets the limit. It d
 At the limit, the scheduler starts no new developer work. Repair rounds, reviews and the bringing up to date of waiting pull requests carry on. Wherever the factory's state is shown (the status line, the dashboard, and the Lead Product Manager's sweep), it says in plain words that it is not starting new work because N pull requests are waiting for a person to merge, and names each one by number and work item. So the pause never reads as an unexplained stall. Work resumes on its own as soon as the count falls below the limit.
 
 ## 5. Two factories and the same work
+
+Everything in this section, and in sections 7 and 8, applies only when the project has turned team mode on. A project turns it on with `team.enabled: true` in its committed configuration, so every factory working the repository reads the same value. It is off by default. Turning it on is the Lead Product Manager's decision, because it changes how work is taken from the backlog, and the development manager applies it, as [portable agent configuration](portable-agent-configuration.md) rules for settings a role applies. Where the configuration already names team mode under another key, that key is the one, and build item 6 uses it.
+
+A factory with team mode off works the repository alone. It reads no team pause, takes no claim, fetches no records reference, and counts no spends across machines. It never stops or delays new work because the remote cannot be reached: its fetch before each run falls back as section 3 says, and its forge check waits out a forge it cannot reach. What it still does is sections 1 to 4, which serve any project whose pull requests can be merged, commented on, or overtaken by someone else.
 
 Team mode needs the harness to publish through pull requests on a forge, because the forge is where contributors learn about each other. `yoyo doctor` refuses team mode, in plain words, for a factory whose publishing is off.
 
@@ -86,7 +99,7 @@ A claim is a Git reference on the shared remote, `refs/yoyodyne/claims/<item id>
 
 The factory's identity is the product id, plus a machine identity generated once and kept in that machine's home, plus the forge account the factory acts as.
 
-- **Taking.** Before claiming an item, the harness fetches the claim references, the records reference (section 7) and the team pause, and reads the intake hold, as [the intake invariant](../decisions/invariants/selected-work-passes-intake-and-records-why.md) requires, and the team pause below. It then pushes the claim reference with `--force-with-lease=<ref>:`, which succeeds only if no such reference exists. A refused push means another contributor holds the item. That item is skipped this turn, with the holder named where the queue is read. The local tracker claim is made only after the push succeeds. A factory that cannot reach the remote cannot push a claim, so it never starts new work on a reading of the team pause it could not refresh.
+- **Taking.** Before claiming an item, the harness fetches the claim references, the records reference (section 7) and the team pause, and reads the intake hold, as [the intake invariant](../decisions/invariants/selected-work-passes-intake-and-records-why.md) requires, and the team pause below. It then pushes the claim reference with `--force-with-lease=<ref>:`, which succeeds only if no such reference exists. A refused push means another contributor holds the item. That item is skipped this turn, with the holder named where the queue is read. The local tracker claim is made only after the push succeeds. A factory in team mode that cannot reach the remote cannot push a claim, so it never starts new work on a reading of the team pause it could not refresh.
 - **Renewing.** While a run holds the item, including while it waits for a merge or is stopped and kept for a decision, the harness renews the claim every 15 minutes. It pushes a new claim commit with a lease that names the commit it last pushed.
 - **Expiry.** A claim not renewed for two hours may be taken over by another factory. The takeover pushes with a lease naming the stale commit, and records the earlier holder in the new claim record and on the item. A failed renewal is a wait caused by something outside the work, and it is tried again on the next turn. Only a claim that has gone two hours unrenewed can be lost.
 - **Release.** When the run ends, the harness deletes the reference with a lease naming its own commit. A reference that is no longer its own is left alone and reported.
@@ -97,7 +110,9 @@ People are not expected to push claims. A factory notices a person's work only t
 
 ### The team pause
 
-The team pause is the shared form of the intake hold: the reference `refs/yoyodyne/pause`, set and cleared with `yoyo pause --team`. While it is set, no factory starts new work from the product; runs already in progress finish, and repair rounds and waiting pull requests carry on. Every factory reads it in the same fetch that comes before a claim. An item the operator named on a machine is still that operator's exception, as the intake invariant already allows. The operator's pause on each machine, set by `yoyo pause`, stops that machine's spending and is unchanged: it does not travel, because one collaborator must not be able to stop another's machine.
+The team pause is the shared form of the intake hold: the reference `refs/yoyodyne/pause`, set and cleared with `yoyo pause --team`. While it is set, no factory starts new work from the product; runs already in progress finish, and repair rounds and waiting pull requests carry on. Every factory in team mode reads it in the same fetch that comes before a claim. An item the operator named on a machine is still that operator's exception, as the intake invariant already allows. The operator's pause on each machine, set by `yoyo pause`, stops that machine's spending and is unchanged: it does not travel, because one collaborator must not be able to stop another's machine.
+
+The team pause exists only in team mode. A factory with team mode off never fetches or reads it, so a pause reference left on the remote by an earlier team does not stop it, and an unreachable remote never stands in for a pause it could not read. `yoyo pause --team` is refused, in plain words, on a project whose team mode is off.
 
 ### The five gaps team mode named
 
@@ -107,15 +122,19 @@ The team pause is the shared form of the intake hold: the reference `refs/yoyody
 - **Reports, run records and the pause switch being per machine.** Reports, their handling and directives travel between machines, as section 7 describes, and so does what each item has spent, as section 8 describes. The pause gains its team form above. Run records stay per machine, for the reason section 7 gives.
 - **No proof of who an operator is.** The factory does not establish one. The forge account is the identity, and the forge's permissions decide who may merge, review or push. A factory acts on its own operator's decisions, on directives that travel (section 7), and on what the forge shows. It never acts on another machine's own controls: that machine's pause, stop, or decisions about that machine's runs. Permissions between users stay out of v1, as the non-goals say.
 
-## 6. Polling the forge
+## 6. Checking the forge
 
-The harness polls the forge on the maintenance turn, every five minutes by default. Each poll covers the pull requests it is waiting on, the reviews and comments on its open pull requests, the target branch, the claim references, the records reference and the team pause. It uses the forge's conditional requests, so an unchanged answer costs little. The interval is a numeric limit, and setting it is the development manager's decision.
+The harness checks the forge on a schedule of its own, every five minutes by default, apart from the maintenance pass. Maintenance does slow work that has nothing to do with the forge, such as clearing old checkouts and shrinking the tracker's store, and a forge check waiting behind it would notice a person's merge late, or not at all while a maintenance step kept failing. The interval is a numeric limit, and setting it is the development manager's decision.
 
-Web hooks are rejected. A laptop has no address the forge can reach, and a relay that received them on its behalf would be the hosted control plane v1 excludes. Polling within a few minutes is fast enough for work measured in runs.
+Each check covers the pull requests the factory is waiting on, the reviews and comments on its open pull requests, and the target branch. With team mode on, it also covers the claim references, the records reference and the team pause. It uses the forge's conditional requests, so an unchanged answer costs little.
+
+A check that cannot reach the forge changes nothing, and the next check tries again. A check that reads a change but cannot make the tracker write that follows from it, such as closing an item whose pull request merged, records nothing as handled: the next check reads the same change and makes the write again. Every write a check makes can be made twice without harm, so a write repeated after a timeout in which it had in fact succeeded leaves the item as it was and adds no second note. Neither failure stops a run or holds back any other work.
+
+Web hooks are rejected. A laptop has no address the forge can reach, and a relay that received them on its behalf would be the hosted control plane v1 excludes. Checking within a few minutes is fast enough for work measured in runs.
 
 ## 7. What travels between machines
 
-The backlog and attributions travel in the tracker. Reports and control travel through a second reference of the harness's own on the shared remote, `refs/yoyodyne/records`.
+With team mode on, the backlog and attributions travel in the tracker, and reports and control travel through a second reference of the harness's own on the shared remote, `refs/yoyodyne/records`.
 
 ### What it holds
 
@@ -138,7 +157,7 @@ A report, its handling, or a directive that cannot be pushed because the remote 
 
 ### Reading
 
-On each poll and in the fetch before each claim, the harness fetches the reference and copies every record it has not yet seen into the machine's own report and directive stores, marked with the factory that wrote it. Every surface keeps reading those stores through the one read model, as [the read model invariant](../decisions/invariants/surfaces-project-one-read-model.md) requires, so no surface reads Git and a report reads the same wherever it was filed. A role handling a report from another machine records its handling as a record that travels back.
+On each check and in the fetch before each claim, the harness fetches the reference and copies every record it has not yet seen into the machine's own report and directive stores, marked with the factory that wrote it. Every surface keeps reading those stores through the one read model, as [the read model invariant](../decisions/invariants/surfaces-project-one-read-model.md) requires, so no surface reads Git and a report reads the same wherever it was filed. A role handling a report from another machine records its handling as a record that travels back.
 
 ### What stays on each machine
 
@@ -146,7 +165,7 @@ Run records, worktrees, event logs, provider sessions, conversations, the spend 
 
 ## 8. Each item's budgets across machines
 
-The scope records that an item's budgets are counted on the machine that counted them, so a cap of one is a cap of two across a pair. The budgets are the repair grants an item is given, the re-runs it causes, the merge re-arms it makes, and the review rounds it costs across every run of it. This design counts them across every factory.
+The scope records that an item's budgets are counted on the machine that counted them, so a cap of one is a cap of two across a pair. The budgets are the repair grants an item is given, the re-runs it causes, the merge re-arms it makes, and the review rounds it costs across every run of it. With team mode on, this design counts them across every factory. With team mode off there is one factory, and its own count is the whole count.
 
 - **Only the claim holder spends.** Only the factory holding an item's claim spends any of the item's budgets, and a decision about a stopped run is carried out on the machine whose run it is, which still holds the claim. The claim already lets one factory hold an item at a time, so spending is ordered across machines without a shared counter or a tie-break.
 - **Every spend is a record.** A spend is written under `spends/<item id>/` in the records reference, naming the budget, the run, the factory and the time. Review rounds, counted today from local run records, are counted from these records instead: a run records each review round when it starts.
@@ -164,11 +183,15 @@ The scope records that an item's budgets are counted on the machine that counted
 - **Keeping reports on each machine.** It breaks the scope's promise that findings travel: a finding about shared work would reach only the operator whose run noticed it.
 - **Reports and spends as tracker items or notes.** A report, a directive and a spend are not work, and putting them in the tracker would put them in the queue of work to pull.
 - **A shared counter for budgets with a tie-break.** The claim already decides who may spend, so a second way of deciding would only be a place for the two to disagree.
+- **Reading the team pause and taking claims on every factory, team mode or not.** A factory working a repository alone would stop new work whenever the remote could not be reached, which the operating rule on networks forbids, and a pause reference left behind by an earlier team would stop it with nobody left to clear it.
+- **Checking the forge inside the maintenance pass.** How long maintenance took would decide how late a person's merge was noticed, and a maintenance step that kept failing would take the forge check down with it.
 
 ## What is enforced in code
 
-- A claim is taken only by a push that fails if the reference exists. It is renewed, taken over and released only by a lease naming the expected commit. No agent touches a claim reference.
-- The intake hold and the team pause are read before every claim, from the fetch made for it.
+- With team mode off, the harness reads no team pause, takes no claim, and fetches no records reference, and no start of new work waits on the remote.
+- With team mode on, a claim is taken only by a push that fails if the reference exists. It is renewed, taken over and released only by a lease naming the expected commit. No agent touches a claim reference.
+- The intake hold is read before every start. With team mode on, the team pause is read before every claim, from the fetch made for it.
+- The forge check runs on its own schedule, not inside the maintenance pass, and a change it read but could not finish acting on is read and acted on again at the next check.
 - A rewrite of a published head happens only after its merge authority is confirmed withdrawn.
 - Nothing lands on the target except through the pinned pull request merge, or a push with a lease naming the candidate's base.
 - A person's approval on the forge never satisfies the independent review.
@@ -182,9 +205,13 @@ The scope records that an item's budgets are counted on the machine that counted
 - Every run's record names the target it started from and whether that target was fetched for the run.
 - A conflict while bringing a pull request up to date is a repair round counted against its own limit.
 - At the limit on waiting pull requests, no new developer work starts, and the status line names the pull requests being waited on.
+- With team mode off and the remote unreachable, new work still starts, and no claim or pause reference is read.
+- A pause reference left on the remote does not stop a factory whose team mode is off, and `yoyo pause --team` is refused there.
+- A forge check keeps its schedule while a maintenance pass is running.
+- A pull request that merges while the tracker write closing its item times out has its item closed at the next check, with one note.
 - Two factories racing for one item: exactly one claim push succeeds.
 - A claim unrenewed for two hours can be taken over, and the takeover names the earlier holder.
-- A report filed on one factory is shown on the other after its next poll, naming the factory that filed it, and its handling travels back.
+- A report filed on one factory is shown on the other after its next check, naming the factory that filed it, and its handling travels back.
 - One Slack reply seen by two factories produces one directive, and both acknowledgements name it.
 - With a repair cap of one, two factories working one item in turn spend one repair between them.
 - A spend whose push fails is not acted on, and the run waits without being charged.
@@ -197,11 +224,11 @@ The scope records that an item's budgets are counted on the machine that counted
 3. Fetch before each run, with the starting target and its age recorded.
 4. Waiting pull requests brought up to date when the target moves, with conflicts as repair rounds under their own limit.
 5. The limit on waiting pull requests, and the pause it causes, said in plain words on every surface.
-6. Claim references: taking, renewing, expiry and takeover, and release, plus the `yoyo doctor` checks that the forge accepts them and that publishing is on.
+6. The team mode setting, off by default, and claim references: taking, renewing, expiry and takeover, and release, plus the `yoyo doctor` checks that the forge accepts them and that publishing is on.
 7. The factory identity, kept in the machine's home and named in claims, records and pull request descriptions.
-8. The team pause reference and `yoyo pause --team`, read in the fetch before every claim.
+8. The team pause reference and `yoyo pause --team`, read in the fetch before every claim and only with team mode on, and refused on a project whose team mode is off.
 9. Tracker sharing between machines: establish how Beads merges its export, and hold an item whose versions cannot be merged.
-10. Forge polling on the maintenance turn, with conditional requests, covering the claim, records and pause references.
+10. Checking the forge on a schedule of its own, apart from the maintenance pass, with conditional requests, acting again at the next check on a change whose tracker write did not go through; the claim, records and pause references are covered only with team mode on.
 11. The records reference: writing records through Git objects with a lease, fetching and copying them into the machine's stores, the count of records not yet shared, and Slack directives named by message id.
 12. Each item's budgets counted across factories through spend records, spent only by the claim holder, acted on only after the push, and the one-time push of earlier spends on joining.
 13. The earlier draft docs/team-mode-coordination.md replaced by a short note naming this design as its replacement. The file is outside the architect's folders, so a developer run changes it.
