@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-10-28T21:02:20.101577Z
       reason: 'Approves the developer''s proposal from the fix for runs that brought in a pinned file and could never land (yoyodyne-e7j8): a pinned file and the pinned license file its record names are brought in by one run; that run''s full checks are never narrowed to the changed paths; and a run the merge step refuses for missing evidence stops the record with one warning report naming the missing check, tried again after the record changes on main or the product runs a new build.'
+    - action: amended
+      by: architect
+      at: 2026-10-29T03:54:09.486703Z
+      reason: 'Approves the developer''s proposal (amendment-de9bda6e) from the fix for pinned-file runs that could never land: a new build starts a record stopped at the merge step again only while it has runs left, six for one content of the record, and a record whose runs are spent stays stopped until it changes on main, as the code already holds.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -34,6 +38,11 @@ approvals:
       by: harness
       at: 2026-10-28T21:02:20.101577Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1911, for document-1911.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-10-29T03:54:09.486703Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1934, for document-1934.1 under the automatic approval policy
 ---
 # Pinned outside files
 
@@ -148,7 +157,7 @@ To change a version, a change edits `url` and `version`, clears the harness's fi
 
 - **The network.** A connection that fails, a timeout, or a server error is waited out. The record is tried again at a later pull, at least ten minutes after the last attempt, and nothing is counted against it. This follows the rule that a flaky network ends nothing.
 - **The record.** Any failure that is about the record stops that record at once. These are: a host not on the list, an address that breaks the rules above, a redirect to a host not on the list, a missing file at the address, a file over the size limit, or a checksum that does not match. The harness files a warning report for the development manager naming the record, the address, and the reason. The record is tried again only after it changes on main. Nothing is put to the operator.
-- **The merge step.** A run whose checks and review passed but which the merge step refuses because evidence it needs is missing has met a fault in how the harness ran its checks, not a fault in the record, and a fresh run from the same record would meet it again. The run ends, and the record is stopped. The harness files one warning report for the development manager naming the record and saying in plain words which check's evidence was missing. The record is tried again after it changes on main or once the product is running a new build, whichever comes first, so a correct record never has to be edited by hand to start it again. Nothing is put to the operator.
+- **The merge step.** A run whose checks and review passed but which the merge step refuses because evidence it needs is missing has met a fault in how the harness ran its checks, not a fault in the record, and a fresh run from the same record would meet it again. The run ends, and the record is stopped. The harness files one warning report for the development manager naming the record and saying in plain words which check's evidence was missing. The record is tried again after it changes on main or once the product is running a new build, whichever comes first, so a correct record never has to be edited by hand to start it again. A new build starts the record again only while it has runs left: at most six runs are started from one content of the record. A record whose runs are spent stays stopped until it changes on main, so a fault that a new build does not fix is not tried again on every build without end. Nothing is put to the operator.
 
 ## What this repository needs
 
