@@ -73,9 +73,11 @@ func (e SlotOccupiedError) Error() string {
 }
 
 // ClaimSlot records the developer slot a run occupies, under the reservation
-// lock so that two runs cannot record one slot. The slot has to lie within the
-// configured capacity and be recorded by no other run that holds a developer
-// slot now (slotNumberHolder). The record is routing identity only: whether the
+// lock so that no two runs holding a slot record one number. The slot has to lie
+// within the configured capacity and be recorded by no other run that holds a
+// developer slot now (slotNumberHolder). A run holding none that records the
+// number may be taken up again later; it then waits for the number rather than
+// share it (Store.slotNumberTaken). The record is routing identity only: whether the
 // run holds execution capacity is still what Reserve and ReclaimSlot count.
 func (s *Store) ClaimSlot(ctx context.Context, held State, number, capacity int, at time.Time) (State, error) {
 	if number < 1 || number > capacity {

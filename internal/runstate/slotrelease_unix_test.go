@@ -260,3 +260,85 @@ func TestAReleasedRunTakenUpAgainHoldsASlot(t *testing.T) {
 		t.Fatal("HoldsDeveloperSlotNow() = false for a released run a live worker took up again")
 	}
 }
+
+// liveInSlot is a run whose worker is this live process, holding its lease, in
+// developer slot number.
+func liveInSlot(t *testing.T, store *Store, workItem string, number int) State {
+	t.Helper()
+	ctx := context.Background()
+	live := testState(t, StatusPending)
+	live.WorkItemID = workItem
+	lease, err := store.Reserve(ctx, live, 3)
+	if err != nil {
+		t.Fatalf("Reserve() error = %v", err)
+	}
+	t.Cleanup(func() { _ = lease.Release() })
+	claimed, err := store.ClaimSlot(ctx, load(t, store, live.RunID), number, 3, routingAt)
+	if err != nil {
+		t.Fatalf("ClaimSlot() error = %v", err)
+	}
+	return claimed
+}
+
+// A released run whose slot number another run claimed meanwhile is not taken
+// up again on that number: it waits for the slot, saying which run holds it,
+// rather than run beside it on the same slot's endpoints. Once the number is
+// free again it is taken up.
+func TestAReleasedRunWhoseNumberWasClaimedWaitsRatherThanShareIt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newTestStore(t)
+	vanishedRun(t, store, "yoyodyne-gone", 1)
+	if _, err := store.ReleaseSlotsWithNoLiveWorker(ctx, time.Now()); err != nil {
+		t.Fatalf("ReleaseSlotsWithNoLiveWorker() error = %v", err)
+	}
+	other := liveInSlot(t, store, "yoyodyne-other", 1)
+
+	_, lease, err := store.Adopt(ctx, "yoyodyne-gone")
+	var capacity CapacityError
+	if !errors.As(err, &capacity) || capacity.Slot != 1 || capacity.HeldBy != other.RunID {
+		if lease != nil {
+			_ = lease.Release()
+		}
+		t.Fatalf("Adopt() error = %v, want it to wait for slot 1, which run %s holds", err, other.RunID)
+	}
+	if !strings.Contains(err.Error(), "developer slot 1") || !strings.Contains(err.Error(), other.RunID) {
+		t.Fatalf("Adopt() error = %q, want it to name the slot and the run holding it", err)
+	}
+
+	moved := load(t, store, other.RunID)
+	moved.Status = StatusSucceeded
+	completed := time.Now()
+	moved.CompletedAt = &completed
+	if err := store.Save(moved); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	_, lease, err = store.Adopt(ctx, "yoyodyne-gone")
+	if err != nil {
+		t.Fatalf("Adopt() once the number is free again error = %v", err)
+	}
+	_ = lease.Release()
+}
+
+// A run paused on work its item waits on keeps nobody out of its number, so a
+// continuation whose number another run now holds waits for it the same way.
+func TestAPausedRunWhoseNumberWasClaimedWaitsToContinue(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newTestStore(t)
+	paused := vanishedRun(t, store, "yoyodyne-paused", 2)
+	paused.DependencyPause = &DependencyPause{Blockers: []string{"yoyodyne-z"}}
+	if err := store.Save(paused); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	other := liveInSlot(t, store, "yoyodyne-other", 2)
+
+	_, err := store.ReclaimSlot(ctx, load(t, store, paused.RunID), 3)
+	var capacity CapacityError
+	if !errors.As(err, &capacity) || capacity.Slot != 2 || capacity.HeldBy != other.RunID {
+		t.Fatalf("ReclaimSlot() error = %v, want it to wait for slot 2, which run %s holds", err, other.RunID)
+	}
+	if stored := load(t, store, paused.RunID); stored.DependencyPause == nil {
+		t.Fatal("the refused continuation lifted the pause")
+	}
+}

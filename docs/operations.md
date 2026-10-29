@@ -5056,7 +5056,9 @@ has the rule.
   has stopped as interrupted, leaves open and names one it cannot show
   stopped, and writes on the run what it freed and why. The run then holds no
   slot, by number or in the count, until a repair or a continuation takes it up
-  with a new worker; the pass's summary names each release, and the health
+  with a new worker. If another run has claimed its slot number by then, it waits
+  for that slot rather than run beside the other on the same slot's endpoints,
+  and the wait names the run holding it. The pass's summary names each release, and the health
   check the development manager's passes carry lists the run as a condition of
   hers, beside the list of what holds each developer slot, since when, and why.
 
