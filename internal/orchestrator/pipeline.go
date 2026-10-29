@@ -232,6 +232,10 @@ type StateStore interface {
 	// every simultaneous start can lose.
 	LeaseRotation(ctx context.Context) (*runstate.Lease, error)
 	Save(state runstate.State) error
+	// Update makes one of the run store's named narrow changes to a run as it is
+	// stored, so a writer that does not hold the run changes only its own fields
+	// and loses nothing another writer changed (runstate/runupdate.go).
+	Update(ctx context.Context, runID string, update runstate.RunUpdate) (runstate.State, error)
 	// Load reads one run's record back. A run holding its own lease has no reason
 	// to ask what is on disk — its own state is ahead of it — with two exceptions:
 	// a save the store refused leaves the record behind what this process holds,

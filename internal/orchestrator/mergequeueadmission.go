@@ -222,20 +222,16 @@ func (a *activeRun) completeQueued(ctx context.Context, entry runstate.MergeQueu
 		return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("record the merge queue admission on the item: %w", err)), runstate.StatusFailed)
 	}
 	a.recordPrice()
-	completedAt := p.clock().Now()
-	a.state.ProviderStop = ""
-	a.state.RedeployStop = nil
-	a.state.OperatorHeldSince = nil
-	a.state.Status = runstate.StatusSucceeded
-	// Cleaning up is what is owed once the queue lands the change and records
-	// the landing as the run's integration; until then the run owes nothing,
-	// and its branch and worktree are what a handback for repair continues.
-	a.state.Phase = runstate.PhaseCleaningUp
-	a.state.UpdatedAt = completedAt
-	a.state.CompletedAt = &completedAt
-	if err := p.Store.Save(a.state); err != nil {
+	// The tracker may have been waited on for a long time, and the queue may
+	// have recorded on the run meanwhile — its landing, or a transfer — so the
+	// ending is a narrow update of the run as stored rather than a save of the
+	// copy this process held before the wait. Everything this process recorded
+	// is already stored: the admission above, and each retry as it was taken.
+	ended, err := p.Store.Update(ctx, a.state.RunID, runstate.QueuedRunCompleted{At: p.clock().Now()})
+	if err != nil {
 		return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("save the run its change was queued by: %w", err)), runstate.StatusFailed)
 	}
+	a.state = ended
 	a.outcome.Status = runstate.StatusSucceeded
 	a.outcome.Phase = a.state.Phase
 	return a.outcome, nil

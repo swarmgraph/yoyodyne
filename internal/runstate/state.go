@@ -3013,6 +3013,12 @@ type State struct {
 	// Retirement ends obsolete work without removing its branch or checkout.
 	Retirement    *RunRetirement   `json:"retirement,omitempty"`
 	SchemaVersion int              `json:"schema_version"`
+	// Revision is how many narrow updates (Store.Update, runupdate.go) the
+	// record has taken. A whole save carries the revision its copy was read at
+	// and is refused once the stored one has moved, so a copy read before
+	// another writer changed the record never overwrites that change. Absent is
+	// a record no narrow update has touched.
+	Revision      uint64           `json:"revision,omitempty"`
 	RunID         string           `json:"run_id"`
 	ProductID     domain.ProductID `json:"product_id"`
 	RepositoryID  string           `json:"repository_id"`

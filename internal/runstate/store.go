@@ -710,8 +710,10 @@ func (s *Store) Create(state State) error {
 // the routing the caller holds with the routing stored, and refuses the write
 // if they differ: routing changes only through UpdateRouting, so a difference
 // is either a copy read before a routing change or an attempt to change
-// routing here, and writing either would lose or forge it. Every other field is
-// the caller's, as it always was.
+// routing here, and writing either would lose or forge it. It refuses, with
+// StaleRunError, a copy read at a revision other than the stored one: a narrow
+// update (Store.Update) changed the record since, and writing the copy would
+// lose that change (runupdate.go). Every other field is the caller's.
 func (s *Store) Save(state State) error {
 	return s.save(state, false)
 }
@@ -740,16 +742,19 @@ func (s *Store) save(state State, reserved bool) error {
 		return err
 	}
 	defer unlock()
-	worker, stored, err := s.checkRoutingWrite(state)
+	head, err := s.checkRoutingWrite(state)
 	if err != nil {
 		return err
 	}
-	if !reserved && !stored.InFlight() && state.HoldsDeveloperSlot() {
-		return RefusedStateError{Problem: fmt.Errorf("%w: run %s is recorded %s and this save would make it %s", ErrMadeLiveWithoutASlot, state.RunID, stored, state.Status)}
+	if err := s.checkRevision(state, head.revision); err != nil {
+		return err
+	}
+	if !reserved && !head.status.InFlight() && state.HoldsDeveloperSlot() {
+		return RefusedStateError{Problem: fmt.Errorf("%w: run %s is recorded %s and this save would make it %s", ErrMadeLiveWithoutASlot, state.RunID, head.status, state.Status)}
 	}
 	// The worker is the store's to write (worker.go), whatever the caller's
 	// copy says.
-	state.Worker = s.workerToWrite(state.RunID, worker)
+	state.Worker = s.workerToWrite(state.RunID, head.worker)
 	return s.writeState(state)
 }
 

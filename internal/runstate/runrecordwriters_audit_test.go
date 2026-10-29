@@ -4,10 +4,11 @@ package runstate
 // held to the code it describes.
 //
 // A run's routing changes only through UpdateRouting, and Save refuses a record
-// whose routing is not the one stored (see Save and checkRoutingWrite). Both
-// guarantees hold only while every write of a run record goes through one of
-// those two, or through Create, which makes a record that does not exist yet
-// and so has no stored routing to lose. A writer that replaced the record file
+// whose routing is not the one stored (see Save and checkRoutingWrite), or whose
+// revision is not (runupdate.go). These guarantees hold only while every write
+// of a run record goes through Save, UpdateRouting, or Update, or through
+// Create, which makes a record that does not exist yet and so has no stored
+// routing to lose. A writer that replaced the record file
 // any other way would drop or forge a run's routing without either check seeing
 // it, and the run would be resumed on a backend nobody chose. Save also refuses
 // a write that would make a run that is not in flight live again holding a
@@ -20,7 +21,7 @@ package runstate
 //   - a function naming a run record's path (statePath) that is not listed in
 //     runRecordPathSites;
 //   - a function calling writeState other than save (behind Save and
-//     ReserveLive) and UpdateRouting;
+//     ReserveLive), UpdateRouting, and Update;
 //   - a *Store method other than statePath building a name ending in exactly
 //     ".json" by concatenation, which is how a writer would name the record
 //     without asking statePath for it. The other stores in this package name
@@ -55,7 +56,7 @@ import (
 // it does with it.
 var runRecordPathSites = map[string]string{
 	"(*Store).Create":      "writes a record that must not exist yet, with O_EXCL, so there is no stored routing to lose or overwrite",
-	"(*Store).writeState":  "the one replacement of an existing record; only save (behind Save and ReserveLive) and UpdateRouting call it, under the run's write lock",
+	"(*Store).writeState":  "the one replacement of an existing record; only save (behind Save and ReserveLive), UpdateRouting and Update call it, under the run's write lock",
 	"(*Store).load":        "reads the record; Load and Read both go through it",
 	"(*Store).storedHead":  "reads the stored routing and worker so Save can compare the one and keep the other before writing",
 	"(*Store).WaitForSlot": "asks only whether the document's run is recorded, under the reservation lock, before writing a wait of its own beside it",
@@ -65,6 +66,7 @@ var runRecordPathSites = map[string]string{
 var runRecordReplacers = map[string]bool{
 	"(*Store).save":          true,
 	"(*Store).UpdateRouting": true,
+	"(*Store).Update":        true,
 }
 
 // runRecordWriteSite is one place the sweep found, keyed by the function it sits
@@ -197,7 +199,7 @@ func runRecordWriteProblems(fileSet *token.FileSet, files []*ast.File) ([]string
 			}
 		}
 		if at.replaces && !runRecordReplacers[key] {
-			problems = append(problems, key+" replaces a run record through writeState (at "+at.at.String()+"). Only save, behind Save and ReserveLive, and UpdateRouting may, because they hold the run's write lock, compare the stored routing, and refuse a run made live without a developer slot first; call Save, or ReserveLive to make a run live.")
+			problems = append(problems, key+" replaces a run record through writeState (at "+at.at.String()+"). Only save, behind Save and ReserveLive, UpdateRouting, and Update may, because they hold the run's write lock, compare the stored routing and revision, and refuse a run made live without a developer slot first; declare a RunUpdate and call Update, or ReserveLive to make a run live.")
 		}
 		if at.builds && key != "(*Store).statePath" {
 			problems = append(problems, key+" builds a name ending in \".json\" (at "+at.at.String()+"), which is how a run record is named. Ask statePath for a run record's name and write it through Save; another record wants a suffix of its own, such as \".stop.json\".")
@@ -239,8 +241,9 @@ func calledName(call *ast.CallExpr) string {
 //   - a whole run record saved through the run store: a call of (*Store).Save,
 //     or of a Save taking a State on an interface, which is how most callers
 //     hold the store; and Save taken as a value to be called later;
-//   - such a call whose error is thrown away: made as a statement on its own,
-//     assigned to _, or run by go or defer;
+//   - such a call, or a call of the store's narrow Update, whose error is thrown
+//     away: made as a statement on its own, assigned to _, or run by go or
+//     defer;
 //   - an assignment to a run record's Status or Phase, its saved status and
 //     step.
 //
@@ -262,7 +265,7 @@ type outsideRunRecordRule string
 
 const (
 	savesWholeRecord  outsideRunRecordRule = "saves a whole run record"
-	discardsSaveError outsideRunRecordRule = "throws away the error a run record save returns"
+	discardsSaveError outsideRunRecordRule = "throws away the error a run record save or update returns"
 	setsStatusOrStep  outsideRunRecordRule = "sets a run's saved status or step"
 )
 
@@ -312,14 +315,9 @@ var outsideRunRecordBypasses = []outsideRunRecordSite{
 	{"internal/orchestrator/mergedisagreement.go", "(Reconciler).recordUnconfirmedMerge", savesWholeRecord},
 	{"internal/orchestrator/mergequeueadmission.go", "(*activeRun).admitToMergeQueue", savesWholeRecord},
 	{"internal/orchestrator/mergequeueadmission.go", "(*activeRun).completeQueued", savesWholeRecord},
-	{"internal/orchestrator/mergequeueadmission.go", "(*activeRun).completeQueued", setsStatusOrStep},
-	{"internal/orchestrator/mergequeuepromotion.go", "(MergeQueueRunCompletion).RecordRun", savesWholeRecord},
 	{"internal/orchestrator/mergequeuepromotion.go", "(MergeQueueRunCompletion).RecordWorkItem", savesWholeRecord},
 	{"internal/orchestrator/mergequeuerecovery.go", "(MergeQueueRunHandback).HandBack", savesWholeRecord},
 	{"internal/orchestrator/mergequeuerecovery.go", "(MergeQueueRunHandback).HandBack", setsStatusOrStep},
-	{"internal/orchestrator/mergequeueretire.go", "(MergeQueuePublicationRetirer).retireRunRequest", savesWholeRecord},
-	{"internal/orchestrator/mergequeuetransfer.go", "(MergeQueuePromoter).recordReadmission", discardsSaveError},
-	{"internal/orchestrator/mergequeuetransfer.go", "(MergeQueuePromoter).recordReadmission", savesWholeRecord},
 	{"internal/orchestrator/outsidefilelanding.go", "(*activeRun).writeOutsideFile", savesWholeRecord},
 	{"internal/orchestrator/outsidefilelanding.go", "(Pipeline).BringInOutsideFile", savesWholeRecord},
 	{"internal/orchestrator/outsidefilelanding.go", "(Pipeline).BringInOutsideFile", setsStatusOrStep},
@@ -457,7 +455,11 @@ func TestTheOutsideSweepNamesEachAddedSite(t *testing.T) {
 	module := loadModuleTypes(t)
 	found := fixtureRunRecordSites(t, module, "internal/fixture/added.go", `package fixture
 
-import "`+module.path+`/internal/runstate"
+import (
+	"context"
+
+	"`+module.path+`/internal/runstate"
+)
 
 type saver interface{ Save(runstate.State) error }
 
@@ -474,6 +476,20 @@ func AddedSave(store *runstate.Store, state runstate.State) error {
 
 func DroppedSave(runs saver, state runstate.State) {
 	_ = runs.Save(state)
+}
+
+type updater interface {
+	Update(ctx context.Context, runID string, update runstate.RunUpdate) (runstate.State, error)
+}
+
+func DroppedUpdate(runs updater, store *runstate.Store, runID string) {
+	_, _ = runs.Update(context.Background(), runID, runstate.QueuedRunCompleted{})
+	store.Update(context.Background(), runID, runstate.QueuedRunCompleted{})
+}
+
+func KeptUpdate(runs updater, runID string) error {
+	_, err := runs.Update(context.Background(), runID, runstate.QueuedRunCompleted{})
+	return err
 }
 
 func (w *watcher) Moved(state *runstate.State) {
@@ -494,20 +510,21 @@ func NotARunRecord(o other, state runstate.State) {
 	for _, want := range []string{
 		"internal/fixture/added.go, in AddedSave, saves a whole run record",
 		"internal/fixture/added.go, in DroppedSave, saves a whole run record",
-		"internal/fixture/added.go, in DroppedSave, throws away the error a run record save returns",
+		"internal/fixture/added.go, in DroppedSave, throws away the error a run record save or update returns",
 		"internal/fixture/added.go, in (*watcher).Moved, sets a run's saved status or step",
+		"internal/fixture/added.go, in DroppedUpdate, throws away the error a run record save or update returns",
 	} {
 		if !strings.Contains(problems, want) {
 			t.Errorf("the sweep did not report %q; it reported:\n%s", want, problems)
 		}
 	}
-	for _, unwanted := range []string{"in AddedSave, throws away", "in NotARunRecord"} {
+	for _, unwanted := range []string{"in AddedSave, throws away", "in NotARunRecord", "in KeptUpdate", "in DroppedUpdate, saves"} {
 		if strings.Contains(problems, unwanted) {
 			t.Errorf("the sweep reported %q, which is not a run record write round the store:\n%s", unwanted, problems)
 		}
 	}
-	if count := strings.Count(problems, "\n") + 1; count != 4 {
-		t.Errorf("the sweep reported %d sites, want 4, one for each rule each function breaks:\n%s", count, problems)
+	if count := strings.Count(problems, "\n") + 1; count != 5 {
+		t.Errorf("the sweep reported %d sites, want 5, one for each rule each function breaks:\n%s", count, problems)
 	}
 
 	listed := []outsideRunRecordSite{
@@ -515,6 +532,7 @@ func NotARunRecord(o other, state runstate.State) {
 		{"internal/fixture/added.go", "DroppedSave", savesWholeRecord},
 		{"internal/fixture/added.go", "DroppedSave", discardsSaveError},
 		{"internal/fixture/added.go", "(*watcher).Moved", setsStatusOrStep},
+		{"internal/fixture/added.go", "DroppedUpdate", discardsSaveError},
 	}
 	if problems := outsideRunRecordProblems(found, listed); len(problems) != 0 {
 		t.Errorf("the sweep failed sites that are listed:\n%s", strings.Join(problems, "\n"))
@@ -570,7 +588,7 @@ func outsideRunRecordProblems(found map[outsideRunRecordSite]token.Position, lis
 		case savesWholeRecord:
 			why = "Outside internal/runstate a run record changes only through one of the run store's narrow updates, which writes its own fields under the run's write lock, so nothing another writer changed in between is lost. Add the update this needs to the run store and call it."
 		case discardsSaveError:
-			why = "A save that fails leaves the record as it was, and code that does not look carries on as if it had been written. Handle the error."
+			why = "A save or update that fails leaves the record as it was, and code that does not look carries on as if it had been written. Handle the error."
 		case setsStatusOrStep:
 			why = "A run moves between states only through internal/runstate, so whether a move is allowed is decided in one place. Ask the run store for the move instead."
 		}
@@ -583,8 +601,8 @@ func outsideRunRecordProblems(found map[outsideRunRecordSite]token.Position, lis
 // runRecordTypes is what the second sweep compares against: this package's
 // types as the rest of the module sees them.
 type runRecordTypes struct {
-	state, store  types.Type
-	status, phase *types.Var
+	state, store, update types.Type
+	status, phase        *types.Var
 }
 
 // outsideRunRecordSites finds the sites in files, which info describes, keyed by
@@ -610,9 +628,24 @@ func outsideRunRecordSites(fileSet *token.FileSet, root string, files []*ast.Fil
 		}
 		return types.IsInterface(receiver) && signature.Params().Len() == 1 && types.Identical(signature.Params().At(0).Type(), record.state)
 	}
+	// isUpdate is a call of the store's narrow Update, on the store or on an
+	// interface taking a RunUpdate last. Making one is the way in, but throwing
+	// its error away is the same defect as throwing a save's away.
+	isUpdate := func(expression ast.Expr) bool {
+		selector, ok := ast.Unparen(expression).(*ast.SelectorExpr)
+		if !ok {
+			return false
+		}
+		selection := info.Selections[selector]
+		if selection == nil || selection.Kind() == types.FieldVal || selection.Obj().Name() != "Update" {
+			return false
+		}
+		params := selection.Obj().Type().(*types.Signature).Params()
+		return params.Len() > 0 && types.Identical(params.At(params.Len()-1).Type(), record.update)
+	}
 	isSaveCall := func(expression ast.Expr) bool {
 		call, ok := ast.Unparen(expression).(*ast.CallExpr)
-		return ok && isSave(call.Fun)
+		return ok && (isSave(call.Fun) || isUpdate(call.Fun))
 	}
 	for _, file := range files {
 		name, err := filepath.Rel(root, fileSet.Position(file.Pos()).Filename)
@@ -652,6 +685,11 @@ func outsideRunRecordSites(fileSet *token.FileSet, root string, files []*ast.Fil
 				case *ast.AssignStmt:
 					for i, left := range node.Lhs {
 						if blank, ok := left.(*ast.Ident); ok && blank.Name == "_" && len(node.Lhs) == len(node.Rhs) && isSaveCall(node.Rhs[i]) {
+							note(discardsSaveError, node.Pos())
+						}
+						// An update answers with the run and an error, so its error is
+						// the last of two places assigned.
+						if blank, ok := left.(*ast.Ident); ok && blank.Name == "_" && i == len(node.Lhs)-1 && len(node.Rhs) == 1 && len(node.Lhs) == 2 && isSaveCall(node.Rhs[0]) {
 							note(discardsSaveError, node.Pos())
 						}
 						selector, ok := ast.Unparen(left).(*ast.SelectorExpr)
@@ -752,10 +790,11 @@ func listModuleTypes() (*moduleTypes, error) {
 	}
 	state := runstate.Scope().Lookup("State")
 	store := runstate.Scope().Lookup("Store")
-	if state == nil || store == nil {
-		return nil, errors.New("internal/runstate declares no State or no Store")
+	update := runstate.Scope().Lookup("RunUpdate")
+	if state == nil || store == nil || update == nil {
+		return nil, errors.New("internal/runstate declares no State, no Store, or no RunUpdate")
 	}
-	module.record = runRecordTypes{state: state.Type(), store: store.Type()}
+	module.record = runRecordTypes{state: state.Type(), store: store.Type(), update: update.Type()}
 	fields := state.Type().Underlying().(*types.Struct)
 	for i := 0; i < fields.NumFields(); i++ {
 		switch fields.Field(i).Name() {

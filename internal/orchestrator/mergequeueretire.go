@@ -109,14 +109,15 @@ func (r MergeQueuePublicationRetirer) retireRunRequest(ctx context.Context, entr
 	// What retired it is written on the run, so the convergence sweep does not
 	// ask the forge about a request already dealt with. A request the forge
 	// reads as merged — its head reached the target inside the candidate — is
-	// left as the forge says.
+	// left as the forge says. It is written as a narrow update on the run as it
+	// is stored now, because the forge was asked in between and anything
+	// another writer recorded on the run meanwhile has to survive it.
 	if closure.Merged {
 		return nil
 	}
-	published.Superseded = vehicle
-	published.State = nonEmpty(closure.State, "CLOSED")
-	run.UpdatedAt = r.now()
-	if err := r.Store.Save(run); err != nil {
+	if _, err := r.Store.Update(ctx, entry.RunID, runstate.PullRequestSuperseded{
+		Number: published.Number, Vehicle: vehicle, State: nonEmpty(closure.State, "CLOSED"), At: r.now(),
+	}); err != nil {
 		return fmt.Errorf("record on run %s that its pull request was closed: %w", entry.RunID, err)
 	}
 	return nil
