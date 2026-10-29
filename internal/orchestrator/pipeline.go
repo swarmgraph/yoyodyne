@@ -921,6 +921,12 @@ type Outcome struct {
 	// review, so it is evidence about the target moving rather than about the
 	// change being wrong.
 	IntegrationRetries int `json:"integration_retries,omitempty"`
+	// CleanReplays, LostLandings and Reconciliation are the run record's account
+	// of its landing attempts (runstate's landingattempts.go), carried here
+	// because the run's notes and its stop reason are written from the outcome.
+	CleanReplays   int                      `json:"clean_replays,omitempty"`
+	LostLandings   []runstate.LostLanding   `json:"lost_landings,omitempty"`
+	Reconciliation *runstate.Reconciliation `json:"reconciliation,omitempty"`
 	// ChargedReplays counts the replays that stopped on the change — conflicted,
 	// failed their checks, or drew a repair verdict — which are the only replays
 	// execution.integration_retries_before_reconciliation bounds. A lost race
@@ -2081,6 +2087,11 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 			ProviderEffortDescription: state.ProviderEffortDescription,
 			ProviderEffortReported:    state.ProviderEffortReported,
 			RepairAttempts:            state.RepairAttempts,
+			IntegrationRetries:        state.IntegrationRetries,
+			ChargedReplays:            state.ChargedReplays,
+			CleanReplays:              state.CleanReplays,
+			LostLandings:              state.LostLandings,
+			Reconciliation:            state.Reconciliation,
 			TransientRelaunches:       state.TransientRelaunches,
 			Retries:                   state.Retries,
 			UsageLimitKind:            state.UsageLimitKind,
@@ -2263,6 +2274,8 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 // run still carrying one carries the most recent trigger there is.
 func resumedDeveloperPrompt(state runstate.State, persona, invariants, bundle, scratchDirectory string, checks []string, protected protectedpath.Set, limit int) (string, error) {
 	switch {
+	case state.ReplayConflict != nil && state.ReplayConflict.Reconciliation:
+		return replayConflictReconcilePrompt(invariants, scratchDirectory, checks, *state.ReplayConflict), nil
 	case state.ReplayConflict != nil:
 		return replayConflictRepairPrompt(invariants, scratchDirectory, checks, *state.ReplayConflict, state.RepairAttempts, limit), nil
 	case state.PathRefusal != nil:
@@ -2911,9 +2924,14 @@ const lostRacesBeforeGivingBackTheSlot = 5
 // says it as the routine stoppage it is rather than as a change in trouble.
 func (a *activeRun) blockOnLostRaces(cause error) error {
 	lost := a.state.IntegrationRetries + 1
-	blocked := fmt.Errorf("%s %d times, so the run stopped replaying and gave back its developer slot with its work kept: %w",
-		runstate.ContendedIntegrationFailure, lost, cause)
-	if err := a.block(renderLostRacesBlockerNotes(a.outcome, a.worktree.TargetBranch, lost, blocked.Error())); err != nil {
+	counted := a.state.CountedLostLandings() + 1
+	clean := ""
+	if counted < lost {
+		clean = fmt.Sprintf(" (%d of them counted; the replays after the other %d applied cleanly and passed their checks)", counted, lost-counted)
+	}
+	blocked := fmt.Errorf("%s %d times%s, so the run stopped replaying and gave back its developer slot with its work kept: %w",
+		runstate.ContendedIntegrationFailure, lost, clean, cause)
+	if err := a.block(renderLostRacesBlockerNotes(a.outcome, a.worktree.TargetBranch, lost, counted, blocked.Error())); err != nil {
 		return stoppedBy(runstate.StopLostRaces, withFailedRecord(blocked, fmt.Errorf("record the lost races as a blocker: %w", err)))
 	}
 	return stoppedBy(runstate.StopLostRaces, blocked)
@@ -2950,17 +2968,25 @@ func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (b
 	// which it was.
 	//
 	// What a lost race does spend is the developer slot the run holds while it
-	// replays, and that is bounded here: the race that makes
-	// lostRacesBeforeGivingBackTheSlot ends the run with its work kept rather
-	// than replaying it again.
+	// replays, and that is bounded here: the race that makes the counted losses
+	// reach lostRacesBeforeGivingBackTheSlot ends the run with its work kept
+	// rather than replaying it again. A race whose replay onto the newer target
+	// applied cleanly and passed its checks is not counted (CountedLostLandings):
+	// the change was sound and level with the target each time, and what beat it
+	// was only other work landing first.
+	lost := runstate.LostLanding{TargetBranch: a.worktree.TargetBranch, FromCommit: a.worktree.BaseCommit, LostAt: a.pipeline.clock().Now().UTC()}
 	if staleBase {
 		a.landingAt("bringing the change up to date with "+a.worktree.TargetBranch+", which moved while the run was stopped", landingAsksNothing)
 	} else {
-		if a.state.IntegrationRetries+1 >= lostRacesBeforeGivingBackTheSlot {
+		if a.state.CountedLostLandings()+1 >= lostRacesBeforeGivingBackTheSlot {
+			a.state.RecordLostLanding(lost)
+			a.syncLandingAttempts()
 			a.observe(ctx, deliveryIntegrate, "contended")
 			return false, a.blockOnLostRaces(cause)
 		}
 		a.state.IntegrationRetries++
+		a.state.RecordLostLanding(lost)
+		a.syncLandingAttempts()
 		a.landingAt("replaying the change onto "+a.worktree.TargetBranch+", which moved after this change was prepared on it", landingAsksNothing)
 	}
 	a.state.ReplayUnjudged = true
@@ -2973,6 +2999,9 @@ func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (b
 	// The replay reports the commit it owns whichever way it went, so it is
 	// recorded before the failure is: an aborted replay leaves the branch on that
 	// commit, and the worktree is preserved for whoever picks the conflict up.
+	if !staleBase {
+		a.noteReplay(rebase, err)
+	}
 	if recordErr := a.recordRebase(rebase); recordErr != nil {
 		return false, withFailedRecord(err, recordErr)
 	}
@@ -3095,6 +3124,50 @@ func (a *activeRun) recordRebase(rebase gitworktree.Rebase) error {
 	return nil
 }
 
+// noteReplay writes onto the account of the landing just lost where its replay
+// put the change: the newer target it applied onto, still to be judged by its
+// checks, or the target it conflicted with. It is saved with the replay.
+func (a *activeRun) noteReplay(rebase gitworktree.Rebase, err error) {
+	if len(a.state.LostLandings) == 0 {
+		return
+	}
+	lost := &a.state.LostLandings[len(a.state.LostLandings)-1]
+	var conflict *gitworktree.RebaseConflict
+	switch {
+	case errors.As(err, &conflict):
+		lost.OntoCommit = conflict.TargetCommit
+		lost.Replay = runstate.ReplayConflicted
+	case err == nil && rebase.BaseCommit != "":
+		lost.OntoCommit = rebase.BaseCommit
+	}
+	a.syncLandingAttempts()
+}
+
+// judgeReplay settles what the latest replay made of the change, once its
+// checks have said: passed, which is a clean replay and takes that landing off
+// the count of lost ones, or stopped on the change. A run with no replay
+// waiting on its checks changes nothing and saves nothing.
+func (a *activeRun) judgeReplay(outcome runstate.ReplayOutcome) error {
+	if !a.state.JudgeReplay(outcome) {
+		return nil
+	}
+	a.syncLandingAttempts()
+	a.state.UpdatedAt = a.pipeline.clock().Now()
+	if err := a.pipeline.Store.Save(a.state); err != nil {
+		return fmt.Errorf("save what the replay onto %s made of the change: %w", a.worktree.TargetBranch, err)
+	}
+	return nil
+}
+
+// syncLandingAttempts carries the record's account of the landing attempts onto
+// the outcome the run's notes are written from.
+func (a *activeRun) syncLandingAttempts() {
+	a.outcome.IntegrationRetries = a.state.IntegrationRetries
+	a.outcome.CleanReplays = a.state.CleanReplays
+	a.outcome.LostLandings = append([]runstate.LostLanding(nil), a.state.LostLandings...)
+	a.outcome.Reconciliation = a.state.Reconciliation
+}
+
 // block records one durable blocker on the work item and keeps its text on the
 // run. Every stoppage a person has to decide about goes through here, which is
 // what makes the blocker a triage docket entry carries the same words the item
@@ -3128,6 +3201,11 @@ func (a *activeRun) block(notes string) error {
 // replay has already been charged, charges nothing. The charge is saved before
 // anything it decides takes effect, as every counter here is.
 func (a *activeRun) chargeReplayStop() (bool, error) {
+	// A replay handed back for anything did not land as it was replayed, so the
+	// landing it answered stays counted as lost.
+	if a.state.JudgeReplay(runstate.ReplayStopped) {
+		a.syncLandingAttempts()
+	}
 	if !a.state.ReplayUnjudged {
 		return false, nil
 	}
@@ -3182,14 +3260,23 @@ func (a *activeRun) blockOnChargedReplay(stop string) error {
 // invocation, and promoted only after both — exactly as a change repaired for a
 // finding is.
 //
-// Two budgets bound it. A conflict is a replay that stopped on the change, so it
-// is charged to the integration budget exactly as a replay handed back for a
-// failing check is, and a run past that budget stops on it. And the hand-back is
-// a repair, so it spends from the repair budget, shared with the other inputs for
-// the reason they share it: what it bounds is how many times a run may ask a
-// developer. A run that has spent either stops with both sides intact, which is
-// what this always did, and carries the conflict on its record so a repair
-// triage grants afterwards hands the same developer the same disagreement.
+// The first conflict a run meets at landing is answered by its one
+// reconciliation attempt, whatever repair attempts remain: the change was
+// approved, and a run whose review rounds spent the repair attempts would
+// otherwise stop with approved work it never got to bring level with the
+// target. That attempt is recorded as the run's reconciliation before the
+// developer is invoked (State.Reconciliation), and it is charged to neither
+// budget below.
+//
+// Every later conflict is bounded as conflicts always were. It is a replay that
+// stopped on the change, so it is charged to the integration budget exactly as
+// a replay handed back for a failing check is, and a run past that budget stops
+// on it. And the hand-back is a repair, so it spends from the repair budget,
+// shared with the other inputs for the reason they share it: what it bounds is
+// how many times a run may ask a developer. A run that has spent either stops
+// with both sides intact, says that its reconciliation attempt was already
+// used, and carries the conflict on its record so a repair triage grants
+// afterwards hands the same developer the same disagreement.
 func (a *activeRun) continueOnRebaseConflict(ctx context.Context, cause error) (bool, error) {
 	if a.state.HarnessAuthored() {
 		a.recordReplayConflict(recordedReplayConflict(a.worktree, cause, a.state.Phase, a.pipeline.clock().Now().UTC()))
@@ -3197,6 +3284,16 @@ func (a *activeRun) continueOnRebaseConflict(ctx context.Context, cause error) (
 	}
 	limit := a.repairBudget()
 	a.recordReplayConflict(recordedReplayConflict(a.worktree, cause, a.state.Phase, a.pipeline.clock().Now().UTC()))
+	if !a.state.ReconciliationUsed() {
+		a.observe(ctx, deliveryIntegrate, "reconciling")
+		if err := a.moveOntoTargetForRepair(ctx); err != nil {
+			return false, errors.Join(cause, err)
+		}
+		if err := a.reconcile(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
 	overCharged, err := a.chargeReplayStop()
 	if err != nil {
 		return false, withFailedRecord(cause, err)
@@ -3214,6 +3311,33 @@ func (a *activeRun) continueOnRebaseConflict(ctx context.Context, cause error) (
 		return false, err
 	}
 	return true, nil
+}
+
+// reconcile records the run's one reconciliation attempt and hands the
+// conflict, already moved onto the target, to the developer that wrote the
+// change. It is repair without the count: recorded before the developer is
+// invoked, so an interrupted attempt is still the one the run had, and the same
+// session continues in the same worktree. The reconciled change earns nothing
+// on its way through; the caller re-enters the gate, so it is checked again and
+// reviewed again before it can land.
+func (a *activeRun) reconcile(ctx context.Context) error {
+	conflict := *a.state.ReplayConflict
+	conflict.Reconciliation = true
+	a.state.ReplayConflict = &conflict
+	a.state.Reconciliation = &runstate.Reconciliation{
+		TargetBranch: conflict.TargetBranch,
+		TargetCommit: conflict.TargetCommit,
+		Paths:        conflict.Paths,
+		Omitted:      conflict.Omitted,
+		UsedAt:       a.pipeline.clock().Now().UTC(),
+	}
+	a.syncLandingAttempts()
+	a.state.Phase = runstate.PhaseDeveloping
+	a.state.UpdatedAt = a.pipeline.clock().Now()
+	if err := a.pipeline.Store.Save(a.state); err != nil {
+		return fmt.Errorf("save the reconciliation attempt: %w", err)
+	}
+	return a.develop(ctx, replayConflictReconcilePrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, conflict), a.state.ProviderSessionID)
 }
 
 // moveOntoTargetForRepair puts the run's change onto the target with the
@@ -3327,6 +3451,10 @@ func recordedReplayConflict(worktree gitworktree.Worktree, cause error, phase ru
 // carries it.
 func (a *activeRun) blockOnRebaseConflict(cause error, limit int) error {
 	a.outcome.ReplayConflict = a.state.ReplayConflict
+	a.syncLandingAttempts()
+	if a.state.ReconciliationUsed() {
+		cause = fmt.Errorf("the change conflicted with %s again after this run's one reconciliation attempt was already used: %w", a.worktree.TargetBranch, cause)
+	}
 	if err := a.block(renderRebaseConflictNotes(a.outcome, cause.Error(), a.state.ReplayConflict, limit)); err != nil {
 		return stoppedBy(runstate.StopRepairBudget, withFailedRecord(cause, fmt.Errorf("record the replay conflict as a blocker: %w", err)))
 	}
@@ -3433,6 +3561,18 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 				a.observeCheckEnded(ctx, err, budgetSpent)
 				return a.blockOnReviewBound(overBound)
 			}
+			// A replay stopped for what its gate found did not pass its checks, so the
+			// landing it answered stays counted as lost; the stops that end the run
+			// here are judged here, and the hand-backs again in chargeReplayStop.
+			var (
+				refusedPaths  pathRefusal
+				missingRecord missingVerification
+				failingCheck  checkFailure
+			)
+			if errors.As(err, &refusedPaths) || errors.As(err, &missingRecord) || errors.As(err, &failingCheck) {
+				a.state.JudgeReplay(runstate.ReplayStopped)
+				a.syncLandingAttempts()
+			}
 			// A change refused for what it touched is answered before anything else,
 			// because it is what the gate decided first: the checks never ran on this
 			// attempt, so there is no check failure competing with it.
@@ -3510,10 +3650,15 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 		if decision == review.DecisionApprove {
 			a.observeReviewEnded(ctx, decision, nil, stillRepairable)
 			handedBack, err := a.checkCandidateWhole(ctx, limit)
-			if err != nil || !handedBack {
+			if err != nil {
 				return err
 			}
-			continue
+			if handedBack {
+				continue
+			}
+			// Every check has passed on the change about to be promoted, so a replay
+			// that brought it here applied cleanly and passed its checks.
+			return a.judgeReplay(runstate.ReplayClean)
 		}
 		// An escalation ends the loop where it was raised. There is nothing to hand
 		// back — the reviewer's whole verdict is that no change to this change would
@@ -9958,12 +10103,25 @@ func checkRepairPrompt(invariants, scratchDirectory string, checks []string, fai
 // judgement: two changes to the same lines, one of which this developer wrote,
 // reconciled into something that does the work the item asked for.
 func replayConflictRepairPrompt(invariants, scratchDirectory string, checks []string, conflict runstate.ReplayConflict, attempt, limit int) string {
+	return replayConflictPrompt(invariants, scratchDirectory, checks, conflict, "# Integration conflict: repair required\n\n",
+		fmt.Sprintf("This is repair attempt %d of %d.", attempt, limit))
+}
+
+// replayConflictReconcilePrompt is the same hand-back made as the run's one
+// reconciliation attempt (activeRun.reconcile), which the developer is told is
+// not one of its repair attempts and will not be offered twice.
+func replayConflictReconcilePrompt(invariants, scratchDirectory string, checks []string, conflict runstate.ReplayConflict) string {
+	return replayConflictPrompt(invariants, scratchDirectory, checks, conflict, "# Integration conflict: bring the change level with the target\n\n",
+		"This is the run's one attempt to bring your approved change level with the target branch; it is not counted against your repair attempts, and a second conflict after it is not given another one of these.")
+}
+
+func replayConflictPrompt(invariants, scratchDirectory string, checks []string, conflict runstate.ReplayConflict, heading, attempt string) string {
 	var prompt strings.Builder
 	prompt.WriteString(developerContract(scratchDirectory, checks))
 	prompt.WriteString("\n\n")
 	prompt.WriteString(deliveredInvariantSection(invariants))
-	prompt.WriteString("# Integration conflict: repair required\n\n")
-	fmt.Fprintf(&prompt, "Your change passed its checks and was approved, but the branch it is to be integrated into moved while you were working, and your change could not be replayed onto where it went. This is repair attempt %d of %d. Your change has been moved onto the target for you, and the parts that would not merge are in your worktree between Git's conflict markers. Continue the change you already made instead of starting over, and settle every conflict.\n\n", attempt, limit)
+	prompt.WriteString(heading)
+	fmt.Fprintf(&prompt, "Your change passed its checks and was approved, but the branch it is to be integrated into moved while you were working, and your change could not be replayed onto where it went. %s Your change has been moved onto the target for you, and the parts that would not merge are in your worktree between Git's conflict markers. Continue the change you already made instead of starting over, and settle every conflict.\n\n", attempt)
 	fmt.Fprintf(&prompt, "Target branch: %s\n", conflict.TargetBranch)
 	if conflict.TargetCommit != "" {
 		fmt.Fprintf(&prompt, "Your worktree now sits on: %s\n", conflict.TargetCommit)
@@ -10125,6 +10283,7 @@ func renderChargedReplayBlockerNotes(outcome Outcome, failure string, limit int)
 		"Base commit: " + outcome.BaseCommit,
 		"What stopped the replay is about the change on its new base: a failing check, a refused path, missing verification, or a repair verdict. The branch and worktree are preserved with the replayed change in them.",
 	}
+	lines = append(lines, renderLandingAttemptNotes(outcome)...)
 	return strings.Join(append(lines, renderReviewNotes(outcome)...), "\n")
 }
 
@@ -10132,11 +10291,11 @@ func renderChargedReplayBlockerNotes(outcome Outcome, failure string, limit int)
 // change lost the race for the target branch too many times. Its first line is
 // the reason the development manager's list shows, so it says in plain
 // words how many races were lost and that the work is kept.
-func renderLostRacesBlockerNotes(outcome Outcome, target string, lost int, failure string) string {
+func renderLostRacesBlockerNotes(outcome Outcome, target string, lost, counted int, failure string) string {
 	lines := []string{
 		fmt.Sprintf("Yoyodyne stopped this item: its approved change lost the race to land on %s %d times, because other work landed first each time, so the run stopped replaying it and gave back its developer slot. Its work is kept.",
 			target, lost),
-		fmt.Sprintf("Races lost: %d of %d before the slot is given back", lost, lostRacesBeforeGivingBackTheSlot),
+		fmt.Sprintf("Races lost: %d counted of %d before the slot is given back; a race whose replay applied cleanly and passed its checks is not counted", counted, lostRacesBeforeGivingBackTheSlot),
 		"Failure: " + failure,
 		"Run: " + outcome.RunID,
 		"Branch: " + outcome.Branch,
@@ -10144,7 +10303,43 @@ func renderLostRacesBlockerNotes(outcome Outcome, target string, lost int, failu
 		"Base commit: " + outcome.BaseCommit,
 		"Nothing here says the change is wrong: it passed its checks and was approved before every race it lost. The branch and worktree are preserved with the change in them, and it needs replaying onto the target branch, checking, and reviewing again before it can land.",
 	}
+	lines = append(lines, renderLandingAttemptNotes(outcome)...)
 	return strings.Join(append(lines, renderReviewNotes(outcome)...), "\n")
+}
+
+// renderLandingAttemptNotes says, for a run whose landing met a target that
+// moved under it, whether its one reconciliation attempt was used, how many
+// landings other work beat it to, and what each replay made of the change. A
+// run whose landing met neither says nothing, so a clean landing's notes are as
+// they always were.
+func renderLandingAttemptNotes(outcome Outcome) []string {
+	total := max(outcome.IntegrationRetries, len(outcome.LostLandings))
+	if total == 0 && outcome.Reconciliation == nil && outcome.ReplayConflict == nil {
+		return nil
+	}
+	var lines []string
+	if outcome.Reconciliation != nil {
+		lines = append(lines, outcome.Reconciliation.Says())
+	} else {
+		lines = append(lines, "Reconciliation attempt: not used.")
+	}
+	if total == 0 {
+		return lines
+	}
+	target := "the target branch"
+	if len(outcome.LostLandings) > 0 {
+		target = outcome.LostLandings[0].TargetBranch
+	}
+	lines = append(lines, fmt.Sprintf("Landing attempts lost to other work: %d. %d of them were replayed cleanly onto the newer %s and passed their checks, so they are not counted as lost.",
+		total, outcome.CleanReplays, target))
+	earliest := total - len(outcome.LostLandings)
+	if earliest > 0 {
+		lines = append(lines, fmt.Sprintf("The %d earliest of them are not listed.", earliest))
+	}
+	for index, lost := range outcome.LostLandings {
+		lines = append(lines, lost.Says(earliest+index+1))
+	}
+	return lines
 }
 
 // renderRelaunchBlockerNotes describes a run the provider kept killing. What
@@ -10235,8 +10430,12 @@ func renderMissingPreservedChangeNotes(outcome Outcome, failure string) string {
 // already spent on something else is work still waiting for that developer, and
 // a repair triage grants hands it exactly this conflict in the same session.
 func renderRebaseConflictNotes(outcome Outcome, failure string, conflict *runstate.ReplayConflict, limit int) string {
+	headline := "Yoyodyne stopped this item: its target branch moved, and this change conflicts with what the target now holds."
+	if outcome.Reconciliation != nil {
+		headline = "Yoyodyne stopped this item: its target branch moved, and this change conflicts with what the target now holds again, after the run's one reconciliation attempt was already used."
+	}
 	lines := []string{
-		"Yoyodyne stopped this item: its target branch moved, and this change conflicts with what the target now holds.",
+		headline,
 		"Nothing was force-merged, reset, or auto-resolved; which side of the conflict is right is a decision, and the run's repair budget leaves its developer no attempt to reconcile it.",
 		fmt.Sprintf("Repair attempts: %d of %d permitted", outcome.RepairAttempts, limit),
 		"Failure: " + failure,
@@ -10257,6 +10456,7 @@ func renderRebaseConflictNotes(outcome Outcome, failure string, conflict *runsta
 			lines = append(lines, listed)
 		}
 	}
+	lines = append(lines, renderLandingAttemptNotes(outcome)...)
 	lines = append(lines, "The branch and worktree are preserved exactly as they were. A repair granted in triage continues this run's developer session with the conflict handed back to reconcile against the target; a re-run starts the change over on the target as it now stands.")
 	return withLandingStop(strings.Join(append(lines, renderReviewNotes(outcome)...), "\n"), outcome, failure)
 }
@@ -10603,9 +10803,7 @@ func renderOutcomeNotes(outcome Outcome) string {
 	// A promotion that had to be re-prepared says something about the branch it
 	// was promoted into rather than about the change, and it is the only record
 	// that the approved diff was replayed and judged again.
-	if outcome.IntegrationRetries > 0 {
-		lines = append(lines, "Integration retries: "+strconv.Itoa(outcome.IntegrationRetries))
-	}
+	lines = append(lines, renderLandingAttemptNotes(outcome)...)
 	if outcome.ChargedReplays > 0 {
 		lines = append(lines, "Replays that stopped on the change: "+strconv.Itoa(outcome.ChargedReplays))
 	}
@@ -10778,9 +10976,7 @@ func renderFailureNotes(outcome Outcome) string {
 	if outcome.RepairAttempts > 0 {
 		lines = append(lines, "Repair attempts: "+strconv.Itoa(outcome.RepairAttempts))
 	}
-	if outcome.IntegrationRetries > 0 {
-		lines = append(lines, "Integration retries: "+strconv.Itoa(outcome.IntegrationRetries))
-	}
+	lines = append(lines, renderLandingAttemptNotes(outcome)...)
 	if outcome.ChargedReplays > 0 {
 		lines = append(lines, "Replays that stopped on the change: "+strconv.Itoa(outcome.ChargedReplays))
 	}

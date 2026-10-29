@@ -119,6 +119,29 @@ func TestARunWhoseReplaysKeepPassingLandsThroughFourLostRaces(t *testing.T) {
 	}
 }
 
+// acknowledgesTheTarget is a developer that implements the feature and lists,
+// in seen.txt, the other work it found landed in its worktree.
+// acknowledgedCheck passes only on a change that has listed every such file.
+// Together they make every replay onto a target that took more work stop on
+// the change once, on its check, and pass after one repair — so the landing
+// it answered stays counted as lost.
+func acknowledgesTheTarget(request backend.RunRequest) error {
+	if err := implementsFeature(request); err != nil {
+		return err
+	}
+	found, err := filepath.Glob(filepath.Join(request.WorkingDirectory, "elsewhere-*.txt"))
+	if err != nil {
+		return err
+	}
+	var seen strings.Builder
+	for _, path := range found {
+		seen.WriteString(filepath.Base(path) + "\n")
+	}
+	return os.WriteFile(filepath.Join(request.WorkingDirectory, "seen.txt"), []byte(seen.String()), 0o600)
+}
+
+const acknowledgedCheck = `test -f feature.txt && for f in elsewhere-*.txt; do [ -e "$f" ] || continue; grep -qxF "$f" seen.txt || exit 1; done`
+
 // scriptedRaces moves the target branch as the reviewer gives the verdicts
 // numbered in moves, so a test can say which approvals lose their race.
 func scriptedRaces(t *testing.T, repository string, provider *orchestratortest.Backend, moves ...int) {
@@ -230,12 +253,14 @@ func TestAtBudgetZeroTheFirstReplayThatFailsItsChecksStopsTheRun(t *testing.T) {
 	}
 }
 
-// A run whose change keeps losing the race stops at the race that makes
-// lostRacesBeforeGivingBackTheSlot rather than replaying it: the run is no
-// longer in flight, so its developer slot is free; its branch and worktree are
-// kept with the change in them; and the item is blocked and listed for the
-// development manager with how many races it lost and that its work is kept.
-// One race short of the bound, the same change lands as it always did.
+// A run whose change keeps losing the race stops at the race that makes the
+// counted losses reach lostRacesBeforeGivingBackTheSlot rather than replaying
+// it: the run is no longer in flight, so its developer slot is free; its branch
+// and worktree are kept with the change in them; and the item is blocked and
+// listed for the development manager with how many races it lost and that its
+// work is kept. Every replay here stops on the change once, on its check, so
+// none is a clean replay and every race is counted. One race short of the
+// bound, the same change lands as it always did.
 func TestARunThatKeepsLosingTheRaceGivesBackItsSlotWithItsWorkKept(t *testing.T) {
 	t.Parallel()
 
@@ -244,9 +269,11 @@ func TestARunThatKeepsLosingTheRaceGivesBackItsSlotWithItsWorkKept(t *testing.T)
 
 		repository := pipelineRepository(t)
 		tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
-		provider := orchestratortest.RoleBackend(implementsFeature, approveVerdict)
+		provider := orchestratortest.RoleBackend(acknowledgesTheTarget, approveVerdict)
 		movingTargetReviewer(t, repository, provider, lostRacesBeforeGivingBackTheSlot+2)
-		pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"test -f feature.txt"})
+		pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{acknowledgedCheck})
+		pipeline.Config.Execution.IntegrationRetriesBeforeReconciliation = lostRacesBeforeGivingBackTheSlot
+		pipeline.Config.Execution.RepairAttemptsBeforeReplan = lostRacesBeforeGivingBackTheSlot
 		docket, err := runstate.NewDocketStore(t.TempDir(), "yoyodyne")
 		if err != nil {
 			t.Fatalf("NewDocketStore() error = %v", err)
@@ -268,12 +295,12 @@ func TestARunThatKeepsLosingTheRaceGivesBackItsSlotWithItsWorkKept(t *testing.T)
 			t.Fatalf("a run that lost its race %s is counted towards the hold on new work", lost)
 		}
 		// The race at the bound is not replayed: one review per race lost, and the
-		// developer never asked for anything.
+		// developer asked for one repair per replay.
 		if reviews := provider.RequestsForRole(domain.RoleReviewer); len(reviews) != lostRacesBeforeGivingBackTheSlot {
 			t.Fatalf("reviewer invocations = %d, want one per race lost and no replay after the last", len(reviews))
 		}
-		if developers := provider.RequestsForRole(domain.RoleDeveloper); len(developers) != 1 {
-			t.Fatalf("developer invocations = %d, want 1", len(developers))
+		if developers := provider.RequestsForRole(domain.RoleDeveloper); len(developers) != lostRacesBeforeGivingBackTheSlot {
+			t.Fatalf("developer invocations = %d, want the first attempt and one repair per replay", len(developers))
 		}
 
 		// The slot: the run is terminal and nothing is left in flight to hold one.
@@ -294,8 +321,11 @@ func TestARunThatKeepsLosingTheRaceGivesBackItsSlotWithItsWorkKept(t *testing.T)
 		if !state.LostItsRace() {
 			t.Fatalf("failure = %q, want it read as a run that lost its race", state.Failure)
 		}
-		if state.IntegrationRetries != lostRacesBeforeGivingBackTheSlot-1 || state.ChargedReplays != 0 {
-			t.Fatalf("durable record: replays %d, charged %d", state.IntegrationRetries, state.ChargedReplays)
+		if state.IntegrationRetries != lostRacesBeforeGivingBackTheSlot-1 || state.ChargedReplays != lostRacesBeforeGivingBackTheSlot-1 || state.CleanReplays != 0 {
+			t.Fatalf("durable record: replays %d, charged %d, clean %d", state.IntegrationRetries, state.ChargedReplays, state.CleanReplays)
+		}
+		if len(state.LostLandings) != lostRacesBeforeGivingBackTheSlot || state.LostLandings[0].Replay != runstate.ReplayStopped {
+			t.Fatalf("lost landings = %#v, want every one accounted for and the replays stopped on the change", state.LostLandings)
 		}
 
 		// The work: the branch and worktree are kept, with the change in them.
@@ -369,9 +399,13 @@ func TestARepairOfARunThatLostItsRaceReplaysItOntoTheTargetBeforeItsChecksAndLan
 	build := func(provider *orchestratortest.Backend, checks ...string) Pipeline {
 		return automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, checks), provider)
 	}
-	stopping := orchestratortest.RoleBackend(implementsFeature, approveWithOutOfScopeNoteVerdict)
+	// Every replay of the stopping stint stops on its check once, so each race it
+	// loses is counted and the fifth stops it.
+	stopping := orchestratortest.RoleBackend(acknowledgesTheTarget, approveWithOutOfScopeNoteVerdict)
 	movingTargetReviewer(t, repository, stopping, lostRacesBeforeGivingBackTheSlot)
-	pipeline := build(stopping, "test -f feature.txt")
+	pipeline := build(stopping, acknowledgedCheck)
+	pipeline.Config.Execution.IntegrationRetriesBeforeReconciliation = lostRacesBeforeGivingBackTheSlot
+	pipeline.Config.Execution.RepairAttemptsBeforeReplan = lostRacesBeforeGivingBackTheSlot
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 	if err == nil || !strings.Contains(err.Error(), runstate.ContendedIntegrationFailure) {

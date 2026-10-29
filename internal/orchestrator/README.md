@@ -65,7 +65,11 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    work kept), `replayOntoTarget` (a replay the harness stopped on its time
    limit is asked again, `replayKilledRetries` times, on a doubled limit),
    `recordRebase`, `continueOnRebaseConflict`,
-   `moveOntoTargetForRepair`, `blockOnRebaseConflict`, `blockOnDivergedTarget`,
+   `moveOntoTargetForRepair`, `reconcile` (the first conflict at landing, the
+   run's one reconciliation attempt, charging no repair attempt), `noteReplay`
+   and `judgeReplay` (what each lost landing's replay made of the change; a
+   clean one is not counted, `runstate`'s `landingattempts.go`),
+   `blockOnRebaseConflict`, `blockOnDivergedTarget`,
    `blockOnPromotedDivergence`. Budget: `repairBudget`, `repair`,
    `chargeReplayStop`, `blockOnChargedReplay`.
 8. **Repair inputs and budget-spent stops.** `recordCheckFailure`,
@@ -144,12 +148,15 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     `blockingDependencies`.
 20. **Prompts.** `developerContract` / `developerContractTemplate`,
     `developerPrompt`, `repairPrompt`, `pathRefusalRepairPrompt`,
-    `checkRepairPrompt`, `replayConflictRepairPrompt`, `accountPrompt`,
+    `checkRepairPrompt`, `replayConflictRepairPrompt`,
+    `replayConflictReconcilePrompt`, `accountPrompt`,
     `boundedCheckOutput`.
 21. **Notes written on the work item.** `renderOutcomeNotes` (success),
     `renderFailureNotes` + `renderPreservationNotes` (failure), one
     `render…Notes` per blocker and pause, `renderReviewNotes`,
-    `renderCheckNotes`, `renderCleanupNotes`, `integrationMessage`. A run
+    `renderCheckNotes`, `renderCleanupNotes`, `renderLandingAttemptNotes`
+    (the reconciliation attempt and each lost landing, in the summary and the
+    landing stops), `integrationMessage`. A run
     that stops while landing ends its blocker and its failure note on the
     step it stopped at and what the forge said there: `integrate`,
     `publishIntegration` and `prepareIntegrationRetry` record the step with

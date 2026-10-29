@@ -1481,7 +1481,7 @@ func TestARepairRefusesToActWithoutWhatBoundsIt(t *testing.T) {
 }
 
 // yoyodyne-ifd.132 past the run's own budget: a replay conflict on a run with no
-// repair attempt left blocks, keeping the conflict on its record, and the repair
+// repair attempt left, after its one reconciliation attempt was used, blocks, keeping the conflict on its record, and the repair
 // the development manager grants afterwards hands that conflict to the same
 // developer session — moved onto the target first — rather than leaving a fresh
 // run as the only way on.
@@ -1490,15 +1490,10 @@ func TestARepairContinuationReconcilesAReplayConflictTheStoppedRunCouldNot(t *te
 
 	repository, worktreeRoot, store := restartableFixture(t)
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
-	stopping := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
-		if err := os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("this run's version\n"), 0o600); err != nil {
-			return err
-		}
-		writePipelineFile(t, repository, "feature.txt", "someone else's version\n")
-		runPipelineGit(t, repository, "add", "feature.txt")
-		runPipelineGit(t, repository, "commit", "-m", "a conflicting edit on main")
-		return nil
-	}, approveVerdict)
+	// The run's one reconciliation attempt answers the first conflict, so the
+	// stop comes on the second, with no repair attempt left.
+	stopping := orchestratortest.RoleBackend(conflictsTwiceAtLanding(t, repository, "feature.txt",
+		"this run's version\n", "someone else's version\n", "someone else's second version\n"), approveVerdict)
 	build := func(provider *orchestratortest.Backend) Pipeline {
 		pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, []string{"test -f feature.txt"}), provider)
 		pipeline.Config.Execution.RepairAttemptsBeforeReplan = 0

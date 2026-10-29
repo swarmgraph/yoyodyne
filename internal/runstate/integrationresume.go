@@ -170,6 +170,11 @@ type ReplayConflict struct {
 	// by a repair triage granted once the run's own budget was spent — has to
 	// know whether the move is still owed before it invokes anybody.
 	Moved bool `json:"moved,omitempty"`
+	// Reconciliation says this conflict was handed to the developer as the
+	// run's one reconciliation attempt (State.Reconciliation) rather than as a
+	// repair, so a run picked up part-way through it asks for it in the same
+	// words and charges no repair attempt for it.
+	Reconciliation bool `json:"reconciliation,omitempty"`
 }
 
 // Validate reports every contract violation in the record at once.

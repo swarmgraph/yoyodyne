@@ -45,14 +45,24 @@
             "timeout": 1800000000000
           }
         ],
+        "clean_replays": 1,
         "integration": {
           "branch": "yoyodyne/yoyodyne-task/01234567",
           "previous_target_commit": "\u003ccommit-1\u003e",
-          "source_commit": "\u003ccommit-2\u003e",
+          "source_commit": "\u003ccommit-3\u003e",
           "target_branch": "main",
-          "target_commit": "\u003ccommit-2\u003e"
+          "target_commit": "\u003ccommit-3\u003e"
         },
         "integration_retries": 1,
+        "lost_landings": [
+          {
+            "from_commit": "\u003ccommit-2\u003e",
+            "lost_at": "\u003ctime\u003e",
+            "onto_commit": "\u003ccommit-1\u003e",
+            "replay": "clean",
+            "target_branch": "main"
+          }
+        ],
         "phase": "complete",
         "provider_effort_reported": false,
         "provider_model": "opus",
@@ -62,7 +72,7 @@
         "review_base_commit": "\u003ccommit-1\u003e",
         "review_decision": "approve",
         "review_effort_reported": false,
-        "review_head_commit": "\u003ccommit-2\u003e",
+        "review_head_commit": "\u003ccommit-3\u003e",
         "review_model": "opus",
         "review_resolved_model": "claude-opus-5-reviewer",
         "review_session_id": "reviewer-session",
@@ -119,9 +129,10 @@
       "commands": [
         "test -f feature.txt"
       ],
-      "commit": "\u003ccommit-2\u003e",
+      "commit": "\u003ccommit-3\u003e",
       "content": "\u003ccontent\u003e"
     },
+    "clean_replays": 1,
     "completed_at": "\u003ctime\u003e",
     "config_revision": "\u003cconfig-revision\u003e",
     "developer_summary": {
@@ -130,15 +141,24 @@
       "text": "implemented the work item"
     },
     "effort_settled": true,
-    "harness_commit": "\u003ccommit-2\u003e",
+    "harness_commit": "\u003ccommit-3\u003e",
     "integration": {
       "previous_target_commit": "\u003ccommit-1\u003e",
-      "source_commit": "\u003ccommit-2\u003e",
+      "source_commit": "\u003ccommit-3\u003e",
       "target_branch": "main",
-      "target_commit": "\u003ccommit-2\u003e"
+      "target_commit": "\u003ccommit-3\u003e"
     },
     "integration_retries": 1,
     "last_sequence": 8,
+    "lost_landings": [
+      {
+        "from_commit": "\u003ccommit-2\u003e",
+        "lost_at": "\u003ctime\u003e",
+        "onto_commit": "\u003ccommit-1\u003e",
+        "replay": "clean",
+        "target_branch": "main"
+      }
+    ],
     "phase": "complete",
     "product_id": "yoyodyne",
     "provider_effort_reported": false,
@@ -155,7 +175,7 @@
     "review_base_commit": "\u003ccommit-1\u003e",
     "review_decision": "approve",
     "review_effort_reported": false,
-    "review_head_commit": "\u003ccommit-2\u003e",
+    "review_head_commit": "\u003ccommit-3\u003e",
     "review_loaded": {
       "reported": false,
       "summary": "skills, plugins, and instruction files: not reported"
@@ -223,7 +243,9 @@
         "Branch: yoyodyne/yoyodyne-task/01234567",
         "Worktree (cleanup pending): \u003cworktrees\u003e/yoyodyne-task-01234567",
         "Base commit: \u003ccommit-1\u003e",
-        "Integration retries: 1",
+        "Reconciliation attempt: not used.",
+        "Landing attempts lost to other work: 1. 1 of them were replayed cleanly onto the newer main and passed their checks, so they are not counted as lost.",
+        "Lost landing 1: other work landed on main first, so the change was moved from \u003ccommit-2\u003e onto \u003ccommit-1\u003e; it applied cleanly and passed its checks, so this landing is not counted as lost.",
         "Claude session: developer-session",
         "Developer model: opus (resolved: claude-opus-5-developer)",
         "Changes:",
@@ -235,12 +257,12 @@
         "Check: test -f feature.txt (passed=true, exit=0, \u003celapsed\u003e of 30m0s)",
         "Reviewer session: reviewer-session",
         "Reviewer model: opus (resolved: claude-opus-5-reviewer)",
-        "Reviewed against: base \u003ccommit-1\u003e, tip \u003ccommit-2\u003e",
+        "Reviewed against: base \u003ccommit-1\u003e, tip \u003ccommit-3\u003e",
         "Review decision: approve",
         "Approved as: implementation",
         "Review summary: the change matches the acceptance criteria",
         "Integrated into: main",
-        "Integrated commit: \u003ccommit-2\u003e",
+        "Integrated commit: \u003ccommit-3\u003e",
         "Previous target commit: \u003ccommit-1\u003e"
       ]
     ]

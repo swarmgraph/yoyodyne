@@ -242,9 +242,13 @@ change and a fresh independent verdict on it. The replay spends an
 moved, not the change that failed. Its verdict is counted like any other, so
 `review_rounds` goes up — `promotion-is-replayed-when-the-target-branch-moves`
 records 2, the same as an ordinary repair round, and a reader expecting a replay
-to be free of that counter should read the trace rather than this sentence. A
-replay that conflicts is never resolved by the harness: both sides are left
-intact and the item is blocked.
+to be free of that counter should read the trace rather than this sentence.
+Each lost race is also recorded in `lost_landings`, and a replay that applied
+cleanly and passed its checks is counted in `clean_replays`. A replay that
+conflicts is never resolved by the harness: the first conflict is handed to the
+developer as the run's one reconciliation attempt (`reconciliation`), charging
+no repair attempt, and a later one with nothing left to hand it back with leaves
+both sides intact and blocks the item.
 
 ## The pause cases
 
@@ -293,7 +297,9 @@ the kind does.
 | Counter | Configured by | What it bounds | What it is evidence about |
 | --- | --- | --- | --- |
 | `repair_attempts` | `execution.repair_attempts_before_replan` | Developer invocations spent on failures of the change | The change |
-| `integration_retries` | nothing — it is the record of the races | Nothing the run stops on: every promotion re-prepared after losing the target branch, however many | The target branch moving |
+| `integration_retries` | nothing — it is the record of the races | Less `clean_replays`, the races counted toward the fixed five at which a run gives back its developer slot | The target branch moving |
+| `clean_replays` | nothing | Nothing: the lost races whose replay applied cleanly and passed its checks, which are not counted | The target branch moving |
+| `reconciliation` | nothing — once per run | The one attempt a run has to bring a change that conflicted at landing level with the target; it charges no repair attempt | The change and the target together |
 | `charged_replays` | `execution.integration_retries_before_reconciliation` | Replays that stopped on the change — conflicted, or handed back for a failing check, a refused path, missing verification, or a repair verdict; the one that takes the count past the budget stops the run there. A replay that passed is charged nothing | The replayed change |
 | `transient_relaunches` | `execution.transient_relaunches_before_blocking` | Provider invocations reissued after one died without judging the work; the developer and the reviewer share it | The provider |
 | `usage_limit_paused_seconds` | `execution.usage_limit_max_pause` | Total waiting committed across every pause | The provider's capacity |

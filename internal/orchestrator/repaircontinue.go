@@ -1384,6 +1384,8 @@ func (c RepairContinuer) supersedeOnRun(ctx context.Context, prior runstate.Stat
 	// the target has long left would end the new stint the first time the target
 	// moved, before its change was ever replayed onto where the target went.
 	continued.IntegrationRetries = 0
+	continued.CleanReplays = 0
+	continued.LostLandings = nil
 	if prior.CheckFailure != nil && prior.CheckFailure.ForgeHeadCommit != "" {
 		// The old head's forge reading remains in the repair input and the
 		// continuation's history above. Artifacts were verified or restored before

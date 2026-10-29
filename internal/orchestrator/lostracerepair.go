@@ -57,6 +57,8 @@ func replaysLostRace(prior runstate.State, found triage.Found) bool {
 func putBackAfterLostRace(continued *runstate.State, prior runstate.State, reason string, now time.Time) {
 	putBackAtPromotion(continued, prior, reason, now)
 	continued.IntegrationRetries = 0
+	continued.CleanReplays = 0
+	continued.LostLandings = nil
 }
 
 // resumedAfterLostRace reports a run standing at its promotion because a repair
