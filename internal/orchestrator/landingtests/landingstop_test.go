@@ -62,16 +62,28 @@ func assertLandingStop(t *testing.T, tracker *orchestratortest.Tracker, store *r
 
 // The shape all three stops of October 11 had: the change was approved on a
 // protected main, another change merged into the same file first, and the
-// replay conflicted with no repair left. Nothing was asked of the forge, and the
-// note says so last instead of ending on the protection line.
+// replay conflicted with no repair left. The first conflict is answered by the
+// run's one reconciliation attempt, and main takes another conflicting change
+// while it is out, so the second conflict is the stop. Nothing was asked of the
+// forge, and the note says so last instead of ending on the protection line.
 func TestALandingStoppedByAReplayConflictSaysTheForgeWasNeverAsked(t *testing.T) {
 	t.Parallel()
 
 	repository, remote := testharness.PublishedRepository(t)
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
 	forge := &orchestratortest.Forge{Remote: remote, TargetProtection: publish.BranchProtection{Protected: true, By: "branch protection"}}
-	forge.OnEnsure = func() { mergeConflictingRemoteChange(t, remote, "feature.txt") }
+	ensured := false
+	forge.OnEnsure = func() {
+		if !ensured {
+			ensured = true
+			mergeConflictingRemoteChange(t, remote, "feature.txt")
+		}
+	}
+	developed := 0
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		if developed++; developed > 1 {
+			mergeConflictingRemoteAnswer(t, remote, "feature.txt", "a third change's answer\n")
+		}
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("this run's answer\n"), 0o600)
 	}, testharness.ApproveVerdict)
 	pipeline, store := testharness.NewPublishingPipeline(t, repository, tracker, provider, forge, []string{"exit 0"})
@@ -90,6 +102,9 @@ func TestALandingStoppedByAReplayConflictSaysTheForgeWasNeverAsked(t *testing.T)
 		"the failure above is this repository's")
 	if !strings.Contains(tracker.BlockReason, "main is protected on the forge") {
 		t.Errorf("blocker lost the protection line:\n%s", tracker.BlockReason)
+	}
+	if !strings.Contains(tracker.BlockReason, "after the run's one reconciliation attempt was already used") {
+		t.Errorf("blocker does not say the reconciliation attempt was already used:\n%s", tracker.BlockReason)
 	}
 }
 
@@ -362,12 +377,17 @@ func TestAStopBeforeLandingWritesNoLandingLine(t *testing.T) {
 // under the three landings that stopped on October 11.
 func mergeConflictingRemoteChange(t *testing.T, remote, file string) {
 	t.Helper()
+	mergeConflictingRemoteAnswer(t, remote, file, "another change's answer\n")
+}
+
+func mergeConflictingRemoteAnswer(t *testing.T, remote, file, answer string) {
+	t.Helper()
 	clone := filepath.Join(t.TempDir(), "other-pull-request")
 	testharness.RunPipelineGit(t, filepath.Dir(clone), "clone", remote, clone)
 	testharness.RunPipelineGit(t, clone, "config", "user.name", "Someone Else")
 	testharness.RunPipelineGit(t, clone, "config", "user.email", "someone@example.invalid")
 	testharness.DisablePipelineMaintenance(t, clone)
-	if err := os.WriteFile(filepath.Join(clone, file), []byte("another change's answer\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(clone, file), []byte(answer), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 	testharness.RunPipelineGit(t, clone, "add", ".")

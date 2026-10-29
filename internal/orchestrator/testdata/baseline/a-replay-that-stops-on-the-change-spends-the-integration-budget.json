@@ -48,7 +48,6 @@
             "timeout": 1800000000000
           }
         ],
-        "clean_replays": 1,
         "failure": "the change replayed onto its moved target stopped on the change with 1 of 0 permitted replay stop(s) spent: independent review requires repair: the change misses the acceptance criteria",
         "integration_retries": 1,
         "lost_landings": [
@@ -56,7 +55,7 @@
             "from_commit": "\u003ccommit-1\u003e",
             "lost_at": "\u003ctime\u003e",
             "onto_commit": "\u003ccommit-2\u003e",
-            "replay": "clean",
+            "replay": "stopped",
             "target_branch": "main"
           }
         ],
@@ -116,7 +115,7 @@
     "account_alias": "default",
     "backend": "claude-code",
     "base_commit": "\u003ccommit-2\u003e",
-    "blocker": "Yoyodyne stopped this item: after its target branch moved, the change replayed onto it stopped on the change once more than execution.integration_retries_before_reconciliation permits.\nReplays that stopped on the change: 1 of 0 permitted\nRaces lost to the moving target: 1 (these cost nothing)\nFailure: the change replayed onto its moved target stopped on the change with 1 of 0 permitted replay stop(s) spent: independent review requires repair: the change misses the acceptance criteria\nRun: run-0123456789abcdef0123456789abcdef\nBranch: yoyodyne/yoyodyne-task/01234567\nWorktree: \u003cworktrees\u003e/yoyodyne-task-01234567\nBase commit: \u003ccommit-2\u003e\nWhat stopped the replay is about the change on its new base: a failing check, a refused path, missing verification, or a repair verdict. The branch and worktree are preserved with the replayed change in them.\nReconciliation attempt: not used.\nLanding attempts lost to other work: 1. 1 of them were replayed cleanly onto the newer main and passed their checks, so they are not counted as lost.\nLost landing 1: other work landed on main first, so the change was moved from \u003ccommit-1\u003e onto \u003ccommit-2\u003e; it applied cleanly and passed its checks, so this landing is not counted as lost.\nReviewer session: reviewer-session\nReviewer model: opus (resolved: claude-opus-5-reviewer)\nReviewed against: base \u003ccommit-2\u003e, tip \u003ccommit-3\u003e\nReview decision: repair\nReview summary: the change misses the acceptance criteria\nFinding [blocker] (feature.txt:1): add the missing file",
+    "blocker": "Yoyodyne stopped this item: after its target branch moved, the change replayed onto it stopped on the change once more than execution.integration_retries_before_reconciliation permits.\nReplays that stopped on the change: 1 of 0 permitted\nRaces lost to the moving target: 1 (these cost nothing)\nFailure: the change replayed onto its moved target stopped on the change with 1 of 0 permitted replay stop(s) spent: independent review requires repair: the change misses the acceptance criteria\nRun: run-0123456789abcdef0123456789abcdef\nBranch: yoyodyne/yoyodyne-task/01234567\nWorktree: \u003cworktrees\u003e/yoyodyne-task-01234567\nBase commit: \u003ccommit-2\u003e\nWhat stopped the replay is about the change on its new base: a failing check, a refused path, missing verification, or a repair verdict. The branch and worktree are preserved with the replayed change in them.\nReconciliation attempt: not used.\nLanding attempts lost to other work: 1. 0 of them were replayed cleanly onto the newer main and passed their checks, so they are not counted as lost.\nLost landing 1: other work landed on main first, so the change was moved from \u003ccommit-1\u003e onto \u003ccommit-2\u003e; it applied, then was stopped on the change and handed back.\nReviewer session: reviewer-session\nReviewer model: opus (resolved: claude-opus-5-reviewer)\nReviewed against: base \u003ccommit-2\u003e, tip \u003ccommit-3\u003e\nReview decision: repair\nReview summary: the change misses the acceptance criteria\nFinding [blocker] (feature.txt:1): add the missing file",
     "branch": "yoyodyne/yoyodyne-task/01234567",
     "changes": {
       "diff_stat": "feature.txt | 1 +\n 1 file changed, 1 insertion(+)",
@@ -146,7 +145,6 @@
       "commit": "\u003ccommit-3\u003e",
       "content": "\u003ccontent\u003e"
     },
-    "clean_replays": 1,
     "completed_at": "\u003ctime\u003e",
     "config_revision": "\u003cconfig-revision\u003e",
     "developer_summary": {
@@ -164,7 +162,7 @@
         "from_commit": "\u003ccommit-1\u003e",
         "lost_at": "\u003ctime\u003e",
         "onto_commit": "\u003ccommit-2\u003e",
-        "replay": "clean",
+        "replay": "stopped",
         "target_branch": "main"
       }
     ],
@@ -260,8 +258,8 @@
         "Failure: the change replayed onto its moved target stopped on the change with 1 of 0 permitted replay stop(s) spent: independent review requires repair: the change misses the acceptance criteria",
         "Phase: reviewing",
         "Reconciliation attempt: not used.",
-        "Landing attempts lost to other work: 1. 1 of them were replayed cleanly onto the newer main and passed their checks, so they are not counted as lost.",
-        "Lost landing 1: other work landed on main first, so the change was moved from \u003ccommit-1\u003e onto \u003ccommit-2\u003e; it applied cleanly and passed its checks, so this landing is not counted as lost.",
+        "Landing attempts lost to other work: 1. 0 of them were replayed cleanly onto the newer main and passed their checks, so they are not counted as lost.",
+        "Lost landing 1: other work landed on main first, so the change was moved from \u003ccommit-1\u003e onto \u003ccommit-2\u003e; it applied, then was stopped on the change and handed back.",
         "Replays that stopped on the change: 1",
         "Branch: yoyodyne/yoyodyne-task/01234567 (checked and there)",
         "Worktree: \u003cworktrees\u003e/yoyodyne-task-01234567 (checked and there)",
@@ -294,8 +292,8 @@
       "Base commit: \u003ccommit-2\u003e",
       "What stopped the replay is about the change on its new base: a failing check, a refused path, missing verification, or a repair verdict. The branch and worktree are preserved with the replayed change in them.",
       "Reconciliation attempt: not used.",
-      "Landing attempts lost to other work: 1. 1 of them were replayed cleanly onto the newer main and passed their checks, so they are not counted as lost.",
-      "Lost landing 1: other work landed on main first, so the change was moved from \u003ccommit-1\u003e onto \u003ccommit-2\u003e; it applied cleanly and passed its checks, so this landing is not counted as lost.",
+      "Landing attempts lost to other work: 1. 0 of them were replayed cleanly onto the newer main and passed their checks, so they are not counted as lost.",
+      "Lost landing 1: other work landed on main first, so the change was moved from \u003ccommit-1\u003e onto \u003ccommit-2\u003e; it applied, then was stopped on the change and handed back.",
       "Reviewer session: reviewer-session",
       "Reviewer model: opus (resolved: claude-opus-5-reviewer)",
       "Reviewed against: base \u003ccommit-2\u003e, tip \u003ccommit-3\u003e",

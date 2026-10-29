@@ -90,21 +90,15 @@ func TestEveryEndingTheHarnessHandsToAPersonIsReadBackAsStopped(t *testing.T) {
 			build: func(t *testing.T) (Pipeline, *runstate.Store, *orchestratortest.Tracker) {
 				repository := pipelineRepository(t)
 				tracker := newOutcomeTracker()
-				provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
-					if err := os.WriteFile(filepath.Join(request.WorkingDirectory, "docs", "design.md"),
-						[]byte("this run's answer\n"), 0o600); err != nil {
-						return err
-					}
-					// The target moves onto the same line, so replaying is a
-					// decision rather than something the harness may take.
-					writePipelineFile(t, repository, filepath.Join("docs", "design.md"), "somebody else's answer\n")
-					runPipelineGit(t, repository, "add", "docs/design.md")
-					runPipelineGit(t, repository, "commit", "-m", "conflicting target change")
-					return nil
-				}, approveVerdict)
+				// The target moves onto the same line, so replaying is a decision
+				// rather than something the harness may take, and it moves again
+				// while the run's one reconciliation attempt is out.
+				provider := orchestratortest.RoleBackend(conflictsTwiceAtLanding(t, repository, filepath.Join("docs", "design.md"),
+					"this run's answer\n", "somebody else's answer\n", somebodyElsesSecondAnswer), approveVerdict)
 				pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
-				// A conflict goes to its own developer while an attempt is left, so the
-				// ending handed to a person is the one with none.
+				// The first conflict is the reconciliation attempt and a later one goes
+				// to its own developer while an attempt is left, so the ending handed
+				// to a person is the second conflict with none.
 				pipeline.Config.Execution.RepairAttemptsBeforeReplan = 0
 				return pipeline, store, tracker
 			},
