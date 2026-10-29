@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -43,16 +46,7 @@ func TestNoWriterOfARunLosesAnotherWritersField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := recordedRun(t, "yoyodyne-task", runstate.StatusRunning, at)
-	run.Phase = runstate.PhaseIntegrating
-	run.WorktreePath, run.Branch, run.BaseCommit, run.TargetBranch = t.TempDir(), "yoyodyne/yoyodyne-task/run", strings.Repeat("d", 40), "main"
-	run.ReviewDecision = runstate.ReviewApprove
-	run.ProviderSessionID, run.ReviewSessionID = "developer-session", "reviewer-session"
-	run.ProviderModel, run.ReviewModel = "opus", "gpt-6.1-sol"
-	run.PullRequest = &runstate.PullRequest{Remote: "origin", Branch: run.Branch, Number: 41, URL: "https://example.test/pull/41", HeadCommit: strings.Repeat("a", 40), State: "OPEN"}
-	if err := store.Create(run); err != nil {
-		t.Fatal(err)
-	}
+	run := approvedPublishedRun(t, store, at)
 
 	// The admission, which holds the run, records the entry with a whole save.
 	admission, err := store.Load(run.RunID)
@@ -129,5 +123,104 @@ func TestNoWriterOfARunLosesAnotherWritersField(t *testing.T) {
 	}
 	if len(forge.closed) != 1 {
 		t.Errorf("the forge was asked to close %v, want pull request 41 once", forge.closed)
+	}
+}
+
+// approvedPublishedRun is a run in flight at its integration, approved and
+// published as pull request 41, recorded in store.
+func approvedPublishedRun(t *testing.T, store *runstate.Store, at time.Time) runstate.State {
+	t.Helper()
+	run := recordedRun(t, "yoyodyne-task", runstate.StatusRunning, at)
+	run.Phase = runstate.PhaseIntegrating
+	run.WorktreePath, run.Branch, run.BaseCommit, run.TargetBranch = t.TempDir(), "yoyodyne/yoyodyne-task/run", strings.Repeat("d", 40), "main"
+	run.ReviewDecision = runstate.ReviewApprove
+	run.ProviderSessionID, run.ReviewSessionID = "developer-session", "reviewer-session"
+	run.ProviderModel, run.ReviewModel = "opus", "gpt-6.1-sol"
+	run.PullRequest = &runstate.PullRequest{Remote: "origin", Branch: run.Branch, Number: 41, URL: "https://example.test/pull/41", HeadCommit: strings.Repeat("a", 40), State: "OPEN"}
+	if err := store.Create(run); err != nil {
+		t.Fatal(err)
+	}
+	return run
+}
+
+// landingTracker is a tracker whose first note fails with a connection reset,
+// and during which the merge queue lands the run's change and closes its pull
+// request: the queue's two writes are made while the admission waits on the
+// tracker, before the admission records the retry.
+type landingTracker struct {
+	*orchestratortest.Tracker
+	duringFirstNote func()
+}
+
+func (t *landingTracker) RecordOutcome(ctx context.Context, id, notes string) (beads.WorkItem, error) {
+	if land := t.duringFirstNote; land != nil {
+		t.duringFirstNote = nil
+		land()
+	}
+	return t.Tracker.RecordOutcome(ctx, id, notes)
+}
+
+// TestAnAdmissionWaitingOnTheTrackerKeepsWhatTheQueueRecorded drives the
+// admission's own ending (completeQueued) with the queue landing the change and
+// closing its pull request while the admission waits out a failed tracker
+// write. The retry the admission records, and its ending, are made on the run
+// as stored, so the run ends succeeded owing its cleanup, with the landing, the
+// closed request and the retry all on the record.
+func TestAnAdmissionWaitingOnTheTrackerKeepsWhatTheQueueRecorded(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	at := time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC)
+	store, err := runstate.NewStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := store.Load(approvedPublishedRun(t, store, at).RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := runstate.MergeQueueEntry{
+		EntryID: "mqe-" + strings.Repeat("1", 32), Order: 1, Repository: "yoyodyne", TargetBranch: "main",
+		Mode: runstate.MergeQueueHarness, RunID: held.RunID, WorkItemID: "yoyodyne-task", ApprovedHead: strings.Repeat("a", 40), AdmittedAt: at,
+	}
+	landed := runstate.MergeQueueCompletion{Path: runstate.MergeQueueLandThroughPullRequest, TargetBase: strings.Repeat("b", 40), Landed: strings.Repeat("c", 40)}
+	forge := &closingForge{}
+	tracker := &landingTracker{
+		Tracker: &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Status: "in_progress"}, RecordFailures: 1, TransientRecordErr: syscall.ECONNRESET},
+		duringFirstNote: func() {
+			if err := (MergeQueueRunCompletion{Store: store, Now: func() time.Time { return at }}).RecordRun(ctx, entry, landed); err != nil {
+				t.Errorf("the queue's completion: %v", err)
+			}
+			if err := (MergeQueuePublicationRetirer{Store: store, Forge: forge, Branches: keptBranches{}, Now: func() time.Time { return at }}).retireRunRequest(ctx, entry, landed); err != nil {
+				t.Errorf("the queue's retirement: %v", err)
+			}
+		},
+	}
+	run := &activeRun{
+		pipeline: Pipeline{Store: store, Tracker: tracker, Sleep: func(context.Context, time.Duration) error { return nil }},
+		state:    held,
+	}
+
+	outcome, err := run.completeQueued(ctx, entry)
+	if err != nil || outcome.Status != runstate.StatusSucceeded {
+		t.Fatalf("completeQueued() = %s, %v; want the run to end succeeded", outcome.Status, err)
+	}
+	final, err := store.Load(held.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	switch {
+	case final.Status != runstate.StatusSucceeded || final.Phase != runstate.PhaseCleaningUp:
+		t.Errorf("the run ended %s at %s, want succeeded owing its cleanup", final.Status, final.Phase)
+	case final.Integration == nil || final.Integration.TargetCommit != landed.Landed:
+		t.Errorf("the queue's landing is lost: integration = %+v", final.Integration)
+	case final.PullRequest == nil || final.PullRequest.Superseded == "" || final.PullRequest.State != "CLOSED":
+		t.Errorf("the queue's retirement is lost: pull request = %+v", final.PullRequest)
+	case final.MergeQueue == nil || final.MergeQueue.EntryID != entry.EntryID:
+		t.Errorf("the admission is lost: merge queue = %+v", final.MergeQueue)
+	case final.RetryAttempts(runstate.RetryTrackerWrite) != 1:
+		t.Errorf("the retry is lost: retries = %+v", final.Retries)
+	}
+	if len(tracker.NoteRecords) != 1 {
+		t.Errorf("the admission's note was written %d times, want once", len(tracker.NoteRecords))
 	}
 }

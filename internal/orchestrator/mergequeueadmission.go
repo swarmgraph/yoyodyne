@@ -213,6 +213,10 @@ func (a *activeRun) completeQueued(ctx context.Context, entry runstate.MergeQueu
 	if err := p.Store.Save(a.state); err != nil {
 		return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("record the merge queue admission: %w", err)), runstate.StatusFailed)
 	}
+	// The queue owns the entry from here, and may record on the run while this
+	// process waits on the tracker, so every retry from now on is written as a
+	// narrow update on the record as stored.
+	a.narrowRetries = true
 	notes := fmt.Sprintf("Approved and admitted to the merge queue for %s as entry %d (%s queue), at %s. %s The queue builds a candidate from %s as it then stands with this change merged onto it, runs the configured checks on it, has an independent reviewer approve it, and lands exactly that candidate; this item is settled when it lands, or the change is handed back to this run if the candidate fails on the change.",
 		entry.TargetBranch, entry.Order, modeName(entry.Mode), shortCommit(entry.ApprovedHead), entry.ModeEvidence.Explanation, entry.TargetBranch)
 	if err := a.recovering(ctx, runstate.RetryTrackerWrite, func(ctx context.Context) error {
@@ -226,7 +230,8 @@ func (a *activeRun) completeQueued(ctx context.Context, entry runstate.MergeQueu
 	// have recorded on the run meanwhile — its landing, or a transfer — so the
 	// ending is a narrow update of the run as stored rather than a save of the
 	// copy this process held before the wait. Everything this process recorded
-	// is already stored: the admission above, and each retry as it was taken.
+	// is already stored: the admission above, and each retry, written as a
+	// narrow update on the stored record as it was taken (narrowRetries).
 	ended, err := p.Store.Update(ctx, a.state.RunID, runstate.QueuedRunCompleted{At: p.clock().Now()})
 	if err != nil {
 		return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("save the run its change was queued by: %w", err)), runstate.StatusFailed)

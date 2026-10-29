@@ -233,6 +233,22 @@ func (u QueuedRunCompleted) apply(state *State) (bool, error) {
 	return true, nil
 }
 
+// RetryRecorded records one waited-out failure at a boundary, which the run's
+// own process writes before it waits. It is the narrow form for a process
+// whose copy may have gone out of date while another writer recorded on the
+// run: an admitted change waiting on the tracker, while the merge queue lands
+// it and closes its pull request.
+type RetryRecorded struct {
+	Retry Retry
+}
+
+func (u RetryRecorded) apply(state *State) (bool, error) {
+	retries := make([]Retry, 0, len(state.Retries)+1)
+	state.Retries = append(append(retries, state.Retries...), u.Retry)
+	state.UpdatedAt = u.Retry.At
+	return true, nil
+}
+
 // IntegrationRecorded records the run's integration: the merge queue's landing
 // of its change, which the queue records as a run's own promotion would be. It
 // changes nothing where the run already records the same landing.
