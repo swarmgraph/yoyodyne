@@ -2993,6 +2993,15 @@ func renderWorkItemEvidence(item beads.WorkItem, goals goal.Set) string {
 	return text
 }
 
+// WorkItemEvidence is one work item as the tracker read renders it, with its
+// notes window, for a reader outside a conversation that supplies the item as
+// evidence: an exchange round naming it (internal/exchange/evidence.go). It is
+// the same rendering a role's own read returns, so an item reads the same way
+// wherever a role is shown it.
+func WorkItemEvidence(item beads.WorkItem, goals goal.Set) (string, error) {
+	return renderWorkItemRead(item, goals, nil)
+}
+
 // renderWorkItemRead keeps short reads unchanged and gives long standing text a
 // continuation independent of the notes' tail window. Offsets count bytes in
 // the rendered text before notes, including headings; field whitespace is kept

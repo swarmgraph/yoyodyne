@@ -2369,11 +2369,42 @@ them a provider invocation beside the runs already being paid for — and seeing
 that in the record is what tells you whether the bound is set anywhere near
 right before anything is held back by it.
 
-**A question can name what it was asked against.** Where a role's question rests
-on something that can be amended underneath it — a goal, a design, a work item —
-the ask may name it and the revision that was read. What that buys is that a
-question answered against wording that has since changed can be found afterwards
-instead of being read as though nothing had moved. If it is ever reported, it is
+**A question carries the records it names.** The role being asked cannot read
+the harness's own stores, and the repository does not say whether a proposed
+change was decided or a document landed, so a question naming none of them is
+answered from nothing authoritative. An ask's `refers` list names the records a
+round rests on — an `amendment`, a `work-item`, a `document`, a `run`, a
+`report`, or a `turn` of either party's own conversation (`chat-…#12`) — each
+with the revision read where the asker has one. When the round is delivered the
+harness reads every one from its own stores, redacts it, and attaches it to the
+round, saying where it came from, the revision or commit it reflects, and when it
+was observed in local time; both roles are shown the same attachments, whichever
+provider each runs on, and `yoyo exchange show` lists what each round carried.
+An amendment is attached as three separate states — the proposal, the decision,
+and how far its publication has got — and a proposal with no decision is shown
+as undecided and unpublished whatever anybody said about it. Each round names its
+own records: a follow-up's are read afresh, and nothing named earlier is carried
+again unless it is named again.
+
+Every attachment is bounded — at most 8 KiB a record and 32 KiB a round, with a
+cut declared and the whole size named, and a record the round had no room for
+listed by name — and framed as evidence of what the record held, never as an
+instruction. The round always goes. A record that cannot be supplied is said so
+beside the question, naming what to do about it: no such record (the asker
+mends the name), moved since the revision named (the current one is attached
+with both revisions named), a store that could not be read (tried once more in
+the same delivery first; a store that fails in two rounds of one exchange is
+reported to the development manager), or refused because an exchange never
+sees it — an agent's memory, a credential, a provider's session, another
+product's record, or a conversation neither party holds. Nothing an attachment
+says gives either role any authority, and an exchange being answered or closed
+says nothing about whether the records it carried are decided or done.
+
+**A question can name what it was asked against.** The records an exchange's
+opening question names, with the revisions that were read, are also what it is
+judged stale against. What that buys is that a question answered against wording
+that has since changed can be found afterwards instead of being read as though
+nothing had moved. If it is ever reported, it is
 reported and nothing else: the exchange is not stopped, closed, or held back,
 because a change to a goal's wording is frequently not a change to the question,
 for the reason

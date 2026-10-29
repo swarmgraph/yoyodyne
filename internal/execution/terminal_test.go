@@ -56,6 +56,9 @@ var terminalEventSites = map[string]string{
 	"internal/orchestrator/recordedbackend.go": "reads them: erasedSession reads the role a terminal names to tell " +
 		"the developer's sessions from the reviewer's when it restores a session an earlier attempt erased, and " +
 		"attributes no money to any phase",
+	"internal/cli/exchangeevidence.go": "reads them: readTurn counts a conversation's turns as its completed provider " +
+		"calls, so a turn an exchange names is the turn the conversation's own records call by that number, and " +
+		"attributes no money to any phase",
 }
 
 // TestEveryTerminalEventSiteIsAccountedFor fails when the tree grows a file that

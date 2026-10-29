@@ -273,6 +273,10 @@ var expresses = map[string]expression{
 		question: "none: which prompt is assembled for an answering role is invocation assembly",
 		gap:      "what a role is sent is outside what a role may do, the same way the conversation contract is",
 	},
+	"exchange.evidence-access": {
+		question: "none: which records a round may carry is a boundary on what the harness reads for an exchange, whoever is in it",
+		gap:      "every party to an exchange is held to the same closed list of kinds and the same refusals, so no bundle widens or narrows it; being on the channel at all is exchange.ask-authority",
+	},
 	"artifact.owner": {
 		question: "which capability does this kind of document belong to?",
 		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},

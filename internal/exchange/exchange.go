@@ -142,7 +142,15 @@ type Round struct {
 	Number       int             `json:"number"`
 	Question     string          `json:"question"`
 	Context      string          `json:"context,omitempty"`
-	Answer       string          `json:"answer,omitempty"`
+	// Refers are the records this round's question named, and Evidence what the
+	// harness attached for each when the round was delivered: the same text both
+	// parties read, kept so the record says what the answer stood on. Each round
+	// names its own; a record named in an earlier round is attached again only if
+	// it is named again. Both are absent on a round recorded before rounds
+	// carried records, and on one that named none.
+	Refers   []Reference  `json:"refers,omitempty"`
+	Evidence []Attachment `json:"evidence,omitempty"`
+	Answer   string       `json:"answer,omitempty"`
 	// Holder names the process that was taking this round, so a later pass
 	// reading a round nobody answered can say who was carrying it. It is what
 	// turns "this round was interrupted" into something an operator can act on:
@@ -362,6 +370,8 @@ func (e Exchange) Validate() error {
 		problems = append(problems, boundedText(fmt.Sprintf("rounds[%d] context", i), round.Context, MaxContextBytes, false))
 		problems = append(problems, boundedText(fmt.Sprintf("rounds[%d] answer", i), round.Answer, MaxAnswerBytes, false))
 		problems = append(problems, boundedText(fmt.Sprintf("rounds[%d] holder", i), round.Holder, MaxReferenceBytes, false))
+		problems = append(problems, validateReferences(fmt.Sprintf("rounds[%d] refers", i), round.Refers))
+		problems = append(problems, validateAttachments(fmt.Sprintf("rounds[%d] evidence", i), round.Evidence))
 		if round.AskedAt.IsZero() {
 			problems = append(problems, fmt.Errorf("rounds[%d] records no moment it was asked", i))
 		}
@@ -446,12 +456,13 @@ type Ask struct {
 	// is about to decide with the answer. It is optional and it is never
 	// evidence: the role being asked reads it as what the asker thinks.
 	Context string `json:"context,omitempty"`
-	// Refers are the durable things the asker read before it asked, each at the
-	// revision it read. They are optional and they are not evidence either: what
-	// they buy is that a question asked against something that has since moved can
-	// be found afterwards, instead of being answered as though nothing had
-	// changed. They are recorded when the exchange opens; a follow-up in the same
-	// thread is asked against what the thread already names.
+	// Refers are the records this question rests on, each a kind, an identity
+	// within this product, and optionally the revision the asker read. The
+	// harness reads every one from its own stores when the round is delivered and
+	// attaches it, for both parties, as evidence of what it held then (see
+	// evidence.go). Those named when an exchange opens are also what its
+	// staleness is judged against. A follow-up names its own: nothing named in an
+	// earlier round is carried into a later one unless it is named again.
 	Refers []Reference `json:"refers,omitempty"`
 	// Exchange continues a thread already open, named by its identifier. An ask
 	// naming none opens a new exchange.
@@ -498,12 +509,9 @@ func (a Ask) Validate() error {
 	problems = append(problems, boundedText("context", a.Context, MaxContextBytes, false))
 	problems = append(problems, boundedText("settled", a.Settled, MaxSettledBytes, false))
 	problems = append(problems, validateReferences("refers", a.Refers))
-	// What an exchange was asked against is fixed when it opens, for the reason
-	// who is in it is: a thread whose references changed half way through would be
-	// two questions wearing one identifier, and staleness derived over it could no
-	// longer say which of them had gone stale.
-	if continuing && len(a.Refers) > 0 {
-		problems = append(problems, errors.New(`"refers" is recorded when an exchange opens; a follow-up is asked against what the thread already names`))
+	// A closing ask asks nothing, so there is no round for records to go with.
+	if a.Closing() && len(a.Refers) > 0 {
+		problems = append(problems, errors.New(`"refers" names the records a question rests on, and an ask that settles an exchange asks nothing`))
 	}
 	if a.Closing() {
 		// Closing is about a thread, so there has to be a thread to close, and

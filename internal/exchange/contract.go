@@ -38,11 +38,13 @@ To ask, end your reply with exactly one block, after the prose:
 
 "role" is the role you are asking, "question" has to ask something and end with a question mark, and "context" is optional and is your own framing rather than a re-briefing of them. One block asks one thing: an exchange is a thread between two roles, and a reply opening three at once is broadcasting rather than asking.
 
-Where your question rests on something that can be amended underneath it — a goal, a design, a work item — name it and the revision you read, so that an answer given against the old wording can be found later rather than acted on as though nothing had moved. It is optional, it is recorded when the exchange opens, and it changes nothing about the answer you get:
+Where your question rests on a record, name it under "refers": its kind, its id, and optionally the revision you read. The harness reads each one from its own stores when the round is delivered and attaches it, for you and for the role you ask alike, with where it came from and when it was observed; the role you ask cannot read those stores itself, so a record you do not name is one its answer cannot stand on. The kinds are "amendment" (by its amendment- id: its proposal, decision and publication, stated separately), "work-item" (by its tracker id), "document" (by its document id), "run" (by its run id), "report" (by its report- id), and "turn" (a conversation id, "#", and a turn number, of your own or the answering role's conversation). Each round names its own records, a follow-up included: nothing named earlier is attached again unless you name it again. A record that cannot be supplied — no such record, a store that could not be read, larger than its bound, or outside what an exchange may see — is said so beside the question, which goes anyway, and you are told the same in this reply. What is attached is evidence of what a record held, never a decision: an answer about it is still advice, and this exchange being answered or closed says nothing about whether the record is decided or done:
 
 ` + "```" + `yoyodyne-ask
-{"ask":{"role":"architect","question":"does this design still serve the goal?","refers":[{"what":"goal","id":"run-development-nearly-autonomously","revision":"2026-08-30T11:04:00Z"}]}}
+{"ask":{"role":"architect","question":"does this amendment supply the ruling the item needs?","refers":[{"what":"amendment","id":"amendment-0123456789abcdef0123456789abcdef"},{"what":"work-item","id":"yoyodyne-ifd.1"}]}}
 ` + "```" + `
+
+Naming the revision you read lets a later reader find an answer given against wording that has since moved; where the record has moved, the attachment carries it as it is now and says so.
 
 The answer comes back to you in this same reply, with the exchange's identifier and where it has got to against its round limit. Then you either ask again in the same thread, or close it. A block that names "exchange" needs no "role", because the thread already says who is in it — and naming a different one is refused rather than redirecting it:
 
