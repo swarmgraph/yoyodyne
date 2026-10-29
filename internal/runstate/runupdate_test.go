@@ -109,7 +109,7 @@ func TestAQueuedRunEndsOnlyWithItsAdmissionRecorded(t *testing.T) {
 	if _, err := store.Update(context.Background(), state.RunID, QueuedRunCompleted{At: updateAt}); err == nil {
 		t.Fatal("a run with no admission recorded ended as queued")
 	}
-	record := MergeQueueAdmissionRecord{EntryID: "mqe-"+strings.Repeat("c", 32), Order: 1, Repository: "yoyodyne", TargetBranch: "main", Mode: MergeQueueHarness, ApprovedHead: strings.Repeat("b", 40), AdmittedAt: updateAt}
+	record := MergeQueueAdmissionRecord{EntryID: "mqe-" + strings.Repeat("c", 32), Order: 1, Repository: "yoyodyne", TargetBranch: "main", Mode: MergeQueueHarness, ApprovedHead: strings.Repeat("b", 40), AdmittedAt: updateAt}
 	if _, err := store.Update(context.Background(), state.RunID, MergeQueueAdmitted{Record: record, At: updateAt}); err != nil {
 		t.Fatalf("Update(MergeQueueAdmitted) error = %v", err)
 	}

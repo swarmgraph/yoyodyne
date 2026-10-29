@@ -3011,18 +3011,18 @@ type State struct {
 	SchedulingWaitClearAt      *time.Time `json:"scheduling_wait_clear_at,omitempty"`
 	SchedulingWaitClearFailure string     `json:"scheduling_wait_clear_failure,omitempty"`
 	// Retirement ends obsolete work without removing its branch or checkout.
-	Retirement    *RunRetirement   `json:"retirement,omitempty"`
-	SchemaVersion int              `json:"schema_version"`
+	Retirement    *RunRetirement `json:"retirement,omitempty"`
+	SchemaVersion int            `json:"schema_version"`
 	// Revision is how many narrow updates (Store.Update, runupdate.go) the
 	// record has taken. A whole save carries the revision its copy was read at
 	// and is refused once the stored one has moved, so a copy read before
 	// another writer changed the record never overwrites that change. Absent is
 	// a record no narrow update has touched.
-	Revision      uint64           `json:"revision,omitempty"`
-	RunID         string           `json:"run_id"`
-	ProductID     domain.ProductID `json:"product_id"`
-	RepositoryID  string           `json:"repository_id"`
-	WorkItemID    string           `json:"work_item_id"`
+	Revision     uint64           `json:"revision,omitempty"`
+	RunID        string           `json:"run_id"`
+	ProductID    domain.ProductID `json:"product_id"`
+	RepositoryID string           `json:"repository_id"`
+	WorkItemID   string           `json:"work_item_id"`
 	// WorkItemTitle is what the item is called, written with the run because the
 	// claim is where the harness has the tracker's answer in hand and everything
 	// reading the record afterwards does not. It is what lets a surface name the
