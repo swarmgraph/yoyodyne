@@ -621,17 +621,15 @@ func TestARunThatBringsAFileInIsCheckedWholeAndGetsThroughTheMergeStep(t *testin
 	}
 }
 
-// A file whose record names a license file that is itself pinned and not yet
-// on main is brought in by one run together with that license, so the file's
-// checks, which refuse the file without its license beside it, see both.
-func TestAFileIsBroughtInTogetherWithTheLicenseItsRecordNames(t *testing.T) {
-	t.Parallel()
-
-	repository, tracker, provider, pipeline, store, _, _ := outsideFileFixture(t, nil)
-	const (
-		license       = "assets/vendored-LICENSE.md"
-		licenseRecord = license + outsidefile.RecordSuffix
-	)
+// pinnedLicenseFixture is outsideFileFixture with the license the record names
+// pinned too rather than committed: its record is on main, its file is not,
+// and the test server serves it at licensePath. The pipeline's check refuses
+// the library in the tree without its license beside it, as the dashboard's own
+// test does.
+func pinnedLicenseFixture(t *testing.T, licenseName, licensePath string) (string, *orchestratortest.Tracker, *orchestratortest.Backend, Pipeline, *runstate.Store, *collectedReports, *movableClock) {
+	t.Helper()
+	repository, tracker, provider, pipeline, store, reports, clock := outsideFileFixture(t, nil)
+	license := "assets/" + licenseName
 	// The test server's address, as the fixture's record gives it.
 	declared, err := outsidefile.ParseRecord(pinnedRecord, []byte(publicationGit(t, repository, "show", "main:"+pinnedRecord)))
 	if err != nil {
@@ -639,63 +637,124 @@ func TestAFileIsBroughtInTogetherWithTheLicenseItsRecordNames(t *testing.T) {
 	}
 	address, _, _ := strings.Cut(declared.URL, "/npm/")
 	runPipelineGit(t, repository, "rm", "-q", "assets/chart.js-LICENSE.md")
-	writePinnedFixtureFile(t, repository, pinnedRecord, strings.Replace(pinnedRecordText(address), "license_file: chart.js-LICENSE.md", "license_file: vendored-LICENSE.md", 1))
-	writePinnedFixtureFile(t, repository, licenseRecord, fmt.Sprintf("file: vendored-LICENSE.md\nurl: %s/npm/chart.js@4.4.1/LICENSE.md\nversion: 4.4.1\nlicense: MIT\nlicense_file: vendored-LICENSE.md\nfor: %s\n", address, pinnedFor))
+	writePinnedFixtureFile(t, repository, pinnedRecord, strings.Replace(pinnedRecordText(address), "license_file: chart.js-LICENSE.md", "license_file: "+licenseName, 1))
+	writePinnedFixtureFile(t, repository, license+outsidefile.RecordSuffix, fmt.Sprintf("file: %s\nurl: %s%s\nversion: 4.4.1\nlicense: MIT\nlicense_file: %s\nfor: %s\n", licenseName, address, licensePath, licenseName, pinnedFor))
 	runPipelineGit(t, repository, "add", ".")
 	runPipelineGit(t, repository, "commit", "-m", "the license is pinned too")
-	// The file's own check: the library is never in the tree without its license.
 	pipeline.Config.Checks = []string{"test ! -e " + pinnedFile + " || test -e " + license}
+	return repository, tracker, provider, pipeline, store, reports, clock
+}
+
+// A file whose record names a license file that is itself pinned and not yet
+// on main is brought in by one run together with that license, so the file's
+// checks, which refuse the file without its license beside it, see both. The
+// license's record starts no run of its own meanwhile, whichever of the two
+// records comes first: the real Chart.js license's record sorts before the
+// library's.
+func TestAFileIsBroughtInTogetherWithTheLicenseItsRecordNames(t *testing.T) {
+	t.Parallel()
+
+	for name, licenseName := range map[string]string{
+		"the license's record sorts first, as Chart.js's does": "chart.js-LICENSE.md",
+		"the file's record sorts first":                        "vendored-LICENSE.md",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			repository, tracker, provider, pipeline, store, _, _ := pinnedLicenseFixture(t, licenseName, "/npm/chart.js@4.4.1/LICENSE.md")
+			license := "assets/" + licenseName
+			licenseRecord := license + outsidefile.RecordSuffix
+			ctx := context.Background()
+			landing, due, err := pipeline.NextOutsideFile(ctx)
+			if err != nil || !due {
+				t.Fatalf("NextOutsideFile() = %+v, %v, %v; want the record due", landing, due, err)
+			}
+			if landing.Record != pinnedRecord || landing.License == nil || landing.License.Record != licenseRecord {
+				t.Fatalf("NextOutsideFile() = %+v; want %s brought in with the license %s", landing, pinnedRecord, licenseRecord)
+			}
+			if _, err := pipeline.BringInOutsideFile(ctx, landing); err != nil {
+				t.Fatalf("BringInOutsideFile() error = %v", err)
+			}
+			saved, err := store.Load(landing.RunID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if saved.Status != runstate.StatusSucceeded || saved.Integration == nil {
+				t.Fatalf("run = %s: %s; want both files landed", saved.Status, saved.Failure)
+			}
+			if err := saved.Validate(); err != nil {
+				t.Fatalf("the run's record is not valid: %v", err)
+			}
+			if got := len(provider.RequestsForRole(domain.RoleReviewer)); got != 1 {
+				t.Fatalf("the reviewer was invoked %d times, want once", got)
+			}
+			review := provider.RequestsForRole(domain.RoleReviewer)[0].Prompt
+			for _, want := range []string{"brings in the license file " + license, "SHA-256: " + outsidefile.Checksum([]byte(licenseContent)), licenseName + ", which is in the repository"} {
+				if !strings.Contains(review, want) {
+					t.Errorf("the reviewer was not shown %q", want)
+				}
+			}
+			if strings.TrimSpace(publicationGit(t, repository, "show", "main:"+license)) != strings.TrimSpace(licenseContent) {
+				t.Fatal("main does not carry the license")
+			}
+			for path, content := range map[string]string{pinnedRecord: pinnedContent, licenseRecord: licenseContent} {
+				record, err := outsidefile.ParseRecord(path, []byte(publicationGit(t, repository, "show", "main:"+path)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if record.SHA256 != outsidefile.Checksum([]byte(content)) {
+					t.Fatalf("main's record %s = %+v; want the harness's fields written", path, record)
+				}
+			}
+			changed := strings.Fields(publicationGit(t, repository, "diff", "--name-only", "main~1", "main"))
+			if len(changed) != 4 {
+				t.Fatalf("the landing changed %v; want the file, the license, and their records", changed)
+			}
+			if !strings.Contains(tracker.Notes, "with its license file "+license) {
+				t.Fatalf("the item the record is for was told %q", tracker.Notes)
+			}
+			if _, due, err := pipeline.NextOutsideFile(ctx); err != nil || due {
+				t.Fatalf("NextOutsideFile() after landing = %v, %v; want nothing due", due, err)
+			}
+		})
+	}
+}
+
+// Where the license a run brings in with its file cannot be fetched for a
+// reason about its record, neither file is brought in, both records are
+// stopped, and one report names both.
+func TestALicenseThatCannotBeFetchedStopsBothRecordsAndBringsInNeither(t *testing.T) {
+	t.Parallel()
+
+	repository, _, provider, pipeline, store, reports, clock := pinnedLicenseFixture(t, "chart.js-LICENSE.md", "/npm/chart.js@4.4.1/NO-LICENSE.md")
+	licenseRecord := "assets/chart.js-LICENSE.md" + outsidefile.RecordSuffix
 	ctx := context.Background()
 	landing, due, err := pipeline.NextOutsideFile(ctx)
-	if err != nil || !due {
-		t.Fatalf("NextOutsideFile() = %+v, %v, %v; want the record due", landing, due, err)
-	}
-	if landing.Record != pinnedRecord || landing.License == nil || landing.License.Record != licenseRecord {
-		t.Fatalf("NextOutsideFile() = %+v; want %s brought in with the license %s", landing, pinnedRecord, licenseRecord)
+	if err != nil || !due || landing.License == nil {
+		t.Fatalf("NextOutsideFile() = %+v, %v, %v; want the file due with its license", landing, due, err)
 	}
 	if _, err := pipeline.BringInOutsideFile(ctx, landing); err != nil {
 		t.Fatalf("BringInOutsideFile() error = %v", err)
 	}
-	saved, err := store.Load(landing.RunID())
-	if err != nil {
-		t.Fatal(err)
+	if len(provider.RequestsForRole(domain.RoleReviewer)) != 0 {
+		t.Fatal("a run was reviewed although its license could not be fetched")
 	}
-	if saved.Status != runstate.StatusSucceeded || saved.Integration == nil {
-		t.Fatalf("run = %s: %s; want both files landed", saved.Status, saved.Failure)
-	}
-	if err := saved.Validate(); err != nil {
-		t.Fatalf("the run's record is not valid: %v", err)
-	}
-	if got := len(provider.RequestsForRole(domain.RoleReviewer)); got != 1 {
-		t.Fatalf("the reviewer was invoked %d times, want once", got)
-	}
-	review := provider.RequestsForRole(domain.RoleReviewer)[0].Prompt
-	for _, want := range []string{"brings in the license file " + license, "SHA-256: " + outsidefile.Checksum([]byte(licenseContent)), "vendored-LICENSE.md, which is in the repository"} {
-		if !strings.Contains(review, want) {
-			t.Errorf("the reviewer was not shown %q", want)
+	for _, path := range []string{pinnedFile, "assets/chart.js-LICENSE.md"} {
+		if _, err := os.Stat(filepath.Join(repository, path)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s was written: %v", path, err)
 		}
 	}
-	if strings.TrimSpace(publicationGit(t, repository, "show", "main:"+license)) != strings.TrimSpace(licenseContent) {
-		t.Fatal("main does not carry the license")
-	}
-	for path, content := range map[string]string{pinnedRecord: pinnedContent, licenseRecord: licenseContent} {
-		record, err := outsidefile.ParseRecord(path, []byte(publicationGit(t, repository, "show", "main:"+path)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if record.SHA256 != outsidefile.Checksum([]byte(content)) {
-			t.Fatalf("main's record %s = %+v; want the harness's fields written", path, record)
+	for _, record := range []string{pinnedRecord, licenseRecord} {
+		attempt, found, err := store.OutsideFileAttempt(record)
+		if err != nil || !found || attempt.Stopped == "" || !attempt.Reported {
+			t.Fatalf("%s = %+v, %v, %v; want it stopped", record, attempt, found, err)
 		}
 	}
-	changed := strings.Fields(publicationGit(t, repository, "diff", "--name-only", "main~1", "main"))
-	if len(changed) != 4 {
-		t.Fatalf("the landing changed %v; want the file, the license, and their records", changed)
+	if len(reports.reported) != 1 || !strings.Contains(reports.reported[0].Message, licenseRecord) {
+		t.Fatalf("reports = %+v; want one naming the license's record too", reports.reported)
 	}
-	if !strings.Contains(tracker.Notes, "with its license file "+license) {
-		t.Fatalf("the item the record is for was told %q", tracker.Notes)
-	}
+	clock.advance(outsidefile.RetryAfter + time.Hour)
 	if _, due, err := pipeline.NextOutsideFile(ctx); err != nil || due {
-		t.Fatalf("NextOutsideFile() after landing = %v, %v; want nothing due", due, err)
+		t.Fatalf("NextOutsideFile() = %v, %v; want neither record due", due, err)
 	}
 }
 
@@ -730,6 +789,7 @@ func TestARunRefusedAtTheMergeStepForALastingCauseIsNotPickedUpAgainUnchanged(t 
 	t.Parallel()
 
 	_, _, provider, pipeline, store, reports, clock := outsideFileFixture(t, nil)
+	pipeline.Build = strings.Repeat("a", 40)
 	movedUnderReview(provider, store)
 	ctx := context.Background()
 	landing, due, err := pipeline.NextOutsideFile(ctx)
@@ -745,10 +805,13 @@ func TestARunRefusedAtTheMergeStepForALastingCauseIsNotPickedUpAgainUnchanged(t 
 		ReviewDecision: runstate.ReviewApprove,
 		ChecksPassed:   &runstate.ChecksPassed{Content: "content", Narrowed: "./internal/dashboard"},
 	}}).integrationEarned(ctx)
-	if !refusedForGood(narrowed) {
-		t.Fatalf("narrowed checks = %v; want a lasting refusal", narrowed)
+	// The way the run's ending carries it back: classified at the promotion and
+	// joined with whatever ending the run also failed to record.
+	ended := errors.Join(stoppedBy(runstate.StopIntegration, narrowed), errors.New("record failed run outcome"))
+	if !refusedForGood(ended) {
+		t.Fatalf("narrowed checks = %v; want a lasting refusal", ended)
 	}
-	if _, err := pipeline.settleOutsideFile(ctx, store, landing.RunID(), outsideFileRecorder{}, narrowed); err != nil {
+	if _, err := pipeline.settleOutsideFile(ctx, store, landing.RunID(), outsideFileRecorder{}, ended); err != nil {
 		t.Fatalf("settleOutsideFile() error = %v", err)
 	}
 	attempt, _, _ := store.OutsideFileAttempt(pinnedRecord)
@@ -764,6 +827,15 @@ func TestARunRefusedAtTheMergeStepForALastingCauseIsNotPickedUpAgainUnchanged(t 
 	}
 	if got := len(provider.RequestsForRole(domain.RoleReviewer)); got != 1 {
 		t.Fatalf("the reviewer was invoked %d times, want once", got)
+	}
+	if message := reports.reported[0].Message; strings.Contains(message, "has to be corrected") || !strings.Contains(message, "build of the harness other than "+strings.Repeat("a", 40)) {
+		t.Fatalf("the report asks for the record to be edited, or does not say a new build starts it again: %s", message)
+	}
+	// A new build is running: the record starts again, unedited, as a fresh run.
+	pipeline.Build = strings.Repeat("b", 40)
+	again, due, err := pipeline.NextOutsideFile(ctx)
+	if err != nil || !due || again.Attempt != landing.Attempt+1 || again.RunID() == landing.RunID() {
+		t.Fatalf("NextOutsideFile() on a new build = %+v, %v, %v; want a fresh run of the unchanged record", again, due, err)
 	}
 }
 

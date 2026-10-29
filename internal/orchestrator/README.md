@@ -345,7 +345,12 @@ it where the merge step refused the run for a cause another run would meet
 again (`refusedForGood`, `lastingRefusal` in `pipeline.go`).
 `licenseLanding` is the license file a record names, brought in by the same
 run (`runstate.OutsideFileLanding.License`) where it is pinned too and not yet
-on the target branch. `pinnedfiles.go` is `gatePinnedFiles`, the comparison
+on the target branch. `NextOutsideFile` decides every record before it
+chooses one, so a license another due record brings in starts no run of its
+own; `stopLanding` stops a file's record and its license's together; and a
+stop at the merge step names the build that made it
+(`runstate.OutsideFileAttempt.StoppedBuild`), which `dueOutsideFile` lifts once
+another build is running. `pinnedfiles.go` is `gatePinnedFiles`, the comparison
 `verify` makes of every pinned file with its record before the checks.
 `runstate.State.HarnessAuthored` is what the places that treat a document
 landing specially ask, so they treat this run the same way — except the merge

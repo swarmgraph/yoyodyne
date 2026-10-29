@@ -116,14 +116,27 @@ func (p Pipeline) NextOutsideFile(ctx context.Context) (runstate.OutsideFileLand
 		return runstate.OutsideFileLanding{}, false, fmt.Errorf("the listing of %s at %s omitted %d path(s), so not every record of a pinned outside file could be found", branch, commit, listing.Omitted)
 	}
 	now := p.clock().Now()
+	// Every record is decided before one is chosen, because a record due only
+	// as the license another due record brings in does not start a run of its
+	// own, and the record that brings it in may come later in the listing.
 	var problems []error
+	var due []runstate.OutsideFileLanding
+	licenses := map[string]bool{}
 	for _, recordPath := range outsidefile.Records(listing.Files) {
-		landing, due, err := p.dueOutsideFile(ctx, store, tree, policy, branch, commit, recordPath, now, false)
+		landing, isDue, err := p.dueOutsideFile(ctx, store, tree, policy, branch, commit, recordPath, now, false)
 		if err != nil {
 			problems = append(problems, err)
 			continue
 		}
-		if due {
+		if isDue {
+			due = append(due, landing)
+			if landing.License != nil {
+				licenses[landing.License.Record] = true
+			}
+		}
+	}
+	for _, landing := range due {
+		if !licenses[landing.Record] {
 			return landing, true, nil
 		}
 	}
@@ -149,6 +162,17 @@ func (p Pipeline) dueOutsideFile(ctx context.Context, store OutsideFileStore, tr
 	}
 	if !found || !attempt.For(digest) {
 		attempt = runstate.OutsideFileAttempt{Record: recordPath, RecordDigest: digest}
+	}
+	if attempt.Stopped != "" && attempt.StoppedBuild != "" && p.Build != "" && p.Build != attempt.StoppedBuild && attempt.Attempt < runstate.MaxOutsideFileRuns {
+		// A stop at the merge step was a fault in how the harness ran the checks,
+		// not in the record, so a new build is a change that may have fixed it:
+		// the record starts again with the attempts it has left, and nobody edits
+		// a correct record to start it. A stop for anything else waits for the
+		// record to change.
+		attempt = runstate.OutsideFileAttempt{Record: recordPath, RecordDigest: digest, Attempt: attempt.Attempt}
+		if err := store.SaveOutsideFileAttempt(attempt); err != nil {
+			return none, false, err
+		}
 	}
 	if attempt.Stopped != "" {
 		return none, false, p.reportStoppedOutsideFile(store, attempt)
@@ -262,6 +286,31 @@ func (p Pipeline) stopOutsideFile(store OutsideFileStore, attempt runstate.Outsi
 	return p.reportStoppedOutsideFile(store, attempt)
 }
 
+// stopLanding stops a landing's record for a failure about it, and the record
+// of the license file it brings in with it, where it brings one, with it: a
+// failure about either stops both, so the license is not brought in alone
+// while the file that needs it is stopped. One report is filed, by the file's
+// record, naming both; the license's stop is recorded as reported by it.
+// attempt is the file record's, as the caller has it; its StoppedBuild is
+// given to the license's stop too.
+func (p Pipeline) stopLanding(store OutsideFileStore, attempt runstate.OutsideFileAttempt, landing runstate.OutsideFileLanding, why string) error {
+	if license := landing.License; license != nil {
+		now := p.clock().Now().UTC()
+		stopped := runstate.OutsideFileAttempt{Record: license.Record, RecordDigest: license.RecordDigest, Attempt: license.Attempt,
+			Stopped: fmt.Sprintf("stopped with %s, which brings it in: %s", landing.Record, why), StoppedAt: &now, Reported: true, StoppedBuild: attempt.StoppedBuild}
+		if kept, found, err := store.OutsideFileAttempt(license.Record); err != nil {
+			return err
+		} else if found && kept.For(license.RecordDigest) {
+			stopped.Attempt = kept.Attempt
+		}
+		if err := store.SaveOutsideFileAttempt(stopped); err != nil {
+			return fmt.Errorf("record that the record %s is stopped: %w", license.Record, err)
+		}
+		why += fmt.Sprintf("; the record %s of the license file it brings in is stopped with it", license.Record)
+	}
+	return p.stopOutsideFile(store, attempt, landing.For, why)
+}
+
 // reportStoppedOutsideFile files the one warning report a stopped record is
 // owed, for the development manager, and remembers that it did. A report that
 // could not be filed is tried again at the next pull.
@@ -269,9 +318,14 @@ func (p Pipeline) reportStoppedOutsideFile(store OutsideFileStore, attempt runst
 	if attempt.Reported || p.Reports == nil {
 		return nil
 	}
-	message := fmt.Sprintf("The harness stopped bringing in the pinned outside file declared by %s: %s. "+
-		"It is not fetched again until the record changes on the target branch, so the record has to be corrected, or the file taken out of the project.",
-		attempt.Record, oneline.Fold(strings.TrimSuffix(attempt.Stopped, "."), report.MaxMessageBytes*3/4))
+	next := "It is not fetched again until the record changes on the target branch, so the record has to be corrected, or the file taken out of the project."
+	if attempt.StoppedBuild != "" {
+		// The merge step's stop is the harness's fault, so nothing in the record
+		// is asked to change.
+		next = "The record is not at fault: it is tried again once a build of the harness other than " + attempt.StoppedBuild + " is running, or when the record changes on the target branch."
+	}
+	message := fmt.Sprintf("The harness stopped bringing in the pinned outside file declared by %s: %s. %s",
+		attempt.Record, oneline.Fold(strings.TrimSuffix(attempt.Stopped, "."), report.MaxMessageBytes*3/4), next)
 	collected, err := report.Collect([]report.Entry{{Severity: report.SeverityWarning, Message: message, For: domain.RoleDevelopmentManager}}, report.Attribution{
 		Role:         report.HarnessReporter,
 		RunID:        "outsidefile@" + attempt.RecordDigest[:16],
@@ -309,8 +363,25 @@ func (p Pipeline) waitOutOutsideFile(store OutsideFileStore, landing runstate.Ou
 		attempt.Attempt = landing.Attempt + 1
 		attempt.Unjudged++
 	}
+	if license := landing.License; license != nil {
+		// The license the run brings in waits with the file, so it does not come
+		// due alone while the file that needs it waits.
+		kept, found, err := store.OutsideFileAttempt(license.Record)
+		if err != nil {
+			return err
+		}
+		if !found || !kept.For(license.RecordDigest) {
+			kept = runstate.OutsideFileAttempt{Record: license.Record, RecordDigest: license.RecordDigest}
+		}
+		if kept.Stopped == "" {
+			kept.RetryFrom, kept.Waited = &now, "waiting with "+landing.Record+", which brings it in: "+why
+			if err := store.SaveOutsideFileAttempt(kept); err != nil {
+				return err
+			}
+		}
+	}
 	if attempt.Unjudged >= runstate.MaxOutsideFileAttempts {
-		return p.stopOutsideFile(store, attempt, landing.For, fmt.Sprintf("%d runs in a row stopped without anything judging the file, the last because %s", runstate.MaxOutsideFileAttempts, why))
+		return p.stopLanding(store, attempt, landing, fmt.Sprintf("%d runs in a row stopped without anything judging the file, the last because %s", runstate.MaxOutsideFileAttempts, why))
 	}
 	return store.SaveOutsideFileAttempt(attempt)
 }
@@ -340,7 +411,7 @@ func (p Pipeline) queueRefusedOutsideFile(store OutsideFileStore, landing runsta
 		for i, reason := range attempt.QueueFailures {
 			reasons[i] = fmt.Sprintf("(%d) %s", i+1, strings.TrimSuffix(oneline.Fold(reason, 700), "."))
 		}
-		return p.stopOutsideFile(store, attempt, landing.For, fmt.Sprintf("the merge queue refused the change of %d runs in a row: %s", len(attempt.QueueFailures), strings.Join(reasons, "; ")))
+		return p.stopLanding(store, attempt, landing, fmt.Sprintf("the merge queue refused the change of %d runs in a row: %s", len(attempt.QueueFailures), strings.Join(reasons, "; ")))
 	}
 	return store.SaveOutsideFileAttempt(attempt)
 }
@@ -411,7 +482,7 @@ func (p Pipeline) BringInOutsideFile(ctx context.Context, landing runstate.Outsi
 	fetched, err := p.outsideFileFetcher().Fetch(ctx, landing.Record, declared, p.Config.OutsideFiles.Policy())
 	if err != nil {
 		if outsidefile.IsRecordError(err) {
-			return Outcome{WorkItemID: item.ID, Summary: err.Error()}, p.stopOutsideFile(store, runstate.OutsideFileAttempt{Record: landing.Record, RecordDigest: landing.RecordDigest, Attempt: landing.Attempt}, landing.For, recordReason(err))
+			return Outcome{WorkItemID: item.ID, Summary: err.Error()}, p.stopLanding(store, runstate.OutsideFileAttempt{Record: landing.Record, RecordDigest: landing.RecordDigest, Attempt: landing.Attempt}, landing, recordReason(err))
 		}
 		return Outcome{WorkItemID: item.ID, Summary: err.Error()}, p.waitOutOutsideFile(store, landing, false, oneline.Fold(err.Error(), 600))
 	}
@@ -424,11 +495,10 @@ func (p Pipeline) BringInOutsideFile(ctx context.Context, landing runstate.Outsi
 		}
 		fetchedLicense, err := p.outsideFileFetcher().Fetch(ctx, landing.License.Record, declaredLicense, p.Config.OutsideFiles.Policy())
 		if err != nil {
-			// A failure about the license's record stops that record, and the file
-			// waits with it (licenseLanding); one the network caused is waited out
-			// for both.
+			// Neither file is brought in. A failure about the license's record stops
+			// both records (stopLanding); one the network caused is waited out.
 			if outsidefile.IsRecordError(err) {
-				return Outcome{WorkItemID: item.ID, Summary: err.Error()}, p.stopOutsideFile(store, runstate.OutsideFileAttempt{Record: landing.License.Record, RecordDigest: landing.License.RecordDigest, Attempt: landing.License.Attempt}, landing.License.For, recordReason(err))
+				return Outcome{WorkItemID: item.ID, Summary: err.Error()}, p.stopLanding(store, runstate.OutsideFileAttempt{Record: landing.Record, RecordDigest: landing.RecordDigest, Attempt: landing.Attempt}, landing, "the license file it brings in could not be fetched: "+err.Error())
 			}
 			return Outcome{WorkItemID: item.ID, Summary: err.Error()}, p.waitOutOutsideFile(store, landing, false, oneline.Fold(err.Error(), 600))
 		}
@@ -770,7 +840,7 @@ func (p Pipeline) settleOutsideFile(ctx context.Context, store OutsideFileStore,
 		// not touch is a judgement of the file the record brings in.
 		why := fmt.Sprintf("run %s did not land the file: %s", saved.RunID, nonEmpty(oneline.Fold(stop, 900), "it was refused"))
 		record.note(ctx, fmt.Sprintf("Yoyodyne's run %s did not bring in %s: %s. The record is stopped until it changes on the target branch.", saved.RunID, pinnedPath, nonEmpty(oneline.Fold(stop, 900), "it was refused")))
-		if stopErr := p.stopOutsideFile(store, runstate.OutsideFileAttempt{Record: landing.Record, RecordDigest: landing.RecordDigest, Attempt: landing.Attempt}, landing.For, why); stopErr != nil {
+		if stopErr := p.stopLanding(store, runstate.OutsideFileAttempt{Record: landing.Record, RecordDigest: landing.RecordDigest, Attempt: landing.Attempt}, landing, why); stopErr != nil {
 			return outcome, stopErr
 		}
 		outcome.Summary = why
@@ -779,13 +849,16 @@ func (p Pipeline) settleOutsideFile(ctx context.Context, store OutsideFileStore,
 		// record does not show it earned them, for a cause a later run would meet
 		// again (lastingRefusal): no developer changes what the next run does. The
 		// record is stopped rather than tried again, and the report says which
-		// check the promotion found missing. A refusal for a passing cause — the
+		// check the promotion found missing. The fault is the harness's rather
+		// than the record's, so the stop names the build that made it and lifts
+		// once another build is running (dueOutsideFile), and the next run is a
+		// fresh attempt rather than this one again. A refusal for a passing cause — the
 		// change could not be named, or moved under its evidence — takes the wait
 		// below like any stop that judged nothing. So does a run another process
 		// ended, whose error is gone; the attempts it is given still bound it.
 		why := fmt.Sprintf("run %s passed its checks and its review, and the merge step refused it because %s", saved.RunID, strings.TrimPrefix(oneline.Fold(lastingCause(err), 900), ErrIntegrationUnearned.Error()+": "))
-		record.note(ctx, fmt.Sprintf("Yoyodyne's run %s did not bring in %s: %s. Another run would be refused the same way, so the record is stopped until it changes on the target branch.", saved.RunID, pinnedPath, strings.TrimPrefix(why, "run "+saved.RunID+" ")))
-		if stopErr := p.stopOutsideFile(store, runstate.OutsideFileAttempt{Record: landing.Record, RecordDigest: landing.RecordDigest, Attempt: landing.Attempt}, landing.For, why); stopErr != nil {
+		record.note(ctx, fmt.Sprintf("Yoyodyne's run %s did not bring in %s: %s. Another run of this build would be refused the same way, so the record is stopped until it changes on the target branch or a new build of the harness is running.", saved.RunID, pinnedPath, strings.TrimPrefix(why, "run "+saved.RunID+" ")))
+		if stopErr := p.stopLanding(store, runstate.OutsideFileAttempt{Record: landing.Record, RecordDigest: landing.RecordDigest, Attempt: min(landing.Attempt+1, runstate.MaxOutsideFileRuns), StoppedBuild: p.Build}, landing, why); stopErr != nil {
 			return outcome, stopErr
 		}
 		outcome.Summary = why

@@ -272,9 +272,16 @@ type OutsideFileAttempt struct {
 	Waited    string     `json:"waited,omitempty"`
 	// Stopped is why the record is stopped: a failure about the record, which no
 	// later attempt gets past while the record says what it says. It is tried
-	// again only once the record changes on the target branch.
+	// again once the record changes on the target branch, or, for a stop that
+	// names StoppedBuild, once another build is running.
 	Stopped   string     `json:"stopped,omitempty"`
 	StoppedAt *time.Time `json:"stopped_at,omitempty"`
+	// StoppedBuild is the harness build that stopped the record where the stop
+	// was the merge step refusing a run for evidence another run of that build
+	// would lack too. Such a stop is the harness's fault rather than the
+	// record's, so it is lifted once a different build is running as well as
+	// when the record changes. Empty for every other stop.
+	StoppedBuild string `json:"stopped_build,omitempty"`
 	// Reported says the warning report for the stop was filed, so a stop is
 	// reported once.
 	Reported bool `json:"reported,omitempty"`
@@ -301,6 +308,9 @@ func (a OutsideFileAttempt) Validate() error {
 	}
 	if a.Attempt < 0 || a.Attempt > MaxOutsideFileRuns {
 		problems = append(problems, fmt.Sprintf("attempt %d is outside 0 to %d", a.Attempt, MaxOutsideFileRuns))
+	}
+	if len(a.StoppedBuild) > MaxOutsideFileFieldBytes || (a.StoppedBuild != "" && a.Stopped == "") {
+		problems = append(problems, "a build is recorded only beside the stop it made, and is at most a field's length")
 	}
 	if a.Unjudged < 0 || a.Unjudged > MaxOutsideFileAttempts || len(a.QueueFailures) > MaxOutsideFileQueueFailures {
 		problems = append(problems, "more runs are counted than one record is given")
