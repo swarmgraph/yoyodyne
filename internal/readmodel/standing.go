@@ -542,6 +542,9 @@ type RunningRun struct {
 	// configured capacity, which no slot holds.
 	Slot        int      `json:"developer_slot,omitempty"`
 	SlotPrefers []string `json:"slot_prefers,omitempty"`
+	// SlotDedicated is a slot kept for what it prefers, where the running line
+	// also says whether the run is on that work or outside it.
+	SlotDedicated bool `json:"slot_dedicated,omitempty"`
 	// WaitingOn is the unfinished work a run paused on a dependency is waiting
 	// for, as its record names it, and PausedSince when it last wrote its record,
 	// which for such a run is when it recorded the pause. Both are carried only
@@ -1503,6 +1506,7 @@ func readSlots(sources Sources, running []RunningRun) []DeveloperSlotStanding {
 			if running[index].RunID == slot.RunID {
 				running[index].Slot = slot.Number
 				running[index].SlotPrefers = slot.Preferred
+				running[index].SlotDedicated = slot.Dedicated
 			}
 		}
 	}

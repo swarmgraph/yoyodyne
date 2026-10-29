@@ -78,6 +78,79 @@ func TestASlotPreferringALabelTheTrackerWouldNotCarryIsRefused(t *testing.T) {
 	}
 }
 
+func TestADedicatedSlotIsReadBesideWhatItPrefers(t *testing.T) {
+	t.Parallel()
+
+	resolved := loadProject(t, minimalProjectConfig+`execution:
+  max_concurrent_developers: 3
+  developer_slots:
+    - prefer: [reliability]
+    - {}
+    - prefer: [team-development]
+      dedicated: true
+agents:
+  developer:
+    instances: 3
+`, nil)
+	want := []domain.DeveloperSlot{{Prefer: []string{"reliability"}}, {}, {Prefer: []string{"team-development"}, Dedicated: true}}
+	if got := resolved.Config.Execution.DeveloperSlots; !reflect.DeepEqual(got, want) {
+		t.Fatalf("developer_slots = %+v, want %+v", got, want)
+	}
+}
+
+func TestADedicatedSlotThatNamesNoLabelIsRefused(t *testing.T) {
+	t.Parallel()
+
+	_, err := loadProjectError(t, minimalProjectConfig+`execution:
+  max_concurrent_developers: 2
+  developer_slots:
+    - {}
+    - dedicated: true
+agents:
+  developer:
+    instances: 2
+`, nil)
+	if err == nil {
+		t.Fatal("a dedicated slot naming no label loaded")
+	}
+	if want := "execution.developer_slots slot 2: it is marked dedicated and names no label under prefer"; !strings.Contains(err.Error(), want) {
+		t.Fatalf("refusal = %v, want it to say %q", err, want)
+	}
+}
+
+func TestEverySlotDedicatedIsRefused(t *testing.T) {
+	t.Parallel()
+
+	_, err := loadProjectError(t, minimalProjectConfig+`execution:
+  max_concurrent_developers: 2
+  developer_slots:
+    - prefer: [reliability]
+      dedicated: true
+    - prefer: [team-development]
+      dedicated: true
+agents:
+  developer:
+    instances: 2
+`, nil)
+	if err == nil {
+		t.Fatal("every slot dedicated loaded")
+	}
+	if want := "execution.developer_slots marks every developer slot dedicated (slot 1, slot 2, with max_concurrent_developers 2)"; !strings.Contains(err.Error(), want) {
+		t.Fatalf("refusal = %v, want it to say %q", err, want)
+	}
+
+	// One slot of two left undedicated, or named at all, is enough.
+	loadProject(t, minimalProjectConfig+`execution:
+  max_concurrent_developers: 2
+  developer_slots:
+    - prefer: [team-development]
+      dedicated: true
+agents:
+  developer:
+    instances: 2
+`, nil)
+}
+
 func TestASlotListInALaterLayerReplacesTheInheritedOneWhole(t *testing.T) {
 	t.Parallel()
 

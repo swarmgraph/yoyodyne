@@ -210,7 +210,11 @@ func (s Standing) renderRunning() string {
 	// what the next pull will look for first. Nothing is said where no slot
 	// prefers anything, so the line reads as it always did.
 	for _, slot := range s.DeveloperSlots {
-		if slot.Free() {
+		switch {
+		case !slot.Free():
+		case slot.Dedicated:
+			fmt.Fprintf(&rendered, "  developer slot %d is free and kept for %s\n", slot.Number, slot.Preference())
+		default:
 			fmt.Fprintf(&rendered, "  developer slot %d is free and prefers %s\n", slot.Number, slot.Preference())
 		}
 	}
@@ -308,7 +312,11 @@ func slotOf(run RunningRun) string {
 	if run.Slot == 0 {
 		return ""
 	}
-	return ", in " + (DeveloperSlotStanding{Number: run.Slot, Preferred: run.SlotPrefers}).Says()
+	slot := DeveloperSlotStanding{Number: run.Slot, Preferred: run.SlotPrefers, Dedicated: run.SlotDedicated}
+	if working := slot.Working(run.Labels); working != "" {
+		return ", in " + slot.Says() + ", " + working
+	}
+	return ", in " + slot.Says()
 }
 
 func (s Standing) renderWorking() string {

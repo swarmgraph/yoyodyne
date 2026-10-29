@@ -1569,6 +1569,22 @@ func developerSlotProblems(execution Execution) []string {
 			problems = append(problems, fmt.Sprintf("execution.developer_slots slot %d: %v", index+1, err))
 		}
 	}
+	// A dedicated slot takes its label's work ahead of priority-0 work, which is
+	// safe only because some other slot takes priority-0 work first. With every
+	// slot dedicated none does, and the top of the order waits behind labelled
+	// work of any priority.
+	if capacity := execution.MaxConcurrentDevelopers; capacity >= 1 && len(execution.DeveloperSlots) >= capacity {
+		dedicated := make([]string, 0, capacity)
+		for index, slot := range execution.DeveloperSlots[:capacity] {
+			if slot.Dedicated {
+				dedicated = append(dedicated, "slot "+strconv.Itoa(index+1))
+			}
+		}
+		if len(dedicated) == capacity {
+			problems = append(problems, fmt.Sprintf("execution.developer_slots marks every developer slot dedicated (%s, with max_concurrent_developers %d); at least one slot must be left undedicated, so priority-0 work always has a slot that takes it first",
+				strings.Join(dedicated, ", "), capacity))
+		}
+	}
 	return problems
 }
 

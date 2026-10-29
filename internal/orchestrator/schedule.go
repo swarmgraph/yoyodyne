@@ -2957,18 +2957,26 @@ pulling:
 		}
 		// precedence puts decisions on kept changes ahead of the rest of the
 		// docket, the highest priority first, so where the slots run out the ones
-		// left waiting are the lower-priority ones.
-		precedence := func(task CarryOutTask) (bool, int) {
+		// left waiting are the lower-priority ones. Among them, one whose item
+		// carries the label of a free dedicated slot goes first: that slot is kept
+		// for its label, so a kept change on its label is what it takes before a
+		// kept change on any other.
+		precedence := func(task CarryOutTask) (bool, bool, int) {
 			if !kept(task) {
-				return false, 0
+				return false, false, 0
 			}
-			priority := math.MaxInt
+			priority, dedicated := math.MaxInt, false
 			if read := readEarly(); read != nil {
 				if item, known := read.items[task.WorkItemID]; known {
 					priority = item.Priority
+					for _, slot := range pull.slotsOf(occupied, read.items).Free() {
+						if slot.Dedicated && slot.Prefers(item.Labels) {
+							dedicated = true
+						}
+					}
 				}
 			}
-			return true, priority
+			return true, dedicated, priority
 		}
 		var tasks []CarryOutTask
 		var passedCarryOuts map[string]string
@@ -3493,7 +3501,8 @@ pulling:
 		// Top-priority work is the one exception to walking past: a preferring slot
 		// asks a priority-0 entry everything a slot with no preference would, label
 		// or none, so a preference never starts lower-priority work ahead of it
-		// (outranksPreference).
+		// (outranksPreference). A dedicated slot walks past priority-0 work too,
+		// and what it walked past is reported as waiting for another slot.
 		var leftBehind []walkedPast
 		fill := func(slot developerslot.Slot, labelled bool) (walk, error) {
 			var past []walkedPast
@@ -3502,7 +3511,7 @@ pulling:
 					continue
 				}
 				preferred := slot.Prefers(read.items[entry.ID].Labels)
-				if labelled && !preferred && !outranksPreference(entry) {
+				if labelled && !preferred && !outranksPreference(entry, slot) {
 					past = append(past, walkedPast{entry: entry, slot: slot})
 					continue
 				}
@@ -3621,7 +3630,11 @@ pulling:
 				poll.pass(past.entry.ID, runstate.PassedOverSequencedBehindWork, "")
 				continue
 			}
-			keepWait(past.entry.ID, runstate.PassedOverLeftForAnotherSlot, leftForAnotherSlotReason(past.slot, past.took))
+			reason := leftForAnotherSlotReason(past.slot, past.took)
+			if past.slot.Dedicated && past.entry.Priority == 0 {
+				reason = waitingForAnotherSlotReason(past.slot, titledItem(read.items[past.entry.ID], past.entry.ID), titledItem(read.items[past.took], past.took))
+			}
+			keepWait(past.entry.ID, runstate.PassedOverLeftForAnotherSlot, reason)
 			poll.pass(past.entry.ID, runstate.PassedOverLeftForAnotherSlot, "")
 		}
 		// A decision the walk never reached a slot for is written onto its item as
@@ -5305,9 +5318,10 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 // in attempted, which this pull has already fired: their own attempts are what
 // account for them. slotBound reports a decision passed over because the slots
 // ran out, which is what a decision that came back without starting gives one
-// back to. precedence, where given, says which decisions build on a kept change
-// and at what priority, and those are offered the slots first.
-func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool), precedence func(CarryOutTask) (bool, int), attempted map[string]bool) (chosen []CarryOutTask, passed map[string]string, pending []outrankedCarryOut, slotBound bool) {
+// back to. precedence, where given, says which decisions build on a kept change,
+// whether a free dedicated slot is kept for its item's label, and at what
+// priority, and those are offered the slots first.
+func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool), precedence func(CarryOutTask) (bool, bool, int), attempted map[string]bool) (chosen []CarryOutTask, passed map[string]string, pending []outrankedCarryOut, slotBound bool) {
 	if pull.CarryOut == nil {
 		return nil, nil, nil, false
 	}
@@ -5328,24 +5342,31 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 	slices.SortStableFunc(outstanding, func(a, b CarryOutTask) int {
 		return a.DecidedAt.Compare(b.DecidedAt)
 	})
-	// Then the decisions that build on a kept change ahead of the rest, in the
-	// Lead Product Manager's order between them and oldest first at one
-	// priority: they are the ones a freed slot goes to first.
+	// Then the decisions that build on a kept change ahead of the rest, those
+	// on a free dedicated slot's label first, then in the Lead Product Manager's
+	// order between them and oldest first at one priority: they are the ones a
+	// freed slot goes to first.
 	if precedence != nil && len(outstanding) > 1 {
 		type ranked struct {
-			task     CarryOutTask
-			kept     bool
-			priority int
+			task      CarryOutTask
+			kept      bool
+			dedicated bool
+			priority  int
 		}
 		order := make([]ranked, len(outstanding))
 		for index, task := range outstanding {
-			onKept, priority := precedence(task)
-			order[index] = ranked{task: task, kept: onKept, priority: priority}
+			onKept, dedicated, priority := precedence(task)
+			order[index] = ranked{task: task, kept: onKept, dedicated: dedicated, priority: priority}
 		}
 		slices.SortStableFunc(order, func(a, b ranked) int {
 			switch {
 			case a.kept != b.kept:
 				if a.kept {
+					return -1
+				}
+				return 1
+			case a.kept && a.dedicated != b.dedicated:
+				if a.dedicated {
 					return -1
 				}
 				return 1
