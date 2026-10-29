@@ -283,6 +283,41 @@ type CarryOutTask struct {
 	// Recover continues a recorded repair whose dispatch is still pending. It
 	// reuses that run's slot and grant; the action re-reads it under its lease.
 	Recover bool `json:"recover,omitempty"`
+	// KeptChange says the pass found this decision builds on a change a run
+	// already wrote and kept (keptChange), which is what put it ahead of fresh
+	// work of any priority; AheadOf is the ready work of higher priority it was
+	// put ahead of, each by its title with its identifier after it, which the
+	// run's reason and the item's notes name. Both are the pass's to set and
+	// empty on a decision carried out any other way.
+	KeptChange bool     `json:"kept_change,omitempty"`
+	AheadOf    []string `json:"ahead_of,omitempty"`
+}
+
+// aheadOfQueue is what a run fired ahead of higher-priority ready work records
+// about it: the work it was put ahead of, and the rule that put it there. It is
+// empty for every other decision, whose reason is what it always was.
+func aheadOfQueue(task CarryOutTask) string {
+	if !task.KeptChange || len(task.AheadOf) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("It went ahead of %s of higher priority in the Lead Product Manager's order that stood ready (%s), because it builds on a change a run already wrote and kept: work on an existing change takes a freed developer slot ahead of fresh work of any priority, whatever label the slot prefers.",
+		plural(len(task.AheadOf), "item", "items"), listedNames(task.AheadOf))
+}
+
+// withAheadOf ends a run's recorded reason with the sentence aheadOfQueue wrote,
+// shortening the reason before it rather than the sentence where the two outgrow
+// the bound a selection reason is held to, so what the run went ahead of is never
+// the part cut.
+func withAheadOf(reason, ahead string) string {
+	ahead = strings.TrimSpace(ahead)
+	if ahead == "" {
+		return reason
+	}
+	room := runstate.MaxSelectionReasonBytes - len(ahead) - 1
+	if room < 0 {
+		return singleLine(ahead, runstate.MaxSelectionReasonBytes)
+	}
+	return singleLine(reason, room) + " " + ahead
 }
 
 // CarriedOut is what one attempt came to. It reports an attempt that was stopped
@@ -1033,6 +1068,13 @@ func (i outstandingItem) rerunOutstanding(entry triage.Entry, decision runstate.
 // somebody typed; and the finding is written last, because until the attempt has
 // ended there is nothing to record about it.
 func (c CarryOut) Carry(ctx context.Context, task CarryOutTask) (account CarriedOut, outcome Outcome, err error) {
+	// What a run fired ahead of the queue went ahead of is said wherever its reason
+	// is, the pass's account included, whichever action carried it out.
+	defer func() {
+		if ahead := aheadOfQueue(task); account.Carried && ahead != "" && !strings.Contains(account.Reason, ahead) {
+			account.Reason = withAheadOf(account.Reason, ahead)
+		}
+	}()
 	if err := c.validate(); err != nil {
 		return CarriedOut{}, Outcome{}, err
 	}
@@ -1115,7 +1157,7 @@ func (c CarryOut) rerun(ctx context.Context, task CarryOutTask, carried CarriedO
 			"nothing is wired to this harness to start a fresh run, so the re-run recorded against this stoppage waits on somebody running `yoyo triage rerun`",
 			"a harness wired to start re-runs itself"), Outcome{}, nil
 	}
-	result, runErr := c.Rerunner.Rerun(ctx, RerunRequest{Run: task.RunID})
+	result, runErr := c.Rerunner.Rerun(ctx, RerunRequest{Run: task.RunID, AheadOf: aheadOfQueue(task)})
 	switch {
 	case result.IntakeHeld != nil:
 		return c.stopped(ctx, task, carried, runstate.TriageGateIntakeHold, true,
@@ -1159,7 +1201,7 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 			"nothing is wired to this harness to continue a stopped run, so the repair granted against this stoppage waits on somebody running `yoyo triage repair`",
 			"a harness wired to continue stopped runs itself"), Outcome{}, nil
 	}
-	result, runErr := c.Repairer.Continue(ctx, RepairContinueRequest{Run: task.RunID})
+	result, runErr := c.Repairer.Continue(ctx, RepairContinueRequest{Run: task.RunID, AheadOf: aheadOfQueue(task)})
 	switch {
 	case result.IntakeHeld != nil:
 		return c.stopped(ctx, task, carried, runstate.TriageGateIntakeHold, true,
@@ -1228,7 +1270,7 @@ func (c CarryOut) continueChecks(ctx context.Context, task CarryOutTask, carried
 	if held {
 		return waiting(runstate.TriageGateSpendingPause, fmt.Sprintf("the operator has paused everything the harness spends, since %s", hold.HeldAt.UTC().Format(time.RFC3339)))
 	}
-	result, runErr := c.CheckStages.Continue(ctx, CheckStageContinueRequest{Run: task.RunID})
+	result, runErr := c.CheckStages.Continue(ctx, CheckStageContinueRequest{Run: task.RunID, AheadOf: aheadOfQueue(task)})
 	carried.RecordProblem = result.RecordProblem
 	switch {
 	case result.IntakeHeld != nil:

@@ -202,14 +202,16 @@ func TestAPriorityZeroItemPassedOverOnItsProseNamesTheSentenceItRead(t *testing.
 	}
 }
 
-// The rule yoyodyne-ifd.428.107 was admitted for: priority decides between
-// items, and a decided recovery wins only a tie. A ready item at a higher
-// priority than the recovery's item takes the free slot first, whether or not
-// the stopped run's change is still there; the recovery waits, says on its item
-// and on the pass's own account which work went first, and takes the next slot.
-// The reported case was a priority-0 fix (yoyodyne-94j) standing behind re-runs
-// at priorities 1 to 3; the priority-1 work beside a priority-2 recovery is the
-// same rule below the top.
+// Priority decides between items where the recovery does not build on a kept
+// change, and a decided recovery then wins only a tie. A ready item at a higher
+// priority than the recovery's item takes the free slot first; the recovery
+// waits, says on its item and on the pass's own account which work went first,
+// and takes the next slot. A re-run of a stopped run starts over from the target
+// whether or not the stopped run's branch is still there, so it is fresh work and
+// waits too. The reported case was a priority-0 fix (yoyodyne-94j) standing
+// behind re-runs at priorities 1 to 3; the priority-1 work beside a priority-2
+// recovery is the same rule below the top. A repair of a kept change is the
+// exception (keptchange_priority_test.go).
 func TestAReadyItemOfHigherPriorityStartsAheadOfADecidedRecovery(t *testing.T) {
 	t.Parallel()
 
@@ -220,7 +222,7 @@ func TestAReadyItemOfHigherPriorityStartsAheadOfADecidedRecovery(t *testing.T) {
 		decision        string
 	}{
 		{name: "p0-fresh-p1-rerun", fresh: 0, recovery: 1, decision: runstate.TriageDecisionRerun},
-		{name: "p0-fresh-p1-preserved-repair", fresh: 0, recovery: 1, preserved: true, decision: runstate.TriageDecisionRepair},
+		{name: "p0-fresh-p1-repair-of-nothing-kept", fresh: 0, recovery: 1, decision: runstate.TriageDecisionRepair},
 		{name: "p1-fresh-p2-rerun", fresh: 1, recovery: 2, decision: runstate.TriageDecisionRerun},
 		{name: "p1-fresh-p2-preserved-rerun", fresh: 1, recovery: 2, preserved: true, decision: runstate.TriageDecisionRerun},
 	} {
@@ -428,7 +430,11 @@ func TestADecisionAboutWorkNoLongerPreservedStillWaitsBehindHigherPriorityWork(t
 	}
 }
 
-func TestCheckStageContinuationsTakeAFreeSlotAheadOfEqualOrLowerPriorityFreshWork(t *testing.T) {
+// The harness's continuation of a check stage continues a change a run already
+// wrote, so it takes the free slot ahead of fresh work of any priority. A repair
+// about a stoppage the pass has no record of is not shown to build on a kept
+// change, so it keeps its place in the order.
+func TestCheckStageContinuationsTakeAFreeSlotAheadOfFreshWorkOfAnyPriority(t *testing.T) {
 	t.Parallel()
 	for _, decision := range []string{DecisionContinueChecks, runstate.TriageDecisionRepair} {
 		for _, freshPriority := range []int{0, 1, 2} {
@@ -454,7 +460,7 @@ func TestCheckStageContinuationsTakeAFreeSlotAheadOfEqualOrLowerPriorityFreshWor
 					}
 				}
 				want := "yoyodyne-continuation,yoyodyne-fresh"
-				if freshPriority < 1 {
+				if decision == runstate.TriageDecisionRepair && freshPriority < 1 {
 					want = "yoyodyne-fresh,yoyodyne-continuation"
 				}
 				if strings.Join(order, ",") != want {

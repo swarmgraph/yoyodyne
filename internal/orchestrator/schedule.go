@@ -155,10 +155,12 @@ package orchestrator
 // return of, and restarting it would run the pass again from the beginning.
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"reflect"
 	"slices"
 	"strings"
@@ -2807,7 +2809,8 @@ pulling:
 		// its item's priority or below: a stoppage she has already judged is work
 		// that was chosen once and stopped, and leaving it behind the queue would be
 		// the harness preferring fresh work to work it has already spent a run on.
-		// Ready work of a higher priority is the exception, below.
+		// Ready work of a higher priority is the exception, below, except where the
+		// decision builds on a change a run already wrote and kept.
 		//
 		// It takes a slot and is waited out exactly as a chosen item is. What it is
 		// not is a queue entry: the item is blocked or claimed rather than pullable,
@@ -2887,21 +2890,23 @@ pulling:
 		// slot to give, and an outranked decision attempted then took it ahead of
 		// the work that outranks it.
 		//
-		// That holds whatever the stopped run left behind. A decision about a run
-		// whose branch or worktree is still there was once outranked only by
-		// priority-0 work, and four re-runs at priorities 1 to 3 were reported as
-		// standing in front of a ready priority-0 fix; the Lead Product Manager owns
-		// the order and ruled that priority decides between items and a decision
-		// wins only a tie (yoyodyne-ifd.428.107). Preserved work still goes ahead
-		// of every fresh pull at its own priority, which is where a tie puts it.
+		// Work on a change a run already wrote and kept is the exception, by the
+		// operator's standing rule recorded in the operating rules: the
+		// longer a repair waits for a slot, the more the target moves under it and
+		// the dearer the repair becomes. So a decision that builds on a kept change
+		// (keptChange says which those are) is outranked by nothing: it takes a
+		// freed slot ahead of fresh work of any priority, and ahead of a slot's
+		// label preference, since the slots' walk of the order comes after it.
+		// Among several, the Lead Product Manager's order decides (precedence).
+		// What keeps one change from holding slots for ever is the per-item bound
+		// on each kind of recovery, which every kind getting this precedence has
+		// (see keptChange). A re-run that starts over from the target is fresh
+		// work and is ordered by priority like any other.
 		var early *pulled
 		earlyAsked := false
-		outranked := func(task CarryOutTask) (outrankedCarryOut, bool) {
-			if task.Decision == DecisionContinueStall {
-				return outrankedCarryOut{}, false
-			}
+		readEarly := func() *pulled {
 			if held || paused {
-				return outrankedCarryOut{task: task}, false
+				return nil
 			}
 			if !earlyAsked {
 				earlyAsked = true
@@ -2909,10 +2914,39 @@ pulling:
 					early = &read
 				}
 			}
-			if early == nil {
-				return outrankedCarryOut{task: task}, false
+			return early
+		}
+		kept := keptChange(ctx, pull, s.now)
+		outranked := func(task CarryOutTask) (outrankedCarryOut, bool) {
+			if task.Decision == DecisionContinueStall {
+				return outrankedCarryOut{}, false
 			}
-			return outranking(task, *early, occupied)
+			onKept := kept(task)
+			read := readEarly()
+			if read == nil {
+				return outrankedCarryOut{task: task, kept: onKept}, false
+			}
+			ranked, outranks := outranking(task, *read, occupied)
+			if onKept {
+				ranked.kept = true
+				return ranked, false
+			}
+			return ranked, outranks
+		}
+		// precedence puts decisions on kept changes ahead of the rest of the
+		// docket, the highest priority first, so where the slots run out the ones
+		// left waiting are the lower-priority ones.
+		precedence := func(task CarryOutTask) (bool, int) {
+			if !kept(task) {
+				return false, 0
+			}
+			priority := math.MaxInt
+			if read := readEarly(); read != nil {
+				if item, known := read.items[task.WorkItemID]; known {
+					priority = item.Priority
+				}
+			}
+			return true, priority
 		}
 		var tasks []CarryOutTask
 		var passedCarryOuts map[string]string
@@ -2923,7 +2957,7 @@ pulling:
 		attempted := map[string]bool{}
 		_, declining := drain.declinesStarts(pull.Poll, s.now())
 		if !declining {
-			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked, attempted)
+			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked, precedence, attempted)
 		} else if pull.CarryOut != nil {
 			// Nothing is attempted, and nothing is written onto the items, but the
 			// log still names each decision this pass left standing and why.
@@ -3017,7 +3051,7 @@ pulling:
 					break
 				}
 			}
-			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked, attempted)
+			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked, precedence, attempted)
 			for _, task := range tasks {
 				schedule.unwaitCarryOut(task)
 			}
@@ -5241,7 +5275,7 @@ func (s Scheduler) corrected(schedule *Schedule, sweep CorrectionSweep, err erro
 // item's priority puts it. outranked says which decisions those are; nil says
 // none are, which is every decision before yoyodyne-ifd.428.58.
 func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool)) ([]CarryOutTask, map[string]string, []outrankedCarryOut) {
-	chosen, passed, pending, _ := s.nextCarryOutsExcept(schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked, nil)
+	chosen, passed, pending, _ := s.nextCarryOutsExcept(schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked, nil, nil)
 	return chosen, passed, pending
 }
 
@@ -5249,8 +5283,9 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 // in attempted, which this pull has already fired: their own attempts are what
 // account for them. slotBound reports a decision passed over because the slots
 // ran out, which is what a decision that came back without starting gives one
-// back to.
-func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool), attempted map[string]bool) (chosen []CarryOutTask, passed map[string]string, pending []outrankedCarryOut, slotBound bool) {
+// back to. precedence, where given, says which decisions build on a kept change
+// and at what priority, and those are offered the slots first.
+func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool), precedence func(CarryOutTask) (bool, int), attempted map[string]bool) (chosen []CarryOutTask, passed map[string]string, pending []outrankedCarryOut, slotBound bool) {
 	if pull.CarryOut == nil {
 		return nil, nil, nil, false
 	}
@@ -5271,6 +5306,37 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 	slices.SortStableFunc(outstanding, func(a, b CarryOutTask) int {
 		return a.DecidedAt.Compare(b.DecidedAt)
 	})
+	// Then the decisions that build on a kept change ahead of the rest, in the
+	// Lead Product Manager's order between them and oldest first at one
+	// priority: they are the ones a freed slot goes to first.
+	if precedence != nil && len(outstanding) > 1 {
+		type ranked struct {
+			task     CarryOutTask
+			kept     bool
+			priority int
+		}
+		order := make([]ranked, len(outstanding))
+		for index, task := range outstanding {
+			onKept, priority := precedence(task)
+			order[index] = ranked{task: task, kept: onKept, priority: priority}
+		}
+		slices.SortStableFunc(order, func(a, b ranked) int {
+			switch {
+			case a.kept != b.kept:
+				if a.kept {
+					return -1
+				}
+				return 1
+			case a.kept:
+				return cmp.Compare(a.priority, b.priority)
+			default:
+				return 0
+			}
+		})
+		for index, entry := range order {
+			outstanding[index] = entry.task
+		}
+	}
 	slots := free
 	if slots < 1 {
 		slots = 1
@@ -5339,6 +5405,10 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 			if outranks {
 				pending = append(pending, held)
 				continue
+			}
+			if held.kept {
+				task.KeptChange = true
+				task.AheadOf = held.named
 			}
 		}
 		chosen = append(chosen, task)
@@ -5413,6 +5483,9 @@ type outrankedCarryOut struct {
 	// named is the same ready work by what it is, each title with its
 	// identifier after it, for the sentences a person reads on the item.
 	named []string
+	// kept says the decision builds on a change a run already wrote and kept,
+	// so nothing outranks it and named is the ready work it goes ahead of.
+	kept bool
 }
 
 // outranking is whether ready work in the order outranks the item a decision is
@@ -5597,6 +5670,82 @@ func decidedRecovery(decision string) bool {
 	return decision == runstate.TriageDecisionRepair || decision == runstate.TriageDecisionRerun
 }
 
+// keptChange answers whether a decision builds on a change a run already wrote
+// and kept, which is the work a freed developer slot takes ahead of fresh work
+// of any priority. The Lead Product Manager decided which work that is:
+// an approved change being finished or replayed onto the target, a
+// repair or continuation of a kept change, and a re-run that starts from the
+// kept change. A re-run that starts the developer over from the target is fresh
+// work.
+//
+// So, by kind, and with the bound that stops one change holding slots for ever
+// beside each, all of them per item or per run and none of them reset by the
+// precedence:
+//
+//   - the harness's continuation of a check stage the bound stopped, and of a
+//     run its AI session stalled in, always: each continues the same run in its
+//     own worktree. The first is bounded by runstate.MaxCheckStageContinuations
+//     on one candidate, the second happens once.
+//   - a finished merge asked for through run.recover, always: only an approved
+//     change with its branch and worktree preserved is offered one, and it is
+//     bounded by the run's integration resumptions (ResumptionsLeft).
+//   - a decided repair, where the stopped run's branch or worktree is still
+//     there. Bounded by the item's repair grant cap, which the development
+//     manager may cross five times (runstate.MaxDelegatedCapCrossings) and the
+//     operator beyond that.
+//   - a decided re-run, only where it starts from the kept change: a re-run of
+//     a run that raised its item, whose branch is still there (liftOf). Every
+//     other re-run starts from the target. Bounded by the item's re-run cap, crossed
+//     the same way.
+//
+// A merge re-armed at the forge takes no developer slot and is fired before
+// any of these (carryOutRearms), bounded by the merge re-arm cap on each
+// publication.
+//
+// Whether the change is still there is the same look in the repository the
+// hold and the docket take. The stopped runs are read once, and only where a
+// repair or re-run asks. A pull wired with no record of its stopped runs, a run
+// it cannot find, and a look that failed all answer no, which leaves the
+// decision where the order puts it rather than ahead of the queue on a change
+// nobody saw.
+func keptChange(ctx context.Context, pull Pull, now func() time.Time) func(CarryOutTask) bool {
+	var runs map[string]runstate.State
+	read := false
+	return func(task CarryOutTask) bool {
+		switch task.Decision {
+		case DecisionContinueChecks, DecisionContinueStall, DecisionFinishMerge:
+			return true
+		case runstate.TriageDecisionRepair, runstate.TriageDecisionRerun:
+		default:
+			return false
+		}
+		if pull.Stoppages == nil {
+			return false
+		}
+		if !read {
+			read = true
+			if recorded, err := pull.Stoppages.Recorded(); err == nil {
+				runs = make(map[string]runstate.State, len(recorded))
+				for _, run := range recorded {
+					runs[run.RunID] = run
+				}
+			}
+		}
+		run, known := runs[task.RunID]
+		if !known {
+			return false
+		}
+		found := readmodel.Looking(ctx, pull.Remains, now)(run)
+		if found.Unknown {
+			return false
+		}
+		if task.Decision == runstate.TriageDecisionRerun {
+			return run.Escalated() && found.BranchThere
+		}
+		return found.BranchThere || found.WorktreeThere
+	}
+}
+
 // keptForTheHoldReason is what a decided recovery of the hold's test run says
 // while it waits for the hold's next start, on the pass's log and on its item.
 func keptForTheHoldReason(task CarryOutTask, brake runstate.IntakeBrake) string {
@@ -5645,6 +5794,14 @@ func (p Pull) paused() (bool, error) {
 // gate stopped it, or the process died — where a started entry with no reason at
 // all would be the only thing in the report that could not say what it was doing.
 func carryingOutReason(task CarryOutTask) string {
+	if ahead := aheadOfQueue(task); ahead != "" {
+		return carryingOutWhat(task) + ". " + ahead
+	}
+	return carryingOutWhat(task)
+}
+
+// carryingOutWhat is what carryingOutReason says of the decision itself.
+func carryingOutWhat(task CarryOutTask) string {
 	if task.Decision == DecisionContinueChecks {
 		return fmt.Sprintf("the check stage bound stopped run %s under load and the harness is continuing it at its checks", task.RunID)
 	}

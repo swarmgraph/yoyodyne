@@ -1818,13 +1818,31 @@ to her once, as the one entry her docket folds the two into.
 recorded is fired by the pass itself, oldest decision first, as many per pull as
 there are developer slots free for them — and as a session's `--limit` leaves,
 since each is a run started — against a developer slot exactly as a pulled item
-is. **Priority decides between items, and a decision wins only a tie.** A
+is. **Work on a change a run already wrote and kept goes first**, ahead of
+fresh work of any priority and whatever label the slot prefers, because the
+longer a repair waits for a slot the more the target moves under it and the
+dearer the repair becomes (the operator's rule of 2026-10-25, in
+[the operating rules](product/operating-rules.md)). That is a repair of a
+stopped run whose branch or worktree is still there, a re-run of a run that
+raised its item whose branch is still there (it starts from that change), the
+harness's own continuation of a check stage or of a stalled AI session, and a
+finished merge. Among several of them the Lead Product Manager's order decides,
+the highest priority first, and the run's reason, on the run and on the item,
+names the ready work of higher priority it went ahead of. Whether the change is
+still there is the same look in the repository the hold and the docket take; a
+look that fails proves nothing and leaves the decision where the order puts it.
+What stops one change holding slots for ever is the bound each of these already
+has: the item's repair grant and re-run caps, which the development manager may
+cross five times before only the operator can, the bound on check-stage
+continuations of one candidate, the single time the harness continues a run
+whose AI session went silent, and the bound on resuming one run's integration. **Every other decision is ordered by priority,
+and wins only a tie.** A re-run that starts the developer over from the target
+is fresh work, whether or not the stopped run's branch is still there. Such a
 decision goes ahead of the queue's own work at its item's priority and below,
 because a stoppage she has already judged is work chosen once, and behind ready
 work of a higher priority: a decision about a priority-3 item waits while a
 priority-0 item stands ready, takes the slot the walk of the order reaches its
-priority with, or takes a slot the queue left empty. That holds whether or not
-the stopped run's branch or worktree is still there. A pull that gave a decision
+priority with, or takes a slot the queue left empty. A pull that gave a decision
 no slot writes onto the item, where her docket shows it, and onto its own
 account of the pass, which ready items of higher priority went first. No fresh
 run is started on an item a decision is about, whichever goes first. None of
