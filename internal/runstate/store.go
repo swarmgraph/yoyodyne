@@ -179,6 +179,11 @@ type CapacityError struct {
 	// OutsideFiles is a run that brings a file in refused because another is
 	// in flight.
 	OutsideFiles bool `json:"outside_files,omitempty"`
+	// Slot and HeldBy are a run taken up again refused because the slot number
+	// it records was claimed by another run while it held none, which now holds
+	// it (slotNumberTaken). It waits for that slot, as any refusal here waits.
+	Slot   int    `json:"slot,omitempty"`
+	HeldBy string `json:"held_by,omitempty"`
 }
 
 func (e CapacityError) Error() string {
@@ -187,6 +192,9 @@ func (e CapacityError) Error() string {
 	}
 	if e.Landings {
 		return fmt.Sprintf("document landings are full: %d landing(s) running, limit %d", e.Active, e.Limit)
+	}
+	if e.Slot != 0 {
+		return fmt.Sprintf("developer slot %d, which this run records, is held by run %s, so the run waits for it rather than share it", e.Slot, e.HeldBy)
 	}
 	return fmt.Sprintf("developer capacity is full: %d active run(s), limit %d", e.Active, e.Limit)
 }
@@ -248,6 +256,27 @@ func (s *Store) developerSlotsFull(active []State, runID string, maxConcurrent i
 	}
 	if holding >= maxConcurrent {
 		return CapacityError{Limit: maxConcurrent, Active: holding}
+	}
+	return nil
+}
+
+// slotNumberTaken refuses taking a run up again on the developer slot number
+// it records while another run that holds a slot now records the same number
+// (slotNumberHolder). A run holding no slot — paused on work its item waits on,
+// released for want of a live worker, or not in flight — keeps nobody out of
+// its number, so another run may have claimed it meanwhile; the run's pinned
+// endpoint pair is that slot's, and it is never renumbered, so it waits for the
+// number rather than run on it beside the other. Like developerSlotsFull it is
+// only meaningful under the reservation lock, with active read inside it.
+func (s *Store) slotNumberTaken(active []State, state State, maxConcurrent int, now time.Time) error {
+	number := state.RecordedSlot()
+	if number == 0 {
+		return nil
+	}
+	for _, existing := range active {
+		if s.slotNumberHolder(existing, state.RunID, now) == number {
+			return CapacityError{Limit: maxConcurrent, Active: s.HoldingDeveloperSlotsNow(active, now), Slot: number, HeldBy: existing.RunID}
+		}
 	}
 	return nil
 }
@@ -348,8 +377,15 @@ func HoldingDeveloperSlots(states []State) int {
 // between one step and the next. A run its session stopped for a redeploy is
 // counted too: its worker is the program that was replaced, and the slot is
 // kept for the session that comes back and picks it up.
+//
+// A run whose slot the harness released for the worker it names now
+// (ReleaseSlotsWithNoLiveWorker) holds none either, whatever that worker reads
+// as, until a new worker attempt takes it up.
 func (s *Store) HoldsDeveloperSlotNow(state State, now time.Time) bool {
 	if !state.HoldsDeveloperSlot() {
+		return false
+	}
+	if state.SlotRelease.releasesWorker(state.Worker) {
 		return false
 	}
 	if state.RedeployStop != nil {
@@ -412,7 +448,11 @@ func (s *Store) ReclaimSlot(ctx context.Context, state State, maxConcurrent int)
 	if err != nil {
 		return state, fmt.Errorf("discover incomplete runs while reclaiming a developer slot: %w", err)
 	}
-	if err := s.developerSlotsFull(active, state.RunID, maxConcurrent, time.Now()); err != nil {
+	now := time.Now()
+	if err := s.developerSlotsFull(active, state.RunID, maxConcurrent, now); err != nil {
+		return state, err
+	}
+	if err := s.slotNumberTaken(active, state, maxConcurrent, now); err != nil {
 		return state, err
 	}
 	reclaimed := state
@@ -454,7 +494,11 @@ func (s *Store) ReserveLive(ctx context.Context, live State, maxConcurrent int) 
 		if err != nil {
 			return fmt.Errorf("discover incomplete runs while reserving a developer slot for run %s: %w", live.RunID, err)
 		}
-		if err := s.developerSlotsFull(active, live.RunID, maxConcurrent, time.Now()); err != nil {
+		now := time.Now()
+		if err := s.developerSlotsFull(active, live.RunID, maxConcurrent, now); err != nil {
+			return err
+		}
+		if err := s.slotNumberTaken(active, live, maxConcurrent, now); err != nil {
 			return err
 		}
 	}
@@ -497,6 +541,13 @@ func (s *Store) Adopt(ctx context.Context, workItemID string) (State, *Lease, er
 		state, err := s.Load(existing.RunID)
 		if err != nil {
 			return State{}, nil, errors.Join(err, lease.Release())
+		}
+		// A run taken up again holds its slot number again, so one whose number
+		// another run claimed while it held none waits rather than share it.
+		if state.HoldsDeveloperSlot() {
+			if err := s.slotNumberTaken(active, state, 0, time.Now()); err != nil {
+				return State{}, nil, errors.Join(err, lease.Release())
+			}
 		}
 		state, err = s.beginAttempt(lease, state)
 		if err != nil {

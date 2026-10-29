@@ -73,10 +73,12 @@ func (e SlotOccupiedError) Error() string {
 }
 
 // ClaimSlot records the developer slot a run occupies, under the reservation
-// lock so that two runs cannot record one slot. The slot has to lie within the
-// configured capacity and be recorded by no other run in flight. The record is
-// routing identity only: whether the run holds execution capacity is still
-// what Reserve and ReclaimSlot count.
+// lock so that no two runs holding a slot record one number. The slot has to lie
+// within the configured capacity and be recorded by no other run that holds a
+// developer slot now (slotNumberHolder). A run holding none that records the
+// number may be taken up again later; it then waits for the number rather than
+// share it (Store.slotNumberTaken). The record is routing identity only: whether the
+// run holds execution capacity is still what Reserve and ReclaimSlot count.
 func (s *Store) ClaimSlot(ctx context.Context, held State, number, capacity int, at time.Time) (State, error) {
 	if number < 1 || number > capacity {
 		return State{}, fmt.Errorf("developer slot %d is outside the configured capacity of %d", number, capacity)
@@ -90,8 +92,9 @@ func (s *Store) ClaimSlot(ctx context.Context, held State, number, capacity int,
 	if err != nil {
 		return State{}, fmt.Errorf("discover incomplete runs while claiming a developer slot: %w", err)
 	}
+	now := time.Now()
 	for _, existing := range active {
-		if existing.RunID != held.RunID && existing.RecordedSlot() == number {
+		if s.slotNumberHolder(existing, held.RunID, now) == number {
 			return State{}, SlotOccupiedError{Slot: number, RunID: existing.RunID}
 		}
 	}
@@ -103,8 +106,9 @@ func (s *Store) ClaimSlot(ctx context.Context, held State, number, capacity int,
 // MigrateRouting establishes routing for a run recorded before routing
 // existed, at a point where nothing of the run can still be executing; the
 // caller establishes that before calling. A slot the record already names is
-// kept. Otherwise the lowest slot within capacity that no run in flight records
-// is allocated now, under the reservation lock, and marked as migrated; when
+// kept. Otherwise the lowest slot within capacity that no run holding a slot
+// now records (slotNumberHolder) is allocated now, under the reservation lock,
+// and marked as migrated; when
 // none is free the run waits with a CapacityError rather than becoming a worker
 // beyond capacity. snapshotFor resolves the current validated pair for the
 // slot. operation, where the run has an unfinished operation, is recorded with
@@ -125,8 +129,9 @@ func (s *Store) MigrateRouting(ctx context.Context, held State, capacity int, sn
 	slot := held.RecordedSlot()
 	if slot == 0 {
 		taken := map[int]bool{}
+		now := time.Now()
 		for _, existing := range active {
-			if slot := existing.RecordedSlot(); existing.RunID != held.RunID && slot != 0 {
+			if slot := s.slotNumberHolder(existing, held.RunID, now); slot != 0 {
 				taken[slot] = true
 			}
 		}
@@ -147,6 +152,21 @@ func (s *Store) MigrateRouting(ctx context.Context, held State, capacity int, sn
 	return s.UpdateRouting(ctx, held, func(routing *RunRouting) (bool, error) {
 		return routing.migrate(slot, Migration{Snapshot: snapshot, Operation: operation, At: at})
 	})
+}
+
+// slotNumberHolder is the developer slot number another run keeps from being
+// claimed, and zero where it keeps none. A number is kept only by a run that
+// holds a developer slot now, by the one rule the count uses
+// (HoldsDeveloperSlotNow): a run whose worker is gone, whose slot the harness
+// released, or which is paused on work its item waits on records its number
+// and keeps nobody out of it. Counting such a run here while the scheduler
+// counted its slot free was how a pull could hand out a slot that every claim
+// then refused. self is the run claiming, whose own number never counts.
+func (s *Store) slotNumberHolder(existing State, self string, now time.Time) int {
+	if existing.RunID == self || existing.RecordedSlot() == 0 || !s.HoldsDeveloperSlotNow(existing, now) {
+		return 0
+	}
+	return existing.RecordedSlot()
 }
 
 // CapacityReductionProblem refuses a developer capacity that would leave a run

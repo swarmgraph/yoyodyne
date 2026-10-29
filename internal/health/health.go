@@ -178,7 +178,7 @@ const (
 // ObserveDescriptor and FollowDescriptor are the two tools' descriptors.
 func ObserveDescriptor() action.Tool {
 	return action.Tool{ID: capability.HealthObserve, Block: strings.TrimPrefix(Fence, "```"), Class: action.ToolRead,
-		Parameters: fmt.Sprintf(`JSON such as {"requests":[{"action":"observe"}]} or {"requests":[{"action":"observe","runs":["run-1a2b3c4d"]}]}, optionally naming the product, which must be this one, and at most %d runs to restrict the run conditions to. It returns an observation identifier and its time; every source read and whether it was read whole; each read failure; every condition found, actionable ones first, each with its identity (product, run, and condition), when it was first seen, when last seen, how many passes it has been put to, its classification, whose it is, and what it needs; and each supervised service with every running copy's build, start time, and whether that build is current, the search path the copy runs with and whether each provider command is found on it, and the configuration file it names and whether that exists; and the maintenance failures since your last pass and whether each has been delivered. At most %d conditions are rendered; the rest are counted exactly, named, and read with health.follow.`, MaxRuns, MaxRendered),
+		Parameters: fmt.Sprintf(`JSON such as {"requests":[{"action":"observe"}]} or {"requests":[{"action":"observe","runs":["run-1a2b3c4d"]}]}, optionally naming the product, which must be this one, and at most %d runs to restrict the run conditions to. It returns an observation identifier and its time; every source read and whether it was read whole; each read failure; every condition found, actionable ones first, each with its identity (product, run, and condition), when it was first seen, when last seen, how many passes it has been put to, its classification, whose it is, and what it needs; and each supervised service with every running copy's build, start time, and whether that build is current, the search path the copy runs with and whether each provider command is found on it, and the configuration file it names and whether that exists; every run the harness counts against the developer slots or that records a slot number, with whether it counts now, since when, any provider attempt that may still be executing under it, and why; and the maintenance failures since your last pass and whether each has been delivered. At most %d conditions are rendered; the rest are counted exactly, named, and read with health.follow.`, MaxRuns, MaxRendered),
 		Bounds:     action.ToolBounds{RequestsPerReply: MaxRequestsPerReply, RoundsPerMessage: MaxRoundsPerMessage, BytesPerRequest: MaxResultBytes, BytesPerReply: MaxBytesPerReply},
 		Scope:      scope, Gates: gates, Framing: framing}
 }
@@ -195,6 +195,10 @@ func FollowDescriptor() action.Tool {
 type Classification string
 
 const (
+	// A run in flight whose developer slot the harness freed because no live
+	// worker was behind it (runstate.SlotRelease): it holds no slot and is
+	// still the development manager's to finish.
+	ClassSlotReleased Classification = "developer slot freed with no live worker"
 	// A run in flight with no process behind it and no wait it is parked on.
 	ClassWorkerless Classification = "no process behind the run"
 	// A run in flight whose worker could not be established either way.
@@ -357,10 +361,14 @@ type Observation struct {
 	Cursor  string   `json:"cursor,omitempty"`
 	Unkept  int      `json:"unkept,omitempty"`
 	// KeepProblem is why the observation could not be kept for following.
-	KeepProblem      string               `json:"keep_problem,omitempty"`
-	Services         []Service            `json:"services,omitempty"`
-	MaintenanceSince *time.Time           `json:"maintenance_since,omitempty"`
-	Maintenance      []MaintenanceFailure `json:"maintenance_failures,omitempty"`
+	KeepProblem string `json:"keep_problem,omitempty"`
+	// Slots is what the harness counts as holding each developer slot: every
+	// run in flight counted against the slots or recording a slot number, with
+	// since when and why (runstate.Store.SlotHolders).
+	Slots            []runstate.SlotHolder `json:"developer_slots,omitempty"`
+	Services         []Service             `json:"services,omitempty"`
+	MaintenanceSince *time.Time            `json:"maintenance_since,omitempty"`
+	Maintenance      []MaintenanceFailure  `json:"maintenance_failures,omitempty"`
 }
 
 // Part is what health.follow hands back: the next conditions an observation

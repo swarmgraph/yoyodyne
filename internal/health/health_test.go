@@ -589,3 +589,32 @@ func TestAPassIsHandedTheWorkerlessRunsTheStoreHoldsWhenItIsTaken(t *testing.T) 
 		t.Fatalf("the pass was not handed the workerless run %s:\n%s\nrecord %+v", id, section, record)
 	}
 }
+
+// A run whose developer slot the harness freed for want of a live worker is
+// put in front of the development manager as its own condition, saying what
+// the release did, and the observation carries what holds each developer slot
+// as the standing read it.
+func TestAReleasedSlotIsTheDevelopmentManagersAndTheSlotHoldersAreCarried(t *testing.T) {
+	t.Parallel()
+
+	observer, _ := whole(t)
+	released := run("run-released", "yoyodyne-a")
+	released.Worker = &runstate.WorkerIdentity{PID: 4242, RunID: "run-released", Attempt: 1}
+	released.SlotRelease = &runstate.SlotRelease{At: observedAt, Slot: 3, WorkerAttempt: 1, Says: "The harness freed developer slot 3."}
+	observer.Sources.Runs = fakeRuns{states: []runstate.State{released}, absent: map[string]bool{"run-released": true}}
+	holders := []runstate.SlotHolder{{Slot: 3, RunID: "run-released", WorkItemID: "yoyodyne-a", Since: observedAt.Add(-time.Hour), Says: "not counted: The harness freed developer slot 3."}}
+	observer = withStanding(observer, readmodel.Standing{SlotHolders: holders})
+	observation := observer.Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+
+	freed := find(t, observation, "yoyodyne/run-released/slot-released")
+	if freed.Classification != ClassSlotReleased || !freed.Actionable || freed.Owner != readmodel.MoverDevelopmentManager ||
+		!strings.Contains(freed.Says, "freed developer slot 3") || freed.Needs == "" {
+		t.Fatalf("released run = %+v", freed)
+	}
+	if len(observation.Slots) != 1 || observation.Slots[0].RunID != "run-released" || observation.Slots[0].Since.IsZero() {
+		t.Fatalf("Slots = %+v, want the slot holder the standing read", observation.Slots)
+	}
+	if !strings.Contains(Section(observation), `"developer_slots"`) {
+		t.Fatal("the pass's health section does not carry the developer slots")
+	}
+}

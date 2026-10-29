@@ -2103,6 +2103,15 @@ func (s *State) recordedTexts() []recordedText {
 			unstated("subagents.limit.kind", "subagents.limit.kind", &s.Subagents.Limit.Kind, MaxRecordedTextBytes)
 		}
 	}
+	if s.SlotRelease != nil {
+		unstated("slot_release.says", "slot_release.says", &s.SlotRelease.Says, MaxRecordedTextBytes)
+		for index := range s.SlotRelease.EndedAttempts {
+			unstated("slot_release.ended_attempts[]", fmt.Sprintf("slot_release.ended_attempts[%d]", index), &s.SlotRelease.EndedAttempts[index], MaxRecordedTextBytes)
+		}
+		for index := range s.SlotRelease.OpenAttempts {
+			unstated("slot_release.open_attempts[]", fmt.Sprintf("slot_release.open_attempts[%d]", index), &s.SlotRelease.OpenAttempts[index], MaxRecordedTextBytes)
+		}
+	}
 	if s.HomeMigration != nil {
 		unstated("home_migration.by", "home_migration.by", &s.HomeMigration.By, MaxHomeMigrationByBytes)
 	}
@@ -3807,6 +3816,10 @@ type State struct {
 	// exactly here, with every counter as it was. It is written only when what
 	// the run leaves behind can be continued, and cleared as the run resumes.
 	RedeployStop *RedeployStop `json:"redeploy_stop,omitempty"`
+	// SlotRelease is the harness letting go of this run's developer slot because
+	// no live worker was behind it (slotrelease.go). It holds for the worker
+	// attempt it names: a later attempt taking the run up holds a slot again.
+	SlotRelease *SlotRelease `json:"slot_release,omitempty"`
 	// Readopted is the most recent redeploy stop this run was continued from:
 	// the stop above as it stood when the run resumed and cleared it. It is kept
 	// because the stop itself is cleared, and a stall later in the run is read

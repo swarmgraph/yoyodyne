@@ -259,7 +259,9 @@ func sameEndpoint(a, b runstate.RoutedEndpoint) bool {
 
 // claimDeveloperSlot records the slot a fresh run occupies: the one the
 // scheduler pulled it into where that is still free, and otherwise the lowest
-// free one. A slot another run in flight records is never taken from it.
+// free one. A slot another run holding a slot now records is never taken from
+// it; one recorded by a run holding none — paused, or released for want of a
+// live worker — is free, and that run waits for it when it is taken up again.
 func claimDeveloperSlot(ctx context.Context, store RoutingStore, held runstate.State, requested, capacity int, at time.Time) (runstate.State, int, error) {
 	order := make([]int, 0, capacity)
 	if requested >= 1 && requested <= capacity {
