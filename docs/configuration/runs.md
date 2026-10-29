@@ -743,7 +743,8 @@ thirteen in the same order, and a test fails when the two lists differ:
 10. **A label another slot prefers** withholds an item every free developer slot
     walked past for its preferred label, and the next slot with no preference to
     come free — or the preferring slot, once its label's work is exhausted —
-    releases it. A priority-0 item is never walked past for a label.
+    releases it. A priority-0 item is never walked past for a label, except by
+    a slot marked dedicated to its label, which leaves it to the other slots.
 11. **The tracker not calling it ready** withholds an item with unfinished
     dependencies or a status that is not open, and the tracker's own readiness
     releases it.
@@ -907,7 +908,8 @@ Three things follow from a preference, in the order a pull applies them:
   priority, label or none, so a preference never starts less urgent work ahead
   of the top of the order. The run's recorded reason says the item does not
   carry the slot's label and was taken ahead of that work because it is at
-  priority 0.
+  priority 0. A slot marked `dedicated` is the one exception to this
+  ([below](#a-slot-dedicated-to-its-label)).
 - **A slot with no preference leaves labelled work to a preferring slot that is
   free to take it.** With slots 1 and 2 both free, the reliability item goes to
   slot 1 and slot 2 takes the next unlabelled item down the order. Where no
@@ -953,6 +955,57 @@ another developer slot** rather than as deferred, naming the slot and what it
 pulled ahead of the item: the item waits on nothing about itself, and what
 takes it is the next slot with no preference to come free, or slot 1 once its
 label's work is exhausted.
+
+#### A slot dedicated to its label
+
+A slot that prefers a label may also be marked `dedicated: true`. A dedicated
+slot is kept for its label: it takes ready work carrying the label ahead of
+priority-0 work that does not carry it, where a slot that only prefers a label
+takes priority-0 work first, as above. Every slot not marked dedicated keeps
+that rule, so priority-0 work is still taken first, by the other slots. This
+is how a slot is given to one kind of work whose items sit below priority 0 —
+how teams share one repository, say — without raising those items to
+priority 0, which would pull them into every slot:
+
+```yaml
+execution:
+  max_concurrent_developers: 3
+  developer_slots:
+    - prefer: [reliability]
+    - {}
+    - prefer: [team-development]
+      dedicated: true   # slot 3 takes team-development work ahead of priority 0 elsewhere
+```
+
+The order a freed dedicated slot takes work in is:
+
+1. work on a change a run has already written and kept, carrying its label;
+2. such work carrying any other label, or none;
+3. fresh ready work carrying its label, in the Lead Product Manager's order —
+   highest priority first, then oldest admitted;
+4. the ordinary order every other slot uses.
+
+The first two are the operating rule that work on a change a run already wrote
+goes first on every slot; a dedicated slot only puts the work on its own label
+first among it. The last is why a dedicated slot never sits idle: with none of
+its label's work ready it takes the ordinary order, and its run's recorded
+reason says it found none of that work ready and took the ordinary order.
+
+Where some slot is dedicated, the running line of `yoyo status` says what the
+slot is doing in plain words: a run in it is either working on work carrying
+its label, or working outside its label because none of its work was ready,
+and a free dedicated slot is said as kept for its label. A ready priority-0
+item a dedicated slot walked past, with no other slot free to take it, is
+reported by the pass as waiting for one of the other developer slots, naming
+the item and what the slot took instead, each by its title with its identifier
+after it.
+
+Two configurations are refused when the file is read, naming the slot and
+why: a slot marked dedicated that names no label under `prefer`, and every
+developer slot dedicated, which would leave no slot to take priority-0 work
+first. A list shorter than `max_concurrent_developers` always leaves a slot
+undedicated. `dedicated` is a new key, so every running part of the product
+has to be moved onto a build that reads it before a project's file carries it.
 
 The same slot entries may also carry a `routing` endpoint pair and an optional
 `number` confirming their position. [Developer slot endpoints](../configuration.md#developer-slot-endpoints)

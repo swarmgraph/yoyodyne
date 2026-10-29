@@ -52,6 +52,10 @@ type Slot struct {
 	// Preferred is the labels this slot pulls first, and empty for a slot with no
 	// preference.
 	Preferred []string `json:"preferred,omitempty"`
+	// Dedicated is a slot kept for its labels, which takes their ready work
+	// ahead of priority-0 work that does not carry them
+	// (domain.DeveloperSlot.Dedicated).
+	Dedicated bool `json:"dedicated,omitempty"`
 	// RunID and WorkItemID are the run in flight in this slot, and empty where
 	// the slot is free.
 	RunID      string `json:"run_id,omitempty"`
@@ -80,7 +84,23 @@ func (s Slot) Says() string {
 	if !s.Preferring() {
 		return fmt.Sprintf("developer slot %d", s.Number)
 	}
+	if s.Dedicated {
+		return fmt.Sprintf("developer slot %d (kept for %s)", s.Number, s.Preference())
+	}
 	return fmt.Sprintf("developer slot %d (prefers %s)", s.Number, s.Preference())
+}
+
+// Working is what a run in this slot is doing as against what the slot is kept
+// for, said only of a dedicated slot: on its label's work, or outside it because
+// none of that work was ready. It is empty for any other slot.
+func (s Slot) Working(labels []string) string {
+	if !s.Dedicated || !s.Preferring() {
+		return ""
+	}
+	if s.Prefers(labels) {
+		return "working on work carrying " + s.Preference()
+	}
+	return "working outside " + s.Preference() + " because none of its work was ready"
 }
 
 // Preference is the labels the slot prefers, said as a phrase: "the dashboard
@@ -132,6 +152,7 @@ func Assign(capacity int, preferences []domain.DeveloperSlot, inFlight []Run) As
 		assignment.Slots[index].Number = index + 1
 		if index < len(preferences) {
 			assignment.Slots[index].Preferred = append([]string(nil), preferences[index].Prefer...)
+			assignment.Slots[index].Dedicated = preferences[index].Dedicated && preferences[index].Preferring()
 		}
 	}
 	runs := append([]Run(nil), inFlight...)

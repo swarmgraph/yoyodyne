@@ -15,7 +15,9 @@ package orchestrator
 //
 // A preference reorders work below the top priority and never across it: ready
 // priority-0 work is taken by whichever slot reaches it first, preferring or not,
-// before any labelled work of a lower priority (outranksPreference).
+// before any labelled work of a lower priority (outranksPreference). A slot
+// marked dedicated is the one exception: it is kept for its label and takes that
+// label's work across priority 0 too, leaving priority-0 work to the other slots.
 //
 // What a preference changes is which item a slot pulls first, and nothing else.
 // The item a preferring slot starts is claimed, developed, checked, reviewed, and
@@ -25,8 +27,10 @@ package orchestrator
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/developerslot"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -221,8 +225,15 @@ type pulledInto struct {
 // that walked past it for labelled work at priority 1 or below would start the
 // less urgent work first whenever it was the only slot free. Below the top, a
 // preference still reorders freely, which is what it is configured for.
-func outranksPreference(entry backlog.Entry) bool {
-	return entry.Priority == 0
+//
+// A dedicated slot is the exception: it is kept for its label, and takes that
+// label's ready work ahead of priority-0 work elsewhere, reliability work
+// included, by the operating rule of 2026-10-28. Priority-0 work still has a
+// slot that takes it first, because the configuration refuses every slot
+// dedicated, and a dedicated slot with none of its label's work ready falls
+// back to the ordinary order like any preferring slot.
+func outranksPreference(entry backlog.Entry, slot developerslot.Slot) bool {
+	return entry.Priority == 0 && !slot.Dedicated
 }
 
 // reason is the sentence the run's recorded selection carries about its slot.
@@ -234,6 +245,10 @@ func (p pulledInto) reason(preferences []domain.DeveloperSlot) string {
 		return ""
 	}
 	switch {
+	case p.labelled && p.slot.Dedicated:
+		return fmt.Sprintf(" It was pulled into developer slot %d, which is kept for %s this item carries.", p.slot.Number, p.slot.Preference())
+	case p.slot.Dedicated:
+		return fmt.Sprintf(" It was pulled into developer slot %d, which is kept for %s and found none of that work ready, so it took the ordinary order.", p.slot.Number, p.slot.Preference())
 	case p.labelled:
 		return fmt.Sprintf(" It was pulled into developer slot %d, which prefers %s this item carries.", p.slot.Number, p.slot.Preference())
 	case p.outranked:
@@ -251,6 +266,29 @@ func (p pulledInto) reason(preferences []domain.DeveloperSlot) string {
 // is the next slot with no preference to come free, or the preferring slot once
 // its label's work is exhausted.
 func leftForAnotherSlotReason(slot developerslot.Slot, took string) string {
+	if slot.Dedicated {
+		return fmt.Sprintf("%s: developer slot %d is kept for %s and took %s ahead of it; a slot with no preference takes this item in the Lead Product Manager's order, and slot %d takes it once none of %s's work is ready",
+			runstate.PassedOverLeftForAnotherSlot, slot.Number, slot.Preference(), took, slot.Number, slot.Preference())
+	}
 	return fmt.Sprintf("%s: developer slot %d prefers %s and pulled %s ahead of it; a slot with no preference takes this item in the Lead Product Manager's order, and slot %d falls back to it once none of %s's work is ready",
 		runstate.PassedOverLeftForAnotherSlot, slot.Number, slot.Preference(), took, slot.Number, slot.Preference())
+}
+
+// waitingForAnotherSlotReason is what the report says of ready priority-0 work
+// a dedicated slot walked past for its label's work, where no other slot was
+// free to take it. Both items are named by title with the identifier after it,
+// because this is the line an operator reads to see why top-priority work is
+// not running.
+func waitingForAnotherSlotReason(slot developerslot.Slot, waiting, took string) string {
+	return fmt.Sprintf("%s: %s is at priority 0 and is waiting for one of the other developer slots, because developer slot %d is kept for %s and took %s",
+		runstate.PassedOverLeftForAnotherSlot, waiting, slot.Number, slot.Preference(), took)
+}
+
+// titledItem names a work item the way a person reads it: its title with its
+// identifier after it, or the identifier alone where the item has no title.
+func titledItem(item beads.WorkItem, id string) string {
+	if title := strings.TrimSpace(item.Title); title != "" {
+		return title + " (" + id + ")"
+	}
+	return id
 }

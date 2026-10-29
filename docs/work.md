@@ -1357,7 +1357,8 @@ thirteen in the same order, and a test fails when the two lists differ:
 10. **A label another slot prefers** withholds an item every free developer slot
     walked past for its preferred label, and the next slot with no preference to
     come free — or the preferring slot, once its label's work is exhausted —
-    releases it. A priority-0 item is never walked past for a label.
+    releases it. A priority-0 item is never walked past for a label, except by
+    a slot marked dedicated to its label, which leaves it to the other slots.
 11. **The tracker not calling it ready** withholds an item with unfinished
     dependencies or a status that is not open, and the tracker's own readiness
     releases it.

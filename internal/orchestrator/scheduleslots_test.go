@@ -393,3 +393,145 @@ func TestSlotsPreferringNothingChangeNothing(t *testing.T) {
 		t.Fatalf("reason = %q, want no slot named where no slot prefers anything", reason)
 	}
 }
+
+// A slot marked dedicated is kept for its label: with its label's work and
+// priority-0 work elsewhere both ready, it takes its label's work, and a slot
+// with no preference takes the priority-0 work.
+func TestADedicatedSlotTakesItsLabelAheadOfPriorityZeroWorkElsewhere(t *testing.T) {
+	t.Parallel()
+
+	replay := newSlotReplay(
+		beads.WorkItem{ID: "yoyodyne-urgent", Title: "Main's build is red", Status: "open", Priority: 0},
+		beads.WorkItem{ID: "yoyodyne-team", Title: "Collaborators share one tracker", Status: "open", Priority: 2, Labels: []string{"team-development"}},
+	)
+	harness := replay.harness
+	harness.capacity = 2
+	harness.slots = []domain.DeveloperSlot{{}, {Prefer: []string{"team-development"}, Dedicated: true}}
+
+	go func() {
+		replay.release(t, "yoyodyne-team", 2)
+		replay.release(t, "yoyodyne-urgent", 2)
+	}()
+
+	schedule, err := Scheduler{Open: harness.open}.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	slots := map[string]int{}
+	for _, started := range schedule.Started {
+		slots[started.WorkItemID] = started.Slot
+	}
+	if slots["yoyodyne-team"] != 2 || slots["yoyodyne-urgent"] != 1 {
+		t.Fatalf("slots = %v, want the team-development item in dedicated slot 2 and the priority-0 item in slot 1\n%s", slots, schedule.Render())
+	}
+	if reason := harness.selectionFor("yoyodyne-team").Reason; !strings.Contains(reason, "pulled into developer slot 2, which is kept for the team-development label this item carries") {
+		t.Errorf("team reason = %q, want it to say the dedicated slot took its label's work", reason)
+	}
+	if len(schedule.Deferred) != 0 {
+		t.Errorf("deferred = %+v, want nothing left waiting with a slot free for it", schedule.Deferred)
+	}
+}
+
+// With only one slot free, a dedicated slot and a slot that only prefers the
+// label part ways: the dedicated one takes its label's work and the report says
+// the priority-0 item waits for one of the other slots, naming both items by
+// title with the identifier after it; the preferring one takes the priority-0
+// work, as it always has.
+func TestOneFreeSlotDedicatedOrNotDecidesWhetherPriorityZeroWaits(t *testing.T) {
+	t.Parallel()
+
+	for _, dedicated := range []bool{true, false} {
+		t.Run(map[bool]string{true: "dedicated", false: "preferring"}[dedicated], func(t *testing.T) {
+			t.Parallel()
+			harness := newScheduleHarness(
+				beads.WorkItem{ID: "yoyodyne-urgent", Title: "Main's build is red", Status: "open", Priority: 0},
+				beads.WorkItem{ID: "yoyodyne-team", Title: "Collaborators share one tracker", Status: "open", Priority: 2, Labels: []string{"team-development"}},
+			)
+			harness.capacity = 2
+			harness.slots = []domain.DeveloperSlot{{Prefer: []string{"team-development"}, Dedicated: dedicated}, {}}
+			// Slot 2 is taken by a run another process started, so the only free
+			// slot is slot 1.
+			harness.inFlight["yoyodyne-elsewhere"] = runstate.State{RunID: "run-elsewhere", WorkItemID: "yoyodyne-elsewhere", Status: runstate.StatusRunning}
+
+			schedule, err := Scheduler{Open: harness.open, Limit: 1}.Schedule(context.Background())
+			if err != nil {
+				t.Fatalf("Schedule() error = %v", err)
+			}
+			want := "yoyodyne-urgent"
+			if dedicated {
+				want = "yoyodyne-team"
+			}
+			if got := strings.Join(harness.pullOrder(), ","); got != want {
+				t.Fatalf("pull order = %v, want %s: %s", got, want, schedule.Render())
+			}
+			var waiting *Deferred
+			for index := range schedule.Deferred {
+				if schedule.Deferred[index].WorkItemID == "yoyodyne-urgent" {
+					waiting = &schedule.Deferred[index]
+				}
+			}
+			if !dedicated {
+				if reason := harness.selectionFor("yoyodyne-urgent").Reason; !strings.Contains(reason, "is taken ahead of that work because it is at priority 0") {
+					t.Errorf("urgent reason = %q, want the preferring slot to say it took priority-0 work", reason)
+				}
+				return
+			}
+			if waiting == nil {
+				t.Fatalf("the priority-0 item is not on the report as waiting: %s", schedule.Render())
+			}
+			for _, want := range []string{
+				string(runstate.PassedOverLeftForAnotherSlot),
+				"Main's build is red (yoyodyne-urgent) is at priority 0 and is waiting for one of the other developer slots, because developer slot 1 is kept for the team-development label and took Collaborators share one tracker (yoyodyne-team)",
+			} {
+				if !strings.Contains(waiting.Reason, want) {
+					t.Errorf("reason = %q, want it to say %q", waiting.Reason, want)
+				}
+			}
+		})
+	}
+}
+
+// A dedicated slot with none of its label's work ready takes the ordinary
+// order rather than sitting idle, and says so.
+func TestADedicatedSlotWithNoLabelWorkReadyTakesTheOrdinaryOrder(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(
+		labelled("yoyodyne-plain-1", 1),
+		labelled("yoyodyne-plain-2", 2),
+	)
+	harness.capacity = 2
+	harness.slots = []domain.DeveloperSlot{{Prefer: []string{"team-development"}, Dedicated: true}, {}}
+	harness.inFlight["yoyodyne-elsewhere"] = runstate.State{RunID: "run-elsewhere", WorkItemID: "yoyodyne-elsewhere", Status: runstate.StatusRunning}
+
+	schedule, err := Scheduler{Open: harness.open, Limit: 1}.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if got := strings.Join(harness.pullOrder(), ","); got != "yoyodyne-plain-1" {
+		t.Fatalf("pull order = %v, want the top of the ordinary order: %s", got, schedule.Render())
+	}
+	if reason := harness.selectionFor("yoyodyne-plain-1").Reason; !strings.Contains(reason, "pulled into developer slot 1, which is kept for the team-development label and found none of that work ready, so it took the ordinary order") {
+		t.Errorf("reason = %q, want it to say the dedicated slot took the ordinary order", reason)
+	}
+}
+
+// Marking no slot dedicated leaves every pull exactly as it was: the replay of
+// a preferring slot over priority-0 work is unchanged by an explicit false.
+func TestNoSlotDedicatedTakesPriorityZeroAsBefore(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(
+		labelled("yoyodyne-team", 1, "team-development"),
+		labelled("yoyodyne-urgent", 0),
+	)
+	harness.capacity = 1
+	harness.slots = []domain.DeveloperSlot{{Prefer: []string{"team-development"}, Dedicated: false}}
+
+	if _, err := (Scheduler{Open: harness.open}).Schedule(context.Background()); err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if got := harness.pullOrder(); strings.Join(got, ",") != "yoyodyne-urgent,yoyodyne-team" {
+		t.Fatalf("pull order = %v, want the priority-0 item first as before", got)
+	}
+}

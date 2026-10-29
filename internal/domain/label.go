@@ -82,8 +82,16 @@ type DeveloperSlot struct {
 	// Prefer is the labels this slot pulls first, any one of which on an item is
 	// enough. Empty is a slot with no preference, which is how a project says
 	// slot 1 prefers nothing and slot 2 prefers something.
-	Prefer  []string      `yaml:"prefer,omitempty" json:"prefer,omitempty"`
-	Routing *EndpointPair `yaml:"routing,omitempty" json:"routing,omitempty"`
+	Prefer []string `yaml:"prefer,omitempty" json:"prefer,omitempty"`
+	// Dedicated keeps the slot for its labels: it takes their ready work ahead
+	// of priority-0 work that does not carry them, where a slot that only
+	// prefers a label takes priority-0 work first. With none of its labels'
+	// work ready it still takes the ordinary order, and work on a change a run
+	// already wrote still comes before either. A dedicated slot must name a
+	// label, and not every slot may be dedicated, so priority-0 work always has
+	// a slot that takes it first.
+	Dedicated bool          `yaml:"dedicated,omitempty" json:"dedicated,omitempty"`
+	Routing   *EndpointPair `yaml:"routing,omitempty" json:"routing,omitempty"`
 	// Subagents overrides the developer agent's sub-agent setting for this
 	// slot. Nil leaves the agent's setting as it is.
 	Subagents *SlotSubagents `yaml:"subagents,omitempty" json:"subagents,omitempty"`
@@ -172,9 +180,13 @@ func (s DeveloperSlot) Prefers(labels []string) bool {
 }
 
 // Problems is everything wrong with what a slot prefers: a label the tracker
-// would not carry, and a label named twice. A slot preferring nothing has none.
+// would not carry, a label named twice, and a slot kept for its label that
+// names none. A slot preferring nothing and not dedicated has none.
 func (s DeveloperSlot) Problems() []error {
 	var problems []error
+	if s.Dedicated && len(s.Prefer) == 0 {
+		problems = append(problems, errors.New("it is marked dedicated and names no label under prefer, so there is no work it is kept for"))
+	}
 	seen := make(map[string]struct{}, len(s.Prefer))
 	for _, label := range s.Prefer {
 		if err := ValidateLabel(label); err != nil {

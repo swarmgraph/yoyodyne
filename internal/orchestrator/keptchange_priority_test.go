@@ -287,3 +287,54 @@ func (h *scheduleHarness) carriedTask(t *testing.T, workItemID string) CarryOutT
 	t.Fatalf("carried = %#v, want a task for %s", h.carried, workItemID)
 	return CarryOutTask{}
 }
+
+// A dedicated slot takes work on a kept change first too, and among kept
+// changes it takes the one carrying its label before one carrying any other,
+// whatever their priorities; with a second slot the other follows.
+func TestADedicatedSlotTakesAKeptChangeOnItsLabelFirst(t *testing.T) {
+	t.Parallel()
+
+	for _, capacity := range []int{1, 2} {
+		t.Run(fmt.Sprintf("%d-slots", capacity), func(t *testing.T) {
+			t.Parallel()
+			const otherRun, teamRun = "run-33333333333333333333333333333333", "run-44444444444444444444444444444444"
+			harness := newScheduleHarness(
+				beads.WorkItem{ID: "yoyodyne-fresh", Title: "Fresh team work", Status: "open", Priority: 0, Labels: []string{"team-development"}},
+				beads.WorkItem{ID: "yoyodyne-other", Title: "Kept change on other work", Status: "blocked", Priority: 0, Labels: []string{"reliability"}},
+				beads.WorkItem{ID: "yoyodyne-team", Title: "Kept change on team work", Status: "blocked", Priority: 3, Labels: []string{"team-development"}},
+			)
+			harness.capacity = capacity
+			harness.slots = []domain.DeveloperSlot{{Prefer: []string{"team-development"}, Dedicated: true}}
+			harness.ReadyItems["yoyodyne-other"] = false
+			harness.ReadyItems["yoyodyne-team"] = false
+			other := preservedStoppage("yoyodyne-other").runs[0]
+			other.RunID = otherRun
+			team := preservedStoppage("yoyodyne-team").runs[0]
+			team.RunID = teamRun
+			harness.stoppages = haltedWork{runs: []runstate.State{other, team}}
+			decided := time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC)
+			otherTask := decidedTaskOf("yoyodyne-other", otherRun)
+			otherTask.Decision, otherTask.DecidedAt = runstate.TriageDecisionRepair, decided
+			teamTask := decidedTaskOf("yoyodyne-team", teamRun)
+			teamTask.Decision, teamTask.DecidedAt = runstate.TriageDecisionRepair, decided.Add(time.Hour)
+			fired := map[string]bool{}
+			harness.outstanding = outstandingUntilFired(fired, otherTask, teamTask)
+			harness.carry = carriedWhenASlotIsFree(fired)
+
+			schedule, err := (Scheduler{Open: harness.open, Limit: capacity}).Schedule(context.Background())
+			if err != nil {
+				t.Fatalf("Schedule() error = %v", err)
+			}
+			want := "yoyodyne-team"
+			if capacity == 2 {
+				want += ",yoyodyne-other"
+			}
+			if got := strings.Join(runsStarted(schedule), ","); got != want {
+				t.Fatalf("started = %v, want %s: the kept change on the dedicated slot's label first, and both ahead of fresh work", got, want)
+			}
+			if pulled := harness.pullOrder(); len(pulled) != 0 {
+				t.Fatalf("fresh runs = %v, want none", pulled)
+			}
+		})
+	}
+}

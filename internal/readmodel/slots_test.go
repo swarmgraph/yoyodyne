@@ -196,3 +196,43 @@ func TestTheStandingCarriesWhatHoldsEachDeveloperSlot(t *testing.T) {
 		t.Fatalf("SlotHolders = %+v, problem %q; want run-a listed", standing.SlotHolders, standing.SlotHoldersProblem)
 	}
 }
+
+// A dedicated slot's running line says whether its run is on the label's work
+// or outside it because none was ready, and a free dedicated slot is said as
+// kept for its label rather than preferring it.
+func TestADedicatedSlotSaysWhetherItsRunIsOnItsLabel(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		labels []string
+		want   string
+	}{
+		{"on-label", []string{"team-development"}, "in developer slot 1 (kept for the team-development label), working on work carrying the team-development label\n"},
+		{"outside", nil, "in developer slot 1 (kept for the team-development label), working outside the team-development label because none of its work was ready\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			// One slot, so the run is read into it whatever it carries.
+			sources := quietSources()
+			sources.Capacity = 1
+			sources.Slots = []domain.DeveloperSlot{{Prefer: []string{"team-development"}, Dedicated: true}}
+			sources.Runs = fakeRuns{
+				incomplete: []runstate.State{
+					{RunID: "run-a", WorkItemID: "yoyodyne-ifd.1", Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping, StartedAt: moment.Add(-time.Hour), WorkItemLabels: test.labels},
+				},
+				prices: map[string]runstate.ItemPrice{"yoyodyne-ifd.1": {Runs: []runstate.RunPrice{{RunID: "run-a", CostUSD: 1}}}},
+			}
+			rendered := ReadStanding(context.Background(), sources).Render()
+			if !strings.Contains(rendered, test.want) {
+				t.Fatalf("rendered:\n%s\nmissing: %q", rendered, test.want)
+			}
+		})
+	}
+
+	sources := quietSources()
+	sources.Capacity = 2
+	sources.Slots = []domain.DeveloperSlot{{}, {Prefer: []string{"team-development"}, Dedicated: true}}
+	if rendered := ReadStanding(context.Background(), sources).Render(); !strings.Contains(rendered, "  developer slot 2 is free and kept for the team-development label\n") {
+		t.Fatalf("rendered:\n%s\nwant the free dedicated slot said as kept for its label", rendered)
+	}
+}
