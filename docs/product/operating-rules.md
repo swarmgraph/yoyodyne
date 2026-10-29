@@ -15,11 +15,20 @@ revisions:
       at: 2026-10-25T19:41:31.587635Z
       reason: 'yoyodyne-ifd.428.126.2.1: records Mason''s direction of October 25, 2026, that work on a change a run already wrote goes before anything else, and says plainly that the dedicated reliability seat takes it first too (report 20616344). It is a rule he already gave; no goal changes, so the goals admit and refuse exactly the work they did before.'
       intent: consistent
+    - action: amended
+      by: product-manager
+      at: 2026-10-29T04:29:16.511619Z
+      reason: 'yoyodyne-ifd.428.130: records the Lead Product Manager''s ordering decision of October 28, 2026, made on the operator''s direction that day that one developer slot be dedicated to work on how teams share one repository: a slot dedicated to one kind of work takes that work ahead of reliability work elsewhere, because reliability has its own seat, and falls back to the ordinary order when its own work has nothing ready. Ordering is the Lead Product Manager''s; no goal changes, so the goals admit and refuse exactly the work they did before.'
+      intent: consistent
 approvals:
     - revision: 1
       by: product-manager
       at: 2026-10-25T19:41:31.587635Z
       reason: yoyodyne-ifd.428.126.2.1 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
+    - revision: 2
+      by: product-manager
+      at: 2026-10-29T04:29:16.511619Z
+      reason: yoyodyne-ifd.428.130 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
 ---
 
 # Operating rules
@@ -38,6 +47,7 @@ Lead Product Manager.
 - A run is never killed for a flaky network or a sleeping laptop: a transport that drops or a machine that sleeps is waited out, and only a person or a bound on the work itself ends a run. (fb5a74a9)
 - Slack, the dashboard, the scheduler, and maintenance are parts of one product: started, stopped, restarted, and moved onto a new build together, by the product and not by a person. (6de828a8)
 - Developer seats are tagged, and one seat is dedicated to reliability work. (a43f7677, d83b6391)
-- Work on a change a run has already written and kept, such as a decided repair or continuation, or a merge being tried again, is taken first by any freed developer seat, the reliability seat included, ahead of fresh work of any priority. (the operator, 2026-10-25, recorded on yoyodyne-ifd.428.126.2.1)
+- A developer seat dedicated to one kind of work takes that work first, ahead of reliability work of any priority elsewhere, because reliability work has a seat of its own; when that kind of work has nothing ready, the seat takes the ordinary order, so it never sits idle while other ready work waits. (the Lead Product Manager, 2026-10-28, on the operator's direction that day; recorded on yoyodyne-ifd.428.130)
+- Work on a change a run has already written and kept, such as a decided repair or continuation, or a merge being tried again, is taken first by any freed developer seat, the reliability seat and any dedicated seat included, ahead of fresh work of any priority. (the operator, 2026-10-25, recorded on yoyodyne-ifd.428.126.2.1)
 - When the intake brake trips, it summons the development manager to decide, never the operator; the operator is told and may release it. (789c052c)
 - A developer run never runs the tracker's command directly; the harness reads and writes the tracker on its behalf. (from CLAUDE.md, moved here by the item beside this one)
