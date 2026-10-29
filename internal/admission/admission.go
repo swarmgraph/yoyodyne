@@ -27,6 +27,11 @@
 //     resemblance measured across a whole backlog fires on the vocabulary a
 //     backlog shares — "run", "change", "the harness" — and a guard that fires
 //     on a quarter of admissions is one whoever admits learns to read past.
+//     Within a family it reads past what siblings share by construction: a
+//     decomposition written on one template ("Move the … tests into their own
+//     package") differs only in the part the template frames, so that part is
+//     what is compared, and siblings naming different files or packages are
+//     different work whatever their wording shares.
 //
 // Nothing here refuses anything. It reports what one candidate looks like and
 // leaves the deciding to the caller, because a duplicate the admitter is not
@@ -79,10 +84,14 @@ const maxDescribedTitleBytes = 120
 // judges it by. It is deliberately not a work item: what is being judged does not
 // exist yet, and half of what an item carries is written by the tracker.
 type Candidate struct {
-	// Title is what the work would be called. It is the whole of what the scope
-	// judgement reads: a description is where the same work is written up two
-	// different ways, and a title is where it is written up twice.
+	// Title is what the work would be called. It is what the scope judgement
+	// reads: a description is where the same work is written up two different
+	// ways, and a title is where it is written up twice.
 	Title string
+	// Description is the work's description, read for one thing only: the files
+	// and packages it names. Two siblings naming different ones are different
+	// work, however much of the rest of their wording is shared.
+	Description string
 	// Parent is the item this work would be created under, and is empty for work
 	// being admitted rather than decomposed. The scope judgement is asked only
 	// where it is set, because that is what makes the population small.
@@ -186,7 +195,8 @@ func Resembling(candidate Candidate, admitted []beads.WorkItem) []Match {
 		fromScope  []Match
 	)
 	measure := newScope(admitted)
-	wording := scopeWords(candidate.Title)
+	wording := orderedScopeWords(candidate.Title)
+	named := namedThings(candidate.Title, candidate.Description)
 	parent := strings.TrimSpace(candidate.Parent)
 	for _, item := range admitted {
 		if corrected := correctedBy(item, candidate.Corrects); corrected != "" {
@@ -212,14 +222,19 @@ func Resembling(candidate Candidate, admitted []beads.WorkItem) []Match {
 		if parent == "" || strings.TrimSpace(item.Parent) != parent {
 			continue
 		}
-		if !measure.sameScope(wording, item.Title) {
+		itemNamed := namedThings(item.Title, item.Description)
+		if namesDifferentThings(named, itemNamed) {
+			continue
+		}
+		shared, same := measure.sameScope(wording, orderedScopeWords(item.Title))
+		if !same {
 			continue
 		}
 		fromScope = append(fromScope, Match{
 			ID:      item.ID,
 			Title:   strings.TrimSpace(item.Title),
 			Status:  strings.TrimSpace(item.Status),
-			Because: "it is already a child of " + parent + " carrying this scope",
+			Because: scopeBecause(parent, shared, sharedNames(named, itemNamed)),
 		})
 	}
 	// Each group is ordered by identifier rather than by how strongly it matched.
@@ -454,33 +469,122 @@ func (s scope) mass(words map[string]struct{}) float64 {
 }
 
 // sameScope reports two titles describing the same piece of work, as far as
-// their wording can say. It compares the shared weight against the smaller of the
-// two rather than against their union, because a title that says everything
-// another says and then some is the same scope with more words around it — which
-// is what a second decomposition of one parent looks like.
-func (s scope) sameScope(candidate map[string]struct{}, title string) bool {
-	existing := scopeWords(title)
-	if len(candidate) < minimumScopeWords || len(existing) < minimumScopeWords {
-		return false
+// their wording can say, and the words that decided it. It compares the shared
+// weight against the smaller of the two rather than against their union, because
+// a title that says everything another says and then some is the same scope with
+// more words around it — which is what a second decomposition of one parent
+// looks like.
+//
+// Siblings are often written on one template, and then the whole-title measure
+// is mostly measuring the template: "Run lifecycle move 1: the pipeline's
+// completion and ending paths write run records through narrow updates" and the
+// same sentence about the pipeline's pauses share nearly every word they have.
+// So once the whole titles match, the wording they share at their start and at
+// their end is set aside as the frame, and what each says between them is
+// compared on its own. Where either says nothing of its own between them, one
+// title is the other with words added and the whole-title answer stands.
+func (s scope) sameScope(candidate, existing []string) ([]string, bool) {
+	shared, same := s.contained(candidate, existing, minimumScopeWords)
+	if !same {
+		return nil, false
 	}
-	shared := 0.0
-	for word := range candidate {
-		if _, both := existing[word]; both {
-			shared += s.weightOf(word)
-		}
+	ownCandidate, ownExisting := unframed(candidate, existing)
+	if len(ownCandidate) == 0 || len(ownExisting) == 0 {
+		return shared, true
 	}
-	smaller := math.Min(s.mass(candidate), s.mass(existing))
-	if smaller <= 0 {
-		return false
-	}
-	return shared/smaller >= scopeThreshold
+	return s.contained(ownCandidate, ownExisting, 1)
 }
 
-// scopeWords is a title reduced to the words that say what the work is: folded to
-// one case, split on everything that is not a letter or a digit, and stripped of
-// the short and the ubiquitous.
+// contained measures how much of the smaller of two runs of words the other
+// carries, and returns the words they share in the candidate's order. Neither run
+// is judged with fewer than minimum distinct words.
+func (s scope) contained(candidate, existing []string, minimum int) ([]string, bool) {
+	candidateWords, existingWords := wordSet(candidate), wordSet(existing)
+	if len(candidateWords) < minimum || len(existingWords) < minimum {
+		return nil, false
+	}
+	var (
+		words  []string
+		shared float64
+		seen   = make(map[string]struct{})
+	)
+	for _, word := range candidate {
+		if _, both := existingWords[word]; !both {
+			continue
+		}
+		if _, counted := seen[word]; counted {
+			continue
+		}
+		seen[word] = struct{}{}
+		words = append(words, word)
+		shared += s.weightOf(word)
+	}
+	smaller := math.Min(s.mass(candidateWords), s.mass(existingWords))
+	if smaller <= 0 || shared/smaller < scopeThreshold {
+		return nil, false
+	}
+	return words, true
+}
+
+// unframed is what each of two runs of words says between the words they share
+// at their start and the words they share at their end.
+func unframed(a, b []string) ([]string, []string) {
+	prefix := 0
+	for prefix < len(a) && prefix < len(b) && a[prefix] == b[prefix] {
+		prefix++
+	}
+	suffix := 0
+	for suffix < len(a)-prefix && suffix < len(b)-prefix && a[len(a)-1-suffix] == b[len(b)-1-suffix] {
+		suffix++
+	}
+	return a[prefix : len(a)-suffix], b[prefix : len(b)-suffix]
+}
+
+// maxBecauseWords bounds how many shared words a scope match quotes. The first
+// few are what whoever is refused needs to see why; the titles are named beside
+// them.
+const maxBecauseWords = 8
+
+// scopeBecause says why a sibling matched by scope: the parent, the words of the
+// two titles that decided it, and any file or package both name, so the role
+// refused can see what the check read as the same and say what separates them.
+func scopeBecause(parent string, shared, names []string) string {
+	because := "it is already a child of " + parent + " carrying this scope"
+	if len(shared) > 0 {
+		quoted := shared
+		if len(quoted) > maxBecauseWords {
+			quoted = quoted[:maxBecauseWords]
+		}
+		because += fmt.Sprintf(": both titles say %q", strings.Join(quoted, " "))
+		if len(shared) > len(quoted) {
+			because += fmt.Sprintf(" and %d more word(s)", len(shared)-len(quoted))
+		}
+	}
+	if len(names) > 0 {
+		because += fmt.Sprintf(", and both name %s", strings.Join(names, ", "))
+	}
+	return because
+}
+
+// scopeWords is a title reduced to the distinct words that say what the work is.
 func scopeWords(title string) map[string]struct{} {
-	words := make(map[string]struct{})
+	return wordSet(orderedScopeWords(title))
+}
+
+func wordSet(words []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(words))
+	for _, word := range words {
+		set[word] = struct{}{}
+	}
+	return set
+}
+
+// orderedScopeWords is a title reduced to the words that say what the work is,
+// in the order the title says them: folded to one case, split on everything that
+// is not a letter or a digit, and stripped of the short and the ubiquitous. The
+// order is kept because the template two siblings share is found by position.
+func orderedScopeWords(title string) []string {
+	var words []string
 	fields := strings.FieldsFunc(strings.ToLower(title), func(character rune) bool {
 		return !unicode.IsLetter(character) && !unicode.IsDigit(character)
 	})
@@ -491,9 +595,123 @@ func scopeWords(title string) map[string]struct{} {
 		if _, common := commonWords[field]; common {
 			continue
 		}
-		words[field] = struct{}{}
+		words = append(words, field)
 	}
 	return words
+}
+
+// namedThings is the files and packages a piece of text names: a word with a
+// file extension, such as pipeline_test.go, or a slash-separated path, such as
+// internal/orchestrator. They are folded to one case and stripped of the
+// punctuation prose puts around them.
+func namedThings(texts ...string) map[string]struct{} {
+	named := make(map[string]struct{})
+	for _, text := range texts {
+		for _, field := range strings.Fields(text) {
+			word := strings.Trim(field, namePunctuation)
+			word = strings.TrimSuffix(strings.TrimSuffix(word, "'s"), "\u2019s")
+			word = strings.Trim(word, namePunctuation)
+			if namesFile(word) || namesPath(word) {
+				named[strings.ToLower(word)] = struct{}{}
+			}
+		}
+	}
+	return named
+}
+
+// namePunctuation is what prose puts around a file or package name.
+const namePunctuation = "\"'`()[]{}<>,.;:!?*"
+
+// namesFile reports a word that ends in a file name with an extension. The
+// extension starts with a letter and the name before it is at least two
+// characters, so an item identifier (yoyodyne-ifd.429), a version (v1.2) and an
+// abbreviation (e.g) are not files.
+func namesFile(word string) bool {
+	name := word[strings.LastIndex(word, "/")+1:]
+	dot := strings.LastIndex(name, ".")
+	if dot < 0 {
+		return false
+	}
+	base, extension := name[:dot], name[dot+1:]
+	if len(base) < 2 || !pathCharacters(base) || len(extension) == 0 || len(extension) > 8 {
+		return false
+	}
+	if !unicode.IsLetter(rune(extension[0])) {
+		return false
+	}
+	for _, character := range extension {
+		if !unicode.IsLetter(character) && !unicode.IsDigit(character) {
+			return false
+		}
+	}
+	return true
+}
+
+// namesPath reports a slash-separated path. Every segment has to be at least two
+// characters and none an ordinary English join, so "and/or" is prose and not a
+// path, and a web address is not counted at all.
+func namesPath(word string) bool {
+	if !strings.Contains(word, "/") || strings.Contains(word, "://") {
+		return false
+	}
+	for _, segment := range strings.Split(strings.Trim(word, "/"), "/") {
+		if len(segment) < 2 || !pathCharacters(segment) {
+			return false
+		}
+		if _, common := commonWords[strings.ToLower(segment)]; common || strings.EqualFold(segment, "or") {
+			return false
+		}
+	}
+	return true
+}
+
+func pathCharacters(text string) bool {
+	if text == "" {
+		return false
+	}
+	letter := false
+	for _, character := range text {
+		switch {
+		case unicode.IsLetter(character):
+			letter = true
+		case unicode.IsDigit(character), character == '_', character == '-', character == '.':
+		default:
+			return false
+		}
+	}
+	return letter
+}
+
+// namesDifferentThings reports two items that each name a file or package the
+// other does not. One naming everything the other names and more is the same
+// work with more said about it, for the reason a title saying more is, so only
+// two lists neither of which contains the other separate them.
+func namesDifferentThings(a, b map[string]struct{}) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	return !subset(a, b) && !subset(b, a)
+}
+
+func subset(a, b map[string]struct{}) bool {
+	for name := range a {
+		if _, both := b[name]; !both {
+			return false
+		}
+	}
+	return true
+}
+
+// sharedNames is the files and packages both items name, in order.
+func sharedNames(a, b map[string]struct{}) []string {
+	var shared []string
+	for name := range a {
+		if _, both := b[name]; both {
+			shared = append(shared, name)
+		}
+	}
+	sort.Strings(shared)
+	return shared
 }
 
 // commonWords are the words that survive the length cut and still say nothing

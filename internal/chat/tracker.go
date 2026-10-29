@@ -1989,10 +1989,11 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		// the work is not one this creation should be written to on the strength of
 		// a guard that never ran.
 		matches, admitted, err := s.alreadyAdmitted(ctx, admission.Candidate{
-			Title:    strings.TrimSpace(action.Title),
-			Parent:   action.parent(),
-			Sources:  admissionSources(prompting.ID, cited.ID),
-			Corrects: trimmedCorrects(action.Corrects),
+			Title:       strings.TrimSpace(action.Title),
+			Description: strings.TrimSpace(action.Description),
+			Parent:      action.parent(),
+			Sources:     admissionSources(prompting.ID, cited.ID),
+			Corrects:    trimmedCorrects(action.Corrects),
 		})
 		if err != nil {
 			outcome.fail(err)

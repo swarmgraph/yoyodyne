@@ -203,6 +203,20 @@ directive of yours routinely does — so the refusal for a source says what to d
 about that too: the citation belongs on the one item that answers the record, and
 the second is admitted without it.
 
+**Siblings written on one template are told apart by what the template frames.**
+A decomposition often gives every child the same sentence with one part changed
+— "Move the … orchestrator tests that touch no internals into their own
+package", or "Run lifecycle move N: … write run records through narrow updates".
+Compared whole, such titles share nearly every word. So when two siblings' titles
+match, the wording they share at their start and at their end is set aside as
+the template, and only what each says between them is compared: the scheduler
+tests and the merge-queue tests are two pieces of work, and the same subject
+asked for again is still refused. Two siblings that each name files or packages
+— in the title or the description — that the other does not are different work,
+whatever their wording shares. A refusal for scope quotes the words the two
+titles were read as sharing, and any file both name, so the role refused can see
+why and say what separates the new piece.
+
 **A match against closed work can be named as separate work.** A closed item can
 match work that is genuinely different, and the ordinary case is a design: the
 architect's design item closes when the design is recorded, and the item that
