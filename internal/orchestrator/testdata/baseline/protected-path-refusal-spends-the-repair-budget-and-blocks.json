@@ -108,6 +108,13 @@
     "run_id": "run-0123456789abcdef0123456789abcdef",
     "schema_version": 1,
     "started_at": "\u003ctime\u003e",
+    "starting_target": {
+      "commit": "\u003ccommit-1\u003e",
+      "committed_at": "\u003ctime\u003e",
+      "fetched": false,
+      "recorded_at": "\u003ctime\u003e",
+      "target_branch": "main"
+    },
     "status": "failed",
     "stop_class": "repair-budget",
     "target_branch": "main",

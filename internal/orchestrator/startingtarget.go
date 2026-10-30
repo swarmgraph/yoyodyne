@@ -77,14 +77,20 @@ func (a *activeRun) fetchTarget(ctx context.Context, targetBranch string) {
 // worktree's base is the commit that counts: the target can move between the
 // fetch and the cut, and the base is what the run starts from either way.
 //
-// The note is written once and is not waited on: a tracker that does not answer
-// costs the item the note, and the run's record still names the target.
+// The note is written once, only where there is a remote, and is not waited
+// on: a tracker that does not answer costs the item the note, and the run's
+// record still names the target.
 func (a *activeRun) recordStartingTarget(ctx context.Context, worktree gitworktree.Worktree) {
 	started := a.state.StartingTarget
 	if started == nil {
 		return
 	}
 	started.Commit = worktree.BaseCommit
+	// A repository with no remote has nothing fetched to say, and its run's
+	// notes already name the base commit it started from.
+	if started.Remote == "" {
+		return
+	}
 	noteCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), startingTargetNoteTimeout)
 	defer cancel()
 	_, _ = a.pipeline.Tracker.RecordOutcome(noteCtx, a.state.WorkItemID, fmt.Sprintf("Run %s %s.", a.state.RunID, started.Describe()))

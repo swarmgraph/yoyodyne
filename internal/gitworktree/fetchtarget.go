@@ -63,9 +63,9 @@ type TargetFetch struct {
 	Failure string `json:"failure,omitempty"`
 	// LastFetchedAt is when this target was last fetched successfully, which is
 	// now on a fetch that worked, and zero where no fetch has ever been recorded.
-	LastFetchedAt time.Time `json:"last_fetched_at,omitempty"`
+	LastFetchedAt time.Time `json:"last_fetched_at,omitzero"`
 	// CommittedAt is when the commit the run starts from was made.
-	CommittedAt time.Time `json:"committed_at,omitempty"`
+	CommittedAt time.Time `json:"committed_at,omitzero"`
 }
 
 // FetchTarget brings the local target branch onto the remote's, for a run about

@@ -2115,6 +2115,11 @@ func (s *State) recordedTexts() []recordedText {
 	if s.HomeMigration != nil {
 		unstated("home_migration.by", "home_migration.by", &s.HomeMigration.By, MaxHomeMigrationByBytes)
 	}
+	if s.StartingTarget != nil {
+		unstated("starting_target.remote", "starting_target.remote", &s.StartingTarget.Remote, MaxRecordedTextBytes)
+		unstated("starting_target.held", "starting_target.held", &s.StartingTarget.Held, MaxRecordedTextBytes)
+		unstated("starting_target.failure", "starting_target.failure", &s.StartingTarget.Failure, MaxRecordedTextBytes)
+	}
 	if s.DocumentRetry != nil {
 		unstated("document_retry.waited_for", "document_retry.waited_for", &s.DocumentRetry.WaitedFor, MaxRecordedTextBytes)
 	}
@@ -4378,6 +4383,11 @@ func (s State) Validate() error {
 	if s.StaleBlockClear != nil {
 		if err := s.StaleBlockClear.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("stale_block_clear: %w", err))
+		}
+	}
+	if s.StartingTarget != nil {
+		if err := s.StartingTarget.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("starting_target: %w", err))
 		}
 	}
 	if s.Changes != nil {

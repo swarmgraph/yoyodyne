@@ -1,6 +1,7 @@
 package runstate
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -31,11 +32,26 @@ type StartingTarget struct {
 	// LastFetchedAt is when the target was last fetched successfully, zero
 	// where no fetch of it was ever recorded, and CommittedAt when the starting
 	// commit was made.
-	LastFetchedAt time.Time `json:"last_fetched_at,omitempty"`
-	CommittedAt   time.Time `json:"committed_at,omitempty"`
+	LastFetchedAt time.Time `json:"last_fetched_at,omitzero"`
+	CommittedAt   time.Time `json:"committed_at,omitzero"`
 	// RecordedAt is when the run started from it, which is what its age is
 	// measured to.
 	RecordedAt time.Time `json:"recorded_at"`
+}
+
+// Validate checks the fields a reader acts on: the branch and the commits. The
+// texts beside them are bounded with the rest of the run's recorded text.
+func (t StartingTarget) Validate() error {
+	var problems []error
+	if !validLocalBranch(t.TargetBranch) {
+		problems = append(problems, fmt.Errorf("target branch %q is not a local branch name", t.TargetBranch))
+	}
+	for _, commit := range []string{t.Commit, t.RemoteCommit} {
+		if commit != "" && !commitPattern.MatchString(commit) {
+			problems = append(problems, fmt.Errorf("commit %q is invalid", commit))
+		}
+	}
+	return errors.Join(problems...)
 }
 
 // Age is how long before the run started the target was last fetched, and

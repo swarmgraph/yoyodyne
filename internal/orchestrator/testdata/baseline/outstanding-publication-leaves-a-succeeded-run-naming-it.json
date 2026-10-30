@@ -186,6 +186,16 @@
     "run_id": "run-0123456789abcdef0123456789abcdef",
     "schema_version": 1,
     "started_at": "\u003ctime\u003e",
+    "starting_target": {
+      "commit": "\u003ccommit-1\u003e",
+      "committed_at": "\u003ctime\u003e",
+      "fetched": true,
+      "last_fetched_at": "\u003ctime\u003e",
+      "recorded_at": "\u003ctime\u003e",
+      "remote": "origin",
+      "remote_commit": "\u003ccommit-1\u003e",
+      "target_branch": "main"
+    },
     "status": "succeeded",
     "stop_class": "publish",
     "target_branch": "main",
@@ -226,12 +236,16 @@
     "calls": [
       "claim",
       "record",
+      "record",
       "complete"
     ],
     "status": "closed",
     "closed": true,
     "blocked": false,
     "notes": [
+      [
+        "Run run-0123456789abcdef0123456789abcdef started from main at \u003ccommit-1\u003e, fetched from origin for this run."
+      ],
       [
         "Yoyodyne run passed checks, was approved by an independent reviewer, and was integrated automatically.",
         "Run: run-0123456789abcdef0123456789abcdef",
