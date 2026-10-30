@@ -102,14 +102,28 @@ func transferQueueEntry(ctx context.Context, args []string, stdout, stderr io.Wr
 	if errors.Is(err, orchestrator.ErrMergeQueueWorkerBusy) {
 		return fail(errors.New("another process is working this queue right now; ask again once its pass ends"))
 	}
-	if err != nil {
+	// A change that moved but whose run record could not be made to name its
+	// new entry is said both ways: where the change is, and what is wrong.
+	var unrecorded orchestrator.MergeQueueReadmissionUnrecorded
+	if err != nil && !errors.As(err, &unrecorded) {
 		return fail(err)
 	}
 	if *jsonOutput {
-		return writeJSON(stdout, stderr, queueTransferOutput{Entry: &moved})
+		output := queueTransferOutput{Entry: &moved}
+		if err != nil {
+			output.Error = err.Error()
+		}
+		if code := writeJSON(stdout, stderr, output); code != 0 || err == nil {
+			return code
+		}
+		return 1
 	}
 	fmt.Fprintf(stdout, "%s: %s is now entry %d (%s) in the %s queue for %s, in the place it had; its candidate is built and verified afresh\n",
 		moved.WorkItemID, moved.WorkItemTitle, moved.Order, moved.EntryID, moved.Mode, moved.TargetBranch)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	return 0
 }
 

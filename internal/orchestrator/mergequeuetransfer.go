@@ -94,9 +94,26 @@ func (p MergeQueuePromoter) Transfer(ctx context.Context, key runstate.MergeQueu
 	if err != nil {
 		return runstate.MergeQueueEntry{}, err
 	}
-	p.recordReadmission(moved)
+	if err := p.recordReadmission(ctx, moved); err != nil {
+		return moved, MergeQueueReadmissionUnrecorded{Entry: moved, Err: err}
+	}
 	return moved, nil
 }
+
+// MergeQueueReadmissionUnrecorded is a transfer that moved the change, whose
+// run's record could not be made to name the entry that holds it now. The
+// queue's record is the authority, so the change waits where the transfer put
+// it; what is wrong is only what a reader of the run is told.
+type MergeQueueReadmissionUnrecorded struct {
+	Entry runstate.MergeQueueEntry
+	Err   error
+}
+
+func (e MergeQueueReadmissionUnrecorded) Error() string {
+	return fmt.Sprintf("the change moved to merge queue entry %s, but run %s's record could not be made to name it: %v", e.Entry.EntryID, e.Entry.RunID, e.Err)
+}
+
+func (e MergeQueueReadmissionUnrecorded) Unwrap() error { return e.Err }
 
 // transferEvidence is the mode evidence a transfer admits under, observed now,
 // and a refusal where the mode cannot be used. The forge's queue is moved to
@@ -129,21 +146,17 @@ func (p MergeQueuePromoter) transferEvidence(ctx context.Context, branch string,
 }
 
 // recordReadmission names the entry that now holds a run's change on the
-// run's own record, so a reader of the run finds where its change waits. The
-// queue's record is the authority, so a run record that will not take it is
-// not a failure of the transfer.
-func (p MergeQueuePromoter) recordReadmission(entry runstate.MergeQueueEntry) {
+// run's own record, so a reader of the run finds where its change waits. It is
+// a narrow update of the run as it is stored, and changes nothing on a run
+// that records no admission.
+func (p MergeQueuePromoter) recordReadmission(ctx context.Context, entry runstate.MergeQueueEntry) error {
 	if p.Pipeline == nil || p.Pipeline.Store == nil {
-		return
+		return nil
 	}
-	state, err := p.Pipeline.Store.Load(entry.RunID)
-	if err != nil || state.MergeQueue == nil {
-		return
-	}
-	admitted := entry.AdmissionRecord()
-	state.MergeQueue = &admitted
-	state.UpdatedAt = p.Pipeline.clock().Now()
-	_ = p.Pipeline.Store.Save(state)
+	_, err := p.Pipeline.Store.Update(ctx, entry.RunID, runstate.MergeQueueAdmitted{
+		Record: entry.AdmissionRecord(), Readmission: true, At: p.Pipeline.clock().Now(),
+	})
+	return err
 }
 
 func modeName(mode runstate.MergeQueueMode) string {

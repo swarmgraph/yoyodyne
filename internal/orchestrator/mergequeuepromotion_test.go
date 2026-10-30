@@ -973,6 +973,35 @@ func (r *recordingRun) Save(state runstate.State) error {
 	return nil
 }
 
+// Update makes a narrow update as the store does, on the record held here, and
+// counts it as one of the run's writes.
+func (r *recordingRun) Update(_ context.Context, runID string, update runstate.RunUpdate) (runstate.State, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.failSaves > 0 {
+		r.failSaves--
+		return runstate.State{}, errors.New("the run store refused the write")
+	}
+	held := r.admittedRun.state
+	other, isOther := r.admittedRun.others[runID]
+	if isOther {
+		held = other
+	} else if runID != held.RunID {
+		return runstate.State{}, runstate.ErrNoRunInFlight
+	}
+	next, changed, err := runstate.ApplyUpdate(held, update)
+	if err != nil || !changed {
+		return held, err
+	}
+	if isOther {
+		r.admittedRun.others[runID] = next
+		return next, nil
+	}
+	r.saves = append(r.saves, next)
+	r.admittedRun.state = next
+	return next, nil
+}
+
 func (r *recordingRun) saveCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()

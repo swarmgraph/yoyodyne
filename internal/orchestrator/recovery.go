@@ -395,6 +395,18 @@ func (a *activeRun) recordRetry(boundary string, attempt int, delay time.Duratio
 		At:           a.pipeline.clock().Now(),
 		Failure:      boundedFailureDetail(cause.Error()),
 	}
+	if a.narrowRetries {
+		// The run's copy is in step with the stored record, and others may record
+		// on the run while this process waits (see narrowRetries), so the retry is
+		// written onto the record as stored and that record is taken as the run's.
+		written, err := a.pipeline.Store.Update(context.Background(), a.state.RunID, runstate.RetryRecorded{Retry: retry})
+		if err != nil {
+			return fmt.Errorf("record the wait before asking again after %s failed: %w", boundary, err)
+		}
+		a.state = written
+		a.outcome.Retries = a.state.Retries
+		return nil
+	}
 	a.state.Retries = append(a.state.Retries, retry)
 	a.state.UpdatedAt = retry.At
 	a.outcome.Retries = a.state.Retries

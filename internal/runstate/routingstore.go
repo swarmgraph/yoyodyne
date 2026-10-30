@@ -210,53 +210,64 @@ func (s *Store) lockRunWrites(ctx context.Context, runID string) (func(), error)
 }
 
 // storedHead reads only what a whole-record write has to compare or keep: the
-// stored record's schema version, its routing, and its worker. It reads past
+// stored record's schema version, its revision, its routing, and its worker. It reads past
 // every other field, so a write can still replace a record it could not
 // otherwise decode, as it always could; what it refuses is a record whose
 // routing or schema this build does not understand.
-func (s *Store) storedHead(runID string) (*RunRouting, *WorkerIdentity, Status, error) {
+func (s *Store) storedHead(runID string) (storedRunHead, error) {
 	path, err := s.statePath(runID)
 	if err != nil {
-		return nil, nil, "", err
+		return storedRunHead{}, err
 	}
 	encoded, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("load existing run state before save: %w", err)
+		return storedRunHead{}, fmt.Errorf("load existing run state before save: %w", err)
 	}
 	var stored struct {
 		SchemaVersion int             `json:"schema_version"`
+		Revision      uint64          `json:"revision"`
 		Status        Status          `json:"status"`
 		Routing       *RunRouting     `json:"routing"`
 		Worker        *WorkerIdentity `json:"worker"`
 	}
 	if err := json.Unmarshal(encoded, &stored); err != nil {
-		return nil, nil, "", RefusedStateError{Problem: fmt.Errorf("the stored run %s cannot be read to compare its routing: %w", runID, err)}
+		return storedRunHead{}, RefusedStateError{Problem: fmt.Errorf("the stored run %s cannot be read to compare its routing: %w", runID, err)}
 	}
 	if stored.SchemaVersion > StateSchemaVersion {
-		return nil, nil, "", RefusedStateError{Problem: fmt.Errorf("the stored run %s has schema version %d, newer than this build's %d", runID, stored.SchemaVersion, StateSchemaVersion)}
+		return storedRunHead{}, RefusedStateError{Problem: fmt.Errorf("the stored run %s has schema version %d, newer than this build's %d", runID, stored.SchemaVersion, StateSchemaVersion)}
 	}
 	if stored.Routing != nil && stored.Routing.Version > RoutingVersion {
-		return nil, nil, "", RefusedStateError{Problem: fmt.Errorf("%w: run %s has routing version %d and this build reads %d", ErrUnsupportedRouting, runID, stored.Routing.Version, RoutingVersion)}
+		return storedRunHead{}, RefusedStateError{Problem: fmt.Errorf("%w: run %s has routing version %d and this build reads %d", ErrUnsupportedRouting, runID, stored.Routing.Version, RoutingVersion)}
 	}
-	return stored.Routing, stored.Worker, stored.Status, nil
+	return storedRunHead{routing: stored.Routing, worker: stored.Worker, status: stored.Status, revision: stored.Revision}, nil
+}
+
+// storedRunHead is what storedHead reads of the stored record.
+type storedRunHead struct {
+	routing  *RunRouting
+	worker   *WorkerIdentity
+	status   Status
+	revision uint64
 }
 
 // checkRoutingWrite refuses a whole-record write whose routing is not what is
 // stored: a stale copy, or a caller that changed routing other than through
 // UpdateRouting.
 //
-// It hands back the stored worker, which the write keeps, and the stored
-// status, which says whether the write would make a run live.
-func (s *Store) checkRoutingWrite(state State) (*WorkerIdentity, Status, error) {
-	stored, worker, status, err := s.storedHead(state.RunID)
+// It hands back what it read of the stored record: the worker, which the write
+// keeps, the status, which says whether the write would make a run live, and
+// the revision, which the write's copy has to hold (checkRevision).
+func (s *Store) checkRoutingWrite(state State) (storedRunHead, error) {
+	head, err := s.storedHead(state.RunID)
 	if err != nil {
-		return nil, "", err
+		return storedRunHead{}, err
 	}
+	stored := head.routing
 	if equalRouting(stored, state.Routing) {
-		return worker, status, nil
+		return head, nil
 	}
 	if stored.generation() != state.Routing.generation() || (stored == nil) != (state.Routing == nil) {
-		return nil, "", StaleRoutingError{RunID: state.RunID, Held: state.Routing.generation(), Stored: stored.generation()}
+		return storedRunHead{}, StaleRoutingError{RunID: state.RunID, Held: state.Routing.generation(), Stored: stored.generation()}
 	}
-	return nil, "", RefusedStateError{Problem: fmt.Errorf("%w: run %s routing changes only through UpdateRouting", ErrRoutingConflict, state.RunID)}
+	return storedRunHead{}, RefusedStateError{Problem: fmt.Errorf("%w: run %s routing changes only through UpdateRouting", ErrRoutingConflict, state.RunID)}
 }

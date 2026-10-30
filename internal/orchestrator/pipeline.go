@@ -232,6 +232,10 @@ type StateStore interface {
 	// every simultaneous start can lose.
 	LeaseRotation(ctx context.Context) (*runstate.Lease, error)
 	Save(state runstate.State) error
+	// Update makes one of the run store's named narrow changes to a run as it is
+	// stored, so a writer that does not hold the run changes only its own fields
+	// and loses nothing another writer changed (runstate/runupdate.go).
+	Update(ctx context.Context, runID string, update runstate.RunUpdate) (runstate.State, error)
 	// Load reads one run's record back. A run holding its own lease has no reason
 	// to ask what is on disk — its own state is ahead of it — with two exceptions:
 	// a save the store refused leaves the record behind what this process holds,
@@ -2501,6 +2505,12 @@ type activeRun struct {
 	item     beads.WorkItem
 	worktree gitworktree.Worktree
 	context  string
+	// narrowRetries is set once the run's change is in the merge queue and its
+	// copy of the record has just been saved whole. From then on the queue may
+	// record on the run — its landing, the pull request it closed — so each retry
+	// is recorded as a narrow update on the record as stored rather than a save
+	// of a copy that may be out of date (recovery.go, recordRetry).
+	narrowRetries bool
 	// scratch is the directory this run's developer is told to write its scratch
 	// files to, cut for this run alone and outside the worktree. It is derived
 	// from the worktree rather than recorded with the run, because it is a fact

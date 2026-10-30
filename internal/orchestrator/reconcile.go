@@ -99,6 +99,9 @@ type ReconcileStore interface {
 	Outstanding() ([]runstate.State, error)
 	AdoptRun(ctx context.Context, runID string) (runstate.State, *runstate.Lease, error)
 	Save(state runstate.State) error
+	// Update makes one of the run store's named narrow changes to a run as it is
+	// stored (runstate/runupdate.go).
+	Update(ctx context.Context, runID string, update runstate.RunUpdate) (runstate.State, error)
 	// ReserveLive saves a run put back at its promotion and takes its developer
 	// slot in the same act (Store.ReserveLive).
 	ReserveLive(ctx context.Context, live runstate.State, maxConcurrent int) error
@@ -1586,31 +1589,32 @@ func (r Reconciler) completeIntegrated(ctx context.Context, state runstate.State
 		TargetBranch: state.Integration.TargetBranch,
 		SourceCommit: state.Integration.SourceCommit,
 	})
-	state.WorktreeRemoved = cleanup.WorktreeRemoved
-	state.BranchRemoved = cleanup.BranchRemoved
+	// How far the cleanup got is a narrow update of the run as stored, because
+	// removing artifacts takes time in which the merge queue may record on the
+	// run — retiring its pull request, say — and a save of the copy read before
+	// it would put that back. With nothing left to remove, the update completes
+	// the run, and the outstanding cleanup marker the interrupted process left
+	// is no longer true.
+	progress := runstate.CleanupRecorded{WorktreeRemoved: cleanup.WorktreeRemoved, BranchRemoved: cleanup.BranchRemoved, At: r.clock().Now()}
 	if cleanupErr != nil {
 		// The run stays outstanding so the next sweep tries again. Repeating
 		// cleanup is safe: it refuses anything that is not this run's proven
 		// artifacts and does nothing at all over artifacts already gone.
 		cleanupErr = fmt.Errorf("clean up reconciled run %s: %w", state.RunID, cleanupErr)
-		state.CleanupFailure = cleanupErr.Error()
-		state.UpdatedAt = r.clock().Now()
-		if saveErr := r.Store.Save(state); saveErr != nil {
+		progress.Failure = cleanupErr.Error()
+		recorded, saveErr := r.Store.Update(ctx, state.RunID, progress)
+		if saveErr != nil {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("record outstanding cleanup for run %s: %w", state.RunID, saveErr))
+		} else {
+			state = recorded
 		}
 		return reconciliationOf(state, ActionCompleted), cleanupErr
 	}
-	// Nothing is left to remove, so the run is complete and the outstanding
-	// cleanup marker the interrupted process left is no longer true.
-	state.CleanupFailure = ""
-	if state.StopClass == runstate.StopCleanup {
-		state.StopClass = ""
-	}
-	state.Phase = runstate.PhaseComplete
-	state.UpdatedAt = r.clock().Now()
-	if err := r.Store.Save(state); err != nil {
+	recorded, err := r.Store.Update(ctx, state.RunID, progress)
+	if err != nil {
 		return reconciliationOf(state, ActionCompleted), fmt.Errorf("save completed run state for %s: %w", state.RunID, err)
 	}
+	state = recorded
 	result := reconciliationOf(state, ActionCompleted)
 	result.ConfigMismatches = comparison.active
 	result.TemplateConfigMismatches = comparison.templates

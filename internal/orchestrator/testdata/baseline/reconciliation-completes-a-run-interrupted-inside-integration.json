@@ -203,6 +203,7 @@
     "review_rounds": 1,
     "review_session_id": "reviewer-session",
     "review_summary": "the change matches the acceptance criteria",
+    "revision": 1,
     "run_id": "run-0123456789abcdef0123456789abcdef",
     "schema_version": 1,
     "settled_quiet_since": "\u003ctime\u003e",

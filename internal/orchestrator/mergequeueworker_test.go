@@ -562,6 +562,24 @@ func (r *admittedRun) Load(runID string) (runstate.State, error) {
 	return r.state, nil
 }
 
+// Update makes a narrow update as the store does, on the record held here.
+func (r *admittedRun) Update(_ context.Context, runID string, update runstate.RunUpdate) (runstate.State, error) {
+	held, err := r.Load(runID)
+	if err != nil {
+		return runstate.State{}, err
+	}
+	next, changed, err := runstate.ApplyUpdate(held, update)
+	if err != nil || !changed {
+		return held, err
+	}
+	if _, found := r.others[runID]; found {
+		r.others[runID] = next
+	} else {
+		r.state = next
+	}
+	return next, nil
+}
+
 // flakyGenerations loses or half-loses the generation writes fail picks: write
 // is whether the record lands anyway, and the error is what the writer is told.
 type flakyGenerations struct {

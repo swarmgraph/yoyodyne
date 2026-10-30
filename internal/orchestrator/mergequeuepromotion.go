@@ -1173,7 +1173,7 @@ func (c MergeQueueRunCompletion) now() time.Time {
 // the integration's source and its target, as a run's own fast-forward is. The
 // run's approved head is inside it, which is what lets the run's branch and
 // worktree be cleaned up on the proof a landed run's are.
-func (c MergeQueueRunCompletion) RecordRun(_ context.Context, entry runstate.MergeQueueEntry, completion runstate.MergeQueueCompletion) error {
+func (c MergeQueueRunCompletion) RecordRun(ctx context.Context, entry runstate.MergeQueueEntry, completion runstate.MergeQueueCompletion) error {
 	state, err := c.Store.Load(entry.RunID)
 	if err != nil {
 		return err
@@ -1184,15 +1184,18 @@ func (c MergeQueueRunCompletion) RecordRun(_ context.Context, entry runstate.Mer
 	// The landing is confirmed on the target by the time this is recorded, and
 	// the local target has followed it, so nothing about the run's integration
 	// waits on a forge: it is recorded as settled, which is what leaves the
-	// run's branch and worktree to the cleanup a landed run is owed.
-	state.Integration = &runstate.Integration{
-		TargetBranch:         entry.TargetBranch,
-		SourceCommit:         completion.Landed,
-		TargetCommit:         completion.Landed,
-		PreviousTargetCommit: completion.TargetBase,
-	}
-	state.UpdatedAt = c.now()
-	return c.Store.Save(state)
+	// run's branch and worktree to the cleanup a landed run is owed. It is a
+	// narrow update, so it keeps whatever else is on the run as stored.
+	_, err = c.Store.Update(ctx, entry.RunID, runstate.IntegrationRecorded{
+		Integration: runstate.Integration{
+			TargetBranch:         entry.TargetBranch,
+			SourceCommit:         completion.Landed,
+			TargetCommit:         completion.Landed,
+			PreviousTargetCommit: completion.TargetBase,
+		},
+		At: c.now(),
+	})
+	return err
 }
 
 // RecordWorkItem settles the item on the landing as a run's own settlement
