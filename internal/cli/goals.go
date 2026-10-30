@@ -34,7 +34,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
@@ -48,7 +47,7 @@ import (
 // goalsTrackerTimeout bounds one tracker command taken to read the admitted
 // work, the same way every other command bounds its own: a tracker that has
 // gone slow costs this report rather than hanging it.
-const goalsTrackerTimeout = 30 * time.Second
+const goalsTrackerTimeout = beads.DefaultTimeout
 
 type goalsOutput struct {
 	Goals []goal.Goal `json:"goals,omitempty"`

@@ -82,7 +82,7 @@ func TestAnExportStoppedAtItsLimitIsKeptWithTheStoresSizeAndHolders(t *testing.T
 				t.Fatalf("kept %d slow calls, want 1", len(kept.calls))
 			}
 			call := kept.calls[0]
-			if call.Verb != "export" || call.For != "yoyo reconcile" || call.Limit != defaultTimeout || call.StartedAt.IsZero() || call.CallerDeadline != 0 {
+			if call.Verb != "export" || call.For != "yoyo reconcile" || call.Limit != DefaultTimeout || call.StartedAt.IsZero() || call.CallerDeadline != 0 {
 				t.Errorf("slow call = %+v, want the export for yoyo reconcile at the client's limit", call)
 			}
 			if call.StoreBytes != 2<<20 || call.StoreUnmeasured != "" || call.Store != canonicalPath(filepath.Join(repository, ".beads", "embeddeddolt")) {

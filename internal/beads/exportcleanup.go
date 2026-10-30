@@ -97,7 +97,7 @@ func CleanExportTemporaries(ctx context.Context, repository string, runner execu
 	var raw boundedExportOutput
 	result, err := runner.Run(ctx, execution.Command{
 		Name: "lsof", Args: []string{"-nP", "-F0fDi", "+d", beads.Path()},
-		Timeout: defaultTimeout, MaxOutputBytes: maxBDOutputBytes, RawStdout: &raw,
+		Timeout: DefaultTimeout, MaxOutputBytes: maxBDOutputBytes, RawStdout: &raw,
 	}, nil)
 	if err != nil {
 		return cleaned, fmt.Errorf("check open export temporaries; all are kept: %w", err)
