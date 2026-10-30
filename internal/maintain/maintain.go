@@ -57,6 +57,15 @@
 //     that failed; it is recorded under the product's state, and its figures
 //     are said in full on the step. It holds the pass up while it runs, for as
 //     much as measureBound, which is why it is not taken more often.
+//   - squash: the live tracker store's history squashed, under the three
+//     conditions of the design on keeping the store small
+//     (docs/designs/tracker-store-size.md), decided once on each measurement
+//     (trackersquash.go). It runs after the measurement, on the same
+//     goroutine, so the pass's own tracker calls are over before it starts.
+//     It holds the store for as long as bd takes, and every other tracker call
+//     waits behind it meanwhile, which is why it runs only where the
+//     measurement shows a squash is what brings the listings within their
+//     limit, and why the step says how long the store was held.
 //   - rebuild: what the supervisor's rebuilder last came to — it builds the
 //     binary on its own thirty-second look when the branch lands something the
 //     binary is made of, so a deploy has a build to take up.
@@ -101,6 +110,7 @@ const (
 	StepReconcile       = "reconcile"
 	StepTrackerCleanup  = "cleanup"
 	StepTrackerMeasure  = "measure"
+	StepTrackerSquash   = "squash"
 	StepRebuild         = "rebuild"
 	StepRestartRequests = "restart-requests"
 	StepRedeploy        = "redeploy"
@@ -248,6 +258,16 @@ type Pass struct {
 	// is nil the step says so.
 	Measurer     StoreMeasurer
 	Measurements Measurements
+	// Squasher is the primary checkout's tracker store as the squashing step
+	// squashes it, Squashes the record of each decision and where the copies are
+	// kept, and Reports where the warning about changed records is filed; where
+	// the first two or Measurements are nil the step says so. RepositoryID and
+	// Build are what that warning is attributed to.
+	Squasher     StoreSquasher
+	Squashes     Squashes
+	Reports      Reports
+	RepositoryID string
+	Build        string
 
 	Now func() time.Time
 	Log func(format string, args ...any)
@@ -287,12 +307,13 @@ type underway struct {
 
 // offGoroutine is what the pass does off the supervisor's goroutine: reconcile,
 // then the tracker's cleanup, with the record of the cleanup where one ran,
-// and then the measurement of the tracker's store.
+// then the measurement of the tracker's store, and then its squash.
 type offGoroutine struct {
 	reconciled runstate.SweepStep
 	cleaned    runstate.SweepStep
 	cleanup    *runstate.TrackerStoreCleanup
 	measured   runstate.SweepStep
+	squashed   runstate.SweepStep
 }
 
 // Name is how the pass is named in what the supervisor says, and Service the
@@ -370,6 +391,7 @@ func (p *Pass) Look(ctx context.Context, now time.Time) {
 		work := offGoroutine{reconciled: p.reconcile(ctx)}
 		work.cleaned, work.cleanup = p.cleanUpTracker(ctx)
 		work.measured = p.measureTracker(ctx)
+		work.squashed = p.squashTracker(ctx)
 		done <- work
 	}()
 	if p.Release != nil && p.releasing == nil && p.released == nil {
@@ -440,6 +462,7 @@ func (p *Pass) finish(ctx context.Context, done offGoroutine) {
 	recorded.Steps = append(recorded.Steps, done.reconciled)
 	recorded.Steps = append(recorded.Steps, done.cleaned)
 	recorded.Steps = append(recorded.Steps, done.measured)
+	recorded.Steps = append(recorded.Steps, done.squashed)
 	if done.cleanup != nil {
 		p.cleanedUp, p.cleanupsRead = done.cleanup, true
 	}

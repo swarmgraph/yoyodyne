@@ -219,7 +219,7 @@ func (c Client) MeasureStore(ctx context.Context, work *repowrite.PinnedRoot) (m
 	// Removed whatever this comes to, so a copy outlives no measurement but one
 	// whose process was killed, and that one is removed by the next.
 	defer work.RemoveAll(measuredCopyName)
-	if err := copyStore(store, work); err != nil {
+	if err := copyStore(store, work, measuredCopyName); err != nil {
 		return measurement, fmt.Errorf("copy the tracker's store %s into %s: %w", store, work.Path(), err)
 	}
 	measurement.CopyTook = time.Since(measurement.StartedAt)
@@ -504,10 +504,10 @@ func fingerprintChange(before, after map[string]storeFile) string {
 }
 
 // copyStore copies the store directory into work as a project directory of its
-// own, copy/.beads, every directory and regular file in it. Anything else — a
+// own, name/.beads, every directory and regular file in it. Anything else — a
 // socket a running bd left — is not part of the store's data and is left out.
-func copyStore(store string, work *repowrite.PinnedRoot) error {
-	project, err := work.CreateDirectory(measuredCopyName)
+func copyStore(store string, work *repowrite.PinnedRoot, name string) error {
+	project, err := work.CreateDirectory(name)
 	if err != nil {
 		return err
 	}
