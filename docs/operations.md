@@ -398,7 +398,7 @@ services:
       max_hold: 15s        # the longest one cleanup holds the store; 20s at most
 ```
 
-Each pass takes nine steps, in this order, and each is recorded:
+Each pass takes ten steps, in this order, and each is recorded:
 
 - **provider** — whether the provider is answering, read from the product's
   [outage record](#waiting-out-a-provider-nobody-can-reach). While it stands,
@@ -471,6 +471,33 @@ Each pass takes nine steps, in this order, and each is recorded:
   a stage — an item or a note that is different, missing, or added — or one of
   whose commands failed, is a failure of the pass, naming what changed or what
   bd said.
+- **squash** — the live tracker store's history squashed, as
+  [the design on keeping the store small](designs/tracker-store-size.md)
+  decides, and never an item or a note. It is decided once on each
+  measurement. It squashes nothing where the measurement listed open and ready
+  items within ten seconds as the store was or after the cleanup; it squashes
+  the history older than thirty days (`bd compact --days 30 --force`) where
+  that alone brought them within ten seconds; all history (`bd flatten
+  --force`) only where that did not and squashing all of it did; and nothing
+  where no stage did. A squash runs only when all three of the design's
+  conditions hold. The measurement must show every item and note unchanged at
+  the cleanup and at each squash up to the one chosen. No other process may
+  have the store open, before the copy below or after it, and a store whose
+  holders cannot be told is not squashed. And the live store must first be
+  copied whole into `tracker-store-squash-copies/` under the product's state,
+  the copy's place recorded in `tracker-store-squashes/` before bd runs. A copy
+  is kept fourteen days and removed by the first pass after that. A store in
+  use, or written to while it was copied, is a skip with the copy removed, and
+  the next pass tries again. A measurement on which any stage changed an item or
+  a note squashes nothing, and the pass files one warning for the development
+  manager naming the stage and the items; later passes on the same measurement
+  file nothing more. bd holds its lock on the store for the whole squash, so
+  every other tracker call waits behind it, and one whose own limit runs out
+  first fails and is tried again by its caller. The step says how long the
+  squash held the store and how long the same squash took on the measured copy,
+  which is the figure to read beforehand; bd is stopped after twenty minutes. A
+  squash bd failed or that was stopped is a failure of the pass, and its copy is
+  what the store is restored from.
 - **rebuild** — what the supervisor's rebuilder last came to. It builds the
   binary on its own thirty-second look when the branch lands something the
   binary is made of (above), so a deploy has a build to take up.

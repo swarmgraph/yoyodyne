@@ -756,6 +756,15 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 		}
 		pass.Measurer = beads.Client{Runner: p.runner, Dir: repository}
 		pass.Measurements = measurements
+		squashes, err := runstate.NewTrackerStoreSquashStore(p.stateRoot, productID)
+		if err != nil {
+			return nil, nil, err
+		}
+		pass.Squasher = beads.Client{Runner: p.runner, Dir: repository}
+		pass.Squashes = squashes
+		pass.Reports = reports
+		pass.RepositoryID = string(p.resolved.Config.Product.RepositoryID)
+		pass.Build = buildinfo.Commit()
 	}
 	return append(residents, pass), pass, nil
 }
