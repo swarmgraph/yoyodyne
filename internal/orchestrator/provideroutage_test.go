@@ -331,6 +331,9 @@ func TestADispatchIntoAnExpiredLoginIsAWaitRatherThanAFailure(t *testing.T) {
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
 	provider := &orchestratortest.Backend{ReportedAvailability: backend.Availability{Installed: true, Authenticated: false, AuthMethod: "none"}}
 	pipeline, _ := newPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	// The provider here answers only as a developer, so the review every run
+	// earns is put to one that approves.
+	pipeline.Reviewer = approvingReviewer()
 	outages := newOutageStore(t)
 	pipeline.ProviderOutages = outages
 

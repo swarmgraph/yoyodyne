@@ -96,7 +96,7 @@ type parityScenario struct {
 //
 // They are the same constants the declarative path names a run's boundaries
 // with rather than a second copy: what this harness measures and what a real run
-// is observed against have to be the same seven states or one of them is
+// is observed against have to be the same eight states or one of them is
 // measuring a definition nobody runs.
 const (
 	parityClaim     = deliveryClaim
@@ -104,6 +104,7 @@ const (
 	parityCheck     = deliveryCheck
 	parityReview    = deliveryReview
 	parityIntegrate = deliveryIntegrate
+	parityPublish   = deliveryPublish
 	parityComplete  = deliveryComplete
 	parityCleanUp   = deliveryCleanUp
 )
@@ -152,6 +153,11 @@ func parityScenarios() []parityScenario {
 				{parityClaim, "claimed"},
 				{parityDevelop, "produced"},
 				{parityCheck, "passed"},
+				// The same independent review the automatic loop buys, and in place of
+				// the promotion the publication that hands the approved change to the
+				// person who merges it.
+				{parityReview, "approved"},
+				{parityPublish, "published"},
 				// The same completing step the automatic loop performs, doing less of
 				// it: nothing was promoted, so the outcome is recorded on the item and
 				// the run is priced, and the item is neither closed nor cleaned up
@@ -467,23 +473,28 @@ func parityScenarios() []parityScenario {
 // person approves, and the way to drive the real pipeline into it.
 //
 // They exist because the baseline records exactly one path through
-// `delivery-human-approval.yaml` — the change that passes — so the three
-// outcomes the check state routes anywhere else would otherwise be a claim
+// `delivery-human-approval.yaml` — the change that passes and is approved — so
+// the outcomes the check state routes anywhere else would otherwise be a claim
 // about the pipeline with nothing behind it. That is the one thing a definition
 // must not be, so rather than assert where they go, each one is driven through
-// the real non-automatic pipeline and the definition's destination is held
-// against what the run actually left behind.
+// the real non-automatic pipeline and the definition's path is held against
+// what the run actually did and left behind.
 //
 // Driven rather than recorded is deliberate: the traces under testdata/baseline
 // are the 211 baseline's artifact, and adding to them is re-recording somebody
 // else's frozen document. What these produce is the same evidence, read in the
 // same test that uses it.
 type humanApprovalStoppage struct {
-	// outcome is what `candidate.check` produced, in the definition's own
-	// vocabulary.
+	// outcome names the stoppage by the outcome its last check produced, in the
+	// definition's own vocabulary.
 	outcome string
 	// what names the stoppage in a failure.
 	what string
+	// handedBack is whether the stoppage is repair input: a failing check and a
+	// refused change go back to the developer until the shared repair budget is
+	// spent, exactly as under automatic integration, and a suite the machine
+	// could not run is not repair input and ends the run on its first round.
+	handedBack bool
 	// drive runs the real non-automatic pipeline into it.
 	drive func(t *testing.T) *baselineFixture
 }
@@ -491,8 +502,9 @@ type humanApprovalStoppage struct {
 func humanApprovalStoppages() []humanApprovalStoppage {
 	return []humanApprovalStoppage{
 		{
-			outcome: "failed",
-			what:    "a configured check that ran and failed",
+			outcome:    "failed",
+			what:       "a configured check that ran and failed",
+			handedBack: true,
 			drive: func(t *testing.T) *baselineFixture {
 				t.Helper()
 				fixture := newBaselineFixture(t, baselineItem())
@@ -502,8 +514,9 @@ func humanApprovalStoppages() []humanApprovalStoppage {
 			},
 		},
 		{
-			outcome: "refused",
-			what:    "a change touching an upstream artifact home the item never granted",
+			outcome:    "refused",
+			what:       "a change touching an upstream artifact home the item never granted",
+			handedBack: true,
 			drive: func(t *testing.T) *baselineFixture {
 				t.Helper()
 				fixture := newBaselineFixture(t, baselineItem())
@@ -542,17 +555,17 @@ func (r refusingChecks) Run(_ context.Context, request checks.Request, _ func(ex
 }
 
 // TestHumanApprovalDefinitionEndsAStoppedRunWhereThePipelineLeavesIt holds the
-// three unrecorded transitions to the runs they describe.
+// unrecorded check outcomes to the runs they describe.
 //
-// The terminal is derived from what the run left rather than read from the
-// file, so this fails if the definition sends one of them somewhere whose own
-// account of what survives is not what survived.
+// The path is built from what the run did — one developer invocation for the
+// first attempt and one for each repair the run recorded — and the terminal is
+// derived from what the run left rather than read from the file, so this fails
+// if the definition sends one of them somewhere the run did not go.
 func TestHumanApprovalDefinitionEndsAStoppedRunWhereThePipelineLeavesIt(t *testing.T) {
 	t.Parallel()
 
 	graph := parityGraph(t, HumanApprovalWorkflowID)
-	node, isAState := graph.Node(parityCheck)
-	if !isAState {
+	if _, isAState := graph.Node(parityCheck); !isAState {
 		t.Fatalf("the %s definition declares no %q state", HumanApprovalWorkflowID, parityCheck)
 	}
 
@@ -565,23 +578,32 @@ func TestHumanApprovalDefinitionEndsAStoppedRunWhereThePipelineLeavesIt(t *testi
 				t.Fatalf("Load() error = %v", err)
 			}
 
-			// What the run actually did, in the four parts that tell one ending
-			// from another.
 			succeeded := state.Status == runstate.StatusSucceeded
 			if succeeded {
 				t.Errorf("%s left the run succeeded; the gate did not stop it", stoppage.what)
 			}
 			developed := 0
+			reviewed := 0
 			for _, invocation := range fixture.invocations() {
-				if strings.HasPrefix(invocation, "developer:") {
+				switch {
+				case strings.HasPrefix(invocation, "developer:"):
 					developed++
+				case strings.HasPrefix(invocation, "reviewer:"):
+					reviewed++
 				}
 			}
-			if developed != 1 {
-				t.Errorf("%s cost %d developer invocation(s); a run on this path is never handed anything back", stoppage.what, developed)
+			if reviewed != 0 {
+				t.Errorf("%s was reviewed %d time(s); a change the gate stops is never shown to the reviewer", stoppage.what, reviewed)
 			}
-			if state.RepairAttempts != 0 {
-				t.Errorf("%s spent repair_attempts = %d; there is no repair loop on this path", stoppage.what, state.RepairAttempts)
+			// The shared fixture's execution.repair_attempts_before_replan.
+			budget := state.RepairBudget(2)
+			wantRepairs := 0
+			if stoppage.handedBack {
+				wantRepairs = budget
+			}
+			if state.RepairAttempts != wantRepairs || developed != wantRepairs+1 {
+				t.Errorf("%s spent repair_attempts = %d over %d developer invocation(s), want %d repair(s) on the same budget automatic integration spends",
+					stoppage.what, state.RepairAttempts, developed, wantRepairs)
 			}
 			if state.WorktreePath == "" || state.Branch == "" {
 				t.Errorf("%s left no worktree or branch on the record (%q, %q)", stoppage.what, state.WorktreePath, state.Branch)
@@ -591,27 +613,20 @@ func TestHumanApprovalDefinitionEndsAStoppedRunWhereThePipelineLeavesIt(t *testi
 					stoppage.what, state.WorktreeRemoved, state.BranchRemoved)
 			}
 
-			destination, handled := node.Next(stoppage.outcome)
-			if !handled {
-				t.Fatalf("the %q state routes no %q outcome, and %s produces one", parityCheck, stoppage.outcome, stoppage.what)
+			steps := []parityStep{{parityClaim, "claimed"}}
+			for round := 0; round < state.RepairAttempts; round++ {
+				steps = append(steps, parityStep{parityDevelop, "produced"}, parityStep{parityCheck, stoppage.outcome})
 			}
-			if !destination.Terminal {
-				t.Fatalf("the %q state sends %q to %q, which is a state; %s ends the run", parityCheck, stoppage.outcome, destination.Name, stoppage.what)
+			last := stoppage.outcome
+			if stoppage.handedBack {
+				last += "-unrepaired"
 			}
+			steps = append(steps, parityStep{parityDevelop, "produced"}, parityStep{parityCheck, last})
 			want := terminalTheRunEarned(fixture.tracker.Record().Closed, fixture.tracker.Record().Blocked, succeeded)
-			if destination.Name != want {
-				t.Errorf("the %q state sends %q to %q, and the run %s left is a %q one: closed=%t blocked=%t succeeded=%t",
-					parityCheck, stoppage.outcome, destination.Name, stoppage.what, want,
-					fixture.tracker.Record().Closed, fixture.tracker.Record().Blocked, succeeded)
-			}
 			walkTranscript(t, parityScenario{
 				trace:    "human-approval-" + stoppage.outcome,
 				workflow: HumanApprovalWorkflowID,
-				steps: []parityStep{
-					{parityClaim, "claimed"},
-					{parityDevelop, "produced"},
-					{parityCheck, stoppage.outcome},
-				},
+				steps:    steps,
 				terminal: want,
 			})
 		})
@@ -673,15 +688,18 @@ func TestBuiltinDeliveryDefinitionsCompile(t *testing.T) {
 	}
 }
 
-// TestBuiltinDeliveryDefinitionsSelectEveryRegisteredStepButPublishing names the
-// registered steps no built-in definition selects.
+// TestBuiltinDeliveryDefinitionsSelectEveryRegisteredStep names the registered
+// steps no built-in definition selects, which is none.
 //
-// There is exactly one and it is deliberate: `candidate.develop` ends by calling
-// publishAttempt, so a definition that also selected `candidate.publish` would
-// publish every attempt twice. Pinning the list is what keeps that a decision
-// rather than an omission -- a step that stops being selected shows up here
-// instead of as a sequence quietly missing a stage.
-func TestBuiltinDeliveryDefinitionsSelectEveryRegisteredStepButPublishing(t *testing.T) {
+// `candidate.publish` is selected by the human-approval definition alone, after
+// the review: there `candidate.develop` publishes nothing, so the pull request a
+// person merges from is opened for an approved change. delivery.yaml still
+// leaves it out, because its `candidate.develop` ends by calling publishAttempt
+// and selecting it too would publish every attempt twice. Pinning the list is
+// what keeps a step nothing selects a decision rather than an omission -- a step
+// that stops being selected shows up here instead of as a sequence quietly
+// missing a stage.
+func TestBuiltinDeliveryDefinitionsSelectEveryRegisteredStep(t *testing.T) {
 	t.Parallel()
 
 	selected := map[string]bool{}
@@ -705,7 +723,7 @@ func TestBuiltinDeliveryDefinitionsSelectEveryRegisteredStepButPublishing(t *tes
 			unselected = append(unselected, name)
 		}
 	}
-	want := []string{"candidate.publish"}
+	var want []string
 	if !slices.Equal(unselected, want) {
 		t.Errorf("the built-in definitions select every registered step except %v; they leave out %v", want, unselected)
 	}

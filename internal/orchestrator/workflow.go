@@ -119,6 +119,11 @@ var deliveryAnswers = map[string][]string{
 	"candidate.develop": {"produced", "reissued", "relaunches-spent", "stopped"},
 	"candidate.check":   {"failed", "failed-unrepaired", "passed", "refused", "refused-unrepaired", "unrunnable"},
 	"candidate.review":  {"approved", "changes-requested", "stopped", "unresolved"},
+	// Selected only by the human-approval definition, where it stands in for the
+	// promotion: the approved change is published for a person to merge, its
+	// whole-module checks fail and send it back to the check as a superseded
+	// promotion does, or the publication fails and the run ends.
+	"candidate.publish": {"published", "stopped", "superseded"},
 	// "reconciling" is a replay conflict handed back to the developer that wrote
 	// the change, which re-earns the whole gate from the developer's own state.
 	// The built-in routes it to `develop`. A project's own copy made before that
@@ -290,10 +295,9 @@ func compileDeliveryWith(sequence deliverySequence, registry action.Registry[*ac
 // It is a subset rather than an equality, and the asymmetry is deliberate. An
 // outcome nothing produces is a transition nothing ever takes, which is worth
 // refusing because it reads as a case somebody covered. An outcome a step can
-// produce and this definition does not route is a different thing: the
-// human-approval sequence has no repair loop, so neither of the two budget-spent
-// outcomes can arise in it, and demanding it route them would be demanding a
-// destination for something that cannot happen. What the run would do with an
+// produce and this definition does not route is a different thing: a project's
+// own copy written before the step gained that outcome is one, and refusing it
+// would refuse a file that was correct when it was written. What the run would do with an
 // unrouted outcome is stop where it stands and say so, which is the executor's
 // answer rather than a defect in the file.
 //

@@ -153,9 +153,10 @@ execution:
 # goal it serves having been approved, and a project approving no goals has
 # nothing for it to rest on.
 #
-# Integration is conservative: a project opts in to automatic integration, which
-# the harness then refuses unless deterministic checks and a reviewer agent
-# exist. Publishing is opted in to separately and for the same reason: pushing a
+# Integration is conservative: a project opts in to automatic integration. Under
+# either setting every change is checked and reviewed, and its failures go back
+# to the developer, so the harness refuses a run unless deterministic checks and
+# a reviewer agent exist; "human" withholds only the merge. Publishing is opted in to separately and for the same reason: pushing a
 # branch and opening a pull request is visible outside the machine the harness
 # runs on, so a project says so rather than inheriting it.
 #
