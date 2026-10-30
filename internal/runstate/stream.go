@@ -299,6 +299,10 @@ type streamEntry struct {
 	id      string
 	path    string
 	updated time.Time
+	// size is the log's length when it was listed, which with updated is what
+	// says a kept spend entry was made from the log as it stands
+	// (streamspendindex.go).
+	size int64
 }
 
 func (s *StreamStore) entries(kind StreamKind, match string) ([]streamEntry, error) {
@@ -329,7 +333,7 @@ func (s *StreamStore) entries(kind StreamKind, match string) ([]streamEntry, err
 		if err != nil {
 			return nil, fmt.Errorf("inspect event log: %w", err)
 		}
-		found = append(found, streamEntry{kind: kind, id: id, path: filepath.Join(root, name), updated: info.ModTime()})
+		found = append(found, streamEntry{kind: kind, id: id, path: filepath.Join(root, name), updated: info.ModTime(), size: info.Size()})
 	}
 	return found, nil
 }
@@ -630,8 +634,7 @@ type SpendQuery struct {
 	// exchange round at or after it is counted into SpendReport.Rolling as well
 	// as into its own day's row. It is how a surface that wants both — the
 	// dashboard's spend box, which shows the last 24 hours beside the last
-	// thirty local days — pays for one read of the logs rather than two, since
-	// pricing a stream reads the whole of its log whatever window is asked for.
+	// thirty local days — pays for one pass over the streams rather than two.
 	Since time.Time
 	// Now is the moment the window is measured back from, so a report is a
 	// function of its inputs rather than of when it happened to be asked for.
@@ -919,10 +922,15 @@ func isPricedKind(kind StreamKind) bool {
 // spent on, because what an operator budgets against is what today cost and the
 // day they mean is the one their own clock is keeping.
 //
-// Every selected stream is read whatever day it opened on, because the window is
-// about when the money was spent and a stream that opened before it can still
-// have spent inside it. Only the rows a stream yields are held against the
-// window.
+// Every selected stream is considered whatever day it opened on, because the
+// window is about when the money was spent and a stream that opened before it
+// can still have spent inside it. Only the rows a stream yields are held
+// against the window.
+//
+// A finished stream's log is read once and what it spent kept
+// (streamspendindex.go): later reports read what was kept, and only for the
+// streams whose spend reaches into the window. The logs read are the streams
+// still going, and the ones finished since the last report.
 func (s *StreamStore) Spend(query SpendQuery) (SpendReport, error) {
 	found, err := s.choose(StreamQuery{Kinds: query.kinds(), Match: query.Match})
 	if err != nil {
@@ -933,10 +941,39 @@ func (s *StreamStore) Spend(query SpendQuery) (SpendReport, error) {
 		report.Days = query.Days
 		report.Oldest = oldestLocalDay(query.Now, query.Days)
 	}
+	window := windowOf(query, report)
+	kept := s.keptSpend()
+	keptChanged := false
+	var runs runIndex
+	if query.covers(StreamRun) {
+		// Which runs have finished is the run index's answer, so no run record
+		// is read to decide whether its log's spend can be kept.
+		if runs, err = s.runs.runIndex(); err != nil {
+			return SpendReport{}, err
+		}
+	}
 	var current map[string]ConversationIdentity
 	for _, entry := range found {
 		if current, err = s.currentFor(entry, current); err != nil {
 			return SpendReport{}, err
+		}
+		header, known := kept.Streams[keptStreamKey(entry.kind, entry.id)]
+		known = known && header.unchanged(entry)
+		if status, done := s.finished(entry, current, runs, header, known); done && known {
+			stream := Stream{ID: entry.id, Kind: entry.kind, Path: entry.path, Status: status, Updated: entry.updated, Events: header.Events, StartedAt: header.StartedAt}
+			if !header.Earliest.IsZero() {
+				report.reachingDay(LocalDay(header.Earliest))
+			}
+			if window.outside(header) {
+				continue
+			}
+			if invocations, err := s.keptCalls(entry); err == nil {
+				report.take(spendByDay(stream, invocations))
+				report.roll(query.Since, func() []SpendRow {
+					return spendByDay(stream, invocationsFrom(invocations, query.Since))
+				})
+				continue
+			}
 		}
 		// One pass over each log: what the row says about the stream and every
 		// terminal it holds come out of the same read.
@@ -944,12 +981,23 @@ func (s *StreamStore) Spend(query SpendQuery) (SpendReport, error) {
 		if err != nil {
 			return SpendReport{}, err
 		}
+		if keepable(stream) {
+			if header, err := s.keep(entry, stream, scanned); err == nil {
+				kept.Streams[keptStreamKey(entry.kind, entry.id)] = header
+				keptChanged = true
+			}
+		}
 		rows := spendByDay(stream, scanned.invocations)
 		report.reaching(rows)
 		report.take(rows)
 		report.roll(query.Since, func() []SpendRow {
 			return spendByDay(stream, invocationsFrom(scanned.invocations, query.Since))
 		})
+	}
+	// What was kept is what lets the next report skip the logs; failing to
+	// write it costs that report a read, not this one its answer.
+	if keptChanged {
+		_ = s.writeKeptSpend(kept)
 	}
 	if query.covers(StreamExchange) {
 		if err := s.spendOnExchanges(query.Match, query.Since, &report); err != nil {
@@ -987,9 +1035,15 @@ func (r *SpendReport) reaching(rows []SpendRow) {
 		if row.Day == UndatedDay {
 			continue
 		}
-		if r.Reaches == "" || row.Day < r.Reaches {
-			r.Reaches = row.Day
-		}
+		r.reachingDay(row.Day)
+	}
+}
+
+// reachingDay is reaching for one day, which is all a kept stream outside the
+// window has to say: the day of its earliest dated call.
+func (r *SpendReport) reachingDay(day string) {
+	if r.Reaches == "" || day < r.Reaches {
+		r.Reaches = day
 	}
 }
 

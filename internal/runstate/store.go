@@ -76,6 +76,10 @@ type Store struct {
 	// It is a field only so a test can change the host name between a launch
 	// and its recovery, as joining another network does on macOS.
 	hostname func() (string, error)
+	// reading, where it is set, is one reading's memory of the listings it has
+	// already made (OneReading). It is nil in every store but the ones a
+	// reading opens for itself.
+	reading *oneReading
 }
 
 type ExistingWorkItemError struct {
@@ -314,6 +318,11 @@ func (s *Store) reserve(ctx context.Context, state State, full func(active []Sta
 	if err := s.validateState(state); err != nil {
 		return nil, err
 	}
+	// The index is brought up to date before the lock is taken, so whatever
+	// it has to read is read with no reservation waiting on it.
+	if _, err := s.runIndex(); err != nil {
+		return nil, fmt.Errorf("read the run index before reserving: %w", err)
+	}
 	release, err := s.lockReservations(ctx)
 	if err != nil {
 		return nil, err
@@ -438,6 +447,11 @@ func (s *Store) ReclaimSlot(ctx context.Context, state State, maxConcurrent int)
 	if state.DependencyPause == nil {
 		return state, nil
 	}
+	// The index is brought up to date before the lock is taken, so whatever
+	// it has to read is read with no reservation waiting on it.
+	if _, err := s.runIndex(); err != nil {
+		return state, fmt.Errorf("read the run index before reserving: %w", err)
+	}
 	release, err := s.lockReservations(ctx)
 	if err != nil {
 		return state, err
@@ -483,6 +497,12 @@ func (s *Store) ReserveLive(ctx context.Context, live State, maxConcurrent int) 
 	if maxConcurrent < 1 {
 		return errors.New("max concurrent developers must be greater than zero")
 	}
+	if live.HoldsDeveloperSlot() {
+		// As in reserve, the index is brought up to date before the lock.
+		if _, err := s.runIndex(); err != nil {
+			return fmt.Errorf("read the run index before reserving: %w", err)
+		}
+	}
 	release, err := s.lockReservations(ctx)
 	if err != nil {
 		return err
@@ -514,6 +534,11 @@ func (s *Store) ReserveLive(ctx context.Context, live State, maxConcurrent int) 
 func (s *Store) Adopt(ctx context.Context, workItemID string) (State, *Lease, error) {
 	if strings.TrimSpace(workItemID) == "" {
 		return State{}, nil, errors.New("work item id is required")
+	}
+	// The index is brought up to date before the lock is taken, so whatever
+	// it has to read is read with no reservation waiting on it.
+	if _, err := s.runIndex(); err != nil {
+		return State{}, nil, fmt.Errorf("read the run index before reserving: %w", err)
 	}
 	release, err := s.lockReservations(ctx)
 	if err != nil {
@@ -687,23 +712,26 @@ func (s *Store) Create(state State) error {
 	if err != nil {
 		return err
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("run %s already exists", state.RunID)
+	// The index is kept in step in the same act (runindex.go).
+	return s.writeIndexed(state, func() error {
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return fmt.Errorf("run %s already exists", state.RunID)
+			}
+			return fmt.Errorf("create run state: %w", err)
 		}
-		return fmt.Errorf("create run state: %w", err)
-	}
-	if err := writeJSONFile(file, "run state", state); err != nil {
-		return cleanupFailedCreate(file, path, err)
-	}
-	if err := file.Close(); err != nil {
-		return cleanupFailedCreate(nil, path, fmt.Errorf("close run state: %w", err))
-	}
-	if err := syncDirectory(s.root); err != nil {
-		return cleanupFailedCreate(nil, path, err)
-	}
-	return nil
+		if err := writeJSONFile(file, "run state", state); err != nil {
+			return cleanupFailedCreate(file, path, err)
+		}
+		if err := file.Close(); err != nil {
+			return cleanupFailedCreate(nil, path, fmt.Errorf("close run state: %w", err))
+		}
+		if err := syncDirectory(s.root); err != nil {
+			return cleanupFailedCreate(nil, path, err)
+		}
+		return nil
+	})
 }
 
 // Save replaces a run's whole record. Under the run's write lock it compares
@@ -771,27 +799,30 @@ func (s *Store) writeState(state State) error {
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("load existing run state before save: %w", err)
 	}
-	temporary, err := os.CreateTemp(s.root, ".state-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary run state: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary run state: %w", err)
-	}
-	if err := writeJSONFile(temporary, "run state", state); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary run state: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace run state: %w", err)
-	}
-	return syncDirectory(s.root)
+	// The index is kept in step in the same act (runindex.go).
+	return s.writeIndexed(state, func() error {
+		temporary, err := os.CreateTemp(s.root, ".state-*.tmp")
+		if err != nil {
+			return fmt.Errorf("create temporary run state: %w", err)
+		}
+		temporaryPath := temporary.Name()
+		defer os.Remove(temporaryPath)
+		if err := temporary.Chmod(0o600); err != nil {
+			temporary.Close()
+			return fmt.Errorf("secure temporary run state: %w", err)
+		}
+		if err := writeJSONFile(temporary, "run state", state); err != nil {
+			temporary.Close()
+			return err
+		}
+		if err := temporary.Close(); err != nil {
+			return fmt.Errorf("close temporary run state: %w", err)
+		}
+		if err := os.Rename(temporaryPath, path); err != nil {
+			return fmt.Errorf("replace run state: %w", err)
+		}
+		return syncDirectory(s.root)
+	})
 }
 
 // Load reads one run record for a caller that is about to act on it, which is
@@ -873,8 +904,13 @@ func (s *Store) load(runID string, tolerateUnknownFields bool) (State, error) {
 // gives that word. It is what the status surface counts as running and what the
 // scheduler reads for the slots and epics already taken, so the predicate is the
 // status's own rather than this listing's.
+//
+// The index chooses the records (runindex.go), so only the runs it names as in
+// flight are read, never every record kept.
 func (s *Store) Incomplete() ([]State, error) {
-	return s.scan("incomplete", func(state State) bool { return state.Status.InFlight() })
+	return s.remembered(&s.readingOf().incomplete, func() ([]State, error) {
+		return s.indexed("incomplete", func(entry runIndexEntry) bool { return entry.InFlight }, mayBeGoing, func(state State) bool { return state.Status.InFlight() })
+	}, func(state State) bool { return state.Status.InFlight() })
 }
 
 // Outstanding lists every recorded run that still owes a step. That is a
@@ -882,15 +918,23 @@ func (s *Store) Incomplete() ([]State, error) {
 // the cleanup its integration scheduled, which is exactly what an interrupted
 // process leaves behind between integrating and cleaning up.
 func (s *Store) Outstanding() ([]State, error) {
-	return s.scan("outstanding", func(state State) bool { return state.Outstanding() })
+	return s.remembered(&s.readingOf().outstanding, func() ([]State, error) {
+		return s.indexed("outstanding", func(entry runIndexEntry) bool { return entry.Outstanding }, mayBeGoing, func(state State) bool { return state.Outstanding() })
+	}, func(state State) bool { return state.Outstanding() })
 }
 
 // Recorded lists every run the harness holds for this product, whatever became
 // of them. It is for a reader that has to notice change rather than act on it —
 // the reporting sink is the first — and it decides nothing about what it reads:
 // a run a live process owns is listed exactly as a finished one is.
+//
+// It decodes every record, so it is not for a routine question the index
+// answers: Incomplete, Outstanding, and Runs are.
 func (s *Store) Recorded() ([]State, error) {
-	return s.scan("recorded", func(State) bool { return true })
+	reading := s.readingOf()
+	return reading.recorded.once(func() ([]State, error) {
+		return s.scan("recorded", func(State) bool { return true })
+	})
 }
 
 // Runs lists every run recorded for one work item, most recently started first,
@@ -913,7 +957,7 @@ func (s *Store) Runs(workItemID string) ([]State, error) {
 	if id == "" {
 		return nil, errors.New("a work item is required to find its runs")
 	}
-	states, err := s.scan("recorded", func(state State) bool { return state.WorkItemID == id })
+	states, err := s.itemRuns(id)
 	if err != nil {
 		return nil, err
 	}
@@ -991,7 +1035,7 @@ func (s *Store) ReviewRounds(workItemID string) (int, error) {
 	if id == "" {
 		return 0, errors.New("a work item is required to count its review rounds")
 	}
-	states, err := s.scan("recorded", func(state State) bool { return state.WorkItemID == id })
+	states, err := s.itemRuns(id)
 	if err != nil {
 		return 0, err
 	}
@@ -1024,6 +1068,20 @@ type Unreadable struct {
 func (s *Store) RecordedReadable() ([]State, []Unreadable, error) {
 	return s.scanning("recorded", func(State) bool { return true }, true)
 }
+
+// itemRuns is every run recorded for one work item, in run order, read from the
+// records the index names for it.
+func (s *Store) itemRuns(id string) ([]State, error) {
+	keep := func(state State) bool { return state.WorkItemID == id }
+	if recorded, ok := s.readingOf().recorded.held(); ok {
+		return filterStates(recorded, keep), nil
+	}
+	return s.indexed("recorded", func(entry runIndexEntry) bool { return entry.WorkItemID == id }, func(left unreadableRun) bool { return left.mayBelongTo(id) }, keep)
+}
+
+// mayBeGoing is an unreadable record a listing of runs in flight, or of runs
+// owing a step, cannot step over: one whose status does not say it ended.
+func mayBeGoing(left unreadableRun) bool { return !left.ended() }
 
 func (s *Store) scan(label string, keep func(State) bool) ([]State, error) {
 	states, _, err := s.scanning(label, keep, false)

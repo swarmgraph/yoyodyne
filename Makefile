@@ -310,7 +310,7 @@ DOCUMENT_TESTS = $(DOCCHECK_TESTS) \
 	./internal/protectedpath='^(TestNoGrantOpensTheWholeRepository)$$' \
 	./internal/readmodel='^(TestALaneReportWithARetiredWordIsFlaggedWithoutChangingTheRecord|TestTheAttentionLineFlagsARolesWords|TestTheSummaryReadsInOrdinaryWordsAndKeepsTheDetailBehindIt|TestWordingRenderIsRepeatableAndKeepsTheOriginalText)$$' \
 	./internal/rolecapability='^(TestEveryInventoriedCheckIsExpressedOrNamedAsAGap)$$' \
-	./internal/runstate='^(TestEveryStrictDecodeIsAWriterOrAValidator|TestNoRunRecordWriterOutsideThisPackageIsUnlisted|TestOnlyTheCommandLineRecordsARoleActivation|TestOnlyTheCommandLineWritesARecordedHumanAct|TestTheOutsideSweepFailsAListedEntryWithNoSite|TestTheOutsideSweepNamesEachAddedSite)$$' \
+	./internal/runstate='^(TestEveryStrictDecodeIsAWriterOrAValidator|TestNoRoutineReaderReadsEveryRunRecordUnlisted|TestNoRunRecordWriterOutsideThisPackageIsUnlisted|TestOnlyTheCommandLineRecordsARoleActivation|TestOnlyTheCommandLineWritesARecordedHumanAct|TestTheBoundedReadSweepNamesAnAddedReader|TestTheOutsideSweepFailsAListedEntryWithNoSite|TestTheOutsideSweepNamesEachAddedSite)$$' \
 	./internal/slack='^(TestEverySlackPostFlagsRetiredWordsEvenWithoutATracker)$$' \
 	./internal/toolcatalog='^(TestTheToolsSectionUsesOrdinaryWords)$$'
 

@@ -912,6 +912,7 @@ const maxUndecidedReportAge = 7 * 24 * time.Hour
 // the missing quarter says so.
 func ReadStanding(ctx context.Context, sources Sources) Standing {
 	now := sources.now()
+	sources = sources.oneRunReading()
 	// The tracker is asked twice in all, both at once, starting now
 	// (sharedlisting.go).
 	sources, shared := sources.sharing()
@@ -2600,4 +2601,17 @@ func subagentCallsOf(runs any, state runstate.State, present bool, says string) 
 		return said
 	}
 	return says + "; " + said
+}
+
+// oneRunReading is the sources with the run store answering each of its
+// listings once for the whole reading (runstate.Store.OneReading): every
+// section that lists the runs in flight, the runs owing a step, or every run
+// kept is then reading one listing rather than making its own, and all of them
+// the same moment. A store that cannot open a reading of its own, such as a
+// fixture, is used as it is.
+func (s Sources) oneRunReading() Sources {
+	if store, ok := s.Runs.(interface{ OneReading() *runstate.Store }); ok {
+		s.Runs = store.OneReading()
+	}
+	return s
 }
