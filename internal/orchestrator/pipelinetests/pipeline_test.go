@@ -77,6 +77,7 @@ func TestPipelineEndToEndWithFakeBackend(t *testing.T) {
 		}, nil
 	}}
 	pipeline, store := testharness.NewPipeline(t, repository, tracker, provider, []string{"test -f feature.txt"})
+	pipeline.Reviewer = testharness.ApprovingReviewer()
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 	testharness.AssertSavedStopClass(t, store, outcome.RunID, runstate.StopIntegrationPolicy)
@@ -110,7 +111,9 @@ func TestPipelineEndToEndWithFakeBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadEvents() error = %v", err)
 	}
-	if len(events) != 5 || events[len(events)-1].Type != execution.EventCommandCompleted {
+	// The developer's three, the check's two, and the review's two: a change
+	// a person merges is reviewed first.
+	if len(events) != 7 || events[len(events)-1].Type != execution.EventReviewCompleted {
 		t.Fatalf("events = %#v", events)
 	}
 	if _, err := os.Stat(filepath.Join(outcome.WorktreePath, "feature.txt")); err != nil {
@@ -266,6 +269,7 @@ func TestPipelinePricesTheWorkItemWhenARunEnds(t *testing.T) {
 			repository := testharness.PipelineRepository(t)
 			tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Price it", Status: "open"}}
 			pipeline, _ := testharness.NewPipeline(t, repository, tracker, &orchestratortest.Backend{Respond: test.provide}, []string{"exit 0"})
+			pipeline.Reviewer = testharness.ApprovingReviewer()
 			prices := &orchestratortest.Pricer{Cost: beads.Cost{TotalUSD: 27.93, Runs: 2, UnknownRuns: 1}}
 			pipeline.Prices = prices
 
@@ -303,6 +307,7 @@ func TestPipelineReportsAPriceItCouldNotRecordWithoutFailingTheRun(t *testing.T)
 		}, nil
 	}}
 	pipeline, _ := testharness.NewPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	pipeline.Reviewer = testharness.ApprovingReviewer()
 	pipeline.Prices = &orchestratortest.Pricer{Err: errors.New("bd update failed")}
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
