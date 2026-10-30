@@ -3553,6 +3553,11 @@ type State struct {
 	// the claim, it is what says the clear was never confirmed and the item was
 	// left for the next pull.
 	StaleBlockClear *StaleBlockClear `json:"stale_block_clear,omitempty"`
+	// StartingTarget is the target this run's worktree was cut from, whether the
+	// remote was fetched for it, and how old it was where that fetch failed.
+	// Absent is a run with no target branch, and every run recorded before the
+	// fetch before each run was built.
+	StartingTarget *StartingTarget `json:"starting_target,omitempty"`
 	// RepairAttempts counts the repair attempts already handed back to the
 	// developer, whichever kind of failure triggered them: one budget covers
 	// both, so it bounds the developer invocations a run can make rather than

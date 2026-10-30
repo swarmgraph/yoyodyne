@@ -47,7 +47,9 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    run records the override), `refuseSubstitutedHandback`, `validateReadyItem`,
    `refuseUngrantedCondition`, `loadInvariants`, `Worktrees.ValidateReady`,
    `requireBackendReady`, `requireLaunchSettings`, `reserveRun`, `beginDeliveryTrial`, `claim`,
-   `Worktrees.Create`, `liftPreserved`, `prepareScratch`, then `develop` and
+   `fetchTarget` (the target fetched under its promotion lease just before the
+   worktree is cut, `startingtarget.go`), `Worktrees.Create`,
+   `recordStartingTarget`, `liftPreserved`, `prepareScratch`, then `develop` and
    `verifyReviewAndFinish`.
 5. **Continuing a run.** `Pipeline.Continue` (re-enter one named run;
    `ContinuationMismatchError`), `reclaimSlot`, `resumeRun` (picks the step

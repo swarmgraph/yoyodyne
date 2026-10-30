@@ -1454,6 +1454,13 @@ func printRunReasons(writer io.Writer, run runstate.RunSummary) bool {
 		fmt.Fprintf(writer, "  stale blocked status at the claim: %s\n", singleLine(run.StaleBlockClear.Describe()))
 		printed = true
 	}
+	// The target a run started from is said where its fetch failed, because a
+	// run cut from a target older than the remote's is the one a later replay is
+	// explained by; a fetch that worked is the ordinary case and says nothing.
+	if run.StartingTarget != nil && run.StartingTarget.Failure != "" {
+		fmt.Fprintf(writer, "  starting target: %s\n", singleLine(run.StartingTarget.Describe()))
+		printed = true
+	}
 	// Nor is a report or a proposal the harness could not keep: the run delivered
 	// exactly as it would have, and what was lost is beside it. They are printed
 	// because this record is the only place they survive the run — a refused

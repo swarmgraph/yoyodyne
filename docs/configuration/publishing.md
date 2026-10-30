@@ -268,6 +268,18 @@ are swept by `yoyo reconcile`, which also removes the leftover local branches of
 settled runs whose work the target already carries. Catching a branch up takes
 that branch's promotion lease, so it never races a run promoting into it.
 
+The same catch-up is made immediately before every developer run, so a run
+starts from the target the remote has now, other people's merges included,
+rather than from wherever the local branch last stood. If the remote cannot be
+reached, the run starts anyway, from the target the last fetch left. Either
+way the run's record names the commit it started from and whether it was
+fetched for the run, and a note on the work item says the same; where the fetch
+failed, both say why and how long before the run the target was last fetched,
+and `yoyo status` shows it on the run. A catch-up held for one of the reasons
+above starts the run from the local branch as it stands, with the reason named.
+The time of the last successful fetch of each target is kept in the repository
+under `refs/yoyodyne/fetched-target/<branch>`.
+
 Because the forge performs the merge, the harness checks that relationship
 rather than assuming it. Before the merge, the remote target must contain the
 commit your promotion was made from and carry exactly its content — that is what
