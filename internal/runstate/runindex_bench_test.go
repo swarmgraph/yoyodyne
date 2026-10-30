@@ -5,10 +5,11 @@ package runstate
 //
 // The history is the product's own as the outside review found it: 4,420 run
 // records of about ten kilobytes each, a dozen of them in flight, spread over
-// half a year. The event logs are scaled down: the real ones average about a
-// quarter of a megabyte, and writing a gigabyte for every benchmark would make
-// the benchmark the slow part, so each log here holds a tenth of that, and the
-// cost of reading every log scales with what the real ones hold. Run with
+// half a year. Every run has an event log of about 120 kilobytes, about half
+// a gigabyte in all, which is the size of the run logs the product kept when
+// this was written; the conversation logs the review also counted are left
+// out, so the cost of reading every log is if anything understated. Writing
+// that history takes a minute or two before each spend benchmark. Run with
 //
 //	go test ./internal/runstate -run '^$' -bench 'RoutineReads' -benchtime 3x
 //
@@ -47,7 +48,7 @@ func benchHistory(b *testing.B, withLogs bool) (*Store, *StreamStore, time.Time)
 	}
 	now := time.Date(2026, 10, 25, 12, 0, 0, 0, time.Local)
 	padding := strings.Repeat("what the run recorded about itself ", 120)
-	chatter := strings.Repeat("a line of what the developer said it was doing ", 80)
+	chatter := strings.Repeat("a line of what the developer said it was doing ", 40)
 	for index := 0; index < benchRuns; index++ {
 		status := StatusSucceeded
 		if index < benchRunsInFlight {
@@ -61,6 +62,7 @@ func benchHistory(b *testing.B, withLogs bool) (*Store, *StreamStore, time.Time)
 			state.CompletedAt = &started
 		}
 		state.WorkItemTitle = padding[:200]
+		state.WorkflowInstanceID = "workflow-" + state.RunID
 		state.WorkflowDivergence = padding
 		encoded, err := encodeRecord("run state", state)
 		if err != nil {

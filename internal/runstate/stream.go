@@ -634,8 +634,7 @@ type SpendQuery struct {
 	// exchange round at or after it is counted into SpendReport.Rolling as well
 	// as into its own day's row. It is how a surface that wants both — the
 	// dashboard's spend box, which shows the last 24 hours beside the last
-	// thirty local days — pays for one read of the logs rather than two, since
-	// pricing a stream reads the whole of its log whatever window is asked for.
+	// thirty local days — pays for one pass over the streams rather than two.
 	Since time.Time
 	// Now is the moment the window is measured back from, so a report is a
 	// function of its inputs rather than of when it happened to be asked for.

@@ -211,7 +211,54 @@ func (s *Store) readRunIndex() (runIndex, bool, error) {
 
 // writeRunIndex replaces the index file. Its callers hold the index's lock.
 func (s *Store) writeRunIndex(index runIndex) error {
-	return replaceJSONFile(s.root, s.runIndexPath(), "run index", index)
+	return replaceIndexFile(s.root, s.runIndexPath(), "run index", index, maxEncodedRunIndexBytes, true)
+}
+
+// replaceIndexFile replaces one index file whole, by a rename, as
+// replaceJSONFile replaces a record. It is apart from that door for two
+// reasons. An index names every run or stream the product keeps, so it is
+// bounded by its own limit rather than by one record's: written through the
+// record's bound, an index past a megabyte would refuse every write that keeps
+// it in step. And it is written compact, since nobody reads it by eye.
+//
+// durable says whether the file and its directory are synced before this
+// returns. The run index is, because an answer chooses records by it; the
+// kept spend is not, because losing it costs only a log read again.
+func replaceIndexFile(directory, path, label string, value any, limit int, durable bool) error {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("encode %s: %w", label, err)
+	}
+	if len(encoded) > limit {
+		return fmt.Errorf("encoded %s is %d bytes, limit is %d", label, len(encoded), limit)
+	}
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return fmt.Errorf("create the directory for %s: %w", label, err)
+	}
+	temporary, err := os.CreateTemp(directory, ".index-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temporary %s: %w", label, err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if _, err := temporary.Write(encoded); err != nil {
+		return errors.Join(fmt.Errorf("write %s: %w", label, err), temporary.Close())
+	}
+	if durable {
+		if err := temporary.Sync(); err != nil {
+			return errors.Join(fmt.Errorf("sync %s: %w", label, err), temporary.Close())
+		}
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close temporary %s: %w", label, err)
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return fmt.Errorf("replace %s: %w", label, err)
+	}
+	if !durable {
+		return nil
+	}
+	return syncDirectory(directory)
 }
 
 // lockRunIndex serializes every change to the index across processes. It is

@@ -6615,11 +6615,15 @@ the run records `yoyo status` derives each run's outcome from; and at
 `/api/spend`, what the harness spent over the last twenty-four hours and the
 last seven local days, with a line for each of the last thirty local days,
 priced by the same reading `yoyo status --spend 30` prints. That third reading
-prices every event log a month holds, which is seconds of work, so the page asks
-for it once a minute rather than every ten seconds — and it is one read of the
-logs rather than two, because pricing a stream reads the whole of its log
-whatever window is asked for, so the rolling day and the days around it come
-off the same pass.
+reads the event log of every stream still going, and of every stream that has
+finished since the last reading; what a finished stream spent is read from its
+log once and kept beside the logs, under `spend-index` in the product's state
+directory, so a later reading opens only the kept spend of the streams that
+spent inside the thirty days or the rolling day, and the rolling day and the
+days around it come off the same pass. The first reading after an upgrade still
+reads every log once, which is seconds of work, and the page asks for it once a
+minute rather than every ten seconds. The kept spend can be deleted at any
+time: the next reading reads the logs again and keeps it afresh.
 
 At `/api/accomplishment` it serves what the spend of the current week and the
 three before it accomplished — each role's passes by what they led to, each

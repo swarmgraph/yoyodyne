@@ -98,7 +98,7 @@ func (s *StreamStore) keptSpend() keptStreams {
 }
 
 func (s *StreamStore) writeKeptSpend(kept keptStreams) error {
-	return replaceJSONFile(s.streamSpendRoot(), filepath.Join(s.streamSpendRoot(), streamSpendHeaderName), "spend index", kept)
+	return replaceIndexFile(s.streamSpendRoot(), filepath.Join(s.streamSpendRoot(), streamSpendHeaderName), "spend index", kept, maxEncodedStreamSpendBytes, false)
 }
 
 // keptCalls reads one finished stream's priced calls.
@@ -128,7 +128,7 @@ func (s *StreamStore) keep(entry streamEntry, stream Stream, scanned streamScan)
 		}
 	}
 	directory := filepath.Dir(s.keptCallsPath(entry.kind, entry.id))
-	if err := replaceJSONFile(directory, s.keptCallsPath(entry.kind, entry.id), "kept stream spend", keptStreamCalls{Invocations: scanned.invocations}); err != nil {
+	if err := replaceIndexFile(directory, s.keptCallsPath(entry.kind, entry.id), "kept stream spend", keptStreamCalls{Invocations: scanned.invocations}, maxEncodedStreamSpendBytes, false); err != nil {
 		return keptStream{}, err
 	}
 	return header, nil
