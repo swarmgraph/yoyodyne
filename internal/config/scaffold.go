@@ -272,13 +272,17 @@ execution:
   # target branch while this one was working -- is replayed onto where the
   # target went and tried again. Every replay re-runs the checks and asks for a
   # fresh independent review, because the change that would now be promoted is
-  # not the one that was approved. Losing the race spends none of this budget,
-  # and a run gives back its developer slot at its fifth lost race, with its
-  # branch and worktree kept for the development manager to decide on. This
-  # bounds only the replays that stop on the change -- one that fails its checks
-  # or draws a repair verdict -- and the one past it stops the run there; at 0
-  # no replay may stop on the change. A replay that conflicts is never
-  # resolved automatically: it stops the run and is left for a person.
+  # not the one that was approved. Losing the race spends none of this budget.
+  # A lost race whose replay applies cleanly and passes its checks is not
+  # counted; a run gives back its developer slot at its fifth counted lost race,
+  # one whose replay conflicted or was stopped on the change, with its branch
+  # and worktree kept for the development manager to decide on. This bounds
+  # only the replays that stop on the change -- one that fails its checks or
+  # draws a repair verdict, or a conflict after the first -- and the one past it
+  # stops the run there; at 0 no replay may stop on the change. A replay that
+  # conflicts is never resolved automatically: it goes back to its developer,
+  # first as the run's one reconciliation attempt, which spends no repair
+  # attempt, then as a repair while one is left, and only then stops the run.
   integration_retries_before_reconciliation: %d
   # A provider invocation that dies without judging the work -- an API error its
   # own retries did not outlast, or a response cut off mid-flight -- is reissued
