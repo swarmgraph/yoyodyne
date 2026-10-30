@@ -924,22 +924,37 @@ func TestAnApprovedChangeStoppedByTheEnvironmentResumesToAMergedPullRequestCharg
 }
 
 // A replay that conflicts is the one outcome that leaves the resumed path, and
-// it leaves it exactly as a first promotion's conflict does. With no repair
-// attempt left to hand it to its developer, the run stops for a person, both
-// sides preserved, with nothing charged and no environmental stop recorded for a
-// conflict the environment does not answer for.
+// it leaves it exactly as a first promotion's conflict does. Its first conflict
+// is answered by the run's one reconciliation attempt, and the target moves
+// again while that is out; with no repair attempt left to hand the second
+// conflict to its developer, the run stops for a person, both sides preserved,
+// with nothing charged and no environmental stop recorded for a conflict the
+// environment does not answer for.
 func TestAResumedPromotionWhoseReplayConflictsStopsForAPersonChargingNothing(t *testing.T) {
 	t.Parallel()
 
 	repository, worktreeRoot, store := restartableFixture(t)
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	developed := 0
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
-		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+		if err := os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600); err != nil {
+			return err
+		}
+		// The reconciliation keeps this run's answer, and main moves onto the same
+		// line again while it is out.
+		if developed++; developed > 1 {
+			writePipelineFile(t, repository, "feature.txt", "someone else's second version\n")
+			runPipelineGit(t, repository, "add", "feature.txt")
+			runPipelineGit(t, repository, "commit", "-m", "a second conflicting edit on main")
+		}
+		return nil
 	}, approveVerdict)
 	dirtying := filepath.Join(repository, "AGENTS.md")
 	serve := provider.Respond
+	reviewed := 0
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
-		if request.Role == domain.RoleReviewer {
+		if request.Role == domain.RoleReviewer && reviewed == 0 {
+			reviewed++
 			if err := os.WriteFile(dirtying, []byte("an edit nobody committed\n"), 0o600); err != nil {
 				return backend.RunResult{}, err
 			}
@@ -999,8 +1014,9 @@ func TestAResumedPromotionWhoseReplayConflictsStopsForAPersonChargingNothing(t *
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if conflicted.Status != runstate.StatusFailed || conflicted.Blocker == "" || conflicted.IntegrationRetries != 1 {
-		t.Fatalf("conflicted run = %s, blocker %q, retries %d; want it stopped on its first replay", conflicted.Status, conflicted.Blocker, conflicted.IntegrationRetries)
+	if conflicted.Status != runstate.StatusFailed || conflicted.Blocker == "" || conflicted.IntegrationRetries != 2 || conflicted.Reconciliation == nil {
+		t.Fatalf("conflicted run = %s, blocker %q, retries %d, reconciliation %#v; want it stopped on its second replay with its reconciliation used",
+			conflicted.Status, conflicted.Blocker, conflicted.IntegrationRetries, conflicted.Reconciliation)
 	}
 	// A conflict is a person's, so it is not recorded as a stop the harness can
 	// resume past; and both sides survive.
@@ -1010,7 +1026,7 @@ func TestAResumedPromotionWhoseReplayConflictsStopsForAPersonChargingNothing(t *
 	if conflicted.WorktreeRemoved || conflicted.BranchRemoved {
 		t.Fatal("the conflicted run's artifacts were removed")
 	}
-	if theirs := gitLine(t, repository, "show", "main:feature.txt"); theirs != "someone else's version" {
+	if theirs := gitLine(t, repository, "show", "main:feature.txt"); theirs != "someone else's second version" {
 		t.Fatalf("main feature.txt = %q, want the target left where it was", theirs)
 	}
 	if conflicted.RepairAttempts != 0 || len(conflicted.RepairContinuations) != 0 {
@@ -1020,7 +1036,7 @@ func TestAResumedPromotionWhoseReplayConflictsStopsForAPersonChargingNothing(t *
 	if err != nil {
 		t.Fatalf("Counters() error = %v", err)
 	}
-	if !reflect.DeepEqual(landed, left) {
+	if landed.ReviewRounds != left.ReviewRounds || landed.CommittedRounds != left.CommittedRounds || !reflect.DeepEqual(landed.Decisions, left.Decisions) {
 		t.Fatalf("the item's triage record moved across a resumption that conflicted:\nleft   %#v\nlanded %#v", left, landed)
 	}
 }

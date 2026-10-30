@@ -556,12 +556,15 @@ and it may not be: the run ahead of it in the queue can have promoted into it,
 and committing to it yourself while a run is working moves it just as
 effectively. The promotion fails closed either way, and the run then replays its
 change onto where the target went, re-runs the checks, and gets a fresh
-independent review before trying again. Losing the race spends no budget: each
-lost race is said in the item's thread as a note, and a run whose replays keep
-passing keeps replaying until it lands or loses its fifth race. At the fifth it
-stops replaying and gives back its developer slot, with its branch and worktree
-kept and the item blocked for the development manager, saying how many races it
-lost.
+independent review before trying again. Each replay is onto the target as it
+stands then. Losing the race spends no budget: each lost race is said in the
+item's thread as a note, and a lost race whose replay applies cleanly and passes
+its checks is not counted as lost, so a run whose replays keep passing keeps
+replaying until it lands. A race whose replay conflicts or is stopped on the
+change is counted, and at the fifth counted race the run stops replaying and
+gives back its developer slot, with its branch and worktree kept and the item
+blocked for the development manager, saying how many races it lost and what
+each replay made of the change.
 `execution.integration_retries_before_reconciliation` bounds only the replays
 that stop on the change — one that conflicts, or is handed back for a failing
 check or a repair verdict — and the replay that takes the count past it stops
@@ -570,8 +573,10 @@ approval never carries over, because the diff it approved is not the one that
 would now be promoted. A replay that conflicts is never
 resolved automatically, and it goes back to the developer that wrote the change
 first: the change is moved onto where the target went with the conflict left in
-the worktree as Git's markers, the same developer session settles it as a repair
-attempt, and the result is checked and reviewed again before it is promoted. The
+the worktree as Git's markers, and the same developer session settles it. The
+first conflict a run meets is its one reconciliation attempt, which spends no
+repair attempt; a later one is a repair attempt. Either way the result is checked
+and reviewed again before it is promoted. The
 [delivery definition](configuration.md#running-a-work-item-against-the-workflow-definition)
 names that hand-back as the `integrate` state's `reconciling` outcome and routes
 it back to `develop`, so a run observed through the built-in definition records

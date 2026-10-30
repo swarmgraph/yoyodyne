@@ -3640,11 +3640,26 @@ type State struct {
 	// one a promotion refused because the target moved, answered by
 	// replaying the change onto where the target went, re-checking it, and
 	// re-reviewing it. It is recorded before the replay begins, so a process that
-	// dies mid-replay comes back to the count it had. It is also what ends a run
-	// that keeps losing: the race that would make the losses reach
-	// lostRacesBeforeGivingBackTheSlot in the orchestrator is not replayed, and
-	// the run stops with its work kept and gives back its developer slot.
+	// dies mid-replay comes back to the count it had. Less CleanReplays, it is
+	// also what ends a run that keeps losing: the race that would make the
+	// counted losses reach lostRacesBeforeGivingBackTheSlot in the orchestrator
+	// is not replayed, and the run stops with its work kept and gives back its
+	// developer slot.
 	IntegrationRetries int `json:"integration_retries,omitempty"`
+	// CleanReplays counts the lost races among IntegrationRetries whose replay
+	// onto the newer target applied cleanly and passed its checks. Those are not
+	// counted toward lostRacesBeforeGivingBackTheSlot (CountedLostLandings), and
+	// a repair continuation clears them with the races they were counted from.
+	CleanReplays int `json:"clean_replays,omitempty"`
+	// LostLandings is the account of each landing this run lost since it last
+	// started again: the base the change was checked on, where the replay moved
+	// it, and what the replay made of it. See landingattempts.go.
+	LostLandings []LostLanding `json:"lost_landings,omitempty"`
+	// Reconciliation is the one attempt this run had to bring its approved change
+	// level with the target branch after it conflicted there at landing, which is
+	// never counted against the repair attempts. Absent is a run that has not
+	// used it.
+	Reconciliation *Reconciliation `json:"reconciliation,omitempty"`
 	// ChargedReplays counts the replays that stopped on the change rather than on
 	// the target: the replay conflicted, or the replayed change was handed back
 	// for a failing check, a refused path, missing verification, or a repair
@@ -4394,6 +4409,7 @@ func (s State) Validate() error {
 	if s.ChargedReplays < 0 {
 		problems = append(problems, errors.New("charged_replays cannot be negative"))
 	}
+	problems = append(problems, s.validateLandingAttempts()...)
 	if s.TransientRelaunches < 0 {
 		problems = append(problems, errors.New("transient_relaunches cannot be negative"))
 	}

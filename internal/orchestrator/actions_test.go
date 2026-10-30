@@ -986,6 +986,8 @@ var notAStep = map[string]string{
 	"endPromotion":               "turns a failed promotion into the run's outcome, through stop where the hosting session cancelled the run for its redeploy and through fail otherwise",
 	"landingAt":                  "notes which step of the landing the run is taking, so a stopped landing's notes can name it",
 	"leftLanding":                "clears that note once the run leaves its landing",
+	"judgeReplay":                "records what a lost landing's replay made of the change on the run's account of its landing attempts",
+	"syncLandingAttempts":        "copies the run's account of its landing attempts onto the outcome its notes are written from",
 	"blockOnFailingCheck":        "hands a spent repair budget to a person",
 	"blockOnRefusedPaths":        "hands a spent repair budget to a person",
 	"blockOnUnresolvedFindings":  "hands a spent repair budget to a person",

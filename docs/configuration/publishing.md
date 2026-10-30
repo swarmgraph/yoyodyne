@@ -401,15 +401,30 @@ replay that passes its checks and is approved is charged nothing, whatever the
 budget says. Every lost race is recorded on the run before its replay begins and
 is said in the item's thread at note severity.
 
-What a lost race does cost is the developer slot the run holds while it
-replays, so a run gives the slot back at its **fifth lost race**. That race is
-not replayed: the run stops with its branch and worktree kept, and the item is
-blocked with a note saying how many races the change lost and that its work is
-kept, which puts it on the development manager's list to decide when it is
-replayed again. Five is four replays, over three hours of one slot re-earning an
-approval the change already had; the number is fixed in the harness
-(`lostRacesBeforeGivingBackTheSlot` in `internal/orchestrator/pipeline.go`) and
-is not a configuration key.
+Each replay is made onto the target as it stands when the race is lost, never
+onto the base the change was last checked on. A lost race whose replay applies
+cleanly onto the newer target and passes its checks is **not counted as lost**:
+the change was sound and level with the target, and only other work landing
+first beat it. Every lost race is recorded on the run (`lost_landings`, with
+`clean_replays` counting the clean ones): the base the change was moved from,
+the commit it was moved onto, and whether the replay applied cleanly, conflicted,
+or was stopped on the change. The run's summary says each of them in plain
+words, and so does the stop reason of a run that stops at landing.
+
+What a counted lost race does cost is the developer slot the run holds while it
+replays, so a run gives the slot back at its **fifth counted lost race** — a
+race whose replay conflicted or was stopped on the change. That race is not
+replayed: the run stops with its branch and worktree kept, and the item is
+blocked with a note saying how many races the change lost, how many of them
+were counted, and that its work is kept, which puts it on the development
+manager's list to decide when it is replayed again. The number is fixed in the
+harness (`lostRacesBeforeGivingBackTheSlot` in
+`internal/orchestrator/pipeline.go`) and is not a configuration key. The races
+are counted from the last time the run started again: a repair the development
+manager decides starts the count from zero, whatever the run stopped on, because
+the slot the earlier races were spending was given back when it stopped. A run
+whose replays keep applying cleanly is not stopped by this limit at all; it
+keeps replaying, and holding its slot, until it lands.
 
 The budget bounds replays that stop on the change instead: one that conflicts,
 and one whose replayed change is handed back for a failing check, a refused
@@ -447,20 +462,27 @@ goes to anybody else. The change is moved onto where the target went, with
 whatever would not merge left in the worktree between Git's own conflict
 markers, and the same developer session is handed the conflict to settle: the
 branch it could not be replayed onto, the commit that branch is at, and the
-paths the replay stopped on. That hand-back is a repair attempt, spent from
-`execution.repair_attempts_before_replan` like any other, and what the
-developer produces goes through the whole gate again — the protected-path
-refusal, the checks, and a fresh independent review — before it is promoted by
-the same fast-forward. A replay conflict on an approved change therefore costs
-a continuation of the session that wrote it rather than a fresh run. The target
+paths the replay stopped on. The first conflict a run meets is handed back as
+the run's one **reconciliation attempt**, whatever repair attempts remain: it is
+recorded on the run (`reconciliation`) before the developer is invoked, and it
+spends neither a repair attempt nor the integration budget, because a run whose
+review rounds used up its repair attempts would otherwise stop with approved work
+it never got to bring level with the target. A later conflict is handed back as
+a repair attempt, spent from `execution.repair_attempts_before_replan` like any
+other. Either way, what the developer produces goes through the whole gate again
+— the protected-path refusal, the checks, and a fresh independent review — before
+it is promoted by the same fast-forward. A replay conflict on an approved change
+therefore costs a continuation of the session that wrote it rather than a fresh
+run. The target
 keeps every commit it has; what the move drops is only the run's own commits,
 whose content is what the developer is handed back as uncommitted work.
 
-A conflict is also a replay that stopped on the change, so it is charged to
-the integration budget above at the same moment, and a run past either budget —
-no repair attempt left, or more conflicting replays than
-`integration_retries_before_reconciliation` permits — stops instead, as every
-conflict did before:
+A conflict after the reconciliation attempt is also a replay that stopped on
+the change, so it is charged to the integration budget above at the same moment,
+and a run past either budget — no repair attempt left, or more conflicting
+replays than `integration_retries_before_reconciliation` permits — stops
+instead, with a stop reason saying the reconciliation attempt was already used,
+as every conflict did before:
 the replay is abandoned, the branch and worktree are left exactly as they were,
 both sides survive, and the blocker on the item names the paths and the target
 commit. The conflict stays on the run's record, so a repair the development

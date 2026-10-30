@@ -973,7 +973,7 @@ func TestPipelineReplacesAPublishedBranchWithTheReconciledReplayConflict(t *test
 	if len(developers) != 2 || developers[1].SessionID != provider.DeveloperSession {
 		t.Fatalf("developer invocations = %d, want the first attempt and one reconciliation in the same session", len(developers))
 	}
-	if !markersSeen || !strings.Contains(developers[1].Prompt, "Integration conflict: repair required") {
+	if !markersSeen || !strings.Contains(developers[1].Prompt, "Integration conflict: bring the change level with the target") {
 		t.Fatalf("the reconciling developer was not handed the conflict (markers seen = %t):\n%s", markersSeen, developers[1].Prompt)
 	}
 	// While the attempt was uncommitted, the worktree stood on the bare target
