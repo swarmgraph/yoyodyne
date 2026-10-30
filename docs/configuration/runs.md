@@ -700,8 +700,10 @@ target the forge protects, replayed the same way and then landed through its
 pull request rather than by a local fast-forward
 ([a protected target lands through its pull request](publishing.md#a-protected-target-lands-through-its-pull-request)).
 A replay that conflicts is handed back to the change's own developer to
-reconcile on top of the target, as a repair attempt that is checked and reviewed
-again, and the run blocks only once a budget is spent. Nothing is ever forced.
+reconcile on top of the target, and the result is checked and reviewed again.
+The first conflict is the run's one reconciliation attempt, which spends no
+repair attempt; a later one is a repair attempt, and the run blocks only once a
+budget is spent. Nothing is ever forced.
 
 Thirteen things keep an item out of a pass, reported at two different grains. The
 first ten are named against the item, because nothing else would report that

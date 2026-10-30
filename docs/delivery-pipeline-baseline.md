@@ -654,8 +654,10 @@ them.
   (`TestPerformingIntegrateRefusesAChangeTheRecordDoesNotShowPassedItsGate`)
   and held by no trace here.
 - A replay that conflicts, which is handed back to the change's own developer
-  as a repair attempt on top of the target (yoyodyne-ifd.132), and blocks with
-  both sides intact only once the repair budget is spent.
+  on top of the target (yoyodyne-ifd.132): the first conflict as the run's one
+  reconciliation attempt, which spends no repair attempt, and a later one as a
+  repair attempt, blocking with both sides intact only once the repair budget is
+  spent.
 - A reviewer's reply that cannot be read as a verdict, which is asked for once
   more and fails the run on the second.
 - **`integrating` rewriting `harness_commit`.** Every trace that carries the

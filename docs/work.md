@@ -573,8 +573,10 @@ approval never carries over, because the diff it approved is not the one that
 would now be promoted. A replay that conflicts is never
 resolved automatically, and it goes back to the developer that wrote the change
 first: the change is moved onto where the target went with the conflict left in
-the worktree as Git's markers, the same developer session settles it as a repair
-attempt, and the result is checked and reviewed again before it is promoted. The
+the worktree as Git's markers, and the same developer session settles it. The
+first conflict a run meets is its one reconciliation attempt, which spends no
+repair attempt; a later one is a repair attempt. Either way the result is checked
+and reviewed again before it is promoted. The
 [delivery definition](configuration.md#running-a-work-item-against-the-workflow-definition)
 names that hand-back as the `integrate` state's `reconciling` outcome and routes
 it back to `develop`, so a run observed through the built-in definition records
