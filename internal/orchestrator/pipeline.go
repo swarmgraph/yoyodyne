@@ -1528,9 +1528,9 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	if err := run.beginDeliveryTrial(); err != nil {
 		return run.fail(err, runstate.StatusFailed)
 	}
-	// A run reserved for a developer slot with an endpoint pair records the slot
-	// and the pair before it claims anything, and starts on the pair's primary
-	// (developerrouting.go). Every other run is left exactly as reserved.
+	// A run reserved for a developer slot records the slot before it claims
+	// anything, and one whose slot has an endpoint pair records the pair too and
+	// starts on its primary (developerrouting.go).
 	if err := run.pinDeveloperRouting(ctx); err != nil {
 		return run.fail(err, runstate.StatusFailed)
 	}

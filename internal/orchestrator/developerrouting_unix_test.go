@@ -668,8 +668,8 @@ func TestALoginRefusalIsNeverAUsageLimitSwitch(t *testing.T) {
 	}
 }
 
-// A project without pairs keeps exactly what it had: no slot, no pinned pair,
-// and no operation on the run's record. A project with a pair on another slot
+// A project without pairs records the slot a run was pulled into and nothing
+// else: no pinned pair and no operation on the run's record. A project with a pair on another slot
 // records the slot a run occupies and nothing more, and invokes the developer
 // it always did.
 func TestRunsOnSlotsWithoutAPairKeepTheirRouting(t *testing.T) {
@@ -710,7 +710,36 @@ func TestRunsOnSlotsWithoutAPairKeepTheirRouting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Routing != nil {
-		t.Fatalf("a project with no pairs recorded routing: %#v", state.Routing)
+	if state.RecordedSlot() != 1 || state.Routing.Developer != nil || len(state.Routing.Operations) != 0 {
+		t.Fatalf("a project with no pairs recorded routing %#v, want the slot the run was pulled into and nothing pinned", state.Routing)
+	}
+}
+
+// A run pulled into a routed slot that turns sub-agents on records that slot,
+// its pair, and its sub-agent setting.
+func TestARunPulledIntoARoutedSlotRecordsItsSubagents(t *testing.T) {
+	t.Parallel()
+	repository, worktreeRoot, store := restartableFixture(t)
+	tracker := routedTracker()
+	claude := newRoutedProvider(domain.BackendClaudeCode, "claude-session", refuseNothing, writeRoutedFeature)
+	codex := newRoutedProvider(domain.BackendCodex, "codex-session", refuseNothing, writeRoutedFeature)
+	slots := routedSlots([2]*domain.EndpointSpec{claudeOpus, claudeSonnet}, [2]*domain.EndpointSpec{claudeOpus, claudeSonnet})
+	on := true
+	slots[1].Subagents = &domain.SlotSubagents{Enabled: &on}
+	pipeline := routedPipeline(t, repository, worktreeRoot, store, tracker, claude, codex, slots)
+
+	outcome, err := pipeline.Run(withDeveloperSlot(context.Background(), 2), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.RecordedSlot() != 2 || state.Routing.Developer == nil || state.Routing.Developer.Slot != 2 {
+		t.Fatalf("routing = %#v, want slot 2 and its pair recorded", state.Routing)
+	}
+	if state.Subagents == nil || !state.Subagents.Enabled || state.Subagents.Origin != "execution.developer_slots slot 2.subagents" {
+		t.Fatalf("recorded sub-agents %+v, want slot 2's setting", state.Subagents)
 	}
 }
