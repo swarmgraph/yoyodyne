@@ -303,6 +303,59 @@ func ParkedRunRefusals(runs []runstate.State) []runstate.UsageLimitExhaustion {
 	return parked
 }
 
+// WindowStoppedRunRefusals is every run the provider's usage window ended
+// rather than parked, each as the refusal it is, in the shape the usage-limit
+// log records one in. A reset past what a run may wait ends the run cancelled
+// and gives its item back, so the run is no longer in flight and
+// ParkedRunRefusals does not see it; its record is then the only durable
+// account of the window, and a reader that skipped it would pull fresh work
+// into the same refusal until the reset.
+//
+// Only a reset the provider named is read. A run that ended on a limit with no
+// reset recorded the harness's next probe in its place, and a probe interval
+// said as the provider's reset would hold work on a time nobody quoted.
+//
+// Every such run is read, not only an item's latest: the window is a fact about
+// the account and model, not about the item, and a later run of the same item
+// that was served is what the capacity evidence lifts it on. The refusal's
+// moment is when the run recorded it, its model is the one the run recorded as
+// refused — or, on a record written before that was carried, the developer's
+// model where the run was developing — and its account is the run's.
+func WindowStoppedRunRefusals(runs []runstate.State) []runstate.UsageLimitExhaustion {
+	var stopped []runstate.UsageLimitExhaustion
+	for _, run := range runs {
+		refused := run.Environmental
+		if !run.Status.Terminal() || refused == nil || refused.Cause != runstate.CauseUsageWindow ||
+			refused.ResetsAt == nil || refused.ResetUnknown {
+			continue
+		}
+		resetsAt := refused.ResetsAt.UTC()
+		refusal := runstate.UsageLimitExhaustion{
+			SchemaVersion: runstate.UsageLimitSchemaVersion,
+			ProductID:     run.ProductID,
+			At:            refused.RecordedAt.UTC(),
+			Waiting:       fmt.Sprintf("run %s of %s", run.RunID, run.WorkItemID),
+			Kind:          strings.TrimSpace(run.UsageLimitKind),
+			ResetsAt:      &resetsAt,
+			WorkItemID:    run.WorkItemID,
+			Model:         strings.TrimSpace(run.UsageLimitModel),
+			AccountAlias:  strings.TrimSpace(run.AccountAlias),
+		}
+		if refusal.Model == "" && run.Phase == runstate.PhaseDeveloping {
+			refusal.Model = strings.TrimSpace(run.ProviderModel)
+		}
+		stopped = append(stopped, refusal)
+	}
+	// Sorted as the parked runs are, so two readings of one store agree.
+	sort.Slice(stopped, func(i, j int) bool {
+		if stopped[i].At.Equal(stopped[j].At) {
+			return stopped[i].WorkItemID < stopped[j].WorkItemID
+		}
+		return stopped[i].At.Before(stopped[j].At)
+	})
+	return stopped
+}
+
 func parkedRunRefusal(run runstate.State) (runstate.UsageLimitExhaustion, bool) {
 	if !run.Status.InFlight() || run.UsageLimitResetsAt == nil {
 		return runstate.UsageLimitExhaustion{}, false

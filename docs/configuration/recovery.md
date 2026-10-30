@@ -152,7 +152,12 @@ ends cancelled, recorded as ended by something outside the work (cause
 item is ready again, and keeps its branch and worktree. It counts toward nothing: not the failure-storm brake, not the
 item's review rounds, repair grant, or re-run, and not a watching session's
 memory of what it has tried. A watching session holds the item only until the
-reset passes and then pulls it again by itself. The item's notes, the run's
+reset passes and then pulls it again by itself. Where the provider named the
+reset, the ended run's record holds more than its own item: a watching session,
+including one restarted after the run ended, starts no other work whose run
+would ask for the refused model until the reset, and that work keeps its place
+in the order. Work on a model the provider still serves goes on being pulled.
+The item's notes, the run's
 ending in `yoyo status` (and its `capacity_blocked` entry), and the channel all
 name the window and its reset.
 
