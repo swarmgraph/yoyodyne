@@ -55,12 +55,13 @@ import (
 // runRecordPathSites is every function that names a run record's file, and what
 // it does with it.
 var runRecordPathSites = map[string]string{
-	"(*Store).Create":      "writes a record that must not exist yet, with O_EXCL, so there is no stored routing to lose or overwrite",
-	"(*Store).writeState":  "the one replacement of an existing record; only save (behind Save and ReserveLive), UpdateRouting and Update call it, under the run's write lock",
-	"(*Store).load":        "reads the record; Load and Read both go through it",
-	"(*Store).storedHead":  "reads the stored routing and worker so Save can compare the one and keep the other before writing",
-	"(*Store).WaitForSlot": "asks only whether the document's run is recorded, under the reservation lock, before writing a wait of its own beside it",
-	"(*Store).whatIsLeft":  "reads a record that would not load for its work item and status alone, so the run index can say whether it may be a run in flight; it writes nothing",
+	"(*Store).Create":          "writes a record that must not exist yet, with O_EXCL, so there is no stored routing to lose or overwrite",
+	"(*Store).writeState":      "the one replacement of an existing record; only save (behind Save and ReserveLive), UpdateRouting and Update call it, under the run's write lock",
+	"(*Store).load":            "reads the record; Load and Read both go through it",
+	"(*Store).storedHead":      "reads the stored routing and worker so Save can compare the one and keep the other before writing",
+	"(*Store).WaitForSlot":     "asks only whether the document's run is recorded, under the reservation lock, before writing a wait of its own beside it",
+	"(*Store).whatIsLeft":      "reads a record that would not load for its work item and status alone, so the run index can say whether it may be a run in flight; it writes nothing",
+	"(*Store).unreadableStale": "looks at the size and time of a record the run index holds as unreadable, to decide whether to read it again; it writes nothing",
 }
 
 // runRecordReplacers is every function allowed to call writeState.

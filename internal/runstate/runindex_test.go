@@ -267,3 +267,70 @@ func TestSpendKeepsWhatAFinishedRunSpent(t *testing.T) {
 		t.Fatalf("a window after the spend = rows %+v, rolling %+v, reaches %q", later.Rows, later.Rolling, later.Reaches)
 	}
 }
+
+// A record held as unreadable is read again as soon as its file changes, so a
+// record repaired by hand — or rewritten by a build that reads it — stops
+// refusing work without anybody rebuilding the index.
+func TestARepairedRecordStopsRefusingTheListingWithoutARebuild(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	going := createRun(t, store, "yoyodyne-going", StatusRunning)
+	good, err := os.ReadFile(filepath.Join(store.Root(), going.RunID+".json"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	writeRecordBytes(t, store, going.RunID, []byte("{"))
+	if err := os.Remove(store.runIndexPath()); err != nil {
+		t.Fatalf("Remove(index) error = %v", err)
+	}
+	if _, err := store.Incomplete(); err == nil {
+		t.Fatal("Incomplete() over a spoiled record that may be going error = nil")
+	}
+	if _, err := store.Runs("yoyodyne-going"); err == nil {
+		t.Fatal("Runs() of the spoiled record's item error = nil")
+	}
+
+	// Repaired by hand: the index is not touched.
+	writeRecordBytes(t, store, going.RunID, good)
+	active, err := store.Incomplete()
+	if err != nil || len(active) != 1 || active[0].RunID != going.RunID {
+		t.Fatalf("Incomplete() after the repair = %+v, %v, want the repaired run", active, err)
+	}
+	if runs, err := store.Runs("yoyodyne-going"); err != nil || len(runs) != 1 {
+		t.Fatalf("Runs() after the repair = %d, %v", len(runs), err)
+	}
+	if unreadable, err := store.UnreadableRuns(); err != nil || len(unreadable) != 0 {
+		t.Fatalf("UnreadableRuns() after the repair = %+v, %v", unreadable, err)
+	}
+}
+
+// A record whose file could not be opened at all — not read and refused — is
+// tried again on the next look even though nothing about the file's contents
+// changed, because what stopped it can pass on its own.
+func TestARecordThatCouldNotBeOpenedIsTriedAgain(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	going := createRun(t, store, "yoyodyne-going", StatusRunning)
+	path := filepath.Join(store.Root(), going.RunID+".json")
+	if err := os.Remove(store.runIndexPath()); err != nil {
+		t.Fatalf("Remove(index) error = %v", err)
+	}
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	if _, err := os.ReadFile(path); err == nil {
+		t.Skip("this process reads a file with no permissions, so it cannot be made unreadable here")
+	}
+	if _, err := store.Incomplete(); err == nil {
+		t.Fatal("Incomplete() over a record nobody can open error = nil")
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+	if active, err := store.Incomplete(); err != nil || len(active) != 1 {
+		t.Fatalf("Incomplete() once the record opens again = %d, %v", len(active), err)
+	}
+}

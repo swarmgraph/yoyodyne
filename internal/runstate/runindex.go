@@ -110,7 +110,10 @@ type runIndex struct {
 	Version int                      `json:"version"`
 	Runs    map[string]runIndexEntry `json:"runs"`
 	// Unreadable is each record the index could not read, with what refused
-	// it. Such a run is in no answer until a write replaces its record.
+	// it. Such a run is in no answer until it reads again: a write replacing
+	// it, the file changing in any other way, a build that reads a newer
+	// format, or — where the file itself could not be read — the next look
+	// (unreadableRun.stale).
 	Unreadable map[string]unreadableRun `json:"unreadable,omitempty"`
 }
 
@@ -120,6 +123,31 @@ type unreadableRun struct {
 	Reason     string `json:"reason"`
 	WorkItemID string `json:"item,omitempty"`
 	Status     Status `json:"status,omitempty"`
+	// Size and Modified are the file as it was when it would not read, and
+	// Schema the record format the build that tried read. Any of them
+	// differing now is a reason to try again.
+	Size     int64     `json:"size,omitempty"`
+	Modified time.Time `json:"modified,omitzero"`
+	Schema   int       `json:"schema,omitempty"`
+	// Unopened is a file that could not be read at all, rather than one read
+	// and refused. That can pass on its own, so it is tried again every time.
+	Unopened bool `json:"unopened,omitempty"`
+}
+
+// stale reports an unreadable record worth trying again: one whose file is not
+// the file that was refused, one refused by a build reading an older format,
+// or one whose file could not be read at all. Holding it as unreadable past
+// any of those would keep refusing work over a record that now reads, until
+// somebody removed the index by hand.
+func (u unreadableRun) stale(path string) bool {
+	if u.Unopened || u.Schema != StateSchemaVersion {
+		return true
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return true
+	}
+	return info.Size() != u.Size || !info.ModTime().Equal(u.Modified)
 }
 
 // ended reports a record whose status, as far as it can be made out, says the
@@ -324,8 +352,9 @@ func (s *Store) indexRecord(index *runIndex, runID string) {
 	}
 	if err != nil {
 		delete(index.Runs, runID)
-		index.Unreadable[runID] = s.whatIsLeft(runID, err)
-		noteUnreadableRun(runID, err)
+		left := s.whatIsLeft(runID, err)
+		index.Unreadable[runID] = left
+		noteUnreadableRun(runID, left)
 		return
 	}
 	delete(index.Unreadable, runID)
@@ -335,13 +364,23 @@ func (s *Store) indexRecord(index *runIndex, runID string) {
 // whatIsLeft is what can still be made out of a record that would not read:
 // its work item and status, decoded on their own where the file is JSON at all.
 func (s *Store) whatIsLeft(runID string, refused error) unreadableRun {
-	left := unreadableRun{Reason: refused.Error()}
+	left := unreadableRun{Reason: refused.Error(), Schema: StateSchemaVersion}
 	path, err := s.statePath(runID)
 	if err != nil {
 		return left
 	}
+	info, err := os.Stat(path)
+	if err != nil {
+		left.Unopened = true
+		return left
+	}
+	left.Size, left.Modified = info.Size(), info.ModTime()
 	encoded, err := os.ReadFile(path)
-	if err != nil || len(encoded) > maxEncodedStateBytes {
+	if err != nil {
+		left.Unopened = true
+		return left
+	}
+	if len(encoded) > maxEncodedStateBytes {
 		return left
 	}
 	var read struct {
@@ -384,10 +423,12 @@ func (s *Store) recordNames() ([]string, error) {
 }
 
 // runIndex is the index a reader chooses records by: the file as it stands
-// where it names exactly the records the directory holds, and otherwise the
-// file brought up to date under its lock — built where there is none, the
-// records it does not name read and added, and the runs whose records are gone
-// dropped.
+// where it names exactly the records the directory holds and no unreadable
+// record in it is worth trying again, and otherwise the file brought up to date
+// under its lock — built where there is none, the records it does not name read
+// and added, the unreadable ones that may now read tried again, and the runs
+// whose records are gone dropped. Only the unreadable records are looked at
+// one by one, and there are few of them.
 func (s *Store) runIndex() (runIndex, error) {
 	names, err := s.recordNames()
 	if err != nil {
@@ -397,7 +438,7 @@ func (s *Store) runIndex() (runIndex, error) {
 	if err != nil {
 		return runIndex{}, err
 	}
-	if ok && index.names(names) {
+	if ok && index.names(names) && !s.anyUnreadableStale(index) {
 		return index, nil
 	}
 	unlock, err := s.lockRunIndex()
@@ -408,7 +449,7 @@ func (s *Store) runIndex() (runIndex, error) {
 	if index, err = s.heldRunIndex(); err != nil {
 		return runIndex{}, err
 	}
-	if index.names(names) {
+	if index.names(names) && !s.anyUnreadableStale(index) {
 		return index, nil
 	}
 	present := make(map[string]bool, len(names))
@@ -417,7 +458,7 @@ func (s *Store) runIndex() (runIndex, error) {
 		if _, known := index.Runs[runID]; known {
 			continue
 		}
-		if _, known := index.Unreadable[runID]; known {
+		if left, known := index.Unreadable[runID]; known && !s.unreadableStale(runID, left) {
 			continue
 		}
 		s.indexRecord(&index, runID)
@@ -436,6 +477,25 @@ func (s *Store) runIndex() (runIndex, error) {
 		return runIndex{}, err
 	}
 	return index, nil
+}
+
+// anyUnreadableStale reports an index holding an unreadable record worth
+// trying again.
+func (s *Store) anyUnreadableStale(index runIndex) bool {
+	for runID, left := range index.Unreadable {
+		if s.unreadableStale(runID, left) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) unreadableStale(runID string, left unreadableRun) bool {
+	path, err := s.statePath(runID)
+	if err != nil {
+		return false
+	}
+	return left.stale(path)
 }
 
 // names reports an index that names every record in names and nothing else.
@@ -581,7 +641,7 @@ var unreadableRunNotices = struct {
 	said map[string]bool
 }{said: map[string]bool{}}
 
-func noteUnreadableRun(runID string, err error) {
+func noteUnreadableRun(runID string, left unreadableRun) {
 	unreadableRunNotices.Lock()
 	defer unreadableRunNotices.Unlock()
 	if unreadableRunNotices.said[runID] {
@@ -591,5 +651,9 @@ func noteUnreadableRun(runID string, err error) {
 	unknownFieldNotices.Lock()
 	to := unknownFieldNotices.to
 	unknownFieldNotices.Unlock()
-	fmt.Fprintf(to, "the run record %s could not be read and is left out of the runs the harness counts and lists; it is kept as it is: %v\n", runID, err)
+	if left.ended() {
+		fmt.Fprintf(to, "the run record %s could not be read; what can still be read of it says the run ended, so it is left out of the runs the harness counts and lists, and it is kept as it is: %s\n", runID, left.Reason)
+		return
+	}
+	fmt.Fprintf(to, "the run record %s could not be read, and nothing that can be read of it says the run ended, so it may be a run still going: until it reads, starting a run and listing its work item's runs are refused rather than step over it, and it is read again as soon as its file changes: %s\n", runID, left.Reason)
 }
