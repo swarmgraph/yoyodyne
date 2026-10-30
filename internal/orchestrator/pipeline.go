@@ -4575,11 +4575,12 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 				a.observeDevelopEnded(ctx, recorded)
 				return recorded
 			}
-			// The attempt that just finished is what publishes. Its work is already
-			// committed — commitAttempt did that above, for this ending and for
-			// every other one — so what happens here is the push and the pull
-			// request, and it happens on the accepted path because that is the
-			// change the checks and the reviewer are about to judge.
+			// Under automatic integration the attempt that just finished is what
+			// publishes. Its work is already committed — commitAttempt did that
+			// above, for this ending and for every other one — so what happens here
+			// is the push and the pull request, and it happens on the accepted path
+			// because that is the change the checks and the reviewer are about to
+			// judge. Under a person's approval nothing is published here; see below.
 			//
 			// The developer has answered the operation, so a routed run closes it
 			// here: what follows is publishing, the checks and the reviewer, and the

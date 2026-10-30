@@ -170,3 +170,20 @@ func TestAHumanApprovalRunThatNeverPassesReviewBlocksWithNothingPublished(t *tes
 		t.Fatalf("remote carries %q, want the unapproved branch never pushed", listed)
 	}
 }
+
+// TestAPullRequestLeftForAPersonSaysTheHarnessDoesNotMergeIt holds the body a
+// person merges from to what the harness does under their approval: it never
+// claims the harness will merge the request.
+func TestAPullRequestLeftForAPersonSaysTheHarnessDoesNotMergeIt(t *testing.T) {
+	t.Parallel()
+
+	outcome := Outcome{RunID: "run-1", WorkItemID: "yoyodyne-task", Branch: "run", BaseCommit: "1a2b3c4"}
+	item := beads.WorkItem{ID: "yoyodyne-task", Title: "Task"}
+	human := pullRequestBody(item, outcome, "main", false)
+	if strings.Contains(human, "The harness merges this request") || !strings.Contains(human, "does not merge this request") {
+		t.Errorf("body under a person's approval says the wrong thing about who merges it:\n%s", human)
+	}
+	if automatic := pullRequestBody(item, outcome, "main", true); !strings.Contains(automatic, "The harness merges this request") {
+		t.Errorf("body under automatic integration no longer says the harness merges it:\n%s", automatic)
+	}
+}

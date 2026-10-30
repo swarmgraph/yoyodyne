@@ -142,9 +142,12 @@ func (a *activeRun) commitAttempt(ctx context.Context) error {
 // already in a harness commit by the time this runs — commitAttempt made it —
 // so what is left is to push the run branch and open the pull request if the
 // branch does not have one yet; a repair attempt updates that same request
-// rather than opening another. Publishing happens before the checks run, which
-// is deliberate: a pull request is where work is reviewed, and work that does
-// not pass yet is exactly what a reviewer should be able to see.
+// rather than opening another. Under automatic integration a developer's
+// attempt publishes before its checks run, which is deliberate: a pull request
+// is where work is reviewed, and work that does not pass yet is exactly what a
+// reviewer should be able to see. Under a person's approval the pull request is
+// what that person merges from, so a developer run calls this only once the
+// reviewer has approved the change (handOverApproved).
 func (a *activeRun) publishAttempt(ctx context.Context) error {
 	if !a.publishing {
 		return nil
@@ -192,7 +195,7 @@ func (a *activeRun) publishAttempt(ctx context.Context) error {
 			Head:  publication.Branch,
 			Base:  a.worktree.TargetBranch,
 			Title: pullRequestTitle(a.item, a.outcome),
-			Body:  pullRequestBody(a.item, a.outcome, a.worktree.TargetBranch),
+			Body:  pullRequestBody(a.item, a.outcome, a.worktree.TargetBranch, a.pipeline.automatic()),
 		})
 	})
 	if err != nil {
@@ -944,7 +947,11 @@ func wordBounded(value string, limit int) string {
 // request opened by the harness must not become a channel for model output
 // nobody reviewed still holds: the developer's own summary, its reports, its
 // proposals, and the item's notes stay on the run and on the work item.
-func pullRequestBody(item beads.WorkItem, outcome Outcome, base string) string {
+//
+// Its last line says who merges the request, which the integration policy
+// decides: the harness, once the checks pass and the reviewer approves, or a
+// person, to whom the change is handed only once both have happened.
+func pullRequestBody(item beads.WorkItem, outcome Outcome, base string, automatic bool) string {
 	lines := []string{
 		fmt.Sprintf("Opened by Yoyodyne for work item `%s`: %s", outcome.WorkItemID, wordBounded(item.Title, maxPullRequestTitleBytes)),
 	}
@@ -958,8 +965,12 @@ func pullRequestBody(item beads.WorkItem, outcome Outcome, base string) string {
 		"- Run: `"+outcome.RunID+"`",
 		"- Branch: `"+outcome.Branch+"` into `"+base+"`",
 		"- Base commit: `"+outcome.BaseCommit+"`",
-		fmt.Sprintf("- The harness merges this request with the `%s` method once the configured checks pass and an independent reviewer approves it; `docs/designs/v1-harness-design.md` says what that involves.", mergeMethod),
 	)
+	if automatic {
+		lines = append(lines, fmt.Sprintf("- The harness merges this request with the `%s` method once the configured checks pass and an independent reviewer approves it; `docs/designs/v1-harness-design.md` says what that involves.", mergeMethod))
+	} else {
+		lines = append(lines, "- The harness does not merge this request: this project leaves the merge to a person. A change is handed over only once the configured checks pass and an independent reviewer approves it.")
+	}
 	return strings.Join(lines, "\n")
 }
 
