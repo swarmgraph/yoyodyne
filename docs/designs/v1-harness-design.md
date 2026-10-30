@@ -9,7 +9,7 @@ revisions:
     - action: amended
       by: architect
       at: 2026-10-02T03:00:00Z
-      reason: "Operator-approved Codex read-only inspection replaces the universal no-tools description for reviewers; integration authority remains with the harness."
+      reason: Operator-approved Codex read-only inspection replaces the universal no-tools description for reviewers; integration authority remains with the harness.
     - action: created
       by: architect
       at: 2026-08-18T00:00:00Z
@@ -81,11 +81,11 @@ revisions:
     - action: amended
       by: architect
       at: 2026-09-19T00:30:00Z
-      reason: 'approved amendment 49e40071 from yoyodyne-ifd.357 (97f5e780 declined as superseded) - the after-merge check becomes containment of the unrewritten promoted commit under the recorded merge commit, which batched merges satisfy; the swept-in-content guarantee is retained at merge-commit granularity, with the per-merge change comparison recorded as the half still to implement'
+      reason: approved amendment 49e40071 from yoyodyne-ifd.357 (97f5e780 declined as superseded) - the after-merge check becomes containment of the unrewritten promoted commit under the recorded merge commit, which batched merges satisfy; the swept-in-content guarantee is retained at merge-commit granularity, with the per-merge change comparison recorded as the half still to implement
     - action: amended
       by: architect
       at: 2026-09-19T14:10:00Z
-      reason: 'approved amendment f26b54b5 from yoyodyne-ifd.63 - the status entry prices four kinds, inter-role exchanges included, and the retired bin/yoyo-status goes unreferenced'
+      reason: approved amendment f26b54b5 from yoyodyne-ifd.63 - the status entry prices four kinds, inter-role exchanges included, and the retired bin/yoyo-status goes unreferenced
     - action: amended
       by: architect
       at: 2026-09-25T04:00:00Z
@@ -122,6 +122,10 @@ revisions:
       by: architect
       at: 2026-09-27T07:15:49Z
       reason: yoyodyne-ifd.437.12 - 'cadence' reworded to 'release schedule' in the release-tag subsection; the excuse on the term's row comes off
+    - action: amended
+      by: architect
+      at: 2026-10-30T18:52:21.287031Z
+      reason: 'Human merge approval keeps review (amendment-073b79b8, for yoyodyne-xps.1), first of two section revisions: the integration setting decides only who merges; under either value every change is checked, independently reviewed and repaired with the same budgets, and nothing reaches a merge, by the harness or by a person, that the reviewer has not approved. The table in ''How the two approvals compose'' follows in a second revision.'
 approvals:
     - revision: 0
       by: operator
@@ -131,6 +135,11 @@ approvals:
       by: operator
       at: 2026-08-19T03:48:10Z
       reason: 'Approved by the operator in conversation on 2026-08-18: the layout section now names the three homes the harness reads instead of claiming docs/product is the only one.'
+    - policy: approvals.designs
+      revision: 29
+      by: harness
+      at: 2026-10-30T18:52:21.287031Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2001, for document-2001.1 under the automatic approval policy
 ---
 
 # Yoyodyne V1 Harness Design
@@ -321,9 +330,9 @@ The operator's control over work the harness chose for itself is three separate 
 
 By default, the human explicitly approves the initial brief and goals after discussing them with the product manager. Lower-level approval gates are configurable but disabled by default. This approval policy does not add a routine human merge gate: once a project enables automatic integration, verified and independently approved code is integrated without further human action, which is what makes near-autonomous operation possible.
 
-The shipped bundle nevertheless defaults `approvals.integration` to `human`. That is deliberate and is not a retreat from the autonomy goal: a project opts in to automatic integration explicitly, and the harness then refuses that setting unless deterministic checks and an independent reviewer actually exist. Autonomy is something a project turns on once it has the gates to justify it, rather than something inherited silently by any repository that adds a configuration file.
+The shipped bundle nevertheless defaults `approvals.integration` to `human`. That is deliberate and is not a retreat from the autonomy goal: a project opts in to automatic integration explicitly. What the setting decides is who merges, and nothing else. Under either value every change goes through the same configured checks, the same independent reviewer, and the same repair rounds with the same budgets, and no change reaches a merge — by the harness or by a person — that the reviewer has not approved. A setting that skipped review would let a change reach a person's merge button unreviewed, which the review goal forbids whoever presses it. Under `human` the harness stops once the reviewer approves and leaves the merge to a person, and never merges the change itself; under `automatic` it merges, and the harness refuses that setting unless deterministic checks and an independent reviewer actually exist. Autonomy is something a project turns on once it has the gates to justify it, rather than something inherited silently by any repository that adds a configuration file.
 
-`approvals.publishing` defaults to `human` for the same reason and a stronger one: pushing a branch and opening a pull request is visible outside the machine the harness runs on, so it is opted in to rather than inherited. It is a separate approval from integration because it has a wider blast radius, not because it adds a human gate of its own: a project that enables both publishes, merges, and cleans up without further human action. The two approvals compose rather than imply one another, and [the Git model](#git-model) sets out what each combination produces and what stays authoritative.
+`approvals.publishing` defaults to `human` for the same reason and a stronger one: pushing a branch and opening a pull request is visible outside the machine the harness runs on, so it is opted in to rather than inherited. It is a separate approval from integration because it has a wider blast radius, not because it adds a human gate of its own: a project that enables both publishes, merges, and cleans up without further human action. A project that enables publishing and leaves the merge to a person has its pull request opened only after the reviewer approves, so an open pull request carries only an approved change. The two approvals compose rather than imply one another, and [the Git model](#git-model) sets out what each combination produces and what stays authoritative.
 
 ## Persistence Boundaries
 
