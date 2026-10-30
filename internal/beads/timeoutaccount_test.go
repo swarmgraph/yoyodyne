@@ -39,7 +39,7 @@ func TestAReadStoppedAtItsLimitNamesTheItemAndWhoAsked(t *testing.T) {
 	for _, want := range []string{
 		"bd show failed with status timed_out and exit code -1: ",
 		"reading work item yoyodyne-7my for the development manager's recurring pass development-manager-sweep#804",
-		"at the 30s limit each tracker call is given",
+		"at the " + DefaultTimeout.String() + " limit each tracker call is given",
 		"on any of 3 attempts",
 	} {
 		if !strings.Contains(err.Error(), want) {
@@ -68,7 +68,7 @@ func TestAWriteStoppedByItsCallersDeadlineSaysSo(t *testing.T) {
 	for _, want := range []string{
 		"bd update failed with status timed_out and exit code -1: ",
 		"changing work item yoyodyne-ifd.429.43 (bd update) for the architect's recurring pass architect-pass#313",
-		"when its caller's own deadline of 2s ran out before the 30s limit each tracker call is given",
+		"when its caller's own deadline of 2s ran out before the " + DefaultTimeout.String() + " limit each tracker call is given",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("RecordOutcome() error = %q, want it to say %q", err, want)

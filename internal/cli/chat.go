@@ -40,7 +40,7 @@ const chatWorkItemStatus = "open"
 // behalf, whether that is reading the state the product context is assembled
 // from or creating an item the operator approved. An unresponsive tracker
 // delays a conversation rather than hanging it at the prompt.
-const chatTrackerTimeout = 30 * time.Second
+const chatTrackerTimeout = beads.DefaultTimeout
 
 type chatOutput struct {
 	Evidence *chat.Evidence `json:"evidence,omitempty"`

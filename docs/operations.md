@@ -429,7 +429,7 @@ Each pass takes nine steps, in this order, and each is recorded:
   pass's own tracker calls are over; it does not start while any other process
   has the store open, and says which; and it is stopped once it has held the
   store for `max_hold`, so a call waiting behind it still answers inside its
-  own thirty seconds. A store in use, or a cleanup stopped at its hold, is a
+  own two minutes. A store in use, or a cleanup stopped at its hold, is a
   skip rather than a failure, and the next pass tries again. The cleanup counts
   the store's work items, closed ones included, just before it starts and again
   once it ends; a store whose items cannot be counted first is not cleaned up.
@@ -2431,7 +2431,7 @@ one of the boundaries above.
   set is deliberately small, and anything outside it keeps the behavior it had.
   The full recoverable-versus-terminal taxonomy is the architect's, and this does
   not wait on it.
-- **A tracker write is never made twice.** A `bd` killed at its 30-second bound
+- **A tracker write is never made twice.** A `bd` killed at its two-minute bound
   may have written before it was killed, so a write that was killed is asked for
   again only after the item has been read back and found not to carry it — the
   note at the end of its notes, the claim, the close, the price. One that did
@@ -2641,7 +2641,7 @@ under `projects/<product-id>/state/tracker-export-cleanups/` in the product's st
 directory. The command also names each removal, and `--json` carries it under
 `tracker_exports`. The same pass refreshes the export, and an export that runs
 out of time fails the pass with its cause first:
-`refresh the tracker export: exporting every work item ran 30s without
+`refresh the tracker export: exporting every work item ran 2m0s without
 finishing, on a store of 885 MB on disk, while no other process had the store
 open, so the tracker itself was too slow: …`, or `… while 2 other processes
 had the store open, so it was most likely waiting behind them: …`, followed by
@@ -2654,7 +2654,7 @@ build. Calls to bd outside the harness keep their own export settings.
 
 A listing — `bd list`, which the development manager's docket, the forge
 reading on her pass, the claim audit, the admission guard, and `yoyo status`
-all make — is bounded at thirty seconds like every tracker call. bd takes an
+all make — is bounded at two minutes like every tracker call. bd takes an
 exclusive lock on its store for every command, reads included. Harness writes
 set `BD_EXPORT_AUTO=false` and do not automatically rewrite the export.
 Explicit snapshot exports still read the whole store under that lock; the
@@ -2672,15 +2672,15 @@ describes the current behavior.
 eight seconds later. Only a timeout is asked again: bd refusing, or answering
 something that does not decode, would say the same thing the next time. A
 listing that still fails is refused with how many attempts it made and over how
-long — `bd list did not answer within its 30s bound on any of 3 attempts over
-1m40s: …` — so what reads it says the tracker did not answer rather than that
+long — `bd list did not answer within its 2m0s bound on any of 3 attempts over
+6m10s: …` — so what reads it says the tracker did not answer rather than that
 one listing timed out.
 
 **A tracker call that runs out of time says what it was doing, for whom, and
 which limit stopped it.** A call stopped at its own limit reads
 `bd show failed with status timed_out and exit code -1: reading work item
 yoyodyne-7my for the development manager's recurring pass
-development-manager-sweep#804 was stopped after 30s, at the 30s limit each
+development-manager-sweep#804 was stopped after 2m0s, at the 2m0s limit each
 tracker call is given; when it was stopped, the tracker's store was held open
 by process 4242 (bd export -o .beads/issues.jsonl), running since 2026-10-16
 05:41:25 PDT; the tracker's store was 885 MB on disk`; that is the store being
@@ -2708,7 +2708,7 @@ otherwise unchanged. A write that waited out another
 write to the same item names what held that item's write lock the same way. A
 call its caller gave
 less time says `… was stopped after 5s, when its caller's own deadline of 5s ran
-out before the 30s limit each tracker call is given`; that is the caller not
+out before the 2m0s limit each tracker call is given`; that is the caller not
 waiting for the store, and is a defect in the caller rather than a sign of a
 slow tracker. Calls are named for a role's recurring pass, a developer run, a
 role's conversation, or `yoyo reconcile`. The notes, blockers, and findings the
@@ -2754,7 +2754,7 @@ failing, the fourth line carries it under `Waiting on the harness`:
 
 ```text
 Waiting on the harness (1):
-  the tracker has not answered a listing since 2026-09-30T18:13:00Z: 2 listing(s) failed after their retries, the latest at 2026-09-30T18:23:00Z: bd list did not answer within its 30s bound on any of 3 attempts over 1m40s: … — the harness's — each listing its thirty-second bound killed is asked again, twice, before it is given up on, a pass carries on with what it could read and names what it could not, and the first listing that answers clears this
+  the tracker has not answered a listing since 2026-09-30T18:13:00Z: 2 listing(s) failed after their retries, the latest at 2026-09-30T18:23:00Z: bd list did not answer within its 2m0s bound on any of 3 attempts over 6m10s: … — the harness's — each listing its time limit killed is asked again, twice, before it is given up on, a pass carries on with what it could read and names what it could not, and the first listing that answers clears this
 ```
 
 `--json` carries it as an entry of kind `tracker-unanswered`, with the record
@@ -6966,7 +6966,7 @@ of the standing is 5m old, older than two of its 10s intervals and two of the
 is shown may not be what the harness is doing now.` Failed builds and failed polls still get an explanation
 immediately. A reading whose latest build failed shows the failure beside its
 age — `The dashboard's last reading of the standing failed — bd list timed out
-after 30s — so what is shown is the reading taken 34s ago.` A poll that fails
+after 2m0s — so what is shown is the reading taken 34s ago.` A poll that fails
 after one that succeeded, of any of the three readings, says which reading
 failed and which it is still showing. The throughput and spend
 sections say the same under their own figures, rather than going blank on one

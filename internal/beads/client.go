@@ -22,7 +22,13 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
-const defaultTimeout = 30 * time.Second
+// DefaultTimeout is how long one bd call may run before it is stopped: what a
+// Client with no Timeout of its own gives each call, and the one setting every
+// other bound the harness puts on a tracker command is taken from, so a reading
+// and the write beside it give up on the store at the same time. It is generous
+// because the store is large enough that an ordinary listing can run past half
+// a minute with nothing else holding it; a call that hangs is still stopped.
+const DefaultTimeout = 120 * time.Second
 
 // MaxPriority is the lowest Beads priority, and 0 is the highest. It is exported
 // so a caller can refuse a priority it was handed rather than discovering the
@@ -762,11 +768,11 @@ func (c Client) ListClosedSince(ctx context.Context, since time.Time) ([]WorkIte
 // store under an exclusive lock, every bd process takes it — reads included —
 // and a write holds it while it rewrites the whole export beside the store, so
 // a listing that arrives behind a write or two waits its turn and a bound of
-// thirty seconds kills some of those that would have answered a few seconds
-// later. docs/diagnoses/yoyodyne-ifd-433-20-tracker-listing-timeouts.md is the
+// thirty seconds killed some of those that would have answered a few seconds
+// later; DefaultTimeout is now longer for the same reason. docs/diagnoses/yoyodyne-ifd-433-20-tracker-listing-timeouts.md is the
 // evidence. The waits are short on purpose: a caller of a listing is a pass, a
 // docket, or a conversation somebody is reading, and three attempts at the
-// default bound are already a minute and a half of it. A store that is still
+// default bound are already six minutes of it. A store that is still
 // not answering after that is not contention a caller can wait out, and is
 // said as the tracker not answering.
 var listingWaits = []time.Duration{2 * time.Second, 8 * time.Second}
@@ -832,7 +838,7 @@ func (c Client) recordListing(ctx context.Context, err error) {
 
 func (c Client) timeout() time.Duration {
 	if c.Timeout == 0 {
-		return defaultTimeout
+		return DefaultTimeout
 	}
 	return c.Timeout
 }

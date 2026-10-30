@@ -9,14 +9,14 @@ import (
 )
 
 // The contexts a tracker call is made under outside its caller's own leave the
-// tracker client's limits to decide: each bd call is given thirty seconds and a
+// tracker client's limits to decide: each bd call is given beads.DefaultTimeout and a
 // stopped write is read back and asked again, so a bound under a few of those
 // calls is the caller deciding first, which is how notes, blockers and settled
 // findings came to be recorded as tracker timeouts on a store that took several
 // seconds to answer.
 func TestTrackerCallsAreBoundedByTheTrackersOwnLimits(t *testing.T) {
 	t.Parallel()
-	const atLeast = 3 * 30 * time.Second
+	const atLeast = 8*beads.DefaultTimeout + 10*time.Second
 	for name, open := range map[string]func() (context.Context, context.CancelFunc){
 		"a call under its caller's context": func() (context.Context, context.CancelFunc) { return trackerCallContext(context.Background()) },
 		"a write outliving its caller":      func() (context.Context, context.CancelFunc) { return trackerRecordContext(context.Background()) },
