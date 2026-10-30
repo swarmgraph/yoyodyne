@@ -10,8 +10,9 @@ package orchestrator
 // resumed attempt after a restart — reads its endpoint off that record rather
 // than off the configuration, so a reload, an edited label rule, or another
 // run taking a slot changes nothing about a run already going. A slot with no
-// pair, and every project that configures none, takes none of this: its runs
-// record what they always recorded and are invoked exactly as they always were.
+// pair, and every project that configures none, takes none of this beyond the
+// slot number a run the scheduler pulled into it records: its runs are invoked
+// exactly as they always were.
 //
 // The work a routed run asks of its developer is divided into logical
 // operations: the first attempt at the item is one, and each repair answering
@@ -50,8 +51,9 @@ import (
 )
 
 // RoutingStore is the run store's routing writer, the launch gate's record, and
-// launch recovery. It is satisfied by *runstate.Store, and asked for only by a
-// run whose slot has an explicit endpoint pair.
+// launch recovery. It is satisfied by *runstate.Store. A run whose slot has an
+// explicit endpoint pair needs it; any other run records its slot through it
+// where the store has it, and goes without a recorded slot where it has not.
 type RoutingStore interface {
 	ClaimSlot(ctx context.Context, held runstate.State, number, capacity int, at time.Time) (runstate.State, error)
 	UpdateRouting(ctx context.Context, held runstate.State, change func(*runstate.RunRouting) (bool, error)) (runstate.State, error)
@@ -163,7 +165,8 @@ const (
 )
 
 // routesDeveloperSlots reports a configuration naming an endpoint pair for at
-// least one developer slot. Only such a project records slots on its runs.
+// least one developer slot. Only such a project records a slot on a run the
+// scheduler did not pull into one (pinDeveloperRouting).
 func (p Pipeline) routesDeveloperSlots() bool {
 	for _, slot := range p.Config.Execution.DeveloperSlots {
 		if slot.Routing != nil {
@@ -292,21 +295,39 @@ func claimDeveloperSlot(ctx context.Context, store RoutingStore, held runstate.S
 // has an explicit pair, the pair itself, before the run claims anything. The
 // run's backend, account, model and effort are then the primary's, and every
 // later invocation reads them back off the record.
+//
+// A run the scheduler pulled into a slot records that slot whether or not any
+// slot has a pair, because the slot's other settings — its sub-agents first
+// (subagents.go) — are read off the record, not off the context. A run started
+// any other way records a slot only in a project that routes slots, as it
+// always did. Where the slot the scheduler chose is no longer free and the run
+// is recorded in another, its selection reason says so, so the status line,
+// which reads the record, and the reason name the same slot.
 func (a *activeRun) pinDeveloperRouting(ctx context.Context) error {
 	p := a.pipeline
-	if !p.routesDeveloperSlots() || a.state.HarnessAuthored() {
+	routed, requested := p.routesDeveloperSlots(), developerSlotOf(ctx)
+	if a.state.HarnessAuthored() || (!routed && requested == 0) {
 		return nil
 	}
 	store, ok := p.routingStore()
 	if !ok {
+		if !routed {
+			return nil
+		}
 		return errors.New("developer slots are configured with endpoint pairs, and this run's state store cannot record a run's slot and pair, so the run was not started on a pair it could not keep to")
 	}
 	now := p.clock().Now()
-	claimed, slot, err := claimDeveloperSlot(ctx, store, a.state, developerSlotOf(ctx), p.Config.Execution.MaxConcurrentDevelopers, now)
+	claimed, slot, err := claimDeveloperSlot(ctx, store, a.state, requested, p.Config.Execution.MaxConcurrentDevelopers, now)
 	if err != nil {
 		return fmt.Errorf("record the developer slot this run occupies: %w", err)
 	}
 	a.state.Routing = claimed.Routing
+	if requested != 0 && slot != requested && a.state.Selection != nil {
+		a.state.Selection.Reason += fmt.Sprintf(" Developer slot %d was held by another run when this run recorded its slot, so it runs in developer slot %d.", requested, slot)
+		if err := p.Store.Save(a.state); err != nil {
+			return fmt.Errorf("save the developer slot this run was recorded in: %w", err)
+		}
+	}
 	pair, explicit, err := p.slotPair(slot, a.state.WorkItemLabels)
 	if err != nil || !explicit {
 		return err

@@ -20,6 +20,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // modelUsageReportingBackend reports the developer's usage split between the
@@ -59,6 +60,13 @@ func (b modelUsageReportingBackend) Run(ctx context.Context, request backend.Run
 
 func subagentRun(t *testing.T, configure func(*Pipeline, map[string]config.AgentConfig)) (*orchestratortest.Backend, *recordingSpendLog, Outcome, *Pipeline) {
 	t.Helper()
+	return subagentRunIn(t, context.Background(), configure)
+}
+
+// subagentRunIn is subagentRun started under ctx, which is how a test says
+// which developer slot the scheduler pulled the run into.
+func subagentRunIn(t *testing.T, ctx context.Context, configure func(*Pipeline, map[string]config.AgentConfig)) (*orchestratortest.Backend, *recordingSpendLog, Outcome, *Pipeline) {
+	t.Helper()
 	repository := pipelineRepository(t)
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Work", Status: "open"}}
 	var agents map[string]config.AgentConfig
@@ -79,7 +87,7 @@ func subagentRun(t *testing.T, configure func(*Pipeline, map[string]config.Agent
 	if configure != nil {
 		configure(pipeline, agents)
 	}
-	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	outcome, err := pipeline.Run(ctx, tracker.Item.ID)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -363,5 +371,100 @@ func TestALimitOnTheSubagentsModelLeavesTheRunOnItsEndpointWithoutThem(t *testin
 	}
 	if state.UsageLimitResetsAt != nil || state.UsageLimitPausedSince != nil || state.UsageLimitPausedSeconds != 0 {
 		t.Fatalf("the run waited on the sub-agents' limit: resets %v, paused since %v for %ds", state.UsageLimitResetsAt, state.UsageLimitPausedSince, state.UsageLimitPausedSeconds)
+	}
+}
+
+// threeSlotsWithSubagentsOnSlot2 gives the pipeline three developer slots,
+// none with an endpoint pair, of which only slot 2 turns sub-agents on.
+func threeSlotsWithSubagentsOnSlot2(pipeline *Pipeline) {
+	on := true
+	pipeline.Config.Execution.MaxConcurrentDevelopers = 3
+	pipeline.Config.Execution.DeveloperSlots = []domain.DeveloperSlot{{}, {Subagents: &domain.SlotSubagents{Enabled: &on}}, {}}
+	withDeveloper(pipeline.Config.Agents, func(agent *config.AgentConfig) { agent.Instances = 3 })
+}
+
+// A run the scheduler pulled into a slot that turns sub-agents on records that
+// slot and that setting, and asks for them, in a project where no slot has an
+// endpoint pair. A run started by name in the same project records no slot,
+// as it always did, and takes the agent's setting, which is off.
+func TestARunPulledIntoASlotWithoutAPairRecordsTheSlotAndItsSubagents(t *testing.T) {
+	t.Parallel()
+
+	provider, _, outcome, pipeline := subagentRunIn(t, withDeveloperSlot(context.Background(), 2), func(pipeline *Pipeline, _ map[string]config.AgentConfig) {
+		if pipeline != nil {
+			threeSlotsWithSubagentsOnSlot2(pipeline)
+		}
+	})
+	state, err := pipeline.Store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.RecordedSlot() != 2 || state.Routing.Developer != nil {
+		t.Fatalf("routing = %#v, want slot 2 recorded and nothing pinned", state.Routing)
+	}
+	if state.Subagents == nil || !state.Subagents.Enabled || state.Subagents.Origin != "execution.developer_slots slot 2.subagents" {
+		t.Fatalf("recorded sub-agents %+v, want slot 2's setting", state.Subagents)
+	}
+	attempts := provider.RequestsForRole(domain.RoleDeveloper)
+	if len(attempts) == 0 {
+		t.Fatal("the run made no developer attempt")
+	}
+	for index, request := range attempts {
+		if request.Subagents == nil {
+			t.Fatalf("developer attempt %d was given no sub-agents", index)
+		}
+	}
+
+	_, _, named, namedPipeline := subagentRun(t, func(pipeline *Pipeline, _ map[string]config.AgentConfig) {
+		if pipeline != nil {
+			threeSlotsWithSubagentsOnSlot2(pipeline)
+		}
+	})
+	state, err = namedPipeline.Store.Load(named.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Routing != nil || state.Subagents != nil {
+		t.Fatalf("a run started by name recorded routing %#v and sub-agents %+v", state.Routing, state.Subagents)
+	}
+}
+
+// A run the scheduler pulled into a slot another run took first is recorded in
+// the lowest free one, takes that slot's sub-agent setting, and its selection
+// reason says which slot it runs in, so the reason and the record, which the
+// status line reads, name the same slot.
+func TestARunWhoseSlotWasTakenSaysWhichSlotItWasRecordedIn(t *testing.T) {
+	t.Parallel()
+
+	_, _, outcome, pipeline := subagentRunIn(t, withDeveloperSlot(context.Background(), 2), func(pipeline *Pipeline, _ map[string]config.AgentConfig) {
+		if pipeline == nil {
+			return
+		}
+		threeSlotsWithSubagentsOnSlot2(pipeline)
+		pipeline.Selection = runstate.Selection{By: runstate.SelectedByScheduler, Reason: "It was pulled into developer slot 2, which prefers no label."}
+		store := pipeline.Store.(*runstate.Store)
+		occupant := approvedStoppedState()
+		occupant.RunID, occupant.WorkItemID = "run-"+strings.Repeat("e", 32), "yoyodyne-occupant"
+		occupant.Status, occupant.Phase, occupant.CompletedAt = runstate.StatusRunning, runstate.PhaseDeveloping, nil
+		occupant.IntegrationStop, occupant.Environmental, occupant.Failure = nil, nil, ""
+		if err := store.Create(occupant); err != nil {
+			t.Fatalf("Create(occupant) error = %v", err)
+		}
+		if _, err := store.ClaimSlot(context.Background(), occupant, 2, 3, time.Now()); err != nil {
+			t.Fatalf("ClaimSlot(occupant) error = %v", err)
+		}
+	})
+	state, err := pipeline.Store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.RecordedSlot() != 1 {
+		t.Fatalf("recorded slot %d, want slot 1, the lowest free", state.RecordedSlot())
+	}
+	if state.Selection == nil || !strings.Contains(state.Selection.Reason, "Developer slot 2 was held by another run when this run recorded its slot, so it runs in developer slot 1.") {
+		t.Fatalf("selection = %+v, want it to name the slot the run was recorded in", state.Selection)
+	}
+	if state.Subagents != nil {
+		t.Fatalf("recorded sub-agents %+v, want slot 1's setting, which states none", state.Subagents)
 	}
 }

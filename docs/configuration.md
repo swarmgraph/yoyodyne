@@ -3896,11 +3896,15 @@ A run's record can name the slot it occupies. Where it does, that is the run's
 slot and no other: a change of labels, a different start order, a restart, or a
 lowered `max_concurrent_developers` never moves it, and a run whose recorded
 slot lies beyond the capacity is reported beyond the slots, keeping its number.
-A run records its slot only in a project that names an endpoint pair for at
-least one slot ([developer slot endpoints](#developer-slot-endpoints)): it
-records the slot it was pulled into, or the lowest free one where that was
-taken or it was started by name. In every other project, and for every run
-recorded before slots were, which slot a run is in is read off what is in flight against what the slots prefer, the same way every
+A run the scheduler pulled into a slot records that slot in every project, or
+the lowest free one where that was taken by the time the run recorded it, and
+then its selection reason names the slot it runs in. The recorded slot is also
+where the run's sub-agent setting is read from
+([developer sub-agents](#developer-sub-agents-on-a-cheaper-model)). A run started by name records
+its slot only in a project that names an endpoint pair for at least one slot
+([developer slot endpoints](#developer-slot-endpoints)), and then records the lowest free one. For
+a run started by name in any other project, and for every run recorded before
+slots were, which slot a run is in is read off what is in flight against what the slots prefer, the same way every
 time, by the scheduler and by `yoyo status` alike. A run over labelled work is in a slot that prefers its
 label while one is unassigned, and everything else is in a slot with no
 preference first and in a preferring slot only once those are full — which is
