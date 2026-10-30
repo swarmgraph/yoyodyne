@@ -193,6 +193,49 @@ func (*fullLogReader) Read(_ context.Context, requests []logread.Request) ([]log
 	return []logread.Result{{Record: request.Record, Name: request.Name, Content: content, Bytes: len(content), NextCursor: int64(len(content))}}, nil
 }
 
+// The development manager diagnoses failing passes from the pass record, so she
+// reads it exactly as the program manager does: the same grant, the same tool
+// described in her contract, and the same evidence back for the same request.
+func TestDevelopmentManagerReadsThePassRecordAsTheProgramManagerDoes(t *testing.T) {
+	t.Parallel()
+	request := "```yoyodyne-log\n" + `{"requests":[{"record":"pass","cursor":0,"max_bytes":4096}]}` + "\n```"
+	read := func(role domain.AgentRole) LogRound {
+		authority, known := AuthorityFor(role)
+		if !known || !authority.LogReads || !strings.Contains(authority.Contract, "## log.read (") {
+			t.Fatalf("the %s is not granted log.read: reads=%t", role.Title(), authority.LogReads)
+		}
+		root := t.TempDir()
+		directory := filepath.Join(root, "products/sample/sweeps")
+		if err := os.MkdirAll(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "sweeps.jsonl"), []byte(`{"task":"architect-pass","outcome":"failed"}`+"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		provider := &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: request}, {SessionID: "session-1", FinalText: "The pass failed."}}}
+		options := testOptions(t, provider)
+		options.Role = role
+		options.Store = newTestStore(t, root)
+		options.LogReader = logread.Reader{StateRoot: root, ProductID: "sample"}
+		session := openTestSession(t, options)
+		reply, err := session.Send(context.Background(), "Read the pass record.")
+		if err != nil {
+			t.Fatalf("the %s's pass read: %v", role.Title(), err)
+		}
+		if len(reply.LogReads) != 1 || len(reply.LogReads[0].Results) != 1 || reply.LogReads[0].Problem != "" {
+			t.Fatalf("the %s's pass read: %#v", role.Title(), reply.LogReads)
+		}
+		if !strings.Contains(provider.requests[1].Prompt, "architect-pass") {
+			t.Fatalf("the %s was not shown the pass record: %q", role.Title(), provider.requests[1].Prompt)
+		}
+		return reply.LogReads[0]
+	}
+	manager, program := read(domain.RoleDevelopmentManager), read(domain.RoleProgramManager)
+	if manager.Render() != program.Render() || manager.Results[0].Content != program.Results[0].Content {
+		t.Fatalf("the two roles read the pass record differently:\ndevelopment manager: %s\nprogram manager: %s", manager.Render(), program.Render())
+	}
+}
+
 func TestLogToolRedactsSecretsInAuditParameters(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

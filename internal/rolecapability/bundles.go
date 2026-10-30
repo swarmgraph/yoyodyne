@@ -136,6 +136,12 @@ func bundles() []Bundle {
 				capability.ProviderInvoke,
 				capability.WorkDecompose,
 				capability.WorkTriage,
+				// Diagnosing a recurring pass that keeps failing is hers, and what a
+				// failed pass did is held only in the product's records of its own
+				// running, the pass record first among them. She reads them exactly as
+				// the program manager does, one grant held twice, and
+				// TestWhatTellsTheRolesApart fails if the two holders drift apart.
+				capability.LogRead,
 				// Seeing one run as it stands, and checking a recovery had the effect
 				// she decided, are what her decisions about stopped runs rest on.
 				capability.RunInspect,

@@ -99,6 +99,10 @@ func TestWhatTellsTheRolesApart(t *testing.T) {
 		{"having repository content read on its behalf", capability.RepositoryRead, domain.Roles()},
 		{"naming a repository path to be read or listed", capability.RepositoryList, []domain.AgentRole{domain.RoleProductManager, domain.RoleArchitect, domain.RoleDevelopmentManager, domain.RoleProgramManager}},
 		{"keeping a memory of its own", capability.AgentContextMutate, []domain.AgentRole{domain.RoleProductManager, domain.RoleArchitect, domain.RoleDevelopmentManager, domain.RoleProgramManager}},
+		// The development manager diagnoses failing passes from the same records
+		// the program manager watches the line through, so the one grant is held by
+		// both and by nobody else.
+		{"reading the product's records of its own running, the pass record among them", capability.LogRead, []domain.AgentRole{domain.RoleDevelopmentManager, domain.RoleProgramManager}},
 	}
 	for _, expected := range cases {
 		if holding := registry.RolesHolding(expected.who); !slices.Equal(holding, expected.holds) {

@@ -340,7 +340,7 @@ there is no agent `tools:` narrowing key, a definition narrows only through its
 own file and a person's activation of it, and a persona or remit cannot grant
 anything.
 
-The program manager's `log.read` grant reads this product's pass records, watch
+The development manager's and the program manager's `log.read` grant reads this product's pass records, watch
 transitions and scheduler output, docket, named run records, usage-limit log,
 provider-outage record, and record of the operator's hand steps and messages
 under the state root. Reads require a cursor or a time
