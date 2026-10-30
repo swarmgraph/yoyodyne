@@ -1812,7 +1812,7 @@ func TestReserveDoesNotCountARunWhoseWorkerIsGone(t *testing.T) {
 	})
 }
 
-func testState(t *testing.T, status Status) State {
+func testState(t testing.TB, status Status) State {
 	t.Helper()
 	runID, err := NewRunID()
 	if err != nil {
