@@ -95,6 +95,7 @@ var everyRecordReaders = []everyRecordSite{
 	{"internal/orchestrator/repaircontinue.go", "(RepairContinuer).DeliverNotes"},
 	{"internal/orchestrator/repaircontinue.go", "(RepairContinuer).carriedOut"},
 	{"internal/orchestrator/runretirement.go", "(RunRetirer).Retire"},
+	{"internal/orchestrator/schedule.go", "(Scheduler).usageWindow"},
 	{"internal/orchestrator/schedule.go", "keptChange"},
 	{"internal/orchestrator/schedule.go", "priceRun"},
 	{"internal/orchestrator/triage.go", "(Docketer).Build"},
