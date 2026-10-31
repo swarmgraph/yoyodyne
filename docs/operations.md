@@ -4679,10 +4679,13 @@ start anywhere near the run it takes down.
 The harness holds this off in the two places it can. It never asks for
 maintenance in the Git commands it composes itself, and every process it
 launches — the agent, each configured check, and anything those go on to
-start — carries `gc.auto=0` and `maintenance.auto=false` in its environment. So
-a Git command an agent runs, or one a project's own build tooling runs inside a
-worktree, cannot start a maintenance run either, without either of them having
-to know that.
+start — carries `gc.auto=0`, `maintenance.auto=false` and
+`maintenance.worktree-prune.auto=0` in its environment. The third covers the
+separate task that prunes worktree registrations, which newer Git versions run
+under `git maintenance run --auto` without gc and which `gc.auto` does not
+switch off. So a Git command an agent runs, or one a
+project's own build tooling runs inside a worktree, cannot start a prune either,
+without either of them having to know that.
 
 Nothing is written into your repository's config for this. The repository is
 yours, its maintenance is yours to configure, and object GC turned off for good
@@ -4701,6 +4704,7 @@ command in the managed repository:
 ```sh
 git config maintenance.auto false
 git config gc.auto 0
+git config maintenance.worktree-prune.auto 0
 ```
 
 That closes the residual for every command in the repository, at the price of
