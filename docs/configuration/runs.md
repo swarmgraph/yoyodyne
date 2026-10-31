@@ -533,6 +533,48 @@ the run stays stopped with everything kept, the record says the check did not
 finish and why is unresolved, and the stoppage is the development manager's. A
 check that exits with a failure is never run again by any of this.
 
+### Installing a project's dependencies
+
+A project whose checks need packages a fresh worktree does not have — npm's
+`node_modules`, a Python virtual environment, anything a package manager
+fetches — declares the step that installs them under `install`:
+
+```yaml
+install:
+  - name: npm packages
+    run: npm ci --cache "$YOYODYNE_INSTALL_CACHE" --prefer-offline
+    inputs: [package.json, package-lock.json]
+    outputs: [node_modules]
+    time_limit: 10m
+```
+
+`run` is the command, run through `/bin/sh -c` in the root of the checkout.
+`inputs` are the files whose content decides what the step installs, and each
+must be tracked by Git. `outputs` are the folders it produces, and each must be
+ignored by Git, so nothing it installs can reach a commit. `time_limit` bounds
+one attempt and is 10 minutes where left out. The list is empty by default, and
+an empty list changes nothing. The configuration is refused when it is read,
+naming the path, if an input is not tracked, an output is not ignored or holds
+a tracked file, an output lies outside the repository, or two steps name the
+same output. `yoyo doctor` shows each step and says whether this machine can
+start its command.
+
+A step is run the way a check is: as the harness's own user, with the
+environment a check gets ([above](#the-environment-a-check-runs-in)), in a
+process group ended with it, and behind a place among the machine's heavy
+checks where `execution.heavy_checks` names its command. Like a check, it is
+run by the harness rather than by an agent, so it reaches the network; no
+developer or reviewer session is given network access by it. It alone is told
+the project's package cache folder, in `YOYODYNE_INSTALL_CACHE`.
+
+`install` is the operator's to write and never a role's, because a command that
+fetches from the network and runs what it fetched decides what reaches the
+machine. The harness does not yet run a declared step before a developer starts
+or before a run's checks; until it does, declaring one is checked and shown and
+changes nothing a run does.
+[Installing a project's dependencies before a developer run](../designs/project-dependencies-in-runs.md)
+is the design the rest follows.
+
 ### How many of a heavy check may run at once
 
 `execution.heavy_checks` names the checks only so many of may run at once on

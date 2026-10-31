@@ -263,6 +263,7 @@ services:           # the parts of the product, each on or off; see Services
 checks: []          # yours to write; a run with none is refused
 landing_checks: []  # what runs whole, once per landing; see "Where the whole suite runs"
 path_checks: []     # checks a change runs only when it touches what they vouch for
+install: []         # what installs the project's dependencies; see configuration/runs.md
 document_checks: [] # what a confirmed document's landing runs; see "The document checks"
 
 accounts:
@@ -3292,8 +3293,8 @@ under a name when it is the name, or begins with the name and then a space, so
 `make race RACE_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"` counts under
 `make race`, and `make racecar` does not; where two names match, the longer
 one wins. A name given no number gets one place. A name that matches nothing in
-`checks`, `landing_checks`, `document_checks`, or `path_checks` is refused when
-the configuration loads, and so is a number below one. Name none, which is the
+`checks`, `landing_checks`, `document_checks`, `path_checks`, or the `run` of
+an `install` step is refused when the configuration loads, and so is a number below one. Name none, which is the
 default, and every check starts as soon as its stage reaches it, as it always
 did.
 

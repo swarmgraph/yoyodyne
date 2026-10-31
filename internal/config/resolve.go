@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -223,6 +224,11 @@ func loadResolved(path string, mode loadMode, activations RoleActivationReader) 
 	}
 	if err := resolved.Config.Validate(); err != nil {
 		return Resolved{}, err
+	}
+	// The install steps' paths are held to the repository as well as to their
+	// shape, which a stream with no repository behind it cannot be.
+	if problems := installRepositoryProblems(context.Background(), resolved.Config.Install, installRepository(absolute, resolved.Config.Product)); len(problems) > 0 {
+		return Resolved{}, ValidationError{Problems: problems}
 	}
 	return resolved, nil
 }
@@ -729,6 +735,10 @@ func (r *resolution) apply(applied layer) error {
 	if document.PathChecks != nil {
 		r.config.PathChecks = append([]PathCheck(nil), (*document.PathChecks)...)
 		r.origins["path_checks"] = applied.origin
+	}
+	if document.Install != nil {
+		r.config.Install = append([]InstallStep(nil), (*document.Install)...)
+		r.origins["install"] = applied.origin
 	}
 
 	for _, name := range sortedAgentNames(document.Agents) {

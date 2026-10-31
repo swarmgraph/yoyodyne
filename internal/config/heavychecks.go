@@ -62,6 +62,9 @@ func heavyCheckProblems(c Config) []string {
 	for _, check := range c.PathChecks {
 		commands = append(commands, check.Command)
 	}
+	for _, step := range c.Install {
+		commands = append(commands, step.Run)
+	}
 	names := make([]string, 0, len(c.Execution.HeavyChecks))
 	for name := range c.Execution.HeavyChecks {
 		names = append(names, name)
@@ -85,7 +88,7 @@ func heavyCheckProblems(c Config) []string {
 			}
 		}
 		if !matched {
-			problems = append(problems, fmt.Sprintf("execution.heavy_checks names %q, which is no configured check: name a check the way checks, landing_checks, document_checks, or path_checks write it, such as %q for \"make race RACE_PACKAGES=...\"", key, "make race"))
+			problems = append(problems, fmt.Sprintf("execution.heavy_checks names %q, which is no configured check: name a check the way checks, landing_checks, document_checks, path_checks, or install write it, such as %q for \"make race RACE_PACKAGES=...\"", key, "make race"))
 		}
 	}
 	return problems
