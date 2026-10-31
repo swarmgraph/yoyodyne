@@ -10,12 +10,21 @@ revisions:
       by: architect
       at: 2026-10-28T22:32:58.588586Z
       reason: Rules how the tracker store's growth is stopped and old history squashed safely, and the limit the harness keeps, deciding every branch the first measurement can show so the ruling no longer waits on it.
+    - action: amended
+      by: architect
+      at: 2026-10-31T17:07:54.780943Z
+      reason: 'amendment-b1f077c4, approved by the architect: the note that a pass left an item is also written at two later stages of an unchanged reason, the second leave in a row and the first leave after the pass was told to decide or ask, so at most three notes per unchanged reason; the first write change and build piece 1 now say so, matching what was built for the once-per-reason note.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-10-28T22:32:58.588586Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1916, for document-1916.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-10-31T17:07:54.780943Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2050, for document-2050.1 under the automatic approval policy
 ---
 # Keeping the tracker store small
 
@@ -31,11 +40,13 @@ The measuring step also established that the harness's own code never reads the 
 
 ## Writes that stop or change
 
-1. A note saying a recurring pass left an item is written the first time, and again only when the reason given changes. Repeats with the same reason are counted in the harness's own state and shown wherever the note is shown, as "left again N times since" with the time of the latest. One ruling item collected about fifty such notes in three days; each was a write to the store and kept forever in its history.
+1. A note saying a recurring pass left an item is written the first time a pass leaves it, and again only when one of these happens: the reason given changes; the same reason is given a second time in a row; or the same reason is given for the first time after the pass has been told to decide the item or ask about it. Those two later notes carry wording the first note does not, which the rules for an item a pass keeps leaving promise, so an unchanged reason writes at most three notes. Every other repeat with the same reason is counted in the harness's own state and shown wherever the note is shown, as "left again N times since" with the time of the latest. One ruling item collected about fifty such notes in three days; each was a write to the store and kept forever in its history.
 2. The automatic export no longer runs inside every write. The tracker reader and writer writes the export at most once every five minutes when something has changed, and always before any commit that carries the export, so what is committed is never older than the store.
 3. The dashboard's open and ready listings come from one shared listing refreshed at most once a minute, not from a tracker read on every page refresh. A reader that fails keeps the last good listing and its time, as the dashboard already does for its other sections.
 
 Rejected: removing notes the harness writes, or merging old notes into one. Notes are append only by the operator's standing rule, and the chain of reasons runs through them.
+
+Rejected: one note per reason with no later notes. The later stages of an item a pass keeps leaving tell the reader something the first note cannot, and a count alone would hide when the pass was told to decide.
 
 ## Old history
 
@@ -66,7 +77,7 @@ Listing open items and listing ready items each finish within 10 seconds on the 
 
 Each is admitted under the work that gives reads of the harness's present state one owner, and is bounded on its own:
 
-1. A note that a pass left an item is written once per reason, with repeats counted and shown.
+1. A note that a pass left an item is written once per reason, and again only at the two later stages of the same reason described above, so at most three notes per unchanged reason; every other repeat is counted and shown.
 2. The automatic export moves out of each write into the tracker reader and writer, at most every five minutes and before any commit that carries it.
 3. The dashboard's open and ready listings come from one shared listing refreshed at most once a minute.
 4. A maintenance step squashes the live store under the conditions above, keeping a copy for 14 days.
