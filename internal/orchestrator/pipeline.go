@@ -1598,7 +1598,12 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	run.outcome.Status = runstate.StatusRunning
 	run.outcome.Phase = run.state.Phase
 
-	if err := run.develop(ctx, developerPrompt(p.developer().Persona.Text, run.deliveredInvariants().Text(), run.context, run.scratch, p.Config.Checks), ""); err != nil {
+	// The project's dependencies are installed before the developer's first
+	// turn, so its first check before any edit finds them (install.go).
+	if err := run.installBeforeDeveloper(ctx); err != nil {
+		return run.fail(err, failureStatus(ctx, err))
+	}
+	if err := run.develop(ctx, withInstallSection(developerPrompt(p.developer().Persona.Text, run.deliveredInvariants().Text(), run.context, run.scratch, p.Config.Checks), p.Config.Install), ""); err != nil {
 		return run.stop(ctx, err)
 	}
 	return run.verifyReviewAndFinish(ctx)
@@ -2244,6 +2249,11 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		// the prompt says, so it is handed the work item and the run's record too.
 		if state.ProviderSessionID == "" && handedBackRepair(state) {
 			prompt = freshSessionRepairPrompt(prompt, p.developer().Persona.Text, bundle.Text, state)
+		}
+		// A session that is not resumed was never told about the project's
+		// install steps, so it is told now.
+		if state.ProviderSessionID == "" {
+			prompt = withInstallSection(prompt, p.Config.Install)
 		}
 		// The attempt this run was owed is made again, which is the same state
 		// again: the transition a pause or a death takes in the definition, taken

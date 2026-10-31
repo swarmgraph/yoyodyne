@@ -49,7 +49,10 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    `requireBackendReady`, `requireLaunchSettings`, `reserveRun`, `beginDeliveryTrial`, `claim`,
    `fetchTarget` (the target fetched under its promotion lease just before the
    worktree is cut, `startingtarget.go`), `Worktrees.Create`,
-   `recordStartingTarget`, `liftPreserved`, `prepareScratch`, then `develop` and
+   `recordStartingTarget`, `liftPreserved`, `prepareScratch`,
+   `installBeforeDeveloper` (the project's declared install steps, run in the
+   worktree with the package cache under the state directory and each run of a
+   step recorded on the run, `install.go`), then `develop` and
    `verifyReviewAndFinish`.
 5. **Continuing a run.** `Pipeline.Continue` (re-enter one named run;
    `ContinuationMismatchError`), `reclaimSlot`, `resumeRun` (picks the step

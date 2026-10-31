@@ -2130,6 +2130,10 @@ func (s *State) recordedTexts() []recordedText {
 		unstated("starting_target.held", "starting_target.held", &s.StartingTarget.Held, MaxRecordedTextBytes)
 		unstated("starting_target.failure", "starting_target.failure", &s.StartingTarget.Failure, MaxRecordedTextBytes)
 	}
+	for index := range s.Install {
+		unstated("install[].name", at("install", index, "name"), &s.Install[index].Name, MaxRecordedTextBytes)
+		nested("install[].output", at("install", index, "output"), &s.Install[index].Output, MaxInstallOutputBytes)
+	}
 	if s.DocumentRetry != nil {
 		unstated("document_retry.waited_for", "document_retry.waited_for", &s.DocumentRetry.WaitedFor, MaxRecordedTextBytes)
 	}
@@ -3586,6 +3590,9 @@ type State struct {
 	// Absent is a run with no target branch, and every run recorded before the
 	// fetch before each run was built.
 	StartingTarget *StartingTarget `json:"starting_target,omitempty"`
+	// Install is every run of the project's declared install steps this run
+	// made, in the order it made them. Absent is a project that declares none.
+	Install []InstallRun `json:"install,omitempty"`
 	// RepairAttempts counts the repair attempts already handed back to the
 	// developer, whichever kind of failure triggered them: one budget covers
 	// both, so it bounds the developer invocations a run can make rather than
@@ -4411,6 +4418,11 @@ func (s State) Validate() error {
 	if s.StartingTarget != nil {
 		if err := s.StartingTarget.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("starting_target: %w", err))
+		}
+	}
+	for index, install := range s.Install {
+		if err := install.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("install[%d]: %w", index, err))
 		}
 	}
 	if s.Changes != nil {
