@@ -42,14 +42,18 @@ type InstallRequest struct {
 
 // RunInstall runs one attempt at an install step and returns its result.
 func (r Runner) RunInstall(ctx context.Context, request InstallRequest, sink func(execution.Event) error) (Result, uint64, error) {
-	if strings.TrimSpace(request.Command) == "" {
-		return Result{}, request.LastSequence, errors.New("install step command cannot be empty")
-	}
+	return RunInstallWith(ctx, r, request, sink)
+}
+
+// CheckRequest is the request a check runner is given for one attempt at an
+// install step: the step's command alone, its own time limit with no stage
+// bound, and the cache folder in InstallCacheVariable.
+func (request InstallRequest) CheckRequest() Request {
 	var env []string
 	if request.Cache != "" {
 		env = append(env, InstallCacheVariable+"="+request.Cache)
 	}
-	results, last, err := r.Run(ctx, Request{
+	return Request{
 		RunID:        request.RunID,
 		Directory:    request.Directory,
 		Commands:     []string{request.Command},
@@ -58,7 +62,22 @@ func (r Runner) RunInstall(ctx context.Context, request InstallRequest, sink fun
 		Timeout:      request.TimeLimit,
 		Unbounded:    true,
 		Permit:       request.Permit,
-	}, sink)
+	}
+}
+
+// CheckRun is what RunInstallWith runs an install step through: Runner, or
+// anything a caller stands in for it.
+type CheckRun interface {
+	Run(ctx context.Context, request Request, sink func(execution.Event) error) ([]Result, uint64, error)
+}
+
+// RunInstallWith runs one attempt at an install step through runner and
+// returns its result.
+func RunInstallWith(ctx context.Context, runner CheckRun, request InstallRequest, sink func(execution.Event) error) (Result, uint64, error) {
+	if strings.TrimSpace(request.Command) == "" {
+		return Result{}, request.LastSequence, errors.New("install step command cannot be empty")
+	}
+	results, last, err := runner.Run(ctx, request.CheckRequest(), sink)
 	if len(results) == 0 {
 		if err == nil {
 			err = errors.New("install step produced no result")

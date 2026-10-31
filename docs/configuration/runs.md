@@ -567,11 +567,28 @@ run by the harness rather than by an agent, so it reaches the network; no
 developer or reviewer session is given network access by it. It alone is told
 the project's package cache folder, in `YOYODYNE_INSTALL_CACHE`.
 
+The package cache folder is kept for each project among its records in the
+harness's state directory, at `projects/<id>/state/install-cache`, and created
+by the harness. No developer, reviewer, or other agent session is given write
+access to it or network access by any of this.
+
+Each step runs in a run's worktree after the worktree is made and before the
+developer's first turn, so the developer's first check finds what it installed.
+Each run of a step is recorded on the run with the step's name, a digest of its
+inputs, when it started and how long it took, how it ended, and the last 200
+lines of what it printed (at most 16 KiB), with secrets removed. A step that
+does not pass stops the run there, before any developer turn is spent, with its
+output in the run's failure. A developer on a project that declares a step is
+told that a dependency file it changes is installed before the checks that
+judge the change and before its next repair round, not within the same turn.
+The harness does not yet run a step again before those checks and repair
+rounds, or wait and try again when a step fails for a reason outside the work;
+[the design](../designs/project-dependencies-in-runs.md) names both as later
+pieces.
+
 `install` is the operator's to write and never a role's, because a command that
 fetches from the network and runs what it fetched decides what reaches the
-machine. The harness does not yet run a declared step before a developer starts
-or before a run's checks; until it does, declaring one is checked and shown and
-changes nothing a run does.
+machine.
 [Installing a project's dependencies before a developer run](../designs/project-dependencies-in-runs.md)
 is the design the rest follows.
 
