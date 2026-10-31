@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // InstallRun is one run of one of the project's declared install steps in one
@@ -113,10 +114,8 @@ func InstallOutputTail(lines []string) string {
 		return text
 	}
 	cut := len(text) - MaxInstallOutputBytes
-	for cut < len(text) && !utf8Start(text[cut]) {
+	for cut < len(text) && !utf8.RuneStart(text[cut]) {
 		cut++
 	}
 	return text[cut:]
 }
-
-func utf8Start(b byte) bool { return b&0xC0 != 0x80 }
