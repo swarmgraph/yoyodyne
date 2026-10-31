@@ -2115,6 +2115,11 @@ func (s *State) recordedTexts() []recordedText {
 	if s.HomeMigration != nil {
 		unstated("home_migration.by", "home_migration.by", &s.HomeMigration.By, MaxHomeMigrationByBytes)
 	}
+	if s.StartingTarget != nil {
+		unstated("starting_target.remote", "starting_target.remote", &s.StartingTarget.Remote, MaxRecordedTextBytes)
+		unstated("starting_target.held", "starting_target.held", &s.StartingTarget.Held, MaxRecordedTextBytes)
+		unstated("starting_target.failure", "starting_target.failure", &s.StartingTarget.Failure, MaxRecordedTextBytes)
+	}
 	if s.DocumentRetry != nil {
 		unstated("document_retry.waited_for", "document_retry.waited_for", &s.DocumentRetry.WaitedFor, MaxRecordedTextBytes)
 	}
@@ -3553,6 +3558,11 @@ type State struct {
 	// the claim, it is what says the clear was never confirmed and the item was
 	// left for the next pull.
 	StaleBlockClear *StaleBlockClear `json:"stale_block_clear,omitempty"`
+	// StartingTarget is the target this run's worktree was cut from, whether the
+	// remote was fetched for it, and how old it was where that fetch failed.
+	// Absent is a run with no target branch, and every run recorded before the
+	// fetch before each run was built.
+	StartingTarget *StartingTarget `json:"starting_target,omitempty"`
 	// RepairAttempts counts the repair attempts already handed back to the
 	// developer, whichever kind of failure triggered them: one budget covers
 	// both, so it bounds the developer invocations a run can make rather than
@@ -4373,6 +4383,11 @@ func (s State) Validate() error {
 	if s.StaleBlockClear != nil {
 		if err := s.StaleBlockClear.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("stale_block_clear: %w", err))
+		}
+	}
+	if s.StartingTarget != nil {
+		if err := s.StartingTarget.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("starting_target: %w", err))
 		}
 	}
 	if s.Changes != nil {

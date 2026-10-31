@@ -208,6 +208,13 @@
     "schema_version": 1,
     "settled_quiet_since": "\u003ctime\u003e",
     "started_at": "\u003ctime\u003e",
+    "starting_target": {
+      "commit": "\u003ccommit-1\u003e",
+      "committed_at": "\u003ctime\u003e",
+      "fetched": false,
+      "recorded_at": "\u003ctime\u003e",
+      "target_branch": "main"
+    },
     "status": "succeeded",
     "target_branch": "main",
     "updated_at": "\u003ctime\u003e",

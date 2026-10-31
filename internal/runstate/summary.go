@@ -352,6 +352,10 @@ type RunSummary struct {
 	// word on: a clear no read confirmed is a run dead at the claim with the
 	// item left for the next pull, and this says so where the run is read.
 	StaleBlockClear *StaleBlockClear `json:"stale_block_clear,omitempty"`
+	// StartingTarget is the target the run's worktree was cut from and whether
+	// it was fetched for the run, so a run that started behind the remote says
+	// so where the run is read.
+	StartingTarget *StartingTarget `json:"starting_target,omitempty"`
 	// ReportProblem and AmendmentProblem are what the run's agents reported or
 	// proposed that the harness could not read or could not keep. Neither says
 	// anything about the work — the run delivered exactly as it would have — and
@@ -611,6 +615,10 @@ func (s *Store) summarize(state State) RunSummary {
 	if state.StaleBlockClear != nil {
 		cleared := *state.StaleBlockClear
 		summary.StaleBlockClear = &cleared
+	}
+	if state.StartingTarget != nil {
+		started := *state.StartingTarget
+		summary.StartingTarget = &started
 	}
 	if state.Selection != nil {
 		selection := *state.Selection

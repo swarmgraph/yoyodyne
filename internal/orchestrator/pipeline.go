@@ -1550,6 +1550,9 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		return run.fail(err, failureStatus(ctx, err))
 	}
 	run.observe(ctx, deliveryClaim, "claimed")
+	// The target is fetched immediately before the worktree is cut from it, so
+	// the run starts from what the remote has now (startingtarget.go).
+	run.fetchTarget(ctx, targetBranch)
 	worktree, err := run.createWorktree(ctx, gitworktree.CreateRequest{
 		RunID:        runID,
 		WorkItemID:   workItemID,
@@ -1579,6 +1582,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		return run.fail(fmt.Errorf("create isolated worktree: %w", err), runstate.StatusFailed)
 	}
 	run.recordWorktree(worktree)
+	run.recordStartingTarget(ctx, worktree)
 	if err := run.liftPreserved(ctx); err != nil {
 		return run.fail(err, runstate.StatusFailed)
 	}

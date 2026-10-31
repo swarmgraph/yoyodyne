@@ -986,6 +986,8 @@ var notAStep = map[string]string{
 	// that could reorder them would be reordering the reporting rather than the
 	// delivery.
 	"fail":                       "turns a failure into the run's outcome",
+	"fetchTarget":                "brings the target up to date before the worktree is cut and records what it found; it never stops the run, so there is nothing for a definition to route",
+	"recordStartingTarget":       "writes the commit the worktree was cut from onto the run's record and the item's notes",
 	"documentChecks":             "reads which check list a document landing runs; the check step it informs is verify",
 	"stop":                       "turns a stopped step into the run's outcome, which for a pause or a hold leaves the run in flight",
 	"endPromotion":               "turns a failed promotion into the run's outcome, through stop where the hosting session cancelled the run for its redeploy and through fail otherwise",
