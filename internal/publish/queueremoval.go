@@ -75,6 +75,17 @@ func (q QueueRemoval) Reason() string {
 	return ""
 }
 
+// RemovedFromQueue reports a timeline on which the forge removed the request
+// from its merge queue at least once.
+func (q QueueRemoval) RemovedFromQueue() bool {
+	for _, event := range q.Events {
+		if event.Kind == "RemovedFromMergeQueueEvent" {
+			return true
+		}
+	}
+	return false
+}
+
 // queueEventsQuery reads the queue and auto-merge events on a pull request's
 // timeline. The listing verbs carry none of them, so it is asked of the forge's
 // GraphQL API, scoped as mergeQueueQuery is.

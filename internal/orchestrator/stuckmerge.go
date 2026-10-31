@@ -122,7 +122,7 @@ func stuckMerge(published runstate.PullRequest, target string, since time.Time, 
 		sentences = append(sentences, fmt.Sprintf("The change is not merged, and a repair cannot bring it up to date because %s, so a re-run of the item is what builds it again on %s.", cannotReplay, target))
 	}
 	sentences = append(sentences, stuckMergeCause(removal, unread, published.Number, target))
-	sentences = append(sentences, forgeDropAccount(removal, unread, published, target))
+	sentences = append(sentences, forgeDropAccount(removal, unread, published, target, nil))
 	return strings.Join(sentences, " ") + " The harness does not merge past a requirement of " + target + ", so " + developmentManagerMovesNext
 }
 
