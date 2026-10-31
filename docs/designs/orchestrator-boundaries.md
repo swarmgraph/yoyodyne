@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-10-25T18:44:56.634718Z
       reason: 'Follows the design for one owner for each guarantee, as that design says: operation 4 reserves a developer slot through the one reservation of its guarantee 3 rather than reading whether one is free, and a run paused on unfinished work takes its slot through the same reservation. Nothing else in this section changes. Written from a read at main 22aa9a32.'
+    - action: amended
+      by: architect
+      at: 2026-10-31T05:30:49.169906Z
+      reason: 'yoyodyne-ifd.428.126.4.12: rules that run storage may take types and constants from the tracker''s package to store what the tracker client hands it, but never calls the tracker or decides about its store, and that the tracker''s package never imports run storage. Names one build piece: a check in make test with a list of exceptions that may only shrink, which first reads the three files not read here. Written from reads of trackerreading.go, trackerslowcall.go and trackerstoresquash.go at main be20dec3.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -34,6 +38,11 @@ approvals:
       by: harness
       at: 2026-10-25T18:44:56.634718Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1734, for document-1734.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-10-31T05:30:49.169906Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2026, for document-2026.1 under the automatic approval policy
 ---
 # How internal/orchestrator is split, one admitted change at a time
 
@@ -62,9 +71,31 @@ A boundary's package is created by the first admitted change that moves a file i
 
 `internal/runstate` owns the run record and everything that reads meaning from it: whether a stopped run is one the harness continues itself, how many continuations it has left, and which step a stopped run resumes at. That last one becomes one function of the record alone, which the stopped-run recovery slice that settles where a run resumes (yoyodyne-ifd.428.99.6) builds. `Pipeline.Run`, `Pipeline.Continue`, re-adopting a run after a new build, and every path in `internal/continuation` call that function, and none of them decides the step again.
 
-The ordering rules every continuation keeps — ask everything that can refuse before writing anything; put the item back before making the run live; close the stopped-run entry last; give up the run's lease only just before starting it — belong to `internal/continuation`, because keeping them needs the tracker and the worktree, which `internal/runstate` must not import.
+The ordering rules every continuation keeps — ask everything that can refuse before writing anything; put the item back before making the run live; close the stopped-run entry last; give up the run's lease only just before starting it — belong to `internal/continuation`, because keeping them needs calls to the tracker and acts on the worktree, which `internal/runstate` never makes.
 
 Inside `internal/runstate`, storage is kept apart from reading meaning. Storage is the run store, its leases, the store of stopped runs waiting on the development manager, and replacing a file in one step. Reading meaning is the functions on `runstate.State`. They separate in this order: the shared one-step file replacement first (yoyodyne-ifd.431.5, already admitted); then the functions on `State` gather into their own files as the function that chooses where a run resumes lands, with no storage file calling them. No stored field is renamed, so no stored record needs migrating beyond what the machine home already does.
+
+### What run storage may take from the tracker's package
+
+Run storage also keeps records about the tracker under the harness's state directory: the shared reading of the tracker's listings, each tracker call that ran out of time, and what maintenance measured, cleaned and squashed in the tracker's store. At be20dec3 six files hold these: `trackerreading.go`, `trackerslowcall.go`, `trackerstoremeasurement.go`, `trackerstorecleanup.go`, `trackerexportcleanup.go` and `trackerstoresquash.go`. Each imports `internal/beads`. The three read at that commit (`trackerreading.go`, `trackerslowcall.go` and `trackerstoresquash.go`) take only types and constants from it, such as the work item, the slow call, and a squash with its stage names, and none of them calls the tracker.
+
+That is allowed, and this is the rule:
+
+- A file in `internal/runstate` may take types and constants from `internal/beads`, to store what the tracker client hands it in the client's own shape.
+- It never calls a function or method of `internal/beads`, never runs the tracker's command, and never decides anything about the tracker's store. Calling the tracker is the client's, under guarantee 7 of [one owner for each guarantee](one-owner-for-each-guarantee.md). Deciding when the store is measured, cleaned or squashed is maintenance's (`internal/maintain`), as [keeping the tracker store small](tracker-store-size.md) says. Run storage only records what they did.
+- `internal/beads` imports nothing from `internal/runstate`. Where the client hands a record to a store here, it does so through an interface it declares, and the command line connects the two.
+
+A check in `make test` holds this: each file in `internal/runstate` uses from `internal/beads` only the names of types and constants, and `internal/beads` does not import `internal/runstate`. It goes in with a list of the files that do more, and the list may only shrink. The item that builds the check reads the three files not read at be20dec3 first; any call to the tracker it finds there moves out in that item, to `internal/beads`, or to `internal/maintain` where it decides something about the store.
+
+This is a design decision, not an invariant: the rule that a guarantee is kept only by its owner, proposed in [one owner for each guarantee](one-owner-for-each-guarantee.md), already binds work that never mentions it.
+
+Rejected:
+
+- Giving run storage types of its own and converting at each caller. The work item is the tracker's largest type, and a copy of it would drift from the original with nobody owning the difference.
+- Moving these stores into `internal/beads`. They are files under the harness's state directory, written through the confined writer this package owns, and the table of constructors below already places every product store, the tracker listings included, here.
+- Moving the shared types into a package of their own. It would add a package for no protection the check above does not already give.
+
+A reviewer can check that no file in `internal/runstate` calls into `internal/beads`, and that `internal/beads` does not import `internal/runstate`.
 
 ## The shared continuation operations
 
