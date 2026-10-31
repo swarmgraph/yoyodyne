@@ -38,7 +38,9 @@ package orchestrator
 // took no turn, or failed before giving an account leaves no note on any item:
 // there was no passing-over to say, only a pass that did not run or did not
 // finish, and its own record says which. The note is appended, never replaces
-// what the item's notes already hold.
+// what the item's notes already hold, and is written once per reason: a pass
+// that leaves the item for the reason the last note gave writes nothing and is
+// counted instead (notePassedOver).
 
 import (
 	"context"
@@ -194,7 +196,15 @@ func boundedLeftReason(reason string) string {
 // notePassedOver writes the note on the item first in the pass's order where
 // the pass answered with its account and did not take that item, and returns
 // what the pass's record should say where the note could not be written.
-func (t Trigger) notePassedOver(ctx context.Context, pass string, role domain.AgentRole, recorded runstate.Sweep) string {
+//
+// earlier is the task's passes before this one. Where the latest of them left
+// the same item for the same reason, the note on the item already says what
+// this one would, so none is written: the record marks the pass a repeat, and
+// every surface that shows the note says how many passes have left the item
+// again since and when the latest did (runstate.PassedOverRepeats). A changed
+// reason, or a pass reaching a new stage of leaving it in a row
+// (leftInARowSays), writes a new note.
+func (t Trigger) notePassedOver(ctx context.Context, pass string, role domain.AgentRole, recorded *runstate.Sweep, earlier []runstate.Sweep) string {
 	first, handed := recorded.FirstDelivered()
 	if !handed || first.Taken || recorded.Turns == 0 || recorded.Result == nil {
 		return ""
@@ -204,9 +214,14 @@ func (t Trigger) notePassedOver(ctx context.Context, pass string, role domain.Ag
 	if t.ItemNotes == nil {
 		return ""
 	}
+	if runstate.RepeatsPassedOverNote(earlier, first) {
+		recorded.Delivered[0].NoteRepeated = true
+		return ""
+	}
 	write, stopWriting := trackerRecordContext(ctx)
 	defer stopWriting()
-	if err := t.ItemNotes.AppendNote(write, first.ID, passedOverNote(pass, role, recorded, first)); err != nil {
+	if err := t.ItemNotes.AppendNote(write, first.ID, passedOverNote(pass, role, *recorded, first)); err != nil {
+		recorded.Delivered[0].NoteUnwritten = true
 		return fmt.Sprintf("%s was first in the order this pass was handed and the pass did not take it, and the note saying so could not be written on the item: %v", first.ID, err)
 	}
 	return ""

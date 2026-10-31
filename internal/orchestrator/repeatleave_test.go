@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -228,4 +229,105 @@ func TestABlockedItemLeftRepeatedlyIsNotForced(t *testing.T) {
 			t.Errorf("note = %q, want no count on a held item", note)
 		}
 	}
+}
+
+// A note that a pass left an item is written once per reason: a later pass
+// leaving it for the same reason writes nothing and is marked a repeat on its
+// record, and a pass giving a different reason writes a new note.
+func TestAPassedOverNoteIsWrittenOncePerReason(t *testing.T) {
+	t.Parallel()
+	changed := complete("Took nothing.")
+	changed.Left = []sweep.Left{{Item: capacityDesign, Reason: "the ruling waits on the measured figures"}}
+	role := &wokenRole{answers: []scriptedTurn{
+		leftAgainTurn("Took nothing."), leftAgainTurn("Took nothing."), leftAgainTurn("Took nothing."),
+		{result: changed}, {result: changed},
+	}}
+	notes := &itemNotes{}
+	// Held outside the role, so the passes are never told to decide it and every
+	// leave stands at the same stage.
+	recorded := fireArchitectPasses(t, capacityQueue("depends on yoyodyne-ifd.429.40, which is open"), role, notes, sweepStore(t), 5)
+
+	written := notes.notes[capacityDesign]
+	if len(written) != 2 {
+		t.Fatalf("notes = %v, want one note for each of the two reasons", written)
+	}
+	if !strings.Contains(written[0], "Reason: "+spreadReason) || !strings.Contains(written[1], "Reason: the ruling waits on the measured figures") {
+		t.Errorf("notes = %v, want the first reason and then the changed one", written)
+	}
+	for index, want := range []bool{false, true, true, false, true} {
+		if first := recorded[index].Delivered[0]; first.NoteRepeated != want || first.NoteUnwritten {
+			t.Errorf("pass %d first = %+v, want note repeated %v", index+1, first, want)
+		}
+	}
+	since, repeated := runstate.PassedOverRepeats(recorded, "architect-pass", capacityDesign)
+	if !repeated || since.Times != 1 || !since.NotedAt.Equal(recorded[3].StartedAt) || !since.Latest.Equal(recorded[4].StartedAt) {
+		t.Errorf("repeats = %+v (%v), want the changed reason's note left again once since", since, repeated)
+	}
+}
+
+// Passes in a row leaving an item for the same reason still write the note
+// that says the next pass is told to decide it or ask, and the one that says a
+// pass told so left it anyway; past that, they repeat it.
+func TestALeaveReachingANewStageWritesItsNoteThoughTheReasonIsUnchanged(t *testing.T) {
+	t.Parallel()
+	role := &wokenRole{answers: []scriptedTurn{
+		leftAgainTurn("Took nothing."), leftAgainTurn("Took nothing."),
+		leftAgainTurn("Took nothing."), leftAgainTurn("Still nothing."),
+		leftAgainTurn("Took nothing."), leftAgainTurn("Still nothing."),
+	}}
+	notes := &itemNotes{}
+	recorded := fireArchitectPasses(t, capacityQueue(""), role, notes, sweepStore(t), 4)
+
+	written := notes.notes[capacityDesign]
+	if len(written) != 3 {
+		t.Fatalf("notes = %v, want the first leave, the second in a row, and the third after being told", written)
+	}
+	if !strings.Contains(written[2], "3rd pass in a row") {
+		t.Errorf("third note = %q, want it to say the pass told to decide left it anyway", written[2])
+	}
+	if first := recorded[3].Delivered[0]; !first.NoteRepeated || first.LeftInARow != 4 {
+		t.Errorf("fourth pass first = %+v, want it a repeat of the third pass's note", first)
+	}
+}
+
+// A note that could not be written is not repeated: the next pass leaving the
+// item for the same reason writes it.
+func TestANoteThatCouldNotBeWrittenIsWrittenByTheNextPass(t *testing.T) {
+	t.Parallel()
+	role := &wokenRole{answers: []scriptedTurn{leftAgainTurn("Took nothing."), leftAgainTurn("Took nothing.")}}
+	notes := &failingOnceNotes{}
+	store := sweepStore(t)
+	clock := &movingRecurringClock{now: recurringNow}
+	trigger := Trigger{Tasks: architectPass(), Claims: store, Reports: store, Roles: role,
+		ConversationWork: capacityQueue("blocked in the tracker"), ItemNotes: notes, Clock: clock}
+	for range 2 {
+		if _, err := trigger.Fire(context.Background()); err != nil {
+			t.Fatalf("Fire() error = %v", err)
+		}
+		clock.now = clock.now.Add(time.Hour)
+	}
+	recorded, _, err := store.List()
+	if err != nil || len(recorded) != 2 {
+		t.Fatalf("recorded = %+v (%v), want two passes", recorded, err)
+	}
+	if first := recorded[0].Delivered[0]; !first.NoteUnwritten || first.NoteRepeated {
+		t.Errorf("first pass first = %+v, want its note marked unwritten", first)
+	}
+	if first := recorded[1].Delivered[0]; first.NoteRepeated || first.NoteUnwritten || len(notes.notes[capacityDesign]) != 1 {
+		t.Errorf("second pass first = %+v, notes = %v, want the note written by the second pass", first, notes.notes)
+	}
+}
+
+// failingOnceNotes refuses the first note and takes every one after it.
+type failingOnceNotes struct {
+	itemNotes
+	refused bool
+}
+
+func (n *failingOnceNotes) AppendNote(ctx context.Context, id, note string) error {
+	if !n.refused {
+		n.refused = true
+		return errors.New("bd update refused")
+	}
+	return n.itemNotes.AppendNote(ctx, id, note)
 }
