@@ -106,8 +106,14 @@ type Config struct {
 	// a change that edits that list runs the check whatever the list now says.
 	// A project that names none adds nothing, which is what every project did
 	// before this existed.
-	PathChecks []PathCheck            `yaml:"path_checks,omitempty" json:"path_checks,omitempty"`
-	Agents     map[string]AgentConfig `yaml:"agents" json:"agents"`
+	PathChecks []PathCheck `yaml:"path_checks,omitempty" json:"path_checks,omitempty"`
+	// Install are the steps that put the project's dependencies in a checkout
+	// before anything runs the project's code there, each a command the harness
+	// runs the way it runs a check, with network access (install.go). They are
+	// the operator's to write and never a role's. A project that names none
+	// installs nothing, which is what every project did before this existed.
+	Install []InstallStep          `yaml:"install,omitempty" json:"install,omitempty"`
+	Agents  map[string]AgentConfig `yaml:"agents" json:"agents"`
 	// Accounts are the provider accounts this project runs agents under, keyed by
 	// the alias each one is named by. It is top level rather than under `agents`
 	// because an account is a thing several agents share: which roles run on which
@@ -1504,6 +1510,7 @@ func (c Config) Validate() error {
 	for index, check := range c.PathChecks {
 		problems = append(problems, check.problems(index)...)
 	}
+	problems = append(problems, installProblems(c.Install)...)
 	// Admitting work without asking rests entirely on the operator's approval of
 	// the goal that work serves, so a project that records no goal approvals has
 	// nothing for it to rest on: the setting would read as autonomy and mean

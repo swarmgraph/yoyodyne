@@ -249,6 +249,7 @@ func Diagnose(ctx context.Context, env Environment) Report {
 	report.Findings = append(report.Findings, diagnosis.checkTracker(ctx, repository))
 	report.Findings = append(report.Findings, diagnosis.checkStateRoot(repository))
 	report.Findings = append(report.Findings, diagnosis.checkChecks(resolved, repository)...)
+	report.Findings = append(report.Findings, diagnosis.checkInstall(resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkNode(repository)...)
 	if resolved.Config.Product.HasIntentRepository() {
 		report.Findings = append(report.Findings, diagnosis.checkIntentRepository(repository, resolved))
@@ -629,25 +630,7 @@ func (d *diagnosis) checkChecks(resolved config.Resolved, repository string) []F
 	}
 	var missing []string
 	for _, command := range resolved.Config.Checks {
-		program := programOf(command)
-		if program == "" || shellBuiltin(program) {
-			continue
-		}
-		if strings.ContainsRune(program, filepath.Separator) {
-			// A check runs in the run's worktree rather than wherever this was
-			// typed, so a relative script is resolved against the repository. The
-			// alternative reports a perfectly good check as missing whenever
-			// somebody runs this from a subdirectory.
-			resolvedProgram := program
-			if !filepath.IsAbs(resolvedProgram) {
-				resolvedProgram = filepath.Join(repository, resolvedProgram)
-			}
-			if info, err := os.Stat(resolvedProgram); err != nil || info.IsDir() {
-				missing = append(missing, program)
-			}
-			continue
-		}
-		if _, err := d.lookPath(program); err != nil {
+		if program := d.unresolvable(command, repository); program != "" {
 			missing = append(missing, program)
 		}
 	}
@@ -670,6 +653,58 @@ func (d *diagnosis) checkChecks(resolved config.Resolved, repository string) []F
 		Summary: fmt.Sprintf("%s configured, and every command resolves here", countOf(len(resolved.Config.Checks), "check")),
 		Detail:  strings.Join(resolved.Config.Checks, "; "),
 	}}
+}
+
+// unresolvable is the program a command starts with when this machine cannot
+// run it, and empty when it can or when the command starts with no program a
+// lookup could find.
+func (d *diagnosis) unresolvable(command, repository string) string {
+	program := programOf(command)
+	if program == "" || shellBuiltin(program) {
+		return ""
+	}
+	if strings.ContainsRune(program, filepath.Separator) {
+		// A check runs in the run's worktree rather than wherever this was
+		// typed, so a relative script is resolved against the repository. The
+		// alternative reports a perfectly good check as missing whenever
+		// somebody runs this from a subdirectory.
+		resolvedProgram := program
+		if !filepath.IsAbs(resolvedProgram) {
+			resolvedProgram = filepath.Join(repository, resolvedProgram)
+		}
+		if info, err := os.Stat(resolvedProgram); err != nil || info.IsDir() {
+			return program
+		}
+		return ""
+	}
+	if _, err := d.lookPath(program); err != nil {
+		return program
+	}
+	return ""
+}
+
+// checkInstall shows each install step the project declares, one finding a
+// step, and whether this machine could start its command. The configuration
+// has already held each step's inputs and outputs to the repository when it was
+// read, so what is left to ask here is the command, as checkChecks asks of a
+// check. A project that declares none is told nothing, as before steps existed.
+func (d *diagnosis) checkInstall(resolved config.Resolved, repository string) []Finding {
+	findings := make([]Finding, 0, len(resolved.Config.Install))
+	for _, step := range resolved.Config.Install {
+		finding := Finding{
+			Check:   "install:" + step.Name,
+			Status:  StatusOK,
+			Summary: fmt.Sprintf("install step %q is declared: it runs %s, its inputs are %s, it produces %s, and each attempt may take %s", step.Name, step.Run, strings.Join(step.Inputs, ", "), strings.Join(step.Outputs, ", "), step.Limit()),
+			Detail:  fmt.Sprintf("install in %s", resolved.Path),
+		}
+		if missing := d.unresolvable(step.Run, repository); missing != "" {
+			finding.Status = StatusProblem
+			finding.Summary = fmt.Sprintf("install step %q needs %s, which this machine cannot run", step.Name, missing)
+			finding.Remedy = fmt.Sprintf("${EDITOR:-vi} %s", shellQuote(resolved.Path))
+		}
+		findings = append(findings, finding)
+	}
+	return findings
 }
 
 // checkNode asks whether this machine can run the dashboard page's script,

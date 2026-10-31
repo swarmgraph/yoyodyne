@@ -45,8 +45,10 @@ type configDocument struct {
 	// DocumentChecks replaces an inherited list entirely, for the same reason.
 	DocumentChecks *[]string `yaml:"document_checks"`
 	// PathChecks replaces an inherited list entirely, for the same reason.
-	PathChecks *[]PathCheck             `yaml:"path_checks"`
-	Agents     map[string]agentDocument `yaml:"agents"`
+	PathChecks *[]PathCheck `yaml:"path_checks"`
+	// Install replaces an inherited list entirely, for the same reason.
+	Install *[]InstallStep           `yaml:"install"`
+	Agents  map[string]agentDocument `yaml:"agents"`
 	// Operators replaces an inherited mapping entirely rather than merging into
 	// it, for the reason the check list does and the allow-list it absorbed did:
 	// who may act is a decision, and a mapping silently assembled from two layers
