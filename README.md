@@ -49,8 +49,8 @@ reviewer whose findings go back to the developer to repair, and a merge into
 your target branch — or a pull request, [if you ask for
 one](#optional-publishing-and-auto-merge). The merge is something you turn on:
 a freshly generated configuration sets `approvals.integration: human`, and until
-you set it to `automatic` a run stops once your checks pass and keeps its
-branch and worktree for you to merge. The other commands (`yoyo help` lists
+you set it to `automatic` a run stops once your checks pass and the reviewer
+approves, and keeps its branch and worktree for you to merge. The other commands (`yoyo help` lists
 them) are for administration and recovery.
 
 **Quick start.** One script installs `yoyo`, tells you where it put it, and
@@ -71,11 +71,12 @@ is for; [Install](#install) has what the script does and the other routes.
 
 **Your first run does not merge anything.** The configuration `yoyo setup` and
 `yoyo init` write sets `approvals.integration: human`, so a run that passes
-your checks ends there, with its change on its own branch and worktree for you
-to look at and merge yourself; no reviewer runs, because nothing is merged
-without you. Set `approvals.integration: automatic` in
-`.yoyodyne/config.yaml` once you want the harness to have every change
-reviewed and merge the approved ones; [publishing and
+your checks and the independent review ends there, with its change on its own
+branch and worktree for you to look at and merge yourself. The reviewer still
+runs, and its findings and failing checks still go back to the developer to
+repair; the only thing the setting withholds is the merge. Set
+`approvals.integration: automatic` in `.yoyodyne/config.yaml` once you want
+the harness to merge the approved changes itself; [publishing and
 auto-merge](#optional-publishing-and-auto-merge) has what it needs.
 
 **What is bounded today**, worth knowing before you start:

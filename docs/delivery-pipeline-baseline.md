@@ -190,8 +190,10 @@ harness.
 | `cleaning_up` | Remove the worktree and the branch, each recorded separately | `worktree_removed`, `branch_removed` |
 | `complete` | Nothing outstanding | `completed_at` |
 
-A run whose integration a person still approves stops after `checking`: it
-records the outcome, leaves the change on its branch, and closes nothing.
+A run whose integration a person still approves passes through `checking`
+and `reviewing`, with the same repair rounds, and stops where `integrating`
+would begin: it opens its pull request where the project publishes, records the
+outcome, leaves the approved change on its branch, and closes nothing.
 
 `harness_commit` is written by `developing`, and an ordinary promotion leaves
 it where `developing` put it: the commit promoted is that commit, which is why
@@ -495,7 +497,7 @@ re-closing or re-blocking an item is exactly what a sweep must not do.
 
 | Trace | What it freezes |
 | --- | --- |
-| `human-approved-change-is-preserved-for-its-approver` | The non-automatic path stops after the checks and promotes, closes, and cleans up nothing |
+| `human-approved-change-is-preserved-for-its-approver` | The non-automatic path stops after the checks and the independent review, and promotes, closes, and cleans up nothing |
 | `automatic-run-promotes-reviews-closes-and-cleans-up` | The whole happy path, including both cleanup steps |
 | `failing-check-is-repaired-and-then-promoted` | A check failure as repair input, and the durable failure cleared once it passes |
 | `failing-check-spends-the-repair-budget-and-blocks` | The repair budget, and what a blocked run leaves behind |
@@ -776,14 +778,17 @@ them.
   name.
 
   One thing there is not read off a trace. Only one recorded path runs under a
-  person's approval — the change that passes — so the three ways that gate can
-  stop a run instead (a check that failed, a path the item never granted, and a
-  suite the machine could not run) would otherwise be transitions nothing
-  measured. The harness drives the real non-automatic pipeline into each of them
-  and holds the definition's destination against what the run left behind: one
-  developer invocation, no repair attempt, the item neither closed nor blocked,
-  and the worktree and branch still standing. Driven rather than recorded,
-  because adding a trace here is re-recording this document's own artifact.
+  person's approval — the change that passes and is approved — so the three ways
+  the gate can stop such a run instead (a check that failed, a path the item
+  never granted, and a suite the machine could not run) would otherwise be
+  transitions nothing measured. The harness drives the real non-automatic
+  pipeline into each of them and holds the definition's path against what the
+  run did and left behind: the first two handed back to the developer until the
+  shared repair budget is spent and the item blocked, exactly as under automatic
+  integration; the third ending on its first round with no repair attempt; none
+  of them shown to the reviewer; and the worktree and branch still standing.
+  Driven rather than recorded, because adding a trace here is re-recording this
+  document's own artifact.
 
   What it measures is the **sequence** and not the record. The pipeline does
   everything outside its eight registered steps in Go control flow behind no
@@ -809,11 +814,14 @@ them.
   definition's `complete` state closes nothing, so its summary says nothing about
   closure and did not have to move.
 
-  One state is missing from the definitions and is worth knowing about before
-  reading one as the pipeline. There is no `publish` state, because
-  `candidate.develop` ends by calling `publishAttempt` — a definition selecting
-  `candidate.publish` beside it would publish every attempt twice. There is no
-  `commit` state either, and for a stronger reason: the commit is not something a
+  One state is missing from the automatic definition and is worth knowing about
+  before reading it as the pipeline. There is no `publish` state there, because
+  its `candidate.develop` ends by calling `publishAttempt` — a definition
+  selecting `candidate.publish` beside it would publish every attempt twice. The
+  human-approval definition is the other way round: its developer publishes
+  nothing, and its `publish` state, after the review and in place of the
+  promotion, pushes the approved change and opens or updates the pull request a
+  person merges from. There is no `commit` state in either, and for a stronger reason: the commit is not something a
   sequence may order or omit. `candidate.develop` makes one of whatever each
   invocation left in the worktree, before it decides what became of the
   invocation, so a round whose change the branch tip does not carry cannot be

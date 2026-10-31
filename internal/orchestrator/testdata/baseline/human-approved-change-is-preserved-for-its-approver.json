@@ -1,6 +1,6 @@
 {
   "scenario": "human-approved-change-is-preserved-for-its-approver",
-  "freezes": "A project whose integration a person approves runs the developer and the checks, records the outcome on the item, and stops with the change preserved on its branch: nothing is reviewed, promoted, closed, or cleaned up.",
+  "freezes": "A project whose integration a person approves runs the developer, the checks, and the independent review, records the outcome on the item, and stops with the approved change preserved on its branch: nothing is promoted, closed, or cleaned up.",
   "steps": [
     {
       "name": "run",
@@ -50,7 +50,15 @@
         "provider_model": "opus",
         "provider_resolved_model": "claude-opus-5-developer",
         "provider_session_id": "developer-session",
+        "review_approves": "implementation",
+        "review_base_commit": "\u003ccommit-1\u003e",
+        "review_decision": "approve",
         "review_effort_reported": false,
+        "review_head_commit": "\u003ccommit-2\u003e",
+        "review_model": "opus",
+        "review_resolved_model": "claude-opus-5-reviewer",
+        "review_session_id": "reviewer-session",
+        "review_summary": "the change matches the acceptance criteria",
         "run_id": "run-0123456789abcdef0123456789abcdef",
         "status": "succeeded",
         "stop_class": "integration-policy",
@@ -115,7 +123,7 @@
     },
     "effort_settled": true,
     "harness_commit": "\u003ccommit-2\u003e",
-    "last_sequence": 2,
+    "last_sequence": 4,
     "phase": "complete",
     "product_id": "yoyodyne",
     "provider_effort_reported": false,
@@ -128,7 +136,20 @@
     "provider_resolved_model": "claude-opus-5-developer",
     "provider_session_id": "developer-session",
     "repository_id": "yoyodyne",
+    "review_approves": "implementation",
+    "review_base_commit": "\u003ccommit-1\u003e",
+    "review_decision": "approve",
     "review_effort_reported": false,
+    "review_head_commit": "\u003ccommit-2\u003e",
+    "review_loaded": {
+      "reported": false,
+      "summary": "skills, plugins, and instruction files: not reported"
+    },
+    "review_model": "opus",
+    "review_resolved_model": "claude-opus-5-reviewer",
+    "review_rounds": 1,
+    "review_session_id": "reviewer-session",
+    "review_summary": "the change matches the acceptance criteria",
     "run_id": "run-0123456789abcdef0123456789abcdef",
     "schema_version": 1,
     "started_at": "\u003ctime\u003e",
@@ -162,7 +183,9 @@
   },
   "events": [
     "command.started",
-    "command.completed"
+    "command.completed",
+    "review.started",
+    "review.completed"
   ],
   "work_item": {
     "calls": [
@@ -187,11 +210,18 @@
         "feature.txt | 1 +",
         " 1 file changed, 1 insertion(+)",
         "Check stage: \u003celapsed\u003e of the 30m0s execution.check_stage_timeout bound (gate narrowed to: the whole module (the repository root is not a Go module))",
-        "Check: test -f feature.txt (passed=true, exit=0, \u003celapsed\u003e of 30m0s)"
+        "Check: test -f feature.txt (passed=true, exit=0, \u003celapsed\u003e of 30m0s)",
+        "Reviewer session: reviewer-session",
+        "Reviewer model: opus (resolved: claude-opus-5-reviewer)",
+        "Reviewed against: base \u003ccommit-1\u003e, tip \u003ccommit-2\u003e",
+        "Review decision: approve",
+        "Approved as: implementation",
+        "Review summary: the change matches the acceptance criteria"
       ]
     ]
   },
   "provider_invocations": [
-    "developer: the assigned work item, new session"
+    "developer: the assigned work item, new session",
+    "reviewer: review of the change, new session"
   ]
 }

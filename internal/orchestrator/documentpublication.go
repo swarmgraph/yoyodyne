@@ -1007,11 +1007,7 @@ func (a *activeRun) reviewDocument(ctx context.Context) (Outcome, error) {
 		a.observe(ctx, deliveryCheck, "passed")
 		automatic := a.pipeline.automatic()
 		verdict, err := a.reviewChange(ctx)
-		// The definition a project that does not integrate automatically binds has
-		// no review step, so the review is not put to it.
-		if automatic {
-			a.observeReviewEnded(ctx, verdict, err, budgetSpent)
-		}
+		a.observeReviewEnded(ctx, verdict, err, budgetSpent)
 		if err != nil {
 			return a.stop(ctx, err)
 		}
@@ -1024,8 +1020,11 @@ func (a *activeRun) reviewDocument(ctx context.Context) (Outcome, error) {
 		}
 		// Where integration is not automatic the reviewed document is left on its
 		// branch, and on its pull request where the project publishes, for the
-		// operator to merge, exactly as every other change there is.
+		// operator to merge, exactly as every other change there is. Its pull
+		// request was opened when the run published the document, so the
+		// definition's publish state has nothing left to do.
 		if !automatic {
+			a.observe(ctx, deliveryPublish, "published")
 			return a.finish(ctx)
 		}
 		outcome, replayed, err := a.promoteApproved(ctx)

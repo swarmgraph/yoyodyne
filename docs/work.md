@@ -2577,8 +2577,9 @@ checkout was reset by hand.
 has the whole of it.
 
 Merging belongs to `approvals.integration`, so the two settings compose rather
-than imply one another. Publishing with `integration: human` opens the pull
-request and stops: nothing is merged, the run branch survives on the remote, and
+than imply one another. Publishing with `integration: human` reviews the change
+exactly as automatic integration does, opens the pull request once the reviewer
+approves, and stops: nothing is merged, the run branch survives on the remote, and
 the worktree is preserved for you — which is what a `human` integration policy
 means. See the
 [configuration guide](configuration.md#publishing-through-pull-requests).

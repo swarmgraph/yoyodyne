@@ -69,6 +69,7 @@ const (
 	deliveryCheck     = "check"
 	deliveryReview    = "review"
 	deliveryIntegrate = "integrate"
+	deliveryPublish   = "publish"
 	deliveryComplete  = "complete"
 	deliveryCleanUp   = "clean-up"
 )

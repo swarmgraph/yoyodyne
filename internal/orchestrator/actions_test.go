@@ -80,6 +80,10 @@ func TestEveryRegisteredActionWrapsAFunctionThisPackageHas(t *testing.T) {
 // that lost its race into the replay the gate is re-earned from. It is reached
 // from the loop and from the integration resume, which is why it is a sequencer
 // of its own rather than the tail of `verifyReviewAndFinish`.
+//
+// `handOverApproved` is its counterpart under a person's approval: it orders the
+// same independence check and last holds, then `publishAttempt` (registered as
+// candidate.publish) and `finish`, in place of the promotion.
 var sequencers = []string{
 	"(Pipeline).Run",
 	"(Pipeline).resumeRun",
@@ -88,6 +92,7 @@ var sequencers = []string{
 	"(*activeRun).reviewDocument",
 	"(*activeRun).verifyReviewAndFinish",
 	"(*activeRun).promoteApproved",
+	"(*activeRun).handOverApproved",
 	"(*activeRun).repairLoop",
 	"(*activeRun).finish",
 }
@@ -1101,7 +1106,6 @@ var notAStep = map[string]string{
 	"verifyHandback":             "checks a resumed run still has the change it preserved",
 	"closeCheckStage":            "records how the check stage ended, inside candidate.check",
 	"checkCandidateWhole":        "decides, after an approval, whether candidate.check runs again over the merge candidate told the whole module, and hands its failure back as candidate.check's own would be",
-	"verifyCandidate":            "is candidate.check over the merge candidate, told the whole module",
 	"keepChecks":                 "chooses, inside candidate.check, which checks a stage picked up after a restart onto a new build still runs",
 	"checkLimit":                 "works out one check's own time limit as it begins, inside candidate.check",
 
