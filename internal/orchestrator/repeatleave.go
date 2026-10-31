@@ -6,8 +6,8 @@ package orchestrator
 // Every pass that answers with its account and leaves the item first in its
 // order records, on that item, how many of the task's passes in a row have
 // left it, this one included (runstate.DeliveredWork.LeftInARow), and the
-// reason each gave is on each pass's record and in each pass's note on the
-// item. Only an item nothing outside the role holds is counted: one the
+// reason each gave is on each pass's record and, once per reason, in a note on
+// the item (notePassedOver). Only an item nothing outside the role holds is counted: one the
 // tracker says depends on unfinished work or is blocked carries what holds it
 // on the record instead (DeliveredWork.HeldOutside), may be left as often as it
 // is held, and breaks the count. A parked item is never handed to a pass at

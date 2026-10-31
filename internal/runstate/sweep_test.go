@@ -746,3 +746,31 @@ func TestAHarnessPassCarriesStepsInsteadOfARole(t *testing.T) {
 		}
 	}
 }
+
+// A pass marks a passed-over note it did not write as a repeat or as one that
+// could not be written, never both, and never on an item it took.
+func TestAPassedOverNoteIsMarkedRepeatedOrUnwrittenOnlyOnALeftItem(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 10, 31, 9, 0, 0, 0, time.UTC)
+	pass := Sweep{
+		SchemaVersion: SweepSchemaVersion, ProductID: "example", Task: "architect-pass", Role: "architect",
+		StartedAt: start, EndedAt: start.Add(time.Minute), Turns: 1,
+		Result:    &sweep.Result{Status: sweep.StatusComplete, Summary: "done"},
+		Delivered: []DeliveredWork{{ID: "x-1", Reason: "spread over replies", NoteRepeated: true}},
+	}
+	if err := pass.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	for name, spoil := range map[string]func(*DeliveredWork){
+		"both":  func(d *DeliveredWork) { d.NoteUnwritten = true },
+		"taken": func(d *DeliveredWork) { d.Taken, d.Reason = true, "" },
+	} {
+		spoiled := pass
+		spoiled.Delivered = []DeliveredWork{pass.Delivered[0]}
+		spoil(&spoiled.Delivered[0])
+		if err := spoiled.Validate(); err == nil {
+			t.Errorf("%s: Validate() = nil, want the record refused", name)
+		}
+	}
+}

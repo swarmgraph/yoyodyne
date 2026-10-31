@@ -605,6 +605,13 @@ const MaxSweepDelivered = 200
 // marks the pass that was sent back to decide it or ask about it before it
 // ended. Each is absent where it does not apply and on records written before
 // passes carried it.
+//
+// NoteRepeated marks, on the item first in the order, a pass that left it for
+// the same reason as the note an earlier pass of the task wrote on it, and so
+// wrote no note of its own (RepeatsPassedOverNote). NoteUnwritten marks one
+// whose note could not be written, so the next pass writes it rather than
+// counting itself a repeat of a note the item does not carry. A record written
+// before passes carried either wrote its note.
 type DeliveredWork struct {
 	ID             string `json:"id"`
 	Priority       int    `json:"priority"`
@@ -615,6 +622,8 @@ type DeliveredWork struct {
 	Settled        string `json:"settled,omitempty"`
 	LeftInARow     int    `json:"left_in_a_row,omitempty"`
 	SentBack       bool   `json:"sent_back,omitempty"`
+	NoteRepeated   bool   `json:"note_repeated,omitempty"`
+	NoteUnwritten  bool   `json:"note_unwritten,omitempty"`
 }
 
 // What a pass did about an item it was told not to leave again.
@@ -627,6 +636,83 @@ const (
 // in a role's order with nothing outside the role holding it before the next
 // pass is told to decide it or ask one question about it.
 const LeftInARowBeforeSettling = 2
+
+// passedOverStage is which of the three things a passed-over note says about
+// passes in a row leaving an item: nothing, that the next pass is told to
+// decide it or ask, or that a pass told so left it anyway. A note at a new
+// stage is a new note even where the role's reason is unchanged.
+func passedOverStage(leftInARow int) int {
+	switch {
+	case leftInARow > LeftInARowBeforeSettling:
+		return 2
+	case leftInARow == LeftInARowBeforeSettling:
+		return 1
+	}
+	return 0
+}
+
+// RepeatsPassedOverNote reports whether a pass that left first, the item first
+// in its order, would only repeat the note already on the item, and so writes
+// none. earlier is the task's passes in the order they were written. It
+// repeats one where the task's latest answered pass also left that item first
+// in its order, with the same reason and at the same stage, and either wrote
+// its note or was itself a repeat. A pass in between that took the item, or put
+// another first, ends the run of leaves, and the next leave is written again.
+//
+// The note is written once per reason because every note is a permanent write
+// to the tracker's store (docs/designs/tracker-store-size.md); the repeats are
+// counted from these records instead (PassedOverRepeats).
+func RepeatsPassedOverNote(earlier []Sweep, first DeliveredWork) bool {
+	for i := len(earlier) - 1; i >= 0; i-- {
+		pass := earlier[i]
+		if pass.Turns == 0 || pass.Result == nil {
+			continue
+		}
+		previous, handed := pass.FirstDelivered()
+		return handed && previous.ID == first.ID && !previous.Taken && !previous.NoteUnwritten &&
+			previous.Reason == first.Reason && passedOverStage(previous.LeftInARow) == passedOverStage(first.LeftInARow)
+	}
+	return false
+}
+
+// LeftAgain is how often a task's passes left an item for the reason the
+// note on it already gives, without writing another: the time of the pass
+// that wrote the note, how many passes since left it again, and when the
+// latest of them ran.
+type LeftAgain struct {
+	NotedAt time.Time
+	Times   int
+	Latest  time.Time
+}
+
+// PassedOverRepeats reads the task's passes for the repeats of the passed-over
+// note now standing on the item, and false where its latest answered pass did
+// not leave the item first in its order, or wrote its own note.
+func PassedOverRepeats(passes []Sweep, task, id string) (LeftAgain, bool) {
+	var own []Sweep
+	for _, pass := range passes {
+		if pass.Task == task && pass.Turns > 0 && pass.Result != nil {
+			own = append(own, pass)
+		}
+	}
+	sort.SliceStable(own, func(i, j int) bool { return own[i].StartedAt.Before(own[j].StartedAt) })
+	var since LeftAgain
+	for _, pass := range own {
+		first, handed := pass.FirstDelivered()
+		switch {
+		case !handed || first.ID != id || first.Taken || first.NoteUnwritten:
+			since = LeftAgain{}
+		case first.NoteRepeated:
+			if !since.NotedAt.IsZero() {
+				since.Times++
+				since.Latest = pass.StartedAt
+			}
+		default:
+			since = LeftAgain{NotedAt: pass.StartedAt}
+		}
+	}
+	return since, since.Times > 0
+}
 
 // FirstDelivered is the item first in the order the pass was handed, and false
 // where it was handed none.
@@ -1074,6 +1160,10 @@ func (s Sweep) Validate() error {
 			problems = append(problems, fmt.Errorf("delivered[%d] was decided or asked about, so it was taken", i))
 		case delivered.LeftInARow < 0:
 			problems = append(problems, fmt.Errorf("delivered[%d] left in a row %d is negative", i, delivered.LeftInARow))
+		case (delivered.NoteRepeated || delivered.NoteUnwritten) && delivered.Taken:
+			problems = append(problems, fmt.Errorf("delivered[%d] was taken, so no note says it was left", i))
+		case delivered.NoteRepeated && delivered.NoteUnwritten:
+			problems = append(problems, fmt.Errorf("delivered[%d] cannot both repeat a written note and have its note unwritten", i))
 		}
 	}
 	if len(s.Model) > MaxSweepModelBytes {

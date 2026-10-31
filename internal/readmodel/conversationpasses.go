@@ -33,6 +33,9 @@ type ConversationPass struct {
 	// its order; First is empty where it was handed none.
 	Handed int                     `json:"handed"`
 	First  *runstate.DeliveredWork `json:"first,omitempty"`
+	// LeftAgain is how many of the task's passes have left First for the reason
+	// the note on it already gives, where this pass was one of them.
+	LeftAgain *LeftAgainSince `json:"left_again,omitempty"`
 	// Took is how many of the items it was handed the pass took, and Held how
 	// many of those it took are finished and held for sending rather than ruled.
 	Took int `json:"took"`
@@ -87,6 +90,9 @@ func ConversationPasses(recorded []runstate.Sweep) []ConversationPass {
 		entry := ConversationPass{Task: task, Role: last.Role, At: last.StartedAt, Handed: len(last.Delivered)}
 		if first, handed := last.FirstDelivered(); handed {
 			entry.First = &first
+			if first.NoteRepeated {
+				entry.LeftAgain = leftAgainSince(passes, task, first.ID)
+			}
 		}
 		for _, item := range last.Delivered {
 			if item.Taken {
@@ -137,7 +143,7 @@ func (p ConversationPass) Says() string {
 	if p.First == nil {
 		said.WriteString("was handed no waiting work")
 	} else {
-		fmt.Fprintf(&said, "was handed %s; first in its order: %s (P%d), %s", count(p.Handed, "item"), p.First.ID, p.First.Priority, takenSays(*p.First))
+		fmt.Fprintf(&said, "was handed %s; first in its order: %s (P%d), %s", count(p.Handed, "item"), p.First.ID, p.First.Priority, takenSays(*p.First)+p.LeftAgain.Says())
 		if p.Handed > 1 {
 			fmt.Fprintf(&said, "; it took %d of the %d", p.Took, p.Handed)
 			if p.Held > 0 {
@@ -229,6 +235,10 @@ type ItemConsideration struct {
 	// LeftInARow how many passes in a row had left it (runstate.DeliveredWork).
 	Settled    string `json:"settled,omitempty"`
 	LeftInARow int    `json:"left_in_a_row,omitempty"`
+	// LeftAgain is how many of the task's passes left the item for the reason
+	// the note on it already gives, writing no note of their own, where the
+	// last one to consider it was such a pass.
+	LeftAgain *LeftAgainSince `json:"left_again,omitempty"`
 	// Says is the line every surface prints, so the card and the terminal say
 	// one thing about one pass.
 	Says string `json:"says"`
@@ -254,11 +264,45 @@ func LastConsidered(recorded []runstate.Sweep, id string) (ItemConsideration, bo
 				HeldForSending: item.HeldForSending,
 				Settled:        item.Settled, LeftInARow: item.LeftInARow,
 			}
+			if index == 0 && item.NoteRepeated {
+				found.LeftAgain = leftAgainSince(recorded, pass.Task, id)
+			} else {
+				found.LeftAgain = nil
+			}
 			ok = true
 			break
 		}
 	}
 	return found, ok
+}
+
+// LeftAgainSince is the passes that left an item for the reason the note on it
+// already gives, so wrote none (orchestrator/passedover.go): when the note was
+// written, how many have left it again since, and when the latest did.
+type LeftAgainSince struct {
+	NotedAt time.Time `json:"noted_at"`
+	Times   int       `json:"times"`
+	Latest  time.Time `json:"latest"`
+}
+
+// leftAgainSince is the task's repeats of the note standing on the item, and
+// nil where there are none.
+func leftAgainSince(recorded []runstate.Sweep, task, id string) *LeftAgainSince {
+	since, repeated := runstate.PassedOverRepeats(recorded, task, id)
+	if !repeated {
+		return nil
+	}
+	return &LeftAgainSince{NotedAt: since.NotedAt, Times: since.Times, Latest: since.Latest}
+}
+
+// Says is the repeats as a clause, in the words every surface uses: "left again
+// N times since" the note, with the time of the latest.
+func (l *LeftAgainSince) Says() string {
+	if l == nil {
+		return ""
+	}
+	return fmt.Sprintf(" (the note written on the item at %s gives this reason; left again %s since, most recently at %s)",
+		localMoment(l.NotedAt), count(l.Times, "time"), localMoment(l.Latest))
 }
 
 // ReadLastConsidered reads the pass records for one item's last consideration.
@@ -296,7 +340,7 @@ func (c ItemConsideration) Sentence() string {
 	case !c.Answered:
 		return said + "; the pass gave no account, so whether it took this item is not recorded"
 	}
-	return said + "; it did NOT take this item — " + takenReason(c.Reason) + leftInARowSays(c.LeftInARow)
+	return said + "; it did NOT take this item — " + takenReason(c.Reason) + leftInARowSays(c.LeftInARow) + c.LeftAgain.Says()
 }
 
 func takenReason(reason string) string {
