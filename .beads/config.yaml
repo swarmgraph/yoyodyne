@@ -65,6 +65,10 @@
 # - linear.api_key  → use LINEAR_API_KEY env var instead
 # - github.token    → use GITHUB_TOKEN env var instead
 
-export.auto: true
+# The harness takes the export itself, at most every five minutes when the
+# store changed and always before a commit that carries it, so no bd write
+# rewrites the whole export inside its store lock (docs/operations.md, "Tracker
+# export snapshots and abandoned temporary files").
+export.auto: false
 sync:
     remote: "git+ssh://git@github.com/mason-bryant/yoyodyne.git"

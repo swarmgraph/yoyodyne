@@ -28,8 +28,11 @@ forms.
 
 Before giving a new worktree `.beads/issues.jsonl`, the harness asks bd for a
 fresh snapshot in your checkout rather than using the copy its base commit
-carried. Ordinary harness tracker writes disable bd's automatic export with
-`BD_EXPORT_AUTO=false`, so each write no longer rewrites the whole snapshot.
+carried. No tracker write rewrites the whole snapshot: harness writes disable bd's
+automatic export with `BD_EXPORT_AUTO=false`, and the harness exports at most
+every five minutes when the tracker changed, before a worktree is prepared, and
+before any commit that carries the export
+([the snapshot section](operations.md#tracker-export-snapshots-and-abandoned-temporary-files)).
 The snapshot is published only after the export succeeds; a failed export
 refuses worktree preparation rather than passing an older copy off as current.
 That export is derived from a store Git is not

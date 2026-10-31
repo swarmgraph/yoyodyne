@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,7 +18,12 @@ import (
 // ExportPath is the passive snapshot a run reads, never the tracker itself.
 const ExportPath = ".beads/issues.jsonl"
 
-const exportRefreshInterval = time.Minute
+// exportRefreshInterval is the least time between two exports taken because
+// they were due, rather than because somebody needed one current: before a
+// worktree is prepared and before a commit that carries the export, an export
+// is always taken (RefreshExport). docs/designs/tracker-store-size.md is where
+// the five minutes was decided.
+const exportRefreshInterval = 5 * time.Minute
 
 // ErrExportBusy reports an export that never started because another export
 // held the lock past one call's bound. It answers nothing about the store, as a
@@ -66,15 +73,35 @@ func (c Client) RefreshExport(ctx context.Context) error {
 	return c.refreshExport(ctx, 0)
 }
 
+// ExportBeforeCommit takes the fresh export a commit that carries the export
+// is made with, so what is committed is never older than the store. It is
+// RefreshExport, refused rather than passed over where no store can be found:
+// a commit made over a snapshot nothing could refresh would carry exactly the
+// stale copy this is here to prevent. The repository's pre-commit hook is what
+// asks for it, through `yoyo tracker export` (.beads/hooks/pre-commit).
+func (c Client) ExportBeforeCommit(ctx context.Context) error {
+	if c.Dir == "" || storeDirectory(c.Dir, c.beadsDirVariable()) == "" {
+		return fmt.Errorf("no tracker store is reachable from %s, so the export a commit would carry cannot be taken fresh", c.Dir)
+	}
+	return c.RefreshExport(ctx)
+}
+
 // RefreshExportIfDue keeps admission triggers and maintenance's passive copy
-// current without exporting once per reader or program manager instance.
+// current without exporting once per reader or program manager instance. It
+// exports at most once every five minutes, and then only where the store has
+// changed since the published snapshot's export began (storeChangedSince), so
+// a store nobody wrote to is not read whole again for nothing.
 func (c Client) RefreshExportIfDue(ctx context.Context) error {
 	return c.refreshExport(ctx, exportRefreshInterval)
 }
 
 func (c Client) refreshExport(ctx context.Context, interval time.Duration) error {
 	asked := time.Now()
-	if c.Dir == "" || storeDirectory(c.Dir, c.beadsDirVariable()) == "" {
+	if c.Dir == "" {
+		return nil
+	}
+	store := storeDirectory(c.Dir, c.beadsDirVariable())
+	if store == "" {
 		return nil
 	}
 	declared, err := repowrite.NewRoot(c.Dir)
@@ -114,7 +141,11 @@ func (c Client) refreshExport(ctx context.Context, interval time.Duration) error
 	if interval > 0 && err == nil && info.Mode().IsRegular() && time.Since(info.ModTime()) < interval {
 		return nil
 	}
-	if err == nil && readExportStamp(beads).covers(info, asked) {
+	stamp := readExportStamp(beads)
+	if err == nil && stamp.covers(info, asked) {
+		return nil
+	}
+	if interval > 0 && err == nil && stamp.describes(info) && !storeChangedSince(store, stamp.StartedAt) {
 		return nil
 	}
 	started := time.Now()
@@ -168,8 +199,58 @@ type exportStamp struct {
 // covers reports a stamp describing the snapshot published now, from an export
 // that began no earlier than asked.
 func (s exportStamp) covers(published os.FileInfo, asked time.Time) bool {
-	return !s.StartedAt.IsZero() && !s.StartedAt.Before(asked) && published.Mode().IsRegular() &&
+	return s.describes(published) && !s.StartedAt.Before(asked)
+}
+
+// describes reports a stamp of the snapshot published now.
+func (s exportStamp) describes(published os.FileInfo) bool {
+	return !s.StartedAt.IsZero() && published.Mode().IsRegular() &&
 		published.ModTime().Equal(s.ModifiedAt) && published.Size() == s.Size
+}
+
+// storeChangedSince reports whether any file of the tracker's database under
+// store was modified at or after since, which is how a due export tells a store
+// somebody wrote to from one nobody did without asking bd, whose every command
+// takes the store's exclusive lock. Every write bd makes, the harness's or a
+// person's, lands in those files, so it is seen whoever made it. Lock files are
+// passed over, because taking a lock is not a write. Where the database cannot
+// be found or read, the answer is that it changed: an export too many costs one
+// read of the store, and one too few publishes a snapshot older than it.
+func storeChangedSince(store string, since time.Time) bool {
+	var databases []string
+	for _, name := range []string{"embeddeddolt", "dolt"} {
+		if isDirectory(filepath.Join(store, name)) {
+			databases = append(databases, filepath.Join(store, name))
+		}
+	}
+	files, _ := filepath.Glob(filepath.Join(store, "*.db"))
+	databases = append(databases, files...)
+	if len(databases) == 0 {
+		return true
+	}
+	errChanged := errors.New("changed")
+	for _, database := range databases {
+		err := filepath.WalkDir(database, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() || entry.Name() == "LOCK" || strings.HasSuffix(entry.Name(), ".lock") {
+				return nil
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if !info.ModTime().Before(since) {
+				return errChanged
+			}
+			return nil
+		})
+		if err != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // readExportStamp is the kept stamp, and the zero stamp, which covers nothing,

@@ -162,3 +162,153 @@ func TestAnExportBegunAfterTheAskIsSharedWhileItsSnapshotStands(t *testing.T) {
 		t.Fatalf("published snapshot = %q, %v", published, err)
 	}
 }
+
+// A due export is taken at most once every five minutes, and then only where
+// the store's database has changed since the published snapshot's export began.
+func TestADueExportWaitsFiveMinutesAndRunsOnlyWhenTheStoreChanged(t *testing.T) {
+	t.Parallel()
+	repository := exportRepository(t)
+	database := filepath.Join(repository, ".beads", "embeddeddolt", "yoyodyne", ".dolt", "noms")
+	if err := os.MkdirAll(database, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	chunks := filepath.Join(database, "journal.idx")
+	if err := os.WriteFile(chunks, []byte("written\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{responses: []string{"{\"id\":\"first\"}\n", "{\"id\":\"second\"}\n"}}
+	client := Client{Dir: repository, Runner: runner}
+	if err := client.RefreshExport(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repository, ExportPath)
+	stampPath := filepath.Join(repository, ".beads", exportStampName)
+	// age makes the published snapshot, and the export it came from, as old as
+	// ago, and the database files as old as written.
+	age := func(ago, written time.Duration) {
+		t.Helper()
+		published, began, changed := time.Now().Add(-ago), time.Now().Add(-ago-time.Second), time.Now().Add(-written)
+		if err := os.Chtimes(path, published, published); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(chunks, changed, changed); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(exportStamp{StartedAt: began, ModifiedAt: info.ModTime(), Size: info.Size()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(stampPath, encoded, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Changed since, but the last export is under five minutes old.
+	age(4*time.Minute, time.Minute)
+	if err := client.RefreshExportIfDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.commands) != 1 {
+		t.Fatalf("bd was asked %d times; want no export within five minutes of the last", len(runner.commands))
+	}
+
+	// Due, but nothing in the store changed since that export began. A lock
+	// taken since is not a change.
+	age(6*time.Minute, time.Hour)
+	if err := os.WriteFile(filepath.Join(database, "LOCK"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.RefreshExportIfDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.commands) != 1 {
+		t.Fatalf("bd was asked %d times; want no export of a store nobody wrote to", len(runner.commands))
+	}
+
+	// Due, and the store was written after that export began.
+	age(6*time.Minute, time.Minute)
+	if err := client.RefreshExportIfDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.commands) != 2 {
+		t.Fatalf("bd was asked %d times; want a changed store exported once due", len(runner.commands))
+	}
+	if published, err := os.ReadFile(path); err != nil || string(published) != "{\"id\":\"second\"}\n" {
+		t.Fatalf("published snapshot = %q, %v", published, err)
+	}
+}
+
+// Where nothing says what export the published snapshot came from, or no
+// database can be found to compare against, a due export is taken: one export
+// too many costs a read, and one too few publishes a snapshot older than the
+// store.
+func TestADueExportIsTakenWhereNothingSaysTheStoreIsUnchanged(t *testing.T) {
+	t.Parallel()
+	repository := exportRepository(t)
+	runner := &fakeRunner{responses: []string{"{\"id\":\"first\"}\n", "{\"id\":\"second\"}\n", "{\"id\":\"third\"}\n"}}
+	client := Client{Dir: repository, Runner: runner}
+	if err := client.RefreshExport(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repository, ExportPath)
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	// The stamp describes a snapshot of another time, so it says nothing.
+	if err := client.RefreshExportIfDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.commands) != 2 {
+		t.Fatalf("bd was asked %d times; want a snapshot no stamp describes exported once due", len(runner.commands))
+	}
+	// Stamped, but there is no database here to compare against.
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(exportStamp{StartedAt: old.Add(-time.Second), ModifiedAt: info.ModTime(), Size: info.Size()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, ".beads", exportStampName), encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.RefreshExportIfDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.commands) != 3 {
+		t.Fatalf("bd was asked %d times; want a store with no database to compare exported once due", len(runner.commands))
+	}
+}
+
+// The export before a commit is always taken fresh, and refused where there is
+// no store to take it from, rather than passed over the way a due export is.
+func TestTheExportBeforeACommitIsTakenFreshOrRefused(t *testing.T) {
+	t.Parallel()
+	repository := exportRepository(t)
+	runner := &fakeRunner{responses: []string{"{\"id\":\"first\"}\n", "{\"id\":\"second\"}\n"}}
+	client := Client{Dir: repository, Runner: runner}
+	for range 2 {
+		if err := client.ExportBeforeCommit(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(runner.commands) != 2 {
+		t.Fatalf("bd was asked %d times; want an export for each commit, however recent the last", len(runner.commands))
+	}
+	if published, err := os.ReadFile(filepath.Join(repository, ExportPath)); err != nil || string(published) != "{\"id\":\"second\"}\n" {
+		t.Fatalf("published snapshot = %q, %v", published, err)
+	}
+	empty := Client{Dir: t.TempDir(), Runner: runner}
+	if err := empty.ExportBeforeCommit(context.Background()); err == nil || !strings.Contains(err.Error(), "no tracker store") {
+		t.Fatalf("export with no store = %v; want it refused", err)
+	}
+}
