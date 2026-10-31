@@ -118,3 +118,49 @@ func TestStatusSaysAnItemDecidedAskedOrLeftInARow(t *testing.T) {
 		}
 	}
 }
+
+// Passes that left an item for the reason its note already gives wrote no note
+// of their own, and every surface that shows the note says how many left it
+// again since and when the latest did, in local time.
+func TestTheRepeatsOfAPassedOverNoteAreCountedWhereverItIsShown(t *testing.T) {
+	t.Parallel()
+	left := runstate.DeliveredWork{ID: "x-1", Reason: "spread over replies"}
+	repeat := left
+	repeat.NoteRepeated = true
+	recorded := []runstate.Sweep{
+		// An earlier note for the same reason, before a pass that took the item,
+		// is not the note standing now.
+		answeredPass("architect-pass", passesAt, left),
+		answeredPass("architect-pass", passesAt.Add(time.Hour), repeat),
+		answeredPass("architect-pass", passesAt.Add(2*time.Hour), runstate.DeliveredWork{ID: "x-1", Taken: true}),
+		answeredPass("architect-pass", passesAt.Add(3*time.Hour), left),
+		answeredPass("architect-pass", passesAt.Add(4*time.Hour), repeat),
+		// A pass that gave no account neither breaks the run nor adds to it.
+		{Task: "architect-pass", Role: domain.RoleArchitect, StartedAt: passesAt.Add(5 * time.Hour), Turns: 1, Failed: true},
+		answeredPass("architect-pass", passesAt.Add(6*time.Hour), repeat),
+		answeredPass("architect-pass", passesAt.Add(7*time.Hour), repeat),
+	}
+	want := "(the note written on the item at " + localMoment(passesAt.Add(3*time.Hour)) +
+		" gives this reason; left again 3 times since, most recently at " + localMoment(passesAt.Add(7*time.Hour)) + ")"
+
+	passes := ConversationPasses(recorded)
+	if len(passes) != 1 || passes[0].LeftAgain == nil || passes[0].LeftAgain.Times != 3 {
+		t.Fatalf("passes = %+v, want the task's repeats counted", passes)
+	}
+	if said := passes[0].Says(); !strings.Contains(said, "NOT TAKEN — spread over replies "+want) {
+		t.Errorf("status line = %q, want %q", said, want)
+	}
+	considered, problem := ReadLastConsidered(fakeSweeps{recorded: recorded}, "x-1")
+	if problem != "" || considered == nil || considered.LeftAgain == nil {
+		t.Fatalf("considered = %+v (%s), want the repeats on the item's last consideration", considered, problem)
+	}
+	if !strings.Contains(considered.Says, "did NOT take this item — spread over replies "+want) {
+		t.Errorf("item line = %q, want %q", considered.Says, want)
+	}
+
+	// A pass that wrote its own note says nothing of repeats.
+	written := ConversationPasses(recorded[:4])
+	if written[0].LeftAgain != nil || strings.Contains(written[0].Says(), "left again") {
+		t.Errorf("status line = %q, want no repeats after a note just written", written[0].Says())
+	}
+}

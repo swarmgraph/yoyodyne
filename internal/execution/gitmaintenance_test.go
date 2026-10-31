@@ -30,6 +30,7 @@ func TestAProcessTheRunnerStartsCannotTriggerGitMaintenance(t *testing.T) {
 	for _, setting := range []struct{ name, want string }{
 		{name: "gc.auto", want: "0"},
 		{name: "maintenance.auto", want: "false"},
+		{name: "maintenance.worktree-prune.auto", want: "0"},
 	} {
 		// Read through the runner rather than by hand: what is being asserted is
 		// what a process the harness launched sees, and the repository's own
@@ -76,9 +77,9 @@ func TestTheFenceIsAddedToTheEnvironmentRatherThanReplacingIt(t *testing.T) {
 	}
 }
 
-// The fence states two settings and takes no view of any other, so configuration
-// somebody else put in the environment is still applied — after which the fence
-// has the last word on its own two.
+// The fence states its own settings and takes no view of any other, so
+// configuration somebody else put in the environment is still applied — after
+// which the fence has the last word on its own.
 func TestConfigurationTheEnvironmentAlreadyCarriedSurvivesTheFence(t *testing.T) {
 	t.Parallel()
 
@@ -95,6 +96,7 @@ func TestConfigurationTheEnvironmentAlreadyCarriedSurvivesTheFence(t *testing.T)
 		{key: "user.name", value: "Somebody Else"},
 		{key: "gc.auto", value: "0"},
 		{key: "maintenance.auto", value: "false"},
+		{key: "maintenance.worktree-prune.auto", value: "0"},
 	})
 }
 
@@ -125,6 +127,7 @@ func TestAnInheritedRequestForMaintenanceIsReplaced(t *testing.T) {
 	assertGitConfig(t, environment, []gitSetting{
 		{key: "gc.auto", value: "0"},
 		{key: "maintenance.auto", value: "false"},
+		{key: "maintenance.worktree-prune.auto", value: "0"},
 	})
 }
 
@@ -143,6 +146,7 @@ func TestACountTheEnvironmentCannotBeReadWithIsReplaced(t *testing.T) {
 		assertGitConfig(t, environment, []gitSetting{
 			{key: "gc.auto", value: "0"},
 			{key: "maintenance.auto", value: "false"},
+			{key: "maintenance.worktree-prune.auto", value: "0"},
 		})
 	}
 }
@@ -160,6 +164,7 @@ func TestANumberedPairTheCountDoesNotAdmitIsNotCarried(t *testing.T) {
 	assertGitConfig(t, environment, []gitSetting{
 		{key: "gc.auto", value: "0"},
 		{key: "maintenance.auto", value: "false"},
+		{key: "maintenance.worktree-prune.auto", value: "0"},
 	})
 	for _, entry := range environment {
 		if strings.HasPrefix(entry, "GIT_CONFIG_VALUE_") && strings.Contains(entry, "nothing Git was going to read") {
@@ -240,6 +245,7 @@ func maintainedRepository(t *testing.T) string {
 		{"init", "-b", "main"},
 		{"config", "gc.auto", "6700"},
 		{"config", "maintenance.auto", "true"},
+		{"config", "maintenance.worktree-prune.auto", "1"},
 	} {
 		command := exec.Command("git", append([]string{"-C", repository}, args...)...)
 		if output, err := command.CombinedOutput(); err != nil {

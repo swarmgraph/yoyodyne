@@ -4679,10 +4679,13 @@ start anywhere near the run it takes down.
 The harness holds this off in the two places it can. It never asks for
 maintenance in the Git commands it composes itself, and every process it
 launches — the agent, each configured check, and anything those go on to
-start — carries `gc.auto=0` and `maintenance.auto=false` in its environment. So
-a Git command an agent runs, or one a project's own build tooling runs inside a
-worktree, cannot start a maintenance run either, without either of them having
-to know that.
+start — carries `gc.auto=0`, `maintenance.auto=false` and
+`maintenance.worktree-prune.auto=0` in its environment. The third covers the
+separate task that prunes worktree registrations, which newer Git versions run
+under `git maintenance run --auto` without gc and which `gc.auto` does not
+switch off. So a Git command an agent runs, or one a
+project's own build tooling runs inside a worktree, cannot start a prune either,
+without either of them having to know that.
 
 Nothing is written into your repository's config for this. The repository is
 yours, its maintenance is yours to configure, and object GC turned off for good
@@ -4701,6 +4704,7 @@ command in the managed repository:
 ```sh
 git config maintenance.auto false
 git config gc.auto 0
+git config maintenance.worktree-prune.auto 0
 ```
 
 That closes the residual for every command in the repository, at the price of
@@ -5768,7 +5772,8 @@ HELD FOR SENDING rather than ruled`. An item the account lists as held with no
 such document behind it was not taken, and its reason says so. `--json` carries the lines
 under `standing.conversation_passes`, each with its `task`, `role`, `at`,
 `handed`, the `first` item with its `id`, `priority`, `taken`, `reason` and
-`held_for_sending`, `took`, `held`, and `since`; a pass log that could not be read to the end is said
+`held_for_sending`, `took`, `held`, `since`, and `left_again` where the
+first item's note was repeated (its `noted_at`, `times` and `latest`); a pass log that could not be read to the end is said
 under the line and in `conversation_passes_problem`.
 
 **The item first in a pass's order that the pass did not take says so on
@@ -5782,10 +5787,28 @@ leave no note on any item, and their own records in
 task, when, its place in the order, and whether that pass took it — and the
 dashboard's item card says the same under **Last pass**.
 
+The note is written once per reason. Where the task's latest pass that answered
+also left the same item first in its order, for the same reason, the item
+already carries the note this pass would write, so the pass writes none, because
+every note is kept forever in the tracker's store
+([keeping the tracker store small](designs/tracker-store-size.md)). The pass's
+record marks it as a repeat instead, and the status line, `yoyo status <item>`
+and the item card add how many passes have left the item again since the note,
+with the latest in local time: `(the note written on the item at 2026-10-31
+09:00 PDT gives this reason; left again 3 times since, most recently at
+2026-10-31 12:00 PDT)`. A changed reason writes a new note, and so does a pass
+that takes the item or puts another first and is then followed by one leaving
+it again. A pass that reaches a new stage of leaving it in a row — the second
+in a row, after which the next pass is told to decide it or ask, and the first
+to leave it after being told — writes its note too, since that note says
+something the earlier one did not. A note the tracker refused is not counted as
+written, so the next pass writes it. Notes already on an item are never removed
+or merged.
+
 **An item a role's passes keep leaving is decided or asked about.** Every pass
 that leaves the item first in its order records how many of the task's passes
-in a row have left it, this one included, and the reason each gave is in its
-note on the item. Only an item nothing outside the role holds is counted: one
+in a row have left it, this one included, and the reason each gave is on its
+record and, once per reason, in a note on the item. Only an item nothing outside the role holds is counted: one
 the tracker says depends on an unfinished item, or records as blocked, carries
 what holds it on the pass's record instead, may be left for as long as it is
 held, and its passes are never told to decide it or ask about it; a parked item is never handed to a pass at all. The
@@ -7993,7 +8016,10 @@ pass, which is handed no such list, say nothing about it.
 `--json` carries, on each delivered item, `held_outside` where the tracker said
 something outside the role holds it, `left_in_a_row` on a first item the pass
 left, `settled` (`decided` or `asked`) on an item the pass decided or asked
-about, and `sent_back` on the pass that was sent back to do that; the account's
+about, `sent_back` on the pass that was sent back to do that,
+`note_repeated` on a first item the pass left for the reason the note on it
+already gives and so wrote no note, and `note_unwritten` where the tracker
+refused the note; the account's
 `settled` entries carry the decision and its assumptions, or the question and
 who it was put to.
 
