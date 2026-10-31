@@ -22,6 +22,9 @@ import (
 // not offer it starts every run from the local target as it stands.
 type TargetFetcher interface {
 	FetchTarget(ctx context.Context, targetBranch string, now time.Time) gitworktree.TargetFetch
+	// Remote names the remote the target is fetched from, so a fetch that could
+	// not be attempted still records which remote it was for.
+	Remote() string
 }
 
 // startingTargetNoteTimeout bounds the note naming the starting target, which
@@ -47,7 +50,7 @@ func (a *activeRun) fetchTarget(ctx context.Context, targetBranch string) {
 	if err != nil {
 		fetch = gitworktree.TargetFetch{
 			TargetBranch: targetBranch,
-			Remote:       "the remote",
+			Remote:       fetcher.Remote(),
 			Failure:      fmt.Sprintf("waiting for a turn to move %s: %v", targetBranch, err),
 		}
 	} else {
@@ -64,6 +67,7 @@ func (a *activeRun) fetchTarget(ctx context.Context, targetBranch string) {
 		Fetched:       fetch.Fetched,
 		RemoteCommit:  fetch.RemoteCommit,
 		Advanced:      fetch.Advanced,
+		Ahead:         fetch.Ahead,
 		Held:          fetch.Held,
 		Failure:       fetch.Failure,
 		LastFetchedAt: fetch.LastFetchedAt,

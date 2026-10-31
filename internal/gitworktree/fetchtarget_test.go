@@ -120,3 +120,29 @@ func TestFetchTargetHeldByADivergedRemoteStartsFromTheLocalBranch(t *testing.T) 
 		t.Fatalf("fetch = %#v, want the divergence held and the run started from %s", fetch, local)
 	}
 }
+
+// A project that integrates locally moves its target ahead of a remote it does
+// not push to. That is not a split history, so nothing is held and nothing is
+// said to need a person: the run starts from the local branch.
+func TestFetchTargetWithTheLocalBranchAheadOfTheRemoteHoldsNothing(t *testing.T) {
+	t.Parallel()
+
+	repository, remote := newPublishedRepository(t)
+	manager := newConvergeManager(t, repository)
+	published := gitLine(t, remote, "rev-parse", "refs/heads/main")
+	writeFile(t, repository, "promoted.txt", "promoted here, never pushed\n")
+	runGit(t, repository, "add", "promoted.txt")
+	runGit(t, repository, "commit", "-m", "a local promotion")
+	local := gitLine(t, repository, "rev-parse", "refs/heads/main")
+
+	fetch := manager.FetchTarget(context.Background(), "main", time.Now())
+	if !fetch.Fetched || fetch.Held != "" || fetch.Failure != "" || fetch.Advanced || !fetch.Ahead {
+		t.Fatalf("fetch = %#v, want main fetched, ahead of the remote, and held on nothing", fetch)
+	}
+	if fetch.Commit != local || fetch.RemoteCommit != published {
+		t.Fatalf("fetch = %#v, want the run started from the local %s with the remote at %s", fetch, local, published)
+	}
+	if moved := gitLine(t, repository, "rev-parse", "refs/heads/main"); moved != local {
+		t.Errorf("local main = %q, want it left at %q", moved, local)
+	}
+}

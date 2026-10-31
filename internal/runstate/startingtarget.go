@@ -25,6 +25,9 @@ type StartingTarget struct {
 	RemoteCommit string `json:"remote_commit,omitempty"`
 	// Advanced reports the local target moved onto the remote's for this run.
 	Advanced bool `json:"advanced,omitempty"`
+	// Ahead reports the local target already contained the remote's and
+	// carried commits not yet on it, so there was nothing to move.
+	Ahead bool `json:"ahead,omitempty"`
 	// Held is why a remote that answered was not followed.
 	Held string `json:"held,omitempty"`
 	// Failure is why the fetch failed.
@@ -80,6 +83,8 @@ func (t StartingTarget) Describe() string {
 		return start + ", the local branch; the repository has no remote to fetch it from"
 	case t.Fetched && t.RemoteCommit == "":
 		return fmt.Sprintf("%s, fetched for this run; %s has no %s branch", start, t.Remote, t.TargetBranch)
+	case t.Fetched && t.Ahead:
+		return fmt.Sprintf("%s, fetched from %s for this run; the local branch already has everything %s has on it, and commits it does not have yet", start, t.Remote, t.Remote)
 	case t.Fetched && t.Held != "":
 		return fmt.Sprintf("%s; %s was fetched for this run but the local branch was not moved onto it: %s", start, t.Remote, singleSentence(t.Held))
 	case t.Fetched:

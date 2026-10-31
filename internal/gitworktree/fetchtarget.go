@@ -31,6 +31,11 @@ import (
 // reason preservedWorkRefPrefix does.
 const fetchedTargetRefPrefix = "refs/yoyodyne/fetched-target/"
 
+// Remote names the remote a target branch is fetched from.
+func (m *Manager) Remote() string {
+	return m.remote
+}
+
 // FetchedTargetRef is where the last successful fetch of one target branch is
 // kept.
 func FetchedTargetRef(targetBranch string) string {
@@ -54,6 +59,9 @@ type TargetFetch struct {
 	RemoteCommit string `json:"remote_commit,omitempty"`
 	// Advanced reports the local branch moved onto the remote's for this run.
 	Advanced bool `json:"advanced,omitempty"`
+	// Ahead reports the local branch already contains the remote's and carries
+	// commits the remote does not, so there was nothing to move.
+	Ahead bool `json:"ahead,omitempty"`
 	// Held is why a remote that answered was not followed: a history that does
 	// not contain the local branch, or uncommitted work in the primary checkout
 	// in the way. The run starts from the local branch as it stands.
@@ -110,6 +118,17 @@ func (m *Manager) FetchTarget(ctx context.Context, targetBranch string, now time
 		return fetch
 	}
 	fetch.Commit = local
+	// A remote the local branch already contains is not a history that split:
+	// it is a project that promotes locally and has not pushed what it promoted,
+	// which is the ordinary state of local integration. The catch-up holds on
+	// it because it has nothing to fast-forward onto, and that hold is not a
+	// reason to report.
+	if fetch.Held != "" && fetch.RemoteCommit != "" && fetch.RemoteCommit != local {
+		if ahead, err := m.descendsFrom(ctx, fetch.RemoteCommit, local); err == nil && ahead {
+			fetch.Held = ""
+			fetch.Ahead = true
+		}
+	}
 	if committed, err := m.commitTime(ctx, local); err == nil {
 		fetch.CommittedAt = committed
 	}
