@@ -1832,7 +1832,7 @@ answering this message", and the conversation's record gains a
 `message.stopped` event with the reason, the turns taken, the time and the
 spend.
 
-The program manager holds `log.read`. It may request pass records, watch
+The development manager and the program manager hold `log.read`. Either may request pass records, watch
 transitions or scheduler output, the docket, a named run record, the usage-limit
 log, the provider-outage record, and the record of the operator's hand steps and
 messages of this product. It cannot request arbitrary
