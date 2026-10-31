@@ -188,9 +188,11 @@ if [ -d "$HOME/.yoyodyne" ]; then
 else
   fail "nothing was written under ~/.yoyodyne"
 fi
-for elsewhere in "$HOME/.config/yoyodyne" "$HOME/$earlier_within"; do
-  if [ -e "$elsewhere" ]; then fail "the harness wrote outside the home, at $elsewhere"; else pass "nothing under $elsewhere"; fi
-done
+# Other tools keep their own directories under ~/.config (the tracker writes
+# one), so it is held to holding nothing of Yoyodyne's rather than nothing.
+ours="$(ls -A "$HOME/.config" 2>/dev/null | grep -i yoyo || true)"
+if [ -z "$ours" ]; then pass "nothing of the harness's under ~/.config"; else fail "the harness wrote under ~/.config: $ours"; fi
+if [ -e "$HOME/$earlier_within" ]; then fail "the harness wrote outside the home, at $HOME/$earlier_within"; else pass "nothing under $HOME/$earlier_within"; fi
 
 step "the settings that name a home, in the order the v1 harness design rules"
 fresh_home check1-precedence
@@ -316,16 +318,7 @@ if [ "$code" -ne 0 ]; then pass "a start from the moved clone is refused"; else 
 contains "$said" "\`yoyo project bind\`" "it names yoyo project bind"
 contains "$said" "$work/moving," "it names the path the binding records"
 if cmp -s "$binding" "$work/binding-before"; then pass "the binding is unchanged"; else fail "the refused start changed the binding"; fi
-step "yoyo project bind with a run in flight"
-run_id="$("$fixture" run "$HOME/.yoyodyne" moving)" || fail "could not record a run in flight"
-(cd "$work/moved" && "$yoyo" project bind </dev/null >"$work/bind.out" 2>&1); code=$?
-said="$(cat "$work/bind.out")"
-if [ "$code" -ne 0 ]; then pass "bind is refused"; else fail "bind went ahead with a run in flight"; fi
-contains "$said" "in flight" "it says a run is in flight"
-contains "$said" "$run_id" "it names the run"
-if cmp -s "$binding" "$work/binding-before"; then pass "the binding is unchanged"; else fail "the refused bind changed the binding"; fi
-step "yoyo project bind once the run has ended"
-"$fixture" end "$HOME/.yoyodyne" moving "$run_id" || fail "could not end the run"
+step "yoyo project bind with no run in flight"
 (cd "$work/moved" && "$yoyo" project bind </dev/null >"$work/bind.out" 2>&1); code=$?
 if [ "$code" -eq 0 ]; then pass "bind rebinds"; else fail "bind exited $code: $(oneline <"$work/bind.out")"; fi
 recorded="$(json_field "$binding" git_common_directory)"
@@ -336,6 +329,19 @@ acts="$HOME/.yoyodyne/projects/moving/state/project-acts.jsonl"
 contains "$(cat "$acts" 2>/dev/null)" "\"act\":\"bind\"" "the project's state records the bind as an act"
 start "$work/moved"; code=$?
 if [ "$code" -eq 0 ]; then pass "the moved clone starts"; else fail "the moved clone's start exited $code: $(oneline <"$work/start.err")"; fi
+step "yoyo project bind with a run in flight, after the clone moves again"
+# The run is never ended: a run moves between states only through the harness's
+# own steps, so the refusal is asked of a second move rather than before the
+# bind above.
+mv -f "$work/moved" "$work/moved-again"
+cp -f "$binding" "$work/binding-before"
+run_id="$("$fixture" run "$HOME/.yoyodyne" moving)" || fail "could not record a run in flight"
+(cd "$work/moved-again" && "$yoyo" project bind </dev/null >"$work/bind.out" 2>&1); code=$?
+said="$(cat "$work/bind.out")"
+if [ "$code" -ne 0 ]; then pass "bind is refused"; else fail "bind went ahead with a run in flight"; fi
+contains "$said" "in flight" "it says a run is in flight"
+contains "$said" "$run_id" "it names the run"
+if cmp -s "$binding" "$work/binding-before"; then pass "the binding is unchanged"; else fail "the refused bind changed the binding"; fi
 finish
 
 # ---------------------------------------------------------------------------
@@ -351,8 +357,7 @@ earlier_home() {
   new_repository "$work/legacy" "https://example.invalid/acme/legacy.git" && adopt "$work/legacy" legacy || return 1
   start "$work/legacy" || return 1
   git -C "$work/legacy" worktree add -q "$earlier/worktrees/legacy/legacy/run-kept" -b run-kept || return 1
-  legacy_run="$("$fixture" run "$earlier" legacy "$earlier/worktrees/legacy/legacy/run-kept" run-kept "$(git -C "$work/legacy" rev-parse HEAD)")" || return 1
-  "$fixture" end "$earlier" legacy "$legacy_run"
+  legacy_run="$("$fixture" ended "$earlier" legacy "$earlier/worktrees/legacy/legacy/run-kept" run-kept "$(git -C "$work/legacy" rev-parse HEAD)")"
 }
 
 # the commands check 5 holds to the warning: the ones that open the product's
@@ -384,8 +389,7 @@ twin_home="$HOME" twin_earlier="$earlier" twin_work="$work" twin_legacy_run="$le
 # The twin is given the same run in flight, held and ended, so the two homes
 # differ only in whether their migration was interrupted.
 twin_run="$("$fixture" run "$earlier" legacy)" && touch "$scratch/stop-twin" &&
-  "$fixture" hold "$earlier" legacy "$twin_run" "$scratch/stop-twin" 1 >/dev/null &&
-  "$fixture" end "$earlier" legacy "$twin_run" || fail "could not record the twin's run"
+  "$fixture" hold "$earlier" legacy "$twin_run" "$scratch/stop-twin" 1 >/dev/null || fail "could not record the twin's run"
 (cd "$work/legacy" && "$yoyo" home migrate </dev/null >"$work/migrate.out" 2>&1) || fail "the uninterrupted migration exited non-zero: $(oneline <"$work/migrate.out")"
 
 earlier_home check6 || fail "could not lay out the earlier home"
@@ -399,8 +403,9 @@ said="$(cat "$work/migrate.out")"
 if [ "$code" -ne 0 ]; then pass "the migration is refused"; else fail "the migration went ahead with a run in flight"; fi
 contains "$said" "$held_run" "it names the run in flight"
 if [ -d "$earlier/products/legacy" ] && [ ! -e "$HOME/.yoyodyne/projects" ]; then pass "nothing moved"; else fail "something moved while the run was in flight"; fi
+# Once the lease is let go nothing holds the run, as when a run's process has
+# ended, and the migration goes ahead.
 touch "$scratch/stop-check6"; wait "$holder" 2>/dev/null
-"$fixture" end "$earlier" legacy "$held_run" || fail "could not end the run"
 
 step "a migration interrupted part way, then run again"
 chmod 0500 "$earlier/worktrees/legacy/legacy"
