@@ -126,6 +126,32 @@ last recorded walk, kept from the README split as a readable record of what the
 walkthrough actually prints; CI is what re-runs it now, so the file is a
 snapshot rather than the evidence anything rests on.
 
+`make validate-machine-home` is the walk's sibling for the machine home, and
+the validation project. It runs
+[`scripts/validate-machine-home.sh`](../scripts/validate-machine-home.sh)
+against fresh Git repositories holding none of the harness's files, each
+started under a home directory of its own inside a temporary root it removes on
+exit, so the real `~/.yoyodyne` is never read or written. It asserts the seven
+checks [the machine home design](designs/machine-home.md#validation) lists,
+printing each check's number and name as it passes or fails, and then records
+what it measured of first use: when the empty repository was made, the
+decisions asked of the person, with brief and goals approvals listed apart, and
+every setup failure with its message and whether the next step it names was
+tried. A measurement it cannot take is recorded as not taken, with the reason,
+never as zero: the time to the first independently reviewed change integrated
+needs a provider and a forge, and the script reaches neither.
+`VALIDATION_RECORD=<file>` keeps a copy of those measurements. It exits non-zero
+when any of checks 1 to 6 fails; check 7, the companion intent repository, is
+reported as not yet built and counted neither way until contributor mode
+(yoyodyne-ifd.78) builds it. A run in flight is a record
+[`scripts/validationfixture`](../scripts/validationfixture/main.go) writes and
+holds through the harness's own run store, for at most two minutes. Like the
+walk it needs a scratch root outside every Git repository. CI does not run it
+yet, because checks 1, 5 and 6 fail on behaviour the harness does not have yet,
+and a job that failed on every pull request would stop every change; the job
+joins `adoption` in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
+once those checks pass.
+
 ## What a document landing runs: `make doccheck`
 
 A design, a decision, or the goals a role writes in conversation lands through a
