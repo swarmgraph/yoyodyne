@@ -309,8 +309,16 @@ func TestConcurrentCreationSurvivesAGitCommandTheHarnessDidNotCompose(t *testing
 	t.Cleanup(func() { disableBackgroundMaintenance(t, repository) })
 	runGit(t, repository, "config", "gc.auto", "1")
 	runGit(t, repository, "config", "maintenance.auto", "true")
+	// The worktree-prune task prunes registrations without gc, and a newer Git
+	// runs it under "maintenance run --auto" by default; it is switched on here
+	// so the test asks for it on every Git that has it.
+	runGit(t, repository, "config", "maintenance.worktree-prune.enabled", "true")
+	runGit(t, repository, "config", "maintenance.worktree-prune.auto", "1")
 
 	manager := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+	if value := neighbourGitConfig(t, repository, "maintenance.worktree-prune.auto"); value != "0" {
+		t.Fatalf("a neighbouring Git command reads maintenance.worktree-prune.auto = %q, want the harness's fence at %q", value, "0")
+	}
 	if value := neighbourGitConfig(t, repository, "gc.auto"); value != "0" {
 		t.Fatalf("a neighbouring Git command reads gc.auto = %q, want the harness's fence at %q", value, "0")
 	}

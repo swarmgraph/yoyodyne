@@ -441,7 +441,7 @@ func TestAStartedSinkCarriesTheGitMaintenanceFence(t *testing.T) {
 	root := t.TempDir()
 	relative := "projects/yoyodyne/state/slack/" + sinkLogFile
 	// The constructed environment carries no Git configuration of its own, so
-	// the fence is the whole of what the sink was given: two settings, first.
+	// the fence is the whole of what the sink was given: its settings, first.
 	pid, err := DetachedLauncher{}.Launch(Launch{
 		Program: "/bin/sh",
 		Args:    []string{"-c", "printenv GIT_CONFIG_COUNT; printenv GIT_CONFIG_KEY_0; printenv GIT_CONFIG_KEY_1"},
@@ -454,7 +454,7 @@ func TestAStartedSinkCarriesTheGitMaintenanceFence(t *testing.T) {
 		t.Fatalf("Launch() error = %v", err)
 	}
 
-	want := "2\ngc.auto\nmaintenance.auto"
+	want := "3\ngc.auto\nmaintenance.auto"
 	if got := startedSinkWrote(t, pid, filepath.Join(root, filepath.FromSlash(relative))); got != want {
 		t.Fatalf("the started process recorded %q, want %q", got, want)
 	}
