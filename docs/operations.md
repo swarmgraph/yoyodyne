@@ -4017,7 +4017,20 @@ re-armed again. The moment the drop is found out is recorded on the run as well,
 so it is announced in the item's thread as a `warning` rather than waiting for
 the next person who runs a status command — and until the publication is
 settled, it is counted in the [heartbeat](reporting.md) as a promotion awaiting
-the forge. A
+the forge. Where the forge removed the request from its merge queue, the drop
+also names the checks GitHub's merge queue ran. The queue does not check the
+pull request's own head: it merges the head onto the target, as a commit of
+its own on a `gh-readonly-queue/` branch, and runs the checks there, so a head
+whose own checks all pass can still be removed for failed checks. The sweep
+finds that commit from the newest of the queue's last 100 workflow runs made
+for the request, and reads every check on it. Each check that failed is
+named, with how the forge ended it, on the blocker and so on the development
+manager's docket. The forge's account of each failing check — the job and step
+that failed, and the end of that step's output with secrets removed — goes in
+the item's notes and on the run's record (`queued_checks` under `merge_drop`).
+In that case the drop does not repeat the head's own passing checks. Where the
+queue's checks cannot be read, or no merge the queue built is found, the drop
+says so and says that the checks it does show are the pull request's own. A
 merge that **landed but could not be confirmed** is the second: the forge
 performed it, and the steps that confirm it — verifying the remote carries the
 promotion and recording the merge commit — failed,

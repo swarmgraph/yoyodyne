@@ -459,3 +459,89 @@ func (s State) UpdatingQueuedHead() bool {
 	}
 	return s.IntegrationResumptions[len(s.IntegrationResumptions)-1].Cause == CauseQueuedHeadBehind
 }
+
+// MaxRecordedQueuedCheckAccounts bounds the failing checks on a queued merge
+// whose account — the failing step and the end of its output — the record
+// keeps, because each one is a log read and kilobytes of record. The rest are
+// still named.
+const MaxRecordedQueuedCheckAccounts = 3
+
+// QueuedMergeChecks is how the forge's checks ended on the merge its merge queue
+// built of a pull request, read when the forge was found to have dropped that
+// merge. The queue runs its checks on a commit of its own — the request's head
+// merged onto the target — rather than on the request's head, so a head whose
+// own checks pass can be removed from the queue for failed checks, and this is
+// the reading that names them (publish.QueuedMergeChecks).
+//
+// A reading that could not be taken says why in ReadError. One that was taken
+// and found no queued merge leaves Commit empty, which says nothing about
+// whether the checks passed.
+type QueuedMergeChecks struct {
+	// Commit is the merge the queue built and ran its checks on.
+	Commit    string               `json:"commit,omitempty"`
+	ReadAt    time.Time            `json:"read_at"`
+	ReadError string               `json:"read_error,omitempty"`
+	Failing   []QueuedFailingCheck `json:"failing,omitempty"`
+	Pending   int                  `json:"pending,omitempty"`
+	Passing   int                  `json:"passing,omitempty"`
+}
+
+// QueuedFailingCheck is one check that failed on a queued merge: its name, how
+// the forge ended it, the link to its run, and the forge's account of it as the
+// item carries it — the job and step that failed and the end of that step's
+// output, or why the log could not be read. Account is empty past
+// MaxRecordedQueuedCheckAccounts.
+type QueuedFailingCheck struct {
+	Name       string `json:"name"`
+	Conclusion string `json:"conclusion,omitempty"`
+	URL        string `json:"url,omitempty"`
+	Account    string `json:"account,omitempty"`
+}
+
+// Read reports a reading that was taken, whatever it found.
+func (q QueuedMergeChecks) Read() bool { return strings.TrimSpace(q.ReadError) == "" }
+
+// Found reports a reading that found the forge's queued merge.
+func (q QueuedMergeChecks) Found() bool { return q.Read() && q.Commit != "" }
+
+// Red reports a queued merge the forge's checks failed on.
+func (q QueuedMergeChecks) Red() bool { return q.Found() && len(q.Failing) > 0 }
+
+// Names is the failing checks, each with how the forge ended it.
+func (q QueuedMergeChecks) Names() string {
+	names := make([]string, 0, len(q.Failing))
+	for _, failing := range q.Failing {
+		names = append(names, fmt.Sprintf("%s (%s)", failing.Name, nonEmptyWord(failing.Conclusion, "no conclusion reported")))
+	}
+	return strings.Join(names, ", ")
+}
+
+// Validate rejects a reading that cannot describe a real one.
+func (q QueuedMergeChecks) Validate() error {
+	var problems []error
+	if q.Commit != "" && !commitPattern.MatchString(q.Commit) {
+		problems = append(problems, errors.New("queued checks commit is invalid"))
+	}
+	if q.ReadAt.IsZero() {
+		problems = append(problems, errors.New("queued checks read_at is required"))
+	}
+	if q.Pending < 0 || q.Passing < 0 {
+		problems = append(problems, errors.New("queued checks counts cannot be negative"))
+	}
+	if len(q.Failing) > MaxRecordedFailingChecks {
+		problems = append(problems, fmt.Errorf("%d failing queued checks are recorded, which exceeds the bound of %d", len(q.Failing), MaxRecordedFailingChecks))
+	}
+	for index, failing := range q.Failing {
+		if strings.TrimSpace(failing.Name) == "" {
+			problems = append(problems, fmt.Errorf("queued checks failing[%d] name is required", index))
+		}
+	}
+	return errors.Join(problems...)
+}
+
+func nonEmptyWord(value, otherwise string) string {
+	if strings.TrimSpace(value) == "" {
+		return otherwise
+	}
+	return value
+}

@@ -1655,6 +1655,11 @@ type MergeDrop struct {
 	// beside the moment so a reader of the drop alone is not sent to another
 	// field to find out what it was.
 	Reason string `json:"reason"`
+	// QueuedChecks is how the forge's checks ended on the merge its merge queue
+	// built of the request, where the forge removed the request from its queue.
+	// It is what names a check that failed there while the request's own head
+	// passed, and it is absent for a drop the queue had no part in.
+	QueuedChecks *QueuedMergeChecks `json:"queued_checks,omitempty"`
 }
 
 // Validate rejects a drop that cannot describe a real one.
@@ -1665,6 +1670,11 @@ func (d MergeDrop) Validate() error {
 	}
 	if strings.TrimSpace(d.Reason) == "" {
 		problems = append(problems, errors.New("merge_drop reason is required: a drop nobody can say the cause of is not worth recording"))
+	}
+	if d.QueuedChecks != nil {
+		if err := d.QueuedChecks.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("merge_drop: %w", err))
+		}
 	}
 	return errors.Join(problems...)
 }
@@ -2398,6 +2408,19 @@ func (s *State) recordedTexts() []recordedText {
 	}
 	if s.MergeDrop != nil {
 		unstated("merge_drop.reason", "merge_drop.reason", &s.MergeDrop.Reason, MaxRecordedTextBytes)
+		// The checks on the merge the forge's queue built are named as the
+		// forge's workflows phrase them, and each account carries the end of a
+		// failing step's output, held to the bound a failing check's output is.
+		if queued := s.MergeDrop.QueuedChecks; queued != nil {
+			unstated("merge_drop.queued_checks.read_error", "merge_drop.queued_checks.read_error", &queued.ReadError, MaxRecordedTextBytes)
+			for index := range queued.Failing {
+				failing := &queued.Failing[index]
+				unstated("merge_drop.queued_checks.failing[].name", at("merge_drop.queued_checks.failing", index, "name"), &failing.Name, maxCheckNameBytes)
+				unstated("merge_drop.queued_checks.failing[].conclusion", at("merge_drop.queued_checks.failing", index, "conclusion"), &failing.Conclusion, maxCheckNameBytes)
+				unstated("merge_drop.queued_checks.failing[].url", at("merge_drop.queued_checks.failing", index, "url"), &failing.URL, maxCheckURLBytes)
+				unstated("merge_drop.queued_checks.failing[].account", at("merge_drop.queued_checks.failing", index, "account"), &failing.Account, MaxCheckOutputBytes)
+			}
+		}
 	}
 	if s.MergeDisagreement != nil {
 		unstated("merge_disagreement.detail", "merge_disagreement.detail", &s.MergeDisagreement.Detail, MaxRecordedTextBytes)

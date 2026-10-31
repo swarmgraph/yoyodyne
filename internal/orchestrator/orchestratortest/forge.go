@@ -85,6 +85,10 @@ type Forge struct {
 	// RemovalErr is a forge that could not be asked for it.
 	Removal    publish.QueueRemoval
 	RemovalErr error
+	// QueuedMerge is the checks the forge's merge queue ran on the merge it built of
+	// the request, and QueuedMergeErr is a forge that could not be asked for them.
+	QueuedMerge    publish.QueuedMergeChecks
+	QueuedMergeErr error
 }
 
 // ConnectionReset is what the transport writes when it drops a request, in the
@@ -185,6 +189,17 @@ func (f *Forge) QueueRemoval(_ context.Context, number int) (publish.QueueRemova
 	removal := f.Removal
 	removal.Number = number
 	return removal, nil
+}
+
+// QueuedMergeChecks answers with the queued merge's checks the test gave the
+// forge.
+func (f *Forge) QueuedMergeChecks(_ context.Context, number int) (publish.QueuedMergeChecks, error) {
+	if f.QueuedMergeErr != nil {
+		return publish.QueuedMergeChecks{}, f.QueuedMergeErr
+	}
+	queued := f.QueuedMerge
+	queued.Number = number
+	return queued, nil
 }
 
 // MergeIntoRemote writes the forge's own merge of a request into the bare

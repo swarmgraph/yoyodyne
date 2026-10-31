@@ -84,10 +84,12 @@ type ReconcilePullRequests interface {
 }
 
 // ReconcileDrops is the forge access that reads why the forge stopped holding a
-// queued merge. It only reads, and grants nothing. It is satisfied by
-// publish.GitHub.
+// queued merge: the forge's account of the removal, and the checks its merge
+// queue ran on the merge it built of the request. It only reads, and grants
+// nothing. It is satisfied by publish.GitHub.
 type ReconcileDrops interface {
 	QueueRemoval(ctx context.Context, number int) (publish.QueueRemoval, error)
+	QueuedMergeChecks(ctx context.Context, number int) (publish.QueuedMergeChecks, error)
 }
 
 // ReconcileStore is the durable run state reconciliation reads and settles.
@@ -903,14 +905,16 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 		published = *state.PullRequest
 		published.MergeQueued = false
 		state.PullRequest = &published
-		account := r.dropAccount(ctx, published, state.Integration.TargetBranch)
+		account, queued := r.dropAccount(ctx, published, state.Integration.TargetBranch)
 		state.PublishFailure = droppedMerge(published, strings.ToLower(nonEmpty(observed.State, "in an unreported state")), state.Integration.TargetBranch, account)
 		// The moment the drop was found out, written down rather than left to be
 		// worked out again by whoever next reads the record. It is the one thing a
 		// channel can be told, and it is stamped here — before the settlement below
 		// takes the run in either of its two directions — so both of them carry it.
-		state.MergeDrop = &runstate.MergeDrop{At: r.clock().Now(), Reason: state.PublishFailure}
-		return r.settleDroppedMerge(ctx, state)
+		// The checks the forge's merge queue failed it on go with it, and their
+		// accounts go onto the item with the settlement.
+		state.MergeDrop = &runstate.MergeDrop{At: r.clock().Now(), Reason: state.PublishFailure, QueuedChecks: queued}
+		return r.settleDroppedMergeWith(ctx, state, renderQueuedChecksAccount(published.Number, queued))
 	}
 	detail := fmt.Sprintf("the forge merged pull request %d into %s", published.Number, state.Integration.TargetBranch)
 	var catchup *gitworktree.Catchup
@@ -1122,9 +1126,119 @@ const maxDropAccountBytes = 2 << 10
 // the harness could read at the moment it found the drop — the checks on the
 // head and the queue events on the request's timeline — so whoever decides
 // about the drop has the evidence on the record rather than on the forge.
-func (r Reconciler) dropAccount(ctx context.Context, published runstate.PullRequest, target string) string {
+//
+// Where the forge removed the request from its merge queue, it also reads the
+// checks the queue ran on the merge it built of the request, and returns them
+// for the record: those, and not the head's own, are the checks the queue
+// removed it for (readQueuedMergeChecks).
+func (r Reconciler) dropAccount(ctx context.Context, published runstate.PullRequest, target string) (string, *runstate.QueuedMergeChecks) {
 	removal, unread := r.readQueueRemoval(ctx, published.Number)
-	return forgeDropAccount(removal, unread, published, target)
+	queued := r.readQueuedMergeChecks(ctx, published.Number, removal, unread)
+	return forgeDropAccount(removal, unread, published, target, queued), queued
+}
+
+// maxQueuedCheckReadError keeps a failed read of the queued merge's checks to a
+// sentence's length inside the drop's account.
+const maxQueuedCheckReadError = 400
+
+// readQueuedMergeChecks reads the checks the forge's merge queue ran on the
+// merge it built of a dropped request, where the forge's timeline shows the
+// request removed from the queue or could not be read to say whether it was. A
+// drop the queue had no part in reads nothing and records nothing.
+//
+// The queue runs its checks on a commit of its own, the request's head merged
+// onto the target, so a head whose own checks pass can still be removed for
+// failed checks; reading only the head is how a stop came to say the checks
+// passed over a queue that had failed them. A reading that cannot be taken is
+// recorded as unread, never as passing. Each failing check carries the forge's
+// account of it — the job and step that failed and the end of that step's
+// output — read under the harness's own forge access as a withdrawn merge's are
+// (checkAccount), for the first MaxRecordedQueuedCheckAccounts of them.
+func (r Reconciler) readQueuedMergeChecks(ctx context.Context, number int, removal publish.QueueRemoval, unread string) *runstate.QueuedMergeChecks {
+	if r.Drops == nil || (unread == "" && !removal.RemovedFromQueue()) {
+		return nil
+	}
+	now := r.clock().Now().UTC()
+	unreadAs := func(err error) *runstate.QueuedMergeChecks {
+		return &runstate.QueuedMergeChecks{ReadAt: now, ReadError: oneline.Bound(err.Error(), maxQueuedCheckReadError)}
+	}
+	read, err := r.Drops.QueuedMergeChecks(ctx, number)
+	if err != nil {
+		return unreadAs(err)
+	}
+	queued := &runstate.QueuedMergeChecks{Commit: read.Commit, ReadAt: now, Pending: len(read.Pending), Passing: read.Passing}
+	if read.Found() {
+		recorded := recordedChecks(publish.CheckReading{HeadCommit: read.Commit, Failing: read.Failing}, now)
+		for index, failing := range recorded.Failing {
+			kept := runstate.QueuedFailingCheck{Name: failing.Name, Conclusion: failing.Conclusion, URL: failing.URL}
+			if index < runstate.MaxRecordedQueuedCheckAccounts {
+				kept.Account = boundedTail(r.checkAccount(ctx, failing, read.Commit), runstate.MaxCheckOutputBytes)
+			}
+			queued.Failing = append(queued.Failing, kept)
+		}
+	}
+	if err := queued.Validate(); err != nil {
+		return unreadAs(fmt.Errorf("the forge's answer is not one the record can keep: %w", err))
+	}
+	return queued
+}
+
+// queuedChecksSentence says what the checks the forge's merge queue ran on its
+// merge of a dropped request came to, and nothing where none were read.
+func queuedChecksSentence(queued *runstate.QueuedMergeChecks, number int) string {
+	switch {
+	case queued == nil:
+		return ""
+	case !queued.Read():
+		return fmt.Sprintf("The checks the forge's merge queue ran on its merge of pull request %d could not be read (%s), so whether they passed is not known; the checks below are the pull request's own, which are not the ones the queue ran.",
+			number, queued.ReadError)
+	case !queued.Found():
+		return fmt.Sprintf("The harness found no merge the forge's merge queue built of pull request %d among the queue's latest %d workflow runs, so what the queue's checks said is not known; the checks below are the pull request's own, which are not the ones the queue ran.",
+			number, publish.MaxQueueRunsRead)
+	case queued.Red():
+		return fmt.Sprintf("The checks the forge's merge queue ran on its merge of pull request %d (commit %s) failed: %s. The end of each failing check's output is in this item's notes and on the run's record.",
+			number, shortCommit(queued.Commit), queued.Names())
+	case queued.Pending > 0:
+		return fmt.Sprintf("The checks the forge's merge queue ran on its merge of pull request %d (commit %s) had not failed: %d passing, %d still running.",
+			number, shortCommit(queued.Commit), queued.Passing, queued.Pending)
+	}
+	return fmt.Sprintf("The checks the forge's merge queue ran on its merge of pull request %d (commit %s) did not fail: %d passing.",
+		number, shortCommit(queued.Commit), queued.Passing)
+}
+
+// renderQueuedChecksAccount is the note the forge's accounts of the checks that
+// failed on a dropped request's queued merge make on the item, and nothing
+// where none failed.
+func renderQueuedChecksAccount(number int, queued *runstate.QueuedMergeChecks) string {
+	if queued == nil || !queued.Red() {
+		return ""
+	}
+	accounts := make([]string, 0, len(queued.Failing))
+	for _, failing := range queued.Failing {
+		if failing.Account != "" {
+			accounts = append(accounts, failing.Account)
+			continue
+		}
+		account := fmt.Sprintf("How the forge ended %s: %s.", failing.Name, nonEmpty(failing.Conclusion, "no conclusion reported"))
+		if failing.URL != "" {
+			account += " Log: " + failing.URL
+		}
+		accounts = append(accounts, account+fmt.Sprintf("\nIts log was not read: the harness reads the first %d failing checks' logs.", runstate.MaxRecordedQueuedCheckAccounts))
+	}
+	return fmt.Sprintf("The forge's account of the checks that failed on the merge its merge queue built of pull request %d (commit %s), which are the checks the queue removed it for; the pull request's own head is not what the queue checked. Read by the harness under its own forge access. Work from this record: nothing here asks anybody to fetch the forge.\n\n", number, queued.Commit) +
+		strings.Join(accounts, "\n\n")
+}
+
+// headPlace is where a reading found the pull request's head, without what its
+// checks said: the head and how far it stands from the target.
+func headPlace(checks runstate.PullRequestChecks, target string) string {
+	if checks.ReadError != "" || checks.HeadCommit == "" {
+		return "its head unread"
+	}
+	if checks.BehindBy > 0 {
+		return fmt.Sprintf("head %s %d commit(s) behind %s", shortCommit(checks.HeadCommit), checks.BehindBy, target)
+	}
+	return fmt.Sprintf("head %s level with %s", shortCommit(checks.HeadCommit), target)
 }
 
 // readQueueRemoval reads the forge's account of a request's queued merge, and
@@ -1141,7 +1255,13 @@ func (r Reconciler) readQueueRemoval(ctx context.Context, number int) (publish.Q
 }
 
 // forgeDropAccount is dropAccount's sentences from an account already read.
-func forgeDropAccount(removal publish.QueueRemoval, unread string, published runstate.PullRequest, target string) string {
+//
+// Where the checks the forge's merge queue ran were read, they are said first.
+// Where they failed, the head's own checks are not said at all, only where the
+// head stood: those pass on a head the queue did not test alone, and a stop
+// that says the checks passed beside a queue that failed them is the
+// contradiction this reading exists to end.
+func forgeDropAccount(removal publish.QueueRemoval, unread string, published runstate.PullRequest, target string, queued *runstate.QueuedMergeChecks) string {
 	var sentences []string
 	reason, requirement := removal.Reason(), removal.Requirement()
 	if reason != "" {
@@ -1161,8 +1281,18 @@ func forgeDropAccount(removal publish.QueueRemoval, unread string, published run
 				target, nonEmpty(removal.MergeStatus, "unreported")))
 		}
 	}
+	if said := queuedChecksSentence(queued, published.Number); said != "" {
+		sentences = append(sentences, said)
+	}
 	checks := "no check reading was taken"
-	if published.Checks != nil {
+	switch {
+	case queued != nil && queued.Red() && published.Checks != nil:
+		checks = "the pull request's own " + headPlace(*published.Checks, target) + ", which is not what the queue checked"
+	case queued != nil && queued.Red():
+		checks = "no reading of the pull request's own head was taken"
+	case published.Checks != nil && queued != nil:
+		checks = "on the pull request's own head, " + published.Checks.Describe(target)
+	case published.Checks != nil:
 		checks = published.Checks.Describe(target)
 	}
 	events := "none recorded"

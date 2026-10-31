@@ -167,45 +167,9 @@ func (g GitHub) Checks(ctx context.Context, number int, base string) (CheckReadi
 		}
 	}
 
-	runs, err := g.api(ctx, "repos/{owner}/{repo}/commits/"+head+"/check-runs?per_page="+strconv.Itoa(maxReadCheckRuns))
+	reading.Failing, reading.Pending, reading.Passing, err = g.checkRuns(ctx, head)
 	if err != nil {
-		return CheckReading{}, fmt.Errorf("ask the forge for the checks on %s: %w", head, err)
-	}
-	if runs.Status != execution.ProcessSucceeded {
-		return CheckReading{}, fmt.Errorf("ask the forge for the checks on %s: exit code %d: %s",
-			head, runs.ExitCode, g.redact(firstLine(strings.TrimSpace(runs.Stderr))))
-	}
-	var reported struct {
-		CheckRuns []struct {
-			ID         int64  `json:"id"`
-			Name       string `json:"name"`
-			Status     string `json:"status"`
-			Conclusion string `json:"conclusion"`
-			HTMLURL    string `json:"html_url"`
-		} `json:"check_runs"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(runs.Stdout)), &reported); err != nil {
-		return CheckReading{}, fmt.Errorf("decode the checks on %s: %w", head, err)
-	}
-	for _, run := range reported.CheckRuns {
-		name := strings.TrimSpace(run.Name)
-		switch {
-		case !strings.EqualFold(run.Status, "completed"):
-			reading.Pending = append(reading.Pending, name)
-		case failingConclusions[strings.ToLower(strings.TrimSpace(run.Conclusion))]:
-			failed := FailedCheck{Name: name, ID: run.ID, Conclusion: strings.ToLower(strings.TrimSpace(run.Conclusion)), URL: strings.TrimSpace(run.HTMLURL)}
-			if len(reading.Failing) < maxAnnotatedChecks && run.ID > 0 {
-				paths, annotations, err := g.annotations(ctx, run.ID)
-				if err != nil {
-					return CheckReading{}, fmt.Errorf("ask the forge which files check %q annotates: %w", name, err)
-				}
-				failed.Paths = paths
-				failed.Annotations = annotations
-			}
-			reading.Failing = append(reading.Failing, failed)
-		default:
-			reading.Passing++
-		}
+		return CheckReading{}, err
 	}
 
 	// How far the base has moved on without the head is the comparison of the
@@ -238,6 +202,53 @@ func (g GitHub) Checks(ctx context.Context, number int, base string) (CheckReadi
 	}
 	reading.BehindBy = *distance.AheadBy
 	return reading, nil
+}
+
+// checkRuns reads every check run on one commit and how each ended: the failing
+// ones with the files and annotations the forge filed on them, the names of
+// those not finished, and how many passed.
+func (g GitHub) checkRuns(ctx context.Context, commit string) (failing []FailedCheck, pending []string, passing int, err error) {
+	runs, err := g.api(ctx, "repos/{owner}/{repo}/commits/"+commit+"/check-runs?per_page="+strconv.Itoa(maxReadCheckRuns))
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("ask the forge for the checks on %s: %w", commit, err)
+	}
+	if runs.Status != execution.ProcessSucceeded {
+		return nil, nil, 0, fmt.Errorf("ask the forge for the checks on %s: exit code %d: %s",
+			commit, runs.ExitCode, g.redact(firstLine(strings.TrimSpace(runs.Stderr))))
+	}
+	var reported struct {
+		CheckRuns []struct {
+			ID         int64  `json:"id"`
+			Name       string `json:"name"`
+			Status     string `json:"status"`
+			Conclusion string `json:"conclusion"`
+			HTMLURL    string `json:"html_url"`
+		} `json:"check_runs"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(runs.Stdout)), &reported); err != nil {
+		return nil, nil, 0, fmt.Errorf("decode the checks on %s: %w", commit, err)
+	}
+	for _, run := range reported.CheckRuns {
+		name := strings.TrimSpace(run.Name)
+		switch {
+		case !strings.EqualFold(run.Status, "completed"):
+			pending = append(pending, name)
+		case failingConclusions[strings.ToLower(strings.TrimSpace(run.Conclusion))]:
+			failed := FailedCheck{Name: name, ID: run.ID, Conclusion: strings.ToLower(strings.TrimSpace(run.Conclusion)), URL: strings.TrimSpace(run.HTMLURL)}
+			if len(failing) < maxAnnotatedChecks && run.ID > 0 {
+				paths, annotations, err := g.annotations(ctx, run.ID)
+				if err != nil {
+					return nil, nil, 0, fmt.Errorf("ask the forge which files check %q annotates: %w", name, err)
+				}
+				failed.Paths = paths
+				failed.Annotations = annotations
+			}
+			failing = append(failing, failed)
+		default:
+			passing++
+		}
+	}
+	return failing, pending, passing, nil
 }
 
 // BranchCheckReading is how the forge says each check ended on the commit a
