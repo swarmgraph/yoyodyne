@@ -1057,6 +1057,11 @@ var notAStep = map[string]string{
 	// and could not be reordered into one: it changes nothing about the work, and
 	// what it creates is outside the worktree and can never enter the change.
 	"prepareScratch": "cuts the run the scratch directory its developer contract names",
+	// The project's dependencies are put in the worktree before the developer
+	// starts for the same reason: a definition that could skip or reorder it
+	// could hand a developer a checkout its checks cannot run in, and what it
+	// installs is ignored by Git and can never enter the change.
+	"installBeforeDeveloper": "runs the project's declared install steps in the worktree before the developer's first turn",
 	// What a fresh worktree starts from is part of cutting it, and it is decided
 	// by the run's recorded selection rather than by anything a definition could
 	// order: a re-run of a raise starts from the raising run's preserved change,

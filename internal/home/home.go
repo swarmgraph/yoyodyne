@@ -330,6 +330,19 @@ func ProductDirectoryWithin(root, productID string) string {
 	return path.Join(ProjectsDirectoryName, productID, StateDirectoryName)
 }
 
+// InstallCacheDirectoryName is the folder inside a product's records directory
+// that its install steps keep their package cache in.
+const InstallCacheDirectoryName = "install-cache"
+
+// InstallCacheDirectoryWithin is where one product's install steps keep their
+// package cache, relative to the home in slash form, for the confined write
+// that creates it. It sits among the product's records rather than beside its
+// worktrees, so no developer run, whose sandbox grants its own worktree, is
+// granted it (docs/designs/project-dependencies-in-runs.md).
+func InstallCacheDirectoryWithin(root, productID string) string {
+	return path.Join(ProductDirectoryWithin(root, productID), InstallCacheDirectoryName)
+}
+
 // WorktreeDirectory is where one product's developer worktrees are cut under a
 // home when the configuration leaves the worktree root to the harness:
 // `projects/<id>/worktrees/`, or `worktrees/<id>/<repository id>/` in a home
