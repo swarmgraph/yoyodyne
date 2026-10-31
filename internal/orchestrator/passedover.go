@@ -210,8 +210,10 @@ func (t Trigger) notePassedOver(ctx context.Context, pass string, role domain.Ag
 		return ""
 	}
 	// A trigger wired without a tracker still records the item as not taken,
-	// which is what the record exists to say; only the note is left unwritten.
+	// which is what the record exists to say; only the note is left unwritten,
+	// and the record says so, so no later pass counts itself a repeat of it.
 	if t.ItemNotes == nil {
+		recorded.Delivered[0].NoteUnwritten = true
 		return ""
 	}
 	if runstate.RepeatsPassedOverNote(earlier, first) {

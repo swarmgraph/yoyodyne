@@ -331,3 +331,29 @@ func (n *failingOnceNotes) AppendNote(ctx context.Context, id, note string) erro
 	}
 	return n.itemNotes.AppendNote(ctx, id, note)
 }
+
+// A trigger with no tracker to write notes to records each leave's note as
+// unwritten, so no pass counts itself a repeat of a note nobody wrote.
+func TestALeaveWithNoTrackerIsNeverCountedAsARepeat(t *testing.T) {
+	t.Parallel()
+	role := &wokenRole{answers: []scriptedTurn{leftAgainTurn("Took nothing."), leftAgainTurn("Took nothing.")}}
+	store := sweepStore(t)
+	clock := &movingRecurringClock{now: recurringNow}
+	trigger := Trigger{Tasks: architectPass(), Claims: store, Reports: store, Roles: role,
+		ConversationWork: capacityQueue("blocked in the tracker"), Clock: clock}
+	for range 2 {
+		if _, err := trigger.Fire(context.Background()); err != nil {
+			t.Fatalf("Fire() error = %v", err)
+		}
+		clock.now = clock.now.Add(time.Hour)
+	}
+	recorded, _, err := store.List()
+	if err != nil || len(recorded) != 2 {
+		t.Fatalf("recorded = %+v (%v), want two passes", recorded, err)
+	}
+	for index, pass := range recorded {
+		if first := pass.Delivered[0]; !first.NoteUnwritten || first.NoteRepeated {
+			t.Errorf("pass %d first = %+v, want its note marked unwritten and not a repeat", index+1, first)
+		}
+	}
+}
