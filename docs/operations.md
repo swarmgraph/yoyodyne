@@ -2642,14 +2642,30 @@ is `yoyo pause` rather than waiting for the windows to run out.
 
 ### Tracker export snapshots and abandoned temporary files
 
+No tracker write rewrites the full `.beads/issues.jsonl` under its store lock.
 The harness sets `BD_EXPORT_AUTO=false` on its bd calls, even where the project
-file enables automatic exports. A tracker write therefore no longer rewrites
-the full `.beads/issues.jsonl` under its store lock. The harness requests an
-explicit export before preparing a worktree, and admission-trigger readers and
-`yoyo reconcile` refresh the primary snapshot when it is at least a minute old.
+file enables automatic exports, and this repository's `.beads/config.yaml` sets
+`export.auto: false`, so bd run by hand does not export on each write either.
+The export is taken by the harness's tracker client instead, at three points:
+
+- **Before a worktree is prepared**, always.
+- **When it is due**: admission-trigger readers and `yoyo reconcile` refresh the
+  primary snapshot at most once every five minutes, and then only when a file
+  of the tracker's database has changed since the published snapshot's export
+  began. A store nobody wrote to is not exported again. Where nothing records
+  which export the snapshot came from, or no database is found to compare, the
+  export is taken.
+- **Before a commit that carries it**, always. The repository's pre-commit hook,
+  `.beads/hooks/pre-commit`, runs `yoyo tracker export` whenever
+  `.beads/issues.jsonl` is staged and stages the fresh copy, so what is
+  committed is never older than the tracker. A commit carrying the export is
+  refused, with the reason, where there is no `yoyo` on `PATH` or the export
+  fails; `git restore --staged .beads/issues.jsonl` leaves the export out of it.
+  The harness's own commits never carry the export.
+
 The tracker still has to read the whole store for an export; it does so at these
-reader boundaries rather than on every write. A failed or incomplete export
-leaves the previous snapshot intact and is reported by the reader.
+points rather than on every write. A failed or incomplete export leaves the
+previous snapshot intact and is reported by the reader.
 
 `yoyo reconcile`, including the supervisor's maintenance pass, removes bd export
 temporaries named `.beads/.~issues.jsonl.<digits>` or
@@ -2675,19 +2691,21 @@ had the store open, so it was most likely waiting behind them: …`, followed by
 the whole account of the call ([below](#a-tracker-that-does-not-answer-a-listing)).
 Nothing about it is retried or counted as done. The developer's sandbox cannot clean the primary checkout;
 the harness performs this on its next maintenance pass after moving to the new
-build. Calls to bd outside the harness keep their own export settings.
+build. Calls to bd outside the harness follow the project's tracker file, which here
+turns automatic exports off.
 
 ### A tracker that does not answer a listing
 
 A listing — `bd list`, which the development manager's docket, the forge
 reading on her pass, the claim audit, the admission guard, and `yoyo status`
 all make — is bounded at thirty seconds like every tracker call. bd takes an
-exclusive lock on its store for every command, reads included. Harness writes
-set `BD_EXPORT_AUTO=false` and do not automatically rewrite the export.
-Explicit snapshot exports still read the whole store under that lock; the
-harness publishes the snapshot beside the store after bd exits. Calls outside
-the harness retain their own export settings and, when automatic exports are
-enabled, can still rewrite the whole export while holding the lock. A listing
+exclusive lock on its store for every command, reads included. Writes do not
+rewrite the export: the harness sets `BD_EXPORT_AUTO=false`, and this
+repository's tracker file sets `export.auto: false`. The harness's own exports
+still read the whole store under that lock; it publishes the snapshot beside the
+store after bd exits. Calls outside the harness in a project whose tracker file
+enables automatic exports can still rewrite the whole export while holding the
+lock. A listing
 queued behind these commands can be killed at its bound seconds before it would
 have answered.
 [The diagnosis](diagnoses/yoyodyne-ifd-433-20-tracker-listing-timeouts.md)

@@ -276,7 +276,7 @@ DOCCHECK_TESTS = \
 	./internal/doctor='^(TestThisRepositoryReportsItsOwnArtifactHomesDocumented|TestTheIndexesThisRepositoryCarriesAreNotReadAsGovernedDocuments)$$' \
 	./internal/contextbundle='^(TestShippedDocumentationNamesDocumentsThisRepositoryHas|TestShippedDocumentationFitsTheBriefingBesideEverythingElse)$$' \
 	./internal/composition='^TestThisRepositoryIsAllAccountedFor$$' \
-	./internal/beads='^(TestEveryBeadsHomeThisRepositoryNamesIsTheCanonicalOne|TestTheReadmeAndTheInstallScriptAgreeOnTheBeadsHome|TestTheDocumentsStateTheRemedyDoctorPrints)$$' \
+	./internal/beads='^(TestEveryBeadsHomeThisRepositoryNamesIsTheCanonicalOne|TestTheReadmeAndTheInstallScriptAgreeOnTheBeadsHome|TestTheDocumentsStateTheRemedyDoctorPrints|TestThisRepositorysTrackerWritesDoNotExport|TestACommitCarryingTheExportCarriesOneTakenJustBeforeIt)$$' \
 	./internal/orchestrator='^(TestNonGoFixtureVerifiesTheLanguageAgnosticInvariant|TestThisRepositoryDeliversThePromotionInvariantToEveryRoleThatCouldBreakIt|TestRunAgainstAProjectRepositoryWithNoneOfTheHarnessFiles|TestTheReliabilitySlotPullsReliabilityWorkFirstAndFallsBackWhenNoneRemains)$$'
 
 # The tests that read this checkout -- its documents above all -- and nothing

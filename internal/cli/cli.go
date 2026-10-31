@@ -112,6 +112,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 		return reportCosts(ctx, args[1:], stdout, stderr)
 	case "reconcile":
 		return reconcileRuns(ctx, args[1:], stdout, stderr)
+	case "tracker":
+		return runTracker(ctx, args[1:], stdout, stderr)
 	case "heavy-checks":
 		return runHeavyChecks(args[1:], stdout, stderr)
 	case "slack":
@@ -919,6 +921,7 @@ Commands:
   review            review what a branch accumulated over a base, as one change
   cost              price work items from the runs made for them, and record it
   reconcile         settle interrupted runs, then converge local state on the forge
+  tracker export    export the tracker into this checkout, as a commit carrying the export needs
   heavy-checks      read the places among this machine's heavy checks and what each cost, and give a kept one back
   slack             report what the harness is doing into a Slack channel
   doctor            check this installation, and say what would fix what is wrong

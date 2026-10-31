@@ -31,3 +31,20 @@ if command -v bd >/dev/null 2>&1; then
   if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
 fi
 # --- END BEADS INTEGRATION v1.1.2 ---
+# --- BEGIN YOYODYNE TRACKER EXPORT ---
+# A commit that carries the tracker's export carries one taken just now, so
+# what is committed is never older than the tracker. bd writes no export of its
+# own (export.auto is off in .beads/config.yaml); yoyo takes it, through the
+# tracker client the harness reads and writes with.
+if ! git diff --cached --quiet -- .beads/issues.jsonl; then
+  if ! command -v yoyo >/dev/null 2>&1; then
+    echo >&2 "yoyodyne: this commit carries .beads/issues.jsonl, and there is no yoyo on PATH to export the tracker fresh first. Install yoyo, or leave the export out of the commit with: git restore --staged .beads/issues.jsonl"
+    exit 1
+  fi
+  if ! yoyo tracker export; then
+    echo >&2 "yoyodyne: the tracker could not be exported, so the commit is refused rather than carry an export older than the tracker. Try again, or leave the export out of the commit with: git restore --staged .beads/issues.jsonl"
+    exit 1
+  fi
+  git add -- .beads/issues.jsonl || exit 1
+fi
+# --- END YOYODYNE TRACKER EXPORT ---
