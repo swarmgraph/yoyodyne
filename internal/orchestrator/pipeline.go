@@ -404,8 +404,8 @@ type Pipeline struct {
 	// goes through. A pipeline without one observes nothing, which is what a
 	// pipeline whose project rolled back to the legacy path does anyway.
 	Instances *runstate.Store
-	// Reviewer is required only when integration is automatic, because nothing
-	// is ever integrated without an independent verdict.
+	// Reviewer is required whatever the integration policy, because nothing is
+	// integrated without an independent verdict, by the harness or by a person.
 	Reviewer ChangeReviewer
 	// Publisher is required only when publishing is automatic, because a project
 	// that has not opted in never opens a pull request.
@@ -1165,12 +1165,9 @@ func (p Pipeline) validateDispatch() error {
 	if len(p.Config.Checks) == 0 {
 		return errors.New("run pipeline requires at least one configured check")
 	}
-	if p.automatic() {
-		if err := p.validateReviewPolicy(); err != nil {
-			return err
-		}
-	}
-	return nil
+	// Every run is reviewed before anybody integrates it, the harness or a
+	// person, so the reviewer is required whichever integration policy is set.
+	return p.validateReviewPolicy()
 }
 
 // EnvironmentRefusedError is a start the machine refused before the work was
@@ -1350,7 +1347,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		// A run the development manager asked to have continued through
 		// run.recover is resumable on the same terms that request was accepted on
 		// (recoveryrequest.go).
-		if !pausedForUsageLimit(inFlight) && !pausedForDirective(inFlight) && !pausedForDependency(inFlight) && !pausedForTracker(inFlight) && !pausedForOperatorHold(inFlight) && !stoppedProviderIsResumable(inFlight) && !stoppedForRedeployIsResumable(inFlight) && !continuedAtCheckStage(inFlight) && !(p.automatic() && resumableRepair(inFlight)) && !recoveryContinuationDue(inFlight) {
+		if !pausedForUsageLimit(inFlight) && !pausedForDirective(inFlight) && !pausedForDependency(inFlight) && !pausedForTracker(inFlight) && !pausedForOperatorHold(inFlight) && !stoppedProviderIsResumable(inFlight) && !stoppedForRedeployIsResumable(inFlight) && !continuedAtCheckStage(inFlight) && !resumableRepair(inFlight) && !recoveryContinuationDue(inFlight) {
 			return Outcome{}, ExistingRunError{State: inFlight}
 		}
 		inFlight, err = p.reclaimSlot(ctx, inFlight)
@@ -2773,30 +2770,16 @@ func (a *activeRun) verifyReviewAndFinish(ctx context.Context) (Outcome, error) 
 	if a.state.HarnessAuthored() {
 		return a.reviewDocument(ctx)
 	}
-	// A run whose integration a human still approves has no repair loop to
-	// return anything to: nothing is promoted without that person, and the
-	// worktree is preserved for them either way, so a failing check ends the
-	// run exactly as it always has.
+	// A run whose integration a person approves earns the same gate as one the
+	// harness integrates: the checks, the independent review, and the repair
+	// rounds that hand either kind of failure back to the developer, under the
+	// same budgets. What the policy withholds is the merge and nothing before it,
+	// so the approved change is handed to that person rather than promoted.
 	if !a.pipeline.automatic() {
-		a.leaveDeveloping()
-		if err := a.holdForDirective(); err != nil {
+		if err := a.repairLoop(ctx); err != nil {
 			return a.stop(ctx, err)
 		}
-		if err := a.holdForDependency(ctx); err != nil {
-			return a.stop(ctx, err)
-		}
-		// The change waits for a person to promote it, so its checks are the merge
-		// candidate's and run whole: there is no later stage to check it whole in.
-		if err := a.verifyCandidate(ctx); err != nil {
-			// The three ways this gate stops a run under a person's approval are one
-			// error out of one call, and the definition that expresses this path
-			// sends all three to the same ending. Nothing on this path is ever handed
-			// back, so there is no budget here to have spent.
-			a.observeCheckEnded(ctx, err, stillRepairable)
-			return a.stop(ctx, err)
-		}
-		a.observe(ctx, deliveryCheck, "passed")
-		return a.finish(ctx)
+		return a.handOverApproved(ctx)
 	}
 	// The whole gate repeats when a promotion loses its race for the target
 	// branch, because everything it established belongs to a change that would
@@ -2874,6 +2857,45 @@ func (a *activeRun) promoteApproved(ctx context.Context) (Outcome, bool, error) 
 		return outcome, false, err
 	}
 	return Outcome{}, true, nil
+}
+
+// handOverApproved ends a run whose integration a person approves, once its
+// change has passed the checks and been approved by the reviewer. The approval
+// is held to the same independence a promotion asks of it, the item is asked
+// once more what it waits on, and the change is published: the run branch is
+// pushed and its pull request opened or updated, which is the first time a
+// publishing run of this kind puts anything on the forge (see publishAttempt).
+// The pull request is left open for that person to merge; nothing here merges
+// it or moves the target branch. A run that stays local is left on its branch
+// for them, as it always was.
+func (a *activeRun) handOverApproved(ctx context.Context) (Outcome, error) {
+	if err := a.validateIndependentReview(); err != nil {
+		return a.fail(stoppedBy(runstate.StopReview, err), runstate.StatusFailed)
+	}
+	if err := a.holdForDirective(); err != nil {
+		return a.stop(ctx, err)
+	}
+	if err := a.holdForDependency(ctx); err != nil {
+		return a.stop(ctx, err)
+	}
+	if err := a.publishAttempt(ctx); err != nil {
+		if !parksTheRun(err) {
+			a.observe(ctx, deliveryPublish, "stopped")
+		}
+		return a.stop(ctx, stoppedBy(runstate.StopPublish, err))
+	}
+	a.observe(ctx, deliveryPublish, "published")
+	return a.finish(ctx)
+}
+
+// promotionState is the state of the bound definition a run stands in once its
+// change is approved: the promotion under automatic integration, and the
+// publication that hands the change to a person otherwise.
+func (a *activeRun) promotionState() string {
+	if a.pipeline.automatic() {
+		return deliveryIntegrate
+	}
+	return deliveryPublish
 }
 
 // endPromotion is the ending a failed promotion gets. Ordinarily that is the
@@ -3717,7 +3739,7 @@ func (a *activeRun) checkCandidateWhole(ctx context.Context, limit int) (bool, e
 		return false, nil
 	}
 	if !parksTheRun(err) {
-		a.observe(ctx, deliveryIntegrate, "superseded")
+		a.observe(ctx, a.promotionState(), "superseded")
 	}
 	var failing checkFailure
 	if !errors.As(err, &failing) {
@@ -4553,11 +4575,12 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 				a.observeDevelopEnded(ctx, recorded)
 				return recorded
 			}
-			// The attempt that just finished is what publishes. Its work is already
-			// committed — commitAttempt did that above, for this ending and for
-			// every other one — so what happens here is the push and the pull
-			// request, and it happens on the accepted path because that is the
-			// change the checks and the reviewer are about to judge.
+			// Under automatic integration the attempt that just finished is what
+			// publishes. Its work is already committed — commitAttempt did that
+			// above, for this ending and for every other one — so what happens here
+			// is the push and the pull request, and it happens on the accepted path
+			// because that is the change the checks and the reviewer are about to
+			// judge. Under a person's approval nothing is published here; see below.
 			//
 			// The developer has answered the operation, so a routed run closes it
 			// here: what follows is publishing, the checks and the reviewer, and the
@@ -4565,6 +4588,13 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			if err := a.completeDeveloperOperation(ctx, route, "the developer answered it"); err != nil {
 				a.observeDevelopEnded(ctx, err)
 				return err
+			}
+			// A run whose integration a person approves publishes nothing here: its
+			// pull request is what that person merges from, so it is opened only for
+			// a change the reviewer has approved (handOverApproved).
+			if !a.pipeline.automatic() {
+				a.observeDevelopEnded(ctx, nil)
+				return nil
 			}
 			published := stoppedBy(runstate.StopPublish, a.publishAttempt(ctx))
 			a.observeDevelopEnded(ctx, published)
@@ -9731,11 +9761,11 @@ func (p Pipeline) runsOnCompiledAdapter(named domain.Backend) bool {
 // that removed the verdict.
 func (p Pipeline) validateReviewPolicy() error {
 	if p.Reviewer == nil {
-		return errors.New("automatic integration requires an independent reviewer")
+		return errors.New("a run requires an independent reviewer")
 	}
 	reviewer := p.reviewer()
 	if !reviewer.Holds(capability.ReviewVerdict) {
-		return errors.New("automatic integration requires a configured reviewer agent")
+		return errors.New("a run requires a configured reviewer agent")
 	}
 	if !p.runsOnCompiledAdapter(reviewer.Backend) {
 		return fmt.Errorf("run pipeline requires a reviewer on a backend this build can launch, configured backend is %q", reviewer.Backend)

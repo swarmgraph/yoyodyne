@@ -206,10 +206,15 @@ looking for, the same way a repository with no remote at all does.
 ### Publishing without automatic integration
 
 `approvals.publishing: automatic` with `approvals.integration: human` is
-supported and does exactly half of the above: the harness pushes and opens the
-pull request, and then stops. **It merges nothing.** You get an open pull
-request, a run branch that stays on the remote, and a preserved worktree; you
-merge, and the harness never touches any of the three afterwards.
+supported and does exactly half of the above: the change goes through the same
+checks, independent review, and repair rounds as under automatic integration,
+and once the reviewer approves it the harness pushes and opens the pull
+request, and then stops. **It merges nothing.** The pull request is opened only
+for an approved change: the developer's attempts before that are committed on
+the run branch and not pushed, so nothing unreviewed reaches the button you
+merge with. You get an open pull request, a run branch that stays on the
+remote, and a preserved worktree; you merge, and the harness never touches any
+of the three afterwards.
 
 That is deliberate rather than a gap. Merging is a promotion, promotion is what
 `approvals.integration` governs, and a harness that merged under a `human`
@@ -217,10 +222,10 @@ integration policy would be taking the decision that setting reserves for you.
 
 | `publishing` | `integration` | What you get |
 | --- | --- | --- |
-| `human` | `human` | Local branch and worktree, preserved for you. |
+| `human` | `human` | Reviewed change on a local branch and worktree, preserved for you. |
 | `human` | `automatic` | Local fast-forward into the target branch, artifacts removed. Nothing pushed. |
 | `automatic` | `automatic` | Pull request opened, merged on approval — or queued with the forge until your required checks pass — and the branch removed locally, then on the remote once the merge has happened. |
-| `automatic` | `human` | Pull request opened and left for you. Nothing merged, nothing cleaned up. |
+| `automatic` | `human` | Pull request opened once the reviewer approves, and left for you. Nothing merged, nothing cleaned up. |
 
 ### Which branch is authoritative
 

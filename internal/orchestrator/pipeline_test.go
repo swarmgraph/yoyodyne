@@ -1108,6 +1108,9 @@ func newSharedPipeline(t *testing.T, repository, worktreeRoot string, store Stat
 		Checks:   commands,
 		Agents: map[string]config.AgentConfig{
 			"developer": {Role: domain.RoleDeveloper, Backend: domain.BackendClaudeCode, Model: testDeveloperModel, Instances: 1},
+			// Every run is reviewed whichever integration policy it runs under, so
+			// every test pipeline has a reviewer, invoked through the same provider.
+			"reviewer": {Role: domain.RoleReviewer, Backend: domain.BackendClaudeCode, Model: testReviewerModel, Instances: 1},
 		},
 	}
 	pipeline := Pipeline{
@@ -1127,7 +1130,9 @@ func newSharedPipeline(t *testing.T, repository, worktreeRoot string, store Stat
 		// chooses for itself before it starts anything new. A store nobody held is a
 		// harness that may choose work, which is what all but the intake tests are
 		// about.
-		Intake:     newIntakeHoldStore(t),
+		Intake: newIntakeHoldStore(t),
+		// The reviewer configured above, invoked through the same provider.
+		Reviewer:   review.Reviewer{Backend: provider, Model: testReviewerModel},
 		Repository: repository, Config: cfg,
 	}
 	// And every pipeline records the instance it is executing the definition
@@ -1217,6 +1222,13 @@ func (w *hookedWorktrees) CleanupIntegrated(ctx context.Context, request gitwork
 		return w.cleanup(request)
 	}
 	return w.WorktreeManager.CleanupIntegrated(ctx, request)
+}
+
+// approvingReviewer is a reviewer that approves whatever it is shown, for a test
+// whose own provider answers only as a developer: every run is reviewed, and
+// the review is not what such a test is about.
+func approvingReviewer() review.Reviewer {
+	return review.Reviewer{Backend: orchestratortest.RoleBackend(func(backend.RunRequest) error { return nil }, approveVerdict), Model: testReviewerModel}
 }
 
 // automaticFixture is the standard approved-and-integrated setup: a developer

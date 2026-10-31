@@ -44,7 +44,7 @@ func TestPullRequestBodyCarriesGovernedTextAndComputedFacts(t *testing.T) {
 		},
 	}
 
-	body := pullRequestBody(item, outcome, "main")
+	body := pullRequestBody(item, outcome, "main", true)
 	for _, want := range []string{
 		item.Description,
 		item.AcceptanceCriteria,
@@ -84,7 +84,7 @@ func TestPullRequestBodyOmitsWhatItHasNothingToSay(t *testing.T) {
 	t.Parallel()
 
 	body := pullRequestBody(beads.WorkItem{ID: "yoyodyne-task", Title: "Task"},
-		Outcome{RunID: "run-1", WorkItemID: "yoyodyne-task", Branch: "run", BaseCommit: "1a2b3c4"}, "main")
+		Outcome{RunID: "run-1", WorkItemID: "yoyodyne-task", Branch: "run", BaseCommit: "1a2b3c4"}, "main", true)
 	for _, unwanted := range []string{"## What the work item asks for", "## Acceptance criteria", "## What changed"} {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("body carries an empty %q section:\n%s", unwanted, body)
@@ -108,7 +108,7 @@ func TestPullRequestBodyStaysInsideWhatAForgeAccepts(t *testing.T) {
 		Changes:    gitworktree.ChangeSummary{Status: long, DiffStat: long},
 	}
 
-	body := pullRequestBody(item, outcome, "main")
+	body := pullRequestBody(item, outcome, "main", true)
 	// GitHub refuses a body over 65536 bytes, and a body that fits is worth
 	// nothing if it does not say it was cut.
 	if len(body) > 64<<10 {

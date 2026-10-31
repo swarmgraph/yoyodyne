@@ -702,6 +702,7 @@ func TestRunsOnSlotsWithoutAPairKeepTheirRouting(t *testing.T) {
 	plainTracker := routedTracker()
 	plain := newRoutedProvider(domain.BackendClaudeCode, "claude-session", refuseNothing, writeRoutedFeature)
 	unrouted := newSharedPipeline(t, plainRepository, plainRoot, plainStore, plainTracker, plain.adapter(t), []string{"exit 0"})
+	unrouted.Reviewer = approvingReviewer()
 	outcome, err = unrouted.Run(withDeveloperSlot(context.Background(), 1), plainTracker.Item.ID)
 	if err != nil {
 		t.Fatalf("unrouted Run() error = %v", err)

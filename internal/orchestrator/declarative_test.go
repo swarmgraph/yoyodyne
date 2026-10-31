@@ -101,6 +101,7 @@ func deliveryTrialSteps() map[string][]string {
 		deliveryCheck:     {"failed", "failed-unrepaired", "passed", "refused", "refused-unrepaired", "unrunnable"},
 		deliveryReview:    {"approved", "changes-requested", "stopped", "unresolved"},
 		deliveryIntegrate: {"conflicted", "contended", "integrated", "reconciling", "superseded"},
+		deliveryPublish:   {"published", "stopped", "superseded"},
 		deliveryComplete:  {"completed"},
 		deliveryCleanUp:   {"cleaned", "partial"},
 	}

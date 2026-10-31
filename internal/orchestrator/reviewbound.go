@@ -27,17 +27,16 @@ const maxReviewBoundFilesNamed = 20
 // diff, which is the reading the protected-path gate in front of it already
 // makes of the same worktree.
 //
-// It is asked only where a review follows the checks — an automatically
-// integrated run that is not a document publication — because a run whose
-// integration a person approves is never shown to a reviewer, and a bound on a
-// review that never happens refuses nothing.
+// It is asked of every run whose checks a review follows, which is every run
+// that is not a document publication, whichever integration policy it runs
+// under.
 //
 // A change whose only omissions are test data proceeds as it always has: the
 // rules allow an approval over omitted fixtures that are listed whole, and the
 // review decides that.
 func (a *activeRun) gateReviewBound(ctx context.Context) error {
 	p := a.pipeline
-	if a.state.Document != nil || !p.automatic() {
+	if a.state.Document != nil {
 		return nil
 	}
 	changes, err := p.Worktrees.UnifiedChanges(ctx, a.worktree, gitworktree.DiffLimits{})

@@ -159,6 +159,9 @@ func NewSharedPipeline(t *testing.T, repository, worktreeRoot string, store orch
 		Checks:   commands,
 		Agents: map[string]config.AgentConfig{
 			"developer": {Role: domain.RoleDeveloper, Backend: domain.BackendClaudeCode, Model: TestDeveloperModel, Instances: 1},
+			// Every run is reviewed whichever integration policy it runs under, so
+			// every test pipeline has a reviewer, invoked through the same provider.
+			"reviewer": {Role: domain.RoleReviewer, Backend: domain.BackendClaudeCode, Model: TestReviewerModel, Instances: 1},
 		},
 	}
 	pipeline := orchestrator.Pipeline{
@@ -178,7 +181,9 @@ func NewSharedPipeline(t *testing.T, repository, worktreeRoot string, store orch
 		// chooses for itself before it starts anything new. A store nobody held is a
 		// harness that may choose work, which is what all but the intake tests are
 		// about.
-		Intake:     NewIntakeHoldStore(t),
+		Intake: NewIntakeHoldStore(t),
+		// The reviewer configured above, invoked through the same provider.
+		Reviewer:   review.Reviewer{Backend: provider, Model: TestReviewerModel},
 		Repository: repository, Config: cfg,
 	}
 	// And every pipeline records the instance it is executing the definition
@@ -235,6 +240,13 @@ func NewAutomaticPipeline(t *testing.T, repository string, tracker orchestrator.
 	t.Helper()
 	pipeline, store := NewPipeline(t, repository, tracker, provider, commands)
 	return Automatic(pipeline, provider), store
+}
+
+// ApprovingReviewer is a reviewer that approves whatever it is shown, for a test
+// whose own provider answers only as a developer: every run is reviewed, and
+// the review is not what such a test is about.
+func ApprovingReviewer() review.Reviewer {
+	return review.Reviewer{Backend: orchestratortest.RoleBackend(func(backend.RunRequest) error { return nil }, ApproveVerdict), Model: TestReviewerModel}
 }
 
 // Automatic turns a pipeline into one that reviews and integrates on its own.

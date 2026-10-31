@@ -3106,11 +3106,12 @@ failure there is the change's, found in a package that depends on what it
 touched, and is handed back to the developer as repair input exactly as a
 failing check before review is, spending a repair attempt; the approval is
 cleared with it, so the repaired change is checked, reviewed, and checked whole
-again. A gate already told the whole module — a change to `go.mod`, a
-repository that is no Go module — runs nothing more. Three kinds of run have
-their checks told the whole module from the start, because nothing later
-checks them whole: a run whose integration a person approves; a confirmed
-document's landing, which runs the project's
+again. A run whose integration a person approves is checked whole the same
+way, once its change is approved and before its pull request is opened or its
+branch handed over. A gate already told the whole module — a change to
+`go.mod`, a repository that is no Go module — runs nothing more. Two kinds of
+run have their checks told the whole module from the start, because nothing
+later checks them whole: a confirmed document's landing, which runs the project's
 [document checks](#the-document-checks) where it declares them and otherwise
 the configured checks over the whole module; and a run of the harness's own
 that brings in a [pinned outside file](#pinned-outside-files). Its heavy checks are let start ahead of every run's gate, as a
@@ -4968,10 +4969,15 @@ looking for, the same way a repository with no remote at all does.
 ### Publishing without automatic integration
 
 `approvals.publishing: automatic` with `approvals.integration: human` is
-supported and does exactly half of the above: the harness pushes and opens the
-pull request, and then stops. **It merges nothing.** You get an open pull
-request, a run branch that stays on the remote, and a preserved worktree; you
-merge, and the harness never touches any of the three afterwards.
+supported and does exactly half of the above: the change goes through the same
+checks, independent review, and repair rounds as under automatic integration,
+and once the reviewer approves it the harness pushes and opens the pull
+request, and then stops. **It merges nothing.** The pull request is opened only
+for an approved change: the developer's attempts before that are committed on
+the run branch and not pushed, so nothing unreviewed reaches the button you
+merge with. You get an open pull request, a run branch that stays on the
+remote, and a preserved worktree; you merge, and the harness never touches any
+of the three afterwards.
 
 That is deliberate rather than a gap. Merging is a promotion, promotion is what
 `approvals.integration` governs, and a harness that merged under a `human`
@@ -4979,10 +4985,10 @@ integration policy would be taking the decision that setting reserves for you.
 
 | `publishing` | `integration` | What you get |
 | --- | --- | --- |
-| `human` | `human` | Local branch and worktree, preserved for you. |
+| `human` | `human` | Reviewed change on a local branch and worktree, preserved for you. |
 | `human` | `automatic` | Local fast-forward into the target branch, artifacts removed. Nothing pushed. |
 | `automatic` | `automatic` | Pull request opened, merged on approval — or queued with the forge until your required checks pass — and the branch removed locally, then on the remote once the merge has happened. |
-| `automatic` | `human` | Pull request opened and left for you. Nothing merged, nothing cleaned up. |
+| `automatic` | `human` | Pull request opened once the reviewer approves, and left for you. Nothing merged, nothing cleaned up. |
 
 ### Which branch is authoritative
 

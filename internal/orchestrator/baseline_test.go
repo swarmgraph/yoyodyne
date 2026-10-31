@@ -396,7 +396,7 @@ func baselineScenarios() []baselineScenario {
 	return []baselineScenario{
 		{
 			name:    "human-approved-change-is-preserved-for-its-approver",
-			freezes: "A project whose integration a person approves runs the developer and the checks, records the outcome on the item, and stops with the change preserved on its branch: nothing is reviewed, promoted, closed, or cleaned up.",
+			freezes: "A project whose integration a person approves runs the developer, the checks, and the independent review, records the outcome on the item, and stops with the approved change preserved on its branch: nothing is promoted, closed, or cleaned up.",
 			drive:   baselineHumanApproved,
 		},
 		{

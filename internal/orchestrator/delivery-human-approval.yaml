@@ -1,13 +1,20 @@
 # The delivery loop for a project whose integration a person still approves.
 #
-# It is the same claim-and-develop-and-check sequence as delivery.yaml with the
-# gate's second half missing, because that is what the pipeline does.
-# `verifyReviewAndFinish` is where the two paths part, and it parts before the
-# repair loop rather than after it: its non-automatic branch runs the checks
-# once and then either finishes or stops, so nothing on this path is ever
-# handed back to the developer and no repair attempt is ever spent. A change
-# that passes is recorded on the item and left on its branch for the person who
-# approves the promotion; a change that does not passes through none of that.
+# It is delivery.yaml up to the reviewer's approval: the same claim, develop,
+# check and review states, the same repair transitions handing a failing check,
+# a refused change or the reviewer's findings back to the developer, and the
+# same budgets behind them, because approvals.integration set to human withholds
+# the merge and nothing before it. `verifyReviewAndFinish` is where the two
+# paths part, and it parts after the repair loop rather than before it: its
+# non-automatic branch runs the same loop and then hands the approved change to
+# `handOverApproved` instead of promoting it.
+#
+# What replaces the promotion is `publish`. A publishing run opens or updates
+# its pull request there and nowhere earlier -- the developer's attempts are
+# committed on the run branch but not pushed -- so the request a person merges
+# from only ever carries a change the reviewer approved, and it is left open for
+# that person to merge. Nothing on this path merges it or moves the target
+# branch. A run that stays local publishes nothing there and goes straight on.
 #
 # It is a second definition rather than a branch inside delivery.yaml because a
 # definition has no way to ask what the project configured -- it selects actions
@@ -21,7 +28,7 @@
 # pricing what the run spent is the whole of what is left to do.
 schema: 1
 id: delivery-human-approval
-summary: claim a work item, develop a change, check it, and preserve it on its branch for the person who approves the promotion
+summary: claim a work item, develop a change, gate it on the checks and an independent verdict, and open its pull request for the person who merges it
 initial: claim
 states:
   claim:
@@ -32,7 +39,7 @@ states:
       unavailable: abandoned
   develop:
     action: candidate.develop
-    summary: invoke the developer in this run's worktree, and publish what the attempt produced
+    summary: invoke the developer in this run's worktree, and commit what the attempt produced on the run branch
     on:
       produced: check
       reissued: develop
@@ -42,24 +49,37 @@ states:
     action: candidate.check
     summary: refuse a change that touched paths this work item does not grant, then run the project's configured checks over it
     on:
-      passed: complete
-      # The other three go to one place because the pipeline sends them to one
-      # place. `verifyReviewAndFinish` takes its non-automatic branch straight
-      # past the repair loop: it calls `verify` once and hands whatever comes
-      # back to `stop`, which ends the run. So a check that ran and failed, a
-      # change refused for a path the item never granted, and a suite the
-      # machine could not run at all are one error returned from one call, and
-      # no repair attempt is spent on any of them. Neither of the budget-spent
-      # outcomes appears here for the same reason: there is no budget being
-      # spent.
-      #
-      # What that ending leaves behind is what `abandoned` says below, and it is
-      # driven rather than asserted: parity_test.go runs the real non-automatic
-      # pipeline into each of these three and holds this state's destination
-      # against what the run actually left.
-      failed: abandoned
-      refused: abandoned
+      passed: review
+      # The same repair inputs delivery.yaml hands back, each with its outcome
+      # for the round that finds the shared repair budget spent.
+      failed: develop
+      failed-unrepaired: blocked
+      refused: develop
+      refused-unrepaired: blocked
+      # A check that could not run at all is not repair input and ends the run
+      # instead of spending an attempt.
       unrunnable: abandoned
+  review:
+    action: candidate.review
+    summary: obtain one independent verdict on the change from a reviewer with read-only access
+    on:
+      approved: publish
+      changes-requested: develop
+      unresolved: blocked
+      stopped: abandoned
+  publish:
+    action: candidate.publish
+    summary: push the approved change and open or update its pull request, left open for the person who merges it
+    on:
+      published: complete
+      # The approved change's checks were narrowed to what it touched and, run
+      # over the whole module before it is handed over, failed: the approval is
+      # cleared and the failure goes back through the check to the developer, as
+      # it does at the promotion in delivery.yaml.
+      superseded: check
+      # Pushing the branch or opening the request failed in a way no retry
+      # answered; nothing was merged, and the change stays on its branch.
+      stopped: abandoned
   complete:
     action: run.complete
     summary: record on the work item what this run produced, and price what it spent
@@ -67,8 +87,8 @@ states:
       completed: preserved
 terminals:
   preserved:
-    summary: the change passed its checks and is on its branch, with the outcome recorded on the item for the person who approves the promotion
+    summary: the change passed its checks and was approved by the reviewer, and is on its branch -- and in an open pull request where the project publishes -- with the outcome recorded on the item for the person who merges it
   blocked:
     summary: the run stopped on something a person has to decide, with the worktree and branch preserved and a durable blocker on the item
   abandoned:
-    summary: the run ended without a change that passed its checks, so the approver was offered nothing; the failure is recorded on the item, the item is neither closed nor blocked, and the worktree and branch are left standing for reconciliation to settle
+    summary: the run ended without a change that passed its checks and its review, so the person who merges was offered nothing; the failure is recorded on the item, the item is neither closed nor blocked, and the worktree and branch are left standing for reconciliation to settle

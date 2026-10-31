@@ -535,12 +535,12 @@ Publishing and integration are independent opt-ins, and the merge belongs to int
 
 | `publishing` | `integration` | What a run does |
 |---|---|---|
-| `human` | `human` | Purely local. A branch and worktree are preserved for the operator to integrate. |
+| `human` | `human` | The change is checked and independently reviewed, with the same repair rounds. Once the reviewer approves, the run stops. Nothing is pushed, and the reviewed change's branch and worktree are kept for the operator. |
 | `human` | `automatic` | Purely local. The approved change is fast-forwarded into the target branch and the artifacts are removed. Nothing is pushed. |
 | `automatic` | `automatic` | The developer phase pushes and opens the pull request; the approving verdict merges it, or queues the merge with the forge when the base branch still has requirements to meet; the run branch is removed locally, and on the remote once the merge has happened. |
-| `automatic` | `human` | The developer phase pushes and opens the pull request, and the run stops there. The harness merges nothing. |
+| `automatic` | `human` | The change is checked and independently reviewed, and failed checks and review findings go back to the developer within the same repair budgets as automatic integration. Once the reviewer approves, the harness pushes the branch and opens the pull request, and leaves it open for a person to merge. The harness never merges it. |
 
-The last row is the one worth stating plainly, because it is the combination whose name suggests otherwise. A project that publishes but integrates by hand gets an open pull request, a run branch that survives on the remote, and a preserved worktree — the operator merges, and the harness never touches any of the three afterwards. That is not a gap in publishing: merging is a promotion, promotion is what `approvals.integration` governs, and a harness that merged under a `human` integration policy would be taking exactly the decision that setting reserves for a person.
+The last row is the one worth stating plainly, because it is the combination whose name suggests otherwise. A project that publishes but integrates by hand gets an open pull request, a run branch that survives on the remote, and a preserved worktree — the operator merges, and the harness never touches any of the three afterwards. That is not a gap in publishing: merging is a promotion, promotion is what `approvals.integration` governs, and a harness that merged under a `human` integration policy would be taking exactly the decision that setting reserves for a person. Under either integration setting, every change passes the same checks, the same independent reviewer and the same repair rounds before anything is pushed. An open pull request carries only an approved change, so a person who merges it is merging a change the reviewer has already approved.
 
 ### Which branch is authoritative
 
