@@ -274,6 +274,7 @@ var structuredStrings = map[string]string{
 	"merge_disagreement.target_tip":                                 "matched against the commit pattern",
 	"merge_disagreement.cause":                                      "an enumeration of one value",
 	"pull_request.checks.head_commit":                               "matched against the commit pattern",
+	"merge_drop.queued_checks.commit":                               "matched against the commit pattern",
 	"pull_request.checks.failing[].paths[]":                         "repository paths a check annotated, bounded in number",
 	"pull_request.checks.failing[].on_change[]":                     "repository paths the change touched, bounded in number",
 	"pull_request.target_red.target_branch":                         "a local branch name",
