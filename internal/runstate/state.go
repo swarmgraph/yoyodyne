@@ -2134,6 +2134,9 @@ func (s *State) recordedTexts() []recordedText {
 		unstated("install[].name", at("install", index, "name"), &s.Install[index].Name, MaxRecordedTextBytes)
 		nested("install[].output", at("install", index, "output"), &s.Install[index].Output, MaxInstallOutputBytes)
 	}
+	if s.InstallWait != nil {
+		unstated("install_wait.name", "install_wait.name", &s.InstallWait.Name, MaxRecordedTextBytes)
+	}
 	if s.DocumentRetry != nil {
 		unstated("document_retry.waited_for", "document_retry.waited_for", &s.DocumentRetry.WaitedFor, MaxRecordedTextBytes)
 	}
@@ -3593,6 +3596,10 @@ type State struct {
 	// Install is every run of the project's declared install steps this run
 	// made, in the order it made them. Absent is a project that declares none.
 	Install []InstallRun `json:"install,omitempty"`
+	// InstallWait is the try of an install step this run is waiting to make
+	// after the step failed for a cause outside the work, and absent whenever
+	// the run is not waiting on one.
+	InstallWait *InstallWait `json:"install_wait,omitempty"`
 	// RepairAttempts counts the repair attempts already handed back to the
 	// developer, whichever kind of failure triggered them: one budget covers
 	// both, so it bounds the developer invocations a run can make rather than
@@ -4423,6 +4430,11 @@ func (s State) Validate() error {
 	for index, install := range s.Install {
 		if err := install.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("install[%d]: %w", index, err))
+		}
+	}
+	if s.InstallWait != nil {
+		if err := s.InstallWait.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("install_wait: %w", err))
 		}
 	}
 	if s.Changes != nil {

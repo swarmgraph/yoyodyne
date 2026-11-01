@@ -576,15 +576,38 @@ Each step runs in a run's worktree after the worktree is made and before the
 developer's first turn, so the developer's first check finds what it installed.
 Each run of a step is recorded on the run with the step's name, a digest of its
 inputs, when it started and how long it took, how it ended, and the last 200
-lines of what it printed (at most 16 KiB), with secrets removed. A step that
-does not pass stops the run there, before any developer turn is spent, with its
-output in the run's failure. A developer on a project that declares a step is
-told that a dependency file it changes is installed before the checks that
-judge the change and before its next repair round, not within the same turn.
-The harness does not yet run a step again before those checks and repair
-rounds, or wait and try again when a step fails for a reason outside the work;
-[the design](../designs/project-dependencies-in-runs.md) names both as later
-pieces.
+lines of what it printed (at most 16 KiB), with secrets removed. A developer on
+a project that declares a step is told that a dependency file it changes is
+installed before the checks that judge the change and before its next repair
+round, not within the same turn.
+
+A step that does not pass is sorted by whose failure it is, from the digest of
+its inputs:
+
+- **The dependency files are the ones the run started from, and the same step
+  has installed them on this machine before.** The cause is outside the work,
+  almost always the network or the package registry. The harness waits five
+  minutes and tries again, up to three times; while it waits, the status line
+  and the dashboard say which step failed and the local time of the next try.
+  If a try passes, the run carries on. If every try fails, the item is blocked
+  for the development manager with the step's output, the branch and worktree
+  are kept, and no repair attempt is spent.
+- **The dependency files are the ones the run started from, and no run on this
+  machine has ever installed them.** The step as the project declares it, or
+  the machine, is what is wrong. The item is blocked for the development
+  manager at once, before any developer turn, with the step's output, and no
+  repair attempt is spent.
+- **The run changed the dependency files.** The failure is the change's to
+  repair. This can only happen once the harness runs a step again after the
+  developer's turn, which it does not do yet;
+  [the design](../designs/project-dependencies-in-runs.md) names running a step
+  again before those checks and repair rounds as a later piece.
+
+What has installed on this machine is kept for each project beside the package
+cache, at `projects/<id>/state/install-installed.jsonl`: one line for each step
+name and input digest that has passed. A project whose steps passed only before
+this record existed starts with an empty one, so its first failure on unchanged
+files is held for the development manager rather than tried again.
 
 `install` is the operator's to write and never a role's, because a command that
 fetches from the network and runs what it fetched decides what reaches the

@@ -92,13 +92,13 @@ records it yet. The failure-storm brake leaves all four out of its count, with
 other causes in this section (`runstate.StopKeptOutOfHold`); `integration-budget`
 and `provider-budget` still count.
 
-The set of causes outside the work currently has seventeen values. A named cause alone does not forgive a
+The set of causes outside the work currently has nineteen values. A named cause alone does not forgive a
 round: normally the settlement must also find an empty delivery. With a change
 present it spends as an ordinary round does. `usage-window`,
-`check-stage-bound`, `check-time-limit`, and `no-check-ran` are the exceptions: they stopped before judgment, so they
+`check-stage-bound`, `check-time-limit`, `no-check-ran`, `install-unavailable`, and `install-never-worked` are the exceptions: they stopped before judgment, so they
 settle without treating the preserved change as delivery. A round charged by a
 previous process is not returned by this process; a return that could not be
-written is reported explicitly. These causes are classifications, not seventeen
+written is reported explicitly. These causes are classifications, not nineteen
 more timers. Stops keep what remains of the branch and checkout; the table says
 when a usable checkout may never have existed.
 
@@ -121,6 +121,8 @@ when a usable checkout may never have existed.
 | `developer-settings-not-applied` | A resumed run's developer provider did not apply the sandbox, the notes guard, or the settings that keep personal configuration out. | Recorded on the run before any developer is relaunched; nothing ran, nothing is charged, and the run stays as it was, resumable once the hold on the provider lifts. A fresh dispatch refused the same way has no run to record it on; see the developer settings check below. |
 | `merge-queue-held` | With `execution.merge_queue` on, the target branch's protection requires the forge's own merge queue, or could not be read, so the approved change could not be admitted. | Integration stops with approval retained, item blocked naming the setting; nothing is admitted, replayed, or merged, and nothing is charged. One report per condition. The harness resumes the change at its promotion once the requirement is gone or the switch is off. |
 | `no-check-ran` | Every configured check could not run, whether it said so itself or the machine refused to start its tool, so nothing verified the change. | Fails before review with the item blocked naming each check and its reason, branch and worktree kept, and the stoppage docketed for the development manager; owed current round/grant returned regardless of diff, no repair attempt spent. The session that started it starts no new work for `execution.usage_limit_unknown_reset_pause`, then starts one run, and nothing beside it until it ends, to find out whether the checks can run. |
+| `install-unavailable` | A declared install step failed on dependency files unchanged from the run's starting target that the same step has installed on this machine before, most likely because the network or the package registry could not be reached, and failed again on each of three tries five minutes apart. | Fails with the item blocked naming the step, how many times it was tried, and the end of its output; branch and worktree kept, and the stoppage docketed for the development manager; owed current round/grant returned regardless of diff, no repair attempt spent. While it waits between tries the run stays in flight, and the status line and dashboard name the step and the local time of the next try. |
+| `install-never-worked` | A declared install step failed on dependency files unchanged from the run's starting target that no run on this machine has ever installed, so the step as declared or the machine is wrong rather than the change. | Fails before any developer turn with the item blocked naming the step and the end of its output; not tried again; branch and worktree kept, and the stoppage docketed for the development manager; no repair attempt spent. |
 
 ## Pauses that keep a run in flight
 
@@ -266,8 +268,8 @@ describes the pass that applies those rules.
 | `internal/orchestrator/pipeline.go` | `(*activeRun).attemptDevelopment` | `classified-stop` | 1 | Classifies as a harness stop a run recorded on a backend other than the configured developer's whose record and spend log name no model it was developed with there, before any provider call and with the run's session left on its record, rather than launching it with no model; the run ends through the shared dispatcher. |
 | `internal/orchestrator/developerrouting.go` | `(*activeRun).reconcileDeveloperOperation` | `classified-stop` | 1 | Classifies as a harness stop a run whose earlier developer attempt, on a slot with an endpoint pair, may still be running after two minutes of waiting for it, so no second attempt is started beside it; the run ends preserved through the shared dispatcher. |
 | `internal/orchestrator/developerrouting.go` | `(*activeRun).reconcileDeveloperOperation` | `phase-error` | 1 | The same stop, reported as failed with the attempt and the reason its stop could not be confirmed. |
-| `internal/orchestrator/pipeline.go` | `(Pipeline).Run` | `call:fail` | 9 | Claim, context, worktree, scratch, and state failures, a declared install step that did not pass before the developer started, a worktree whose tracker export did not answer through its window, a developer slot and endpoint pair that could not be recorded, or development ending through the shared dispatcher. |
-| `internal/orchestrator/pipeline.go` | `(Pipeline).Run` | `call:stop` | 2 | A stop a person asked for while the claim waited on the tracker, or development ending through the shared dispatcher. |
+| `internal/orchestrator/pipeline.go` | `(Pipeline).Run` | `call:fail` | 9 | Claim, context, worktree, scratch, and state failures, a declared install step that did not pass before the developer started (held for the development manager where the cause is outside the change), a worktree whose tracker export did not answer through its window, a developer slot and endpoint pair that could not be recorded, or development ending through the shared dispatcher. |
+| `internal/orchestrator/pipeline.go` | `(Pipeline).Run` | `call:stop` | 3 | A stop a person asked for while the claim waited on the tracker or while a failed install step waited to be tried again, or development ending through the shared dispatcher. |
 | `internal/orchestrator/pipeline.go` | `(Pipeline).resumeRun` | `call:fail` | 7 | Continuation setup and invocation or gate endings, retaining the existing change. |
 | `internal/orchestrator/pipeline.go` | `(Pipeline).resumeRun` | `call:stop` | 4 | Continuation setup and invocation or gate endings, retaining the existing change. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).verifyReviewAndFinish` | `call:stop` | 2 | Endings of the shared check, review, and repair loop, under either integration policy. |
@@ -321,6 +323,7 @@ describes the pass that applies those rules.
 | `internal/orchestrator/pipeline.go` | `(*activeRun).recordEndingAfterRefusedSave` | `status-write` | 1 | One salvage of the ending into the last valid durable state after schema refusal. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).attemptReview` | `classified-stop` | 2 | Rejects a failed review invocation or a reviewer that ran on the wrong model. |
 | `internal/orchestrator/nocheckran.go` | `(*activeRun).blockOnNoCheckRan` | `classified-stop` | 2 | Blocks before review on a change every configured check of which could not run, as `no-check-ran`, including a failed blocker write. |
+| `internal/orchestrator/install.go` | `(*activeRun).blockOnInstall` | `classified-stop` | 2 | Blocks a run whose declared install step failed for a cause outside the change, as `install-unavailable` once its tries are spent or `install-never-worked` at once, including a failed blocker write. |
 | `internal/orchestrator/reviewbound.go` | `(*activeRun).blockOnReviewBound` | `classified-stop` | 2 | Blocks before any check or review on a change whose source or test files the review bound would keep out, including a failed blocker write. |
 | `internal/orchestrator/publish.go` | `(*activeRun).blockOnUnlandedPullRequest` | `classified-stop` | 2 | Blocks on a forge landing neither merged nor queued, including a failed blocker write. |
 | `internal/orchestrator/reconcile.go` | `(Reconciler).settleInterruptedLanding` | `status-write` | 1 | Records success for a confirmed queued forge landing; other answers reconcile or block. |
@@ -348,6 +351,8 @@ describes the pass that applies those rules.
 | `internal/runstate/environmental.go` | `CauseCheckTimeLimit` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/environmental.go` | `CauseMergeQueueHeld` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/environmental.go` | `CauseNoCheckRan` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
+| `internal/runstate/environmental.go` | `CauseInstallUnavailable` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
+| `internal/runstate/environmental.go` | `CauseInstallNeverWorked` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/runupdate.go` | `(QueuedRunCompleted).apply` | `status-write` | 1 | Ends a run succeeded once its approved change is admitted to the merge queue, as a narrow update of the run as stored: the item stays claimed, the branch and worktree are kept for a handback, and no developer slot is held while the queue lands the change. Refused on a run with no admission recorded or one already ended another way. |
 | `internal/runstate/stopclass.go` | `StopChecks` | `StopClass` | 1 | Closed recorded class: checks. Identifies the stopping operation; grants no action. |
 | `internal/runstate/stopclass.go` | `StopReview` | `StopClass` | 1 | Closed recorded class: review. Identifies the stopping operation; grants no action. |

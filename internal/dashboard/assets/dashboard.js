@@ -290,6 +290,11 @@ var standingWarningAgeSeconds = 5 * 60;
     if (run.after_reply) {
       return run.after_reply;
     }
+    // A run waiting to try an install step again names the step and when, as
+    // the model words it.
+    if (run.install) {
+      return run.install;
+    }
     return run.phase || "no phase recorded yet";
   }
 

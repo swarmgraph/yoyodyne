@@ -52,7 +52,8 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    `recordStartingTarget`, `liftPreserved`, `prepareScratch`,
    `installBeforeDeveloper` (the project's declared install steps, run in the
    worktree with the package cache under the state directory and each run of a
-   step recorded on the run, `install.go`), then `develop` and
+   step recorded on the run, `install.go`; a failure is sorted by
+   `installSorted` and held by `blockOnInstall`), then `develop` and
    `verifyReviewAndFinish`.
 5. **Continuing a run.** `Pipeline.Continue` (re-enter one named run;
    `ContinuationMismatchError`), `reclaimSlot`, `resumeRun` (picks the step

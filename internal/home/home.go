@@ -343,6 +343,17 @@ func InstallCacheDirectoryWithin(root, productID string) string {
 	return path.Join(ProductDirectoryWithin(root, productID), InstallCacheDirectoryName)
 }
 
+// InstalledFileName is the file inside a product's records directory that
+// names every install step and input digest that has installed on this machine.
+const InstalledFileName = "install-installed.jsonl"
+
+// InstalledFileWithin is where one product's record of what has installed on
+// this machine is kept, relative to the home in slash form, for the confined
+// write that appends to it.
+func InstalledFileWithin(root, productID string) string {
+	return path.Join(ProductDirectoryWithin(root, productID), InstalledFileName)
+}
+
 // WorktreeDirectory is where one product's developer worktrees are cut under a
 // home when the configuration leaves the worktree root to the harness:
 // `projects/<id>/worktrees/`, or `worktrees/<id>/<repository id>/` in a home

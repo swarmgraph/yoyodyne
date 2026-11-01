@@ -234,6 +234,27 @@ const (
 	// It ends the round unjudged for CauseCheckStageBound's reason: no check and
 	// no reviewer read what the attempt left.
 	CauseNoCheckRan EnvironmentalCause = "no-check-ran"
+	// CauseInstallUnavailable is one of the project's declared install steps
+	// failing on dependency files unchanged from the run's starting target that
+	// have installed on this machine before, and failing again on every one of
+	// runstate.InstallRetries tries five minutes apart. What fails that way is
+	// almost always the network or the package registry, so no repair attempt is
+	// spent: the item is blocked naming the step and what it printed, the branch
+	// and worktree are kept, and the stoppage is the development manager's.
+	//
+	// It ends the round unjudged: nothing the step runs before has judged what
+	// the attempt left.
+	CauseInstallUnavailable EnvironmentalCause = "install-unavailable"
+	// CauseInstallNeverWorked is one of the project's declared install steps
+	// failing on dependency files unchanged from the run's starting target that
+	// have never installed on this machine. The step as the project declares it,
+	// or the machine, is what is wrong, so it is not tried again: the item is
+	// blocked naming the step and what it printed, before any developer turn is
+	// spent, and the development manager decides whether the step needs changing
+	// or the machine needs something only a person can supply.
+	//
+	// It ends the round unjudged for CauseInstallUnavailable's reason.
+	CauseInstallNeverWorked EnvironmentalCause = "install-never-worked"
 )
 
 // Valid reports a cause this harness recognizes. A record naming anything else
@@ -246,7 +267,7 @@ func EnvironmentalCauses() []EnvironmentalCause {
 		CauseProcessVanished, CauseUsageWindow, CauseReplayKilled, CauseDivergedTarget,
 		CauseRemoteAuthRefused, CauseQueuedHeadBehind, CauseCheckStageBound,
 		CauseDeveloperSettingsNotApplied, CauseCheckTimeLimit, CauseMergeQueueHeld,
-		CauseNoCheckRan,
+		CauseNoCheckRan, CauseInstallUnavailable, CauseInstallNeverWorked,
 	}
 }
 
@@ -285,11 +306,16 @@ func (c EnvironmentalCause) NeedsAPerson() bool {
 // EndsTheRoundUnjudged reports a cause that ends the round before anything
 // could judge what it holds, so the round is refused without the worktree
 // being asked whether it delivered: the provider's usage window, the check
-// stage stopped at its bound, a check stopped at its own limit, and a change no
-// check could run on. See CauseUsageWindow, CauseCheckStageBound,
-// CauseCheckTimeLimit, and CauseNoCheckRan.
+// stage stopped at its bound, a check stopped at its own limit, a change no
+// check could run on, and an install step held for the development manager. See
+// CauseUsageWindow, CauseCheckStageBound, CauseCheckTimeLimit, CauseNoCheckRan,
+// CauseInstallUnavailable, and CauseInstallNeverWorked.
 func (c EnvironmentalCause) EndsTheRoundUnjudged() bool {
-	return c == CauseUsageWindow || c == CauseCheckStageBound || c == CauseCheckTimeLimit || c == CauseNoCheckRan
+	switch c {
+	case CauseUsageWindow, CauseCheckStageBound, CauseCheckTimeLimit, CauseNoCheckRan, CauseInstallUnavailable, CauseInstallNeverWorked:
+		return true
+	}
+	return false
 }
 
 // Title says what a cause is, the way somebody reading a docket entry or a
@@ -331,6 +357,10 @@ func (c EnvironmentalCause) Title() string {
 		return "the merge queue is switched on and the target branch's protection requires the forge's own merge queue, or could not be read"
 	case CauseNoCheckRan:
 		return "every configured check could not run, so nothing verified the change"
+	case CauseInstallUnavailable:
+		return "a declared install step kept failing on dependency files that installed on this machine before, most likely because the network or the package registry could not be reached"
+	case CauseInstallNeverWorked:
+		return "a declared install step failed on dependency files that have never installed on this machine, so the step or the machine needs fixing rather than the change"
 	default:
 		return string(c)
 	}

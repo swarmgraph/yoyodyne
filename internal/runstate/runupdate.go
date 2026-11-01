@@ -263,6 +263,27 @@ func (u InstallRecorded) apply(state *State) (bool, error) {
 	return true, nil
 }
 
+// InstallWaitRecorded puts a wait to try an install step again on the run, or
+// takes it off where Wait is nil (InstallWait).
+type InstallWaitRecorded struct {
+	Wait *InstallWait
+	At   time.Time
+}
+
+func (u InstallWaitRecorded) apply(state *State) (bool, error) {
+	if u.Wait == nil && state.InstallWait == nil {
+		return false, nil
+	}
+	if u.Wait != nil {
+		wait := *u.Wait
+		state.InstallWait = &wait
+	} else {
+		state.InstallWait = nil
+	}
+	state.UpdatedAt = u.At
+	return true, nil
+}
+
 // IntegrationRecorded records the run's integration: the merge queue's landing
 // of its change, which the queue records as a run's own promotion would be. It
 // changes nothing where the run already records the same landing.

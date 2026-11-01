@@ -15,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -254,15 +255,22 @@ func TestAnNpmCiStepInstallsBeforeTheDeveloperStarts(t *testing.T) {
 	}
 }
 
-// A step that does not pass stops the run before any developer turn is spent,
-// with what the step printed on the record and in the failure.
-func TestAFailedInstallStepStopsTheRunBeforeTheDeveloperStarts(t *testing.T) {
+// A step that fails on the dependency files the run started from, which no run
+// on this machine has ever installed, is the step's or the machine's to fix: the
+// run is held for the development manager before any developer turn, with what
+// the step printed on the record and the item's blocker, the worktree kept, no
+// try again, and no repair attempt spent.
+func TestAnInstallStepThatNeverWorkedHereHoldsTheRunBeforeTheDeveloperStarts(t *testing.T) {
 	t.Parallel()
 
 	repository := npmProjectRepository(t, nil)
 	tracker := npmProjectItem("npm-project-3")
 	provider := orchestratortest.RoleBackend(func(backend.RunRequest) error { return nil }, approveVerdict)
 	pipeline, store := npmProjectPipeline(t, repository, tracker, provider, "echo 'npm error code ENOTFOUND: registry.npmjs.org could not be reached' >&2; exit 1")
+	pipeline.Sleep = func(context.Context, time.Duration) error {
+		t.Error("the harness waited to try again a step that has never installed here")
+		return nil
+	}
 
 	outcome, _ := pipeline.Run(context.Background(), tracker.Item.ID)
 	if got := len(provider.RequestsForRole(domain.RoleDeveloper)); got != 0 {
@@ -276,13 +284,227 @@ func TestAFailedInstallStepStopsTheRunBeforeTheDeveloperStarts(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 	if len(state.Install) != 1 || state.Install[0].Result != runstate.InstallFailed || state.Install[0].ExitCode != 1 {
-		t.Fatalf("install records = %#v, want the one failure", state.Install)
+		t.Fatalf("install records = %#v, want the one failure and no try again", state.Install)
 	}
 	if !strings.Contains(state.Install[0].Output, "ENOTFOUND") {
 		t.Fatalf("install output = %q, want what the step printed", state.Install[0].Output)
 	}
-	if !strings.Contains(state.Failure, "npm packages") || !strings.Contains(state.Failure, "ENOTFOUND") {
-		t.Fatalf("failure = %q, want it to name the step and what it printed", state.Failure)
+	assertInstallHeld(t, state, tracker, runstate.CauseInstallNeverWorked, "never installed on this machine")
+	if !strings.Contains(tracker.BlockReason, "before any developer turn") {
+		t.Fatalf("blocker = %q, want it to say the run was held before any developer turn", tracker.BlockReason)
+	}
+}
+
+// assertInstallHeld holds a run's record and its item to an install step's
+// hold for the development manager: blocked naming the step and the case, the
+// cause recorded as outside the work, the worktree kept, and no repair attempt
+// or wait left on the record.
+func assertInstallHeld(t *testing.T, state runstate.State, tracker *orchestratortest.Tracker, cause runstate.EnvironmentalCause, says string) {
+	t.Helper()
+	if state.StopClass != cause.StopClass() || state.Environmental == nil || state.Environmental.Cause != cause {
+		t.Fatalf("stop class %q, environmental %#v; want %q", state.StopClass, state.Environmental, cause)
+	}
+	if state.RepairAttempts != 0 {
+		t.Fatalf("repair attempts = %d, want none spent", state.RepairAttempts)
+	}
+	if state.InstallWait != nil {
+		t.Fatalf("install wait = %#v, want none left on a held run", state.InstallWait)
+	}
+	if !strings.Contains(state.Failure, `"npm packages"`) || !strings.Contains(state.Failure, says) || !strings.Contains(state.Failure, "held for the development manager") {
+		t.Fatalf("failure = %q, want it to name the step and say %q", state.Failure, says)
+	}
+	if !tracker.Blocked || !strings.Contains(tracker.BlockReason, "npm packages") || !strings.Contains(tracker.BlockReason, "ENOTFOUND") || !strings.Contains(tracker.BlockReason, "no repair attempt was spent") {
+		t.Fatalf("blocked = %v, blocker = %q; want the item blocked naming the step and what it printed", tracker.Blocked, tracker.BlockReason)
+	}
+	if _, err := os.Stat(state.WorktreePath); err != nil {
+		t.Fatalf("worktree %s: %v, want it kept", state.WorktreePath, err)
+	}
+}
+
+// installedBeforeOnThisMachine records that the fixture's npm step installed
+// the dependency files repository carries, as an earlier run on this machine
+// would have left it.
+func installedBeforeOnThisMachine(t *testing.T, pipeline Pipeline, repository string) {
+	t.Helper()
+	digest, err := installDigest(repository, []string{"package.json", "package-lock.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pipeline.recordInstalled("npm packages", digest); err != nil {
+		t.Fatalf("recordInstalled() error = %v", err)
+	}
+}
+
+// A step that fails on dependency files that installed on this machine before
+// is the network's or the registry's: the harness waits five minutes and tries
+// again, saying on the status line which step and when, and a try that passes
+// lets the developer start as if nothing had happened, with no repair spent.
+func TestAnInstallStepThatInstalledBeforeIsTriedAgainAfterFiveMinutes(t *testing.T) {
+	t.Parallel()
+
+	repository := npmProjectRepository(t, nil)
+	tracker := npmProjectItem("npm-project-5")
+	var firstCheck string
+	var firstCheckErr error
+	provider := orchestratortest.RoleBackend(developerRunsItsFirstCheck(&firstCheck, &firstCheckErr), approveVerdict)
+	// The registry answers from the second try on.
+	marker := filepath.Join(t.TempDir(), "tried")
+	pipeline, store := npmProjectPipeline(t, repository, tracker, provider, "if [ ! -f '"+marker+"' ]; then touch '"+marker+"'; echo 'npm error code ETIMEDOUT' >&2; exit 1; fi; sh scripts/npm-ci.sh")
+	installedBeforeOnThisMachine(t, pipeline, repository)
+	clock := &movableClock{at: time.Now()}
+	pipeline.Clock = clock
+	var slept time.Duration
+	var waiting []runstate.InstallWait
+	var line string
+	pipeline.Sleep = func(_ context.Context, duration time.Duration) error {
+		if slept == 0 {
+			running, err := store.Incomplete()
+			if err != nil || len(running) != 1 || running[0].InstallWait == nil {
+				t.Errorf("runs in flight while waiting = %#v, %v; want the one run with its wait recorded", running, err)
+			} else {
+				waiting = append(waiting, *running[0].InstallWait)
+				line = readmodel.ReadStanding(context.Background(), readmodel.Sources{Runs: store, Now: clock.Now}).Running[0].Install
+			}
+		}
+		slept += duration
+		clock.advance(duration)
+		return nil
+	}
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != runstate.StatusSucceeded {
+		t.Fatalf("Run() outcome = %#v, want the run to carry on once the step installed", outcome)
+	}
+	if slept != runstate.InstallRetryInterval {
+		t.Fatalf("waited %s before trying again, want %s", slept, runstate.InstallRetryInterval)
+	}
+	if len(waiting) != 1 || waiting[0].Name != "npm packages" || waiting[0].Retry != 1 {
+		t.Fatalf("waits recorded = %#v, want the first try again of the npm step", waiting)
+	}
+	next := waiting[0].NextAt.Local().Format("15:04 MST")
+	if !strings.Contains(line, `"npm packages"`) || !strings.Contains(line, "trying again at "+next) || !strings.Contains(line, "network or the package registry") {
+		t.Fatalf("status line while waiting = %q, want it to name the step, the cause, and %s", line, next)
+	}
+	if firstCheckErr != nil || !strings.Contains(firstCheck, "greeting is installed") {
+		t.Fatalf("the developer's first check = %q, %v; want it to find node_modules/greeting", firstCheck, firstCheckErr)
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(state.Install) != 2 || state.Install[0].Result != runstate.InstallFailed || state.Install[1].Result != runstate.InstallPassed {
+		t.Fatalf("install records = %#v, want a failure and then a pass", state.Install)
+	}
+	if state.InstallWait != nil || state.RepairAttempts != 0 {
+		t.Fatalf("install wait %#v, repair attempts %d; want the wait cleared and no repair spent", state.InstallWait, state.RepairAttempts)
+	}
+}
+
+// Once every try again has failed too, the run is held for the development
+// manager with its work kept, never ended on the first failure, and no repair
+// attempt spent.
+func TestAnInstallStepThatKeepsFailingOnFilesThatInstalledBeforeIsHeldAfterThreeTries(t *testing.T) {
+	t.Parallel()
+
+	repository := npmProjectRepository(t, nil)
+	tracker := npmProjectItem("npm-project-6")
+	provider := orchestratortest.RoleBackend(func(backend.RunRequest) error { return nil }, approveVerdict)
+	pipeline, store := npmProjectPipeline(t, repository, tracker, provider, "echo 'npm error code ENOTFOUND: registry.npmjs.org could not be reached' >&2; exit 1")
+	installedBeforeOnThisMachine(t, pipeline, repository)
+	clock := &movableClock{at: time.Now()}
+	pipeline.Clock = clock
+	var slept time.Duration
+	pipeline.Sleep = func(_ context.Context, duration time.Duration) error {
+		slept += duration
+		clock.advance(duration)
+		return nil
+	}
+
+	outcome, _ := pipeline.Run(context.Background(), tracker.Item.ID)
+	if got := len(provider.RequestsForRole(domain.RoleDeveloper)); got != 0 {
+		t.Fatalf("developer invocations = %d, want none while the step cannot install", got)
+	}
+	if want := runstate.InstallRetries * runstate.InstallRetryInterval; slept != want {
+		t.Fatalf("waited %s in all, want %s: %d tries again, %s apart", slept, want, runstate.InstallRetries, runstate.InstallRetryInterval)
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(state.Install) != runstate.InstallRetries+1 {
+		t.Fatalf("install records = %d, want the first try and %d more", len(state.Install), runstate.InstallRetries)
+	}
+	assertInstallHeld(t, state, tracker, runstate.CauseInstallUnavailable, "installed on this machine before")
+	if !strings.Contains(tracker.BlockReason, "tried the step 4 times, 5m0s apart") {
+		t.Fatalf("blocker = %q, want it to say how many times the step was tried", tracker.BlockReason)
+	}
+}
+
+// What has installed on this machine is kept per step and per input digest,
+// once each, among the product's records under the state directory, and a
+// state directory with no record yet is a machine nothing has installed on.
+func TestWhatHasInstalledOnThisMachineIsKeptPerStepAndDigest(t *testing.T) {
+	t.Parallel()
+
+	pipeline := Pipeline{StateRoot: t.TempDir()}
+	pipeline.Config.Product.ID = "npm-project"
+	digest := "sha256:" + strings.Repeat("a", 64)
+	if known, err := pipeline.installedBefore("npm packages", digest); err != nil || known {
+		t.Fatalf("installedBefore() on a fresh machine = %v, %v; want false", known, err)
+	}
+	for range 2 {
+		if err := pipeline.recordInstalled("npm packages", digest); err != nil {
+			t.Fatalf("recordInstalled() error = %v", err)
+		}
+	}
+	if known, err := pipeline.installedBefore("npm packages", digest); err != nil || !known {
+		t.Fatalf("installedBefore() after a pass = %v, %v; want true", known, err)
+	}
+	for _, other := range [][2]string{{"pip packages", digest}, {"npm packages", "sha256:" + strings.Repeat("b", 64)}} {
+		if known, _ := pipeline.installedBefore(other[0], other[1]); known {
+			t.Fatalf("installedBefore(%q, %s) = true, want only the pair that passed", other[0], other[1])
+		}
+	}
+	root, err := filepath.EvalSymlinks(pipeline.StateRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(home.InstalledFileWithin(root, "npm-project"))))
+	if err != nil || strings.Count(string(content), "\n") != 1 {
+		t.Fatalf("installed record = %q, %v; want the one pair once", content, err)
+	}
+}
+
+// Which case a failure is, decided from the recorded digests: inputs the run
+// changed are the change's, unchanged inputs that installed here before are
+// outside the work, and unchanged inputs that never installed here are the
+// step's or the machine's.
+func TestAnInstallFailureIsSortedByWhoseItIs(t *testing.T) {
+	t.Parallel()
+
+	started, changed := "sha256:"+strings.Repeat("a", 64), "sha256:"+strings.Repeat("b", 64)
+	worktree := "/worktrees/run"
+	first := runstate.InstallRun{Name: "npm packages", Directory: worktree, InputDigest: started, Result: runstate.InstallPassed}
+	afterTheChange := runstate.InstallRun{Name: "npm packages", Directory: worktree, InputDigest: changed, Result: runstate.InstallFailed}
+	history := []runstate.InstallRun{first, afterTheChange}
+	if got := startingInstallDigest(afterTheChange, history); got != started {
+		t.Fatalf("starting digest = %s, want the first run's in that checkout %s", got, started)
+	}
+	if got := runstate.SortInstallFailure(afterTheChange, startingInstallDigest(afterTheChange, history), true); got != runstate.InstallCauseChange {
+		t.Fatalf("a failure on inputs the run changed sorted as %q, want the change's", got)
+	}
+
+	again := runstate.InstallRun{Name: "npm packages", Directory: worktree, InputDigest: started, Result: runstate.InstallFailed}
+	if got := runstate.SortInstallFailure(again, startingInstallDigest(again, history), true); got != runstate.InstallCauseOutside {
+		t.Fatalf("a failure on unchanged inputs that installed before sorted as %q, want outside the work", got)
+	}
+
+	fresh := runstate.InstallRun{Name: "npm packages", Directory: "/worktrees/other", InputDigest: changed, Result: runstate.InstallFailed}
+	if got := runstate.SortInstallFailure(fresh, startingInstallDigest(fresh, nil), false); got != runstate.InstallCauseNeverInstalled {
+		t.Fatalf("a failure on unchanged inputs that never installed here sorted as %q, want never installed", got)
 	}
 }
 

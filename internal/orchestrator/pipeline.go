@@ -1601,6 +1601,12 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	// The project's dependencies are installed before the developer's first
 	// turn, so its first check before any edit finds them (install.go).
 	if err := run.installBeforeDeveloper(ctx); err != nil {
+		// A stop the operator asked for while a failed step waited to be tried
+		// again ends the run as any stop of theirs does.
+		var stoppedByOperator operatorStop
+		if errors.As(err, &stoppedByOperator) {
+			return run.stop(ctx, err)
+		}
 		return run.fail(err, failureStatus(ctx, err))
 	}
 	if err := run.develop(ctx, withInstallSection(developerPrompt(p.developer().Persona.Text, run.deliveredInvariants().Text(), run.context, run.scratch, p.Config.Checks), p.Config.Install), ""); err != nil {
