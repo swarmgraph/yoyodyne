@@ -820,3 +820,61 @@ func TestAnInstallTheChangeBrokeIsHandedBackAsAFailedCheck(t *testing.T) {
 		t.Fatalf("install results = %v, want a pass before the developer, the change's failure before the checks, and a pass once it was mended", results)
 	}
 }
+
+// A step due again before the checks on dependency files the run did not
+// change — here the developer removed what the step installed — that fails
+// there is the network's or the registry's, as it is before the developer
+// starts: it is tried again five minutes later rather than handed back to the
+// developer, and a try that passes lets the checks go ahead with no repair
+// round spent.
+func TestAnInstallStepBeforeTheChecksOnUnchangedFilesIsTriedAgainNotHandedBack(t *testing.T) {
+	t.Parallel()
+
+	repository := npmProjectRepository(t, nil)
+	tracker := npmProjectItem("npm-project-7")
+	attempts := 0
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		attempts++
+		if err := os.RemoveAll(filepath.Join(request.WorkingDirectory, "node_modules")); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "src", "farewell.ts"), []byte(nonGoSource("  ")), 0o600)
+	}, approveVerdict)
+	// The registry fails the second time the step runs, which is the first try
+	// before the checks, and answers again from the third.
+	count := filepath.Join(t.TempDir(), "runs")
+	pipeline, store := npmProjectPipeline(t, repository, tracker, provider, "echo x >> '"+count+"'; if [ \"$(wc -l < '"+count+"' | tr -d ' ')\" = 2 ]; then echo 'npm error code ETIMEDOUT' >&2; exit 1; fi; sh scripts/npm-ci.sh")
+	clock := &movableClock{at: time.Now()}
+	pipeline.Clock = clock
+	var slept time.Duration
+	pipeline.Sleep = func(_ context.Context, duration time.Duration) error {
+		slept += duration
+		clock.advance(duration)
+		return nil
+	}
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != runstate.StatusSucceeded || attempts != 1 || outcome.RepairAttempts != 0 {
+		t.Fatalf("Run() outcome = %#v after %d developer attempts, want a success with no repair round", outcome, attempts)
+	}
+	if slept != runstate.InstallRetryInterval {
+		t.Fatalf("waited %s before trying again, want %s", slept, runstate.InstallRetryInterval)
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	results := []runstate.InstallResult{}
+	for _, record := range state.Install {
+		results = append(results, record.Result)
+	}
+	if len(results) != 3 || results[0] != runstate.InstallPassed || results[1] != runstate.InstallFailed || results[2] != runstate.InstallPassed {
+		t.Fatalf("install results = %v, want a pass before the developer, a failure before the checks, and a pass on the try again", results)
+	}
+	if state.InstallWait != nil || state.Environmental != nil {
+		t.Fatalf("install wait %#v, environmental %#v; want neither left on a run that went on", state.InstallWait, state.Environmental)
+	}
+}

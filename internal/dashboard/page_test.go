@@ -866,6 +866,9 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"Dashboard 3 of 3: the page, five sections, with its empty, loading, and error states",
 			"cost unknown (its event log is gone)",
 			"approved, resuming integration",
+			// A run waiting to try an install step again says, in place of its
+			// phase, which step and the local time of the next try.
+			`the install step "npm packages" failed on dependency files that have installed on this machine before, so the cause is most likely the network or the package registry; trying again at 07:05 PDT (try 1 of 3)`,
 			// The effort level beside the model it was asked of.
 			"claude-code · claude-opus-5 · medium effort · account pool-b",
 			// The held-back work by what it waits on, each pile with its next step
