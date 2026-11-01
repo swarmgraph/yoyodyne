@@ -3145,6 +3145,11 @@ type State struct {
 	// Absent is a run recorded before routing existed, whose slot and switch
 	// history are unknown rather than empty.
 	Routing *RunRouting `json:"routing,omitempty"`
+	// SlotMoveRecorded is when the move to another developer slot the routing
+	// records (RoutedSlot.MovedFrom, at its RecordedAt) was written into the
+	// run's event log, so each move is said there once, by the process that
+	// next takes the run up.
+	SlotMoveRecorded *time.Time `json:"slot_move_recorded,omitempty"`
 	// LiftedCommit is the commit of an earlier run's preserved branch this run
 	// was started from, where its selection asked for one and the lift was made:
 	// what that branch carried past the target was applied to this run's worktree
@@ -5493,4 +5498,13 @@ func (s State) HoldsDocumentLanding() bool {
 // slot.
 func (s State) AwaitingMergeQueue() bool {
 	return s.MergeQueue != nil && s.Status == StatusSucceeded && s.Integration == nil
+}
+
+// SlotMoveUnrecorded reports a move to another developer slot the run's event
+// log does not say yet.
+func (s State) SlotMoveUnrecorded() bool {
+	if s.SlotMoveSays() == "" {
+		return false
+	}
+	return s.SlotMoveRecorded == nil || !s.SlotMoveRecorded.Equal(s.Routing.Slot.RecordedAt)
 }

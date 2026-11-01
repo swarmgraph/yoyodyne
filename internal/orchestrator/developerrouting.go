@@ -264,7 +264,9 @@ func sameEndpoint(a, b runstate.RoutedEndpoint) bool {
 // scheduler pulled it into where that is still free, and otherwise the lowest
 // free one. A slot another run holding a slot now records is never taken from
 // it; one recorded by a run holding none — paused, or released for want of a
-// live worker — is free, and that run waits for it when it is taken up again.
+// live worker — is free, and that run is taken up again in another free slot,
+// or waits for this one where it keeps its endpoint pair (runstate's
+// takeUpSlot).
 func claimDeveloperSlot(ctx context.Context, store RoutingStore, held runstate.State, requested, capacity int, at time.Time) (runstate.State, int, error) {
 	order := make([]int, 0, capacity)
 	if requested >= 1 && requested <= capacity {
@@ -1013,4 +1015,27 @@ func (a *activeRun) reconstructedPrompt(prompt string, from *runstate.RoutedEndp
 		built.WriteString(a.context)
 	}
 	return built.String()
+}
+
+// recordSlotMove writes into the run's event log a move to another developer
+// slot the run store made when the run was taken up again (runstate's
+// takeUpSlot) — which slot it left, which it is in, when, and why — once per
+// move, so the run's history says it as well as its record and the status
+// line. A line that cannot be written costs the history the sentence and
+// nothing else, and the next process to take the run up tries again.
+func (a *activeRun) recordSlotMove() {
+	if !a.state.SlotMoveUnrecorded() {
+		return
+	}
+	event, err := execution.NewEvent(a.state.RunID, a.state.LastSequence+1, a.pipeline.clock().Now(), execution.EventProcessOutput, "harness", map[string]any{
+		"role": domain.RoleDeveloper, "text": "This run was taken up again in another developer slot: " + a.state.SlotMoveSays() + ".",
+	})
+	if err != nil {
+		return
+	}
+	recorded := a.state.Routing.Slot.RecordedAt
+	a.state.SlotMoveRecorded = &recorded
+	if err := a.sink(event); err != nil {
+		a.state.SlotMoveRecorded = nil
+	}
 }

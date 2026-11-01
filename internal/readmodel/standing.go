@@ -551,6 +551,11 @@ type RunningRun struct {
 	// SlotDedicated is a slot kept for what it prefers, where the running line
 	// also says whether the run is on that work or outside it.
 	SlotDedicated bool `json:"slot_dedicated,omitempty"`
+	// SlotMoved is the run's move to another developer slot when it was taken
+	// up again — which slot it left, when, and why — as its record says it
+	// (runstate.State.SlotMoveSays), and empty for a run never moved. It is
+	// carried whatever the slots prefer, because a move is never left silent.
+	SlotMoved string `json:"slot_moved,omitempty"`
 	// WaitingOn is the unfinished work a run paused on a dependency is waiting
 	// for, as its record names it, and PausedSince when it last wrote its record,
 	// which for such a run is when it recorded the pause. Both are carried only
@@ -1390,6 +1395,7 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 			Title:               state.WorkItemTitle,
 			Labels:              append([]string(nil), state.WorkItemLabels...),
 			recordedSlot:        state.RecordedSlot(),
+			SlotMoved:           state.SlotMoveSays(),
 			Backend:             state.Backend,
 			Model:               modelOf(state.ProviderModel, state.ProviderResolvedModel),
 			Effort:              strings.TrimSpace(state.ProviderEffort),

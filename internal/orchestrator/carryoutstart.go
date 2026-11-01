@@ -110,7 +110,9 @@ func awaitCarryOutStarts(ctx context.Context, signals []*carryOutSignal, bound t
 				continue
 			}
 			unstarted = append(unstarted, signal)
-			if said.carried.Waiting && said.carried.Gate == runstate.TriageGateCapacity {
+			// A run waiting for the one slot it keeps the endpoint pair of
+			// says nothing about the others, which stay free for other work.
+			if said.carried.Waiting && said.carried.Gate == runstate.TriageGateCapacity && said.carried.WaitsForSlot == 0 {
 				full = true
 			}
 		case <-timer.C:

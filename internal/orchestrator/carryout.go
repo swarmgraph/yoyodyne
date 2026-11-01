@@ -347,6 +347,11 @@ type CarriedOut struct {
 	// The note written onto the item says so beside the refusal; see
 	// readmodel's releasesRerun, which is the hold that lets go.
 	ReleasedHold bool `json:"released_hold,omitempty"`
+	// WaitsForSlot is the one developer slot a stopped run waits for, because
+	// it keeps the endpoint pair that slot is configured with, and zero for any
+	// other attempt. Such a wait keeps no other slot from other work, so a pull
+	// that meets it gives its slot back and goes on (awaitCarryOutStarts).
+	WaitsForSlot int `json:"waits_for_slot,omitempty"`
 	// Problem is the whole account of a stopped attempt: what the gate said and
 	// what would clear it. It is what a pass prints, and it is the same sentence
 	// the item's own record now carries.
@@ -1165,7 +1170,7 @@ func (c CarryOut) rerun(ctx context.Context, task CarryOutTask, carried CarriedO
 			"`yoyo release` lifting the hold; nothing was claimed, so the stoppage keeps its re-run"), Outcome{}, nil
 	case result.CapacityFull != nil:
 		return c.stopped(ctx, task, carried, runstate.TriageGateCapacity, true,
-			fmt.Sprintf("every developer slot is occupied: %d active, limit %d", result.CapacityFull.Active, result.CapacityFull.Limit),
+			capacityWaitSays(*result.CapacityFull),
 			"a developer slot freeing, which needs nobody; nothing was claimed, so the stoppage keeps its re-run"), Outcome{}, nil
 	case result.PausedBeforeStarting != nil:
 		gate, clears, waiting := pausedGate(*result.PausedBeforeStarting)
@@ -1208,9 +1213,10 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 			fmt.Sprintf("the operator has held what the harness chooses, since %s", result.IntakeHeld.HeldAt.UTC().Format(time.RFC3339)),
 			"`yoyo release` lifting the hold; nothing was spent, so the item keeps its grant"), Outcome{}, nil
 	case result.CapacityFull != nil:
+		carried.WaitsForSlot = result.CapacityFull.Slot
 		return c.stopped(ctx, task, carried, runstate.TriageGateCapacity, true,
-			fmt.Sprintf("every developer slot is occupied: %d active, limit %d", result.CapacityFull.Active, result.CapacityFull.Limit),
-			"a developer slot freeing, which needs nobody; nothing was spent, so the item keeps its grant"), Outcome{}, nil
+			capacityWaitSays(*result.CapacityFull),
+			capacityWaitClears(*result.CapacityFull)+"; nothing was spent, so the item keeps its grant"), Outcome{}, nil
 	case !result.Continued:
 		if refusal, clears, undocketed := c.undocketed(task, runErr); undocketed {
 			carried.Cause = carryOutCause(runErr)
@@ -1276,7 +1282,8 @@ func (c CarryOut) continueChecks(ctx context.Context, task CarryOutTask, carried
 	case result.IntakeHeld != nil:
 		return waiting(runstate.TriageGateIntakeHold, fmt.Sprintf("the operator has held what the harness chooses, since %s", result.IntakeHeld.HeldAt.UTC().Format(time.RFC3339)))
 	case result.CapacityFull != nil:
-		return waiting(runstate.TriageGateCapacity, fmt.Sprintf("every developer slot is occupied: %d active, limit %d", result.CapacityFull.Active, result.CapacityFull.Limit))
+		carried.WaitsForSlot = result.CapacityFull.Slot
+		return waiting(runstate.TriageGateCapacity, capacityWaitSays(*result.CapacityFull))
 	case !result.Continued:
 		carried.Gate = runstate.TriageGateHarness
 		carried.Problem = fmt.Sprintf("the harness did not continue the check stage the bound stopped on run %s: %s", task.RunID, strings.TrimSpace(refusalText(runErr)))
@@ -1328,7 +1335,8 @@ func (c CarryOut) continueStall(ctx context.Context, task CarryOutTask, carried 
 	case result.IntakeHeld != nil:
 		return waiting(runstate.TriageGateIntakeHold, fmt.Sprintf("the operator has held what the harness chooses, since %s", result.IntakeHeld.HeldAt.UTC().Format(time.RFC3339)))
 	case result.CapacityFull != nil:
-		return waiting(runstate.TriageGateCapacity, fmt.Sprintf("every developer slot is occupied: %d active, limit %d", result.CapacityFull.Active, result.CapacityFull.Limit))
+		carried.WaitsForSlot = result.CapacityFull.Slot
+		return waiting(runstate.TriageGateCapacity, capacityWaitSays(*result.CapacityFull))
 	case !result.Continued:
 		carried.Gate = runstate.TriageGateHarness
 		carried.Problem = fmt.Sprintf("the harness did not continue run %s after its stall: %s", task.RunID, strings.TrimSpace(refusalText(runErr)))
