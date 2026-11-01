@@ -701,6 +701,12 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 	if queuedMerge(state) {
 		return r.settleQueuedMerge(ctx, state)
 	}
+	// A drop an earlier sweep found and wrote down is owed the rest of its
+	// settlement, and is asked before the unconfirmed landing below, which the
+	// same record would otherwise read as a landing nobody heard about.
+	if state.MergeDropUnsettled() {
+		return r.settleUnsettledDrop(ctx, state)
+	}
 	// A landing through the pull request whose merge nobody has confirmed is the
 	// forge's to answer for, not the repository's: its local target was never
 	// moved, so what the repository shows says nothing about whether it landed.
@@ -1338,6 +1344,16 @@ func (r Reconciler) settleDroppedMerge(ctx context.Context, state runstate.State
 // them (renderForgeAccount).
 func (r Reconciler) settleDroppedMergeWith(ctx context.Context, state runstate.State, account string) (Reconciliation, error) {
 	reason := state.PublishFailure
+	// The drop is written onto the run before the tracker is asked anything, so
+	// a tracker that times out leaves the unfinished merge on file — no longer
+	// queued, not landed, and on the docket from the run's own record — rather
+	// than a record still saying the forge holds the merge. It is marked
+	// unsettled until the item and the docket are told, and the next sweep
+	// finishes the settlement from it (settleUnsettledDrop).
+	state, err := r.recordUnsettledDrop(ctx, state)
+	if err != nil {
+		return reconciliationOf(state, ActionUnsettled), err
+	}
 	itemStatus, err := r.itemStatus(ctx, state.WorkItemID)
 	if err != nil {
 		return reconciliationOf(state, ActionBlocked), err
@@ -1349,6 +1365,9 @@ func (r Reconciler) settleDroppedMergeWith(ctx context.Context, state runstate.S
 	if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, settlement); err != nil {
 		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("record the settled merge for run %s: %w", state.RunID, err)
 	}
+	// Every branch below is the settlement's last save, so the drop it carries
+	// is settled from here on.
+	markDropSettled(&state)
 	if itemStatus == "closed" && state.CheckFailure == nil {
 		result, err := r.completeIntegrated(ctx, state, false)
 		result.Detail = reason
@@ -1372,9 +1391,10 @@ func (r Reconciler) settleDroppedMergeWith(ctx context.Context, state runstate.S
 	if err != nil {
 		return reconciliationOf(state, ActionUnsettled), err
 	}
-	// The blocker reaches the item before the record is disturbed, so an
-	// interruption here leaves the merge still queued durably and takes the whole
-	// settlement up again rather than settling a run nobody was told about.
+	// The blocker reaches the item before the drop is recorded as settled, so an
+	// interruption here leaves the drop unsettled on the run and the next sweep
+	// takes the settlement up again rather than settling a run nobody was told
+	// about.
 	notes, err := r.recordBlocker(ctx, state, itemStatus, observation, reason)
 	if err != nil {
 		return reconciliationOf(state, ActionBlocked), err
@@ -1388,6 +1408,60 @@ func (r Reconciler) settleDroppedMergeWith(ctx context.Context, state runstate.S
 	result.Detail = reason
 	result.DocketProblem = r.docketStoppedRun(settled)
 	return result, saveErr
+}
+
+// recordUnsettledDrop writes the drop the sweep just found onto the run, marked
+// unsettled, and returns the settling copy at the revision that write left, so
+// the settlement's own last save is not refused as stale. A drop already
+// written that way is left as it is.
+//
+// A drop that carries the change's own failing forge check is not written
+// early. It is not a merge to repeat but a change handed back for repair, and
+// the record cannot carry the failing check beside the promotion until the
+// settlement withdraws the approval (invalidateForgeApproval), so it stays
+// queued on the record until a sweep settles it whole, as before.
+func (r Reconciler) recordUnsettledDrop(ctx context.Context, state runstate.State) (runstate.State, error) {
+	if state.MergeDrop == nil || state.MergeDrop.Unsettled || state.PullRequest == nil || state.CheckFailure != nil {
+		return state, nil
+	}
+	recorded, err := r.Store.Update(ctx, state.RunID, runstate.MergeDropFound{
+		PullRequest:    *state.PullRequest,
+		PublishFailure: state.PublishFailure,
+		Drop:           *state.MergeDrop,
+		At:             r.clock().Now(),
+	})
+	if err != nil {
+		return state, fmt.Errorf("record the dropped merge of run %s before telling its item: %w", state.RunID, err)
+	}
+	drop := *state.MergeDrop
+	drop.Unsettled = true
+	state.MergeDrop = &drop
+	state.Revision = recorded.Revision
+	return state, nil
+}
+
+// markDropSettled marks the drop on the record settled, for the save that ends
+// the settlement.
+func markDropSettled(state *runstate.State) {
+	if state.MergeDrop == nil || !state.MergeDrop.Unsettled {
+		return
+	}
+	drop := *state.MergeDrop
+	drop.Unsettled = false
+	state.MergeDrop = &drop
+}
+
+// settleUnsettledDrop finishes the settlement of a drop an earlier sweep wrote
+// onto the run and could not tell the item and the docket about — most often
+// because the tracker did not answer. The forge is not asked again: the drop is
+// on the record, with the checks its merge queue failed it on where it named
+// them, and what is left is the tracker's half.
+func (r Reconciler) settleUnsettledDrop(ctx context.Context, state runstate.State) (Reconciliation, error) {
+	number := 0
+	if state.PullRequest != nil {
+		number = state.PullRequest.Number
+	}
+	return r.settleDroppedMergeWith(ctx, state, renderQueuedChecksAccount(number, state.MergeDrop.QueuedChecks))
 }
 
 // unconfirmedLanding reports a run that recorded a landing through the pull

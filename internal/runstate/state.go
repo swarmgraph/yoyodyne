@@ -1660,6 +1660,13 @@ type MergeDrop struct {
 	// It is what names a check that failed there while the request's own head
 	// passed, and it is absent for a drop the queue had no part in.
 	QueuedChecks *QueuedMergeChecks `json:"queued_checks,omitempty"`
+	// Unsettled marks a drop written onto the run before the work item and the
+	// triage docket were told of it. The sweep that finds a drop writes it here
+	// first, so a tracker that does not answer leaves the unfinished merge on
+	// file rather than leaving the run recorded as still queued; the next sweep
+	// finishes the settlement from this record (State.Outstanding), and the
+	// settlement clears it.
+	Unsettled bool `json:"unsettled,omitempty"`
 }
 
 // Validate rejects a drop that cannot describe a real one.
@@ -1745,9 +1752,42 @@ func (d MergeDisagreement) Validate() error {
 // nothing retired it, and the forge holds no merge of it still queued. It is a
 // reading of the record alone; whether the target branch agrees is what the
 // merge disagreement sweep reads.
+//
+// A landing through the pull request whose merge the forge dropped is not one:
+// it moved no branch, and the change is on its pull request and on no target
+// branch (MergeDropped).
 func (s State) RecordedAsMerged() bool {
+	if s.Integration != nil && s.Integration.ThroughPullRequest && s.MergeDropped() {
+		return false
+	}
 	return s.Retirement == nil && s.Status == StatusSucceeded && s.Integration != nil &&
 		(s.PullRequest == nil || !s.PullRequest.MergeQueued)
+}
+
+// MergeDropped reports a promoted change whose merge the forge dropped and that
+// nothing has taken up since: the drop is on the record, and the pull request is
+// neither merged, nor queued again, nor handed back for a fresh run, nor retired
+// as superseded. The unfinished merge is the pull request on the record, merged
+// by its recorded method into the integration's target branch, and a merge
+// retry repeats exactly that.
+//
+// It is the one reading the development manager's docket, the merge retry
+// (Rearmer), finishing the merge (RecoveryFinishable) and the merge disagreement
+// sweep take of such a run, so none of them can read it as landed while another
+// reads it as unfinished.
+func (s State) MergeDropped() bool {
+	if s.Retirement != nil || s.Integration == nil || s.MergeDrop == nil || s.PullRequest == nil {
+		return false
+	}
+	published := s.PullRequest
+	return !published.Merged && !published.MergeQueued && published.HandedBack == nil &&
+		strings.TrimSpace(published.Superseded) == ""
+}
+
+// MergeDropUnsettled reports a dropped merge written onto the run whose
+// settlement onto the work item and the docket has still to be made.
+func (s State) MergeDropUnsettled() bool {
+	return s.MergeDropped() && s.MergeDrop.Unsettled
 }
 
 // Validate rejects a published record that cannot describe a real pull request.
@@ -4953,6 +4993,11 @@ func (s State) Outstanding() bool {
 	}
 	if s.Integration == nil {
 		return false
+	}
+	// A drop found and written down whose item and docket were not yet told is
+	// owed the rest of that settlement, whichever way the change was promoted.
+	if s.MergeDropUnsettled() {
+		return true
 	}
 	if s.ConfigComparison != nil && s.ConfigComparison.Pending {
 		return true

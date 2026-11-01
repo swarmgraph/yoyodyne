@@ -323,3 +323,31 @@ func nonEmptyPhase(phase Phase) string {
 	}
 	return "at " + string(phase)
 }
+
+// MergeDropFound records a merge the forge dropped, as the sweep that settles
+// queued merges finds it and before the work item and the triage docket are
+// told: the pull request as the forge left it, the publication failure, and the
+// drop marked unsettled (MergeDrop.Unsettled). Written first, it is what keeps a
+// tracker that does not answer from leaving the run recorded as still queued.
+// It changes nothing on a run whose pull request is another one or has merged.
+type MergeDropFound struct {
+	PullRequest    PullRequest
+	PublishFailure string
+	Drop           MergeDrop
+	At             time.Time
+}
+
+func (u MergeDropFound) apply(state *State) (bool, error) {
+	published := state.PullRequest
+	if published == nil || published.Number != u.PullRequest.Number || published.Merged {
+		return false, nil
+	}
+	drop := u.Drop
+	drop.Unsettled = true
+	pullRequest := u.PullRequest
+	state.PullRequest = &pullRequest
+	state.PublishFailure = u.PublishFailure
+	state.MergeDrop = &drop
+	state.UpdatedAt = u.At
+	return true, nil
+}
