@@ -394,10 +394,56 @@ func TrivialResidue(findings []Finding) bool {
 	return len(findings) == 1 && findings[0].Disposition == DispositionOutOfScope
 }
 
+// OwedWork returns the findings the reviewer did not dispose of as out of scope:
+// work it says this change still has to do, whatever their severity.
+func OwedWork(findings []Finding) []Finding {
+	var owed []Finding
+	for _, finding := range findings {
+		if finding.Disposition != DispositionOutOfScope {
+			owed = append(owed, finding)
+		}
+	}
+	return owed
+}
+
+// SendBack returns an approval of one work item's change that names work the
+// change still owes as the repair it is. Without it, a reviewer that found part
+// of an item undone could approve anyway with the missing part written as a
+// finding, and the item closed on incomplete work while the remainder became a
+// new item to admit. An approval of a work item's change therefore carries only
+// findings disposed of as out of scope — work outside what the item asked for,
+// which a new item is the right home for — and any other finding sends the
+// change back to its developer as a repair round naming what is missing.
+//
+// It reports false, and the verdict unchanged, for anything else. A branch
+// review has no item to leave incomplete and is not asked this; the caller
+// decides that, because this type is the same at both scopes.
+//
+// The summary is the reviewer's own, opened with one sentence saying the
+// approval was turned into a repair, so the record read beside the "repair"
+// decision does not contradict it.
+func (v Verdict) SendBack() (Verdict, bool) {
+	if v.Decision != DecisionApprove {
+		return v, false
+	}
+	owed := OwedWork(v.Findings)
+	if len(owed) == 0 {
+		return v, false
+	}
+	v.Decision = DecisionRepair
+	v.Approves = ""
+	v.Summary = fmt.Sprintf("Sent back to the developer rather than approved: the reviewer approved, and named %d finding(s) as work this change still has to do. %s", len(owed), v.Summary)
+	return v, true
+}
+
 // Resolve returns the decision a valid verdict actually supports, rejecting one
 // that contradicts its own findings. Approval cannot carry a blocker or major
-// finding, because a change that still needs that work is not approved
-// whatever the reviewer labelled it. Repair stays authoritative for any valid
+// finding this change has to act on, because a change that still needs that
+// work is not approved whatever the reviewer labelled it. A serious finding
+// disposed of as out of scope does not contradict an approval: it is a defect
+// the reviewer stands behind outside what the item asked for, which is what a
+// new work item is for, and refusing it would push the reviewer to sending
+// back work the change does not owe. Repair stays authoritative for any valid
 // finding, including a purely minor one, and so does an escalation: a reviewer
 // that named what is wrong with the change and then said the item cannot be met
 // at all has said both, and the finding does not contradict the second.
@@ -409,7 +455,7 @@ func (v Verdict) Resolve() (Decision, error) {
 		return v.Decision, nil
 	}
 	var actionable []string
-	for _, finding := range v.Findings {
+	for _, finding := range OwedWork(v.Findings) {
 		if finding.Severity == SeverityBlocker || finding.Severity == SeverityMajor {
 			actionable = append(actionable, string(finding.Severity))
 		}
