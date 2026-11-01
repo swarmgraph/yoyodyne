@@ -615,6 +615,13 @@ type Refused struct {
 	// a stoppage and a newer run of the same item two conditions rather than
 	// one (internal/health).
 	RunID string `json:"run_id,omitempty"`
+	// Status is the item's tracker status, carried only on an entry of
+	// Standing.AlsoHeld, so a surface can say a held item is marked, say, in
+	// progress. ListedFor is, on such an entry, the reason the not-startable
+	// line gives for the item instead of its hold, and empty where the line
+	// does not list it at all.
+	Status    string `json:"status,omitempty"`
+	ListedFor string `json:"listed_for,omitempty"`
 }
 
 // WorkItemRef names one admitted work item, by id and title, for a surface that
@@ -749,17 +756,22 @@ type Standing struct {
 	WaitingProblem string                      `json:"waiting_problem,omitempty"`
 
 	NotStartable []Refused `json:"not_startable"`
-	// HeldInProgress is the work the harness holds after a stopped run whose
-	// tracker status is in progress rather than open or blocked, oldest hold
-	// first, each carried as a refusal of kind HeldForAPerson. A run claims its
-	// item when it starts and nothing reopens it when the run stops, so a stopped
-	// item can stay marked in progress, assigned to whoever claimed it, while
-	// the harness holds it for a decision. The admitted queue is assembled from
-	// open and blocked work alone, so none of these is in NotStartable or counted
-	// in its head; an item a run in flight is carrying is on the running line
-	// instead. It is carried for the surface that lists every held item
-	// (internal/health), and is nil where the queue could not be read.
-	HeldInProgress []Refused `json:"held_in_progress,omitempty"`
+	// AlsoHeld is every other item the harness holds after a stopped run:
+	// held, not closed, carried by no run in flight, and not listed in
+	// NotStartable as held, whatever its tracker status or assignee. Oldest
+	// hold first, each a refusal of kind HeldForAPerson with its hold's reason.
+	//
+	// Two kinds of item land here. One the tracker marks with a status the
+	// admitted queue is not assembled from — in progress above all, because a
+	// run claims its item when it starts and nothing reopens it when the run
+	// stops, so it stays in progress and assigned to whoever claimed it, and
+	// deferred too. The other is admitted work the queue gives another reason
+	// for first, such as a parking, the needs-design label, or a conversation
+	// carrying it; that reason is in Refused.ListedFor. Neither is counted in
+	// the not-startable line's head. It is carried for the surface that lists
+	// every held item (internal/health), and is nil where the queue could not
+	// be read.
+	AlsoHeld []Refused `json:"also_held,omitempty"`
 	// NotStartableGroups is the not-startable items counted by what they wait
 	// on, each group with its next step and whose move it is, in the order a
 	// reader acts on them. NotStartableForOperator is the one sentence saying
@@ -987,7 +999,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	}
 	refused, waits, queue, stall, notStartableProblem := readNotStartable(ctx, sources, switches, running, now)
 	standing.NotStartable = refused
-	standing.HeldInProgress = waits.heldInProgress
+	standing.AlsoHeld = waits.alsoHeld
 	standing.Admitted = len(queue.Entries)
 	standing.AwaitingDecision = waits.awaitingDecision
 	standing.AwaitingCarryOut = waits.awaitingCarryOut
@@ -1788,7 +1800,7 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 	if sources.Tracker == nil {
 		return nil, heldWork{}, backlog.Queue{}, Stall{}, "nothing was wired to read the admitted work"
 	}
-	queue, coverage, claimedHeld, gateProblem, err := readQueue(ctx, sources)
+	queue, coverage, holds, gateProblem, err := readQueue(ctx, sources)
 	if err != nil {
 		return nil, heldWork{}, backlog.Queue{}, Stall{}, fmt.Sprintf("the admitted work could not be read: %v", err)
 	}
@@ -1909,13 +1921,9 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 	}
 	waits.groups = groups.list()
 	waits.slotWait = slotWait
-	waits.heldInProgress = []Refused{}
-	for _, item := range claimedHeld {
-		if _, carried := inFlight[item.WorkItemID]; !carried {
-			waits.heldInProgress = append(waits.heldInProgress, item)
-		}
-	}
-	oldestHoldFirst(waits.heldInProgress)
+	alsoHeld, alsoProblem := readAlsoHeld(ctx, sources, holds, refused, inFlight)
+	waits.alsoHeld = alsoHeld
+	problem = joinProblems(problem, alsoProblem)
 	if len(held.problems) > 0 {
 		problem = joinProblems(problem, strings.Join(held.problems, "; "))
 	}
@@ -1978,9 +1986,9 @@ type heldWork struct {
 	// the ready items waiting only for a developer slot.
 	groups   []WaitGroup
 	slotWait *SlotWait
-	// heldInProgress is the held items the tracker marks in progress that no
-	// run in flight is carrying (Standing.HeldInProgress).
-	heldInProgress []Refused
+	// alsoHeld is the held items the refusals do not list as held
+	// (Standing.AlsoHeld).
+	alsoHeld []Refused
 }
 
 // countCarryOuts counts one held item's decisions a gate refused and ones no
@@ -2147,7 +2155,7 @@ func Queue(ctx context.Context, sources Sources) (backlog.Queue, string, error) 
 }
 
 // readQueue assembles the admitted work in the product manager's order, the
-// coverage over it, and the held work the order leaves out, from the same five
+// coverage over it, and what the harness holds after stopped runs, from the same five
 // readings the scheduler makes: the listings that carry the order, the
 // tracker's own account of what can be pulled, what the harness is holding for
 // a person, the human gates a person has recorded passing, and the work that
@@ -2158,7 +2166,7 @@ func Queue(ctx context.Context, sources Sources) (backlog.Queue, string, error) 
 // declared gate holds, which overstates what is waiting on a person and never
 // understates it — and an overstated gate is a line an operator can read and
 // dismiss, where the other direction is work started past somebody's step.
-func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Coverage, []Refused, string, error) {
+func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Coverage, backlog.Holds, string, error) {
 	// What the harness holds for a person is read first, because it asks the
 	// repository about every stopped run and needs nothing from the tracker: a
 	// standing's tracker commands are already under way and answer while it
@@ -2172,7 +2180,7 @@ func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Cov
 	for _, status := range backlogStatuses {
 		items, err := sources.list(ctx, status)
 		if err != nil {
-			return backlog.Queue{}, nil, nil, "", err
+			return backlog.Queue{}, nil, backlog.Holds{}, "", err
 		}
 		admitted = append(admitted, items...)
 	}
@@ -2180,14 +2188,14 @@ func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Cov
 	defer cancel()
 	ready, err := sources.Tracker.Ready(trackerCtx)
 	if err != nil {
-		return backlog.Queue{}, nil, nil, "", fmt.Errorf("list the work items the tracker reports as ready: %w", err)
+		return backlog.Queue{}, nil, backlog.Holds{}, "", fmt.Errorf("list the work items the tracker reports as ready: %w", err)
 	}
 	pullable := make([]string, 0, len(ready))
 	for _, item := range ready {
 		pullable = append(pullable, item.ID)
 	}
 	if heldErr != nil {
-		return backlog.Queue{}, nil, nil, "", fmt.Errorf("read what the harness is holding back after stopped runs: %w", heldErr)
+		return backlog.Queue{}, nil, backlog.Holds{}, "", fmt.Errorf("read what the harness is holding back after stopped runs: %w", heldErr)
 	}
 	var discharged map[string][]string
 	unread := ""
@@ -2219,33 +2227,63 @@ func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Cov
 	// disagreement this line exists to have none of.
 	claimed, err := sources.list(ctx, backlog.StatusClaimed)
 	if err != nil {
-		return backlog.Queue{}, nil, nil, "", err
+		return backlog.Queue{}, nil, backlog.Holds{}, "", err
 	}
-	return queue, backlog.Cover(queue, admitted, claimed), heldClaimed(claimed, held), problem, nil
+	return queue, backlog.Cover(queue, admitted, claimed), held, problem, nil
 }
 
-// heldClaimed is the work the tracker marks in progress that the harness holds
-// after a stopped run, in the product manager's order, with each hold as the
-// queue words it for admitted work. Whoever the item is assigned to makes no
-// difference: the hold is read from the harness's records of its runs, not
-// from the tracker.
-func heldClaimed(claimed []beads.WorkItem, held backlog.Holds) []Refused {
-	items := append([]beads.WorkItem(nil), claimed...)
+// readAlsoHeld is every item the harness holds after a stopped run that the
+// refusals do not already list as held (Standing.AlsoHeld), read from the
+// holds rather than from the queue: which tracker status an item has, who it
+// is assigned to, and which reason the queue gives first decide nothing here.
+// A closed item is left out, because closed work stalls nothing, and so is
+// one a run in flight is carrying, which is on the running line.
+//
+// It lists every item rather than the admitted statuses. Within a standing
+// that listing is the one the reading has already made and shares
+// (sharedlisting.go), so it costs no tracker command of its own. A listing
+// that fails is returned as a problem, and nothing is listed here.
+func readAlsoHeld(ctx context.Context, sources Sources, holds backlog.Holds, refused []Refused, inFlight map[string]struct{}) ([]Refused, string) {
+	every, err := sources.list(ctx, "")
+	if err != nil {
+		return nil, fmt.Sprintf("the held work outside the admitted queue could not be read: %v", err)
+	}
+	listedAs := make(map[string]Refused, len(refused))
+	for _, item := range refused {
+		listedAs[item.WorkItemID] = item
+	}
+	items := append([]beads.WorkItem(nil), every...)
 	backlog.Sort(items)
-	refused := []Refused{}
+	also := []Refused{}
+	seen := make(map[string]bool, len(items))
 	for _, item := range items {
-		hold, found := held.Holding(item.ID)
-		if !found {
+		if item.Status == trackerClosed || seen[item.ID] {
 			continue
 		}
-		entry := Refused{WorkItemID: item.ID, Title: item.Title, Reason: hold.Reason, Kind: backlog.HeldForAPerson, RunID: strings.TrimSpace(hold.RunID)}
+		seen[item.ID] = true
+		if _, carried := inFlight[item.ID]; carried {
+			continue
+		}
+		hold, held := holds.Holding(item.ID)
+		if !held {
+			continue
+		}
+		entry := Refused{WorkItemID: item.ID, Title: item.Title, Reason: hold.Reason, Kind: backlog.HeldForAPerson,
+			RunID: strings.TrimSpace(hold.RunID), Status: item.Status}
+		if listed, admitted := listedAs[item.ID]; admitted {
+			if listed.Kind == backlog.HeldForAPerson {
+				continue
+			}
+			entry.ListedFor = listed.Reason
+		}
 		if !hold.Since.IsZero() {
 			since := hold.Since
 			entry.HeldSince = &since
 		}
-		refused = append(refused, entry)
+		also = append(also, entry)
 	}
-	return refused
+	oldestHoldFirst(also)
+	return also, ""
 }
 
 // readReports is how the collected pile stands. A pile that could not be read

@@ -332,19 +332,16 @@ func (o Observer) readRuns(r *reading) {
 	r.source(SourceRuns, strings.Join(problems, "; "))
 }
 
-// readHeld lists every item the harness holds after a stopped run: the admitted
-// ones among the refusals, and those the tracker still marks in progress, which
-// the admitted queue leaves out (readmodel.Standing.HeldInProgress). Neither
-// the tracker status nor the assignee decides whether a held item is listed.
+// readHeld lists every item the harness holds after a stopped run: those the
+// refusals list as held, and every other one, whatever its tracker status, its
+// assignee, or the reason the not-startable line gives for it first
+// (readmodel.Standing.AlsoHeld). Each of the others says why that line does not
+// show it as held.
 func (o Observer) readHeld(r *reading, standing readmodel.Standing) {
 	r.source(SourceHeld, standing.NotStartableProblem)
-	inProgress := make(map[string]bool, len(standing.HeldInProgress))
-	held := make([]readmodel.Refused, 0, len(standing.NotStartable)+len(standing.HeldInProgress))
+	held := make([]readmodel.Refused, 0, len(standing.NotStartable)+len(standing.AlsoHeld))
 	held = append(held, standing.NotStartable...)
-	for _, refused := range standing.HeldInProgress {
-		inProgress[refused.WorkItemID] = true
-		held = append(held, refused)
-	}
+	held = append(held, standing.AlsoHeld...)
 	for _, refused := range held {
 		if refused.Kind != backlog.HeldForAPerson {
 			continue
@@ -361,11 +358,23 @@ func (o Observer) readHeld(r *reading, standing readmodel.Standing) {
 		if refused.RunID != "" {
 			anomaly.Says = fmt.Sprintf("%s is held after run %s stopped", refused.WorkItemID, refused.RunID)
 		}
-		if inProgress[refused.WorkItemID] {
-			anomaly.Says += ", though the tracker still marks it in progress"
-		}
+		anomaly.Says += heldElsewhere(refused)
 		anomaly.Needs = refused.Reason
 		r.add(anomaly)
+	}
+}
+
+// heldElsewhere is why a held item is not shown as held on the not-startable
+// line, in the words that close the health check's sentence about it, and
+// empty for an item that line does show as held.
+func heldElsewhere(refused readmodel.Refused) string {
+	switch {
+	case refused.ListedFor != "":
+		return "; the list of work that cannot start gives another reason for it: " + refused.ListedFor
+	case refused.Status != "":
+		return ", though the tracker marks it " + strings.ReplaceAll(refused.Status, "_", " ")
+	default:
+		return ""
 	}
 }
 
