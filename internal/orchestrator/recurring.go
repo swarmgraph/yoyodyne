@@ -1589,7 +1589,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	// first in its order where it did not take that one.
 	recorded.Delivered = judgeDelivered(delivered, actedOn, heldForSending, merged)
 	problems = append(problems, streak.record(&recorded, name))
-	problems = append(problems, t.notePassedOver(ctx, pass, task.Role, recorded))
+	problems = append(problems, t.notePassedOver(ctx, pass, task.Role, &recorded, earlier))
 	problems = append(problems, t.noteSettled(ctx, pass, recorded))
 	// Bounded, because the record's own bound on this prose refuses a record that
 	// carries too much of it — and every one of these sentences ends with a

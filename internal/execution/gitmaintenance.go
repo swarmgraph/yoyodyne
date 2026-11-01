@@ -18,7 +18,7 @@ import (
 // of putting a prune beside concurrent adds.
 //
 // The harness already refuses to ask for maintenance in the Git commands it
-// composes itself, by passing the two settings as `-c` options. That fences one
+// composes itself, by passing its settings as `-c` options. That fences one
 // caller and no others: every worktree the harness cuts shares the repository's
 // common Git directory, so a Git command an agent runs, or one a project's own
 // build tooling runs inside a worktree, hands the same repository to the same
@@ -58,13 +58,16 @@ type gitSetting struct {
 	value string
 }
 
-// gitMaintenanceSettings is what the fence sets. Both are needed because either
-// one alone still leaves a path to the same prune: maintenance.auto governs
-// whether the detached run starts at all, and gc.auto governs the task inside it
-// that does the pruning.
+// gitMaintenanceSettings is what the fence sets. Each is needed because any one
+// alone still leaves a path to the same prune: maintenance.auto governs whether
+// the detached run starts at all, gc.auto governs the gc task inside it that
+// prunes worktrees, and maintenance.worktree-prune.auto governs the separate
+// worktree-prune task, which prunes them without gc and which gc.auto does not
+// reach. A Git too old to know the third setting ignores it.
 var gitMaintenanceSettings = []gitSetting{
 	{key: "gc.auto", value: "0"},
 	{key: "maintenance.auto", value: "false"},
+	{key: "maintenance.worktree-prune.auto", value: "0"},
 }
 
 // WithGitMaintenanceFence returns environment carrying the settings that stop
@@ -74,7 +77,7 @@ var gitMaintenanceSettings = []gitSetting{
 //
 // Configuration the environment already carried is kept, and the fence is
 // written after it: Git applies these in order, so the fence is the last word on
-// these two settings and says nothing about any other. The numbered pairs are
+// its own settings and says nothing about any other. The numbered pairs are
 // rewritten from scratch rather than appended to, which is what makes applying
 // this twice the same as applying it once -- a harness process launched by a
 // harness process is an ordinary arrangement, and a fence that grew a pair per

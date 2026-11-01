@@ -222,21 +222,23 @@ var crossedRegistration = regexp.MustCompile(
 // "could not open '.git/worktrees/<id>/gitdir' for writing", and the run is lost
 // to nothing but timing. The registry lease queues the harness's own writes to
 // that bookkeeping; it cannot queue a prune Git starts for itself after an
-// ordinary write command, so the harness never asks for one. Both settings are
-// needed because either one alone still leaves a path to the same prune:
-// maintenance.auto governs whether the detached run starts at all, and gc.auto
-// governs the task inside it that does the pruning.
+// ordinary write command, so the harness never asks for one. All three settings
+// are needed because any one alone still leaves a path to the same prune:
+// maintenance.auto governs whether the detached run starts at all, gc.auto
+// governs the gc task inside it that prunes worktrees, and
+// maintenance.worktree-prune.auto governs the separate worktree-prune task,
+// which gc.auto does not reach.
 //
 // They are passed per command rather than written into the repository's config,
 // because the repository belongs to whoever is developing in it and its
 // maintenance is theirs to configure. A Git command the harness did not compose
 // is fenced all the same, one layer down: every process the harness launches
-// carries the same two settings in its environment, so an agent's Git command
+// carries the same settings in its environment, so an agent's Git command
 // and a project's build tooling inside a worktree inherit them — see
 // execution.WithGitMaintenanceFence. What is left is a prune nobody here
 // started, a person's own `git gc` in the checkout, which is the operator's and
 // is written down as theirs in `docs/operations.md`.
-var maintenanceOptions = []string{"-c", "maintenance.auto=false", "-c", "gc.auto=0"}
+var maintenanceOptions = []string{"-c", "maintenance.auto=false", "-c", "gc.auto=0", "-c", "maintenance.worktree-prune.auto=0"}
 
 type Manager struct {
 	runner                execution.ProcessRunner

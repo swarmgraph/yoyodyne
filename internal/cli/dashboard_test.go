@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -311,6 +313,14 @@ func TestDashboardPrintsItsURLAndTokenAndStopsWhenAsked(t *testing.T) {
 		t.Fatalf("token %q is not printed once on its own line, apart from the URL:\n%s", token, printed)
 	}
 
+	// The dashboard starts its first status reading as it starts serving, and
+	// that reading writes the run index into the state root it reads. A stop
+	// waits for a reading under way only for its grace, so on a loaded machine
+	// the reading could still be writing there as the test's temporary
+	// directory is removed. Waiting for the first reading to be served ends it
+	// first; the next does not start until the reading interval has passed.
+	waitForFirstStanding(t, printed, token)
+
 	cancel()
 	if code := <-done; code != 0 || !strings.Contains(stdout.String(), "dashboard stopped") {
 		t.Fatalf("stop: code = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
@@ -336,5 +346,41 @@ func TestASupervisedDashboardRefusesABindOutsideLoopback(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "serving at") {
 		t.Fatalf("stdout = %q, want nothing served", stdout.String())
+	}
+}
+
+// waitForFirstStanding asks the dashboard for its status reading until its
+// first build has ended. A request made while that build is still under way is
+// refused after the dashboard's own short wait and asked again; a dashboard that
+// never answers is reported by go test's own timeout.
+func waitForFirstStanding(t *testing.T, printed, token string) {
+	t.Helper()
+	var url string
+	for _, line := range strings.Split(printed, "\n") {
+		if _, rest, found := strings.Cut(line, "serving at "); found {
+			url = strings.TrimSpace(rest)
+		}
+	}
+	if url == "" {
+		t.Fatalf("no URL printed:\n%s", printed)
+	}
+	for {
+		request, err := http.NewRequest(http.MethodGet, strings.TrimSuffix(url, "/")+"/api/standing", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatalf("asking the dashboard for its status reading: %v", err)
+		}
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		// Only a first reading still under way is asked about again; its refusal
+		// ends "the page asks again". A served reading, or a first reading that
+		// ended and failed, means nothing is still writing.
+		if response.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(body), "the page asks again") {
+			return
+		}
 	}
 }
