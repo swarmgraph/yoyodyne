@@ -18,7 +18,7 @@ import (
 // of putting a prune beside concurrent adds.
 //
 // The harness already refuses to ask for maintenance in the Git commands it
-// composes itself, by passing the two settings as `-c` options. That fences one
+// composes itself, by passing its settings as `-c` options. That fences one
 // caller and no others: every worktree the harness cuts shares the repository's
 // common Git directory, so a Git command an agent runs, or one a project's own
 // build tooling runs inside a worktree, hands the same repository to the same
