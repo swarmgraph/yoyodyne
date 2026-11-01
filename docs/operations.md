@@ -5143,9 +5143,12 @@ has the rule.
   has stopped as interrupted, leaves open and names one it cannot show
   stopped, and writes on the run what it freed and why. The run then holds no
   slot, by number or in the count, until a repair or a continuation takes it up
-  with a new worker. If another run has claimed its slot number by then, it waits
-  for that slot rather than run beside the other on the same slot's endpoints,
-  and the wait names the run holding it. The pass's summary names each release, and the health
+  with a new worker. If another run has claimed its slot number by then, it goes
+  on in the lowest free slot and records that slot, the one it moved from, and
+  why, which its history and its status line say too;
+  only a run that keeps its slot's endpoint pair waits for that slot rather than
+  run beside the other on the same endpoints, and the wait names the slot, the
+  run holding it, and why. The pass's summary names each release, and the health
   check the development manager's passes carry lists the run as a condition of
   hers, beside the list of what holds each developer slot, since when, and why.
 

@@ -127,6 +127,25 @@ type RoutedSlot struct {
 	Number     int           `json:"number"`
 	Origin     RoutingOrigin `json:"origin"`
 	RecordedAt time.Time     `json:"recorded_at"`
+	// MovedFrom is the slot the run recorded before it was taken up again in
+	// this one (MoveSlot), and zero for a run that has only ever recorded one.
+	// MovedBecause says why, in words a person reads, and RecordedAt is when.
+	MovedFrom    int    `json:"moved_from,omitempty"`
+	MovedBecause string `json:"moved_because,omitempty"`
+}
+
+// SlotMoveSays is the run's last move to another developer slot in words a
+// person reads — which slot it left and why — and empty for a run that has
+// never been moved.
+func (s State) SlotMoveSays() string {
+	if s.Routing == nil || s.Routing.Slot == nil || s.Routing.Slot.MovedFrom == 0 {
+		return ""
+	}
+	says := fmt.Sprintf("moved from developer slot %d to developer slot %d at %s", s.Routing.Slot.MovedFrom, s.Routing.Slot.Number, s.Routing.Slot.RecordedAt.UTC().Format(time.RFC3339))
+	if because := strings.TrimSpace(s.Routing.Slot.MovedBecause); because != "" {
+		says += ", because " + because
+	}
+	return says
 }
 
 // RoutingSnapshot is the non-secret endpoint pair a run's role was pinned to,
@@ -593,7 +612,8 @@ func (o *RoutedOperation) executingAttempt() (*InvocationAttempt, bool) {
 
 // ClaimSlot records the developer slot the run occupies. Claiming the slot
 // already recorded changes nothing; claiming any other is refused, because a
-// run is never renumbered.
+// run is never renumbered by a claim. A run taken up again is moved, where it
+// may be, by MoveSlot.
 func (r *RunRouting) ClaimSlot(number int, origin RoutingOrigin, at time.Time) (bool, error) {
 	if number < 1 {
 		return false, fmt.Errorf("developer slot %d is not a positive slot number", number)
@@ -605,6 +625,29 @@ func (r *RunRouting) ClaimSlot(number int, origin RoutingOrigin, at time.Time) (
 		return false, conflict("the run occupies developer slot %d and is not renumbered to %d", r.Slot.Number, number)
 	}
 	r.Slot = &RoutedSlot{Number: number, Origin: origin, RecordedAt: at.UTC()}
+	return true, nil
+}
+
+// MoveSlot records another developer slot for a run taken up again while the
+// slot it recorded is held by another run. Only a run that holds no developer
+// endpoint pair is moved: a pinned pair is that slot's, and the run waits for
+// the slot rather than run on its pair from another one. Moving to the slot
+// already recorded changes nothing.
+func (r *RunRouting) MoveSlot(number int, because string, at time.Time) (bool, error) {
+	if number < 1 {
+		return false, fmt.Errorf("developer slot %d is not a positive slot number", number)
+	}
+	if r.Slot != nil && r.Slot.Number == number {
+		return false, nil
+	}
+	if r.Developer != nil {
+		return false, conflict("the run keeps developer slot %d's endpoint pair and is not moved to slot %d", r.Developer.Slot, number)
+	}
+	from := 0
+	if r.Slot != nil {
+		from = r.Slot.Number
+	}
+	r.Slot = &RoutedSlot{Number: number, Origin: RoutingClaimed, RecordedAt: at.UTC(), MovedFrom: from, MovedBecause: because}
 	return true, nil
 }
 
@@ -1479,6 +1522,9 @@ func (r *RunRouting) clone() *RunRouting {
 func (r *RunRouting) recordedTexts(add func(key, path string, text *string)) {
 	if r == nil {
 		return
+	}
+	if r.Slot != nil {
+		add("routing.slot.moved_because", "routing.slot.moved_because", &r.Slot.MovedBecause)
 	}
 	for index := range r.Reconfigurations {
 		add("routing.reconfigurations[].reason", fmt.Sprintf("routing.reconfigurations[%d].reason", index), &r.Reconfigurations[index].Reason)

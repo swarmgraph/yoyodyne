@@ -26,6 +26,10 @@ type SubagentRecord struct {
 	Effort  string `json:"effort,omitempty"`
 	// Origin says which configuration decided the setting.
 	Origin string `json:"origin,omitempty"`
+	// Slot is the developer slot the setting was settled for, and zero on a
+	// record from before it was kept. A run moved to another slot when it was
+	// taken up again settles its setting afresh from that slot.
+	Slot int `json:"slot,omitempty"`
 	// Unavailable is why the run's last developer invocation went without
 	// sub-agents although the setting is on, in words a person reads, and empty
 	// where it had them or the setting is off.
