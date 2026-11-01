@@ -77,8 +77,10 @@ const (
 	// out of the goals is stated in internal/chat/admission.go and rests on two
 	// other enforcements: a conversation runs with no tools, and a run's change is
 	// refused at the protected homes before any check or reviewer sees it.
-	// Recording the resolved human here is designed and unbuilt
-	// (docs/team-mode-coordination.md, "Operator identity, designed once").
+	// Recording the resolved human here was proposed and is unbuilt; the
+	// design that replaced that proposal takes the forge account as identity
+	// (docs/designs/working-alongside-other-contributors.md, "The five gaps
+	// team mode named").
 	GrantOwnIntent Grant = "own-intent"
 	// GrantDirectWork is the authority to steer work already in flight: the
 	// directives that reach a run, and the thread replies the Slack sink records
