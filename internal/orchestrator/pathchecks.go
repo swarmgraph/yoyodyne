@@ -84,6 +84,24 @@ func withPathChecks(configured []string, added []addedCheck) ([]string, map[int]
 	return commands, providerCLIs
 }
 
+// withEveryPathCheck is added with every configured path check it does not
+// already carry, each for reason: a change that is a change to every check runs
+// every path check, whatever its list covers.
+func withEveryPathCheck(configured []config.PathCheck, added []addedCheck, reason string) []addedCheck {
+	for _, check := range configured {
+		if slices.ContainsFunc(added, func(ran addedCheck) bool { return ran.command == check.Command && ran.paths == check.Paths }) {
+			continue
+		}
+		added = append(added, addedCheck{
+			command:      check.Command,
+			paths:        check.Paths,
+			providerCLIs: check.NeedsProviderCLIs,
+			reason:       reason,
+		})
+	}
+	return added
+}
+
 // describePathChecks says, for the stage's record, what the gate added and what
 // it passed over: each configured path check is named either with the path that
 // added it or as not run because the change touches nothing its list covers,

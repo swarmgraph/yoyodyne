@@ -59,6 +59,11 @@ const maxMergeQueueRefusedPaths = MaxConflictedPaths
 // generation that keeps being interrupted plausibly takes.
 const maxMergeQueueLaunches = 500
 
+// maxMergeQueueInstalls bounds a generation's install records: one for each
+// declared step in each checkout its stages use, the candidate's and its
+// base's, with room for a project that declares many steps.
+const maxMergeQueueInstalls = 64
+
 // MergeQueueCheckConfiguration is the checks a generation is verified by: the
 // commands the project configured, in order, and a digest of them. A
 // configuration that changes is a different gate, so the digest is part of a
@@ -159,6 +164,12 @@ type MergeQueueGeneration struct {
 	// a later worker reads, beside the stage's hold, to tell whether a process
 	// an earlier worker started is still running before it starts another.
 	Launches []MergeQueueLaunch `json:"launches,omitempty"`
+	// Install is the last successful run of each of the project's declared
+	// install steps in each checkout the generation's stages ran the project's
+	// code in, without its output: what says whether a step is due again there
+	// (docs/designs/project-dependencies-in-runs.md). It is not evidence about
+	// the candidate and is not part of the binding.
+	Install []InstallRun `json:"install,omitempty"`
 	// Invalidated is set once the generation can no longer be promoted, and is
 	// never cleared: a generation that stopped being promotable is replaced by a
 	// new one rather than revived.
@@ -544,6 +555,16 @@ func (g MergeQueueGeneration) validate() error {
 		}
 		if len(g.Review.Summary) > maxMergeQueueEvidenceText || len(g.Review.Problem) > maxMergeQueueEvidenceText {
 			problems = append(problems, errors.New("its review's text exceeds its bound"))
+		}
+	}
+	if len(g.Install) > maxMergeQueueInstalls {
+		problems = append(problems, fmt.Errorf("%d install records exceeds the %d a generation keeps", len(g.Install), maxMergeQueueInstalls))
+	}
+	for _, install := range g.Install {
+		if err := install.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("an install record is not whole: %w", err))
+		} else if install.Result != InstallPassed || install.Output != "" {
+			problems = append(problems, fmt.Errorf("the install record of %q is not a successful run kept without its output", install.Name))
 		}
 	}
 	if len(g.Launches) > maxMergeQueueLaunches {

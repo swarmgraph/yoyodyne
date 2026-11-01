@@ -1062,6 +1062,11 @@ var notAStep = map[string]string{
 	// could hand a developer a checkout its checks cannot run in, and what it
 	// installs is ignored by Git and can never enter the change.
 	"installBeforeDeveloper": "runs the project's declared install steps in the worktree before the developer's first turn",
+	// Running a step again where it is due is the same preparation, made before
+	// every developer turn, check stage and landing rather than once: a
+	// definition that could skip it could hand a turn or a check a checkout whose
+	// dependencies are not what the change asks for.
+	"installWhereDue": "runs the project's declared install steps again in a checkout where their inputs changed or an output is missing",
 	// What a fresh worktree starts from is part of cutting it, and it is decided
 	// by the run's recorded selection rather than by anything a definition could
 	// order: a re-run of a raise starts from the raising run's preserved change,

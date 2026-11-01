@@ -54,7 +54,12 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    worktree with the package cache under the state directory and each run of a
    step recorded on the run, `install.go`; a failure is sorted by
    `installSorted` and held by `blockOnInstall`), then `develop` and
-   `verifyReviewAndFinish`.
+   `verifyReviewAndFinish`. `installWhereDue` runs a step again wherever it
+   is due (`installDue`): at the top of `develop`, before `verify` runs its
+   checks (a step the change broke is handed back as a failing check,
+   `installChangeFailure`), and before `runLandingChecks`; the merge queue's
+   checks run it through `MergeQueueWorker.installWhereDue`
+   (`mergequeueinstall.go`).
 5. **Continuing a run.** `Pipeline.Continue` (re-enter one named run;
    `ContinuationMismatchError`), `reclaimSlot`, `resumeRun` (picks the step
    to resume at from the record), `resumedDeveloperPrompt`, and the predicates

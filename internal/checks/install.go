@@ -38,6 +38,9 @@ type InstallRequest struct {
 	// caller that has none to give.
 	Cache  string
 	Permit PermitRequest
+	// Gate is the launch gate the command is started behind, as Request.Gate
+	// is a check's, and nil for the ordinary start.
+	Gate func(command string) (*execution.LaunchGate, error)
 }
 
 // RunInstall runs one attempt at an install step and returns its result.
@@ -62,6 +65,7 @@ func (request InstallRequest) CheckRequest() Request {
 		Timeout:      request.TimeLimit,
 		Unbounded:    true,
 		Permit:       request.Permit,
+		Gate:         request.Gate,
 	}
 }
 
