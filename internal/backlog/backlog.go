@@ -172,6 +172,16 @@ func (h Holds) RunID(workItemID string) string {
 	return strings.TrimSpace(held.RunID)
 }
 
+// Holding is the hold on one named item, and whether anything holds it. It
+// answers for any item the reading found a stoppage of, whatever the tracker
+// says of the item: the queue asks it only of the admitted work, and a surface
+// listing every held item asks it of the rest too.
+func (h Holds) Holding(workItemID string) (Hold, bool) {
+	held := h.held[workItemID]
+	held.Reason = strings.TrimSpace(held.Reason)
+	return held, held.Reason != ""
+}
+
 // Read reports holds a reader actually got an answer about. It is exported
 // because "nothing is held" and "nothing could say what is held" are opposite
 // answers to anything deciding whether an item may be touched, and only the

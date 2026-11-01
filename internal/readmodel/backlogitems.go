@@ -201,7 +201,7 @@ type backlogReadiness struct {
 // is ready and what holds it where it is not. A nil map is the queue not
 // having been read, and the problem says why.
 func readBacklogReadiness(ctx context.Context, sources Sources) (map[string]backlogReadiness, string) {
-	queue, coverage, gateProblem, err := readQueue(ctx, sources)
+	queue, coverage, _, gateProblem, err := readQueue(ctx, sources)
 	if err != nil {
 		return nil, fmt.Sprintf("the admitted work's readiness could not be read: %v", err)
 	}

@@ -749,6 +749,17 @@ type Standing struct {
 	WaitingProblem string                      `json:"waiting_problem,omitempty"`
 
 	NotStartable []Refused `json:"not_startable"`
+	// HeldInProgress is the work the harness holds after a stopped run whose
+	// tracker status is in progress rather than open or blocked, oldest hold
+	// first, each carried as a refusal of kind HeldForAPerson. A run claims its
+	// item when it starts and nothing reopens it when the run stops, so a stopped
+	// item can stay marked in progress, assigned to whoever claimed it, while
+	// the harness holds it for a decision. The admitted queue is assembled from
+	// open and blocked work alone, so none of these is in NotStartable or counted
+	// in its head; an item a run in flight is carrying is on the running line
+	// instead. It is carried for the surface that lists every held item
+	// (internal/health), and is nil where the queue could not be read.
+	HeldInProgress []Refused `json:"held_in_progress,omitempty"`
 	// NotStartableGroups is the not-startable items counted by what they wait
 	// on, each group with its next step and whose move it is, in the order a
 	// reader acts on them. NotStartableForOperator is the one sentence saying
@@ -976,6 +987,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	}
 	refused, waits, queue, stall, notStartableProblem := readNotStartable(ctx, sources, switches, running, now)
 	standing.NotStartable = refused
+	standing.HeldInProgress = waits.heldInProgress
 	standing.Admitted = len(queue.Entries)
 	standing.AwaitingDecision = waits.awaitingDecision
 	standing.AwaitingCarryOut = waits.awaitingCarryOut
@@ -1776,7 +1788,7 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 	if sources.Tracker == nil {
 		return nil, heldWork{}, backlog.Queue{}, Stall{}, "nothing was wired to read the admitted work"
 	}
-	queue, coverage, gateProblem, err := readQueue(ctx, sources)
+	queue, coverage, claimedHeld, gateProblem, err := readQueue(ctx, sources)
 	if err != nil {
 		return nil, heldWork{}, backlog.Queue{}, Stall{}, fmt.Sprintf("the admitted work could not be read: %v", err)
 	}
@@ -1897,6 +1909,13 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 	}
 	waits.groups = groups.list()
 	waits.slotWait = slotWait
+	waits.heldInProgress = []Refused{}
+	for _, item := range claimedHeld {
+		if _, carried := inFlight[item.WorkItemID]; !carried {
+			waits.heldInProgress = append(waits.heldInProgress, item)
+		}
+	}
+	oldestHoldFirst(waits.heldInProgress)
 	if len(held.problems) > 0 {
 		problem = joinProblems(problem, strings.Join(held.problems, "; "))
 	}
@@ -1959,6 +1978,9 @@ type heldWork struct {
 	// the ready items waiting only for a developer slot.
 	groups   []WaitGroup
 	slotWait *SlotWait
+	// heldInProgress is the held items the tracker marks in progress that no
+	// run in flight is carrying (Standing.HeldInProgress).
+	heldInProgress []Refused
 }
 
 // countCarryOuts counts one held item's decisions a gate refused and ones no
@@ -2120,22 +2142,23 @@ func Queue(ctx context.Context, sources Sources) (backlog.Queue, string, error) 
 	if sources.Tracker == nil {
 		return backlog.Queue{}, "", errors.New("nothing was wired to read the admitted work")
 	}
-	queue, _, problem, err := readQueue(ctx, sources)
+	queue, _, _, problem, err := readQueue(ctx, sources)
 	return queue, problem, err
 }
 
-// readQueue assembles the admitted work in the product manager's order, and the
-// coverage over it, from the same five readings the scheduler makes: the
-// listings that carry the order, the tracker's own account of what can be
-// pulled, what the harness is holding for a person, the human gates a person
-// has recorded passing, and the work that has already been pulled.
+// readQueue assembles the admitted work in the product manager's order, the
+// coverage over it, and the held work the order leaves out, from the same five
+// readings the scheduler makes: the listings that carry the order, the
+// tracker's own account of what can be pulled, what the harness is holding for
+// a person, the human gates a person has recorded passing, and the work that
+// has already been pulled.
 //
 // The gates are the one of the four whose absence is survivable, so they are
 // reported as a problem rather than as a failure. Nothing discharged means every
 // declared gate holds, which overstates what is waiting on a person and never
 // understates it — and an overstated gate is a line an operator can read and
 // dismiss, where the other direction is work started past somebody's step.
-func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Coverage, string, error) {
+func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Coverage, []Refused, string, error) {
 	// What the harness holds for a person is read first, because it asks the
 	// repository about every stopped run and needs nothing from the tracker: a
 	// standing's tracker commands are already under way and answer while it
@@ -2149,7 +2172,7 @@ func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Cov
 	for _, status := range backlogStatuses {
 		items, err := sources.list(ctx, status)
 		if err != nil {
-			return backlog.Queue{}, nil, "", err
+			return backlog.Queue{}, nil, nil, "", err
 		}
 		admitted = append(admitted, items...)
 	}
@@ -2157,14 +2180,14 @@ func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Cov
 	defer cancel()
 	ready, err := sources.Tracker.Ready(trackerCtx)
 	if err != nil {
-		return backlog.Queue{}, nil, "", fmt.Errorf("list the work items the tracker reports as ready: %w", err)
+		return backlog.Queue{}, nil, nil, "", fmt.Errorf("list the work items the tracker reports as ready: %w", err)
 	}
 	pullable := make([]string, 0, len(ready))
 	for _, item := range ready {
 		pullable = append(pullable, item.ID)
 	}
 	if heldErr != nil {
-		return backlog.Queue{}, nil, "", fmt.Errorf("read what the harness is holding back after stopped runs: %w", heldErr)
+		return backlog.Queue{}, nil, nil, "", fmt.Errorf("read what the harness is holding back after stopped runs: %w", heldErr)
 	}
 	var discharged map[string][]string
 	unread := ""
@@ -2196,9 +2219,33 @@ func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Cov
 	// disagreement this line exists to have none of.
 	claimed, err := sources.list(ctx, backlog.StatusClaimed)
 	if err != nil {
-		return backlog.Queue{}, nil, "", err
+		return backlog.Queue{}, nil, nil, "", err
 	}
-	return queue, backlog.Cover(queue, admitted, claimed), problem, nil
+	return queue, backlog.Cover(queue, admitted, claimed), heldClaimed(claimed, held), problem, nil
+}
+
+// heldClaimed is the work the tracker marks in progress that the harness holds
+// after a stopped run, in the product manager's order, with each hold as the
+// queue words it for admitted work. Whoever the item is assigned to makes no
+// difference: the hold is read from the harness's records of its runs, not
+// from the tracker.
+func heldClaimed(claimed []beads.WorkItem, held backlog.Holds) []Refused {
+	items := append([]beads.WorkItem(nil), claimed...)
+	backlog.Sort(items)
+	refused := []Refused{}
+	for _, item := range items {
+		hold, found := held.Holding(item.ID)
+		if !found {
+			continue
+		}
+		entry := Refused{WorkItemID: item.ID, Title: item.Title, Reason: hold.Reason, Kind: backlog.HeldForAPerson, RunID: strings.TrimSpace(hold.RunID)}
+		if !hold.Since.IsZero() {
+			since := hold.Since
+			entry.HeldSince = &since
+		}
+		refused = append(refused, entry)
+	}
+	return refused
 }
 
 // readReports is how the collected pile stands. A pile that could not be read

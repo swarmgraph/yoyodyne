@@ -332,9 +332,20 @@ func (o Observer) readRuns(r *reading) {
 	r.source(SourceRuns, strings.Join(problems, "; "))
 }
 
+// readHeld lists every item the harness holds after a stopped run: the admitted
+// ones among the refusals, and those the tracker still marks in progress, which
+// the admitted queue leaves out (readmodel.Standing.HeldInProgress). Neither
+// the tracker status nor the assignee decides whether a held item is listed.
 func (o Observer) readHeld(r *reading, standing readmodel.Standing) {
 	r.source(SourceHeld, standing.NotStartableProblem)
-	for _, refused := range standing.NotStartable {
+	inProgress := make(map[string]bool, len(standing.HeldInProgress))
+	held := make([]readmodel.Refused, 0, len(standing.NotStartable)+len(standing.HeldInProgress))
+	held = append(held, standing.NotStartable...)
+	for _, refused := range standing.HeldInProgress {
+		inProgress[refused.WorkItemID] = true
+		held = append(held, refused)
+	}
+	for _, refused := range held {
 		if refused.Kind != backlog.HeldForAPerson {
 			continue
 		}
@@ -349,6 +360,9 @@ func (o Observer) readHeld(r *reading, standing readmodel.Standing) {
 		anomaly.Says = fmt.Sprintf("%s is held after a stopped run", refused.WorkItemID)
 		if refused.RunID != "" {
 			anomaly.Says = fmt.Sprintf("%s is held after run %s stopped", refused.WorkItemID, refused.RunID)
+		}
+		if inProgress[refused.WorkItemID] {
+			anomaly.Says += ", though the tracker still marks it in progress"
 		}
 		anomaly.Needs = refused.Reason
 		r.add(anomaly)
