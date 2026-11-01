@@ -8612,8 +8612,8 @@ fixed size would be cleaned up on every pass and shrink by nothing.
 one cleanup holds the store; every tracker call waits behind it, so it is
 stopped when this runs out and the next pass finishes the work, and its
 ceiling leaves a call that arrives the moment a cleanup starts most of its own
-thirty seconds to answer in. Each bound is read on its own, so a file may set
-one and keep the defaults for the others.
+time limit (two minutes) to answer in. Each bound is read on its own, so a
+file may set one and keep the defaults for the others.
 
 ## Recurring tasks
 

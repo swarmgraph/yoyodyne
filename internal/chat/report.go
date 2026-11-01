@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/console"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -679,7 +680,7 @@ func renderCollectedReports(theme console.Theme, reports []report.Report, handle
 // collection makes for its work items, as every other surface's listing is
 // bounded: a tracker that will not answer costs the listing its titles, never
 // the turn.
-const workItemTitlesTimeout = 30 * time.Second
+const workItemTitlesTimeout = beads.DefaultTimeout
 
 // workItemTitles is one reading of the tracker, for a listing a person reads or
 // for the references of text being recorded. It is nil where this conversation

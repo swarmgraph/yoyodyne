@@ -196,8 +196,8 @@ type Environment struct {
 
 // defaultTimeout is what each probe gets when nothing says. It is generous for
 // commands that answer immediately because the ones that do not are the
-// interesting case: `bd` starts a database engine on its first invocation in a
-// project, and `gh auth status` reaches the network.
+// interesting case: `gh auth status` reaches the network. `bd` is given the
+// tracker's own longer bound instead (checkTracker).
 const defaultTimeout = 30 * time.Second
 
 // Diagnose runs every check and returns what it found, in a fixed order: the
@@ -367,6 +367,12 @@ func (d *diagnosis) homeDir() (string, error) {
 // started at all is distinguished from one that ran and refused, because those
 // are two different remedies.
 func (d *diagnosis) run(ctx context.Context, directory, name string, args ...string) (execution.ProcessResult, error) {
+	return d.runWithin(ctx, d.env.Timeout, directory, name, args...)
+}
+
+// runWithin is run with a bound of its own, for a tool whose ordinary answer can
+// take longer than the probes' shared one.
+func (d *diagnosis) runWithin(ctx context.Context, limit time.Duration, directory, name string, args ...string) (execution.ProcessResult, error) {
 	if d.env.Runner == nil {
 		return execution.ProcessResult{}, errors.New("no process runner was wired")
 	}
@@ -374,7 +380,7 @@ func (d *diagnosis) run(ctx context.Context, directory, name string, args ...str
 		Name:    name,
 		Args:    args,
 		Dir:     directory,
-		Timeout: d.env.Timeout,
+		Timeout: limit,
 	}, nil)
 }
 
@@ -510,8 +516,11 @@ func (d *diagnosis) checkTracker(ctx context.Context, repository string) Finding
 	}
 	// `bd stats` opens the project's database and reports on it, which is the
 	// cheapest question that proves the tracker is actually usable here rather
-	// than merely installed.
-	result, err := d.run(ctx, repository, "bd", "stats")
+	// than merely installed. It is given the bound every other tracker call is
+	// given, or the probes' own where that is longer, because on a large store an
+	// answer that is merely slow would otherwise read as a tracker that does not
+	// work.
+	result, err := d.runWithin(ctx, max(d.env.Timeout, beads.DefaultTimeout), repository, "bd", "stats")
 	if err != nil || result.Status != execution.ProcessSucceeded {
 		return Finding{
 			Check:   "tracker",

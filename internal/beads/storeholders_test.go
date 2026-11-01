@@ -49,7 +49,7 @@ func TestACallStoppedAtItsLimitNamesWhatHeldTheStore(t *testing.T) {
 	}
 	for _, want := range []string{
 		"bd show failed with status timed_out and exit code -1: reading work item yoyodyne-7my",
-		"at the 30s limit each tracker call is given; when it was stopped, the tracker's store was held open by process 4242 (bd export -o .beads/issues.jsonl), running since " + since.Format("2006-01-02 15:04:05 MST"),
+		"at the " + DefaultTimeout.String() + " limit each tracker call is given; when it was stopped, the tracker's store was held open by process 4242 (bd export -o .beads/issues.jsonl), running since " + since.Format("2006-01-02 15:04:05 MST"),
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("Show() error = %q, want it to say %q", err, want)

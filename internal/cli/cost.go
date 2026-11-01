@@ -55,7 +55,7 @@ type recordedCost struct {
 // site, so every write is bounded the same way whether it is one item or a
 // backfill of all of them: a tracker that has gone slow costs a backfill an item
 // rather than the whole ledger.
-const costTrackerTimeout = 30 * time.Second
+const costTrackerTimeout = beads.DefaultTimeout
 
 // reportCosts prices work items from the runs the harness recorded for them.
 // Reading is the default and recording is asked for, because writing a price
