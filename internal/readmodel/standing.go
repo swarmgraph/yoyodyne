@@ -500,6 +500,12 @@ type RunningRun struct {
 	// still working are the same phase and different facts, and only the second
 	// is the provider's.
 	AfterReply string `json:"after_reply,omitempty"`
+	// Install says the run is waiting to try one of the project's install steps
+	// again after it failed for a cause outside the work, naming the step and
+	// the local time of the next try — runstate.InstallWait.Describe — and is
+	// empty otherwise. The line says it in place of the bare phase, because a
+	// run waiting out the package registry is not doing what its phase names.
+	Install string `json:"install,omitempty"`
 	// Evidence is the newest result the run's record holds about its current
 	// change, in words — the checks passing or failing, a protected file
 	// refused, or the review's verdict — and empty where nothing has judged it
@@ -1395,6 +1401,7 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 			ResumingIntegration: state.ResumingIntegration(),
 			Checks:              checksOf(state, now),
 			AfterReply:          afterReplyOf(state, now),
+			Install:             installOf(state),
 			StartedAt:           state.StartedAt,
 			Elapsed:             now.Sub(state.StartedAt),
 			// A run nothing has priced yet is stated as unpriced rather than as free.
@@ -1547,6 +1554,15 @@ func afterReplyOf(state runstate.State, now time.Time) string {
 		return ""
 	}
 	return state.AfterReply.Describe(now)
+}
+
+// installOf is what a run in flight says while it waits to try an install step
+// again, and empty for any other run.
+func installOf(state runstate.State) string {
+	if state.InstallWait == nil {
+		return ""
+	}
+	return state.InstallWait.Describe()
 }
 
 // readWorking is the persona conversations with a turn in flight. A conversation

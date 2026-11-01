@@ -119,3 +119,82 @@ func InstallOutputTail(lines []string) string {
 	}
 	return text[cut:]
 }
+
+// InstallFailureCause is whose an install step's failure is, decided from the
+// digests the runs of it recorded (docs/designs/project-dependencies-in-runs.md,
+// "When the step fails"). Only InstallCauseChange spends a repair round.
+type InstallFailureCause string
+
+const (
+	// InstallCauseChange is a failure on inputs the run's change altered: the
+	// change's to repair, handed back as a failed check is.
+	InstallCauseChange InstallFailureCause = "change"
+	// InstallCauseOutside is a failure on inputs unchanged from the run's start
+	// that have installed on this machine before, so what failed is almost
+	// always the network or the package registry. It is tried again, and held
+	// for the development manager once those tries are spent.
+	InstallCauseOutside InstallFailureCause = "outside"
+	// InstallCauseNeverInstalled is a failure on unchanged inputs that have never
+	// installed on this machine: the step or the machine is wrong rather than
+	// the change, so the run is held for the development manager at once.
+	InstallCauseNeverInstalled InstallFailureCause = "never-installed"
+)
+
+// SortInstallFailure says whose failed is. startingDigest is the digest of the
+// step's inputs as the run's starting target had them, and installedBefore
+// whether a run of the same step on this machine has ever installed the inputs
+// failed ran on.
+func SortInstallFailure(failed InstallRun, startingDigest string, installedBefore bool) InstallFailureCause {
+	switch {
+	case failed.InputDigest != startingDigest:
+		return InstallCauseChange
+	case installedBefore:
+		return InstallCauseOutside
+	default:
+		return InstallCauseNeverInstalled
+	}
+}
+
+// InstallRetries is how many times a step that failed for a cause outside the
+// work is tried again, and InstallRetryInterval how long the harness waits
+// before each try, before the run is held for the development manager.
+const (
+	InstallRetries       = 3
+	InstallRetryInterval = 5 * time.Minute
+)
+
+// InstallWait is a run waiting to try an install step again after it failed for
+// a cause outside the work. It is on the record only while the wait lasts, so
+// every surface showing the run can say what it is waiting for and when it
+// tries next.
+type InstallWait struct {
+	// Name is the step's name as the project declared it.
+	Name string `json:"name"`
+	// Retry is which of the InstallRetries tries the run is waiting to make,
+	// counted from 1.
+	Retry int `json:"retry"`
+	// NextAt is when that try starts.
+	NextAt time.Time `json:"next_at"`
+}
+
+// Validate holds a recorded wait to the shapes the harness writes.
+func (w InstallWait) Validate() error {
+	var problems []error
+	if strings.TrimSpace(w.Name) == "" {
+		problems = append(problems, errors.New("name is required"))
+	}
+	if w.Retry < 1 || w.Retry > InstallRetries {
+		problems = append(problems, fmt.Errorf("retry %d is not one of the %d tries", w.Retry, InstallRetries))
+	}
+	if w.NextAt.IsZero() {
+		problems = append(problems, errors.New("next attempt time is required"))
+	}
+	return errors.Join(problems...)
+}
+
+// Describe says in one sentence what the run is waiting for, naming the time of
+// the next try in the operator's local time with its zone.
+func (w InstallWait) Describe() string {
+	return fmt.Sprintf("the install step %q failed on dependency files that have installed on this machine before, so the cause is most likely the network or the package registry; trying again at %s (try %d of %d)",
+		w.Name, w.NextAt.Local().Format("15:04 MST"), w.Retry, InstallRetries)
+}
