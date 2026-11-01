@@ -58,7 +58,7 @@ func TestAListingTheBoundKillsOnEveryAttemptIsAskedAgainThenRefusedByName(t *tes
 	if err == nil {
 		t.Fatal("List() error = nil, want the listing refused")
 	}
-	for _, want := range []string{"did not answer within its 30s bound on any of 3 attempts", "bd list failed with status timed_out"} {
+	for _, want := range []string{"did not answer within its " + DefaultTimeout.String() + " bound on any of 3 attempts", "bd list failed with status timed_out"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("List() error = %q, want it to say %q", err, want)
 		}

@@ -123,10 +123,10 @@ const (
 	// DefaultTrackerCleanupMaxHold is how long a cleanup may hold the store.
 	// Cleaning up the 885 MB store took nine seconds.
 	DefaultTrackerCleanupMaxHold = 15 * time.Second
-	// MaxTrackerCleanupHold is the ceiling on that hold: two thirds of the
-	// thirty seconds a tracker call is given (internal/beads), so a call that
-	// arrives the moment a cleanup starts has ten seconds to answer once it is
-	// stopped, against the two or so an ordinary call takes.
+	// MaxTrackerCleanupHold is the ceiling on that hold: well inside the time
+	// limit a tracker call is given (beads.DefaultTimeout), so a call that
+	// arrives the moment a cleanup starts still has most of its limit to answer
+	// in once the cleanup is stopped.
 	MaxTrackerCleanupHold = 20 * time.Second
 )
 
@@ -383,7 +383,7 @@ func (t TrackerCleanup) problems() []string {
 			t.GrownMegabytes, MaxTrackerCleanupGrownMegabytes))
 	}
 	if hold := t.MaxHold.Duration(); hold < time.Second || hold > MaxTrackerCleanupHold {
-		problems = append(problems, fmt.Sprintf("services.maintenance.tracker_cleanup.max_hold is %s, and must be between 1s and %s: every tracker call waits while a cleanup holds the store, and a hold longer than that leaves a call that arrives as it starts too little of its own thirty seconds to answer in",
+		problems = append(problems, fmt.Sprintf("services.maintenance.tracker_cleanup.max_hold is %s, and must be between 1s and %s: every tracker call waits while a cleanup holds the store, and a hold longer than that leaves a call that arrives as it starts too little of its own time limit to answer in",
 			t.MaxHold, Duration(MaxTrackerCleanupHold)))
 	}
 	return problems

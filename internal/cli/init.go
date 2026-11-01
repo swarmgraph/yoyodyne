@@ -10,7 +10,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/artifacthome"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
@@ -148,7 +147,7 @@ const (
 	// remote, but bd's first invocation in a project starts its database engine,
 	// so the budget is the one every other bd call here is given rather than the
 	// shorter one a purely local command would suggest.
-	trackerCommandTimeout = 30 * time.Second
+	trackerCommandTimeout = beads.DefaultTimeout
 )
 
 // What init did about the tracker's sync remote. The four outcomes are kept
