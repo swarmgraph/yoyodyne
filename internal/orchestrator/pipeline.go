@@ -4341,6 +4341,21 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 	if a.state.OutsideFile != nil {
 		return errors.New("a run that brings a file in has no developer")
 	}
+	// The project's dependencies are put back in the worktree where they are not
+	// what its inputs now ask for, for the same reason the refusals below are
+	// read here: every developer invocation passes through this point, so a
+	// repair round after a change to a lock file, and an attempt a continued run
+	// makes, both start with what the change asks for installed (install.go). A
+	// step the change itself broke does not stop the turn, because the turn is
+	// the change's chance to repair it; the checks after it hand the failure back
+	// if it still stands.
+	if err := a.installWhereDue(ctx, a.worktree.Path, installBeforeDeveloperTurn, heavyCheckPriority(a.state), true); err != nil {
+		var broken installFailure
+		if !errors.As(err, &broken) {
+			a.observeDevelopEnded(ctx, err)
+			return err
+		}
+	}
 	// A change this developer proposed that the harness refused opens the prompt,
 	// ahead of the contract and of whatever this invocation is actually for. It is
 	// prepended here rather than built into each kind of prompt because here is the
@@ -6579,6 +6594,15 @@ func (a *activeRun) verify(ctx context.Context) error {
 		narrowing = checks.Narrowing{Whole: true, Reason: candidateCheckedWhole}
 	}
 	added := pathChecksFor(a.worktree.Path, p.Config.PathChecks, changed)
+	// A change to what an install step reads changes what every check runs
+	// against, so it is a change to every check that runs after the step: none
+	// is narrowed and every path check runs (install.go).
+	if reason := installInputChanged(p.Config.Install, changed); reason != "" {
+		if !narrowing.Whole {
+			narrowing = checks.Narrowing{Whole: true, Reason: reason}
+		}
+		added = withEveryPathCheck(p.Config.PathChecks, added, reason)
+	}
 	narrowed := narrowing.Describe()
 	if whole && before != nil && before.Narrowed != "" {
 		narrowed += "; before review: " + before.Narrowed
@@ -6606,6 +6630,26 @@ func (a *activeRun) verify(ctx context.Context) error {
 	// runs only the checks that had not already passed over this same candidate,
 	// and every check that passes from here is kept as it passes (keptchecks.go).
 	keeping := a.keepChecks(ctx, stageCommands, providerCLIs)
+	// The project's dependencies are put back in the worktree first where they
+	// are not what its inputs now ask for, so the checks judge the change with
+	// what it asks for installed (install.go). The stage's bound starts after
+	// them, because it bounds the checks and not the install.
+	if len(keeping.commands) > 0 {
+		before := installBeforeChecks
+		if whole {
+			before = installBeforeCandidateChecks
+		}
+		if err := a.installWhereDue(ctx, a.worktree.Path, before, priority, true); err != nil {
+			// A step the change broke is the change's to repair, so it is handed
+			// back as a failing check is, and spends a repair round as one does.
+			var broken installFailure
+			if errors.As(err, &broken) {
+				a.state.KeptChecks = nil
+				return installChangeFailure(broken)
+			}
+			return err
+		}
+	}
 	configured := p.checkStageTimeout()
 	stage := &runstate.CheckStage{
 		StartedAt:              p.clock().Now(),
@@ -7424,42 +7468,55 @@ func (a *activeRun) runLandingChecks(ctx context.Context) {
 	} else if path, err := p.Landings.CheckoutCommit(ctx, a.state.RunID, commit); err != nil {
 		problems = append(problems, fmt.Sprintf("no checkout of the integrated commit could be cut: %v", err))
 	} else {
-		results, lastSequence, err := p.Checks.Run(ctx, checks.Request{
-			RunID:        a.state.RunID,
-			Directory:    path,
-			Commands:     p.Config.LandingChecks,
-			LastSequence: a.state.LastSequence,
-			// A landing is where the whole suite runs, so a landing check written
-			// to read the narrowing is told there is none — and it is given the
-			// landing's own budget with no stage bound, because the suite moved
-			// here is the one the gate's stage bound cannot hold.
-			Env:       []string{checks.Narrowing{Whole: true, Reason: "a landing runs the whole suite"}.Env()},
-			Timeout:   budget,
-			Unbounded: true,
-			// A landing's heavy checks are let start ahead of every run's gate
-			// (heavychecks.go). The landing lease above is taken first and a place
-			// second, never the other way round, so a landing waiting for a place
-			// never holds one while it waits for its turn on the branch.
-			Permit: checks.PermitRequest{
-				WorkItemID: a.state.WorkItemID,
-				Commit:     commit,
-				Priority:   domain.HeavyCheckForLanding,
-				Waiting: func(check string, since time.Time) {
-					if landed.PermitWait == nil {
-						landed.PermitWait = &runstate.HeavyCheckWait{}
-					}
-					landed.PermitWait.Begin(check, since)
-					a.saveLanding(landed)
+		// The checkout is fresh, so the project's dependencies are installed in
+		// it before the suite runs (install.go). Where they cannot be, the
+		// landing is unverified rather than red: the suite never ran.
+		installErr := a.installWhereDue(ctx, path, installBeforeLandingChecks, domain.HeavyCheckForLanding, false)
+		// An install recorded may take the run's record as stored (install), so
+		// the landing this function goes on writing to is made the record's again.
+		a.state.LandingChecks = landed
+		var results []checks.Result
+		lastSequence := a.state.LastSequence
+		if installErr != nil {
+			problems = append(problems, fmt.Sprintf("the landing checks never ran: %v", installErr))
+		} else {
+			results, lastSequence, err = p.Checks.Run(ctx, checks.Request{
+				RunID:        a.state.RunID,
+				Directory:    path,
+				Commands:     p.Config.LandingChecks,
+				LastSequence: a.state.LastSequence,
+				// A landing is where the whole suite runs, so a landing check written
+				// to read the narrowing is told there is none — and it is given the
+				// landing's own budget with no stage bound, because the suite moved
+				// here is the one the gate's stage bound cannot hold.
+				Env:       []string{checks.Narrowing{Whole: true, Reason: "a landing runs the whole suite"}.Env()},
+				Timeout:   budget,
+				Unbounded: true,
+				// A landing's heavy checks are let start ahead of every run's gate
+				// (heavychecks.go). The landing lease above is taken first and a place
+				// second, never the other way round, so a landing waiting for a place
+				// never holds one while it waits for its turn on the branch.
+				Permit: checks.PermitRequest{
+					WorkItemID: a.state.WorkItemID,
+					Commit:     commit,
+					Priority:   domain.HeavyCheckForLanding,
+					Waiting: func(check string, since time.Time) {
+						if landed.PermitWait == nil {
+							landed.PermitWait = &runstate.HeavyCheckWait{}
+						}
+						landed.PermitWait.Begin(check, since)
+						a.saveLanding(landed)
+					},
+					Granted: func(_ string, waited time.Duration) {
+						if !landed.PermitWait.Waiting() {
+							return
+						}
+						landed.PermitWait.Granted(waited)
+						a.saveLanding(landed)
+					},
 				},
-				Granted: func(_ string, waited time.Duration) {
-					if !landed.PermitWait.Waiting() {
-						return
-					}
-					landed.PermitWait.Granted(waited)
-					a.saveLanding(landed)
-				},
-			},
-		}, a.sink)
+			}, a.sink)
+		}
 		a.state.LastSequence = lastSequence
 		if removeErr := p.Landings.RemoveCheckout(ctx, path); removeErr != nil {
 			problems = append(problems, fmt.Sprintf("the landing checkout at %s could not be removed and is left for somebody to remove by hand: %v", path, removeErr))

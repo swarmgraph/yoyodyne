@@ -576,13 +576,23 @@ Each step runs in a run's worktree after the worktree is made and before the
 developer's first turn, so the developer's first check finds what it installed.
 Each run of a step is recorded on the run with the step's name, a digest of its
 inputs, when it started and how long it took, how it ended, and the last 200
-lines of what it printed (at most 16 KiB), with secrets removed. A developer on
-a project that declares a step is told that a dependency file it changes is
-installed before the checks that judge the change and before its next repair
-round, not within the same turn.
+lines of what it printed (at most 16 KiB), with secrets removed.
 
-A step that does not pass is sorted by whose failure it is, from the digest of
-its inputs:
+After that, a step runs again in a checkout before anything else runs the
+project's code there — every developer turn (each repair round, and an attempt
+a continued run makes), every check stage (the merge candidate's included), the
+landing checks, and the merge queue's checks of a candidate and of its base —
+wherever no successful run of it is recorded in that checkout, the digest of
+its inputs differs from the one its last successful run there recorded, or one
+of its outputs is missing. Where none of those holds, it does not run. A
+developer on a project that declares a step is told that a dependency file it
+changes is installed before the checks that judge the change and before its
+next repair round, not within the same turn. A change that touches a step's
+input is a change to every check after the step: the checks are told the whole
+module rather than the packages the change touches, and every path check runs.
+
+A step that does not pass in a run's worktree is sorted by whose failure it
+is, from the digest of its inputs:
 
 - **The dependency files are the ones the run started from, and the same step
   has installed them on this machine before.** The cause is outside the work,
@@ -595,13 +605,19 @@ its inputs:
 - **The dependency files are the ones the run started from, and no run on this
   machine has ever installed them.** The step as the project declares it, or
   the machine, is what is wrong. The item is blocked for the development
-  manager at once, before any developer turn, with the step's output, and no
-  repair attempt is spent.
+  manager at once, with the step's output, and no repair attempt is spent.
+  Before the developer starts, this is before any developer turn.
 - **The run changed the dependency files.** The failure is the change's to
-  repair. This can only happen once the harness runs a step again after the
-  developer's turn, which it does not do yet;
-  [the design](../designs/project-dependencies-in-runs.md) names running a step
-  again before those checks and repair rounds as a later piece.
+  repair. Before a check stage it goes back to the developer as a failed check,
+  with the step's output, and spends one repair round, as any failed check
+  does. Before a developer turn the turn goes ahead, because it is the change's
+  chance to repair it, and the checks after it hand the failure back if it
+  still stands.
+
+The landing checks and the merge queue run a step once and do not sort its
+failure. A landing whose step fails is recorded as never having run rather than
+as red, and a merge queue stage whose step fails earns nothing and is run again
+on a later pass.
 
 What has installed on this machine is kept for each project beside the package
 cache, at `projects/<id>/state/install-installed.jsonl`: one line for each step

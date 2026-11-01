@@ -614,6 +614,23 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 		return generation, false, fmt.Errorf("record that generation %d's checks began: %w", generation.Number, err)
 	}
 	launched := launches{worker: w, lease: lease, key: key, generation: &generation, hold: hold, stage: runstate.MergeQueueStageChecks}
+	// The project's dependencies are put in the candidate's checkout first where
+	// they are not what its inputs ask for (mergequeueinstall.go). Where they
+	// cannot be, the checks never ran and earned nothing.
+	problem, err := w.installWhereDue(ctx, lease, key, &generation, generation.Checkout, "before the merge queue candidate's checks", launched.gate)
+	if err != nil {
+		return generation, false, err
+	}
+	if problem != "" {
+		finished := w.now()
+		evidence := *generation.CheckRun
+		evidence.FinishedAt, evidence.Problem = &finished, problem
+		generation.CheckRun = &evidence
+		if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
+			return generation, false, fmt.Errorf("record generation %d's checks: %w", generation.Number, err)
+		}
+		return generation, false, nil
+	}
 	results, lastSequence, runErr := p.Checks.Run(ctx, checks.Request{
 		RunID:        generation.EventStream(),
 		Directory:    generation.Checkout,

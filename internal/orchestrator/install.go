@@ -1,17 +1,28 @@
 package orchestrator
 
-// A project's declared install steps, run in a run's worktree before its
-// developer starts (docs/designs/project-dependencies-in-runs.md, build piece
-// 2). The step is run the way a declared check is, through the pipeline's check
-// runner (internal/checks/install.go says what that means and what differs), so
-// it is the harness that reaches the network and never an agent session. The
-// project's package cache folder is kept among the project's records under the
-// state directory, created through the confined write primitive, and named only
-// to the step's command; no developer sandbox grants it, because each grants its
-// own worktree and the repository's Git directory and this folder is in neither.
+// A project's declared install steps, run in a checkout before anything runs
+// the project's code there (docs/designs/project-dependencies-in-runs.md, build
+// pieces 2 to 4). The step is run the way a declared check is, through the
+// pipeline's check runner (internal/checks/install.go says what that means and
+// what differs), so it is the harness that reaches the network and never an
+// agent session. The project's package cache folder is kept among the project's
+// records under the state directory, created through the confined write
+// primitive, and named only to the step's command; no developer sandbox grants
+// it, because each grants its own worktree and the repository's Git directory
+// and this folder is in neither.
 //
-// A step that does not pass is sorted by whose failure it is (build piece 4,
-// runstate.SortInstallFailure). One on dependency files unchanged from the
+// A step runs in a run's worktree before the developer's first turn, and again
+// wherever something is about to run the project's code in a checkout and the
+// step is due there (installDue): before every developer turn, which is every
+// repair round and every continued attempt; before every check stage, the merge
+// candidate's included; before the landing checks; and before the merge queue's
+// checks of a candidate and of its base (mergequeueinstall.go). A step is due in
+// a checkout where no successful run of it is recorded there, where its inputs'
+// digest differs from the one that run recorded, or where one of its outputs is
+// missing, and nowhere else.
+//
+// A step that does not pass in a run's worktree is sorted by whose failure it
+// is (runstate.SortInstallFailure). One on dependency files unchanged from the
 // run's starting target that have installed on this machine before is the
 // network's or the package registry's: it is tried again
 // runstate.InstallRetries times, runstate.InstallRetryInterval apart, with the
@@ -19,10 +30,16 @@ package orchestrator
 // development manager once those tries are spent. One on unchanged files that
 // have never installed here is the step's or the machine's, and the run is
 // held at once. Both holds block the item with the step's output, keep the
-// branch and worktree, and spend no repair attempt (installHeld). A failure on
-// files the run changed is the change's to repair, and can only happen once the
-// steps run again after the developer's turn, which is build piece 3; before
-// the developer starts the files are the starting target's by construction.
+// branch and worktree, and spend no repair attempt (installHeld). One on files
+// the run changed is the change's: before a check stage it is handed back to
+// the developer as a failed check, spending one repair round (verify), and
+// before a developer turn the turn goes ahead, since that turn is the change's
+// chance to repair it (develop).
+//
+// The landing checks and the merge queue run a step once and do not sort its
+// failure: a landing is over the target after the run is settled, so it is
+// recorded as never having run, and a queue stage records the failure as its
+// problem and is run again on a later pass.
 
 import (
 	"context"
@@ -34,32 +51,86 @@ import (
 	"io"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
+// What a failed step was run before, as its failure says it.
+const (
+	installBeforeDeveloperStarted = "before the developer started"
+	installBeforeDeveloperTurn    = "before the developer's next turn"
+	installBeforeChecks           = "before the checks"
+	installBeforeCandidateChecks  = "before the merge candidate's checks"
+	installBeforeLandingChecks    = "before the landing checks"
+)
+
 // installBeforeDeveloper runs each declared install step, in the order the
 // project declares them, in this run's worktree, and records each on the run.
 // A project that declares none runs nothing and records nothing.
 func (a *activeRun) installBeforeDeveloper(ctx context.Context) error {
+	return a.installWhereDue(ctx, a.worktree.Path, installBeforeDeveloperStarted, heavyCheckPriority(a.state), true)
+}
+
+// installWhereDue runs each declared step that is due in directory, in the
+// order the project declares them, and records each run on the run. before is
+// what the steps are run ahead of, for the failure to say. Where sorted, a
+// failure is sorted by its cause (installSorted); otherwise a step is run once
+// and a failure is returned as an installFailure. A project that declares none,
+// or whose steps are all in place, runs nothing and records nothing.
+func (a *activeRun) installWhereDue(ctx context.Context, directory, before string, priority domain.HeavyCheckPriority, sorted bool) error {
 	p := a.pipeline
 	if len(p.Config.Install) == 0 {
 		return nil
 	}
-	cache, err := p.installCache()
+	cache := ""
+	for _, step := range p.Config.Install {
+		digest, err := installDigest(directory, step.Inputs)
+		if err != nil {
+			return fmt.Errorf("read the inputs of install step %q: %w", step.Name, err)
+		}
+		due, err := installDue(a.state.Install, step, directory, digest)
+		if err != nil {
+			return fmt.Errorf("look for the outputs of install step %q: %w", step.Name, err)
+		}
+		if !due {
+			continue
+		}
+		if cache == "" {
+			if cache, err = p.installCache(); err != nil {
+				return err
+			}
+		}
+		if sorted {
+			err = a.installSorted(ctx, step, directory, cache, before, priority)
+		} else {
+			err = a.installOnce(ctx, step, directory, cache, before, priority)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// installOnce runs one step once and returns its failure as an installFailure.
+func (a *activeRun) installOnce(ctx context.Context, step config.InstallStep, directory, cache, before string, priority domain.HeavyCheckPriority) error {
+	record, err := a.install(ctx, step, directory, cache, priority)
 	if err != nil {
 		return err
 	}
-	for _, step := range p.Config.Install {
-		if err := a.installSorted(ctx, step, a.worktree.Path, cache); err != nil {
-			return err
-		}
+	if record.Result != runstate.InstallPassed {
+		return installFailure{record: record, before: before}
+	}
+	if err := a.pipeline.recordInstalled(record.Name, record.InputDigest); err != nil {
+		return fmt.Errorf("record that install step %q installed on this machine: %w", step.Name, err)
 	}
 	return nil
 }
@@ -67,11 +138,12 @@ func (a *activeRun) installBeforeDeveloper(ctx context.Context) error {
 // installSorted runs one step until it passes or its failure is sorted to an
 // ending: tried again where the cause is outside the work and tries are left,
 // held for the development manager where they are spent or the step has never
-// worked here, and handed back as a failure where the run changed its inputs.
-func (a *activeRun) installSorted(ctx context.Context, step config.InstallStep, directory, cache string) error {
+// worked here, and handed back as an installFailure where the run changed its
+// inputs.
+func (a *activeRun) installSorted(ctx context.Context, step config.InstallStep, directory, cache, before string, priority domain.HeavyCheckPriority) error {
 	p := a.pipeline
 	for retry := 0; ; retry++ {
-		record, err := a.install(ctx, step, directory, cache)
+		record, err := a.install(ctx, step, directory, cache, priority)
 		if err != nil {
 			return err
 		}
@@ -90,17 +162,32 @@ func (a *activeRun) installSorted(ctx context.Context, step config.InstallStep, 
 		}
 		switch runstate.SortInstallFailure(record, startingInstallDigest(record, a.state.Install), installedBefore) {
 		case runstate.InstallCauseChange:
-			return installFailure{record: record}
+			if err := a.setInstallWait(ctx, nil); err != nil {
+				return err
+			}
+			return installFailure{record: record, before: before}
 		case runstate.InstallCauseNeverInstalled:
-			return a.blockOnInstall(installHeld{cause: runstate.CauseInstallNeverWorked, record: record, tries: retry + 1})
+			return a.blockOnInstall(installHeld{cause: runstate.CauseInstallNeverWorked, record: record, tries: retry + 1, before: before})
 		}
 		if retry == runstate.InstallRetries {
-			return a.blockOnInstall(installHeld{cause: runstate.CauseInstallUnavailable, record: record, tries: retry + 1})
+			return a.blockOnInstall(installHeld{cause: runstate.CauseInstallUnavailable, record: record, tries: retry + 1, before: before})
 		}
 		if err := a.waitToInstallAgain(ctx, runstate.InstallWait{Name: step.Name, Retry: retry + 1, NextAt: p.clock().Now().Add(runstate.InstallRetryInterval)}); err != nil {
 			return err
 		}
 	}
+}
+
+// installChangeFailure is a check failure standing for an install step the
+// change broke, so it is handed back to the developer, and charged, exactly as
+// a failing check is: the step's command, its exit status, and what it printed.
+func installChangeFailure(failure installFailure) checkFailure {
+	output := failure.Error()
+	return checkFailure{result: checks.Result{
+		Command:       "the install step " + strconv.Quote(failure.record.Name),
+		Process:       execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: failure.record.ExitCode},
+		FailureOutput: output,
+	}}
 }
 
 // startingInstallDigest is the digest the step's inputs had when this run first
@@ -151,16 +238,18 @@ func (a *activeRun) waitToInstallAgain(ctx context.Context, wait runstate.Instal
 }
 
 // setInstallWait puts wait on the run's record, or takes the wait there off it
-// where wait is nil, and takes the record as stored as the run's.
+// where wait is nil, and takes what it wrote onto the run's copy
+// (adoptInstallUpdate).
 func (a *activeRun) setInstallWait(ctx context.Context, wait *runstate.InstallWait) error {
 	if wait == nil && a.state.InstallWait == nil {
 		return nil
 	}
+	held := a.state.Revision
 	written, err := a.pipeline.Store.Update(context.WithoutCancel(ctx), a.state.RunID, runstate.InstallWaitRecorded{Wait: wait, At: a.pipeline.clock().Now()})
 	if err != nil {
 		return fmt.Errorf("record the wait to try an install step again: %w", err)
 	}
-	a.state = written
+	a.adoptInstallUpdate(written, held)
 	return nil
 }
 
@@ -237,12 +326,22 @@ type installHeld struct {
 	record runstate.InstallRun
 	// tries is how many times the step ran on these inputs in this run.
 	tries int
+	// before is what the step was run ahead of.
+	before string
+}
+
+// heldWhen says when the run was held, for the hold's message and notes.
+func (h installHeld) heldWhen() string {
+	if h.before == "" || h.before == installBeforeDeveloperStarted {
+		return "before any developer turn"
+	}
+	return h.before
 }
 
 func (h installHeld) Error() string {
 	var message string
 	if h.cause == runstate.CauseInstallNeverWorked {
-		message = fmt.Sprintf("the install step %q failed on dependency files that have never installed on this machine, so the step or the machine needs fixing rather than the change; the run is held for the development manager before any developer turn: %s", h.record.Name, h.record.Describe())
+		message = fmt.Sprintf("the install step %q failed on dependency files that have never installed on this machine, so the step or the machine needs fixing rather than the change; the run is held for the development manager %s: %s", h.record.Name, h.heldWhen(), h.record.Describe())
 	} else {
 		message = fmt.Sprintf("the install step %q failed %s on dependency files that installed on this machine before, %s apart, most likely because the network or the package registry could not be reached; the run is held for the development manager with its work kept: %s", h.record.Name, timesSaid(h.tries), runstate.InstallRetryInterval, h.record.Describe())
 	}
@@ -293,7 +392,7 @@ func renderInstallHeldNotes(outcome Outcome, held installHeld) string {
 	if held.cause == runstate.CauseInstallNeverWorked {
 		lines = append(lines,
 			"The dependency files are the ones the run started from, and no run on this machine has ever installed them, so the step as the project declares it, or the machine, needs fixing rather than the change.",
-			"It was held before any developer turn. Nothing was handed back to the developer and no repair attempt was spent.",
+			"It was held "+held.heldWhen()+". Nothing was handed back to the developer and no repair attempt was spent.",
 			"Changing the project's install step is the operator's to write; what the machine lacks may be something only a person can supply.")
 	} else {
 		lines = append(lines,
@@ -311,14 +410,75 @@ func renderInstallHeldNotes(outcome Outcome, held installHeld) string {
 	return strings.Join(lines, "\n")
 }
 
+// installDue says whether step has to run in directory before what is about to
+// run the project's code there: no successful run of it is recorded in that
+// checkout, the digest of its inputs as they stand now differs from the one its
+// last successful run there recorded, or one of its outputs is missing.
+func installDue(records []runstate.InstallRun, step config.InstallStep, directory, digest string) (bool, error) {
+	last, found := lastInstalled(records, step.Name, directory)
+	if !found || last.InputDigest != digest {
+		return true, nil
+	}
+	return installOutputMissing(directory, step.Outputs)
+}
+
+// lastInstalled is the last successful run of the step named name recorded in
+// directory.
+func lastInstalled(records []runstate.InstallRun, name, directory string) (runstate.InstallRun, bool) {
+	for index := len(records) - 1; index >= 0; index-- {
+		record := records[index]
+		if record.Name == name && record.Directory == directory && record.Result == runstate.InstallPassed {
+			return record, true
+		}
+	}
+	return runstate.InstallRun{}, false
+}
+
+// installOutputMissing reports whether any of outputs is missing from
+// directory, looked for without following a link out of the checkout.
+func installOutputMissing(directory string, outputs []string) (bool, error) {
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		return false, err
+	}
+	defer root.Close()
+	for _, output := range outputs {
+		_, err := root.Stat(path.Clean(strings.TrimSpace(output)))
+		if errors.Is(err, os.ErrNotExist) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	}
+	return false, nil
+}
+
+// installInputChanged says, for the check stage's record, which install step's
+// input the change touches, and is empty where it touches none. Such a change
+// is a change to every check that runs after the step, because each of them
+// runs against what the step installs from it.
+func installInputChanged(steps []config.InstallStep, changed []string) string {
+	for _, step := range steps {
+		for _, input := range step.Inputs {
+			if checks.ChangesFile(changed, path.Clean(strings.TrimSpace(input))) {
+				return fmt.Sprintf("the change touches %s, which the install step %q installs from, so every check runs after it", path.Clean(strings.TrimSpace(input)), step.Name)
+			}
+		}
+	}
+	return ""
+}
+
 // installFailure is a declared install step that did not pass. Its message is
 // the whole of what the run's failure note says about it.
 type installFailure struct {
 	record runstate.InstallRun
+	// before is what the step was run ahead of.
+	before string
 }
 
 func (f installFailure) Error() string {
-	message := "the project's dependencies were not installed before the developer started: " + f.record.Describe()
+	message := "the project's dependencies were not installed " + f.before + ": " + f.record.Describe()
 	if output := strings.TrimSpace(f.record.Output); output != "" {
 		message += "; it ended on:\n" + lastLines(output, 20)
 	}
@@ -343,14 +503,43 @@ func (p Pipeline) installCache() (string, error) {
 }
 
 // install runs one step once in directory and records it on the run.
-func (a *activeRun) install(ctx context.Context, step config.InstallStep, directory, cache string) (runstate.InstallRun, error) {
+func (a *activeRun) install(ctx context.Context, step config.InstallStep, directory, cache string, priority domain.HeavyCheckPriority) (runstate.InstallRun, error) {
 	p := a.pipeline
 	digest, err := installDigest(directory, step.Inputs)
 	if err != nil {
 		return runstate.InstallRun{}, fmt.Errorf("read the inputs of install step %q: %w", step.Name, err)
 	}
+	record, _, runErr := runInstallStep(ctx, p, step, digest, checks.InstallRequest{
+		RunID:        a.state.RunID,
+		Directory:    directory,
+		LastSequence: a.state.LastSequence,
+		Cache:        cache,
+		Permit: checks.PermitRequest{
+			WorkItemID: a.state.WorkItemID,
+			Commit:     a.state.BaseCommit,
+			Priority:   priority,
+		},
+	}, a.sink)
+	held := a.state.Revision
+	written, err := p.Store.Update(context.WithoutCancel(ctx), a.state.RunID, runstate.InstallRecorded{Install: record, At: record.StartedAt.Add(record.Duration())})
+	if err != nil {
+		return record, fmt.Errorf("record install step %q: %w", step.Name, err)
+	}
+	a.adoptInstallUpdate(written, held)
+	if runErr != nil && ctx.Err() != nil {
+		return record, runErr
+	}
+	return record, nil
+}
+
+// runInstallStep makes one attempt at step through the pipeline's check runner,
+// with request naming where and under what event stream, and says what became
+// of it as the record of it, with the last event sequence the attempt wrote and
+// the runner's error. The attempt's events go to sink, and what it printed is
+// kept for the record as they pass.
+func runInstallStep(ctx context.Context, p Pipeline, step config.InstallStep, digest string, request checks.InstallRequest, sink func(execution.Event) error) (runstate.InstallRun, uint64, error) {
 	var output []string
-	sink := func(event execution.Event) error {
+	collect := func(event execution.Event) error {
 		if event.Type == execution.EventProcessOutput {
 			var payload struct {
 				Text string `json:"text"`
@@ -362,26 +551,16 @@ func (a *activeRun) install(ctx context.Context, step config.InstallStep, direct
 				}
 			}
 		}
-		return a.sink(event)
+		return sink(event)
 	}
+	request.Command = step.Run
+	request.TimeLimit = step.Limit()
 	started := p.clock().Now()
-	result, _, runErr := checks.RunInstallWith(ctx, p.Checks, checks.InstallRequest{
-		RunID:        a.state.RunID,
-		Directory:    directory,
-		Command:      step.Run,
-		LastSequence: a.state.LastSequence,
-		TimeLimit:    step.Limit(),
-		Cache:        cache,
-		Permit: checks.PermitRequest{
-			WorkItemID: a.state.WorkItemID,
-			Commit:     a.state.BaseCommit,
-			Priority:   heavyCheckPriority(a.state),
-		},
-	}, sink)
+	result, last, runErr := checks.RunInstallWith(ctx, p.Checks, request, collect)
 	finished := p.clock().Now()
 	record := runstate.InstallRun{
 		Name:                 step.Name,
-		Directory:            directory,
+		Directory:            request.Directory,
 		InputDigest:          digest,
 		StartedAt:            started,
 		DurationMilliseconds: max(finished.Sub(started).Milliseconds(), 0),
@@ -392,17 +571,23 @@ func (a *activeRun) install(ctx context.Context, step config.InstallStep, direct
 	if runErr != nil && strings.TrimSpace(record.Output) == "" {
 		record.Output = runstate.InstallOutputTail([]string{runErr.Error()})
 	}
-	// Written onto the record as stored, and that record taken as the run's, so
-	// the run's own later saves are made from a copy in step with it.
-	written, err := p.Store.Update(context.WithoutCancel(ctx), a.state.RunID, runstate.InstallRecorded{Install: record, At: finished})
-	if err != nil {
-		return record, fmt.Errorf("record install step %q: %w", step.Name, err)
+	return record, last, runErr
+}
+
+// adoptInstallUpdate takes an install update the store wrote onto the run's
+// copy, so the run's own later saves are made from a copy in step with it.
+// Where that update is the only one since the copy was read at held, the copy
+// takes the stored installs, wait and revision and keeps the rest, because it
+// may hold what it has not saved yet, such as the phase a check stage has just
+// entered. Where another update came between, the stored record is taken whole,
+// so that update is never overwritten.
+func (a *activeRun) adoptInstallUpdate(written runstate.State, held uint64) {
+	if written.Revision == held+1 {
+		a.state.Install, a.state.InstallWait, a.state.Revision = written.Install, written.InstallWait, written.Revision
+		a.state.UpdatedAt = written.UpdatedAt
+		return
 	}
 	a.state = written
-	if runErr != nil && ctx.Err() != nil {
-		return record, runErr
-	}
-	return record, nil
 }
 
 func installResult(result checks.Result, err error) runstate.InstallResult {
@@ -471,7 +656,7 @@ func installSection(steps []config.InstallStep) string {
 	}
 	var section strings.Builder
 	section.WriteString("# This project's dependencies\n\n")
-	section.WriteString("The project declares the steps below to install its dependencies. The harness ran each of them in your worktree before you started, so what they install is already there, and your checks run against it without reaching the network.\n\n")
+	section.WriteString("The project declares the steps below to install its dependencies. The harness has run each of them in your worktree, and runs each again before every turn of yours where the files it installs from have changed or what it installs is missing, so what they install is already there, and your checks run against it without reaching the network.\n\n")
 	for _, step := range steps {
 		fmt.Fprintf(&section, "- %s: installs %s from %s.\n", step.Name, strings.Join(step.Outputs, ", "), strings.Join(step.Inputs, ", "))
 	}

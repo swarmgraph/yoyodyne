@@ -573,3 +573,250 @@ func TestAnInstallRecordKeepsTheEndOfTheOutput(t *testing.T) {
 		t.Fatalf("tail of a long line = %d bytes starting %q, want at most %d starting on a whole character", len(got), got[:2], runstate.MaxInstallOutputBytes)
 	}
 }
+
+// lockedNpmProject is the npm fixture whose install copies the lock file into
+// what it installs, and whose check fails unless what is installed was
+// installed from the lock file as it stands: a check that tells a fresh install
+// from a stale one.
+var lockedNpmProject = map[string]string{
+	"scripts/npm-ci.sh":        "#!/bin/sh\nset -eu\n: \"${YOYODYNE_INSTALL_CACHE:?the install cache was not named}\"\nmkdir -p node_modules/greeting\ncp vendor/greeting/package.json vendor/greeting/index.js node_modules/greeting/\ncp package-lock.json node_modules/.installed-lock\necho 'added 1 package in 1s'\n",
+	"scripts/test-packages.sh": "#!/bin/sh\nset -eu\nif ! cmp -s package-lock.json node_modules/.installed-lock; then\n  echo 'node_modules was not installed from package-lock.json as it stands' >&2\n  exit 1\nfi\necho 'greeting is installed'\n",
+}
+
+// changedLock is the lock file a developer's change writes.
+const changedLock = `{"name":"npm-project","lockfileVersion":3,"requires":true,"packages":{"":{"dependencies":{"greeting":"file:vendor/greeting"}}}}` + "\n"
+
+// installedFromLock reports whether what is installed in worktree was installed
+// from its lock file as it stands.
+func installedFromLock(t *testing.T, worktree string) bool {
+	t.Helper()
+	lock, err := os.ReadFile(filepath.Join(worktree, "package-lock.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := os.ReadFile(filepath.Join(worktree, "node_modules", ".installed-lock"))
+	return err == nil && string(installed) == string(lock)
+}
+
+// A run whose change rewrites the lock file has the step run again in its
+// worktree before the checks that judge the change, so they judge it with what
+// it asks for installed. The repair round the reviewer asks for after it finds
+// the step in place and the inputs unchanged, so neither it nor the checks
+// after it install anything again.
+func TestARunThatChangesTheLockFileIsInstalledAgainBeforeItsChecks(t *testing.T) {
+	t.Parallel()
+
+	repository := npmProjectRepository(t, lockedNpmProject)
+	tracker := npmProjectItem("npm-project-4")
+	attempts := 0
+	var freshAtRepair bool
+	var installsAtRepair int
+	var store *runstate.Store
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		attempts++
+		if attempts == 2 {
+			freshAtRepair = installedFromLock(t, request.WorkingDirectory)
+			if state, err := store.Load(pipelineRunID); err == nil {
+				installsAtRepair = len(state.Install)
+			}
+			return os.WriteFile(filepath.Join(request.WorkingDirectory, "src", "farewell.ts"), []byte(nonGoSource("  ")), 0o600)
+		}
+		if err := os.WriteFile(filepath.Join(request.WorkingDirectory, "package-lock.json"), []byte(changedLock), 0o644); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "src", "farewell.ts"), []byte(nonGoSource("  ")), 0o600)
+	}, repairVerdict, approveVerdict)
+	pipeline, runs := npmProjectPipeline(t, repository, tracker, provider, "sh scripts/npm-ci.sh")
+	store = runs
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != runstate.StatusSucceeded || attempts != 2 {
+		t.Fatalf("Run() outcome = %#v after %d developer attempts, want a success after one repair", outcome, attempts)
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(state.Install) != 2 {
+		t.Fatalf("install records = %#v, want one before the developer started and one before the checks that judged the new lock file", state.Install)
+	}
+	first, second := state.Install[0], state.Install[1]
+	if first.InputDigest == second.InputDigest || second.Result != runstate.InstallPassed || second.Directory != state.WorktreePath {
+		t.Fatalf("install records = %#v, want the second in the worktree, passed, on the changed lock file's digest", state.Install)
+	}
+	if !freshAtRepair || installsAtRepair != 2 {
+		t.Fatalf("at the repair round, installed from the lock file = %v with %d install records; want the install the checks were given, and none added", freshAtRepair, installsAtRepair)
+	}
+}
+
+// A repair round the checks never reached — the gate in front of them refused
+// the change — has the step run again before the developer's next turn, so the
+// developer's own checks in that turn find what the changed lock file asks for.
+// The checks after it find it in place and install nothing more.
+func TestARepairRoundAfterTheLockFileChangedStartsWithAFreshInstall(t *testing.T) {
+	t.Parallel()
+
+	repository := npmProjectRepository(t, lockedNpmProject)
+	tracker := npmProjectItem("npm-project-5")
+	attempts := 0
+	var freshAtRepair bool
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		attempts++
+		if attempts == 2 {
+			freshAtRepair = installedFromLock(t, request.WorkingDirectory)
+			if err := os.RemoveAll(filepath.Join(request.WorkingDirectory, "docs", "product")); err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(request.WorkingDirectory, "src", "farewell.ts"), []byte(nonGoSource("  ")), 0o600)
+		}
+		if err := os.WriteFile(filepath.Join(request.WorkingDirectory, "package-lock.json"), []byte(changedLock), 0o644); err != nil {
+			return err
+		}
+		return writeUpstream(t, request.WorkingDirectory, "docs/product/brief.md", "a brief the run preferred\n")
+	}, approveVerdict)
+	pipeline, store := npmProjectPipeline(t, repository, tracker, provider, "sh scripts/npm-ci.sh")
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != runstate.StatusSucceeded || attempts != 2 {
+		t.Fatalf("Run() outcome = %#v after %d developer attempts, want a success after the refused paths were repaired", outcome, attempts)
+	}
+	if !freshAtRepair {
+		t.Fatal("the repair round began with packages installed from the lock file the change replaced")
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(state.Install) != 2 || state.Install[0].InputDigest == state.Install[1].InputDigest {
+		t.Fatalf("install records = %#v, want one before the developer started and one before the repair round, and none before the checks", state.Install)
+	}
+}
+
+// A step is due in a checkout where no successful run of it is recorded there,
+// where the inputs' digest differs from the one that run recorded, or where an
+// output is missing, and nowhere else.
+func TestAnInstallStepIsDueOnlyWhereItsInputsChangedOrAnOutputIsMissing(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(directory, "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	step := config.InstallStep{Name: "npm packages", Inputs: []string{"package-lock.json"}, Outputs: []string{"node_modules"}}
+	passed := runstate.InstallRun{Name: step.Name, Directory: directory, InputDigest: "sha256:a", Result: runstate.InstallPassed}
+	failed := passed
+	failed.InputDigest, failed.Result = "sha256:b", runstate.InstallFailed
+	elsewhere := passed
+	elsewhere.Directory = filepath.Join(directory, "other")
+
+	for _, test := range []struct {
+		name    string
+		records []runstate.InstallRun
+		digest  string
+		want    bool
+	}{
+		{name: "nothing recorded", digest: "sha256:a", want: true},
+		{name: "recorded in another checkout only", records: []runstate.InstallRun{elsewhere}, digest: "sha256:a", want: true},
+		{name: "inputs unchanged and outputs present", records: []runstate.InstallRun{passed}, digest: "sha256:a", want: false},
+		{name: "inputs changed", records: []runstate.InstallRun{passed}, digest: "sha256:c", want: true},
+		{name: "a later failure is not a success", records: []runstate.InstallRun{passed, failed}, digest: "sha256:b", want: true},
+		{name: "a later failure leaves the last success standing", records: []runstate.InstallRun{passed, failed}, digest: "sha256:a", want: false},
+	} {
+		got, err := installDue(test.records, step, directory, test.digest)
+		if err != nil || got != test.want {
+			t.Errorf("%s: installDue() = %v, %v; want %v", test.name, got, err, test.want)
+		}
+	}
+	if err := os.Remove(filepath.Join(directory, "node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := installDue([]runstate.InstallRun{passed}, step, directory, "sha256:a"); err != nil || !got {
+		t.Errorf("installDue() with the output missing = %v, %v; want it due", got, err)
+	}
+}
+
+// A change to a step's input is a change to every check after the step: the
+// gate is told the whole module, and every path check runs whatever its list
+// covers. A change that touches no input chooses its checks as before.
+func TestAChangeToAnInstallInputIsAChangeToEveryCheck(t *testing.T) {
+	t.Parallel()
+
+	steps := []config.InstallStep{{Name: "npm packages", Inputs: []string{"package.json", "./package-lock.json"}, Outputs: []string{"node_modules"}}}
+	if reason := installInputChanged(steps, []string{"src/farewell.ts"}); reason != "" {
+		t.Fatalf("installInputChanged(no input) = %q, want nothing", reason)
+	}
+	reason := installInputChanged(steps, []string{"src/farewell.ts", "package-lock.json"})
+	if !strings.Contains(reason, "package-lock.json") || !strings.Contains(reason, `"npm packages"`) {
+		t.Fatalf("installInputChanged(the lock file) = %q, want it to name the input and the step", reason)
+	}
+	configured := []config.PathCheck{
+		{Command: "sh scripts/check-readme.sh", Paths: "scripts/readme.paths"},
+		{Command: "sh scripts/check-docs.sh", Paths: "scripts/docs.paths"},
+	}
+	already := []addedCheck{{command: "sh scripts/check-readme.sh", paths: "scripts/readme.paths", reason: "the change touches README.md"}}
+	added := withEveryPathCheck(configured, already, reason)
+	if len(added) != 2 || added[0].reason != "the change touches README.md" || added[1].command != "sh scripts/check-docs.sh" || added[1].reason != reason {
+		t.Fatalf("withEveryPathCheck() = %#v, want the check already added kept and the other added for the install input", added)
+	}
+}
+
+// An install step the run's own change broke is the change's to repair: before
+// the checks it is handed back to the developer as a failed check, with what the
+// step printed, and spends one repair round. The developer's next turn is not
+// stopped by it, and once the change mends the lock file the checks pass.
+func TestAnInstallTheChangeBrokeIsHandedBackAsAFailedCheck(t *testing.T) {
+	t.Parallel()
+
+	repository := npmProjectRepository(t, map[string]string{
+		"scripts/npm-ci.sh": "#!/bin/sh\nset -eu\nif grep -q broken package-lock.json; then\n  echo 'npm error code EJSONPARSE: package-lock.json could not be read' >&2\n  exit 1\nfi\nmkdir -p node_modules/greeting\ncp vendor/greeting/package.json vendor/greeting/index.js node_modules/greeting/\necho 'added 1 package in 1s'\n",
+	})
+	tracker := npmProjectItem("npm-project-6")
+	attempts := 0
+	var repairPrompt string
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		attempts++
+		lock := `{"name":"npm-project","broken":true}` + "\n"
+		if attempts == 2 {
+			repairPrompt = request.Prompt
+			lock = changedLock
+		}
+		if err := os.WriteFile(filepath.Join(request.WorkingDirectory, "package-lock.json"), []byte(lock), 0o644); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "src", "farewell.ts"), []byte(nonGoSource("  ")), 0o600)
+	}, approveVerdict)
+	pipeline, store := npmProjectPipeline(t, repository, tracker, provider, "sh scripts/npm-ci.sh")
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != runstate.StatusSucceeded || attempts != 2 || outcome.RepairAttempts != 1 {
+		t.Fatalf("Run() outcome = %#v after %d developer attempts, want a success after one repair round", outcome, attempts)
+	}
+	for _, want := range []string{"npm packages", "EJSONPARSE"} {
+		if !strings.Contains(repairPrompt, want) {
+			t.Fatalf("the repair prompt does not say %q:\n%s", want, repairPrompt)
+		}
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if state.Environmental != nil || state.InstallWait != nil {
+		t.Fatalf("run state = %#v, want nothing held for the development manager", state)
+	}
+	results := []runstate.InstallResult{}
+	for _, record := range state.Install {
+		results = append(results, record.Result)
+	}
+	if len(results) < 3 || results[0] != runstate.InstallPassed || results[1] != runstate.InstallFailed || results[len(results)-1] != runstate.InstallPassed {
+		t.Fatalf("install results = %v, want a pass before the developer, the change's failure before the checks, and a pass once it was mended", results)
+	}
+}

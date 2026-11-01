@@ -127,6 +127,23 @@ func (w MergeQueueWorker) checkBase(ctx context.Context, lease *runstate.Lease, 
 		return generation, fmt.Errorf("record that generation %d's base check began: %w", generation.Number, err)
 	}
 	launched := launches{worker: w, lease: lease, key: key, generation: &generation, hold: hold, stage: runstate.MergeQueueStageBase}
+	// The base's checkout is fresh, so the project's dependencies are put in it
+	// first (mergequeueinstall.go). Where they cannot be, the check never ran on
+	// the base, which says nothing about whose the failure is.
+	problem, err := w.installWhereDue(ctx, lease, key, &generation, checkout, "before the failing check was run on the base", launched.gate)
+	if err != nil {
+		return generation, err
+	}
+	if problem != "" {
+		recorded := *generation.BaseCheck
+		finished := w.now()
+		recorded.FinishedAt, recorded.Problem = &finished, problem
+		generation.BaseCheck = &recorded
+		if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
+			return generation, fmt.Errorf("record generation %d's base check: %w", generation.Number, err)
+		}
+		return generation, nil
+	}
 	results, lastSequence, runErr := w.Pipeline.Checks.Run(ctx, checks.Request{
 		RunID:        generation.EventStream(),
 		Directory:    checkout,
