@@ -3123,8 +3123,8 @@ Seven things refuse it, and every one of them is asked before either of those
 writes, so a refused re-entry leaves the grant exactly where it was. The stopped
 run has to be really over. **It must not be an approved change the environment
 stopped**: a run whose record carries an integration stop is refused first,
-ahead of everything else — an approving verdict can carry minor findings, and a
-repair re-entered on those would spend a grant to have an approved change
+ahead of everything else — an approving verdict can carry findings disposed of as out of
+scope, and a repair re-entered on those would spend a grant to have an approved change
 repaired — and the refusal is one sentence saying the change is approved, what
 stopped it and at which step, and that `yoyo triage resume <run-id>` is what it
 needs once the cause has cleared. That is the same sentence the docket entry

@@ -1187,6 +1187,20 @@ change. This is the operator's direction of 2026-09-05, after four items in a
 week reached their caps on rounds of exactly these two shapes and each took a
 person to unstick.
 
+**An approval that names work the change still owes is a repair.** At a work
+item's review an approving verdict may carry only findings disposed of as
+`out_of_scope`. One that carries any other finding is the reviewer approving
+while naming part of the item as undone, so the harness turns it into a repair
+round naming that work, charged like any repair, and opens the recorded review
+summary with a sentence saying the approval was sent back. The item does not
+close on incomplete work with the rest left to a new item: a new item is for
+work outside what the item asked for, and the out-of-scope finding's message
+says why it lies outside. A serious finding disposed of that way may accompany
+an approval. A branch review has no item to leave incomplete and is not held to
+this. This is the operator's direction of October 8, 2026, given with the
+raise of this repository's `execution.repair_attempts_before_replan` to four so
+a developer has the rounds to finish.
+
 **It loosens no bound**, and what holds that is other budgets rather than the
 rounds. An approval sends the change to promotion rather than back to the
 developer, so the only thing that asks for another verdict inside the same run is

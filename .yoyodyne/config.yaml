@@ -131,7 +131,7 @@ execution:
     - prefer: [team-development]
       dedicated: true
       subagents: {enabled: true}
-  repair_attempts_before_replan: 2
+  repair_attempts_before_replan: 4
   # A promotion that loses a race -- to another run, or to whoever moved the
   # target branch while this one was working -- is replayed onto where the
   # target went and tried again, up to this many times. Every retry re-runs the

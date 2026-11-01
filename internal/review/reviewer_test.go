@@ -152,7 +152,7 @@ func TestAFirstReviewResumesNoSession(t *testing.T) {
 func TestReviewApprovesAndCarriesTheBoundedEvidence(t *testing.T) {
 	t.Parallel()
 
-	provider := &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"matches the acceptance criteria","findings":[{"severity":"minor","message":"consider renaming n"}]}`}
+	provider := &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"matches the acceptance criteria","findings":[{"severity":"minor","disposition":"out_of_scope","message":"consider renaming n; the name predates this item, which asked for nothing about it"}]}`}
 	request := newRequest(nil)
 	request.Changes = gitworktree.ChangeDiff{
 		Status:         " M runner.go\n?? runner_test.go",
@@ -1690,6 +1690,83 @@ func TestAnApprovalOfEvidenceIsCarriedAsWhatItApproves(t *testing.T) {
 		if !strings.Contains(provider.request.SystemPrompt, want) {
 			t.Errorf("the contract does not ask for the approval kind (%q): %q", want, provider.request.SystemPrompt)
 		}
+	}
+}
+
+// A reviewer that found part of the item undone and approved anyway, naming the
+// missing part as a finding, is sent back as a repair round naming it: the item
+// does not close on incomplete work with the rest left to a new item.
+func TestAnApprovalNamingAnUnmetDoneConditionIsSentBackAsARepair(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"the runner works","findings":[{"severity":"minor","message":"the done-condition asks for a test of the empty worktree, and there is none; file it as a follow-up"}]}`}
+
+	result, err := (Reviewer{Backend: provider, Clock: reviewClock{}, Model: testReviewModel}).Review(context.Background(), newRequest(nil))
+	if err != nil {
+		t.Fatalf("Review() error = %v", err)
+	}
+	if result.Decision != DecisionRepair || result.Verdict.Decision != DecisionRepair {
+		t.Fatalf("Review() decision = %q (verdict %q), want the approval sent back as a repair", result.Decision, result.Verdict.Decision)
+	}
+	if result.Verdict.Approves != "" {
+		t.Fatalf("Review() approves = %q, want a repair that approves nothing", result.Verdict.Approves)
+	}
+	if len(result.Verdict.Findings) != 1 || !strings.Contains(result.Verdict.Findings[0].Message, "empty worktree") {
+		t.Fatalf("Review() findings = %#v, want the missing work named for the developer", result.Verdict.Findings)
+	}
+	if !strings.HasPrefix(result.Verdict.Summary, "Sent back to the developer rather than approved") || !strings.HasSuffix(result.Verdict.Summary, "the runner works") {
+		t.Fatalf("Review() summary = %q, want it to say the approval was sent back, then the reviewer's own words", result.Verdict.Summary)
+	}
+	for _, want := range []string{
+		"A done-condition or acceptance criterion the change leaves unmet is never approvable",
+		"An approval may carry only findings disposed of as out of scope",
+		"say in its message why it lies outside the item's scope",
+	} {
+		if !strings.Contains(provider.request.SystemPrompt, want) {
+			t.Errorf("the contract does not say %q: %q", want, provider.request.SystemPrompt)
+		}
+	}
+}
+
+// Work outside what the item asked for is the one thing a new item is for, and a
+// finding disposed of that way, saying why, rides on an approval that closes the
+// item.
+func TestAnApprovalWithOutOfScopeWorkStandsWithItsFollowUp(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"meets every done-condition","findings":[{"severity":"major","disposition":"out_of_scope","message":"the neighbouring parser drops trailing spaces; outside this item, which asked only for the runner, so it wants an item of its own"}]}`}
+
+	result, err := (Reviewer{Backend: provider, Clock: reviewClock{}, Model: testReviewModel}).Review(context.Background(), newRequest(nil))
+	if err != nil {
+		t.Fatalf("Review() error = %v", err)
+	}
+	if result.Decision != DecisionApprove || result.Verdict.Approves != ApprovesImplementation || !result.Verdict.Approves.Discharges() {
+		t.Fatalf("Review() = %#v, want an approval that closes the item", result)
+	}
+	if result.Verdict.Summary != "meets every done-condition" {
+		t.Fatalf("Review() summary = %q, want the reviewer's own", result.Verdict.Summary)
+	}
+	if len(result.Verdict.Findings) != 1 || result.Verdict.Findings[0].Disposition != DispositionOutOfScope || !strings.Contains(result.Verdict.Findings[0].Message, "outside this item") {
+		t.Fatalf("Review() findings = %#v, want the out-of-scope follow-up and why it is outside", result.Verdict.Findings)
+	}
+}
+
+// A branch review has no item to leave incomplete, so a minor observation still
+// rides on its approval.
+func TestABranchApprovalKeepsAMinorObservation(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeBackend{finalText: `{"decision":"approve","summary":"the commits agree","findings":[{"severity":"minor","message":"two helpers could share a name"}]}`}
+
+	result, err := (Reviewer{Backend: provider, Clock: reviewClock{}, Model: testReviewModel}).Review(context.Background(), newBranchRequest(nil))
+	if err != nil {
+		t.Fatalf("Review() error = %v", err)
+	}
+	if result.Decision != DecisionApprove || len(result.Verdict.Findings) != 1 {
+		t.Fatalf("Review() = %#v, want the branch approval to stand", result)
+	}
+	if !strings.Contains(provider.request.SystemPrompt, "a purely minor observation may accompany an approval") {
+		t.Errorf("the branch contract no longer allows a minor observation: %q", provider.request.SystemPrompt)
 	}
 }
 

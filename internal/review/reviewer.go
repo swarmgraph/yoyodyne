@@ -573,6 +573,13 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	if err != nil {
 		return evidence(), err
 	}
+	// An approval of one work item's change that still names work the change
+	// owes is a repair, not an approval with a follow-up; SendBack says why.
+	if decision == DecisionApprove && request.scope() != ScopeBranch {
+		if sent, ok := verdict.SendBack(); ok {
+			verdict, decision = sent, DecisionRepair
+		}
+	}
 	if err := request.Repository.refute(verdict, request.Changes); err != nil {
 		unsupported := evidence()
 		unsupported.Verdict = verdict
@@ -826,7 +833,7 @@ Your verdict is a decision your role's authority covers, and it is never put to 
 
 ` + terms.DecideAndReport + `
 
-Decide ` + decisionVocabulary(scope) + `. Approve only when the change is correct, ` + completeness + `, and free of blocker or major problems; a purely minor observation may accompany an approval. Choose repair when any blocker or major problem remains, and give the developer a specific, actionable finding for each one.
+Decide ` + decisionVocabulary(scope) + `. Approve only when the change is correct, ` + completeness + `, and free of blocker or major problems` + approvalFindings(scope) + ` Choose repair when any blocker or major problem remains, and give the developer a specific, actionable finding for each one.
 
 Reply with a single JSON object and nothing else, except the one report block described below. Write the verdict bare: begin the reply with { and end the verdict with }, with no prose, no Markdown, and no code fence around it. The report block is fenced; the verdict never is:
 
@@ -973,6 +980,19 @@ func approvalScrutiny(scope Scope) string {
 	return `
 Say what your approval approves. "approves":"implementation" is the ordinary one: this change is the work the item asked for, and the item closes on it. "approves":"evidence" approves a change worth keeping that is not that work — a diagnosis, the conditions that have to hold first, a nil result — and it discharges nothing: the change is promoted exactly as any approved change is, and the item goes back to the backlog with your own summary as the reason it is not to be started again yet. Choose it whenever you would approve the change and would not record the item as done, whatever landing outcome was claimed above, and write the summary accordingly: it is what whoever considers picking the item up next will read. This is not an alternative to repair — what the change itself has to change is still a finding — it is the answer for a change that needs nothing and is not the work. The completeness the next paragraph asks for is completeness in what the change is offered as: evidence is complete when it is sound, recorded where somebody will find it, and honest about what remains, rather than against acceptance criteria it does not claim to meet.
 `
+}
+
+// approvalFindings is what may accompany an approval. At work-item scope it is
+// only findings disposed of as out of scope: incomplete work goes back to the
+// developer as a repair round rather than closing the item with the rest left
+// for a new item, and Verdict.SendBack is what holds the harness to that whatever
+// the reviewer decides. A branch review has no item to leave incomplete, so a
+// purely minor observation may still accompany its approval.
+func approvalFindings(scope Scope) string {
+	if scope == ScopeBranch {
+		return "; a purely minor observation may accompany an approval."
+	}
+	return `. A done-condition or acceptance criterion the change leaves unmet is never approvable, whatever its severity and however much else is right: choose repair and give a finding naming what is missing, because the developer finishes the item's own work and a new work item is not where it goes. An approval may carry only findings disposed of as out of scope; the harness turns an approval carrying any other finding into a repair round. A new work item is for work outside what this item asked for: dispose of that finding as out of scope and say in its message why it lies outside the item's scope, and do not report part of this item's own work as something to be filed later.`
 }
 
 // escalationScrutiny is what the reviewer is told about the verdict for an item
