@@ -15,6 +15,7 @@ import (
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // longFlag matches an option as the CLI's own help lists it, which is how the
@@ -246,6 +247,49 @@ func TestLocalConformanceARunWritesInsideItsRepositorysGitDirectory(t *testing.T
 	if _, statErr := os.Stat(control); statErr == nil {
 		t.Fatalf("a developer run also wrote %s, outside both its worktree and the Git directory, so the sandbox confined nothing here and the write above proves no grant; the run reported: %q",
 			control, result.FinalText)
+	}
+}
+
+// A developer session cannot write the folder a project's install steps keep
+// their package cache in (docs/designs/project-dependencies-in-runs.md). The
+// folder is laid out as the harness lays it out, among the product's records
+// under a state directory beside the checkout, and the session is asked to
+// write there and in its own worktree with one command: the worktree write
+// landing is what makes the cache write's absence mean the sandbox refused it,
+// rather than that the session ran nothing.
+func TestLocalConformanceADeveloperCannotWriteTheInstallCache(t *testing.T) {
+	provider := conformanceBackend(t)
+	fixture := newSandboxProbeFixture(t)
+
+	stateRoot := filepath.Join(filepath.Dir(fixture.checkout), "state")
+	cache := filepath.Join(stateRoot, filepath.FromSlash(home.InstallCacheDirectoryWithin(stateRoot, "project")))
+	if err := os.MkdirAll(cache, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	token := probeToken(t)
+	refused := filepath.Join(cache, "sandbox-probe-"+token)
+	control := filepath.Join(fixture.worktree, "sandbox-probe-"+token)
+	command := "printf ok > '" + refused + "'; printf ok > '" + control + "'"
+
+	result, err := provider.Run(context.Background(), backendapi.RunRequest{
+		RunID:            testRunID,
+		Role:             domain.RoleDeveloper,
+		WorkingDirectory: fixture.worktree,
+		AllowedTools:     []string{"Bash"},
+		Prompt: "Run this exact command with Bash, once, and nothing else: " + command + "\n" +
+			"Part of it is expected to be refused; do not retry it or work around it. " +
+			"Then reply with whatever it printed, or with exactly ok if it printed nothing.",
+		Timeout: 2 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	requireACompletedProbe(t, result)
+	if _, statErr := os.Stat(control); statErr != nil {
+		t.Fatalf("a developer run wrote nothing in its own worktree at %s, so the refusal below proves nothing: %v; the run reported: %q", control, statErr, result.FinalText)
+	}
+	if _, statErr := os.Stat(refused); statErr == nil {
+		t.Fatalf("a developer run wrote %s, inside the install cache only the install step may write; the run reported: %q", refused, result.FinalText)
 	}
 }
 

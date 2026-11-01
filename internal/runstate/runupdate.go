@@ -249,6 +249,20 @@ func (u RetryRecorded) apply(state *State) (bool, error) {
 	return true, nil
 }
 
+// InstallRecorded adds one run of one of the project's declared install steps
+// to the run's record of them (InstallRun).
+type InstallRecorded struct {
+	Install InstallRun
+	At      time.Time
+}
+
+func (u InstallRecorded) apply(state *State) (bool, error) {
+	installs := make([]InstallRun, 0, len(state.Install)+1)
+	state.Install = append(append(installs, state.Install...), u.Install)
+	state.UpdatedAt = u.At
+	return true, nil
+}
+
 // IntegrationRecorded records the run's integration: the merge queue's landing
 // of its change, which the queue records as a run's own promotion would be. It
 // changes nothing where the run already records the same landing.
