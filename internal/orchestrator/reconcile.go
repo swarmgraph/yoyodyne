@@ -1414,16 +1414,20 @@ func (r Reconciler) settleDroppedMergeWith(ctx context.Context, state runstate.S
 // unsettled, and returns the settling copy at the revision that write left, so
 // the settlement's own last save is not refused as stale. A drop already
 // written that way is left as it is.
+//
+// A drop that carries the change's own failing forge check is not written
+// early. It is not a merge to repeat but a change handed back for repair, and
+// the record cannot carry the failing check beside the promotion until the
+// settlement withdraws the approval (invalidateForgeApproval), so it stays
+// queued on the record until a sweep settles it whole, as before.
 func (r Reconciler) recordUnsettledDrop(ctx context.Context, state runstate.State) (runstate.State, error) {
-	if state.MergeDrop == nil || state.MergeDrop.Unsettled || state.PullRequest == nil {
+	if state.MergeDrop == nil || state.MergeDrop.Unsettled || state.PullRequest == nil || state.CheckFailure != nil {
 		return state, nil
 	}
 	recorded, err := r.Store.Update(ctx, state.RunID, runstate.MergeDropFound{
 		PullRequest:    *state.PullRequest,
 		PublishFailure: state.PublishFailure,
 		Drop:           *state.MergeDrop,
-		CheckFailure:   state.CheckFailure,
-		ChecksPassed:   state.ChecksPassed,
 		At:             r.clock().Now(),
 	})
 	if err != nil {

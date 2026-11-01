@@ -327,20 +327,14 @@ func nonEmptyPhase(phase Phase) string {
 // MergeDropFound records a merge the forge dropped, as the sweep that settles
 // queued merges finds it and before the work item and the triage docket are
 // told: the pull request as the forge left it, the publication failure, and the
-// drop marked unsettled (MergeDrop.Unsettled), with what the forge's checks said
-// of the change where the sweep read them. Written first, it is what keeps a
+// drop marked unsettled (MergeDrop.Unsettled). Written first, it is what keeps a
 // tracker that does not answer from leaving the run recorded as still queued.
 // It changes nothing on a run whose pull request is another one or has merged.
 type MergeDropFound struct {
 	PullRequest    PullRequest
 	PublishFailure string
 	Drop           MergeDrop
-	// CheckFailure is the forge's failure of the change's own checks where the
-	// sweep found one, and ChecksPassed what is left of the run's passing
-	// checks beside it; both are written as given.
-	CheckFailure *CheckFailure
-	ChecksPassed *ChecksPassed
-	At           time.Time
+	At             time.Time
 }
 
 func (u MergeDropFound) apply(state *State) (bool, error) {
@@ -354,8 +348,6 @@ func (u MergeDropFound) apply(state *State) (bool, error) {
 	state.PullRequest = &pullRequest
 	state.PublishFailure = u.PublishFailure
 	state.MergeDrop = &drop
-	state.CheckFailure = u.CheckFailure
-	state.ChecksPassed = u.ChecksPassed
 	state.UpdatedAt = u.At
 	return true, nil
 }
