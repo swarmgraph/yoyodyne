@@ -15,6 +15,14 @@ serves the goal "A team can run Yoyodyne against one shared repository:
 collaborators each run their own harness without losing work, splitting the
 tracker, or weakening any safety invariant."
 
+The cross-machine work this document left open is now designed:
+[working alongside other contributors](designs/working-alongside-other-contributors.md)
+is the architect's design for it, and it replaces the earlier draft in
+`docs/team-mode-coordination.md`. It answers the question below on a team-wide
+pause and the gap below on per-item budgets. Designed is not shipped: what v1
+supports meanwhile, at the end of this document, holds until that design is
+built.
+
 ## What team mode promises
 
 - A collaborator with repository access and the readme can run their own yoyo
@@ -52,7 +60,8 @@ decides how a human is proven; this document decides what a proven human may do
 — own intent (one) or run work (all).
 
 Team-wide pause is a design question, not a first-cut promise; the pause switch
-pauses the machine it is on.
+pauses the machine it is on. The design answers it with
+[the team pause](designs/working-alongside-other-contributors.md#the-team-pause).
 
 ## A recorded gap: per-item budgets are per machine
 
@@ -73,7 +82,8 @@ This belongs to the same coordination design as the rest of this document: the
 counters are one more piece of state that has to travel for the tracker to be
 one tracker. It is recorded here rather than fixed there because fixing it
 without the identity and coordination design would mean inventing where a shared
-counter lives and who breaks a tie on it.
+counter lives and who breaks a tie on it. The design answers it in
+[each item's budgets across machines](designs/working-alongside-other-contributors.md#8-each-items-budgets-across-machines).
 
 ## What v1 supports meanwhile
 
