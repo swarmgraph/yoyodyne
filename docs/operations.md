@@ -4013,7 +4013,17 @@ decided, unless the harness withdrew it over the change's own failing check:
 that is the repair handback above. A re-arm is once per publication, carried
 out by `yoyo triage rearm`, after which a
 further drop of the same publication is recorded as an escalation rather than
-re-armed again. The moment the drop is found out is recorded on the run as well,
+re-armed again. A run whose merge was dropped is not recorded as merged: the
+pull request, the method it is merged by and its target branch stay on the run
+as an unfinished merge, which the development manager's docket lists, a re-arm
+she decides repeats, and finishing the merge through `run.recover` names as
+unfinished rather than refusing as already promoted. A re-arm decided and then
+set aside before the harness made it — by a wait, say — can be decided again
+without counting as a second re-arm, because no second request is made. The
+drop is written onto the run before the tracker is asked anything, so a sweep
+whose tracker reads time out leaves the unfinished merge on file and on the
+docket, and the next sweep tells the item from the run's record without asking
+the forge again. The moment the drop is found out is recorded on the run as well,
 so it is announced in the item's thread as a `warning` rather than waiting for
 the next person who runs a status command — and until the publication is
 settled, it is counted in the [heartbeat](reporting.md) as a promotion awaiting
@@ -4232,7 +4242,8 @@ drain had preserved held both developer slots with 49 items ready.
 **Runs recorded as merged that are not on their target branch.** After those,
 and before the docket is built, the sweep reads the remote target branch for
 every run recorded as merged — ended succeeded, its promotion recorded, nothing
-retiring it, no merge still queued — whose work item is still open, where the
+retiring it, no merge still queued, and no merge the forge dropped on a landing
+through the pull request — whose work item is still open, where the
 change could only be on the remote: a landing through the pull request, or a
 request the record says the forge merged. Which items are still open is read
 with one listing of the tracker's closed work per sweep, not one read per run,

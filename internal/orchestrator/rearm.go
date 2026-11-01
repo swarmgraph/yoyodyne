@@ -260,7 +260,7 @@ func (r Rearmer) Rearm(ctx context.Context, request RearmRequest) (RearmResult, 
 	// The publication has to be on the docket, for the reason a stoppage does: the
 	// entry is what the development manager decided against, and a re-arm of
 	// something nothing docketed is a re-arm nothing bounds.
-	if err := r.docketed(result.DocketKey, prior.RunID); err != nil {
+	if err := r.docketed(result.DocketKey, prior); err != nil {
 		return result, err
 	}
 	// The run's own record, not the entry that describes it, is what says the
@@ -577,17 +577,30 @@ func noRearmRunInFlight(runs RearmRuns, workItemID string) error {
 // the age of the entry would refuse exactly the oldest publications nobody has
 // got to yet. What the re-arm is counted under is the current shape either way:
 // that key is derived from the run's own record rather than from the entry.
-func (r Rearmer) docketed(key, runID string) error {
+//
+// A dropped merge is also accepted under the key a merge disagreement lists it
+// by. A landing through the pull request whose merge the forge dropped was read
+// as merged until runstate.State.MergeDropped said otherwise, so the sweep that
+// finds merged runs missing from their target listed it as a disagreement, and
+// that entry stands in front of the development manager as the publication's
+// only one. It is the same pull request on the same record, so a re-arm decided
+// from it is carried out rather than refused for the shape of the key.
+func (r Rearmer) docketed(key string, state runstate.State) error {
 	entries, err := r.Docket.List()
 	if err != nil {
 		return fmt.Errorf("read the triage docket: %w", err)
 	}
+	runID := state.RunID
 	legacy := triage.Key(triage.ClassPublication, runID)
+	disagreement := ""
+	if state.MergeDropped() {
+		disagreement = triage.DisagreementKey(runID, state.PullRequest.Number)
+	}
 	for _, candidate := range entries {
 		if candidate.Class != triage.ClassPublication {
 			continue
 		}
-		if candidate.Key == key || candidate.Key == legacy {
+		if candidate.Key == key || candidate.Key == legacy || (disagreement != "" && candidate.Key == disagreement) {
 			return nil
 		}
 	}

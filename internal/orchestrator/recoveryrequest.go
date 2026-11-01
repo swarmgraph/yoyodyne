@@ -120,6 +120,8 @@ func RecoveryFinishable(state runstate.State) error {
 		return fmt.Errorf("it is %s at %q, and only an approved change whose integration stopped has its merge finished", state.Status, state.Phase)
 	}
 	switch {
+	case state.MergeDropped():
+		return droppedMergeUnfinished(state)
 	case state.Integration != nil:
 		return errors.New("its change is promoted already, and what is outstanding is its publication, which `yoyo reconcile` settles")
 	case state.ReplayConflict != nil:
@@ -134,6 +136,19 @@ func RecoveryFinishable(state runstate.State) error {
 		return fmt.Errorf("its integration has been resumed %d times, which is the bound on one run", len(state.IntegrationResumptions))
 	}
 	return nil
+}
+
+// droppedMergeUnfinished is what finishing the merge says of a run whose merge
+// the forge dropped (runstate.State.MergeDropped). The run is not landed, and
+// what finishes its merge is not the integration resumer, which resumes a
+// change stopped short of its promotion: it is the merge retry, which repeats
+// the recorded request and is carried out on the development manager's re-arm
+// decision about this run. Both read the same record, so this names the merge
+// that retry would make.
+func droppedMergeUnfinished(state runstate.State) error {
+	published := state.PullRequest
+	return fmt.Errorf("the forge dropped the merge of pull request %d into %s, so its change has not landed and its merge is unfinished; finishing it is a merge retry, which repeats that request by its recorded method (%s) and is carried out once the development manager decides to re-arm it from her triage docket",
+		published.Number, state.Integration.TargetBranch, nonEmpty(published.MergeMethod, string(mergeMethod)))
 }
 
 // DecisionFinishMerge is the task a carry-out fires for a run.recover request to

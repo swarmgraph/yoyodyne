@@ -201,7 +201,9 @@ func (b conversationTriageBudgets) RecordMergeRearm(ctx context.Context, workIte
 		return runstate.MergeRearmDecision{}, fmt.Errorf("run %s published nothing, so it has no dropped merge to re-arm and no budget to spend for one", runID)
 	}
 	publication := triage.PublicationKey(runID, state.PullRequest.Number)
-	counters, err := b.store.RecordMergeRearm(ctx, workItemID, publication, decision, b.clock.Now(), b.caps)
+	// How many re-arms the harness has made is read off the same record, so a
+	// re-arm decided and never made is decided again without a second spend.
+	counters, err := b.store.RecordMergeRearmOf(ctx, workItemID, publication, state.PullRequest.MergeRearms, decision, b.clock.Now(), b.caps)
 	if err != nil {
 		return runstate.MergeRearmDecision{}, err
 	}

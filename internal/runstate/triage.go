@@ -1243,6 +1243,26 @@ func (s *TriageStore) RecordRerun(ctx context.Context, workItemID string, decisi
 // The decision that bought it is written in the same update, as every other
 // spend's is. See triagedecision.go.
 func (s *TriageStore) RecordMergeRearm(ctx context.Context, workItemID, publicationKey string, decision TriageDecision, at time.Time, caps TriageCaps) (TriageCounters, error) {
+	return s.recordMergeRearm(ctx, workItemID, publicationKey, -1, decision, at, caps)
+}
+
+// RecordMergeRearmOf is RecordMergeRearm told how many re-arms of the
+// publication the harness has made, which is the count on the publication's own
+// record (PullRequest.MergeRearms). A re-arm spent and never made — one a later
+// decision, a wait most often, stood in front of before the harness carried it
+// out — is the decision being taken again rather than a second re-arm, so it is
+// recorded without spending: the cap bounds the merge requests a publication is
+// repeated by, and that request has still not been made.
+func (s *TriageStore) RecordMergeRearmOf(ctx context.Context, workItemID, publicationKey string, made int, decision TriageDecision, at time.Time, caps TriageCaps) (TriageCounters, error) {
+	if made < 0 {
+		made = 0
+	}
+	return s.recordMergeRearm(ctx, workItemID, publicationKey, made, decision, at, caps)
+}
+
+// recordMergeRearm is both of the above; a negative made is a caller that did
+// not say, and every decision spends.
+func (s *TriageStore) recordMergeRearm(ctx context.Context, workItemID, publicationKey string, made int, decision TriageDecision, at time.Time, caps TriageCaps) (TriageCounters, error) {
 	publication := strings.TrimSpace(publicationKey)
 	if publication == "" {
 		return TriageCounters{}, errors.New("a publication is required to record its merge re-arm: a re-arm repeats one already-authorized merge request, and the budget it spends is that publication's")
@@ -1259,6 +1279,9 @@ func (s *TriageStore) RecordMergeRearm(ctx context.Context, workItemID, publicat
 		return TriageCounters{}, err
 	}
 	return s.update(ctx, workItemID, when, func(counters *TriageCounters) error {
+		if made >= 0 && counters.RearmsOf(publication) > made {
+			return counters.recordDecision(decided)
+		}
 		permitted := caps.Overridden(counters.Overrides)
 		// One budget, because a re-arm buys no round: there is no second bound for it
 		// to stand behind and nothing else to say in the same breath. It is the
