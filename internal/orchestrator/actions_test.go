@@ -1113,6 +1113,8 @@ var notAStep = map[string]string{
 	"landedThroughPullRequest":   "reads whether a landing through the pull request reached the target, inside candidate.integrate",
 	"blockOnUnlandedPullRequest": "hands a landing the forge did not merge to a person, inside candidate.integrate",
 	"repair":                     "records one repair attempt and re-enters candidate.develop with the findings",
+	"bringPersonMergeUpToDate":   "replays the change of a pull request waiting for a person to merge it onto a target that moved past it, then re-enters the gate through verifyReviewAndFinish, whose steps are registered",
+	"publishUpdated":             "is candidate.publish for a head brought up to date: it reads the pull request immediately before the push and withholds the push over a merge a person has in progress",
 	"prepareIntegrationRetry":    "replays a change whose promotion lost its race, so candidate.integrate can be re-earned",
 	"moveOntoTargetForRepair":    "puts a change whose replay conflicted onto the target for its developer to reconcile, which is the setup of the repair candidate.develop then performs",
 	"reconcilingPublishedBranch": "reads whether candidate.develop's publication replaces the published branch rather than extending it",
