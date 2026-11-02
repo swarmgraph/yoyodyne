@@ -2581,7 +2581,11 @@ than imply one another. Publishing with `integration: human` reviews the change
 exactly as automatic integration does, opens the pull request once the reviewer
 approves, and stops: nothing is merged, the run branch survives on the remote, and
 the worktree is preserved for you — which is what a `human` integration policy
-means. See the
+means. The run gives up its developer slot once it has published, and its item
+says it is waiting for a person to merge the pull request until `yoyo
+reconcile` finds the request merged (the item closes, naming the merge commit)
+or closed unmerged (the item goes back to the Lead Product Manager with the
+work kept). See the
 [configuration guide](configuration.md#publishing-through-pull-requests).
 
 ## Merge queues on `yoyo status` and the dashboard
