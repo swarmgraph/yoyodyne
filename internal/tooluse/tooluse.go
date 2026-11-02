@@ -61,6 +61,11 @@ type Watch struct {
 	// Problem is handed a report that could not be filed. It is never the
 	// invocation's failure; nil writes it to standard error, so it is not lost.
 	Problem func(error)
+	// Show, where set, is where each report is also printed, one line, as soon
+	// as it is filed, so a person watching the command that made the
+	// invocation sees it there and not only in the pile. The line is the
+	// report's own text, which opens with ErrorLabel or GapLabel.
+	Show io.Writer
 }
 
 // Finding is one call that does not match the invocation's tool policy.
@@ -182,6 +187,9 @@ func (w Watch) observe(attribution spend.Attribution, request backend.RunRequest
 			if err := w.Reports.Append(reported); err != nil {
 				return err
 			}
+			if w.Show != nil {
+				fmt.Fprintf(w.Show, "%s (report %s)\n", reported.Message, reported.ID)
+			}
 		}
 	}
 	return nil
@@ -250,6 +258,9 @@ func describe(attribution spend.Attribution, request backend.RunRequest, result 
 	case attribution.ExchangeID != "":
 		parts = append(parts, "exchange "+attribution.ExchangeID)
 	}
+	if within := strings.TrimSpace(attribution.Within); within != "" {
+		parts = append(parts, within)
+	}
 	parts = append(parts, "invocation "+request.RunID)
 	if session := strings.TrimSpace(result.SessionID); session != "" {
 		parts = append(parts, "session "+session)
@@ -276,16 +287,22 @@ func owner(attribution spend.Attribution, request backend.RunRequest) string {
 
 // callKey is one call's stable identity. A provider's call identifier is
 // unique within its session, so provider, session, and call name the call
-// however often it is reported; a call the provider gave no identifier is
-// named by where it was observed instead.
+// however often it is reported; a call whose identifier is unique only within
+// one invocation, or that has none, is named with where it was observed too.
 func callKey(attribution spend.Attribution, request backend.RunRequest, result backend.RunResult, call backend.ToolCall, index int) string {
 	scope := strings.TrimSpace(result.SessionID)
 	if scope == "" {
 		scope = owner(attribution, request) + "/" + request.RunID
 	}
 	id := call.ID
-	if id == "" {
+	switch {
+	case id == "":
 		id = fmt.Sprintf("@%d#%d", request.LastSequence, index)
+	case call.InvocationID:
+		// The provider numbers its calls afresh in every invocation, so the
+		// invocation is part of the call's name: the same invocation observed
+		// again is the same call, and a resumed turn's item_0 is a new one.
+		id = fmt.Sprintf("%s@%d", id, request.LastSequence)
 	}
 	return oneline.Bound(fmt.Sprintf("tool-call:%s:%s:%s", attribution.Backend, scope, id), 1<<10)
 }
@@ -357,6 +374,5 @@ func (w Watch) problem(err error) {
 		w.Problem(err)
 		return
 	}
-	var out io.Writer = os.Stderr
-	fmt.Fprintln(out, err)
+	fmt.Fprintln(os.Stderr, err)
 }

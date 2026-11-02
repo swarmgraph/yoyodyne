@@ -195,6 +195,12 @@ type exchangeVoice struct {
 	clock func() time.Time
 }
 
+// exchangeWithin is where a round sits, for a report about the invocation that
+// answered it: which round, and which role asked.
+func exchangeWithin(question exchange.Question) string {
+	return fmt.Sprintf("round %d, asked by the %s", question.Round, chat.RoleTitle(question.Asker))
+}
+
 func (v exchangeVoice) now() time.Time {
 	if v.clock == nil {
 		return time.Now().UTC()
@@ -266,6 +272,7 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 			ConfigRevision: v.config.Revision(),
 			Backend:        agent.Backend,
 			ExchangeID:     question.ExchangeID,
+			Within:         exchangeWithin(question),
 			Billing:        v.config.AccountBilling(account.Alias),
 		},
 	}
@@ -448,6 +455,7 @@ func (v exchangeVoice) failoverPolicy(question exchange.Question, name string, e
 				ConfigRevision: v.config.Revision(),
 				Backend:        crossing.Endpoint.Provider,
 				ExchangeID:     question.ExchangeID,
+				Within:         exchangeWithin(question),
 				Billing:        v.config.AccountBilling(crossing.Account.Alias),
 			},
 		}

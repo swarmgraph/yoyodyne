@@ -59,10 +59,12 @@ binary at `../CodexCLI.app/Contents/MacOS/codex` (SHA-256
 - **Shell, patch, and tool items.** A developer turn runs commands and edits
   files, which the CLI reports as items of other types (`command_execution`,
   `file_change`, and so on, with `item.started` beside them). None is recorded
-  here; the parser names the first one as unrecognized and otherwise records it
-  and carries on, which matters to the turn's outcome only if the stream then ends
-  with no terminal. Each one is also reported as tool use the harness could not
-  see (`internal/tooluse`), because it may be a tool call nobody read.
+  here. The parser reads the tool items by the names, fields, and statuses the
+  codex-cli 0.164.0 executable declares for them (`../../parser.go`), so a
+  recording is what would confirm those shapes. An item of any other type is
+  named as unrecognized and otherwise recorded and carried past, which matters to
+  the turn's outcome only if the stream then ends with no terminal, and it is
+  reported as tool use the harness could not see (`internal/tooluse`).
   A recording of a turn that runs a shell command is the next one to make, outside
   the developer sandbox, which refuses network to the provider and refuses writes
   to the operator's `~/.codex`:

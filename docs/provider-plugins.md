@@ -823,6 +823,9 @@ Each adapter also says what tool access it launched the session under:
 | Reviewer | read-only inspection: reads and the read-only Git commands | read-only inspection under the read-only sandbox |
 | Product manager, architect, development manager, program manager | no tools at all | read-only inspection under the read-only sandbox, which is all Codex can be narrowed to |
 
+Read-only inspection also allows keeping a plan or to-do list inside the
+session, which touches nothing outside it.
+
 Every invocation — developer runs, per-item and branch reviews, conversation
 turns, scheduled turns, exchanges between roles, and side threads, fresh or
 resumed — has its calls compared with that access. A call the access does not
@@ -832,16 +835,31 @@ conversation, side thread, exchange, or branch review it belongs to, the
 invocation and its session, where in that record's event log the turn began, and
 the tool and its call. A refused call is said as refused, never as one that ran.
 Like every critical report it appears in `yoyo status`, on the dashboard, and in
-the Slack channel. One call is one report however often it is seen again.
+the Slack channel, and it is also printed, as soon as it is filed, on the
+standard error of the command that made the invocation — `yoyo chat`, a run in
+the foreground, or `yoyo review` — so a person watching sees it there. An
+exchange's report names its round and the role that asked; a side thread's names
+its turn and the conversation it is held beside. One call is one report however
+often it is seen again.
+
+Codex calls are read from both of its output formats. In the format current
+versions write, a call is an item — `command_execution`, `file_change`,
+`mcp_tool_call`, `web_search`, `todo_list`, or `collab_tool_call` — started,
+possibly updated, and completed under one item id; the names, fields, and
+statuses are the ones the codex-cli 0.164.0 executable declares, because no
+recorded stream here carries a tool item yet. A `declined` item is a refusal,
+and so is a failed command whose output is the sandbox's refusal ("Operation
+not permitted", "Read-only file system", and the like); any other failure is a
+failure. Codex numbers its items afresh in every invocation, so its calls are
+told apart by invocation as well as by id. A call Code Mode makes from the code
+it runs arrives as an item of its own and is checked like any other, but Codex's
+output does not say which block of code made it, so that is not recorded.
 
 What an adapter could not read is said rather than read as no tool use. A stream
 event or content block the adapter does not recognise, a result for a call whose
 start never arrived, or an adapter that does not read tool calls at all, becomes
 one warning for the invocation beginning `Tool use not fully observed.`, naming
-what could not be seen. Codex's newer stream vocabulary reports commands, patches,
-and nested tool calls as items no recorded stream here has shown yet, so a Codex
-invocation that uses tools currently files that warning rather than reading its
-calls.
+what could not be seen. On Codex that is any item type outside the list above.
 
 This is reporting only. It blocks nothing, cancels nothing, retries nothing, and
 changes no permission; the invocation ends exactly as it would have, with the

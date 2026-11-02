@@ -72,6 +72,10 @@ type ToolCall struct {
 	// itself.
 	Parent  string
 	Outcome ToolOutcome
+	// InvocationID says the provider's identifier names the call only within
+	// this invocation, as Codex numbers its items afresh in every process, so a
+	// resumed session's calls are not the same calls as the last turn's.
+	InvocationID bool
 }
 
 // ToolPolicy is the tool access an adapter launched a session under, as the
@@ -94,7 +98,7 @@ const (
 func (p ToolPolicy) Permits(kind ToolKind, agents bool) bool {
 	switch p {
 	case ToolPolicyInspection:
-		return kind == ToolKindRead || kind == ToolKindShell
+		return kind == ToolKindRead || kind == ToolKindShell || kind == ToolKindSession
 	case ToolPolicyDeveloper:
 		switch kind {
 		case ToolKindRead, ToolKindShell, ToolKindWrite, ToolKindSession:
@@ -163,6 +167,16 @@ func (l *ToolCallLog) Start(id, tool string, kind ToolKind, parent string) {
 		l.index[id] = len(l.calls)
 	}
 	l.calls = append(l.calls, ToolCall{ID: id, Tool: tool, Kind: kind, Parent: parent, Outcome: ToolAttempted})
+}
+
+// StartInInvocation records a call whose identifier is unique only within
+// this invocation (ToolCall.InvocationID).
+func (l *ToolCallLog) StartInInvocation(id, tool string, kind ToolKind) {
+	_, seen := l.index[id]
+	l.Start(id, tool, kind, "")
+	if !seen {
+		l.calls[len(l.calls)-1].InvocationID = true
+	}
 }
 
 // Finish records what became of a call. A denial is never overwritten: a

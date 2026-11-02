@@ -1,6 +1,7 @@
 package tooluse_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -221,8 +222,10 @@ func TestEachInvocationPathIsNamed(t *testing.T) {
 		{spend.Attribution{RunID: "run-9", WorkItemID: "yoyodyne-ifd.2"}, domain.RoleReviewer, "run-9", "run run-9"},
 		{spend.Attribution{BranchReviewID: "branch-review-3"}, domain.RoleReviewer, "branch-review-3", "branch review branch-review-3"},
 		{spend.Attribution{ConversationID: "chat-4"}, domain.RoleDevelopmentManager, "chat-4", "conversation chat-4"},
-		{spend.Attribution{SideStreamID: "side-5"}, domain.RoleArchitect, "side-5", "side thread side-5"},
-		{spend.Attribution{ExchangeID: "exchange-6"}, domain.RoleProgramManager, "exchange-6", "exchange exchange-6"},
+		{spend.Attribution{SideStreamID: "side-5", Within: "turn 2, held beside conversation chat-4"}, domain.RoleArchitect, "side-5",
+			"side thread side-5, turn 2, held beside conversation chat-4"},
+		{spend.Attribution{ExchangeID: "exchange-6", Within: "round 3, asked by the architect"}, domain.RoleProgramManager, "exchange-6",
+			"exchange exchange-6, round 3, asked by the architect"},
 	} {
 		reports := &pile{}
 		tc.attribution.ProductID = "yoyodyne"
@@ -392,4 +395,43 @@ func isMetered(expression ast.Expr, pkg string) bool {
 		return pkg == "spend" && typed.Name == "Metered"
 	}
 	return false
+}
+
+// Each report is also shown, the moment it is filed, where the person
+// watching the command that made the invocation reads: one line opening with
+// the label, naming the report. A call already reported is not shown again.
+func TestEachReportIsShownWhereThePersonIsWatching(t *testing.T) {
+	t.Parallel()
+	var shown bytes.Buffer
+	w := watch(&pile{})
+	w.Show = &shown
+	request := backend.RunRequest{RunID: "chat-1", Role: domain.RoleProductManager}
+	attribution := spend.Attribution{ProductID: "yoyodyne", Backend: domain.BackendClaudeCode, ConversationID: "chat-1"}
+	result := read(backend.ToolPolicyNone, call("c", "Bash", backend.ToolKindShell, backend.ToolExecuted))
+	w.ObserveToolUse(attribution, request, result)
+	w.ObserveToolUse(attribution, request, result)
+	lines := strings.Split(strings.TrimSpace(shown.String()), "\n")
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], tooluse.ErrorLabel) || !strings.Contains(lines[0], "conversation chat-1") || !strings.Contains(lines[0], "(report report-") {
+		t.Fatalf("shown %q, want the error shown once, naming the conversation and the report", shown.String())
+	}
+}
+
+// A provider that numbers its calls afresh in every invocation, as Codex does,
+// has its calls told apart by invocation: the same invocation observed again
+// files nothing more, and a resumed turn's item_0 is a new call.
+func TestCallsNumberedPerInvocationAreToldApartByInvocation(t *testing.T) {
+	t.Parallel()
+	reports := &pile{}
+	w := watch(reports)
+	attribution := spend.Attribution{ProductID: "yoyodyne", Backend: domain.BackendCodex, RunID: "run-1"}
+	result := read(backend.ToolPolicyInspection, backend.ToolCall{ID: "item_0", Tool: "apply_patch", Kind: backend.ToolKindWrite, Outcome: backend.ToolDenied, InvocationID: true})
+	first := backend.RunRequest{RunID: "run-1", Role: domain.RoleReviewer, LastSequence: 10}
+	w.ObserveToolUse(attribution, first, result)
+	w.ObserveToolUse(attribution, first, result)
+	resumed := first
+	resumed.SessionID, resumed.LastSequence = "session-1", 40
+	w.ObserveToolUse(attribution, resumed, result)
+	if len(reports.reports) != 2 {
+		t.Fatalf("filed %d reports, want one per invocation's own item_0", len(reports.reports))
+	}
 }

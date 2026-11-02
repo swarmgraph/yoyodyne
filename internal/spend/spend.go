@@ -112,6 +112,11 @@ type Attribution struct {
 	SideStreamID   string
 	ExchangeID     string
 	BranchReviewID string
+	// Within is where an exchange round or a side thread's turn sits, in words a
+	// person reads -- the round and who asked, or the turn and the conversation
+	// the thread is held beside -- so a report about the invocation keeps them.
+	// It is said on such a report and never written on the cost line.
+	Within string
 	// Billing is how the account is paid for, read from that account's
 	// configuration. Empty is not recorded, which leaves an invocation the
 	// provider did not price unknown rather than priced as money it may not be.

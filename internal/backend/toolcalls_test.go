@@ -48,7 +48,7 @@ func TestToolPolicyPermits(t *testing.T) {
 		{ToolPolicyInspection, ToolKindRead, false, true},
 		{ToolPolicyInspection, ToolKindShell, false, true},
 		{ToolPolicyInspection, ToolKindWrite, false, false},
-		{ToolPolicyInspection, ToolKindSession, false, false},
+		{ToolPolicyInspection, ToolKindSession, false, true},
 		{ToolPolicyDeveloper, ToolKindWrite, false, true},
 		{ToolPolicyDeveloper, ToolKindSession, false, true},
 		{ToolPolicyDeveloper, ToolKindAgent, false, false},
