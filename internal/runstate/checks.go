@@ -443,7 +443,8 @@ func (s State) WaitingOnRedTarget() bool {
 }
 
 // UpdatingQueuedHead reports a run the reconciling sweep put back at its
-// promotion to bring a queued head up to date, and that is still waiting there
+// promotion to bring a queued head up to date, or a pull request waiting for a
+// person to merge it (CausePersonMergeBehind), and that is still waiting there
 // for the sweep to carry it through the update. It is a pending continuation in
 // the claim audit's sense: the sweep made it live and hosts it as its last step,
 // so a record gone still in between — a sweep that died before hosting it — is
@@ -457,7 +458,8 @@ func (s State) UpdatingQueuedHead() bool {
 	if len(s.IntegrationResumptions) == 0 {
 		return false
 	}
-	return s.IntegrationResumptions[len(s.IntegrationResumptions)-1].Cause == CauseQueuedHeadBehind
+	cause := s.IntegrationResumptions[len(s.IntegrationResumptions)-1].Cause
+	return cause == CauseQueuedHeadBehind || cause == CausePersonMergeBehind
 }
 
 // MaxRecordedQueuedCheckAccounts bounds the failing checks on a queued merge

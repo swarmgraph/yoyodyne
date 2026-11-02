@@ -197,3 +197,22 @@ func (u PersonMergeReturned) apply(state *State) (bool, error) {
 	state.UpdatedAt = u.At
 	return true, nil
 }
+
+// MaxUpToDateConflicts is how many conflicts a run's developer is handed while
+// its waiting pull request is brought up to date with a target other
+// contributors moved (State.UpToDateConflicts). The next conflict after them
+// goes to the development manager with the change kept.
+const MaxUpToDateConflicts = 3
+
+// BringingPersonMergeUpToDate reports a run whose latest resumption was the
+// forge check putting it back at its promotion to bring its pull request,
+// waiting for a person to merge it, up to date with a target that moved
+// (CausePersonMergeBehind), and that has not landed since. What the run
+// publishes from there replaces the head a person may be about to merge, so it
+// reads the pull request's state again immediately before it pushes.
+func (s State) BringingPersonMergeUpToDate() bool {
+	if s.Integration != nil || s.PullRequest == nil || len(s.IntegrationResumptions) == 0 {
+		return false
+	}
+	return s.IntegrationResumptions[len(s.IntegrationResumptions)-1].Cause == CausePersonMergeBehind
+}

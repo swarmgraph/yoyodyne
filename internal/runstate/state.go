@@ -3779,6 +3779,12 @@ type State struct {
 	// takes the count past it stops the run there, on the change. Each replay is
 	// charged at most once.
 	ChargedReplays int `json:"charged_replays,omitempty"`
+	// UpToDateConflicts counts the conflicts this run's developer was handed while
+	// the harness brought its pull request, waiting for a person to merge it, up
+	// to date with a target other contributors moved (personmerge.go). They are
+	// counted against MaxUpToDateConflicts rather than the repair attempts,
+	// because another contributor's work caused them.
+	UpToDateConflicts int `json:"up_to_date_conflicts,omitempty"`
 	// ReplayUnjudged is set when a replay is prepared and cleared by the first
 	// thing its gate says: a stop on the change, which charges it, or the next
 	// lost race or the promotion, which says it passed. It is what keeps one replay
@@ -4551,6 +4557,9 @@ func (s State) Validate() error {
 	}
 	if s.ChargedReplays < 0 {
 		problems = append(problems, errors.New("charged_replays cannot be negative"))
+	}
+	if s.UpToDateConflicts < 0 {
+		problems = append(problems, errors.New("up_to_date_conflicts cannot be negative"))
 	}
 	problems = append(problems, s.validateLandingAttempts()...)
 	if s.TransientRelaunches < 0 {

@@ -5002,7 +5002,20 @@ the forge about every request waiting this way:
   parked with a note naming who closed the request and when, so nothing starts
   it again before she decides whether to drop the work, revise it, or admit it
   again. The branch and the worktree are kept, and nothing is deleted.
-- **Still open:** nothing changes, and the next sweep asks again.
+- **Still open:** nothing changes, and the next sweep asks again, unless the
+  target branch has moved past the request because other people's work
+  landed first. Then the harness brings the request up to date, at most once
+  per sweep: it first withdraws any merge the forge was set to make of it and
+  checks that it is withdrawn, then replays the change onto the new target,
+  runs the configured checks and the independent review again on the
+  replayed change, and pushes it to the same request, which waits for you
+  again. The run takes a developer slot while it does this. A request the
+  forge is already merging is left alone, and the harness reads the request
+  again just before it pushes, so it never pushes over a merge you have
+  started. If the replay conflicts, the developer is given the conflict with
+  the conflicting files named; these rounds are counted against a limit of
+  three of their own, not the item's repair attempts, and a conflict after
+  the third stops the run for the development manager with the change kept.
 
 That is deliberate rather than a gap. Merging is a promotion, promotion is what
 `approvals.integration` governs, and a harness that merged under a `human`

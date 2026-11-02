@@ -2255,6 +2255,12 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	// whose target moved, and that re-earns the whole gate exactly as a first
 	// promotion that lost its race does, through the loop below.
 	if resumableIntegration(state) {
+		// A pull request waiting for a person to merge it, which the forge check
+		// found the target moved past, is brought up to date rather than promoted
+		// (personmergeupdate.go).
+		if state.BringingPersonMergeUpToDate() {
+			return run.bringPersonMergeUpToDate(ctx)
+		}
 		run.resumedAtPromotion = resumedAfterLostRace(state)
 		outcome, replayed, err := run.promoteApproved(ctx)
 		if !replayed {
@@ -2317,6 +2323,8 @@ func resumedDeveloperPrompt(state runstate.State, persona, invariants, bundle, s
 	switch {
 	case state.ReplayConflict != nil && state.ReplayConflict.Reconciliation:
 		return replayConflictReconcilePrompt(invariants, scratchDirectory, checks, *state.ReplayConflict), nil
+	case state.ReplayConflict != nil && state.BringingPersonMergeUpToDate() && state.UpToDateConflicts > 0:
+		return upToDateConflictPrompt(invariants, scratchDirectory, checks, *state.ReplayConflict, state.UpToDateConflicts), nil
 	case state.ReplayConflict != nil:
 		return replayConflictRepairPrompt(invariants, scratchDirectory, checks, *state.ReplayConflict, state.RepairAttempts, limit), nil
 	case state.PathRefusal != nil:
@@ -2924,7 +2932,18 @@ func (a *activeRun) handOverApproved(ctx context.Context) (Outcome, error) {
 	if err := a.holdForDependency(ctx); err != nil {
 		return a.stop(ctx, err)
 	}
-	if err := a.publishAttempt(ctx); err != nil {
+	// A head brought up to date replaces one a person may be merging, so it is
+	// pushed only after the request is read again, and a push withheld for a
+	// merge in progress ends the run waiting for that person as a push does
+	// (personmergeupdate.go).
+	push := a.publishAttempt
+	if a.state.BringingPersonMergeUpToDate() {
+		push = func(ctx context.Context) error {
+			_, err := a.publishUpdated(ctx)
+			return err
+		}
+	}
+	if err := push(ctx); err != nil {
 		if !parksTheRun(err) {
 			a.observe(ctx, deliveryPublish, "stopped")
 		}
