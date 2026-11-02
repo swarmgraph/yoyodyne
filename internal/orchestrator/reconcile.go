@@ -256,6 +256,15 @@ type Reconciler struct {
 	// steps share (closedlisting.go). Optional: a sweep wired without it lists
 	// the closed work through Tracker each time a step needs it.
 	ClosedListing *ClosedListing
+	// Feedback reads the reviews and comments on a pull request waiting for a
+	// person to merge it, and Reports is where an ordinary comment among them is
+	// put on the development manager's list (forgefeedback.go). RepairLimit is
+	// the project's execution.repair_attempts_before_replan, which a repair
+	// round the feedback starts is counted against. Optional: a sweep wired
+	// without Feedback reads no feedback and says so where a request waits.
+	Feedback    ReconcileFeedback
+	Reports     ReportCollector
+	RepairLimit int
 }
 
 // DefaultVanishedGrace is how long a run the harness stopped on time is left

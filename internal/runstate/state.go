@@ -1621,6 +1621,13 @@ type PullRequest struct {
 	// checks failed on the target rather than on the change, and the items it
 	// waits on. It is cleared when the merge is armed again.
 	TargetRed *TargetRed `json:"target_red,omitempty"`
+	// PushedAt is when the harness last pushed this request's head. Feedback
+	// left before it is about a change that is no longer there (forgefeedback.go).
+	// A record written before it existed is measured from the run's end.
+	PushedAt *time.Time `json:"pushed_at,omitempty"`
+	// Feedback is what the checks of the forge have read of the reviews and
+	// comments on this request (forgefeedback.go). Absent until one has read it.
+	Feedback *PullRequestFeedback `json:"feedback,omitempty"`
 }
 
 // PublicationHandBack records a publication handed back for a fresh run: when,
@@ -2277,6 +2284,8 @@ func (s *State) recordedTexts() []recordedText {
 		nested("check_failure.output", "check_failure.output", &s.CheckFailure.Output, MaxCheckOutputBytes)
 		reviewBefore("check_failure.review_before", "check_failure.review_before", s.CheckFailure.ReviewBefore)
 	}
+	// What people wrote on the forge, in their own words.
+	s.forgeFeedbackTexts(unstated)
 	if s.Verification != nil {
 		if s.Verification.Probe != nil {
 			nested("verification.probe.command", "verification.probe.command", &s.Verification.Probe.Command, MaxVerificationCommandBytes)
@@ -3564,6 +3573,13 @@ type State struct {
 	// gate is decided before the checks, recording a refusal clears both of the
 	// others rather than competing with them for the next attempt.
 	PathRefusal *PathRefusal `json:"path_refusal,omitempty"`
+	// ForgeFeedback carries the feedback a person left on the published pull
+	// request — a review requesting changes, or comments on lines of the change
+	// — that started this run's current repair round (forgefeedback.go). It is
+	// the round's trigger rather than a gate's verdict, so a check failure or
+	// findings recorded during the round describe the change more recently and
+	// are answered first. It is cleared once the repaired change is published.
+	ForgeFeedback *ForgeFeedback `json:"forge_feedback,omitempty"`
 	// Verification carries what the developer recorded executing — the probe it
 	// ran before it changed anything, and what it ran against the change. It is
 	// the fourth kind of repair input and behaves as the three above do: a record
@@ -4392,6 +4408,19 @@ func (s State) Validate() error {
 	if s.CheckFailure != nil {
 		if err := s.CheckFailure.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("check_failure: %w", err))
+		}
+	}
+	if s.ForgeFeedback != nil {
+		if err := s.ForgeFeedback.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("forge_feedback: %w", err))
+		}
+		if s.PullRequest == nil || s.PullRequest.Number != s.ForgeFeedback.PullRequest {
+			problems = append(problems, errors.New("forge_feedback requires the pull request it was left on"))
+		}
+	}
+	if s.PullRequest != nil && s.PullRequest.Feedback != nil {
+		if err := s.PullRequest.Feedback.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("pull_request.feedback: %w", err))
 		}
 	}
 	if s.ChecksPassed != nil {

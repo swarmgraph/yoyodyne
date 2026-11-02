@@ -939,7 +939,23 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		// A target this sweep finds converged lifts the divergence recorded on it,
 		// which is what lets a line held on that divergence choose again.
 		Divergences: parts.divergences,
+		// What people say on a pull request waiting for a person to merge it is
+		// read through the same access: a requested change starts a repair round
+		// counted against the project's repair budget, and a comment goes on the
+		// development manager's list as a report.
+		Feedback:    forge,
+		Reports:     reportsOf(parts),
+		RepairLimit: parts.config.Execution.RepairAttemptsBeforeReplan,
 	}
+}
+
+// reportsOf is the report store where these parts have one, kept as no
+// collector rather than an interface holding nil.
+func reportsOf(parts components) orchestrator.ReportCollector {
+	if parts.reports == nil {
+		return nil
+	}
+	return parts.reports
 }
 
 // releasesOf is the released-claim log where these parts have one, kept as no

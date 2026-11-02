@@ -201,6 +201,7 @@ func (a *activeRun) publishAttempt(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open the pull request for the developer branch: %w", err)
 	}
+	pushedAt := a.pipeline.clock().Now()
 	published := &runstate.PullRequest{
 		Remote:     publication.Remote,
 		Branch:     publication.Branch,
@@ -209,6 +210,15 @@ func (a *activeRun) publishAttempt(ctx context.Context) error {
 		HeadCommit: publication.Commit,
 		State:      pullRequest.State,
 		Merged:     pullRequest.Merged,
+		PushedAt:   &pushedAt,
+	}
+	// What the checks of the forge have read of the request's feedback is about
+	// the request rather than its head, so it is kept when the head moves.
+	if earlier := a.state.PullRequest; earlier != nil && earlier.Number == published.Number && earlier.Feedback != nil {
+		published.Feedback = earlier.Feedback
+		if earlier.HeadCommit == published.HeadCommit && earlier.PushedAt != nil {
+			published.PushedAt = earlier.PushedAt
+		}
 	}
 	a.state.PullRequest = published
 	a.outcome.PullRequest = published
@@ -245,6 +255,8 @@ func (a *activeRun) republishRebase(ctx context.Context, rebase gitworktree.Reba
 		return fmt.Errorf("republish the replayed developer branch: %w", err)
 	}
 	published.HeadCommit = publication.Commit
+	pushedAt := a.pipeline.clock().Now()
+	published.PushedAt = &pushedAt
 	a.state.PullRequest = &published
 	a.outcome.PullRequest = &published
 	a.state.UpdatedAt = a.pipeline.clock().Now()
