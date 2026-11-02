@@ -16,6 +16,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/testharness"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -158,6 +159,24 @@ func TestAPullRequestAPersonMergedClosesTheItemAndFollowsTheMerge(t *testing.T) 
 	}
 	if !after.PullRequest.Merged || after.StopClass == runstate.StopIntegrationPolicy {
 		t.Fatalf("run = %#v / %s, want the request recorded merged and the run no longer ended by the merge setting", after.PullRequest, after.StopClass)
+	}
+	// The run ends as integrated through its pull request: the landing is on its
+	// record with no merge method (the harness asked for no merge), the stop it
+	// reads as is none, its branch and checkout are cleaned up, and the
+	// throughput count has it among the landed changes.
+	if after.Integration == nil || !after.Integration.ThroughPullRequest || after.Integration.SourceCommit != run.PullRequest.HeadCommit || after.PullRequest.MergeMethod != "" {
+		t.Fatalf("integration = %#v (merge method %q), want the run landed through its pull request and no merge the harness asked for", after.Integration, after.PullRequest.MergeMethod)
+	}
+	if class := after.RecordedStopClass(); class != "" {
+		t.Fatalf("recorded stop = %q, want none for a landed change", class)
+	}
+	if after.Phase != runstate.PhaseComplete || !after.WorktreeRemoved || !after.BranchRemoved || after.Outstanding() {
+		t.Fatalf("phase %s, worktree removed %t, branch removed %t, outstanding %t; want the landed run cleaned up and owing nothing",
+			after.Phase, after.WorktreeRemoved, after.BranchRemoved, after.Outstanding())
+	}
+	reading := readmodel.ReadThroughput(context.Background(), readmodel.ThroughputSources{Runs: fixture.store})
+	if today := reading.Windows[0]; today.Landed != 1 || today.Succeeded != 0 || len(today.StopsByCause) != 0 {
+		t.Fatalf("today's window = landed %d, succeeded %d, stops %v; want the merged change counted as landed", today.Landed, today.Succeeded, today.StopsByCause)
 	}
 
 	calls := len(fixture.tracker.Calls)

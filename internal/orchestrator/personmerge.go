@@ -79,8 +79,8 @@ type PersonMergeSettlement struct {
 	// CleanupProblem is why the run's branch and checkout were not removed
 	// after a merge the check settled. The merge and the item's settlement
 	// stand; the run owes the cleanup, and the next sweep tries it again.
-	CleanupProblem string `json:"cleanup_problem,omitempty"`
-	ClosedAt    *time.Time           `json:"closed_at,omitempty"`
+	CleanupProblem string     `json:"cleanup_problem,omitempty"`
+	ClosedAt       *time.Time `json:"closed_at,omitempty"`
 	// Kept is why a wait was deliberately left as it stands: a run a live
 	// process holds, or a branch the forge answers about with another request.
 	Kept    string `json:"kept,omitempty"`

@@ -1036,6 +1036,9 @@ func printPersonMerges(stdout, stderr io.Writer, merges []orchestrator.PersonMer
 			if merge.Catchup != nil && merge.Catchup.Held != "" {
 				fmt.Fprintf(stderr, "  %s not caught up: %s\n", merge.Catchup.TargetBranch, merge.Catchup.Held)
 			}
+			if merge.CleanupProblem != "" {
+				fmt.Fprintf(stderr, "  branch and worktree not removed yet, tried again next sweep: %s\n", merge.CleanupProblem)
+			}
 		case merge.Settled && merge.Found == orchestrator.PersonMergeClosed:
 			fmt.Fprintf(stdout, "pull request #%d of %s was closed without merging; the item went back to the Lead Product Manager with its branch kept\n", merge.Number, merge.WorkItemID)
 		}

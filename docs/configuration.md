@@ -4986,8 +4986,11 @@ request #N. Each `yoyo reconcile` (which every maintenance pass runs) then asks
 the forge about every request waiting this way:
 
 - **Merged:** the local target branch is brought onto the merge by
-  fast-forward, and the item is closed with the merge commit named, so work
-  waiting on it can start.
+  fast-forward, the item is closed with the merge commit named, so work
+  waiting on it can start, and the run is recorded as landed. Its branch and
+  worktree are then removed, once the local target is shown to contain the
+  change; after a merge that rewrote the change, such as a squash, they stay
+  and the run is shown as still owing its cleanup.
 - **Closed without merging:** the item goes back to the Lead Product Manager,
   parked with a note naming who closed the request and when, so nothing starts
   it again before she decides whether to drop the work, revise it, or admit it
