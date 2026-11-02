@@ -106,6 +106,20 @@ type TrackerStoreSquash struct {
 	// it, and Reported the warning filed about it, empty where none could be.
 	Changed  []ChangedRecords `json:"changed,omitempty"`
 	Reported string           `json:"reported,omitempty"`
+	// TooLong is the squash's time on the measurement's copy, on a squash not
+	// run because that time is longer than DrainBound, the watch session's
+	// redeploy drain bound.
+	TooLong    time.Duration `json:"too_long,omitempty"`
+	DrainBound time.Duration `json:"drain_bound,omitempty"`
+	// StillRunning is how many developer runs were still in flight once new
+	// runs had been held for DrainBound, on a squash not run for them.
+	StillRunning int `json:"still_running,omitempty"`
+	// SizeOnDisk is the live store's size on disk, read before new runs were
+	// held; HeldRunsAt is when they were, and WaitedForRuns how long the squash
+	// waited for the runs already going to finish.
+	SizeOnDisk    int64         `json:"size_on_disk,omitempty"`
+	HeldRunsAt    time.Time     `json:"held_runs_at"`
+	WaitedForRuns time.Duration `json:"waited_for_runs,omitempty"`
 	// Squash is the squash run, with the copy made before it.
 	Squash beads.StoreSquash `json:"squash"`
 	// Ended says the squash's end is recorded here; a record without it was
@@ -118,6 +132,11 @@ type TrackerStoreSquash struct {
 // Refused reports a decision not to squash because the measurement showed an
 // item or a note changed.
 func (s TrackerStoreSquash) Refused() bool { return len(s.Changed) > 0 }
+
+// Skipped reports a decision not to squash because the squash would hold the
+// store longer than the drain bound, or because developer runs were still in
+// flight once new runs had been held for it.
+func (s TrackerStoreSquash) Skipped() bool { return s.TooLong > 0 || s.StillRunning > 0 }
 
 // Says is the decision in a sentence.
 func (s TrackerStoreSquash) Says() string {
@@ -135,9 +154,24 @@ func (s TrackerStoreSquash) Says() string {
 		return said
 	}
 	squash := s.Squash
+	if s.Skipped() {
+		said := fmt.Sprintf("the store's %s was not squashed on the measurement at %s, because ", SquashedHistory(squash.Stage), measured)
+		if s.TooLong > 0 {
+			said += fmt.Sprintf("on the copy the squash held the store %s, longer than the %s a session restarting onto a new build waits for its runs to finish", sayTook(s.TooLong), sayTook(s.DrainBound))
+		} else {
+			said += fmt.Sprintf("%d developer run(s) were still in flight once new runs had been held for the %s a session restarting onto a new build waits for its runs to finish; new runs were started again", s.StillRunning, sayTook(s.DrainBound))
+		}
+		if s.Reported != "" {
+			said += "; the development manager was warned in " + s.Reported
+		}
+		return said
+	}
 	said := fmt.Sprintf("%s, decided on the measurement at %s", SquashedHistory(squash.Stage), measured)
 	if s.Reason != "" {
 		said += ", because " + s.Reason
+	}
+	if !s.HeldRunsAt.IsZero() {
+		said += fmt.Sprintf("; the store was %s on disk, new runs were held from %s, and the squash waited %s for the runs already going to finish", SayBytes(s.SizeOnDisk), s.HeldRunsAt.Local().Format("2006-01-02 15:04 MST"), sayTook(s.WaitedForRuns))
 	}
 	said += fmt.Sprintf("; the store was copied first to %s in %s", squash.Copy, sayTook(squash.CopyTook))
 	switch {

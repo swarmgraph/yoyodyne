@@ -280,6 +280,11 @@ type Product struct {
 // checks beside a full developer pool are a small share of the machine.
 const DefaultDocumentLandings = 2
 
+// DefaultRedeployDrainLimit is execution.redeploy_drain_limit where the
+// configuration says nothing; defaultRedeployDrainLimit says why it is what it
+// is.
+func DefaultRedeployDrainLimit() time.Duration { return defaultRedeployDrainLimit.Duration() }
+
 // DocumentLandingLimit is execution.document_landings, with zero — a
 // configuration assembled without the resolver's defaults — read as the default.
 func (e Execution) DocumentLandingLimit() int {

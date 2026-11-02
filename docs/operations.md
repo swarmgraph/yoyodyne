@@ -493,9 +493,25 @@ Each pass takes ten steps, in this order, and each is recorded:
   manager naming the stage and the items; later passes on the same measurement
   file nothing more. bd holds its lock on the store for the whole squash, so
   every other tracker call waits behind it, and one whose own limit runs out
-  first fails and is tried again by its caller. The step says how long the
-  squash held the store and how long the same squash took on the measured copy,
-  which is the figure to read beforehand; bd is stopped after twenty minutes. A
+  first fails and is tried again by its caller. So a squash whose time on the
+  measured copy is longer than `execution.redeploy_drain_limit` (fifteen
+  minutes by default) is not run, and the pass files one warning for the
+  development manager naming the step and that time. Otherwise the pass reads
+  the store's size on disk, which lists no work items and so answers however
+  large the store is, and then holds new runs in `tracker-squash-hold.json`
+  under the product's state: a watching session starts nothing while it
+  stands, and says why at each poll. The squash starts once no developer
+  run is in flight, counted again every fifteen seconds after a first wait of
+  two minutes, so that a run the scheduler started just as the hold was
+  placed is counted. Runs still in flight once the hold has stood for
+  `execution.redeploy_drain_limit` mean no squash: the hold is lifted, new
+  runs start again, and the pass files one warning for the development
+  manager naming the step and how many runs were still going. The hold is
+  lifted however the step ends, and ends on its own at that limit plus the
+  measured copy and squash time if a pass dies holding it, so nobody has to
+  lift it by hand. The step and the record
+  say how long the squash waited for runs, how long it held the store, and how
+  long the same squash took on the measured copy, which is the figure to read beforehand; bd is stopped after twenty minutes. A
   squash bd failed or that was stopped is a failure of the pass, and its copy is
   what the store is restored from.
 - **rebuild** — what the supervisor's rebuilder last came to. It builds the
