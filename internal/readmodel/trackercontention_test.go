@@ -26,10 +26,25 @@ type storeRunner struct {
 
 	mu    sync.Mutex
 	asked map[string]int
+	// calls counts every command asked of the store, and arrived is signalled
+	// as each one is, so a test can wait until its contenders have asked.
+	calls   int
+	arrived *sync.Cond
 }
 
 func newStoreRunner(hold time.Duration) *storeRunner {
-	return &storeRunner{store: make(chan struct{}, 1), hold: hold, asked: map[string]int{}}
+	runner := &storeRunner{store: make(chan struct{}, 1), hold: hold, asked: map[string]int{}}
+	runner.arrived = sync.NewCond(&runner.mu)
+	return runner
+}
+
+// waitForCalls returns once at least n commands have been asked of the store.
+func (r *storeRunner) waitForCalls(n int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for r.calls < n {
+		r.arrived.Wait()
+	}
 }
 
 func (r *storeRunner) Run(ctx context.Context, command execution.Command, _ execution.OutputObserver) (execution.ProcessResult, error) {
@@ -39,6 +54,8 @@ func (r *storeRunner) Run(ctx context.Context, command execution.Command, _ exec
 	if verb == "list" && slices.Contains(command.Args, "--all") {
 		r.asked[everyItem]++
 	}
+	r.calls++
+	r.arrived.Broadcast()
 	r.mu.Unlock()
 	limit := time.NewTimer(command.Timeout)
 	defer limit.Stop()
@@ -133,8 +150,20 @@ func trackerContention(t *testing.T, runner *storeRunner, shared bool, readers, 
 	}
 	defer contenders.Wait()
 
-	// Every contender is queued on the store before the write arrives.
-	time.Sleep(20 * time.Millisecond)
+	// Every contender is queued on the store before the write arrives: each
+	// reading asking for itself has asked for every item and for what is
+	// ready, which it asks at once, and the first export has asked, or, where
+	// the readings share, the first of them has. The exports take the export
+	// lock one at a time, so only one of them asks at first. Waiting for fewer
+	// asks than that lets the write in ahead of the readings that have not
+	// asked yet, where it can be answered inside its limit. This is waited on
+	// rather than slept for, so a loaded machine cannot let the write in ahead
+	// of them either.
+	if shared {
+		runner.waitForCalls(1)
+	} else {
+		runner.waitForCalls(2*readers + min(exporters, 1))
+	}
 	started := time.Now()
 	_, err = client(writeLimit).RecordOutcome(context.Background(), "yoyodyne-1", "landed")
 	return time.Since(started), err

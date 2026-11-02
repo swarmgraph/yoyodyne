@@ -476,10 +476,10 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 	if err := r.Store.ReserveLive(ctx, resumed, r.Capacity); err != nil {
 		if capacity, taken := slotTakenMeanwhile(err); taken {
 			if dropped {
-				return waiting("every developer slot was taken before the run could be put back at its promotion")
+				return waiting(putBackWait(capacity))
 			}
-			result.Detail += fmt.Sprintf("; the queued merge of pull request %d was withdrawn to bring its head up to date onto %s, and the last developer slot went to another run before this one could take it (%d active, limit %d), so the next sweep puts it back at its promotion as a dropped merge",
-				published.Number, target, capacity.Active, capacity.Limit)
+			result.Detail += fmt.Sprintf("; the queued merge of pull request %d was withdrawn to bring its head up to date onto %s, and %s, so the next sweep puts it back at its promotion as a dropped merge",
+				published.Number, target, slotWentElsewhere(capacity))
 			return result, nil
 		}
 		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("put run %s back at its promotion, whose queued merge the forge no longer holds: %w", state.RunID, err)
@@ -487,6 +487,25 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 	updating := reconciliationOf(resumed, ActionUpdating)
 	updating.Detail = reason
 	return updating, nil
+}
+
+// putBackWait is why a run whose dropped merge is to be put back at its
+// promotion waits for a developer slot: every slot taken, or, for a run that
+// keeps its slot's endpoint pair, that one slot named with the run holding it,
+// never as though every slot were taken.
+func putBackWait(capacity runstate.CapacityError) string {
+	if capacity.Slot != 0 {
+		return capacity.Error() + ", so the run waits for that slot to be put back at its promotion"
+	}
+	return "every developer slot was taken before the run could be put back at its promotion"
+}
+
+// slotWentElsewhere is the same refusal as one clause of a longer account.
+func slotWentElsewhere(capacity runstate.CapacityError) string {
+	if capacity.Slot != 0 {
+		return capacity.Error()
+	}
+	return fmt.Sprintf("the last developer slot went to another run before this one could take it (%d active, limit %d)", capacity.Active, capacity.Limit)
 }
 
 // replayDroppedLanding decides a merge the forge stopped holding for a change
