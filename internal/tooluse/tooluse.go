@@ -342,6 +342,8 @@ func kindWords(kind backend.ToolKind) string {
 		return "it hands work to another agent"
 	case backend.ToolKindSession:
 		return "it keeps notes inside the session"
+	case backend.ToolKindOutside:
+		return "it reaches outside the invocation"
 	default:
 		return "nothing records what it does"
 	}

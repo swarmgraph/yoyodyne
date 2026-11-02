@@ -1,8 +1,11 @@
 package claudecode
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 
@@ -155,5 +158,70 @@ func TestAnUnknownTopLevelEventIsALimit(t *testing.T) {
 	gaps := result.ToolVisibility.Gaps
 	if len(gaps) != 1 || !strings.Contains(gaps[0], `"tool_invocation_v2"`) {
 		t.Fatalf("Gaps = %q, want the one unread event type named once", gaps)
+	}
+}
+
+// Every tool the recorded developer session of run-841f5ee1 was offered has a
+// deliberate kind, and a developer may use exactly the ones its work needs.
+// Claude Code offers a developer more than its allowed-tools list, and the
+// ones that ask no permission run, so a tool with no kind here would file a
+// false ERROR on an ordinary run; a CLI that adds or renames one fails this
+// test instead. Tools served by an MCP server are outside on purpose.
+func TestEveryToolTheRecordedDeveloperSessionOffersHasADeliberateKind(t *testing.T) {
+	t.Parallel()
+	file, err := os.Open("testdata/run-841f5ee1-nested-agent-result.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	offered := map[string]bool{}
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 1<<20), 1<<24)
+	for scanner.Scan() {
+		var event struct {
+			Type    string   `json:"type"`
+			Subtype string   `json:"subtype"`
+			Tools   []string `json:"tools"`
+		}
+		if json.Unmarshal(scanner.Bytes(), &event) == nil && event.Type == "system" && event.Subtype == "init" {
+			for _, tool := range event.Tools {
+				offered[tool] = true
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(offered) == 0 {
+		t.Fatal("the recorded session offered no tools, so this test is reading the wrong file")
+	}
+	forbidden := map[string]bool{
+		// The network, other agents without sub-agents, and anything that
+		// reaches outside the run are not a developer's.
+		"WebFetch": true, "WebSearch": true, "Task": true, "SendMessage": true, "ListAgents": true,
+		"CronCreate": true, "CronDelete": true, "CronList": true, "ScheduleWakeup": true, "RemoteTrigger": true,
+		"PushNotification": true, "DesignSync": true, "EnterWorktree": true, "ExitWorktree": true,
+	}
+	var unknown, wrong []string
+	for tool := range offered {
+		kind := backendapi.ClassifyTool(tool)
+		if strings.HasPrefix(tool, "mcp__") {
+			if kind != backendapi.ToolKindExternal {
+				wrong = append(wrong, tool)
+			}
+			continue
+		}
+		if kind == backendapi.ToolKindUnknown {
+			unknown = append(unknown, tool)
+			continue
+		}
+		if backendapi.ToolPolicyDeveloper.Permits(kind, false) == forbidden[tool] {
+			wrong = append(wrong, tool)
+		}
+	}
+	sort.Strings(unknown)
+	sort.Strings(wrong)
+	if len(unknown) > 0 || len(wrong) > 0 {
+		t.Fatalf("tools with no kind: %v; tools a developer is wrongly allowed or refused: %v", unknown, wrong)
 	}
 }

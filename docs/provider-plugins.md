@@ -811,7 +811,9 @@ format.
 Every adapter reads the tool calls in its provider's stream into one shape —
 which tool, what kind of thing it does (reads files, runs commands, changes
 files, reaches the network, is served from outside the provider, hands work to
-another agent), the call it was made inside if any, and whether it ran, failed,
+another agent, keeps notes inside the session, or reaches outside the invocation
+such as scheduling a job or switching worktrees), the call it was made inside if
+any, and whether it ran, failed,
 was refused, or was started with no result seen. A call reported twice, as a
 start and a completion or as a replay, is one call. Arguments are never kept.
 
@@ -824,7 +826,13 @@ Each adapter also says what tool access it launched the session under:
 | Product manager, architect, development manager, program manager | no tools at all | read-only inspection under the read-only sandbox, which is all Codex can be narrowed to |
 
 Read-only inspection also allows keeping a plan or a list of tasks inside the
-session, which touches nothing outside it.
+session, which touches nothing outside it. A developer's tools include Claude
+Code's task list, reading and stopping its own background commands, and loading
+a skill; the network, other agents unless the run was given sub-agents, and
+anything that reaches outside the invocation are no role's. Each tool name
+Claude Code offers a recorded developer session has a deliberate kind, and a
+test fails on one that has none, so a renamed tool is a failing test rather
+than a false ERROR.
 
 Every invocation — developer runs, per-item and branch reviews, conversation
 turns, scheduled turns, exchanges between roles, and side threads, fresh or
