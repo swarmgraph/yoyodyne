@@ -823,7 +823,7 @@ Each adapter also says what tool access it launched the session under:
 | Reviewer | read-only inspection: reads and the read-only Git commands | read-only inspection under the read-only sandbox |
 | Product manager, architect, development manager, program manager | no tools at all | read-only inspection under the read-only sandbox, which is all Codex can be narrowed to |
 
-Read-only inspection also allows keeping a plan or to-do list inside the
+Read-only inspection also allows keeping a plan or a list of tasks inside the
 session, which touches nothing outside it.
 
 Every invocation — developer runs, per-item and branch reviews, conversation

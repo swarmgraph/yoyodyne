@@ -35,7 +35,7 @@ const (
 	ToolKindExternal ToolKind = "external"
 	// ToolKindAgent hands work to another agent.
 	ToolKindAgent ToolKind = "agent"
-	// ToolKindSession is bookkeeping inside the session, such as a to-do list,
+	// ToolKindSession is bookkeeping inside the session, such as a list of tasks,
 	// that touches nothing outside it.
 	ToolKindSession ToolKind = "session"
 	// ToolKindUnknown is a tool the harness has no description of.
