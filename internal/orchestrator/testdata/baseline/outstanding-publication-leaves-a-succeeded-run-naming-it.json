@@ -62,6 +62,7 @@
           "branch": "yoyodyne/yoyodyne-task/01234567",
           "head_commit": "\u003ccommit-2\u003e",
           "number": 1,
+          "pushed_at": "\u003ctime\u003e",
           "remote": "origin",
           "state": "OPEN",
           "url": "https://example.invalid/pull/1"
@@ -164,6 +165,7 @@
       "branch": "yoyodyne/yoyodyne-task/01234567",
       "head_commit": "\u003ccommit-2\u003e",
       "number": 1,
+      "pushed_at": "\u003ctime\u003e",
       "remote": "origin",
       "state": "OPEN",
       "url": "https://example.invalid/pull/1"

@@ -2031,6 +2031,14 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	// record as the account of why it went on (recoveryrequest.go).
 	state.TakeUpRecoveryContinuation(runstate.RecoverContinue, p.clock().Now())
 	state.RecoveryHold = nil
+	// A repair round a check of the forge started is taken up by this process,
+	// so the sweep that started it does not host it a second time
+	// (forgefeedback.go).
+	if state.ForgeFeedback != nil && state.ForgeFeedback.DispatchPending {
+		taken := *state.ForgeFeedback
+		taken.DispatchPending = false
+		state.ForgeFeedback = &taken
+	}
 	// The invariants are re-read rather than carried in run state: they are the
 	// repository's current constraints, and a resumed attempt must be held to what
 	// holds now rather than to what held when the interrupted process started.
@@ -2288,6 +2296,10 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 // paused before or during its first attempt — so what it is owed is that
 // attempt.
 //
+// Feedback a person left on the published pull request is answered last of
+// all: it is what started the round rather than a gate's verdict on it, so any
+// other input beside it was recorded during the round, about the change since.
+//
 // A refused replay is the exception that proves the ordering rather than one
 // against it. It is answered first because it is the only input decided after
 // every gate has passed, and every gate that decides another one clears it, so a
@@ -2306,6 +2318,8 @@ func resumedDeveloperPrompt(state runstate.State, persona, invariants, bundle, s
 		return checkRepairPrompt(invariants, scratchDirectory, checks, *state.CheckFailure, state.RepairAttempts, limit), nil
 	case len(state.ReviewFindingDetails) > 0:
 		return repairPrompt(invariants, state.ReviewSummary, scratchDirectory, checks, state.ReviewFindingDetails, state.RepairAttempts, limit)
+	case state.ForgeFeedback != nil:
+		return forgeFeedbackRepairPrompt(invariants, scratchDirectory, checks, *state.ForgeFeedback, state.RepairAttempts, limit), nil
 	default:
 		return developerPrompt(persona, invariants, bundle, scratchDirectory, checks), nil
 	}
@@ -2907,6 +2921,10 @@ func (a *activeRun) handOverApproved(ctx context.Context) (Outcome, error) {
 		}
 		return a.stop(ctx, stoppedBy(runstate.StopPublish, err))
 	}
+	// Feedback a person left on the pull request is answered once the change
+	// that answers it is approved and published; the item's notes keep what it
+	// said (forgefeedback.go).
+	a.state.ForgeFeedback = nil
 	a.observe(ctx, deliveryPublish, "published")
 	return a.finish(ctx)
 }

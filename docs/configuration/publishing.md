@@ -324,6 +324,31 @@ Nothing is ever force-pushed to resolve it. On a protected target the same
 failures leave nothing integrated, so the run stops rather than closing the item;
 the next section says how.
 
+### Reviews and comments on a pull request waiting for you
+
+While a pull request waits for a person to merge it, under
+`approvals.integration: human`, each `yoyo reconcile` (which every maintenance
+pass runs) reads the reviews and comments left on it since the harness last
+pushed its head. What the forge account the harness publishes under wrote is
+left out, and nothing is acted on twice.
+
+- **A review that requests changes, or a comment on a line of the change,**
+  starts a repair round on the same run, in its kept worktree, counted against
+  its repair budget (`execution.repair_attempts_before_replan`). The developer
+  is given the feedback with who left it and when, as evidence about the
+  change; it does not widen what the run may change and grants no protected
+  path. The repaired change goes through the configured checks and the
+  independent reviewer again, and only an approved change is pushed to the
+  same pull request. A round needs a free developer slot; without one the
+  feedback waits for the next sweep. Where the repair budget is already spent,
+  the run stops in the ordinary way with the feedback kept, and the development
+  manager decides what happens next.
+- **An ordinary comment on the pull request** goes on the development
+  manager's list as a report addressed to her, because a comment is as often a
+  question as a request. No repair round starts for it.
+- **An approval** is recorded on the run and the item as information. It never
+  stands in for the independent review and never changes what the item is for.
+
 ### A protected target lands through its pull request
 
 Before it promotes, a publishing run asks the forge whether the target branch is

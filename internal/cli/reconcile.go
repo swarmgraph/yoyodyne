@@ -117,6 +117,14 @@ type reconcileOutput struct {
 	// the replay, the re-review, and the merge queued again, with what it came
 	// to. Like the continuations it is written once those runs have finished.
 	Updates []orchestrator.UpdateContinuation `json:"updates"`
+	// Feedback is what this sweep read of the reviews and comments on the pull
+	// requests waiting for a person to merge them, and what it did about it: a
+	// repair round started on the same run, a run stopped on a spent repair
+	// budget, comments put on the development manager's list, and approvals
+	// recorded as information. FeedbackRepairs is each repair round it started,
+	// hosted by this process, with what it came to.
+	Feedback        []orchestrator.FeedbackSettlement   `json:"feedback"`
+	FeedbackRepairs []orchestrator.FeedbackContinuation `json:"feedback_repairs"`
 	// Forge is what this sweep asked the forge about its publications and how
 	// long the forge took: only the unsettled ones are asked, in batches, and a
 	// pass that takes long says where the time went.
@@ -161,6 +169,10 @@ type reconcileSweep struct {
 	Messages      messageCatchUp
 	Continuations []orchestrator.WaitContinuation
 	Updates       []orchestrator.UpdateContinuation
+	// Feedback is what the sweep did about what was said on the pull requests
+	// waiting for a person, and FeedbackRepairs the repair rounds it hosted.
+	Feedback        []orchestrator.FeedbackSettlement
+	FeedbackRepairs []orchestrator.FeedbackContinuation
 	// Forge is what the sweep asked the forge about its publications, and how
 	// long the forge took.
 	Forge *orchestrator.ForgeQuestions
@@ -268,6 +280,13 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// one whose change is not there is listed by this sweep rather than the next.
 	disagreements, disagreementErr := reconciler.FindMergeDisagreements(ctx)
 	err = errors.Join(err, disagreementErr)
+	// What people said on the pull requests waiting for a person to merge them is
+	// read next, after every step that settles a merge, so a request merged or
+	// closed is not read, and before the docket is built, so a run this stops on
+	// a spent repair budget is docketed by this sweep (forgefeedback.go). The
+	// repair rounds it starts are hosted with the other continuations below.
+	feedback, feedbackErr := reconciler.TakeUpFeedback(ctx)
+	err = errors.Join(err, feedbackErr)
 	// Convergence is swept even when settling a run failed. The two are
 	// independent — one finishes runs, the other finishes branches — and a
 	// checkout left behind the forge because some unrelated run could not be
@@ -347,6 +366,7 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 		Stall:              stall,
 		StallProblem:       stallProblem,
 		Forge:              reconciler.Forge,
+		Feedback:           feedback,
 	}
 	// The runs that exited on their in-process usage-limit bound and whose
 	// deadline has since passed are continued last, after everything the sweep
@@ -370,11 +390,15 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	reconciler.Continue = continueWaitFrom(parts, stderr)
 	updater := reconciler
 	updater.Continue = continueUpdateFrom(parts, stderr)
+	repairer := reconciler
+	repairer.Continue = continueFeedbackRepairFrom(parts, stderr)
 	type hostedRuns struct {
 		continuations []orchestrator.WaitContinuation
 		continueErr   error
 		updates       []orchestrator.UpdateContinuation
 		updateErr     error
+		repairs       []orchestrator.FeedbackContinuation
+		repairErr     error
 	}
 	host := func() hostedRuns {
 		var hosted hostedRuns
@@ -383,15 +407,22 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 			defer close(done)
 			hosted.updates, hosted.updateErr = updater.ContinueUpdates(ctx)
 		}()
+		repaired := make(chan struct{})
+		go func() {
+			defer close(repaired)
+			hosted.repairs, hosted.repairErr = repairer.ContinueFeedbackRepairs(ctx)
+		}()
 		hosted.continuations, hosted.continueErr = reconciler.ContinueWaits(ctx)
 		<-done
+		<-repaired
 		return hosted
 	}
 	if *jsonOutput {
 		hosted := host()
 		sweep.Continuations = hosted.continuations
 		sweep.Updates = hosted.updates
-		return reportReconcileResult(stdout, stderr, true, sweep, errors.Join(err, hosted.continueErr, hosted.updateErr))
+		sweep.FeedbackRepairs = hosted.repairs
+		return reportReconcileResult(stdout, stderr, true, sweep, errors.Join(err, hosted.continueErr, hosted.updateErr, hosted.repairErr))
 	}
 	code := reportReconcileResult(stdout, stderr, false, sweep, err)
 	hosted := host()
@@ -410,7 +441,56 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	if printUpdates(stdout, stderr, updates) {
 		code = 1
 	}
+	if hosted.repairErr != nil {
+		fmt.Fprintf(stderr, "continuing the repair rounds started by feedback on pull requests failed: %v\n", hosted.repairErr)
+		code = 1
+	}
+	printFeedbackRepairs(stdout, stderr, hosted.repairs)
 	return code
+}
+
+// continueFeedbackRepairFrom is the continuation a repair round started by
+// feedback on a pull request is carried by: the same pipeline, re-entering the
+// run named at its developer. It says so on standard error first, for the
+// reason continueWaitFrom does.
+func continueFeedbackRepairFrom(parts components, stderr io.Writer) func(context.Context, string, string) (orchestrator.Outcome, error) {
+	return func(ctx context.Context, workItemID, runID string) (orchestrator.Outcome, error) {
+		fmt.Fprintf(stderr, "repairing run %s for %s: changes were asked for on its pull request while it waited for a person to merge it; this sweep hosts the repair, the checks, and the review before the repaired change is pushed\n", runID, workItemID)
+		pipeline := pipelineFrom(parts)
+		return pipeline.Continue(ctx, workItemID, runID)
+	}
+}
+
+// printFeedback says what each pull request waiting for a person had said on
+// it that was new, and what the sweep did about it.
+func printFeedback(stdout, stderr io.Writer, settlements []orchestrator.FeedbackSettlement) {
+	for _, settled := range settlements {
+		switch {
+		case settled.Failure != "":
+			fmt.Fprintf(stderr, "feedback on pull request #%d of %s: %s\n", settled.Number, settled.WorkItemID, settled.Failure)
+		case settled.New > 0:
+			fmt.Fprintf(stdout, "feedback on pull request #%d of %s: %s\n", settled.Number, settled.WorkItemID, settled.Detail)
+		}
+	}
+}
+
+// printFeedbackRepairs says what each repair round started by feedback came to.
+// Its refusals are per-item findings, so they do not fail the pass.
+func printFeedbackRepairs(stdout, stderr io.Writer, repairs []orchestrator.FeedbackContinuation) {
+	for _, repair := range repairs {
+		fmt.Fprintf(stdout, "%s (%s): repair round for feedback on its pull request\n", repair.RunID, repair.WorkItemID)
+		switch outcome := repair.Outcome; {
+		case !repair.Continued && repair.Detail != "":
+			fmt.Fprintf(stdout, "  %s\n", repair.Detail)
+		case outcome != nil && outcome.Blocked:
+			fmt.Fprintf(stdout, "  ended %s in the %s phase with a blocker on the item; the development manager decides what happens to it\n", outcome.Status, outcome.Phase)
+		case outcome != nil:
+			fmt.Fprintf(stdout, "  ended %s in the %s phase\n", outcome.Status, nonEmptyValue(string(outcome.Phase), "unrecorded"))
+		}
+		if repair.Failure != "" {
+			fmt.Fprintf(stderr, "  not repaired: %s\n", repair.Failure)
+		}
+	}
 }
 
 // continueUpdateFrom is the continuation a queued head is brought up to date
@@ -660,6 +740,8 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			StallProblem:       sweep.StallProblem,
 			Continuations:      sweep.Continuations,
 			Updates:            sweep.Updates,
+			Feedback:           sweep.Feedback,
+			FeedbackRepairs:    sweep.FeedbackRepairs,
 			Forge:              sweep.Forge,
 		}
 		if sweep.Messages.Caught != nil || sweep.Messages.Problem != "" {
@@ -673,6 +755,12 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		}
 		if output.Updates == nil {
 			output.Updates = []orchestrator.UpdateContinuation{}
+		}
+		if output.Feedback == nil {
+			output.Feedback = []orchestrator.FeedbackSettlement{}
+		}
+		if output.FeedbackRepairs == nil {
+			output.FeedbackRepairs = []orchestrator.FeedbackContinuation{}
 		}
 		if output.Supervision == nil {
 			output.Supervision = []orchestrator.SupervisionResult{}
@@ -852,6 +940,7 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		if sweep.Messages.Problem != "" {
 			fmt.Fprintln(stderr, "the operator's earlier messages were not read back: "+sweep.Messages.Problem)
 		}
+		printFeedback(stdout, stderr, sweep.Feedback)
 		printContinuations(stdout, stderr, sweep.Continuations)
 		// Said last, so the maintenance pass, which records the end of what this
 		// prints, carries how long the forge took on every pass.
