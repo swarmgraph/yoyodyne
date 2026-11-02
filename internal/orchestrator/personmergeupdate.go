@@ -40,6 +40,10 @@ func (a *activeRun) bringPersonMergeUpToDate(ctx context.Context) (Outcome, erro
 	target := a.worktree.TargetBranch
 	number := a.state.PullRequest.Number
 	a.landingAt(fmt.Sprintf("replaying the change onto %s to bring pull request #%d up to date", target, number), landingAsksNothing)
+	// The approval described the change on its old base, and every way out of
+	// the replay changes what it described, so the replayed change earns its own
+	// verdict, as a replayed promotion does. The replay's record carries this.
+	a.clearReviewEvidence()
 	rebase, err := a.replayOntoTarget(ctx)
 	if recordErr := a.recordRebase(rebase); recordErr != nil {
 		if err == nil {
@@ -60,13 +64,6 @@ func (a *activeRun) bringPersonMergeUpToDate(ctx context.Context) (Outcome, erro
 		return a.fail(stoppedBy(runstate.StopIntegration, err), failureStatus(ctx, err))
 	default:
 		a.leftLanding()
-		// The approval described the change on its old base, so the replayed
-		// change earns its own verdict, as a replayed promotion does.
-		a.clearReviewEvidence()
-		a.state.UpdatedAt = a.pipeline.clock().Now()
-		if err := a.pipeline.Store.Save(a.state); err != nil {
-			return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("save the change replayed onto %s: %w", target, err)), runstate.StatusFailed)
-		}
 	}
 	return a.verifyReviewAndFinish(ctx)
 }
@@ -82,16 +79,12 @@ func (a *activeRun) handUpToDateConflict(ctx context.Context, cause error) error
 	if a.state.UpToDateConflicts >= runstate.MaxUpToDateConflicts {
 		return a.blockOnUpToDateConflicts(cause)
 	}
-	a.state.UpToDateConflicts++
+	// The move saves the record, so the round is counted with it.
+	a.state.StartUpToDateConflictRound(a.pipeline.clock().Now())
 	if err := a.moveOntoTargetForRepair(ctx); err != nil {
 		return errors.Join(cause, err)
 	}
 	conflict := *a.state.ReplayConflict
-	a.state.Phase = runstate.PhaseDeveloping
-	a.state.UpdatedAt = a.pipeline.clock().Now()
-	if err := a.pipeline.Store.Save(a.state); err != nil {
-		return fmt.Errorf("save conflict round %d while bringing pull request #%d up to date: %w", a.state.UpToDateConflicts, a.state.PullRequest.Number, err)
-	}
 	return a.develop(ctx, upToDateConflictPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, conflict, a.state.UpToDateConflicts), a.state.ProviderSessionID)
 }
 

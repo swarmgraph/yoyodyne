@@ -437,28 +437,10 @@ func (r Reconciler) updatePersonMerge(ctx context.Context, recorded runstate.Sta
 		result.Failure = err.Error()
 		return result
 	}
-	now := r.clock().Now()
-	resumed := state
-	resumed.IntegrationResumptions = append(append([]runstate.IntegrationResumption{}, state.IntegrationResumptions...),
-		runstate.IntegrationResumption{
-			Cause:             runstate.CausePersonMergeBehind,
-			Reason:            boundedReason(reason),
-			ResumedAt:         now,
-			SupersededFailure: state.Failure,
-			SupersededBlocker: state.Blocker,
-		})
 	// The wait ends here and starts again when the run publishes the updated
 	// head (activeRun.complete); while the run is live it holds a developer slot
 	// and is not waiting on anybody.
-	resumed.PersonMerge = nil
-	resumed.Failure = ""
-	resumed.Blocker = ""
-	resumed.StopClass = ""
-	resumed.Status = runstate.StatusRunning
-	resumed.Phase = runstate.PhaseIntegrating
-	resumed.CompletedAt = nil
-	resumed.SettledQuietSince = nil
-	resumed.UpdatedAt = now
+	resumed := state.PutBackToBringUpToDate(boundedReason(reason), r.clock().Now())
 	if err := r.Store.ReserveLive(ctx, resumed, r.Capacity); err != nil {
 		if _, taken := slotTakenMeanwhile(err); taken {
 			return keep("the last developer slot went to another run first")

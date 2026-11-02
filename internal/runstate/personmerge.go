@@ -216,3 +216,41 @@ func (s State) BringingPersonMergeUpToDate() bool {
 	}
 	return s.IntegrationResumptions[len(s.IntegrationResumptions)-1].Cause == CausePersonMergeBehind
 }
+
+// PutBackToBringUpToDate is a run waiting for a person to merge its pull
+// request, put back at its promotion so its change is brought up to date with
+// a target that moved past the request (CausePersonMergeBehind). The wait ends,
+// and starts again when the run publishes the updated head; while it is live the
+// run holds a developer slot. The caller saves it through Store.ReserveLive,
+// which takes that slot in the same act.
+func (s State) PutBackToBringUpToDate(reason string, at time.Time) State {
+	resumed := s
+	resumed.IntegrationResumptions = append(append([]IntegrationResumption{}, s.IntegrationResumptions...),
+		IntegrationResumption{
+			Cause:             CausePersonMergeBehind,
+			Reason:            reason,
+			ResumedAt:         at,
+			SupersededFailure: s.Failure,
+			SupersededBlocker: s.Blocker,
+		})
+	resumed.PersonMerge = nil
+	resumed.Failure = ""
+	resumed.Blocker = ""
+	resumed.StopClass = ""
+	resumed.Status = StatusRunning
+	resumed.Phase = PhaseIntegrating
+	resumed.CompletedAt = nil
+	resumed.SettledQuietSince = nil
+	resumed.UpdatedAt = at
+	return resumed
+}
+
+// StartUpToDateConflictRound counts one more conflict handed to the developer
+// while the run brings its waiting pull request up to date, and puts the run at
+// its developing step for it. The caller saves it before the developer is
+// invoked, so an interrupted round is still one the run had.
+func (s *State) StartUpToDateConflictRound(at time.Time) {
+	s.UpToDateConflicts++
+	s.Phase = PhaseDeveloping
+	s.UpdatedAt = at
+}
