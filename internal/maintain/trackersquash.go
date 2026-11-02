@@ -292,11 +292,11 @@ func (p *Pass) skipSquash(step runstate.SweepStep, record runstate.TrackerStoreS
 	}
 	var message string
 	if record.TooLong > 0 {
-		message = fmt.Sprintf("Maintenance did not squash the tracker store's %s (the %s step), because on the copy measured at %s the squash held the store %s, longer than the watch session's redeploy drain bound of %s. "+
+		message = fmt.Sprintf("Maintenance did not squash the tracker store's %s (the %s step), because on the copy measured at %s the squash held the store %s, longer than the %s a session restarting onto a new build waits for its runs to finish (execution.redeploy_drain_limit). "+
 			"A squash holds the store for its whole length, so every run's tracker reads would wait behind it; a squash that long is a question for the design on keeping the store small rather than something to run. The measurement is recorded in %s.",
 			runstate.SquashedHistory(record.Squash.Stage), StepTrackerSquash, local(record.MeasuredAt), roundTook(record.TooLong), roundTook(record.DrainBound), p.Measurements.Path())
 	} else {
-		message = fmt.Sprintf("Maintenance did not squash the tracker store's %s (the %s step), because %d developer run(s) were still in flight after it had held new runs for %s, the watch session's redeploy drain bound. "+
+		message = fmt.Sprintf("Maintenance did not squash the tracker store's %s (the %s step), because %d developer run(s) were still in flight after it had held new runs for the %s a session restarting onto a new build waits for its runs to finish (execution.redeploy_drain_limit). "+
 			"New runs are being started again. The next squash is decided on the next measurement of the store; the decision is recorded in %s.",
 			runstate.SquashedHistory(record.Squash.Stage), StepTrackerSquash, record.StillRunning, roundTook(record.DrainBound), p.Squashes.Path())
 	}

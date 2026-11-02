@@ -41,7 +41,7 @@ func (s Scheduler) squashHeld(schedule *Schedule, pull Pull) (runstate.TrackerSq
 	}
 	hold, standing, err := pull.SquashHolds.Standing(s.now())
 	if err != nil {
-		schedule.SquashHoldProblem = fmt.Sprintf("whether maintenance holds new runs for a tracker squash could not be read, so the pull was made as though it did not: %v", err)
+		schedule.SquashHoldProblem = fmt.Sprintf("whether maintenance holds new runs for a tracker squash could not be read, so new runs were started as though it did not stand: %v", err)
 		return runstate.TrackerSquashHold{}, false
 	}
 	schedule.SquashHoldProblem = ""

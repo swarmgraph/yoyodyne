@@ -157,9 +157,9 @@ func (s TrackerStoreSquash) Says() string {
 	if s.Skipped() {
 		said := fmt.Sprintf("the store's %s was not squashed on the measurement at %s, because ", SquashedHistory(squash.Stage), measured)
 		if s.TooLong > 0 {
-			said += fmt.Sprintf("on the copy the squash held the store %s, longer than the %s the watch session waits for its runs before a redeploy", sayTook(s.TooLong), sayTook(s.DrainBound))
+			said += fmt.Sprintf("on the copy the squash held the store %s, longer than the %s a session restarting onto a new build waits for its runs to finish", sayTook(s.TooLong), sayTook(s.DrainBound))
 		} else {
-			said += fmt.Sprintf("%d developer run(s) were still in flight once new runs had been held for %s, the watch session's redeploy drain bound; new runs were started again", s.StillRunning, sayTook(s.DrainBound))
+			said += fmt.Sprintf("%d developer run(s) were still in flight once new runs had been held for the %s a session restarting onto a new build waits for its runs to finish; new runs were started again", s.StillRunning, sayTook(s.DrainBound))
 		}
 		if s.Reported != "" {
 			said += "; the development manager was warned in " + s.Reported
