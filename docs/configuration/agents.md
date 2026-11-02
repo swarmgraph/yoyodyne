@@ -143,11 +143,13 @@ rather than on who an approval says gave it, which is what
 this is what was resting on them.
 
 At a terminal, making an approval name the resolved human, and refusing one
-from anybody who does not hold `own-intent`, is designed and not built. The
+from anybody who does not hold `own-intent`, was proposed and is not built. The
 dashboard refuses a person without the grant, and records what it decides as
-the operator's, exactly as the terminal's verb does.
-[Operator identity, designed once](../team-mode-coordination.md#operator-identity-designed-once)
-is where it is specified, and what it would and would not close.
+the operator's, exactly as the terminal's verb does. The proposal was in an
+early team-mode draft that was never adopted;
+[the design that replaced it](../designs/working-alongside-other-contributors.md#the-five-gaps-team-mode-named)
+takes the forge account as a person's identity and establishes no proof of who
+an operator is beyond it.
 
 ## Reporting to Slack
 
