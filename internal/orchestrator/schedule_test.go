@@ -3978,6 +3978,9 @@ type scheduleHarness struct {
 	// will not catch up to the remote's. A pull is wired with it only where a
 	// test asks, so every other test's pass reads no divergence at all.
 	divergences ScheduleDivergences
+	// squashHolds is maintenance's hold on new runs for a tracker squash, wired
+	// only where a test asks.
+	squashHolds ScheduleSquashHolds
 	// launchSettings is the product's record of a developer's provider that did
 	// not apply its launch settings, build the harness revision the
 	// pull runs, and developerProvider the configured developer's provider. A
@@ -4214,6 +4217,7 @@ func (h *scheduleHarness) open(context.Context) (Pull, error) {
 		DeveloperModels:             h.developerModels,
 		CapacityServed:              h.capacityServed,
 		Divergences:                 h.divergences,
+		SquashHolds:                 h.squashHolds,
 		LaunchSettings:              h.launchSettings,
 		Build:                       h.build,
 		DeveloperProvider:           h.developerProvider,

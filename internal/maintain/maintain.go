@@ -65,7 +65,11 @@
 //     It holds the store for as long as bd takes, and every other tracker call
 //     waits behind it meanwhile, which is why it runs only where the
 //     measurement shows a squash is what brings the listings within their
-//     limit, and why the step says how long the store was held.
+//     limit, why the step says how long the store was held, and why, once one
+//     is due, it holds new runs and starts only once no developer run is in
+//     flight, giving up if they have not finished within the watch session's
+//     redeploy drain bound. That wait holds the pass up for as long as the
+//     bound.
 //   - rebuild: what the supervisor's rebuilder last came to — it builds the
 //     binary on its own thirty-second look when the branch lands something the
 //     binary is made of, so a deploy has a build to take up.
@@ -268,6 +272,17 @@ type Pass struct {
 	Reports      Reports
 	RepositoryID string
 	Build        string
+	// SquashHolds is where the squash holds new runs while it is due or
+	// running, Runs the product's runs it waits on, and DrainBound the watch
+	// session's redeploy drain bound, the longest it waits for them and the
+	// longest squash it runs; where either of the first two is nil no squash
+	// runs and the step says so. Zero DrainBound is the configuration's default.
+	SquashHolds SquashHolds
+	Runs        RunsInFlight
+	DrainBound  time.Duration
+	// Sleep waits while the squash waits for the runs in flight, reporting false
+	// where ctx ended first; nil waits on the clock.
+	Sleep func(ctx context.Context, d time.Duration) bool
 
 	Now func() time.Time
 	Log func(format string, args ...any)

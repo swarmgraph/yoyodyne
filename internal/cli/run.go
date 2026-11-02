@@ -175,6 +175,10 @@ type components struct {
 	// while it stands, and lifted by the first check that finds the settings in
 	// force again or by a pull on another harness build.
 	launchSettings *runstate.LaunchSettingsHoldStore
+	// squashHolds is maintenance's hold on new runs while a squash of the
+	// tracker store is due or running: placed and lifted by the maintenance
+	// pass, read by a watching session that starts nothing while it stands.
+	squashHolds *runstate.TrackerSquashHoldStore
 	// spend is the cost log every provider invocation this process makes lands
 	// in. It is built under the product beside the usage limits, and for the
 	// mirror-image reason: that log says when the harness could not spend, and
@@ -447,6 +451,10 @@ func buildComponents(configPath string) (components, error) {
 	if err != nil {
 		return components{}, err
 	}
+	squashHolds, err := runstate.NewTrackerSquashHoldStore(stateRoot, cfg.Product.ID)
+	if err != nil {
+		return components{}, err
+	}
 	spendLog, err := runstate.NewSpendStore(stateRoot, cfg.Product.ID)
 	if err != nil {
 		return components{}, err
@@ -512,6 +520,7 @@ func buildComponents(configPath string) (components, error) {
 		capacityServed:   capacityServed,
 		divergences:      divergences,
 		launchSettings:   launchSettings,
+		squashHolds:      squashHolds,
 		spend:            spendLog,
 		trackerListings:  trackerListings,
 		trackerSlowCalls: trackerSlowCalls,

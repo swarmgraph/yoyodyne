@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -39,9 +40,36 @@ import (
 // stage changed an item or a note refuses both squashes, and the development
 // manager is warned once, naming the stage and the records.
 //
+// A squash holds the store's exclusive lock for its whole length, so a run
+// in the middle of its work when it starts can have its tracker reads time out
+// over nothing it did. So a squash also has to start with no developer run in
+// flight, and is held to the watch session's redeploy drain bound, the longest
+// the harness already makes its runs wait for anything:
+//
+//   - one whose time on the measurement's copy is longer than that bound is not
+//     run, and the development manager is warned once, naming the step and the
+//     time;
+//   - otherwise the store's size on disk is read, which asks bd nothing and so
+//     answers at any size, and then new runs are held (runstate,
+//     trackersquashhold.go): no watching session starts one while the hold
+//     stands, and the squash waits for the runs already going to finish, for
+//     as long as the bound;
+//   - runs still in flight at the bound mean no squash: the hold is lifted, new
+//     runs start again, and the development manager is warned once, naming the
+//     step and how many were still going.
+//
+// The hold is lifted however the step ends, a failure partway included, and
+// carries its own end besides, the bound and the squash's measured time on the
+// copy after it was placed, so a pass that dies holding it does not hold the
+// line for ever. Nothing in deciding the squash lists or counts work items:
+// that is what an oversized store cannot answer in time, and the decision has
+// to be made exactly when it is oversized.
+//
 // Each measurement is decided once. A squash that ran, failed, or was refused
-// is recorded against the measurement it was decided on, and the next is
-// decided on the next measurement; one that never started, because another
+// is recorded against the measurement it was decided on, and so is one skipped
+// for its measured time or for runs still in flight, so its warning is filed
+// once; the next is decided on the next measurement. One that never started,
+// because another
 // process had the store open or it changed while it was copied, is tried again
 // at the next pass.
 
@@ -55,11 +83,20 @@ const (
 	// on a measurement's copy is given. A squash stopped there is recorded as
 	// failed, and the copy made before it is what the store is restored from.
 	squashBound = 20 * time.Minute
+	// squashSettle is how long new runs are held before the runs in flight are
+	// first counted. A pull that read no hold just before it was placed can still
+	// start a run once it has read the tracker, which takes at most one tracker
+	// read's wait, and that run has to be counted.
+	squashSettle = beads.DefaultTimeout
+	// squashRunsPoll is how often the runs in flight are counted again while the
+	// squash waits for them.
+	squashRunsPoll = 15 * time.Second
 )
 
 // StoreSquasher squashes the live tracker store. It is satisfied by
 // beads.Client.
 type StoreSquasher interface {
+	StoreSize() (string, int64, error)
 	SquashStore(ctx context.Context, stage string, copies *repowrite.PinnedRoot, name string, limit time.Duration, copied func(beads.StoreSquash) error) (beads.StoreSquash, error)
 }
 
@@ -72,6 +109,21 @@ type Squashes interface {
 	CopyDirectory() (*repowrite.PinnedRoot, error)
 	RemoveCopiesMadeBefore(cutoff time.Time) ([]string, error)
 	Path() string
+}
+
+// SquashHolds is the hold on new runs while a squash is due or running. It is
+// satisfied by *runstate.TrackerSquashHoldStore.
+type SquashHolds interface {
+	Place(runstate.TrackerSquashHold) error
+	Lift() error
+	Path() string
+}
+
+// RunsInFlight is the product's runs as the squash counts the developer runs
+// in flight. It is satisfied by *runstate.Store.
+type RunsInFlight interface {
+	Incomplete() ([]runstate.State, error)
+	HoldsDeveloperSlotNow(state runstate.State, now time.Time) bool
 }
 
 // Reports is where the pass files a warning. It is satisfied by
@@ -88,6 +140,10 @@ func (p *Pass) squashTracker(ctx context.Context) runstate.SweepStep {
 	step := runstate.SweepStep{Name: StepTrackerSquash}
 	if p.Squasher == nil || p.Squashes == nil || p.Measurements == nil {
 		step.Outcome, step.Detail = runstate.StepSkipped, "no squash of the tracker's store is wired, so it is not squashed"
+		return step
+	}
+	if p.SquashHolds == nil || p.Runs == nil {
+		step.Outcome, step.Detail = runstate.StepSkipped, "nothing is wired to hold new runs or count the runs in flight, so the tracker's store is not squashed, because a squash that started under a run would make its tracker reads wait"
 		return step
 	}
 	now := p.now()
@@ -131,7 +187,155 @@ func (p *Pass) decideSquash(ctx context.Context, step runstate.SweepStep, now ti
 		step.Outcome, step.Detail = runstate.StepSkipped, none
 		return step
 	}
-	return p.runSquash(ctx, step, latest, stage, reason, now)
+	record := runstate.TrackerStoreSquash{
+		Name:       p.Squashes.NewName(now),
+		MeasuredAt: latest.StartedAt(),
+		Reason:     reason,
+		Squash:     beads.StoreSquash{Stage: stage},
+	}
+	bound := p.drainBound()
+	measured, _ := latest.Measurement.Stage(stage)
+	if measured.Took > bound {
+		record.TooLong, record.DrainBound = measured.Took, bound
+		return p.skipSquash(step, record, now)
+	}
+	return p.holdAndSquash(ctx, step, latest, record, latest.Measurement.CopyTook+measured.Took, now)
+}
+
+// holdAndSquash reads the store's size on disk, holds new runs, waits for the
+// developer runs in flight to finish, and squashes once none is, lifting the
+// hold however it ends. expected is the copy and the squash's time on the
+// measurement's copy, which the hold's own end allows for.
+func (p *Pass) holdAndSquash(ctx context.Context, step runstate.SweepStep, measured runstate.TrackerStoreMeasurement, record runstate.TrackerStoreSquash, expected time.Duration, now time.Time) (ended runstate.SweepStep) {
+	stage := record.Squash.Stage
+	due := fmt.Sprintf("the tracker's store is due a squash of its %s because %s", runstate.SquashedHistory(stage), record.Reason)
+	_, size, err := p.Squasher.StoreSize()
+	if err != nil {
+		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("%s, and its size on disk could not be read, so new runs were not held and it was not squashed: %v; the next pass tries again", due, err)
+		return step
+	}
+	record.SizeOnDisk = size
+	bound := p.drainBound()
+	since := p.now()
+	if err := p.SquashHolds.Place(runstate.TrackerSquashHold{Since: since, Until: since.Add(bound + expected), Reason: record.Reason}); err != nil {
+		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("%s, and new runs could not be held, so it was not squashed: %v; the next pass tries again", due, err)
+		return step
+	}
+	record.HeldRunsAt = since
+	defer func() {
+		if err := p.SquashHolds.Lift(); err != nil {
+			ended.Outcome = runstate.StepFailed
+			ended.Detail += fmt.Sprintf("; the hold on new runs in %s could not be lifted, so no run starts until it ends on its own at %s: %v", p.SquashHolds.Path(), local(since.Add(bound+expected)), err)
+		}
+	}()
+	still, err := p.awaitRuns(ctx, since.Add(bound))
+	record.WaitedForRuns = p.now().Sub(since)
+	switch {
+	case err != nil:
+		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("%s, and new runs were held, but the runs in flight could not be counted, so it was not squashed and new runs start again: %v; the next pass tries again", due, err)
+		return step
+	case still > 0:
+		record.StillRunning, record.DrainBound = still, bound
+		return p.skipSquash(step, record, now)
+	}
+	return p.runSquash(ctx, step, measured, record, now)
+}
+
+// awaitRuns waits, from when new runs were held until deadline, for no
+// developer run to be in flight, and says how many still were where some were
+// at the deadline. It looks first once squashSettle has passed, so a run a pull
+// started just as the hold was placed is counted.
+func (p *Pass) awaitRuns(ctx context.Context, deadline time.Time) (int, error) {
+	wait := min(squashSettle, max(deadline.Sub(p.now()), 0))
+	for {
+		if !p.sleep(ctx, wait) {
+			return 0, fmt.Errorf("the pass was stopped while it waited: %w", ctx.Err())
+		}
+		inFlight, err := p.developerRunsInFlight()
+		if err != nil || inFlight == 0 {
+			return 0, err
+		}
+		left := deadline.Sub(p.now())
+		if left <= 0 {
+			return inFlight, nil
+		}
+		wait = min(squashRunsPoll, left)
+	}
+}
+
+// developerRunsInFlight counts the runs holding a developer slot now. A run a
+// session stopped for its redeploy is not counted: it is doing nothing, and
+// the session that would pick it up again starts nothing while new runs are
+// held.
+func (p *Pass) developerRunsInFlight() (int, error) {
+	incomplete, err := p.Runs.Incomplete()
+	if err != nil {
+		return 0, err
+	}
+	now, count := p.now(), 0
+	for _, state := range incomplete {
+		if state.RedeployStop == nil && p.Runs.HoldsDeveloperSlotNow(state, now) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// skipSquash records a squash not run for its measured time or for runs still
+// in flight, and warns the development manager once. A warning that cannot be
+// filed is not recorded as decided, so the next pass files it.
+func (p *Pass) skipSquash(step runstate.SweepStep, record runstate.TrackerStoreSquash, now time.Time) runstate.SweepStep {
+	said := record.Says()
+	if p.Reports == nil {
+		step.Outcome, step.Detail = runstate.StepFailed, said+"; no report pile is wired, so the development manager could not be warned, and the next pass tries again"
+		return step
+	}
+	var message string
+	if record.TooLong > 0 {
+		message = fmt.Sprintf("Maintenance did not squash the tracker store's %s (the %s step), because on the copy measured at %s the squash held the store %s, longer than the watch session's redeploy drain bound of %s. "+
+			"A squash holds the store for its whole length, so every run's tracker reads would wait behind it; a squash that long is a question for the design on keeping the store small rather than something to run. The measurement is recorded in %s.",
+			runstate.SquashedHistory(record.Squash.Stage), StepTrackerSquash, local(record.MeasuredAt), roundTook(record.TooLong), roundTook(record.DrainBound), p.Measurements.Path())
+	} else {
+		message = fmt.Sprintf("Maintenance did not squash the tracker store's %s (the %s step), because %d developer run(s) were still in flight after it had held new runs for %s, the watch session's redeploy drain bound. "+
+			"New runs are being started again. The next squash is decided on the next measurement of the store; the decision is recorded in %s.",
+			runstate.SquashedHistory(record.Squash.Stage), StepTrackerSquash, record.StillRunning, roundTook(record.DrainBound), p.Squashes.Path())
+	}
+	filed, err := p.warn(record, message, now)
+	if err != nil {
+		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("%s; the warning to the development manager could not be filed, and the next pass tries again: %v", said, err)
+		return step
+	}
+	record.Reported = filed
+	step.Outcome, step.Detail = runstate.StepSkipped, record.Says()
+	if err := p.Squashes.Record(record); err != nil {
+		step.Outcome = runstate.StepFailed
+		step.Detail += fmt.Sprintf("; the decision could not be recorded, so the next pass may warn again: %v", err)
+	}
+	return step
+}
+
+// drainBound is the watch session's redeploy drain bound, and the
+// configuration's default where none is wired.
+func (p *Pass) drainBound() time.Duration {
+	if p.DrainBound > 0 {
+		return p.DrainBound
+	}
+	return config.DefaultRedeployDrainLimit()
+}
+
+// sleep waits for d, and reports false where ctx ended first.
+func (p *Pass) sleep(ctx context.Context, d time.Duration) bool {
+	if p.Sleep != nil {
+		return p.Sleep(ctx, d)
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // refuseSquash records that the store is not squashed on a measurement that
@@ -173,6 +377,12 @@ func (p *Pass) warnChanged(record runstate.TrackerStoreSquash, now time.Time) (s
 	message := fmt.Sprintf("Maintenance did not squash the tracker store's history, because the measurement on a copy at %s showed work items or notes changed: %s. "+
 		"The store is squashed only where every item and note is unchanged across the squash on a copy, so neither squash runs until a later measurement shows none changed; somebody has to find out why bd changed those records on the copy. The measurement is recorded in %s.",
 		record.MeasuredAt.Local().Format("2006-01-02 15:04 MST"), strings.Join(stages, "; "), p.Measurements.Path())
+	return p.warn(record, message, now)
+}
+
+// warn files one warning about a squash decision for the development manager,
+// and returns its id.
+func (p *Pass) warn(record runstate.TrackerStoreSquash, message string, now time.Time) (string, error) {
 	collected, err := report.Collect([]report.Entry{{
 		Severity: report.SeverityWarning,
 		For:      domain.RoleDevelopmentManager,
@@ -193,20 +403,16 @@ func (p *Pass) warnChanged(record runstate.TrackerStoreSquash, now time.Time) (s
 	return collected[0].ID, nil
 }
 
-// runSquash squashes the live store as stage says, recording the copy before
-// bd runs and what the squash came to once it has ended.
-func (p *Pass) runSquash(ctx context.Context, step runstate.SweepStep, measured runstate.TrackerStoreMeasurement, stage, reason string, now time.Time) runstate.SweepStep {
+// runSquash squashes the live store as the record's stage says, recording the
+// copy before bd runs and what the squash came to once it has ended.
+func (p *Pass) runSquash(ctx context.Context, step runstate.SweepStep, measured runstate.TrackerStoreMeasurement, record runstate.TrackerStoreSquash, now time.Time) runstate.SweepStep {
+	stage, reason := record.Squash.Stage, record.Reason
 	copies, err := p.Squashes.CopyDirectory()
 	if err != nil {
 		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the tracker's store is due a squash of its %s because %s, and the directory its copy is made in could not be made, so it was not squashed: %v", runstate.SquashedHistory(stage), reason, err)
 		return step
 	}
 	defer copies.Close()
-	record := runstate.TrackerStoreSquash{
-		Name:       p.Squashes.NewName(now),
-		MeasuredAt: measured.StartedAt(),
-		Reason:     reason,
-	}
 	squashed, err := p.Squasher.SquashStore(ctx, stage, copies, record.Name, squashBound, func(copied beads.StoreSquash) error {
 		record.Squash = copied
 		return p.Squashes.Record(record)

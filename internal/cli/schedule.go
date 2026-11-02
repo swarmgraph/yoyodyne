@@ -866,6 +866,9 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// by the run that met it, holds the choosing until a sweep finds the
 		// branches converged.
 		Divergences: parts.divergences,
+		// A squash of the tracker store maintenance has found due holds every
+		// new start until maintenance lifts the hold or it ends on its own.
+		SquashHolds: parts.squashHolds,
 		// A developer's provider found not to put its launch settings in force,
 		// recorded by the dispatch that met it, holds the choosing until a check
 		// finds them in force again or this session runs another build.
