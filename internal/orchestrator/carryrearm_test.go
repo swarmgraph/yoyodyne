@@ -223,7 +223,7 @@ func TestARefusedRearmIsHeldAsTheDevelopmentManagersMoveWithTheRefusalSaid(t *te
 
 	// Before any pull, the decision is the harness's to carry out, and every
 	// reading says so.
-	before, err := readmodel.HeldForAPerson(context.Background(), harness.runs, harness.runs.Triage(), nil)
+	before, err := readmodel.HeldForAPerson(context.Background(), harness.runs, harness.runs.Triage(), nil, nil)
 	if err != nil {
 		t.Fatalf("HeldForAPerson() before the pull error = %v", err)
 	}
@@ -253,7 +253,7 @@ func TestARefusedRearmIsHeldAsTheDevelopmentManagersMoveWithTheRefusalSaid(t *te
 		t.Fatalf("docketed entry awaiting=%v renders:\n%s\nwant it on the docket naming the development manager", docketed.Counters.AwaitingCarryOut(), rendered)
 	}
 
-	held, err := readmodel.HeldForAPerson(context.Background(), harness.runs, harness.runs.Triage(), nil)
+	held, err := readmodel.HeldForAPerson(context.Background(), harness.runs, harness.runs.Triage(), nil, nil)
 	if err != nil {
 		t.Fatalf("HeldForAPerson() error = %v", err)
 	}

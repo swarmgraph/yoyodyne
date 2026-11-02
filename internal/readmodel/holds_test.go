@@ -198,7 +198,7 @@ func TestAHoldNamesTheOutstandingRepairsRunDespiteMaintenanceUpdates(t *testing.
 				older.UpdatedAt = decidedAt.Add(time.Hour)
 			}
 			for _, order := range [][]runstate.State{{older, newer}, {newer, older}} {
-				held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: order}, record, nil)
+				held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: order}, record, nil, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -228,7 +228,7 @@ func TestAnOlderRepairRemainsHeldBesideALaterMergedPublication(t *testing.T) {
 			newer.PublishFailure = ""
 		}
 		for _, order := range [][]runstate.State{{older, newer}, {newer, older}} {
-			held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: order}, recordedDecisions{older.WorkItemID: repair}, nil)
+			held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: order}, recordedDecisions{older.WorkItemID: repair}, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -243,7 +243,7 @@ func TestAnOlderRepairRemainsHeldBesideALaterMergedPublication(t *testing.T) {
 		Gate: runstate.TriageGatePreservedWork, Refusal: "the worktree has changed", Clears: "reconcile the preserved work", RefusedAt: at.Add(3 * time.Hour),
 	}}
 	newer.PublishFailure = "delete the merged remote branch failed"
-	held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: []runstate.State{older, newer}}, recordedDecisions{older.WorkItemID: repair}, nil)
+	held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: []runstate.State{older, newer}}, recordedDecisions{older.WorkItemID: repair}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestAnUnresolvedDecisionReferenceIsExplicitAndKeepsPreservedWorkHeld(t *tes
 				WorkItemID: test.recordItem, RepairGrants: 1, CommittedRounds: 2,
 				Decisions: []runstate.TriageDecision{{Decision: runstate.TriageDecisionRepair, RunID: test.runID, DecidedAt: at.Add(3 * time.Hour)}},
 			}}
-			held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: []runstate.State{preserved, other, finished}}, record, nil)
+			held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: []runstate.State{preserved, other, finished}}, record, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -312,7 +312,7 @@ func TestASupersededSpendingDecisionDoesNotHoldAMissingRun(t *testing.T) {
 					WorkItemID: run.WorkItemID, RepairGrants: 1, CommittedRounds: 2,
 					Decisions: []runstate.TriageDecision{spending, wait},
 				}}
-				held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: []runstate.State{run}}, record, nil)
+				held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: []runstate.State{run}}, record, nil, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -346,7 +346,7 @@ func TestAnOutstandingSpendingDecisionWithAMissingRunRemainsHeld(t *testing.T) {
 				WorkItemID: run.WorkItemID, RepairGrants: 1, CommittedRounds: 2,
 				Decisions: []runstate.TriageDecision{decision},
 			}}
-			held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: []runstate.State{run}}, record, nil)
+			held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: []runstate.State{run}}, record, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -365,10 +365,10 @@ func TestAFailedReadingIsAnErrorRatherThanNoHolds(t *testing.T) {
 	t.Parallel()
 
 	unreadable := errors.New("state root is not readable")
-	if _, err := HeldForAPerson(context.Background(), failingStoppages{runs: unreadable}, nil, nil); !errors.Is(err, unreadable) {
+	if _, err := HeldForAPerson(context.Background(), failingStoppages{runs: unreadable}, nil, nil, nil); !errors.Is(err, unreadable) {
 		t.Fatalf("HeldForAPerson() error = %v, want the run reading's failure", err)
 	}
-	if _, err := HeldForAPerson(context.Background(), failingStoppages{escalations: unreadable}, nil, nil); !errors.Is(err, unreadable) {
+	if _, err := HeldForAPerson(context.Background(), failingStoppages{escalations: unreadable}, nil, nil, nil); !errors.Is(err, unreadable) {
 		t.Fatalf("HeldForAPerson() error = %v, want the escalation reading's failure", err)
 	}
 }

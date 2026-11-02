@@ -174,7 +174,7 @@ func TestAStopTheDevelopmentManagerDecidedEndsTheRunInFlightAsDecided(t *testing
 
 	// The hold: the item is not pulled while the stopped run's change stands,
 	// though the run ended cancelled with no blocker, and the hold says why.
-	held, err := readmodel.HeldForAPerson(context.Background(), store, store.Triage(), nil)
+	held, err := readmodel.HeldForAPerson(context.Background(), store, store.Triage(), nil, nil)
 	if err != nil {
 		t.Fatalf("HeldForAPerson() error = %v", err)
 	}
@@ -306,7 +306,7 @@ func TestAStopTheRunNeverReachedLeavesItsLaterStoppageUndecided(t *testing.T) {
 
 	// The hold: the item is held for her decision about the stoppage rather than
 	// read as superseded or as a decision awaiting its carry-out.
-	held, err := readmodel.HeldForAPerson(context.Background(), store, store.Triage(), nil)
+	held, err := readmodel.HeldForAPerson(context.Background(), store, store.Triage(), nil, nil)
 	if err != nil {
 		t.Fatalf("HeldForAPerson() error = %v", err)
 	}

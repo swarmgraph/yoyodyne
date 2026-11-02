@@ -1750,6 +1750,18 @@ func renderTriageDocket(request ProductRequest) (string, *triage.WindowPosition)
 	return window.Text, window.Position
 }
 
+// docketWaitEnded says that the work a decision to wait named has closed, so the
+// wait recorded above it is over and the stoppage is the development manager's
+// to decide again. It is said under the entry because the entry's own decision
+// line still names the wait: nothing has recorded its end yet (triage.Live).
+func docketWaitEnded(waitedOn string, closedAt time.Time) string {
+	when := "at a moment the tracker did not record"
+	if !closedAt.IsZero() {
+		when = "at " + closedAt.UTC().Format(time.RFC3339)
+	}
+	return fmt.Sprintf("The wait above is over: %s closed %s, so this stoppage needs your decision again.", waitedOn, when)
+}
+
 // DocketWindow is one rendered slice and the entries it did and did not carry.
 // A scheduled pass keeps the listed identities only after the turn is answered.
 type DocketWindow struct {
@@ -1785,14 +1797,17 @@ func TriageDocketWindow(request ProductRequest, delivered, pending []triage.Wind
 	// could not be read: an item they show closed is closed, and one they leave
 	// out is live (triage.Live), so a partial reading hides nothing it should not.
 	var closed func(string) bool
+	closedItems := make(map[string]time.Time, len(request.TriageDocketItems))
 	if itemsUnknown == "" || len(request.TriageDocketItems) > 0 {
-		closedItems := make(map[string]bool, len(request.TriageDocketItems))
 		for _, item := range request.TriageDocketItems {
 			if strings.TrimSpace(item.Status) == "closed" {
-				closedItems[strings.TrimSpace(item.ID)] = true
+				closedItems[strings.TrimSpace(item.ID)] = item.ClosedAt
 			}
 		}
-		closed = func(workItemID string) bool { return closedItems[workItemID] }
+		closed = func(workItemID string) bool {
+			_, isClosed := closedItems[workItemID]
+			return isClosed
+		}
 	}
 	live := triage.Live(entries, closed, now)
 	seen := make(map[triage.WindowPosition]bool, len(delivered))
@@ -1849,6 +1864,9 @@ func TriageDocketWindow(request ProductRequest, delivered, pending []triage.Wind
 			break
 		}
 		section := standing.Entry.Render()
+		if waitedOn := standing.WaitEnded; waitedOn != "" {
+			section += "      " + docketWaitEnded(waitedOn, closedItems[waitedOn]) + "\n"
+		}
 		if standing.Since.Before(standing.Entry.RecordedAt) {
 			section += fmt.Sprintf("      This run has waited since %s, when it was first docketed.\n",
 				standing.Since.UTC().Format(time.RFC3339))

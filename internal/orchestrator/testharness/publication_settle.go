@@ -21,7 +21,7 @@ type HeldItems map[string]bool
 
 func HeldItemsOf(t *testing.T, store *runstate.Store, items ...string) HeldItems {
 	t.Helper()
-	holds, err := readmodel.HeldForAPerson(context.Background(), store, store.Triage(), nil)
+	holds, err := readmodel.HeldForAPerson(context.Background(), store, store.Triage(), nil, nil)
 	if err != nil {
 		t.Fatalf("reading what the read model holds out of the pull: %v", err)
 	}

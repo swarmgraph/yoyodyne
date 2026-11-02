@@ -2096,3 +2096,45 @@ func TestAssembleProductReadsIntentFromTheCompanionRepository(t *testing.T) {
 		t.Errorf("SpecificationsIncluded = %d, want 1", bundle.SpecificationsIncluded)
 	}
 }
+
+// A stoppage the development manager decided to wait on named work for comes
+// back to her as a question once the tracker holds that work closed, with the
+// item and the moment it closed said under the entry, whether or not anything
+// has recorded the wait's end. A wait on work still open stays listed as one.
+func TestADocketWaitOnClosedWorkIsListedAsNeedingHerDecision(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	closedAt := time.Date(2026, 10, 17, 18, 30, 0, 0, time.UTC)
+	ended := docketEntry("run-a55ad7d7", "yoyodyne-ifd.435.20")
+	ended.Closed = &triage.Closure{Decision: "wait", DecidedBy: "the development manager",
+		ClosedAt: time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC), WaitsOn: "yoyodyne-ifd.435.20.1"}
+	standing := docketEntry("run-bb543a24", "yoyodyne-ifd.428.126.4.4")
+	standing.Key = triage.Key(triage.ClassStoppedRun, standing.RunID)
+	standing.Closed = &triage.Closure{Decision: "wait", DecidedBy: "the development manager",
+		ClosedAt: time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC), WaitsOn: "yoyodyne-ifd.428.99.21"}
+
+	window := TriageDocketWindow(ProductRequest{
+		TriageDocket:   []triage.Entry{ended, standing},
+		TriageDocketAt: now,
+		TriageDocketItems: []beads.WorkItem{
+			{ID: "yoyodyne-ifd.435.20.1", Status: "closed", ClosedAt: closedAt},
+			{ID: "yoyodyne-ifd.428.99.21", Status: "in_progress"},
+		},
+	}, nil, nil)
+	if len(window.Listed) != 2 {
+		t.Fatalf("listed %d stoppages, want both:\n%s", len(window.Listed), window.Text)
+	}
+	if got := window.Listed[0]; got.Entry.Key != ended.Key || got.Waiting || got.WaitEnded != "yoyodyne-ifd.435.20.1" {
+		t.Fatalf("first listed = %+v, want the stoppage whose wait ended, as undecided", got)
+	}
+	if got := window.Listed[1]; got.Entry.Key != standing.Key || !got.Waiting {
+		t.Fatalf("second listed = %+v, want the wait on open work still waiting", got)
+	}
+	if want := "The wait above is over: yoyodyne-ifd.435.20.1 closed at 2026-10-17T18:30:00Z, so this stoppage needs your decision again."; !strings.Contains(window.Text, want) {
+		t.Fatalf("docket does not say %q:\n%s", want, window.Text)
+	}
+	if strings.Contains(window.Text, "yoyodyne-ifd.428.99.21 closed") {
+		t.Fatalf("docket says the open item closed:\n%s", window.Text)
+	}
+}

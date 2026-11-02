@@ -87,7 +87,7 @@ func TestARerunOfARunTheDocketNeverHeldIsCarriedOut(t *testing.T) {
 
 			// Held for the harness, as any decided re-run is, rather than for a
 			// reference nobody can reconcile.
-			held, err := readmodel.HeldForAPerson(ctx, harness.runs, harness.runs.Triage(), nil)
+			held, err := readmodel.HeldForAPerson(ctx, harness.runs, harness.runs.Triage(), nil, nil)
 			if err != nil {
 				t.Fatalf("HeldForAPerson() error = %v", err)
 			}
@@ -168,7 +168,7 @@ func TestARefusedRerunOfARunTheDocketNeverHeldReleasesItsItemAndSaysWhy(t *testi
 				t.Fatalf("notes = %#v, want the refusal and the release said on the item", recording.notes)
 			}
 
-			held, err := readmodel.HeldForAPerson(ctx, harness.runs, harness.runs.Triage(), nil)
+			held, err := readmodel.HeldForAPerson(ctx, harness.runs, harness.runs.Triage(), nil, nil)
 			if err != nil {
 				t.Fatalf("HeldForAPerson() error = %v", err)
 			}

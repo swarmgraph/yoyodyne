@@ -33,7 +33,7 @@ func TestEverySurfaceReportsTheBranchARunsFlagsSayIsRemoved(t *testing.T) {
 	branchThere := "checked and there at "
 
 	// The hold the pull reads.
-	held, err := readmodel.HeldForAPerson(ctx, fixture.store, fixture.store.Triage(), fixture.worktrees)
+	held, err := readmodel.HeldForAPerson(ctx, fixture.store, fixture.store.Triage(), fixture.worktrees, nil)
 	if err != nil {
 		t.Fatalf("HeldForAPerson() error = %v", err)
 	}
@@ -153,7 +153,7 @@ func TestAnIntegrationStopWhoseChangeIsGoneIsNeitherHeldNorKeptClaimed(t *testin
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	held, err := readmodel.HeldForAPerson(ctx, fixture.store, fixture.store.Triage(), fixture.worktrees)
+	held, err := readmodel.HeldForAPerson(ctx, fixture.store, fixture.store.Triage(), fixture.worktrees, nil)
 	if err != nil {
 		t.Fatalf("HeldForAPerson() error = %v", err)
 	}

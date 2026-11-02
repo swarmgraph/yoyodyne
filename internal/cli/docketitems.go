@@ -96,13 +96,21 @@ func readDocketItems(ctx context.Context, tracker itemLister, status string, nam
 }
 
 // docketItemIDs is the work item of every entry a docket holds, including the
-// entries folded beneath another.
+// entries folded beneath another, and every work item a decision to wait on one
+// of them names, since whether that item is closed is what ends the wait
+// (triage.Live).
 func docketItemIDs(docket []triage.Entry) []string {
 	var ids []string
-	for _, entry := range docket {
+	named := func(entry triage.Entry) {
 		ids = append(ids, entry.WorkItemID)
+		if entry.Closed != nil && entry.Closed.WaitsOnWork() {
+			ids = append(ids, entry.Closed.WaitsOn)
+		}
+	}
+	for _, entry := range docket {
+		named(entry)
 		for _, earlier := range entry.Earlier {
-			ids = append(ids, earlier.WorkItemID)
+			named(earlier)
 		}
 	}
 	return ids

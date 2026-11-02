@@ -37,7 +37,7 @@ func TestARecordedRerunOfARunThatLeftNothingIsStartedFresh(t *testing.T) {
 
 	// Before the pull, the item is held for the harness, and the hold names the
 	// harness and the next pull rather than a decision.
-	held, err := readmodel.HeldForAPerson(ctx, harness.runs, harness.runs.Triage(), nil)
+	held, err := readmodel.HeldForAPerson(ctx, harness.runs, harness.runs.Triage(), nil, nil)
 	if err != nil {
 		t.Fatalf("HeldForAPerson() error = %v", err)
 	}
@@ -131,7 +131,7 @@ func TestAPermanentlyRefusedRerunOfARunThatLeftNothingReleasesItsItem(t *testing
 		}
 	}
 
-	held, err := readmodel.HeldForAPerson(ctx, harness.runs, harness.runs.Triage(), nil)
+	held, err := readmodel.HeldForAPerson(ctx, harness.runs, harness.runs.Triage(), nil, nil)
 	if err != nil {
 		t.Fatalf("HeldForAPerson() error = %v", err)
 	}
@@ -167,7 +167,7 @@ func TestAPermanentlyRefusedRerunOfAPreservedRunStillHoldsItsItem(t *testing.T) 
 	if carried.Cause == "" || carried.ReleasedHold {
 		t.Fatalf("carried = %#v, want a permanent refusal that releases nothing", carried)
 	}
-	held, err := readmodel.HeldForAPerson(ctx, harness.runs, harness.runs.Triage(), nil)
+	held, err := readmodel.HeldForAPerson(ctx, harness.runs, harness.runs.Triage(), nil, nil)
 	if err != nil {
 		t.Fatalf("HeldForAPerson() error = %v", err)
 	}

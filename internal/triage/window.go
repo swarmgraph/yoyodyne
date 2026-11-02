@@ -88,6 +88,12 @@ type Stoppage struct {
 	// listed after every other stoppage, and once the wait runs out it is a
 	// question again at the age it had when it first stopped.
 	Waiting bool
+	// WaitEnded is the work item a decision to wait on this stoppage named,
+	// where the tracker holds that item closed and nothing has yet recorded the
+	// wait's end. The stoppage is then a question again, as a lapsed wait is,
+	// and a reader is told why rather than shown a wait that still seems to
+	// stand.
+	WaitEnded string
 }
 
 // At is the position a window is left at by being carried past one stoppage.
@@ -120,8 +126,27 @@ type LiveDocket struct {
 // entry is taken for dead, because hiding a stoppage on the strength of a
 // listing nobody read is the one direction this must not fail in. An item the
 // answer does not know is live for the same reason.
+//
+// The same answer ends a wait on named work. A wait has no window, and the
+// closure that ends it is written by a maintenance sweep (orchestrator's
+// endWaitOnClosedWork), so a docket that waited for that closure listed a
+// stoppage as waited on for as long as the sweep did not run. A wait whose item
+// the answer holds closed is read here as over: the stoppage is undecided again
+// and says which item closed (Stoppage.WaitEnded). An item the answer does not
+// know leaves the wait standing.
 func Live(entries []Entry, closed func(workItemID string) bool, now time.Time) LiveDocket {
 	var docket LiveDocket
+	ended := func(entry Entry) string {
+		if closed == nil || !entry.WaitStands(now) || !entry.Closed.WaitsOnWork() {
+			return ""
+		}
+		if waitsOn := strings.TrimSpace(entry.Closed.WaitsOn); closed(waitsOn) {
+			return waitsOn
+		}
+		return ""
+	}
+	waiting := func(entry Entry) bool { return entry.WaitStands(now) && ended(entry) == "" }
+	decided := func(entry Entry) bool { return entry.decisionStands(now) && ended(entry) == "" }
 	open := make([]Entry, 0, len(entries))
 	for _, entry := range entries {
 		if !entry.Undecided(now) && !entry.WaitStands(now) {
@@ -141,13 +166,16 @@ func Live(entries []Entry, closed func(workItemID string) bool, now time.Time) L
 	docket.Folded = len(open) - len(folded)
 	for _, entry := range folded {
 		stoppage := Stoppage{Entry: entry, Since: entry.RecordedAt, Folded: len(entry.Earlier),
-			Decided: entry.decisionStands(now), Waiting: entry.WaitStands(now)}
+			Decided: decided(entry), Waiting: waiting(entry), WaitEnded: ended(entry)}
 		for _, earlier := range entry.Earlier {
 			if earlier.RecordedAt.Before(stoppage.Since) {
 				stoppage.Since = earlier.RecordedAt
 			}
-			stoppage.Decided = stoppage.Decided && earlier.decisionStands(now)
-			stoppage.Waiting = stoppage.Waiting && earlier.WaitStands(now)
+			stoppage.Decided = stoppage.Decided && decided(earlier)
+			stoppage.Waiting = stoppage.Waiting && waiting(earlier)
+			if stoppage.WaitEnded == "" {
+				stoppage.WaitEnded = ended(earlier)
+			}
 		}
 		// A wait is a decision that nothing is to be carried out yet, so a waited
 		// stoppage is never one waiting on the harness.
