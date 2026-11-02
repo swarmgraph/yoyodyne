@@ -430,21 +430,24 @@ Each pass takes ten steps, in this order, and each is recorded:
   has the store open, and says which; and it is stopped once it has held the
   store for `max_hold`, so a call waiting behind it still answers inside its
   own two minutes. A store in use, or a cleanup stopped at its hold, is a
-  skip rather than a failure, and the next pass tries again. The cleanup counts
-  the store's work items, closed ones included, just before it starts and again
-  once it ends; a store whose items cannot be counted first is not cleaned up.
+  skip rather than a failure, and the next pass tries again. Nothing before the
+  cleanup, or while it holds the store, lists or counts work items: on a large
+  store a listing of every item runs past its limit, and a cleanup that waited
+  on one would never run on exactly the store that needs it. Whether one is
+  due is read from the store's size on disk. Once it has ended, the cleanup
+  counts the store's work items, closed ones included; a count that cannot be
+  taken is recorded as unknown, with why, and does not fail the cleanup.
   Each cleanup that ran is recorded under the product's state in
   `tracker-store-cleanups/`, and the maintenance line in `yoyo status` says the
-  latest: `the tracker's store was last cleaned up at 2026-10-16 05:41 PDT, from
-  885 MB to 526 MB in 9.0 seconds, 1483 work items before and after`. A cleanup
+  latest: `the tracker's store was last cleaned up at 2026-11-02 05:41 PST, from
+  885 MB to 526 MB in 9.0 seconds, 1483 work items after it`. A cleanup
   that fails is a failure of the pass, in bd's own words, recorded, and not tried
-  again until the next cleanup is due. So is one whose count of work items
-  changed: the failure names the items added while it ran, which another process
-  created, and the items missing after it. Added items alone hold nothing back.
-  A missing item may have been lost, so while any is missing every pass fails
-  saying so and starts no cleanup; the pass looks for the missing items again
-  each time a cleanup is due, at most once a cleanup interval, and cleanups
-  resume on their own once every one of them is back in the store.
+  again until the next cleanup is due. Cleanups recorded before November 2026
+  counted the items before the cleanup as well; where one of those found an item
+  missing after it, every pass fails saying so and starts no cleanup, looks for
+  the missing items again one by one each time a cleanup is due, at most once a
+  cleanup interval, and cleanups resume on their own once every one of them is
+  back in the store.
 - **measure** — the work tracker's store copied and measured on the
   copy, for whoever decides how to keep it small. While no other process has
   the store open, the pass copies the store directory under the product's state

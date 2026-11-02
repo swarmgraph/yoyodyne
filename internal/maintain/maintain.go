@@ -36,15 +36,19 @@
 //     the store open; and it is stopped once it has held the store for the
 //     section's max_hold, so no call waiting behind it runs past its own limit
 //     (internal/beads, cleanup.go). Being busy or stopped is a skip, never a
-//     failure: the next pass tries again. Each cleanup that ran is recorded
-//     with when, the store's size and its count of work items either side, and
-//     how long it took, and the latest is said on the pass's line in `yoyo
-//     status`. A cleanup that fails, or after which the count changed, is a
-//     failure of the pass, recorded, and the next cleanup waits until one is
-//     due. One after which an item it held before is missing is a failure of
-//     every pass after it too: no cleanup runs while any of those items is
-//     missing, the pass looks for them again each time a cleanup is due, and
-//     cleanups resume on their own once all of them are back.
+//     failure: the next pass tries again. Nothing before the cleanup or while
+//     it holds the store lists or counts work items, which an oversized store
+//     cannot answer in time; whether one is due is read from the store's size
+//     on disk. Each cleanup that ran is recorded with when, the store's size
+//     either side, its count of work items after it, or why that count could
+//     not be taken, and how long it took, and the latest is said on the pass's
+//     line in `yoyo status`. A cleanup that fails is a failure of the pass,
+//     recorded, and the next cleanup waits until one is due; a count that
+//     could not be taken is not. A cleanup recorded by an earlier build, which
+//     counted either side, after which an item it held before was missing
+//     still holds the cleanups back: the pass looks for those items again,
+//     one by one, each time a cleanup is due, and cleanups resume on their
+//     own once all of them are back.
 //   - measure: the work tracker's store copied and measured on the
 //     copy (internal/beads, storemeasure.go): its size divided between current
 //     data, history, and leftover data a cleanup takes back, how long a listing
@@ -645,19 +649,17 @@ func (p *Pass) cleanUpTracker(ctx context.Context) (runstate.SweepStep, *runstat
 		return step, nil
 	}
 	record := runstate.TrackerStoreCleanup{
-		Store:        cleaned.Store,
-		StartedAt:    cleaned.StartedAt,
-		Took:         cleaned.Took,
-		SizeBefore:   cleaned.SizeBefore,
-		SizeAfter:    cleaned.SizeAfter,
-		Stopped:      cleaned.Stopped,
-		Said:         cleaned.Said,
-		Reason:       reason,
-		ItemsBefore:  cleaned.ItemsBefore,
-		ItemsAfter:   cleaned.ItemsAfter,
-		ItemsCounted: cleaned.Counted,
-		Missing:      cleaned.Missing,
-		Added:        cleaned.Added,
+		Store:             cleaned.Store,
+		StartedAt:         cleaned.StartedAt,
+		Took:              cleaned.Took,
+		SizeBefore:        cleaned.SizeBefore,
+		SizeAfter:         cleaned.SizeAfter,
+		Stopped:           cleaned.Stopped,
+		Said:              cleaned.Said,
+		Reason:            reason,
+		ItemsAfter:        cleaned.ItemsAfter,
+		ItemsCountedAfter: cleaned.Counted,
+		ItemsNotCounted:   cleaned.NotCounted,
 	}
 	if err != nil {
 		record.Failed = err.Error()
@@ -670,12 +672,6 @@ func (p *Pass) cleanUpTracker(ctx context.Context) (runstate.SweepStep, *runstat
 	case record.Failed != "":
 		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the tracker's store was due a cleanup because %s, and the cleanup failed after %s: %s; it is not tried again until the next cleanup is due, at %s or once the store has grown %d MB%s",
 			reason, roundTook(cleaned.Took), record.Failed, local(cleaned.StartedAt.Add(bounds.Every.Duration())), bounds.GrownMegabytes, recordFailure)
-	case record.Lost():
-		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the tracker's store was cleaned up because %s, from %s to %s in %s, and it held %s, so the cleanup may have lost work items; no cleanup runs while any of them is missing: the pass looks for them again each time a cleanup is due, and cleanups resume on their own once all of them are back in the store%s",
-			reason, runstate.SayBytes(cleaned.SizeBefore), runstate.SayBytes(cleaned.SizeAfter), roundTook(cleaned.Took), record.SaysItems(), recordFailure)
-	case record.ItemsChanged():
-		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the tracker's store was cleaned up because %s, from %s to %s in %s, and its count of work items changed: %s; no item it held before is missing, so another process created the added items while it ran, and the next cleanup runs when it is due%s",
-			reason, runstate.SayBytes(cleaned.SizeBefore), runstate.SayBytes(cleaned.SizeAfter), roundTook(cleaned.Took), record.SaysItems(), recordFailure)
 	case cleaned.Stopped:
 		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("the tracker's store was due a cleanup because %s, and the cleanup was stopped once it had held the store for %s, so that no other tracker call waits on it past its own limit: from %s to %s in %s, %s; the next pass finishes it%s",
 			reason, bounds.MaxHold, runstate.SayBytes(cleaned.SizeBefore), runstate.SayBytes(cleaned.SizeAfter), roundTook(cleaned.Took), record.SaysItems(), recordFailure)
@@ -764,7 +760,9 @@ func measurementDue(earlier runstate.TrackerStoreMeasurements, now time.Time) st
 }
 
 // lookForMissing looks for the items a cleanup found missing, where a cleanup
-// is due and the pass has not looked within the cleanup interval, and says
+// is due and the pass has not looked within the cleanup interval, reading each
+// item on its own rather than listing the store (beads.Client.MissingItems),
+// and says
 // either that they are all back, which lets the cleanup run, or why the store
 // is still held from cleanups. A cleanup after which items are missing may have
 // lost them, so no other cleanup runs over the store while any is; the hold
@@ -787,7 +785,7 @@ func (p *Pass) lookForMissing(ctx context.Context, lost runstate.TrackerStoreCle
 		return "", fmt.Sprintf("%s; the pass looked for them and could not read the store: %v; it looks again at %s, and %s", said, err, local(now.Add(bounds.Every.Duration())), ending)
 	}
 	if len(still) > 0 {
-		return "", fmt.Sprintf("%s; the pass looked for them at %s and %s still missing; it looks again at %s, and %s", said, local(now), runstate.SayIdentifiers(still), local(now.Add(bounds.Every.Duration())), ending)
+		return "", fmt.Sprintf("%s; the pass looked for them at %s and %s is still missing; it looks again at %s, and %s", said, local(now), runstate.SayIdentifiers(still), local(now.Add(bounds.Every.Duration())), ending)
 	}
 	// Looked for again at the next pass where this one does not get to run the
 	// cleanup, since nothing records that they were found.
