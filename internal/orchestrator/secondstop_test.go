@@ -113,7 +113,7 @@ func TestASecondStopAfterACarriedOutRepairIsClassifiedAfresh(t *testing.T) {
 
 			// The hold says which of the two applies, and never that the earlier
 			// decision is waiting to be carried out.
-			holds, err := readmodel.HeldForAPerson(ctx, h.runs, h.runs.Triage(), nil)
+			holds, err := readmodel.HeldForAPerson(ctx, h.runs, h.runs.Triage(), nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -197,7 +197,7 @@ func TestADecisionAboutTheSecondStopStillStandsOverTheHarness(t *testing.T) {
 	if tasks, err := carrying.Outstanding(); err != nil || len(tasks) != 0 {
 		t.Fatalf("a wait decided about the later stop still offered the harness's continuation: %#v, %v", tasks, err)
 	}
-	holds, err := readmodel.HeldForAPerson(ctx, h.runs, h.runs.Triage(), nil)
+	holds, err := readmodel.HeldForAPerson(ctx, h.runs, h.runs.Triage(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

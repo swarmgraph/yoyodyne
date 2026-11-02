@@ -5239,8 +5239,10 @@ has the rule.
   the harness carrying out a decision already recorded (the harness's);
   admitted work the development manager decided to wait for, where her `wait`
   [named the item it waits on](conversation.md#deciding-what-becomes-of-stopped-work)
-  and that item is unfinished (the harness's, which puts each stoppage back on
-  her docket once the work is closed) — counted in the heading as well, apart
+  and that item is unfinished (the harness's: once the work is closed the
+  stoppage is counted as awaiting her decision again, and her docket and the
+  item's hold say which item closed and when, without waiting for a sweep to
+  record it) — counted in the heading as well, apart
   from the stoppages awaiting her decision; an
   unresolved directive (the Lead Product Manager's: she ends it, or carries it
   into a document or an item and

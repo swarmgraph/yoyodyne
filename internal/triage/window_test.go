@@ -271,3 +271,42 @@ func TestAFoldedRunIsWaitingOnlyWhileEveryEntryOfItIs(t *testing.T) {
 		t.Fatalf("live = %+v, want the run listed as undecided", live.Stoppages)
 	}
 }
+
+// A wait on named work ends when the tracker holds that work closed, whether or
+// not anything has recorded the wait's end: the stoppage is a question again,
+// says which item closed, and is never read as a decision waiting on the
+// harness. A wait on work still open, or on work no tracker answer covers,
+// stands as it did.
+func TestAWaitOnWorkTheTrackerHoldsClosedIsUndecidedAgain(t *testing.T) {
+	t.Parallel()
+
+	waitOn := func(run, item, waitsOn string) Entry {
+		entry := windowEntry(ClassStoppedRun, run, item, 15)
+		entry.Closed = &Closure{Decision: "wait", ClosedAt: windowNow.AddDate(0, 0, -14), WaitsOn: waitsOn}
+		return entry
+	}
+	ended := waitOn("run-ended", "item-ended", "item-landed")
+	standing := waitOn("run-standing", "item-standing", "item-still-open")
+	entries := []Entry{ended, standing}
+
+	live := Live(entries, closedAmong("item-landed"), windowNow)
+	if live.Settled != 0 || live.Dead != 0 || len(live.Stoppages) != 2 {
+		t.Fatalf("settled %d, dead %d, live %d; want both stoppages listed", live.Settled, live.Dead, len(live.Stoppages))
+	}
+	window := Walk(live.Stoppages, WindowPosition{})
+	if len(window.Next) != 1 || window.Next[0].Entry.Key != ended.Key {
+		t.Fatalf("undecided = %v, want the stoppage whose wait ended", stoppageKeys(window.Next))
+	}
+	if got := window.Next[0]; got.Waiting || got.Decided || got.WaitEnded != "item-landed" {
+		t.Fatalf("ended wait: waiting %v, decided %v, wait ended on %q; want an undecided stoppage naming item-landed", got.Waiting, got.Decided, got.WaitEnded)
+	}
+	if len(window.Waiting) != 1 || window.Waiting[0].Entry.Key != standing.Key || window.Waiting[0].WaitEnded != "" {
+		t.Fatalf("waiting = %+v, want the wait on open work still standing", window.Waiting)
+	}
+
+	// No tracker answer ends no wait.
+	unasked := Walk(Live(entries, nil, windowNow).Stoppages, WindowPosition{})
+	if len(unasked.Next) != 0 || len(unasked.Waiting) != 2 {
+		t.Fatalf("without a tracker answer: undecided %v, waiting %v; want both still waiting", stoppageKeys(unasked.Next), stoppageKeys(unasked.Waiting))
+	}
+}

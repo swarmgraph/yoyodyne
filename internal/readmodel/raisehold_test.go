@@ -97,7 +97,7 @@ func TestAReleasedRaiseIsPullableFromTheRecordsProductionKeeps(t *testing.T) {
 
 	pull := func(t *testing.T, decisions Decisions, parking domain.WorkItemParking, status string) backlog.Entry {
 		t.Helper()
-		held, err := HeldForAPerson(context.Background(), stoppages, decisions, nil)
+		held, err := HeldForAPerson(context.Background(), stoppages, decisions, nil, nil)
 		if err != nil {
 			t.Fatalf("HeldForAPerson() error = %v", err)
 		}

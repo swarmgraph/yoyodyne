@@ -7685,7 +7685,7 @@ func (p Pull) queue(ctx context.Context, claimed []beads.WorkItem, read bool) (p
 	// records were consulted at all.
 	var held backlog.Holds
 	if p.Stoppages != nil {
-		held, err = readmodel.HeldForAPerson(ctx, p.Stoppages, p.Decisions, p.Remains)
+		held, err = readmodel.HeldForAPerson(ctx, p.Stoppages, p.Decisions, p.Remains, readmodel.WaitedOnOf(p.Tracker))
 		if err != nil {
 			return pulled{}, fmt.Errorf("read what the harness is holding back after stopped runs: %w", err)
 		}

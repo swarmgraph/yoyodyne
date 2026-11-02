@@ -228,7 +228,7 @@ func conversationHeldWork(parts components) chat.HeldWork {
 	if parts.store == nil {
 		return nil
 	}
-	return conversationHolds{store: parts.store, remains: remainsOf(parts)}
+	return conversationHolds{store: parts.store, remains: remainsOf(parts), tracker: parts.tracker()}
 }
 
 // remainsOf is the repository the hold derivation asks whether a stopped run's
@@ -292,10 +292,12 @@ func remainsOf(parts components) readmodel.Remains {
 type conversationHolds struct {
 	store   *runstate.Store
 	remains readmodel.Remains
+	// tracker is what says whether the work a decision to wait names is closed.
+	tracker readmodel.WaitedOn
 }
 
 func (h conversationHolds) HeldForAPerson(ctx context.Context) (backlog.Holds, error) {
-	return readmodel.HeldForAPerson(ctx, h.store, h.store.Triage(), h.remains)
+	return readmodel.HeldForAPerson(ctx, h.store, h.store.Triage(), h.remains, h.tracker)
 }
 
 // conversationDocketEntries wires the docket itself for the role that decides

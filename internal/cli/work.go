@@ -225,7 +225,7 @@ func (w conversationWork) Backlog(ctx context.Context) (backlog.Queue, error) {
 	var held backlog.Holds
 	var discharged map[string][]string
 	if w.store != nil {
-		held, err = readmodel.HeldForAPerson(ctx, w.store, w.store.Triage(), w.remains)
+		held, err = readmodel.HeldForAPerson(ctx, w.store, w.store.Triage(), w.remains, w.tracker)
 		if err != nil {
 			return backlog.Queue{}, fmt.Errorf("read what the harness is holding back after stopped runs: %w", err)
 		}

@@ -65,6 +65,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -103,6 +104,21 @@ type Remains interface {
 	Survives(ctx context.Context, worktree gitworktree.Worktree) (gitworktree.Survival, error)
 }
 
+// WaitedOn is what the tracker says of a work item a decision to wait names,
+// which is what says whether that wait still stands. It is satisfied by
+// beads.Client.
+type WaitedOn interface {
+	Show(ctx context.Context, id string) (beads.WorkItem, error)
+}
+
+// WaitedOnOf is the tracker's reading of waited work where the tracker given
+// can show one item, and nil where it cannot, which every hold on a wait then
+// says it could not read.
+func WaitedOnOf(tracker any) WaitedOn {
+	waited, _ := tracker.(WaitedOn)
+	return waited
+}
+
 // HeldForAPerson is the admitted work somebody has to release before anything
 // pulls it, with what each item is waiting for and whose move that is.
 //
@@ -123,7 +139,11 @@ type Remains interface {
 // reading wired without it falls back to what each run's record says survived,
 // and says in the reason that nothing looked; a look that failed holds the run
 // as if its change were there, for the reason an unread hold holds everything.
-func HeldForAPerson(ctx context.Context, stoppages Stoppages, decisions Decisions, remains Remains) (backlog.Holds, error) {
+//
+// waited may be nil too. A hold on a stoppage the development manager decided
+// to wait on named work for asks it whether that work is closed (endWaits), and
+// one nothing could ask says so rather than that the stoppage still waits.
+func HeldForAPerson(ctx context.Context, stoppages Stoppages, decisions Decisions, remains Remains, waited WaitedOn) (backlog.Holds, error) {
 	runs, err := stoppages.Recorded()
 	if err != nil {
 		return backlog.Holds{}, fmt.Errorf("read the recorded runs: %w", err)
@@ -133,7 +153,9 @@ func HeldForAPerson(ctx context.Context, stoppages Stoppages, decisions Decision
 		return backlog.Holds{}, fmt.Errorf("read the escalated stoppages: %w", err)
 	}
 	decided := standingDecisions(decisions)
-	return heldStopping(runs, escalated, decided, standingStops(decided), Looking(ctx, remains, nil)), nil
+	reasons := heldReasons(runs, escalated, decided, standingStops(decided), Looking(ctx, remains, nil))
+	endWaits(ctx, reasons, waited)
+	return holdsOf(reasons, runs), nil
 }
 
 // latestStop is the stop an item's triage record stands at, where the decision
@@ -283,7 +305,9 @@ const (
 	awaitingDecisionClause = "the development manager decides what happens to it, and nothing pulls it until she has"
 	awaitingCarryOutClause = "the development manager has already decided what happens to it, so what is outstanding is the harness carrying that decision out rather than a decision"
 	// awaitingWorkClause closes the hold of a stoppage the development manager
-	// decided to wait on named work for; %s is that work item.
+	// decided to wait on named work for; %s is that work item. It is the words
+	// endWaits replaces once that work is closed, or where nothing could say
+	// whether it is.
 	awaitingWorkClause = "the development manager decided to wait on %s, and once it is closed the stoppage is back on her docket for a decision"
 	// harnessContinuesStallClause closes the hold of a first silent-stream stall,
 	// which nobody decides: the harness continues it itself, once.
@@ -316,7 +340,7 @@ func heldFor(runID, account string, reading decidedStanding, since time.Time) ba
 	case reading.carryOut:
 		return backlog.Hold{Reason: account + "; " + awaitingCarryOutClause, Decided: true, Since: since, RunID: runID}
 	case reading.waitsOn != "":
-		return backlog.Hold{Reason: account + "; " + fmt.Sprintf(awaitingWorkClause, reading.waitsOn), Since: since, RunID: runID, WaitsOn: reading.waitsOn}
+		return backlog.Hold{Reason: account + "; " + waitStands(reading.waitsOn), Since: since, RunID: runID, WaitsOn: reading.waitsOn}
 	case reading.carriedOut:
 		return backlog.Hold{Reason: account + "; " + carriedOutRepairClause + awaitingDecisionClause, Since: since, RunID: runID}
 	default:
@@ -332,6 +356,84 @@ func refusedCarryOut(refused runstate.TriageCarryOut) string {
 		refused.Decision, refused.Gate, strings.TrimSpace(refused.Refusal), refused.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(refused.Clears))
 }
 
+// waitStands is the clause a hold closes on while a decision to wait on named
+// work stands over its stoppage.
+func waitStands(waitsOn string) string {
+	return fmt.Sprintf(awaitingWorkClause, waitsOn)
+}
+
+// waitEnded is the clause that takes waitStands' place once the work waited on
+// is closed. It does not say she decided to wait, because that decision has
+// run its course: what it says is that the work closed, when, and that the
+// stoppage is hers to decide again.
+func waitEnded(waitsOn string, closedAt time.Time) string {
+	when := "at a moment the tracker did not record"
+	if !closedAt.IsZero() {
+		when = localMoment(closedAt)
+	}
+	return fmt.Sprintf("%s, the work the development manager was waiting on, closed %s, so that wait is over and the stoppage needs her decision: %s",
+		waitsOn, when, awaitingDecisionClause)
+}
+
+// waitUnread is the clause that takes waitStands' place where whether the work
+// waited on is closed could not be read: a reading that could not ask does not
+// say the stoppage still waits.
+func waitUnread(waitsOn, problem string) string {
+	return fmt.Sprintf("the development manager decided to wait on %s, and whether %s is closed could not be read (%s), so this reading cannot say whether that wait still stands or her decision is owed now",
+		waitsOn, waitsOn, problem)
+}
+
+// endWaits asks the tracker, once for each work item named, whether the work a
+// standing wait is on has closed, and rewrites the hold's closing clause to say
+// what it found. Nothing records the wait's end for this to read: a wait on
+// named work has no window, and the sweep that puts its docket entry back
+// (orchestrator's endWaitOnClosedWork) runs only where maintenance does, so a
+// hold that trusted it said "decided to wait" for weeks after the work closed.
+// So the tracker is asked as the hold is read.
+//
+// A wait whose work is closed is no longer a wait, so its hold names nothing
+// waited on and is counted as awaiting her decision. One nothing could ask about
+// keeps what it waits on, since it may still stand, and says it could not tell.
+func endWaits(ctx context.Context, held map[string]backlog.Hold, waited WaitedOn) {
+	type state struct {
+		closed   bool
+		closedAt time.Time
+		problem  string
+	}
+	read := make(map[string]state)
+	ask := func(waitsOn string) state {
+		if known, seen := read[waitsOn]; seen {
+			return known
+		}
+		var found state
+		if waited == nil {
+			found.problem = "nothing was wired to read the tracker"
+		} else if item, err := waited.Show(ctx, waitsOn); err != nil {
+			found.problem = fmt.Sprintf("the tracker could not show it: %v", err)
+		} else if strings.TrimSpace(item.Status) == "closed" {
+			found.closed, found.closedAt = true, item.ClosedAt
+		}
+		read[waitsOn] = found
+		return found
+	}
+	for workItemID, hold := range held {
+		waitsOn := strings.TrimSpace(hold.WaitsOn)
+		if waitsOn == "" {
+			continue
+		}
+		switch found := ask(waitsOn); {
+		case found.problem != "":
+			hold.Reason = strings.ReplaceAll(hold.Reason, waitStands(waitsOn), waitUnread(waitsOn, found.problem))
+		case found.closed:
+			hold.Reason = strings.ReplaceAll(hold.Reason, waitStands(waitsOn), waitEnded(waitsOn, found.closedAt))
+			hold.WaitsOn = ""
+		default:
+			continue
+		}
+		held[workItemID] = hold
+	}
+}
+
 // rerunCarriedOut closes a hold whose re-run decision a later run has already
 // carried out: which run, when it started, how it ended, and that what follows
 // is the development manager's rather than the harness's — her decision still to
@@ -339,7 +441,7 @@ func refusedCarryOut(refused runstate.TriageCarryOut) string {
 func rerunCarriedOut(later runstate.State, waitsOn string) string {
 	next := "its stoppage is on her docket and she decides what happens next, and nothing pulls the item until she has"
 	if waitsOn != "" {
-		next = fmt.Sprintf("she decided to wait on %s about that run, and once it is closed the stoppage is back on her docket for a decision", waitsOn)
+		next = waitStands(waitsOn)
 	}
 	return fmt.Sprintf("the re-run the development manager decided about it has been carried out: run %s started %s and %s, so the harness has nothing left to carry out and %s",
 		later.RunID, localMoment(later.StartedAt), howRunEnded(later), next)
@@ -391,8 +493,20 @@ func heldForAPerson(runs []runstate.State, escalated []runstate.Escalation, deci
 }
 
 // heldStopping is heldForAPerson with the stops the development manager decided
-// read as well; stopped may be nil, which reads none.
+// read as well; stopped may be nil, which reads none. It asks nothing about the
+// work a wait names (endWaits), so every wait reads as standing.
 func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decided standing, stopped latestStop, look Look) backlog.Holds {
+	return holdsOf(heldReasons(runs, escalated, decided, stopped, look), runs)
+}
+
+// holdsOf is the holds read, with the unlanded parents they build on.
+func holdsOf(reasons map[string]backlog.Hold, runs []runstate.State) backlog.Holds {
+	return backlog.ReadHolds(reasons).OnUnlandedParents(unlandedChanges(runs))
+}
+
+// heldReasons is each held item's hold, keyed by item, before it is read into
+// Holds.
+func heldReasons(runs []runstate.State, escalated []runstate.Escalation, decided standing, stopped latestStop, look Look) map[string]backlog.Hold {
 	reasons := make(map[string]backlog.Hold)
 	// The escalations first, so that an item that is both — a stoppage nobody
 	// answered whose change is also still preserved — reads as the preserved one.
@@ -512,7 +626,7 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		looked[run.RunID] = found
 		return found
 	})
-	return backlog.ReadHolds(reasons).OnUnlandedParents(unlandedChanges(runs))
+	return reasons
 }
 
 // stoppageHold describes one run, regardless of which of an item's runs a hold

@@ -663,7 +663,7 @@ type heldFromRunRecords struct {
 }
 
 func (h heldFromRunRecords) HeldForAPerson(ctx context.Context) (backlog.Holds, error) {
-	return readmodel.HeldForAPerson(ctx, h.store, h.store.Triage(), h.remains)
+	return readmodel.HeldForAPerson(ctx, h.store, h.store.Triage(), h.remains, nil)
 }
 
 func (f fakeHeldWork) HeldForAPerson(context.Context) (backlog.Holds, error) {

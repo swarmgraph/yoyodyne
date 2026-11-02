@@ -97,7 +97,7 @@ func TestAnItemIsNeverGivenTwoNextMoversAcrossSurfaces(t *testing.T) {
 			// record says survived — which is beside the point here: what is being
 			// compared is which of the two waits the hold is in.
 			held, err := readmodel.HeldForAPerson(context.Background(),
-				nextMoverStoppages{states: []runstate.State{stopped}}, recorded, nil)
+				nextMoverStoppages{states: []runstate.State{stopped}}, recorded, nil, nil)
 			if err != nil {
 				t.Fatalf("HeldForAPerson() error = %v", err)
 			}
@@ -180,7 +180,7 @@ func TestAnApprovedChangeTheEnvironmentStoppedNamesTheHarnessOnBothSurfaces(t *t
 	}
 
 	held, err := readmodel.HeldForAPerson(context.Background(),
-		nextMoverStoppages{states: []runstate.State{stopped}}, recorded, nil)
+		nextMoverStoppages{states: []runstate.State{stopped}}, recorded, nil, nil)
 	if err != nil {
 		t.Fatalf("HeldForAPerson() error = %v", err)
 	}
@@ -299,7 +299,7 @@ func TestAnApprovedChangeWhoseBranchIsGoneIsNeverSentToTheResume(t *testing.T) {
 			}
 
 			held, err := readmodel.HeldForAPerson(context.Background(),
-				nextMoverStoppages{states: []runstate.State{stopped}}, recorded, repository)
+				nextMoverStoppages{states: []runstate.State{stopped}}, recorded, repository, nil)
 			if err != nil {
 				t.Fatalf("HeldForAPerson() error = %v", err)
 			}

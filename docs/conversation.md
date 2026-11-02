@@ -2784,7 +2784,13 @@ waits on, for as long as that item is open, however long that takes. When the
 item is closed or retired, the next thing that closes entries with their items —
 the close or retire itself, a run landing it, or a `yoyo reconcile` sweep — puts
 the entry back on her docket, once, saying which work landed and what she
-decided before; whatever she decides then stands as any decision does. The
+decided before; whatever she decides then stands as any decision does. Nothing
+waits for that to happen: her docket, the item's hold, and `yoyo status` each
+ask the tracker whether the named item is closed as they are read, so from the
+moment it is, her docket lists the stoppage as a question again with a line
+saying which item closed and when, and the hold says the same and that her
+decision is owed. Where the tracker cannot say whether the item is closed, the
+hold says that rather than that the stoppage still waits. The
 named item has to be one the tracker holds as unfinished and not the item the
 stoppage is about: a wait on closed work would come straight back, and one on an
 item the tracker cannot read would never come back, so either is refused and
