@@ -362,6 +362,12 @@ func waitStands(waitsOn string) string {
 	return fmt.Sprintf(awaitingWorkClause, waitsOn)
 }
 
+// rerunWaitStands is the same clause where the wait was decided about the later
+// run that carried a re-run out (rerunCarriedOut), which says so.
+func rerunWaitStands(waitsOn string) string {
+	return fmt.Sprintf("she decided to wait on %s about that run, and once it is closed the stoppage is back on her docket for a decision", waitsOn)
+}
+
 // waitEnded is the clause that takes waitStands' place once the work waited on
 // is closed. It does not say she decided to wait, because that decision has
 // run its course: what it says is that the work closed, when, and that the
@@ -421,14 +427,20 @@ func endWaits(ctx context.Context, held map[string]backlog.Hold, waited WaitedOn
 		if waitsOn == "" {
 			continue
 		}
+		var replacement string
 		switch found := ask(waitsOn); {
 		case found.problem != "":
-			hold.Reason = strings.ReplaceAll(hold.Reason, waitStands(waitsOn), waitUnread(waitsOn, found.problem))
+			replacement = waitUnread(waitsOn, found.problem)
 		case found.closed:
-			hold.Reason = strings.ReplaceAll(hold.Reason, waitStands(waitsOn), waitEnded(waitsOn, found.closedAt))
+			replacement = waitEnded(waitsOn, found.closedAt)
 			hold.WaitsOn = ""
 		default:
 			continue
+		}
+		// Both of the clauses a standing wait is said in are replaced: the plain
+		// one, and the one a carried-out re-run closes on.
+		for _, standing := range []string{waitStands(waitsOn), rerunWaitStands(waitsOn)} {
+			hold.Reason = strings.ReplaceAll(hold.Reason, standing, replacement)
 		}
 		held[workItemID] = hold
 	}
@@ -441,7 +453,7 @@ func endWaits(ctx context.Context, held map[string]backlog.Hold, waited WaitedOn
 func rerunCarriedOut(later runstate.State, waitsOn string) string {
 	next := "its stoppage is on her docket and she decides what happens next, and nothing pulls the item until she has"
 	if waitsOn != "" {
-		next = waitStands(waitsOn)
+		next = rerunWaitStands(waitsOn)
 	}
 	return fmt.Sprintf("the re-run the development manager decided about it has been carried out: run %s started %s and %s, so the harness has nothing left to carry out and %s",
 		later.RunID, localMoment(later.StartedAt), howRunEnded(later), next)

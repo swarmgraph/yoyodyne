@@ -150,3 +150,59 @@ func TestAWaitOnNamedWorkEndsWhenTheTrackerHoldsItClosed(t *testing.T) {
 		}
 	})
 }
+
+// The same wait decided about the later run that carried a re-run out keeps
+// its own words while the work is open, and ends the same way once the work is
+// closed (the yoyodyne-ifd.429.68 shape).
+func TestAWaitAboutACarriedOutRerunEndsWhenItsWorkCloses(t *testing.T) {
+	t.Parallel()
+
+	const item, waitsOn = "yoyodyne-ifd.429.68", "yoyodyne-ifd.428.41"
+	decidedAt := time.Date(2026, 10, 10, 11, 8, 30, 0, time.UTC)
+	closedAt := time.Date(2026, 10, 12, 16, 0, 0, 0, time.UTC)
+	stopped := preservedRun("run-5d62f75e", item, decidedAt.Add(-time.Hour))
+	later := runstate.State{
+		RunID:           "run-91d8485f",
+		WorkItemID:      item,
+		Status:          runstate.StatusFailed,
+		StartedAt:       decidedAt.Add(time.Minute),
+		UpdatedAt:       decidedAt.Add(3 * time.Minute),
+		Branch:          "yoyodyne/" + item + "/91d8485f",
+		WorktreePath:    "/state/worktrees/run-91d8485f",
+		BranchRemoved:   true,
+		WorktreeRemoved: true,
+		Failure:         "harness create isolated worktree: bd export failed with status timed_out",
+	}
+	record := recordedDecisions{item: {WorkItemID: item, Reruns: 1, Decisions: []runstate.TriageDecision{
+		{Decision: runstate.TriageDecisionRerun, RunID: stopped.RunID, DecidedAt: decidedAt},
+		{Decision: runstate.TriageDecisionWait, RunID: later.RunID, DecidedAt: decidedAt.Add(20 * time.Minute), WaitsOn: waitsOn},
+	}}}
+	hold := func(t *testing.T, waited WaitedOn) string {
+		t.Helper()
+		held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: []runstate.State{stopped, later}}, record, nil, waited)
+		if err != nil {
+			t.Fatalf("HeldForAPerson() error = %v", err)
+		}
+		if held.Decided(item) {
+			t.Fatalf("held as the harness's move, want the re-run read as carried out by %s", later.RunID)
+		}
+		return heldReason(t, held, item)
+	}
+
+	open := hold(t, trackerOf{waitsOn: {ID: waitsOn, Status: "open"}})
+	if !strings.HasSuffix(open, "so the harness has nothing left to carry out and she decided to wait on "+waitsOn+
+		" about that run, and once it is closed the stoppage is back on her docket for a decision") {
+		t.Fatalf("held for %q, want the wait about that run worded as before", open)
+	}
+
+	closed := hold(t, trackerOf{waitsOn: {ID: waitsOn, Status: "closed", ClosedAt: closedAt}})
+	for _, want := range []string{later.RunID, waitsOn + ", the work the development manager was waiting on, closed " + localMoment(closedAt),
+		"that wait is over and the stoppage needs her decision"} {
+		if !strings.Contains(closed, want) {
+			t.Fatalf("held for %q, want it to say %q", closed, want)
+		}
+	}
+	if strings.Contains(closed, "decided to wait on") {
+		t.Fatalf("held for %q, want it no longer saying she decided to wait", closed)
+	}
+}
