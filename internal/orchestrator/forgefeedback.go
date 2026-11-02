@@ -58,8 +58,11 @@ type ReconcileFeedback interface {
 }
 
 // personMergeListing is the run store's listing of the runs waiting for a
-// person to merge, read from its run index rather than every record. A store
-// without it is read whole and filtered (feedbackRuns).
+// person to merge, read from its run index rather than every record:
+// runstate.Store.WaitingForPersonMerge, which the build that holds a published
+// change for a person's merge added (yoyodyne-ifd.429.99). A store without it
+// records no run as waiting for a person, so the check has nothing to read
+// there, and it never reads every record to find out.
 type personMergeListing interface {
 	WaitingForPersonMerge() ([]runstate.State, error)
 }
@@ -121,13 +124,11 @@ func (r Reconciler) TakeUpFeedback(ctx context.Context) ([]FeedbackSettlement, e
 // feedbackRuns lists the runs whose pull request waits for a person to merge
 // it.
 func (r Reconciler) feedbackRuns() ([]runstate.State, error) {
-	var listed []runstate.State
-	var err error
-	if index, ok := r.Store.(personMergeListing); ok {
-		listed, err = index.WaitingForPersonMerge()
-	} else {
-		listed, err = r.Store.Recorded()
+	index, ok := r.Store.(personMergeListing)
+	if !ok {
+		return nil, nil
 	}
+	listed, err := index.WaitingForPersonMerge()
 	if err != nil {
 		return nil, fmt.Errorf("list the runs whose pull request waits for a person to merge it: %w", err)
 	}
@@ -220,39 +221,24 @@ func (r Reconciler) takeUpFeedback(ctx context.Context, recorded runstate.State)
 		}
 		result.Listed++
 	}
-	updated := state
-	readPublished := *updated.PullRequest
-	feedback := runstate.PullRequestFeedback{}
-	if readPublished.Feedback != nil {
-		feedback = *readPublished.Feedback
-		feedback.Approvals = append([]runstate.ForgeFeedbackItem(nil), feedback.Approvals...)
-		feedback.ThroughIDs = append([]string(nil), feedback.ThroughIDs...)
-	}
-	feedback.ReadAt = now
-	feedback.ReadError = ""
-	for _, approval := range approvals {
-		feedback.RecordApproval(approval)
-	}
 	result.Approvals = len(approvals)
-	feedback.Advance(fresh)
-	readPublished.Feedback = &feedback
-	updated.PullRequest = &readPublished
-	updated.UpdatedAt = now
-
 	var notes []string
 	if len(approvals) > 0 {
 		notes = append(notes, renderApprovalNotes(state, approvals))
 	}
 	switch {
 	case len(repairs) == 0:
-		if err := r.Store.Save(updated); err != nil {
+		if _, err := r.Store.Update(ctx, state.RunID, runstate.FeedbackRead{Number: published.Number, Read: fresh, At: now}); err != nil {
 			result.Failure = fmt.Errorf("record what was read of pull request %d on run %s: %w", published.Number, state.RunID, err).Error()
 			return result
 		}
 		result.Detail = describeFeedbackSettlement(result)
 	case startsRound:
-		live := putBackForFeedback(updated, forgeFeedbackRound(published, repairs, now), now)
-		if err := r.Store.ReserveLive(ctx, live, r.Capacity); err != nil {
+		live, err := state.PutBackForFeedback(forgeFeedbackRound(published, repairs, now), fresh, limit, now)
+		if err == nil {
+			err = r.Store.ReserveLive(ctx, live, r.Capacity)
+		}
+		if err != nil {
 			if capacity, taken := slotTakenMeanwhile(err); taken {
 				result.Detail = fmt.Sprintf("changes were asked for on pull request %d, and the last developer slot went to another run first (%d active, limit %d), so the repair round is left for the next check",
 					published.Number, capacity.Active, capacity.Limit)
@@ -265,7 +251,8 @@ func (r Reconciler) takeUpFeedback(ctx context.Context, recorded runstate.State)
 		notes = append(notes, renderFeedbackRoundNotes(live, limit))
 		result.Detail = describeFeedbackSettlement(result)
 	default:
-		stopped, blocker := stopForFeedback(updated, forgeFeedbackRound(published, repairs, now), limit, now)
+		feedback := forgeFeedbackRound(published, repairs, now)
+		blocker := renderFeedbackBlockerNotes(state, feedback, limit)
 		// The item is blocked before the run is written down as stopped, as a
 		// stopping run blocks its item before its terminal write: a run recorded
 		// as stopped behind an item that still reads as waiting would be a
@@ -274,7 +261,8 @@ func (r Reconciler) takeUpFeedback(ctx context.Context, recorded runstate.State)
 			result.Failure = fmt.Errorf("block %s on the feedback its repair budget cannot answer: %w", state.WorkItemID, err).Error()
 			return result
 		}
-		if err := r.Store.Save(stopped); err != nil {
+		stopped, err := r.Store.Update(ctx, state.RunID, runstate.FeedbackRepairRefused{Feedback: feedback, Read: fresh, Limit: limit, Blocker: blocker, At: now})
+		if err != nil {
 			result.Failure = fmt.Errorf("record run %s as stopped on the feedback its repair budget cannot answer: %w", state.RunID, err).Error()
 			return result
 		}
@@ -411,75 +399,6 @@ func forgeFeedbackRound(published runstate.PullRequest, repairs []runstate.Forge
 	}
 }
 
-// putBackForFeedback is the run made live again at its developer, with the
-// feedback as its repair input and one repair attempt charged, as every repair
-// round is charged before its developer is invoked.
-//
-// What the earlier round established is taken off the record: its checks and
-// its approval were for the head the feedback is about, and the repaired change
-// earns both again before anything is published. Repair inputs left from that
-// round are answered already, so the feedback is the only one.
-func putBackForFeedback(state runstate.State, feedback runstate.ForgeFeedback, now time.Time) runstate.State {
-	live := withoutEarlierRound(state)
-	feedback.DispatchPending = true
-	live.ForgeFeedback = &feedback
-	live.RepairAttempts++
-	live.Status = runstate.StatusRunning
-	live.Phase = runstate.PhaseDeveloping
-	live.StopClass = ""
-	live.Failure = ""
-	live.Blocker = ""
-	live.CompletedAt = nil
-	live.SettledQuietSince = nil
-	live.UpdatedAt = now
-	return live
-}
-
-// stopForFeedback is the run stopped because its repair budget is spent when
-// feedback asked for a repair: the ordinary stop on a spent budget, with the
-// feedback as the repair input a decided repair hands back. It returns the run
-// and the blocker its item carries.
-func stopForFeedback(state runstate.State, feedback runstate.ForgeFeedback, limit int, now time.Time) (runstate.State, string) {
-	stopped := withoutEarlierRound(state)
-	stopped.ForgeFeedback = &feedback
-	blocker := renderFeedbackBlockerNotes(stopped, limit)
-	stopped.Status = runstate.StatusFailed
-	stopped.Phase = runstate.PhaseDeveloping
-	stopped.StopClass = runstate.StopRepairBudget
-	stopped.Failure = fmt.Sprintf("changes were asked for on pull request %d after %d of %d permitted repair attempt(s) were spent", feedback.PullRequest, state.RepairAttempts, limit)
-	stopped.Blocker = runstate.RecordBlocker(blocker)
-	stopped.CompletedAt = &now
-	stopped.UpdatedAt = now
-	return stopped, blocker
-}
-
-// withoutEarlierRound clears what the round that published the head
-// established about it.
-func withoutEarlierRound(state runstate.State) runstate.State {
-	cleared := state
-	cleared.ChecksPassed = nil
-	cleared.KeptChecks = nil
-	cleared.CheckFailure = nil
-	cleared.PathRefusal = nil
-	cleared.ReplayConflict = nil
-	cleared.ReviewSessionID = ""
-	cleared.ReviewModel = ""
-	cleared.ReviewResolvedModel = ""
-	cleared.ReviewEffort = ""
-	cleared.ReviewResolvedEffort = ""
-	cleared.ReviewEffortDescription = ""
-	cleared.ReviewEffortReported = false
-	cleared.ReviewLoaded = nil
-	cleared.ReviewBaseCommit = ""
-	cleared.ReviewHeadCommit = ""
-	cleared.ReviewDecision = ""
-	cleared.ReviewApproves = ""
-	cleared.ReviewSummary = ""
-	cleared.ReviewFindings = 0
-	cleared.ReviewFindingDetails = nil
-	return cleared
-}
-
 // listComment puts one ordinary comment on the development manager's list, as
 // a report addressed to her.
 func (r Reconciler) listComment(state runstate.State, comment runstate.ForgeFeedbackItem, now time.Time) error {
@@ -553,11 +472,10 @@ func renderFeedbackRoundNotes(live runstate.State, limit int) string {
 	}, "\n")
 }
 
-func renderFeedbackBlockerNotes(stopped runstate.State, limit int) string {
-	feedback := stopped.ForgeFeedback
+func renderFeedbackBlockerNotes(state runstate.State, feedback runstate.ForgeFeedback, limit int) string {
 	return strings.Join([]string{
-		fmt.Sprintf("Changes were asked for on pull request #%d while it waited for a person to merge it, and run %s has spent %d of its %d permitted repair attempt(s), so no repair round was started. The run is stopped with its branch and checkout kept, and the development manager decides what happens next; a repair she decides hands the developer this feedback.", feedback.PullRequest, stopped.RunID, stopped.RepairAttempts, limit),
-		fmt.Sprintf("Pull request: #%d %s", feedback.PullRequest, stopped.PullRequest.URL),
+		fmt.Sprintf("Changes were asked for on pull request #%d while it waited for a person to merge it, and run %s has spent %d of its %d permitted repair attempt(s), so no repair round was started. The run is stopped with its branch and checkout kept, and the development manager decides what happens next; a repair she decides hands the developer this feedback.", feedback.PullRequest, state.RunID, state.RepairAttempts, limit),
+		fmt.Sprintf("Pull request: #%d %s", feedback.PullRequest, state.PullRequest.URL),
 		"",
 		renderFeedbackItems(feedback.Items),
 	}, "\n")

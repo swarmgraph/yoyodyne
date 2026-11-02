@@ -88,6 +88,26 @@ func (f *feedbackFixture) after(minutes int) time.Time {
 	return f.run.PullRequest.PushedAt.Add(time.Duration(minutes) * time.Minute).UTC().Truncate(time.Second)
 }
 
+// waitingListing gives the run store the listing of runs waiting for a person
+// to merge that the check reads. The run store gains it from the build that
+// holds a published change for a person's merge (yoyodyne-ifd.429.99); this
+// test reads the same runs from every record, which test code may.
+type waitingListing struct{ *runstate.Store }
+
+func (w waitingListing) WaitingForPersonMerge() ([]runstate.State, error) {
+	recorded, err := w.Store.Recorded()
+	if err != nil {
+		return nil, err
+	}
+	var waiting []runstate.State
+	for _, state := range recorded {
+		if state.WaitingOnAPersonsMerge() {
+			waiting = append(waiting, state)
+		}
+	}
+	return waiting, nil
+}
+
 type feedbackReader struct {
 	reading publish.FeedbackReading
 	err     error
@@ -119,7 +139,7 @@ func (f *feedbackFixture) reconciler(t *testing.T, reader orchestrator.Reconcile
 	return orchestrator.Reconciler{
 		Tracker:     f.tracker,
 		Worktrees:   testharness.NewObserver(t, f.repository, f.worktreeRoot),
-		Store:       f.store,
+		Store:       waitingListing{f.store},
 		Feedback:    reader,
 		Reports:     reports,
 		Capacity:    capacity,
@@ -365,6 +385,24 @@ func TestRequestedChangesWithNoSlotFreeAreLeftForTheNextCheck(t *testing.T) {
 		t.Fatalf("next check = %#v, want the round started and the comment listed", again)
 	}
 }
+
+// A run store that records no run as waiting for a person has nothing to read
+// feedback on: the check reads nothing, and never reads every record instead.
+func TestACheckWhoseStoreListsNoWaitingRunsReadsNothing(t *testing.T) {
+	t.Parallel()
+	fixture := newFeedbackFixture(t)
+	reader := &feedbackReader{}
+	settled, err := orchestrator.Reconciler{
+		Tracker: fixture.tracker, Worktrees: testharness.NewObserver(t, fixture.repository, fixture.worktreeRoot),
+		Store: storeWithoutListing{fixture.store}, Feedback: reader,
+	}.TakeUpFeedback(context.Background())
+	if err != nil || len(settled) != 0 || reader.asked != 0 {
+		t.Fatalf("TakeUpFeedback() = %#v, %v after %d read(s), want nothing read", settled, err, reader.asked)
+	}
+}
+
+// storeWithoutListing hides any listing of the runs waiting for a person.
+type storeWithoutListing struct{ orchestrator.ReconcileStore }
 
 // A forge that cannot be read changes nothing.
 func TestAnUnreadableForgeChangesNothing(t *testing.T) {

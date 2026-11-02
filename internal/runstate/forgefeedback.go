@@ -319,3 +319,151 @@ func (s *State) forgeFeedbackTexts(unstated func(key, path string, text *string,
 		}
 	}
 }
+
+// withoutEarlierRound clears what the round that published the head
+// established about it: its checks and its approval were for the head the
+// feedback is about, and the repaired change earns both again before anything
+// is published. Repair inputs left from that round are answered already.
+func (s State) withoutEarlierRound() State {
+	cleared := s
+	cleared.ChecksPassed = nil
+	cleared.KeptChecks = nil
+	cleared.CheckFailure = nil
+	cleared.PathRefusal = nil
+	cleared.ReplayConflict = nil
+	cleared.ReviewSessionID = ""
+	cleared.ReviewModel = ""
+	cleared.ReviewResolvedModel = ""
+	cleared.ReviewEffort = ""
+	cleared.ReviewResolvedEffort = ""
+	cleared.ReviewEffortDescription = ""
+	cleared.ReviewEffortReported = false
+	cleared.ReviewLoaded = nil
+	cleared.ReviewBaseCommit = ""
+	cleared.ReviewHeadCommit = ""
+	cleared.ReviewDecision = ""
+	cleared.ReviewApproves = ""
+	cleared.ReviewSummary = ""
+	cleared.ReviewFindings = 0
+	cleared.ReviewFindingDetails = nil
+	return cleared
+}
+
+// readFeedback moves the publication's cursor past the feedback a check acted
+// on, and keeps the approvals among it as information.
+func (s *State) readFeedback(read []ForgeFeedbackItem, at time.Time) {
+	published := *s.PullRequest
+	feedback := PullRequestFeedback{}
+	if published.Feedback != nil {
+		feedback = *published.Feedback
+		feedback.Approvals = append([]ForgeFeedbackItem(nil), feedback.Approvals...)
+		feedback.ThroughIDs = append([]string(nil), feedback.ThroughIDs...)
+	}
+	feedback.ReadAt = at
+	feedback.ReadError = ""
+	for _, item := range read {
+		if item.Kind == FeedbackApproval {
+			feedback.RecordApproval(item)
+		}
+	}
+	feedback.Advance(read)
+	published.Feedback = &feedback
+	s.PullRequest = &published
+}
+
+// waitingFor refuses an update about a request the run is not waiting on a
+// person to merge.
+func (s State) waitingFor(number int, what string) error {
+	if !s.WaitingOnAPersonsMerge() || s.PullRequest.Number != number {
+		return fmt.Errorf("run %s is not waiting for a person to merge pull request %d, so %s is not recorded on it", s.RunID, number, what)
+	}
+	return nil
+}
+
+// FeedbackRead records feedback a check acted on without starting a repair
+// round — ordinary comments put on the development manager's list, and
+// approvals kept as information — by moving the publication's cursor past it.
+type FeedbackRead struct {
+	Number int
+	Read   []ForgeFeedbackItem
+	At     time.Time
+}
+
+func (u FeedbackRead) apply(state *State) (bool, error) {
+	if err := state.waitingFor(u.Number, "what was read of it"); err != nil {
+		return false, err
+	}
+	for _, item := range u.Read {
+		if item.Kind.StartsRepair() {
+			return false, fmt.Errorf("feedback %s asks for a repair, which a read alone does not answer", item.ID)
+		}
+	}
+	state.readFeedback(u.Read, u.At)
+	state.UpdatedAt = u.At
+	return true, nil
+}
+
+// FeedbackRepairRefused stops a run waiting for a person to merge its pull
+// request because feedback asked for a repair and its repair budget is spent:
+// the ordinary stop on a spent budget, with the feedback as the repair input a
+// decided repair hands back, and the cursor moved past what was read.
+type FeedbackRepairRefused struct {
+	Feedback ForgeFeedback
+	Read     []ForgeFeedbackItem
+	Limit    int
+	Blocker  string
+	At       time.Time
+}
+
+func (u FeedbackRepairRefused) apply(state *State) (bool, error) {
+	if err := state.waitingFor(u.Feedback.PullRequest, "a repair its budget cannot answer"); err != nil {
+		return false, err
+	}
+	if state.RepairAttempts < u.Limit {
+		return false, fmt.Errorf("run %s has %d of %d repair attempt(s) spent, so the feedback starts a round rather than stopping it", state.RunID, state.RepairAttempts, u.Limit)
+	}
+	stopped := state.withoutEarlierRound()
+	feedback := u.Feedback
+	feedback.DispatchPending = false
+	stopped.ForgeFeedback = &feedback
+	stopped.readFeedback(u.Read, u.At)
+	stopped.Status = StatusFailed
+	stopped.Phase = PhaseDeveloping
+	stopped.StopClass = StopRepairBudget
+	stopped.Failure = fmt.Sprintf("changes were asked for on pull request %d after %d of %d permitted repair attempt(s) were spent", feedback.PullRequest, state.RepairAttempts, u.Limit)
+	stopped.Blocker = RecordBlocker(u.Blocker)
+	at := u.At
+	stopped.CompletedAt = &at
+	stopped.UpdatedAt = u.At
+	*state = stopped
+	return true, nil
+}
+
+// PutBackForFeedback is a run waiting for a person to merge its pull request
+// made live again at its developer, to answer feedback that asked for a
+// repair: the feedback is the round's repair input, one repair attempt is
+// charged as every round is charged before its developer is invoked, and the
+// cursor is moved past what was read. The result is for Store.ReserveLive,
+// which takes the run's developer slot in the same write.
+func (s State) PutBackForFeedback(feedback ForgeFeedback, read []ForgeFeedbackItem, limit int, at time.Time) (State, error) {
+	if err := s.waitingFor(feedback.PullRequest, "a repair round"); err != nil {
+		return State{}, err
+	}
+	if s.RepairAttempts >= limit {
+		return State{}, fmt.Errorf("run %s has spent %d of %d repair attempt(s), so the feedback cannot start a round", s.RunID, s.RepairAttempts, limit)
+	}
+	live := s.withoutEarlierRound()
+	feedback.DispatchPending = true
+	live.ForgeFeedback = &feedback
+	live.readFeedback(read, at)
+	live.RepairAttempts++
+	live.Status = StatusRunning
+	live.Phase = PhaseDeveloping
+	live.StopClass = ""
+	live.Failure = ""
+	live.Blocker = ""
+	live.CompletedAt = nil
+	live.SettledQuietSince = nil
+	live.UpdatedAt = at
+	return live, nil
+}
