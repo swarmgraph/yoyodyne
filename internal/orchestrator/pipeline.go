@@ -500,6 +500,10 @@ type Pipeline struct {
 	// The harness always wires it; a test that does not care about money does not
 	// have to.
 	Spend SpendLog
+	// ToolUse compares the tool calls each invocation made with the tool access
+	// it was launched under and reports what does not match (internal/tooluse).
+	// It only observes; nil reports nothing, which is for a test.
+	ToolUse spend.ToolUseObserver
 	// Docket is where a run that ends on a durable blocker is put in front of the
 	// development manager. It is optional in the same way as the three above: a
 	// stoppage is already recorded on the work item and in this run's own record
@@ -4934,6 +4938,7 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 		Log:         p.Spend,
 		Attribution: attribution,
 		Clock:       p.Clock,
+		ToolUse:     p.ToolUse,
 	}
 	result, err := provider.Run(ctx, backend.RunRequest{
 		RunID: a.state.RunID,

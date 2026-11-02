@@ -77,6 +77,9 @@ type streamParser struct {
 	// subagents follows the calls to sub-agents the stream shows. See
 	// subagents.go.
 	subagents subagentCalls
+	// tools follows every tool call the stream shows, nested ones included,
+	// for the comparison with the session's tool policy (backend/toolcalls.go).
+	tools backend.ToolCallLog
 	// model and subagentModel are the model the invocation asked for and the
 	// one its sub-agents run on, empty without sub-agents. A usage limit on a
 	// family only the sub-agents use is the sub-agents' rather than the
@@ -121,6 +124,16 @@ type streamEnvelope struct {
 	// CompactMetadata is what a compact_boundary says about the compaction it
 	// marks: why it happened and how large the session was before it.
 	CompactMetadata *compactMetadata `json:"compact_metadata"`
+	// PermissionDenials are the tool calls a terminal says the session refused
+	// for want of permission.
+	PermissionDenials []permissionDenial `json:"permission_denials"`
+}
+
+// permissionDenial is one call a terminal says was refused. Its input is not
+// read: what a call was handed is never kept.
+type permissionDenial struct {
+	ToolName  string `json:"tool_name"`
+	ToolUseID string `json:"tool_use_id"`
 }
 
 // compactMetadata is Claude Code's account of one compaction. post_tokens is
@@ -230,6 +243,13 @@ func (p *streamParser) ParseLine(line string) error {
 	case rateLimitEventType:
 		return p.parseRateLimit(envelope)
 	default:
+		// An event type this parser has no reading of could carry a tool call in
+		// a shape a newer CLI writes, so it is said as what could not be seen
+		// rather than read as no tool use. The types Claude Code is known to send
+		// that carry none are recorded and nothing more.
+		if !carriesNoToolCalls(envelope.Type) {
+			p.tools.Gap(fmt.Sprintf("Claude Code wrote a %q event the harness does not read, so a tool call it may carry was not observed", truncate(envelope.Type)))
+		}
 		return p.emit(execution.EventProcessOutput, map[string]any{
 			"provider_type":    envelope.Type,
 			"provider_subtype": envelope.Subtype,
@@ -536,6 +556,11 @@ func (p *streamParser) parseMessage(messageType string, raw json.RawMessage, par
 				"tool":        block.Name,
 				"input_bytes": len(block.Input),
 			}
+			kind := backend.ClassifyTool(block.Name)
+			if isSubagentTool(block.Name) {
+				kind = backend.ToolKindAgent
+			}
+			p.tools.Start(block.ID, block.Name, kind, parent)
 			switch {
 			case parent != "":
 				payload["parent_tool_use_id"] = parent
@@ -551,6 +576,7 @@ func (p *streamParser) parseMessage(messageType string, raw json.RawMessage, par
 				return err
 			}
 		case "tool_result":
+			p.tools.Finish(block.ToolUseID, toolOutcome(block))
 			payload := map[string]any{
 				"tool_use_id":   block.ToolUseID,
 				"is_error":      block.IsError,
@@ -568,9 +594,101 @@ func (p *streamParser) parseMessage(messageType string, raw json.RawMessage, par
 			if err := p.emit(execution.EventCommandCompleted, payload); err != nil {
 				return err
 			}
+		case "server_tool_use", "mcp_tool_use":
+			// A tool the provider ran on the session's behalf rather than one the
+			// CLI ran: a web search on the provider's side, or a remote MCP server.
+			// Neither has a tool_result of its own here, so each is recorded as
+			// executed when it arrives.
+			kind := backend.ClassifyTool(block.Name)
+			if block.Type == "mcp_tool_use" || kind == backend.ToolKindUnknown {
+				kind = backend.ToolKindExternal
+				if block.Type == "server_tool_use" {
+					kind = backend.ToolKindWeb
+				}
+			}
+			p.tools.Start(block.ID, block.Name, kind, parent)
+			p.tools.Finish(block.ID, backend.ToolExecuted)
+			if err := p.emit(execution.EventCommandStarted, map[string]any{
+				"tool_use_id":   block.ID,
+				"tool":          block.Name,
+				"provider_type": block.Type,
+				"input_bytes":   len(block.Input),
+			}); err != nil {
+				return err
+			}
+		case "thinking", "redacted_thinking", "image", "document":
+		default:
+			if strings.HasSuffix(block.Type, "_tool_result") {
+				continue
+			}
+			// A content block this adapter has no reading of could be a tool call
+			// in a shape a newer CLI writes, so it is said as what could not be
+			// seen rather than read as nothing.
+			p.tools.Gap(fmt.Sprintf("Claude Code wrote a %q content block the harness does not read, so a tool call it may carry was not observed", truncate(block.Type)))
 		}
 	}
 	return nil
+}
+
+// carriesNoToolCalls reports a top-level event type Claude Code sends that
+// never carries a tool call: a partial message streamed ahead of the whole one,
+// which arrives as its own event, a keep-alive, and the control messages the
+// CLI exchanges about its own settings.
+func carriesNoToolCalls(eventType string) bool {
+	switch eventType {
+	case "stream_event", "keep_alive":
+		return true
+	}
+	return strings.HasPrefix(eventType, "control_")
+}
+
+// toolOutcome is what a tool_result says became of its call. A refusal is told
+// apart from a failure by the provider's own words for one, and only on a
+// result the provider marked as an error.
+func toolOutcome(block contentBlock) backend.ToolOutcome {
+	if !block.IsError {
+		return backend.ToolExecuted
+	}
+	text := strings.ToLower(contentText(block.Content))
+	for _, phrase := range deniedPhrases {
+		if strings.Contains(text, phrase) {
+			return backend.ToolDenied
+		}
+	}
+	return backend.ToolFailed
+}
+
+// deniedPhrases are how Claude Code says it refused a call rather than ran it
+// and saw it fail.
+var deniedPhrases = []string{
+	"requested permissions to use",
+	"haven't granted it yet",
+	"permission to use",
+	"permission denied by",
+	"was blocked",
+	"denied this tool",
+	"user denied",
+	"no such tool available",
+}
+
+// contentText is the text of a tool result, which Claude Code writes either as
+// a string or as a list of text blocks.
+func contentText(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	var blocks []struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) != nil {
+		return ""
+	}
+	parts := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		parts = append(parts, block.Text)
+	}
+	return strings.Join(parts, " ")
 }
 
 func (p *streamParser) redactEnvelope(envelope *streamEnvelope) error {
@@ -585,6 +703,10 @@ func (p *streamParser) redactEnvelope(envelope *streamEnvelope) error {
 	envelope.PermissionMode = p.redactor.Redact(envelope.PermissionMode)
 	envelope.Error = p.redactor.Redact(envelope.Error)
 	envelope.Output = p.redactor.Redact(envelope.Output)
+	for index := range envelope.PermissionDenials {
+		envelope.PermissionDenials[index].ToolName = p.redactor.Redact(envelope.PermissionDenials[index].ToolName)
+		envelope.PermissionDenials[index].ToolUseID = p.redactor.Redact(envelope.PermissionDenials[index].ToolUseID)
+	}
 	for index := range envelope.Tools {
 		envelope.Tools[index] = p.redactor.Redact(envelope.Tools[index])
 	}
@@ -694,6 +816,9 @@ func (p *streamParser) parseResult(envelope streamEnvelope) error {
 	p.result.StopReason = envelope.TerminalReason
 	if p.result.StopReason == "" {
 		p.result.StopReason = envelope.StopReason
+	}
+	for _, denial := range envelope.PermissionDenials {
+		p.tools.Deny(denial.ToolUseID, denial.ToolName)
 	}
 	// The terminal is where the provider says how the invocation ended, so it is
 	// the event whose answer decides whether this is a wait, another attempt, or
@@ -888,6 +1013,9 @@ func (p *streamParser) emit(eventType execution.EventType, payload any) error {
 func (p *streamParser) Result() backend.RunResult {
 	result := p.result
 	result.SubagentCalls = p.subagents.recorded()
+	result.ToolCalls = p.tools.Calls()
+	result.ToolVisibility.Read = true
+	result.ToolVisibility.Gaps = p.tools.Gaps()
 	// The figure the meter prices against the session's last one is the first
 	// terminal's plus what every later terminal added. Where the provider's total
 	// only rose, which is every duplicate recorded so far, that is exactly the

@@ -144,7 +144,8 @@ func branchReviewerFrom(parts components, model string) orchestrator.BranchRevie
 			// A branch review spends like every other provider invocation and lands
 			// in the same log, which is also what makes a shadow review's price
 			// comparable to the review it was measured against.
-			Spend: parts.spend,
+			Spend:   parts.spend,
+			ToolUse: parts.toolUse(),
 		},
 		Reviews:         parts.branchReviews,
 		Reports:         parts.reports,

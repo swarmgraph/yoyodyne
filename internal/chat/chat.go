@@ -604,6 +604,10 @@ type Options struct {
 	// like the rest, and a conversation without one costs what it costs and
 	// records nothing.
 	Spend spend.Log
+	// ToolUse compares the tool calls each invocation made with the tool access
+	// it was launched under and reports what does not match (internal/tooluse).
+	// It only observes; nil reports nothing, which is for a test.
+	ToolUse spend.ToolUseObserver
 	// AccountAlias is the provider account this conversation runs on and
 	// ConfigRevision the configuration in force while it does. They are what a
 	// turn's spend is attributable to, and they are supplied rather than read
@@ -2353,6 +2357,7 @@ func (s *Session) takeTurn(ctx context.Context, permit budget.Permission, prompt
 		Log:         s.options.Spend,
 		Attribution: s.spendAttribution(),
 		Clock:       s.options.Clock,
+		ToolUse:     s.options.ToolUse,
 		// A turn the provider has already answered is not thrown away because the
 		// cost log would not take the line. The answer comes back and what is
 		// missing from the log is named on the reply instead. It accumulates

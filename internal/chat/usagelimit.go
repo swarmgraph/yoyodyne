@@ -365,6 +365,7 @@ func (s *Session) meteredFailover(savingMemory bool) modelfailover.Invoker {
 		Log:         s.options.Spend,
 		Attribution: s.failoverAttribution(),
 		Clock:       s.options.Clock,
+		ToolUse:     s.options.ToolUse,
 		// The same trade the conversation's own meter makes, for the same reason: a
 		// turn the alternate has already answered is not thrown away because the
 		// cost log would not take the line.

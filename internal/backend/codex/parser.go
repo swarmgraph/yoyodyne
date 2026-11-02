@@ -82,6 +82,34 @@ const (
 	itemAgentMessage   = "agent_message"
 )
 
+// The newer vocabulary's tool items and the events that carry them, as the
+// codex-cli 0.164.0 executable names them in its `exec --json` output: an item
+// is started, may be updated, and is completed, each time under the same item
+// id. No recorded stream has carried one yet (testdata/streams/README.md), so
+// they are read by the names and fields the executable declares, and an item
+// type outside these is still said as tool use that could not be seen.
+//
+// None of these items names a call it was made inside. A call Code Mode makes
+// from the code it runs reaches this stream as an item of its own, read like
+// any other, and which block of code made it is not in the stream to record.
+const (
+	eventItemStarted     = "item.started"
+	eventItemUpdated     = "item.updated"
+	itemReasoning        = "reasoning"
+	itemCommandExecution = "command_execution"
+	itemFileChange       = "file_change"
+	itemMCPToolCall      = "mcp_tool_call"
+	itemWebSearch        = "web_search"
+	itemTodoList         = "todo_list"
+	itemCollabToolCall   = "collab_tool_call"
+	// The statuses a tool item carries. Declined is a call the CLI refused to
+	// run; failed is one that ran and failed, or that its sandbox stopped.
+	itemInProgress = "in_progress"
+	itemCompleted  = "completed"
+	itemFailed     = "failed"
+	itemDeclined   = "declined"
+)
+
 // eventTurnFailed is the newer vocabulary's failed ending. codex-cli 0.159.2's
 // binary carries the name, but no recorded stream has shown one: its shape is
 // the provider's exec protocol's, an `error` object with a `message`.
@@ -113,10 +141,18 @@ type streamEnvelope struct {
 // streamItem is what a newer-vocabulary item event carries, reduced to the
 // fields this adapter reads.
 type streamItem struct {
+	ID      string `json:"id"`
 	Type    string `json:"type"`
 	Message string `json:"message"`
 	// An agent_message item carries the agent's prose here.
 	Text string `json:"text"`
+	// A tool item's status, and what each kind names about itself. Arguments
+	// and output are read only to tell a refusal from a failure, never kept.
+	Status           string `json:"status"`
+	ExitCode         *int   `json:"exit_code"`
+	AggregatedOutput string `json:"aggregated_output"`
+	Server           string `json:"server"`
+	Tool             string `json:"tool"`
 }
 
 // turnUsage is what a turn.completed reports the turn read and wrote, as
@@ -330,6 +366,9 @@ type streamParser struct {
 	reply       func(string)
 	result      backend.RunResult
 	sawTerminal bool
+	// tools follows every tool call the stream shows, for the comparison with
+	// the session's tool policy (backend/toolcalls.go).
+	tools backend.ToolCallLog
 	// stderr is what the process wrote to its error stream, and stdout is what
 	// it wrote to its output stream before any envelope without its being one,
 	// each kept bounded so it can be handed to the dialect once the stream has
@@ -420,7 +459,7 @@ func (p *streamParser) ParseLine(line string) error {
 			return p.parseThreadStarted(message)
 		case eventTurnStarted:
 			return p.emit(execution.EventProcessOutput, map[string]any{"provider_type": message.Type})
-		case eventItemCompleted:
+		case eventItemCompleted, eventItemStarted, eventItemUpdated:
 			return p.parseItem(message)
 		case eventError:
 			return p.parseNotice(message)
@@ -437,12 +476,21 @@ func (p *streamParser) ParseLine(line string) error {
 	case eventAgentMessage:
 		return p.parseAgentMessage(message)
 	case eventExecCommandBegin, eventMCPToolCallBegin, eventPatchApplyBegin:
+		p.tools.Start(message.CallID, toolName(message), toolKind(message), "")
 		return p.emit(execution.EventCommandStarted, map[string]any{
 			"tool_use_id": message.CallID,
 			"tool":        toolName(message),
 			"input_bytes": inputBytes(message),
 		})
 	case eventExecCommandEnd, eventMCPToolCallEnd, eventPatchApplyEnd:
+		outcome := backend.ToolExecuted
+		if callFailed(message) {
+			outcome = backend.ToolFailed
+			if sandboxRefused(message.Stdout + "\n" + message.Stderr) {
+				outcome = backend.ToolDenied
+			}
+		}
+		p.tools.Finish(message.CallID, outcome)
 		return p.emit(execution.EventCommandCompleted, map[string]any{
 			"tool_use_id":   message.CallID,
 			"is_error":      callFailed(message),
@@ -477,6 +525,11 @@ func (p *streamParser) parseUnrecognized(eventType string) error {
 	if p.unrecognized == "" {
 		p.unrecognized = eventType
 	}
+	// An event this parser cannot read may be a tool call -- the CLI's newer
+	// vocabulary reports commands, patches, and nested tool calls as items no
+	// recorded stream has yet shown -- so it is said as what could not be seen
+	// rather than read as no tool use.
+	p.tools.Gap(fmt.Sprintf("Codex wrote a %q event the harness does not read, so a tool call it may carry was not observed", truncate(eventType)))
 	return p.emit(execution.EventProcessOutput, map[string]any{
 		"provider_type": eventType,
 	})
@@ -638,7 +691,20 @@ func (p *streamParser) parseItem(message providerMessage) error {
 	if len(message.Item) > 0 {
 		_ = json.Unmarshal(message.Item, &item)
 	}
+	if kind, tool, known := itemTool(item); known {
+		return p.parseToolItem(message.Type, item, kind, tool)
+	}
+	if message.Type != eventItemCompleted {
+		switch item.Type {
+		case itemAgentMessage, itemReasoning, itemError:
+			// What a completed item says is read when it completes.
+			return p.emit(execution.EventProcessOutput, map[string]any{"provider_type": message.Type, "item_type": item.Type})
+		}
+		return p.parseUnrecognized(message.Type + " (" + item.Type + " item)")
+	}
 	switch item.Type {
+	case itemReasoning:
+		return p.emit(execution.EventProcessOutput, map[string]any{"provider_type": message.Type, "item_type": item.Type})
 	case itemAgentMessage:
 		// The newer vocabulary's reply. Each one replaces the last, as the older
 		// vocabulary's agent_message does, so the turn's answer is its last.
@@ -658,6 +724,101 @@ func (p *streamParser) parseItem(message providerMessage) error {
 		}
 		return p.parseUnrecognized(message.Type + " (" + item.Type + " item)")
 	}
+}
+
+// itemTool says which tool an item is a call of and what kind of thing it does,
+// and false for an item that is no tool call.
+func itemTool(item streamItem) (backend.ToolKind, string, bool) {
+	switch item.Type {
+	case itemCommandExecution:
+		return backend.ToolKindShell, "shell", true
+	case itemFileChange:
+		return backend.ToolKindWrite, "apply_patch", true
+	case itemMCPToolCall:
+		if item.Server != "" {
+			return backend.ToolKindExternal, item.Server + "." + item.Tool, true
+		}
+		return backend.ToolKindExternal, item.Tool, true
+	case itemWebSearch:
+		return backend.ToolKindWeb, "web_search", true
+	case itemTodoList:
+		return backend.ToolKindSession, "update_plan", true
+	case itemCollabToolCall:
+		tool := item.Tool
+		if tool == "" {
+			tool = "collab_tool_call"
+		}
+		return backend.ToolKindAgent, tool, true
+	}
+	return "", "", false
+}
+
+// parseToolItem records one report of a tool item. Every report of the same
+// item is the same call; what it ended as is read from the completed item.
+func (p *streamParser) parseToolItem(eventType string, item streamItem, kind backend.ToolKind, tool string) error {
+	id := p.redactor.Redact(item.ID)
+	tool = p.redactor.Redact(tool)
+	if id == "" {
+		p.tools.Gap(fmt.Sprintf("Codex wrote a %q item with no id, so it could not be kept apart from other calls", truncate(item.Type)))
+	}
+	p.tools.StartInInvocation(id, tool, kind)
+	payload := map[string]any{
+		"provider_type": eventType,
+		"item_type":     item.Type,
+		"tool_use_id":   id,
+		"tool":          tool,
+	}
+	if eventType != eventItemCompleted && item.Status != itemDeclined {
+		if eventType == eventItemStarted {
+			return p.emit(execution.EventCommandStarted, payload)
+		}
+		return p.emit(execution.EventProcessOutput, payload)
+	}
+	outcome := itemOutcome(item)
+	p.tools.Finish(id, outcome)
+	payload["outcome"] = outcome
+	return p.emit(execution.EventCommandCompleted, payload)
+}
+
+// itemOutcome is what a finished tool item says became of its call. A
+// declined item is a refusal; a failed one whose output is a sandbox's
+// refusal is one too, read by the same words Codex itself reads a sandbox
+// denial by; anything else that failed ran and failed.
+func itemOutcome(item streamItem) backend.ToolOutcome {
+	switch {
+	case item.Status == itemDeclined:
+		return backend.ToolDenied
+	case item.Status == itemFailed || (item.ExitCode != nil && *item.ExitCode != 0):
+		if sandboxRefused(item.AggregatedOutput) {
+			return backend.ToolDenied
+		}
+		return backend.ToolFailed
+	case item.Status == itemInProgress:
+		return backend.ToolAttempted
+	default:
+		return backend.ToolExecuted
+	}
+}
+
+// sandboxRefusedPhrases are the words a command's output carries when the
+// sandbox, rather than the command, stopped it.
+var sandboxRefusedPhrases = []string{
+	"operation not permitted",
+	"permission denied",
+	"read-only file system",
+	"sandbox",
+	"seccomp",
+	"landlock",
+}
+
+func sandboxRefused(output string) bool {
+	lowered := strings.ToLower(output)
+	for _, phrase := range sandboxRefusedPhrases {
+		if strings.Contains(lowered, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 // parseCompacted records that Codex compacted the session. It names no sizes,
@@ -857,6 +1018,9 @@ func (p *streamParser) Result() backend.RunResult {
 	result.UsageReading = p.usage.Reading()
 	result.UsagePartial = !p.sawTerminal && result.UsageReading != nil
 	result.UsageRepeated = p.usage.Repeated()
+	result.ToolCalls = p.tools.Calls()
+	result.ToolVisibility.Read = true
+	result.ToolVisibility.Gaps = p.tools.Gaps()
 	return result
 }
 
@@ -905,6 +1069,18 @@ func toolName(message providerMessage) string {
 		return "apply_patch"
 	default:
 		return "shell"
+	}
+}
+
+// toolKind is what a call does, from the event that started it.
+func toolKind(message providerMessage) backend.ToolKind {
+	switch message.Type {
+	case eventMCPToolCallBegin, eventMCPToolCallEnd:
+		return backend.ToolKindExternal
+	case eventPatchApplyBegin, eventPatchApplyEnd:
+		return backend.ToolKindWrite
+	default:
+		return backend.ToolKindShell
 	}
 }
 

@@ -441,6 +441,12 @@ type RunResult struct {
 	// SubagentCalls are the calls to sub-agents the invocation's stream
 	// showed, in the order they started.
 	SubagentCalls []SubagentCall
+	// ToolCalls are the tool calls the invocation's stream showed, nested ones
+	// included, each once, and ToolVisibility is what the adapter says about how
+	// much of that it could see and the tool access it launched the session
+	// under. See toolcalls.go.
+	ToolCalls      []ToolCall
+	ToolVisibility ToolVisibility
 	// SubagentLimit is a usage limit the provider reported reached on a model
 	// family only the invocation's sub-agents run on, and nil otherwise. It is
 	// kept apart from UsageLimit because it asks the opposite of the run: the

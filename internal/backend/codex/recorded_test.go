@@ -212,17 +212,17 @@ func TestAnEnvelopedErrorIsStillATerminal(t *testing.T) {
 	}
 }
 
-// An item this parser has not seen recorded is named by its item type, so the
-// error a stream with no terminal fails with says which item it was. The line
-// is written by hand; no stream recorded here has carried a command item.
+// An item this parser does not read is named by its item type, so the error a
+// stream with no terminal fails with says which item it was. The line is
+// written by hand, with a type the executable does not declare.
 func TestAnUnknownItemIsNamedByItsType(t *testing.T) {
 	t.Parallel()
 
 	parser := newStreamParser(testRunID, domain.RoleDeveloper, 0, fixedClock{}, execution.NewRedactor(), nil, nil, Dialect{})
-	if err := parser.ParseLine(`{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"ls"}}`); err != nil {
+	if err := parser.ParseLine(`{"type":"item.completed","item":{"id":"item_1","type":"code_cell"}}`); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := parser.FirstUnrecognized(), "item.completed (command_execution item)"; got != want {
+	if got, want := parser.FirstUnrecognized(), "item.completed (code_cell item)"; got != want {
 		t.Fatalf("first unrecognized = %q, want %q", got, want)
 	}
 }

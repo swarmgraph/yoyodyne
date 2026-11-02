@@ -128,6 +128,21 @@ const (
 	readOnlySessionMode      = "manual"
 )
 
+// toolPolicy is the tool access a session launched here is held to, as the
+// harness compares the calls it makes against it: the developer's tools for a
+// session that writes its worktree, the reviewer's reads (reviewerTools), and
+// none for every other role.
+func toolPolicy(role domain.AgentRole, readOnly bool) backend.ToolPolicy {
+	switch {
+	case !readOnly:
+		return backend.ToolPolicyDeveloper
+	case role == domain.RoleReviewer:
+		return backend.ToolPolicyInspection
+	default:
+		return backend.ToolPolicyNone
+	}
+}
+
 // readOnlyTools is intentionally empty, and no caller can add to it. The
 // product manager, the architect, the development manager, and a program
 // manager receive bounded repository and tracker evidence; disabling tools
@@ -904,6 +919,8 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	result.AdapterVersion = adapterVersion()
 	result.Loaded = loaded
 	result.Process = processResult
+	result.ToolVisibility.Policy = toolPolicy(request.Role, readOnly)
+	result.ToolVisibility.Subagents = subagent != ""
 	if processResult.Status == execution.ProcessCancelled || processResult.Status == execution.ProcessTimedOut || processResult.Status == execution.ProcessStalled {
 		result.IsError = true
 		if result.StopReason == "" {
