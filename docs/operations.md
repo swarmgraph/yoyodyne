@@ -6873,17 +6873,21 @@ origin is drawn under "unknown: no origin recorded". An item whose filing or
 closing time the tracker did not record is left out of what that time decides,
 and the page says how many there are.
 
-The page draws its chart with Chart.js, served by the dashboard itself, so the
+The page draws its chart with Chart.js 4.4.1, which the build carries in
+`internal/dashboard/assets/chart.umd.js` and the dashboard serves itself, so the
 page loads nothing from anywhere else. Nobody checks the library in by hand: it
 is a [pinned outside file](configuration.md#pinned-outside-files), declared by the record
 `internal/dashboard/assets/chart.umd.js.yoyodyne-source.yaml`, and the harness
-fetches `chart.umd.js` and its license, `chart.js-LICENSE.md`, from
-`cdn.jsdelivr.net`, the host this project lists under `outside_files`. The page
-loads the library only where it matches that record: the checksum the harness
-wrote there, the version it names, and the MIT license beside it. Until the
-harness has fetched it, or wherever it does not match, the page shows the
-figures as a table and says the chart library is not in this build. The table
-stays under the chart once the library is there.
+fetched `chart.umd.js` and its license, `chart.js-LICENSE.md`, from
+`cdn.jsdelivr.net`, the host this project lists under `outside_files`; changing
+the version is changing that record in a reviewed change. The page loads the
+library only where it matches that record: the checksum the harness wrote
+there, the version it names, and the MIT license beside it. A build whose
+library is missing or does not match shows the figures as a table and says the
+chart library is not in this build. The table, under "The figures as a table",
+is under the chart either way. Each series is told apart by its point shape and
+line pattern as well as its colour, and the chart's text and rules take the
+page's light or dark colours.
 
 ### The dashboard under the product
 
@@ -7670,8 +7674,8 @@ plane, and work is still directed from the conversation and the commands above.
   so nothing off the machine can reach it, and being on the machine is not
   enough on its own: every request for the read model has to carry the token.
   What is served without one is the page shell, the backlog page's shell at
-  `/backlog`, and their own scripts and stylesheet, the chart library included
-  once it is checked in — static text compiled into the binary, with nothing of the read
+  `/backlog`, and their own scripts and stylesheet, the chart library
+  included — static text compiled into the binary, with nothing of the read
   model in it, which a browser needs before it can present a token at all.
   Everything that reads state is behind the token.
 - **The token is never in a URL, and never in a cookie.** A token in a URL

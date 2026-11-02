@@ -7,7 +7,6 @@ package dashboard
 
 import (
 	"context"
-	"errors"
 	"io/fs"
 	"net/http"
 	"os"
@@ -91,10 +90,7 @@ func TestTheBacklogPageLoadsNothingFromAnywhereElse(t *testing.T) {
 	w := serve(t, stubReader{standing: standingWith("title")})
 
 	const unchanged = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
-	paths := []string{"/backlog", "/assets/backlog.js", "/assets/backlog-count.js", "/assets/dashboard.css", "/api/backlog"}
-	if chartLibraryLoads(assets) {
-		paths = append(paths, "/"+chartLibraryAsset)
-	}
+	paths := []string{"/backlog", "/assets/backlog.js", "/assets/backlog-count.js", "/assets/dashboard.css", "/" + chartLibraryAsset, "/api/backlog"}
 	for _, path := range paths {
 		response, _ := w.get(path, nil)
 		if got := response.Header.Get("Content-Security-Policy"); got != unchanged {
@@ -131,12 +127,12 @@ func TestTheBacklogPageLoadsNothingFromAnywhereElse(t *testing.T) {
 	}
 }
 
-// The build's own chart library is held to its pinned-file record: the
+// The build carries its own chart library, held to its pinned-file record: the
 // version and checksum the harness wrote there, and the license the record
-// names (chartlib.go). Before the harness has fetched it, the page loads no
-// chart script and says so; once it has, the page loads it and the dashboard
-// serves it as script. Nothing reads or needs the hand-written record the
-// pinned-file records replaced.
+// names (chartlib.go). The page loads it from this origin and the dashboard
+// serves it as script, so the chart is drawn with nothing fetched from a CDN.
+// Nothing reads or needs the hand-written record the pinned-file records
+// replaced.
 func TestTheChartLibraryMatchesItsPinnedRecord(t *testing.T) {
 	t.Parallel()
 	w := serve(t, stubReader{standing: standingWith("title")})
@@ -158,26 +154,19 @@ func TestTheChartLibraryMatchesItsPinnedRecord(t *testing.T) {
 		t.Fatalf("assets/chartjs.md is in this build; the pinned-file records replaced it, and nothing reads it")
 	}
 
-	_, err = chartLibraryIn(assets)
-	switch {
-	case errors.Is(err, errNoChartLibrary):
-		if loads {
-			t.Fatalf("the backlog page loads %s, which this build does not carry", chartLibraryAsset)
-		}
-		if !strings.Contains(page, "The chart library is not in this build") {
-			t.Fatalf("a build without the chart library does not say so on the backlog page:\n%s", page)
-		}
-		t.Logf("the harness has not fetched the chart library into this build; the backlog page shows its figures as a table")
-		return
-	case err != nil:
-		t.Fatal(err)
+	library, err := chartLibraryIn(assets)
+	if err != nil {
+		t.Fatalf("this build's chart library does not match its record: %v", err)
+	}
+	if library.Record.Version != record.Version || !strings.Contains(library.License, "Permission is hereby granted") {
+		t.Fatalf("chartLibraryIn() = version %s, license %q", library.Record.Version, library.License)
 	}
 	if !loads {
 		t.Fatalf("this build carries %s and the backlog page does not load it:\n%s", chartLibraryAsset, page)
 	}
-	response, _ := w.get("/"+chartLibraryAsset, nil)
-	if response.StatusCode != http.StatusOK || !strings.HasPrefix(response.Header.Get("Content-Type"), "text/javascript") {
-		t.Fatalf("%s is not served as script: %d %s", chartLibraryAsset, response.StatusCode, response.Header.Get("Content-Type"))
+	response, body := w.get("/"+chartLibraryAsset, nil)
+	if response.StatusCode != http.StatusOK || !strings.HasPrefix(response.Header.Get("Content-Type"), "text/javascript") || outsidefile.Checksum([]byte(body)) != record.SHA256 {
+		t.Fatalf("%s is not served as the recorded script: %d %s", chartLibraryAsset, response.StatusCode, response.Header.Get("Content-Type"))
 	}
 }
 
@@ -275,5 +264,18 @@ func TestTheBacklogCountsHoldUnderNode(t *testing.T) {
 	command.Env = append(os.Environ(), "TZ=Asia/Tokyo")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("backlog-count.test.js: %v\n%s", err, output)
+	}
+}
+
+// The page's script draws its chart with the library this build serves:
+// testdata/backlog-chart.test.js runs backlog.js against chart.umd.js under
+// Node, on a canvas that records what is drawn, and holds every series to its
+// own colour, line pattern, and name in the stylesheet's ink, light and dark,
+// with the old chart destroyed each time a control changes.
+func TestTheBacklogChartDrawsWithTheServedLibraryUnderNode(t *testing.T) {
+	node := renderer(t)
+	command := exec.CommandContext(context.Background(), node, filepath.Join("testdata", "backlog-chart.test.js"))
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("backlog-chart.test.js: %v\n%s", err, output)
 	}
 }
