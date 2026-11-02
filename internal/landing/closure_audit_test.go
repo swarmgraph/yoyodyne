@@ -136,6 +136,11 @@ var auditedClosures = []closureSite{
 		Why: "the sweep settling a run whose queued merge the forge has since performed. The forge merging the change settles where the work is and not whether it discharges the item, so the claim and the approval are read back from the durable record the run that made them left behind.",
 	},
 	{
+		File: "internal/orchestrator/personmerge.go", Declaration: "(Reconciler) settlePersonMerged", Calls: 1,
+		ConsultsDischarge: true, Kind: kindSettlement,
+		Why: "the forge check settling a run whose pull request a person merged. The merge settles where the work is and not whether it discharges the item, so the developer's claim and the reviewer's approval are read back from the run's durable record, and an undischarged change goes to settleUndischarged instead of closing.",
+	},
+	{
 		File: "internal/orchestrator/reconcile.go", Declaration: "(Reconciler) completeIntegrated", Calls: 1,
 		ConsultsDischarge: true, Kind: kindSettlement,
 		Why: "the sweep finishing a run somebody interrupted after its change was promoted. It decides the same way the run itself would have, from the same durable record, so an interrupted run and a finished one leave the item in the same place.",

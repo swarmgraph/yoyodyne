@@ -986,6 +986,7 @@ var notAStep = map[string]string{
 	// that could reorder them would be reordering the reporting rather than the
 	// delivery.
 	"fail":                       "turns a failure into the run's outcome",
+	"awaitsPersonMerge":          "reads whether a completing run's approved change was published for a person to merge, so its ending records the wait; it decides nothing a definition could route",
 	"fetchTarget":                "brings the target up to date before the worktree is cut and records what it found; it never stops the run, so there is nothing for a definition to route",
 	"recordStartingTarget":       "writes the commit the worktree was cut from onto the run's record and the item's notes",
 	"documentChecks":             "reads which check list a document landing runs; the check step it informs is verify",

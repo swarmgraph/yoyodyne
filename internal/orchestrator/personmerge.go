@@ -35,6 +35,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -339,8 +340,5 @@ func personMergeClosedNotes(state runstate.State, closer publish.Closer) (string
 	}, "\n")
 	parking := fmt.Sprintf("Pull request #%d was closed without merging by %s at %s; the Lead Product Manager decides whether to drop, revise, or admit this work again.",
 		state.PersonMerge.Number, who, when)
-	if len(parking) > domain.MaxWorkItemParkingBytes {
-		parking = parking[:domain.MaxWorkItemParkingBytes]
-	}
-	return note, domain.WorkItemParking(parking)
+	return note, domain.WorkItemParking(oneline.Bound(parking, domain.MaxWorkItemParkingBytes))
 }
