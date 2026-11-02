@@ -60,7 +60,9 @@ binary at `../CodexCLI.app/Contents/MacOS/codex` (SHA-256
   files, which the CLI reports as items of other types (`command_execution`,
   `file_change`, and so on, with `item.started` beside them). None is recorded
   here; the parser names the first one as unrecognized and otherwise records it
-  and carries on, which matters only if the stream then ends with no terminal.
+  and carries on, which matters to the turn's outcome only if the stream then ends
+  with no terminal. Each one is also reported as tool use the harness could not
+  see (`internal/tooluse`), because it may be a tool call nobody read.
   A recording of a turn that runs a shell command is the next one to make, outside
   the developer sandbox, which refuses network to the provider and refuses writes
   to the operator's `~/.codex`:

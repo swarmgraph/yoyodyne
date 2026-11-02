@@ -161,6 +161,25 @@ type Metered struct {
 	// Pricing is the service an invocation the provider did not price is
 	// estimated by, and nil for the one over the rate data this build ships.
 	Pricing *pricing.Service
+	// ToolUse is handed every invocation this serves, with the attribution that
+	// says whose it was, so the tool calls its stream showed are compared with
+	// the tool access it was launched under (internal/tooluse). It is here for
+	// the reason the cost line is: every invocation passes through this, so an
+	// invocation path cannot be checked for cost and not for tool use. Every
+	// call site sets it, and a test in internal/tooluse fails on one that does
+	// not; nil is for a test that does not care.
+	//
+	// It only observes. Nothing it finds changes the result or the error this
+	// returns, so an invocation reported for unexpected tool use ends exactly
+	// as it would have.
+	ToolUse ToolUseObserver
+}
+
+// ToolUseObserver is what compares one invocation's tool calls with its tool
+// policy and reports what does not match. It returns nothing because nothing it
+// finds may change the invocation.
+type ToolUseObserver interface {
+	ObserveToolUse(attribution Attribution, request backend.RunRequest, result backend.RunResult)
 }
 
 // Run makes the invocation and records what it spent.
@@ -187,6 +206,13 @@ type Metered struct {
 // is handed the failure instead of it being joined on.
 func (m Metered) Run(ctx context.Context, request backend.RunRequest) (backend.RunResult, error) {
 	result, err := m.Provider.Run(ctx, request)
+	if m.ToolUse != nil {
+		attribution := m.Attribution
+		if attribution.Backend == "" {
+			attribution.Backend = result.Backend
+		}
+		m.ToolUse.ObserveToolUse(attribution, request, result)
+	}
 	line := m.line(request, result, err)
 	// A provider with nowhere to record what it spends is one nothing is
 	// metering. The harness always wires the log; this is what keeps a test

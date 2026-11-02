@@ -56,6 +56,10 @@ const (
 	MaxBlockBytes          = 16 << 10
 )
 
+// maxToolUseKeyBytes bounds the identity a report about unexpected tool use
+// carries.
+const maxToolUseKeyBytes = 1 << 10
+
 // MaxMessageBytes bounds one report's text. It is generous for the paragraph a
 // report actually is and small enough that nothing can push a document into the
 // collected pile.
@@ -183,8 +187,13 @@ func (e Entry) Validate() error {
 type Report struct {
 	// PassFailureTask identifies a harness finding tied to the sweep log.
 	PassFailureTask string `json:"pass_failure_task,omitempty"`
-	SchemaVersion   int    `json:"schema_version"`
-	ID              string `json:"id"`
+	// ToolUse is the stable identity of the tool call, or of the invocation's
+	// unobserved tool use, a harness report about unexpected tool use is the one
+	// record of, so a call streamed twice, a resumed read, or the same
+	// invocation observed again files nothing more (internal/tooluse).
+	ToolUse       string `json:"tool_use,omitempty"`
+	SchemaVersion int    `json:"schema_version"`
+	ID            string `json:"id"`
 	// Role is the contract the reporter worked under and Agent is the configured
 	// agent that filled it. Both are recorded because a project may configure
 	// more than one agent for a role, and "which developer said this" is then a
@@ -306,6 +315,14 @@ func (r Report) Validate() error {
 			problems = append(problems, errors.New("only the harness files a product pass failure"))
 		}
 		problems = append(problems, domain.ValidateIdentifier("failed pass", r.PassFailureTask))
+	}
+	if r.ToolUse != "" {
+		if r.Role != HarnessReporter {
+			problems = append(problems, errors.New("only the harness files a report about unexpected tool use"))
+		}
+		if len(r.ToolUse) > maxToolUseKeyBytes {
+			problems = append(problems, fmt.Errorf("tool use identity is %d bytes, limit is %d", len(r.ToolUse), maxToolUseKeyBytes))
+		}
 	}
 	if r.SchemaVersion != SchemaVersion {
 		problems = append(problems, fmt.Errorf("schema_version must be %d", SchemaVersion))

@@ -287,7 +287,11 @@ type Reviewer struct {
 	// review at the moment its cost is known. It is optional: a reviewer wired
 	// without one reviews exactly as it would have, and what is lost is the only
 	// record of what the review cost that is not buried in an event log.
-	Spend   spend.Log
+	Spend spend.Log
+	// ToolUse compares the tool calls each invocation made with the tool access
+	// it was launched under and reports what does not match (internal/tooluse).
+	// It only observes; nil reports nothing, which is for a test.
+	ToolUse spend.ToolUseObserver
 	Timeout time.Duration
 	Clock   execution.Clock
 }
@@ -440,6 +444,7 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 		Log:         r.Spend,
 		Attribution: attribution,
 		Clock:       r.Clock,
+		ToolUse:     r.ToolUse,
 	}
 	invocationPrompt := prompt
 	if session != "" {

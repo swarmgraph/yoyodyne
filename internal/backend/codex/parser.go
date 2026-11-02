@@ -330,6 +330,9 @@ type streamParser struct {
 	reply       func(string)
 	result      backend.RunResult
 	sawTerminal bool
+	// tools follows every tool call the stream shows, for the comparison with
+	// the session's tool policy (backend/toolcalls.go).
+	tools backend.ToolCallLog
 	// stderr is what the process wrote to its error stream, and stdout is what
 	// it wrote to its output stream before any envelope without its being one,
 	// each kept bounded so it can be handed to the dialect once the stream has
@@ -437,12 +440,18 @@ func (p *streamParser) ParseLine(line string) error {
 	case eventAgentMessage:
 		return p.parseAgentMessage(message)
 	case eventExecCommandBegin, eventMCPToolCallBegin, eventPatchApplyBegin:
+		p.tools.Start(message.CallID, toolName(message), toolKind(message), "")
 		return p.emit(execution.EventCommandStarted, map[string]any{
 			"tool_use_id": message.CallID,
 			"tool":        toolName(message),
 			"input_bytes": inputBytes(message),
 		})
 	case eventExecCommandEnd, eventMCPToolCallEnd, eventPatchApplyEnd:
+		outcome := backend.ToolExecuted
+		if callFailed(message) {
+			outcome = backend.ToolFailed
+		}
+		p.tools.Finish(message.CallID, outcome)
 		return p.emit(execution.EventCommandCompleted, map[string]any{
 			"tool_use_id":   message.CallID,
 			"is_error":      callFailed(message),
@@ -477,6 +486,11 @@ func (p *streamParser) parseUnrecognized(eventType string) error {
 	if p.unrecognized == "" {
 		p.unrecognized = eventType
 	}
+	// An event this parser cannot read may be a tool call -- the CLI's newer
+	// vocabulary reports commands, patches, and nested tool calls as items no
+	// recorded stream has yet shown -- so it is said as what could not be seen
+	// rather than read as no tool use.
+	p.tools.Gap(fmt.Sprintf("Codex wrote a %q event the harness does not read, so a tool call it may carry was not observed", truncate(eventType)))
 	return p.emit(execution.EventProcessOutput, map[string]any{
 		"provider_type": eventType,
 	})
@@ -857,6 +871,9 @@ func (p *streamParser) Result() backend.RunResult {
 	result.UsageReading = p.usage.Reading()
 	result.UsagePartial = !p.sawTerminal && result.UsageReading != nil
 	result.UsageRepeated = p.usage.Repeated()
+	result.ToolCalls = p.tools.Calls()
+	result.ToolVisibility.Read = true
+	result.ToolVisibility.Gaps = p.tools.Gaps()
 	return result
 }
 
@@ -905,6 +922,18 @@ func toolName(message providerMessage) string {
 		return "apply_patch"
 	default:
 		return "shell"
+	}
+}
+
+// toolKind is what a call does, from the event that started it.
+func toolKind(message providerMessage) backend.ToolKind {
+	switch message.Type {
+	case eventMCPToolCallBegin, eventMCPToolCallEnd:
+		return backend.ToolKindExternal
+	case eventPatchApplyBegin, eventPatchApplyEnd:
+		return backend.ToolKindWrite
+	default:
+		return backend.ToolKindShell
 	}
 }
 

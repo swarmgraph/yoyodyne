@@ -161,7 +161,10 @@ environment includes its directory.
 
 Not very much, and deliberately so. A provider says a great many things while a
 run is going; almost all of it is prose, tool calls, and accounting, and yoyo
-acts on none of it. What it has to know is which of nine things just happened.
+acts on none of it. Tool calls are read and reported (see
+[Tool calls yoyo did not expect](#tool-calls-yoyo-did-not-expect)), and reporting
+them changes nothing about the run. What yoyo has to know is which of nine
+things just happened.
 
 | Answer | What it means |
 |---|---|
@@ -803,6 +806,49 @@ on the interval rather than waiting to a deadline. If your provider only ever
 states reset times that way, say so — it is the clearest case for a fourth
 format.
 
+## Tool calls yoyo did not expect
+
+Every adapter reads the tool calls in its provider's stream into one shape —
+which tool, what kind of thing it does (reads files, runs commands, changes
+files, reaches the network, is served from outside the provider, hands work to
+another agent), the call it was made inside if any, and whether it ran, failed,
+was refused, or was started with no result seen. A call reported twice, as a
+start and a completion or as a replay, is one call. Arguments are never kept.
+
+Each adapter also says what tool access it launched the session under:
+
+| Who | Claude Code | Codex |
+|---|---|---|
+| Developer | its tools: reading, commands, and edits in the worktree | the same, under the developer's sandbox |
+| Reviewer | read-only inspection: reads and the read-only Git commands | read-only inspection under the read-only sandbox |
+| Product manager, architect, development manager, program manager | no tools at all | read-only inspection under the read-only sandbox, which is all Codex can be narrowed to |
+
+Every invocation — developer runs, per-item and branch reviews, conversation
+turns, scheduled turns, exchanges between roles, and side threads, fresh or
+resumed — has its calls compared with that access. A call the access does not
+permit is filed as a critical report from the harness that begins
+`ERROR: unexpected tool use.` and names the role, the provider, the run,
+conversation, side thread, exchange, or branch review it belongs to, the
+invocation and its session, where in that record's event log the turn began, and
+the tool and its call. A refused call is said as refused, never as one that ran.
+Like every critical report it appears in `yoyo status`, on the dashboard, and in
+the Slack channel. One call is one report however often it is seen again.
+
+What an adapter could not read is said rather than read as no tool use. A stream
+event or content block the adapter does not recognise, a result for a call whose
+start never arrived, or an adapter that does not read tool calls at all, becomes
+one warning for the invocation beginning `Tool use not fully observed.`, naming
+what could not be seen. Codex's newer stream vocabulary reports commands, patches,
+and nested tool calls as items no recorded stream here has shown yet, so a Codex
+invocation that uses tools currently files that warning rather than reading its
+calls.
+
+This is reporting only. It blocks nothing, cancels nothing, retries nothing, and
+changes no permission; the invocation ends exactly as it would have, with the
+same verdict and the same eligibility to be integrated. The sandboxes and tool
+lists above are what stop a tool, and they are unchanged. The comparison lives in
+`internal/tooluse`, and the shared shape in `internal/backend/toolcalls.go`.
+
 ## What a new adapter owes
 
 An adapter is Go code and a change to yoyo rather than to a configuration, and
@@ -824,6 +870,10 @@ correctly and loses it on the way to the result fails just as one that misreads
 it does. And an adapter this build ships with no cases beside it fails by being
 absent, so a new adapter arrives as a failing test naming what it owes rather
 than as a provider nobody ever asked how it reads a refusal.
+
+The same suite fails an adapter that does not report the tool calls its stream
+showed and the tool access it launched the session under, whichever way the
+invocation ended, so an adapter cannot leave unexpected tool use unwatched.
 
 A declared provider is not a new adapter and owes nothing here: it rides on the
 adapter it named, and its rules are checked where your configuration loads. What

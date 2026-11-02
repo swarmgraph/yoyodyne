@@ -262,6 +262,12 @@ func (a Adapter) classify(condition Condition, sample Sample) []Problem {
 	if err != nil {
 		return problem(fmt.Sprintf("could not read this stream at all: %v", err))
 	}
+	// Every adapter says what tool calls the stream showed and the tool access
+	// it launched the session under, whichever way the invocation ended, so
+	// unexpected tool use is compared for every provider (internal/tooluse).
+	if !result.ToolVisibility.Read || result.ToolVisibility.Policy == "" {
+		return problem("does not report the tool calls its stream showed or the tool policy it launched the session under, so nothing could notice unexpected tool use on it")
+	}
 	response, held := responseTo(result)
 	if len(held) > 1 {
 		return problem(fmt.Sprintf("leaves the harness holding %s at once, so which answer a run took would depend on the order its caller read them",

@@ -175,7 +175,11 @@ type exchangeVoice struct {
 	// failure rather than a nil handed on, so the type is the interface for
 	// uniformity rather than for safety: one hazard guarded at three sites and not
 	// the fourth is a hazard nobody can reason about.
-	spend     spend.Log
+	spend spend.Log
+	// toolUse compares each round's tool calls with the tool access it was
+	// launched under (internal/tooluse); nil reports nothing, which is for a
+	// test.
+	toolUse   spend.ToolUseObserver
 	productID domain.ProductID
 	// stateRoot is where the answering account's provider home is found. A voice
 	// built without one answers where the machine is already signed in, which is
@@ -253,6 +257,7 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 	provider := spend.Metered{
 		Provider: answeringProvider,
 		Log:      v.spend,
+		ToolUse:  v.toolUse,
 		Attribution: spend.Attribution{
 			ProductID:      v.productID,
 			Agent:          name,
@@ -434,6 +439,7 @@ func (v exchangeVoice) failoverPolicy(question exchange.Question, name string, e
 		policy.AlternateProvider = spend.Metered{
 			Provider: providerBackendIn(v.config, v.stateRoot, crossing.Endpoint.Provider, v.runner, crossing.Account.Directory),
 			Log:      v.spend,
+			ToolUse:  v.toolUse,
 			Attribution: spend.Attribution{
 				ProductID:      v.productID,
 				Agent:          name,
@@ -542,6 +548,7 @@ func conversationExchanges(parts components, authority chat.Authority, provider 
 			repository:   parts.repository,
 			usageLimits:  parts.usageLimits,
 			spend:        parts.spend,
+			toolUse:      parts.toolUse(),
 			productID:    parts.config.Product.ID,
 			stateRoot:    parts.stateRoot,
 			redactValues: parts.redactValues,

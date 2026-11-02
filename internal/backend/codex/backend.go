@@ -122,6 +122,17 @@ func profileFor(request backend.RunRequest) (string, error) {
 	return profile, nil
 }
 
+// toolPolicy is the tool access a session launched under the profile is held
+// to, as the harness compares the calls it makes against it. Codex has no
+// per-tool control, so a read-only session may read and run commands under its
+// read-only sandbox, and the developer's may also edit its worktree.
+func toolPolicy(profile string) backend.ToolPolicy {
+	if profile == profileForPosture(backend.PostureWorktreeWrite) {
+		return backend.ToolPolicyDeveloper
+	}
+	return backend.ToolPolicyInspection
+}
+
 // profileArgs selects the profile and defines it, as configuration overrides
 // given to `exec` ahead of `resume` so a resumed session runs under the profile
 // given now rather than the one it was saved with.
@@ -790,6 +801,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	result.AdapterVersion = adapterVersion()
 	result.Loaded = loaded
 	result.Process = processResult
+	result.ToolVisibility.Policy = toolPolicy(profile)
 	if processResult.Status == execution.ProcessCancelled || processResult.Status == execution.ProcessTimedOut || processResult.Status == execution.ProcessStalled {
 		result.IsError = true
 		if result.StopReason == "" {

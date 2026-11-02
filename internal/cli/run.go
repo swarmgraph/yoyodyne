@@ -697,7 +697,8 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 			Persona: agentForRole(cfg, domain.RoleReviewer).Persona.Text,
 			// The reviewer's invocation is its own spend and lands in the same log
 			// the developer's does, charged to the review rather than to the change.
-			Spend: parts.spend,
+			Spend:   parts.spend,
+			ToolUse: parts.toolUse(),
 		},
 		// The publisher is the harness's own forge access, wired here so that no
 		// agent is ever asked to invoke it and nothing about it reaches a prompt
@@ -783,6 +784,9 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// to, because what the operator asked to see is what the harness spends on
 		// their behalf rather than what any one of its parts does.
 		Spend: parts.spend,
+		// And where every one of those invocations has its tool calls compared
+		// with the tool access it was launched under.
+		ToolUse: parts.toolUse(),
 		// Where a run that ends on a durable blocker is put in front of the
 		// development manager. It is wired here rather than delivered into a
 		// prompt for the same reason the directives are: what has stopped moving

@@ -64,7 +64,11 @@ type sideVoice struct {
 	// conversations, so it is charged to the side stream — its own subject on the
 	// cost line, because a line naming the main thread would put a side turn's
 	// cost on a conversation that never took it.
-	spend     spend.Log
+	spend spend.Log
+	// toolUse compares each round's tool calls with the tool access it was
+	// launched under (internal/tooluse); nil reports nothing, which is for a
+	// test.
+	toolUse   spend.ToolUseObserver
 	productID domain.ProductID
 	// stateRoot is where the answering account's provider home is found. A voice
 	// built without one answers where the machine is already signed in, which is
@@ -141,6 +145,7 @@ func (v sideVoice) Answer(ctx context.Context, question sidestream.Question) (si
 	provider := spend.Metered{
 		Provider: answeringProvider,
 		Log:      v.spend,
+		ToolUse:  v.toolUse,
 		Attribution: spend.Attribution{
 			ProductID:      v.productID,
 			Agent:          name,
@@ -319,6 +324,7 @@ func (p preparedChat) sideThreads() (sidestream.Runner, error) {
 			repository:   p.parts.repository,
 			usageLimits:  p.parts.usageLimits,
 			spend:        p.parts.spend,
+			toolUse:      p.parts.toolUse(),
 			productID:    cfg.Product.ID,
 			stateRoot:    p.parts.stateRoot,
 			redactValues: p.parts.redactValues,
