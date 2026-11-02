@@ -14,6 +14,10 @@ revisions:
       by: architect
       at: 2026-10-31T17:07:54.780943Z
       reason: 'amendment-b1f077c4, approved by the architect: the note that a pass left an item is also written at two later stages of an unchanged reason, the second leave in a row and the first leave after the pass was told to decide or ask, so at most three notes per unchanged reason; the first write change and build piece 1 now say so, matching what was built for the once-per-reason note.'
+    - action: amended
+      by: architect
+      at: 2026-11-02T09:02:57.428178Z
+      reason: 'amendment-d69a4e86, approved by the architect: the squash''s fourth condition as built for the squash timing item, from the October 30 ruling on report bf5be847 and exchange 492bd009. New starts are held once a squash is due, runs in flight are waited for up to the redeploy drain bound, the hold also ends on its own, a squash too long for the bound is skipped with a warning, and the start decision lists no work items.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -25,6 +29,11 @@ approvals:
       by: harness
       at: 2026-10-31T17:07:54.780943Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2050, for document-2050.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-11-02T09:02:57.428178Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2118, for document-2118.1 under the automatic approval policy
 ---
 # Keeping the tracker store small
 
@@ -52,9 +61,23 @@ Rejected: one note per reason with no later notes. The later stages of an item a
 
 Items and notes are never deleted or rewritten. What may be removed is the store's record of past versions, which nothing the harness or the chain of reasons reads.
 
-- The live store may be squashed with `bd compact --days 30` only when all of these hold: the latest measurement on a copy shows every item and note unchanged across that squash; maintenance alone holds the store; and the live store has first been copied, with that copy kept for 14 days and its place recorded in the harness's state.
-- `bd flatten`, which squashes all history, is used only when the 30 day squash does not bring the store within the limit below, and under the same three conditions.
+- The live store may be squashed with `bd compact --days 30` only when all four of these hold:
+  1. the latest measurement on a copy shows every item and note unchanged across that squash;
+  2. maintenance alone holds the store;
+  3. the live store has first been copied, with that copy kept for 14 days and its place recorded in the harness's state;
+  4. the squash's time on the measured copy is no longer than the watch session's redeploy drain bound, and no developer run is in flight when the squash starts.
+- How the fourth condition is met. Once maintenance decides a squash is due, the scheduler starts no new developer run until the squash ends or is skipped; a repair or a continuation counts as a new developer run. A run already in flight counts as in flight whatever step it has reached, review included. The squash waits for runs already going for at most the redeploy drain bound. If runs are still in flight at that bound, no squash runs, new starts resume, and maintenance files one warning for the development manager naming the step and how many runs were still going. The hold on new starts ends on every way the step ends, including a failure partway, and it also ends on its own at the drain bound plus the measured squash time, so a maintenance pass that dies cannot keep it.
+- When the squash's time on the measured copy is longer than the redeploy drain bound, no squash runs, and maintenance files one warning for the development manager naming the step and the measured time. A squash too long for that bound is a question for the architect, not something to work around.
+- Deciding whether a squash is due lists and counts no work items. It uses a measure the store answers within its time limit at any size, such as the store's size on disk, and takes it before the hold on new starts begins. A listing fails on the same slowness the squash exists to cure: on October 31, 2026, at 19:43 PDT, the count taken before a squash was stopped at its 30 second limit with the store at 1,033 MB, so a start that depended on a listing would stop the squash ever running once the store grew large enough.
+- The squash's record states how long it held the store.
+- `bd flatten`, which squashes all history, is used only when the 30 day squash does not bring the store within the limit below, and under the same four conditions.
 - If the comparison shows any item or note changed, neither squash is run on the live store, and maintenance files a warning for the development manager naming the step and the item that changed.
+
+The fourth condition was ruled on October 30, 2026, on the program manager's report bf5be847, and completed in exchange 492bd009 on November 1, which settled how new starts are held off before a squash begins.
+
+Rejected: letting the squash run while developer runs are in flight. The squash holds the store's exclusive lock for its whole length, so on a store near 1 GB the scheduler's and the runs' tracker reads would time out at 30 seconds while it ran, and a run could fail partway over nothing it did.
+
+Rejected: waiting for runs in flight with no bound. New starts are held while the squash waits, so an unbounded wait would leave developer slots idle with ready work waiting; the redeploy drain bound is the wait the factory already accepts.
 
 Rejected for now: moving the store to the tracker's server mode. It is allowed only once it is shown that a developer run cannot reach the server, and that check belongs to the separate measuring item under the same parent. This design neither adopts nor refuses it.
 
