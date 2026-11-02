@@ -895,6 +895,9 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		// A merge the forge stopped holding is recorded with the forge's own
 		// account of why, read through the same access.
 		Drops: forge,
+		// A pull request a person was to merge and closed instead is recorded
+		// with who closed it and when, read through the same access.
+		Closers: forge,
 		// A queued merge whose checks fail on the target itself is filed as the
 		// target's, through the same tracker a red landing files through, with the
 		// failing job's log read through the same forge access.

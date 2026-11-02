@@ -147,6 +147,13 @@ func DeadClaims(claims []Claim, runs []runstate.State, now time.Time, threshold,
 		if latest.AwaitingMergeQueue() {
 			continue
 		}
+		// Nor is one whose latest run published its approved change for a person
+		// to merge: the forge check closes the item when that person merges it, or
+		// gives it back when they close it, and a claim given back here would start
+		// the change again beside the pull request waiting on them.
+		if latest.WaitingForPersonMerge() {
+			continue
+		}
 		// And an item whose latest run ended holding its change is not work to be
 		// started again either. The claim is the one thing saying so, and the pull's
 		// hold reads the same endings: see stillHeld.

@@ -1634,6 +1634,42 @@ func TestObsoletePublicationsKeepIndependentRunSteps(t *testing.T) {
 	}
 }
 
+// A change published for a person to merge is on the attention line naming its
+// pull request, as the person's move for a step only a person can take; once
+// the wait is settled it is not.
+func TestAChangeWaitingForAPersonToMergeNeedsAHuman(t *testing.T) {
+	t.Parallel()
+	waiting := runstate.State{
+		RunID:        "run-waiting",
+		WorkItemID:   "item-waiting",
+		Status:       runstate.StatusSucceeded,
+		Branch:       "yoyodyne/item/waiting",
+		TargetBranch: "main",
+		PullRequest:  &runstate.PullRequest{Number: 412, URL: "https://forge.invalid/pull/412"},
+		PersonMerge:  &runstate.PersonMerge{Number: 412, Since: moment},
+	}
+	merged := waiting
+	merged.RunID, merged.WorkItemID = "run-merged", "item-merged"
+	mergedAt := moment.Add(time.Hour)
+	merged.PersonMerge = &runstate.PersonMerge{Number: 412, Since: moment, MergedAt: &mergedAt}
+	sources := quietSources()
+	sources.Runs = fakeRuns{prices: map[string]runstate.ItemPrice{}, recorded: []runstate.State{waiting, merged}}
+	standing := ReadStanding(context.Background(), sources)
+	if len(standing.NeedsHuman) != 1 {
+		t.Fatalf("needs a human = %+v, want only the change still waiting", standing.NeedsHuman)
+	}
+	entry := standing.NeedsHuman[0]
+	if entry.Kind != AttentionPublication || entry.ID != "run-waiting" || !entry.Mover.IsOperator() {
+		t.Fatalf("entry = %+v, want the waiting publication, the operator's to move", entry)
+	}
+	if want := "item-waiting is waiting for a person to merge pull request #412 https://forge.invalid/pull/412"; entry.What() != want {
+		t.Errorf("what = %q, want %q", entry.What(), want)
+	}
+	if !strings.Contains(entry.Whose(), "never merges it") || !strings.Contains(entry.Whose(), "Lead Product Manager") {
+		t.Errorf("whose = %q, want it to say the harness never merges it and where a closed request goes", entry.Whose())
+	}
+}
+
 // A promotion the forge has not published is on the attention line by the same
 // predicate the channel's heartbeat counts it by, so the hourly "N promotions
 // awaiting the forge" and the four lines name the same runs. A run settled after

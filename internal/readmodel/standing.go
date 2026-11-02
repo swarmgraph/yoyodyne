@@ -2435,6 +2435,13 @@ func readNeedsHuman(sources Sources, held switches, actions []Attention, amendme
 		for _, state := range AwaitingForge(recorded) {
 			attention = append(attention, awaitingForgeAttention(state))
 		}
+		// A change published for a person to merge is waiting on that person, and
+		// is said wherever the line is read (personmerge.go in orchestrator).
+		for _, state := range recorded {
+			if state.WaitingForPersonMerge() {
+				attention = append(attention, personMergeAttention(state))
+			}
+		}
 	}
 	return attention, problem
 }

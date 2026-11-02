@@ -100,6 +100,9 @@ type Record struct {
 	WaitingOnRedTarget bool
 	MergeDropped       bool
 	Unarmed            bool
+	// WaitingForPerson is a published change the project's merge setting leaves
+	// for a person to merge (runstate.State.WaitingForPersonMerge).
+	WaitingForPerson bool
 
 	// PassFailure is the factory's ownership of a repeatedly failing product
 	// pass, where one is recorded (ResolvePassFailureForRole), and
@@ -338,6 +341,10 @@ func publicationRule(r Record) (Answer, bool) {
 		return owedStepRule(r)
 	}
 	switch {
+	// The project's merge setting reserves the merge for a person, and the
+	// harness never merges such a request, so only a person can move it.
+	case r.WaitingForPerson:
+		return operator(OperatorHumanGate, "merge the pull request on the forge, or close it", "")
 	case !r.PullRequest:
 		return owned(MoverHarness, "look the request up on the forge and arm its merge", "yoyo reconcile")
 	case r.MergeQueued && r.ChecksUnread:

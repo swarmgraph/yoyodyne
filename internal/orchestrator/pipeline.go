@@ -1055,6 +1055,9 @@ type Outcome struct {
 	// which is a repository with no configured remote and nothing else.
 	PullRequest    *runstate.PullRequest `json:"pull_request,omitempty"`
 	PublishSkipped string                `json:"publish_skipped,omitempty"`
+	// PersonMerge is the wait of a run whose published change a person merges,
+	// as runstate.State.PersonMerge records it.
+	PersonMerge *runstate.PersonMerge `json:"person_merge,omitempty"`
 	// TargetProtection says what the forge answered about the target branch
 	// being protected, and so which way this run promoted: a protected target —
 	// or one the forge could not be asked about — lands through the pull request
@@ -7856,6 +7859,15 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 	// not be run for the closure either. Each of them appends or closes, so an
 	// attempt after one that failed reads the item back first and is not made
 	// again where the failed one landed (recoveringTrackerWrite).
+	// A change published for a person to merge has nothing left for this run to
+	// do: the run ends here, holding its item's claim and no developer slot, and
+	// a check of the forge settles the item once the request merges or is closed
+	// (personmerge.go). The wait is decided before the notes, which say it.
+	if a.awaitsPersonMerge() {
+		wait := runstate.PersonMerge{Number: a.state.PullRequest.Number, Since: p.clock().Now()}
+		a.state.PersonMerge = &wait
+		a.outcome.PersonMerge = &wait
+	}
 	if err := a.recordOutcomeOnce(ctx, func() string { return renderOutcomeNotes(a.outcome) }); err != nil {
 		return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("record successful run outcome: %w", err)), runstate.StatusFailed)
 	}
@@ -7946,6 +7958,14 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 	a.outcome.Status = runstate.StatusSucceeded
 	a.outcome.Phase = a.state.Phase
 	return a.outcome, nil
+}
+
+// awaitsPersonMerge reports a run completing with its approved change published
+// and left for a person to merge: integration is not automatic, nothing was
+// promoted, and the record holds the request the change was published through.
+func (a *activeRun) awaitsPersonMerge() bool {
+	return !a.pipeline.automatic() && a.outcome.Integration == nil && a.state.Integration == nil &&
+		a.state.PullRequest != nil && a.state.PullRequest.Number > 0 && !a.outcome.Escalated()
 }
 
 // closeDocketWithItem closes the docket entries standing for an item this run
@@ -10868,6 +10888,15 @@ func renderOutcomeNotes(outcome Outcome) string {
 			headline = "Yoyodyne run passed checks and " + integrated + "; the independent reviewer approved the change as evidence rather than as the work this item asked for, so the item " +
 				outcome.UndischargedDisposition() + "."
 		}
+	}
+	// A change a person merges is said as waiting on that person, in the words
+	// every surface uses for the wait, with the request it waits on.
+	if wait := outcome.PersonMerge; outcome.Integration == nil && wait != nil && wait.Waiting() {
+		headline = "Yoyodyne run passed checks, was approved by an independent reviewer, and published its change for a person to merge; it is " + wait.Says()
+		if outcome.PullRequest != nil && outcome.PullRequest.URL != "" {
+			headline += " (" + outcome.PullRequest.URL + ")"
+		}
+		headline += ". The run holds no developer slot while it waits; the item closes once the pull request merges, and goes back to the Lead Product Manager if it is closed without merging."
 	}
 	// An escalated run integrated nothing, so it takes neither headline above. It
 	// is said in the words the item is actually left in: nothing landed, and what
