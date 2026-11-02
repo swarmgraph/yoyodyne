@@ -76,6 +76,9 @@ type runIndexEntry struct {
 	InFlight     bool   `json:"in_flight,omitempty"`
 	Outstanding  bool   `json:"outstanding,omitempty"`
 	AccountAlias string `json:"account,omitempty"`
+	// PersonMerge is a run waiting for a person to merge its pull request
+	// (State.WaitingForPersonMerge), kept as a flag for the same reason.
+	PersonMerge bool `json:"person_merge,omitempty"`
 }
 
 func runIndexEntryOf(state State) runIndexEntry {
@@ -86,6 +89,7 @@ func runIndexEntryOf(state State) runIndexEntry {
 		InFlight:     state.Status.InFlight(),
 		Outstanding:  state.Outstanding(),
 		AccountAlias: state.AccountAlias,
+		PersonMerge:  state.WaitingForPersonMerge(),
 	}
 }
 
@@ -96,13 +100,15 @@ func (e runIndexEntry) covers(next runIndexEntry) bool {
 		e.StartedAt.Equal(next.StartedAt) &&
 		e.AccountAlias == next.AccountAlias &&
 		(e.InFlight || !next.InFlight) &&
-		(e.Outstanding || !next.Outstanding)
+		(e.Outstanding || !next.Outstanding) &&
+		(e.PersonMerge || !next.PersonMerge)
 }
 
 // widened is next, still naming the run for every question e did.
 func (e runIndexEntry) widened(next runIndexEntry) runIndexEntry {
 	next.InFlight = next.InFlight || e.InFlight
 	next.Outstanding = next.Outstanding || e.Outstanding
+	next.PersonMerge = next.PersonMerge || e.PersonMerge
 	return next
 }
 

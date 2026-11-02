@@ -4977,8 +4977,25 @@ request, and then stops. **It merges nothing.** The pull request is opened only
 for an approved change: the developer's attempts before that are committed on
 the run branch and not pushed, so nothing unreviewed reaches the button you
 merge with. You get an open pull request, a run branch that stays on the
-remote, and a preserved worktree; you merge, and the harness never touches any
-of the three afterwards.
+remote, and a preserved worktree; the harness never merges the request.
+
+Once it has published, the run ends and gives up its developer slot, so other
+ready work can start. Its item stays claimed, and the item's notes, `yoyo
+status` and the dashboard all say it is waiting for a person to merge pull
+request #N. Each `yoyo reconcile` (which every maintenance pass runs) then asks
+the forge about every request waiting this way:
+
+- **Merged:** the local target branch is brought onto the merge by
+  fast-forward, the item is closed with the merge commit named, so work
+  waiting on it can start, and the run is recorded as landed. Its branch and
+  worktree are then removed, once the local target is shown to contain the
+  change; after a merge that rewrote the change, such as a squash, they stay
+  and the run is shown as still owing its cleanup.
+- **Closed without merging:** the item goes back to the Lead Product Manager,
+  parked with a note naming who closed the request and when, so nothing starts
+  it again before she decides whether to drop the work, revise it, or admit it
+  again. The branch and the worktree are kept, and nothing is deleted.
+- **Still open:** nothing changes, and the next sweep asks again.
 
 That is deliberate rather than a gap. Merging is a promotion, promotion is what
 `approvals.integration` governs, and a harness that merged under a `human`
@@ -4989,7 +5006,7 @@ integration policy would be taking the decision that setting reserves for you.
 | `human` | `human` | Reviewed change on a local branch and worktree, preserved for you. |
 | `human` | `automatic` | Local fast-forward into the target branch, artifacts removed. Nothing pushed. |
 | `automatic` | `automatic` | Pull request opened, merged on approval — or queued with the forge until your required checks pass — and the branch removed locally, then on the remote once the merge has happened. |
-| `automatic` | `human` | Pull request opened once the reviewer approves, and left for you. Nothing merged, nothing cleaned up. |
+| `automatic` | `human` | Pull request opened once the reviewer approves, and left for you; the run frees its developer slot. Nothing merged. The item closes once you merge, or goes back to the Lead Product Manager if the request is closed unmerged. |
 
 ### Which branch is authoritative
 

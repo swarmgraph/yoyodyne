@@ -448,6 +448,10 @@ type Publication struct {
 	// publication was left outstanding: the run ends with it unsettled. It is
 	// absent on a record that names no ending.
 	EndedAt time.Time `json:"ended_at,omitzero"`
+	// PersonMerge is set on a change published for a person to merge, which
+	// the project's merge setting leaves to that person rather than the forge
+	// or the harness (runstate.State.WaitingForPersonMerge).
+	PersonMerge *runstate.PersonMerge `json:"person_merge,omitempty"`
 }
 
 // HumanGateWait is one step an admitted item reserves for a person: the gate's
@@ -563,6 +567,13 @@ func (a Attention) What() string {
 		if a.Publication != nil {
 			if len(a.Publication.ReconcileFindings) > 0 {
 				return reconcileFindingWhat(a.WorkItemID, a.Publication.ReconcileFindings)
+			}
+			if wait := a.Publication.PersonMerge; wait != nil {
+				what := a.WorkItemID + " is " + wait.Says()
+				if a.Publication.PullRequest != nil && a.Publication.PullRequest.URL != "" {
+					what += " " + a.Publication.PullRequest.URL
+				}
+				return what
 			}
 			target := a.Publication.TargetBranch
 			if target == "" {
@@ -770,6 +781,8 @@ func (a Attention) Whose() string {
 			// because that is what stops a reader going looking for a lever that
 			// is not there.
 			switch {
+			case a.Publication.PersonMerge != nil:
+				return a.Mover.Possessive() + " — the project's merge setting leaves the merge to a person, and the harness never merges it; the run holds no developer slot meanwhile, and `yoyo reconcile` closes the item once the request merges, or gives it back to the Lead Product Manager with the work kept if it is closed without merging"
 			case a.Publication.PullRequest == nil:
 				return a.Mover.Possessive() + " — `yoyo reconcile` looks the request up on the forge by that branch, records it, and arms its merge; a forge that holds none is said on every sweep"
 			case a.Publication.PullRequest.MergeQueued && a.Publication.PullRequest.Checks != nil && a.Publication.PullRequest.Checks.ReadError != "":
@@ -1280,6 +1293,7 @@ func (a Attention) ownershipRecord() ownership.Record {
 		if p := a.Publication; p != nil {
 			record.UnresolvedFindings = unresolvedFindings(p.ReconcileFindings)
 			record.MergeDropped, record.Unarmed = p.MergeDrop != nil, p.Unarmed
+			record.WaitingForPerson = p.PersonMerge != nil
 			if pr := p.PullRequest; pr != nil {
 				record.PullRequest, record.MergeQueued = true, pr.MergeQueued
 				record.ChecksUnread = pr.Checks != nil && pr.Checks.ReadError != ""

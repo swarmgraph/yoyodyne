@@ -2453,6 +2453,9 @@ func (s *State) recordedTexts() []recordedText {
 	if s.EarlierProgram != nil {
 		unstated("earlier_program.says", "earlier_program.says", &s.EarlierProgram.Says, MaxRecordedTextBytes)
 	}
+	if s.PersonMerge != nil {
+		unstated("person_merge.closed_by", "person_merge.closed_by", &s.PersonMerge.ClosedBy, maxForgeLoginBytes)
+	}
 	if s.MergeDrop != nil {
 		unstated("merge_drop.reason", "merge_drop.reason", &s.MergeDrop.Reason, MaxRecordedTextBytes)
 		// The checks on the merge the forge's queue built are named as the
@@ -3962,6 +3965,10 @@ type State struct {
 	// to publishing and the repository had a remote to publish to. It is absent
 	// for a purely local run, which is what a project gets by default.
 	PullRequest *PullRequest `json:"pull_request,omitempty"`
+	// PersonMerge is the wait of a run whose approved change was published for a
+	// person to merge, under a merge setting that leaves the merge to a person
+	// (personmerge.go).
+	PersonMerge *PersonMerge `json:"person_merge,omitempty"`
 	// PublishFailure explains why publishing a promotion did not finish. The
 	// local target branch is the authoritative one, so a promotion that could not
 	// be pushed is an outstanding publication rather than a failed run — the same
@@ -4707,6 +4714,16 @@ func (s State) Validate() error {
 		// froze a failed run's publication at its death-moment state for good.
 		if s.PullRequest.Merged && s.PullRequest.MergeMethod != "" && s.Integration == nil {
 			problems = append(problems, errors.New("a merged pull request the run asked the forge for requires recorded integration"))
+		}
+	}
+	if s.PersonMerge != nil {
+		if err := s.PersonMerge.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+		// The wait names the request the run published, so a record with no
+		// request, or a different one, describes a wait on nothing this run made.
+		if s.PullRequest == nil || s.PullRequest.Number != s.PersonMerge.Number {
+			problems = append(problems, errors.New("a recorded person_merge requires the pull request it waits on"))
 		}
 	}
 	if s.MergeDrop != nil {

@@ -213,6 +213,10 @@ type Reconciler struct {
 	// which the record of the drop carries (dropAccount). Optional: a reconciler
 	// wired without it records that the forge's reason was not read.
 	Drops ReconcileDrops
+	// Closers reads who closed a pull request a person was to merge, and when,
+	// which the note giving its item back carries (personmerge.go). Optional: a
+	// reconciler wired without it leaves such a request waiting and says why.
+	Closers ReconcileClosers
 	// Filer files the item a queued merge's check red on the target itself is,
 	// one per target branch and check, as a red landing files its own; the merge
 	// then waits on that item rather than being handed to a person. Optional: a

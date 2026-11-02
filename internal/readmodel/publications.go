@@ -33,6 +33,28 @@ func AwaitingForge(states []runstate.State) []runstate.State {
 	return awaiting
 }
 
+// personMergeAttention is one approved change published for a person to merge,
+// as the attention line carries it. It is a publication like any other the
+// forge has not merged, and whose move it is the ownership registry decides
+// from the wait (ownership.publicationRule).
+func personMergeAttention(state runstate.State) Attention {
+	publication := Publication{ReconcileFindings: state.ReconcileFindings, Branch: state.Branch, TargetBranch: state.TargetBranch, EndedAt: runEnded(state)}
+	if state.PullRequest != nil {
+		published := *state.PullRequest
+		publication.PullRequest = &published
+	}
+	if state.PersonMerge != nil {
+		wait := *state.PersonMerge
+		publication.PersonMerge = &wait
+	}
+	return resolved(Attention{
+		Kind:        AttentionPublication,
+		ID:          state.RunID,
+		WorkItemID:  state.WorkItemID,
+		Publication: &publication,
+	})
+}
+
 // awaitingForgeAttention is one unpublished promotion as the attention line
 // carries it, with whose move it is: a merge the forge is holding is the
 // forge's while checks pass or run, and the harness's when checks fail. A merge

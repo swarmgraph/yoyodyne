@@ -40,6 +40,10 @@ type reconcileOutput struct {
 	// rather than folded into it because the two are different acts — one writes
 	// what the forge says, the other finishes what the record says is unfinished.
 	Settlements []orchestrator.PublicationSettlement `json:"settlements"`
+	// PersonMerges is what this sweep found of the pull requests waiting for a
+	// person to merge them: still open, merged and its item closed, or closed
+	// without merging and its item given back to the Lead Product Manager.
+	PersonMerges []orchestrator.PersonMergeSettlement `json:"person_merges"`
 	// RedTargets is what this sweep did about the publications waiting on their
 	// target's red check: still waiting on an open item, brought up to date
 	// where the fix left the head behind, filed again where the check is still
@@ -128,6 +132,7 @@ type reconcileSweep struct {
 	Recoveries     []orchestrator.PublicationRecovery
 	Publications   []orchestrator.PublicationRefresh
 	Settlements    []orchestrator.PublicationSettlement
+	PersonMerges   []orchestrator.PersonMergeSettlement
 	RedTargets     []orchestrator.RedTargetResumption
 	// MergeDisagreements is what the sweep read of the target branch for the
 	// runs recorded as merged whose item is still open.
@@ -245,6 +250,12 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// would hold an item whose publication is about to stop being outstanding.
 	settlements, settlementErr := reconciler.FinishPublications(ctx)
 	err = errors.Join(err, settlementErr)
+	// The pull requests waiting for a person to merge them are read next, before
+	// the docket is built: one merged closes its item, so work waiting on it goes
+	// on, and one closed unmerged gives its item back to the Lead Product Manager
+	// (personmerge.go).
+	personMerges, personMergeErr := reconciler.SettlePersonMerges(ctx)
+	err = errors.Join(err, personMergeErr)
 	// The publications waiting on their target's red check are taken up next,
 	// before the docket is built and before the runs this sweep makes live are
 	// hosted: one whose items have closed and whose head the fix left behind is
@@ -321,6 +332,7 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 		Recoveries:         recoveries,
 		Publications:       publications,
 		Settlements:        settlements,
+		PersonMerges:       personMerges,
 		RedTargets:         redTargets,
 		MergeDisagreements: disagreements,
 		Convergence:        convergence,
@@ -632,6 +644,7 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			Recoveries:         sweep.Recoveries,
 			Publications:       publications,
 			Settlements:        sweep.Settlements,
+			PersonMerges:       sweep.PersonMerges,
 			RedTargets:         sweep.RedTargets,
 			MergeDisagreements: sweep.MergeDisagreements,
 			Convergence:        convergence,
@@ -675,6 +688,9 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		}
 		if output.Settlements == nil {
 			output.Settlements = []orchestrator.PublicationSettlement{}
+		}
+		if output.PersonMerges == nil {
+			output.PersonMerges = []orchestrator.PersonMergeSettlement{}
 		}
 		if output.RedTargets == nil {
 			output.RedTargets = []orchestrator.RedTargetResumption{}
@@ -825,6 +841,7 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		printRecoveries(stdout, stderr, sweep.Recoveries)
 		printPublications(stdout, stderr, publications)
 		printSettlements(stdout, stderr, sweep.Settlements)
+		printPersonMerges(stdout, stderr, sweep.PersonMerges)
 		printRedTargets(stdout, stderr, sweep.RedTargets)
 		printConvergence(stdout, stderr, convergence)
 		printSupervision(stdout, sweep.Supervision)
@@ -995,6 +1012,35 @@ func printSettlements(stdout, stderr io.Writer, settlements []orchestrator.Publi
 			}
 		case settlement.Remaining != "":
 			fmt.Fprintf(stderr, "pull request #%d of %s still outstanding: %s\n", settlement.Number, settlement.WorkItemID, settlement.Remaining)
+		}
+	}
+}
+
+// printPersonMerges reports each pull request waiting for a person to merge it:
+// what the forge said and what the sweep did about it. One still open is said on
+// every sweep, because the item is held on it.
+func printPersonMerges(stdout, stderr io.Writer, merges []orchestrator.PersonMergeSettlement) {
+	for _, merge := range merges {
+		switch {
+		case merge.Failure != "":
+			fmt.Fprintf(stderr, "pull request #%d of %s not settled: %s\n", merge.Number, merge.WorkItemID, merge.Failure)
+		case merge.Kept != "":
+			fmt.Fprintf(stdout, "pull request #%d of %s left as it stands: %s\n", merge.Number, merge.WorkItemID, merge.Kept)
+		case merge.Found == orchestrator.PersonMergeOpen:
+			fmt.Fprintf(stdout, "%s is waiting for a person to merge pull request #%d\n", merge.WorkItemID, merge.Number)
+		case merge.Settled && merge.Found == orchestrator.PersonMergeMerged:
+			fmt.Fprintf(stdout, "pull request #%d of %s was merged by a person; the item is settled on it\n", merge.Number, merge.WorkItemID)
+			if merge.Catchup != nil && merge.Catchup.Advanced {
+				fmt.Fprintf(stdout, "  %s caught up to %s\n", merge.Catchup.TargetBranch, merge.Catchup.RemoteCommit)
+			}
+			if merge.Catchup != nil && merge.Catchup.Held != "" {
+				fmt.Fprintf(stderr, "  %s not caught up: %s\n", merge.Catchup.TargetBranch, merge.Catchup.Held)
+			}
+			if merge.CleanupProblem != "" {
+				fmt.Fprintf(stderr, "  branch and worktree not removed yet, tried again next sweep: %s\n", merge.CleanupProblem)
+			}
+		case merge.Settled && merge.Found == orchestrator.PersonMergeClosed:
+			fmt.Fprintf(stdout, "pull request #%d of %s was closed without merging; the item went back to the Lead Product Manager with its branch kept\n", merge.Number, merge.WorkItemID)
 		}
 	}
 }

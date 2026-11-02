@@ -536,6 +536,11 @@ func unsettledPublication(state runstate.State) bool {
 	if published == nil || state.Outstanding() {
 		return false
 	}
+	// A request waiting for a person to merge it is SettlePersonMerges' to ask
+	// about, because what it finds settles the item as well as the record.
+	if state.WaitingForPersonMerge() {
+		return false
+	}
 	if published.Merged || published.Superseded != "" || published.HandedBack != nil {
 		return false
 	}

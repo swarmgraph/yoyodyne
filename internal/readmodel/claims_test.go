@@ -228,6 +228,24 @@ func TestAClaimOverAChangeWaitingInTheMergeQueueIsNotGivenBack(t *testing.T) {
 	}
 }
 
+// A run that published its approved change for a person to merge ended
+// succeeded with its item still claimed, and the claim is what keeps the change
+// from being started again while the pull request waits on that person; once
+// the forge check settles the wait, the claim is the tracker's to read again.
+func TestAClaimOverAChangeWaitingForAPersonToMergeIsNotGivenBack(t *testing.T) {
+	t.Parallel()
+
+	waiting := ended("run-waiting", "yoyodyne-ifd.9", runstate.StatusSucceeded, 9*time.Hour)
+	waiting.PullRequest = &runstate.PullRequest{Number: 41, Branch: "yoyodyne/yoyodyne-ifd-9/waiting"}
+	waiting.PersonMerge = &runstate.PersonMerge{Number: 41, Since: auditNoon.Add(-9 * time.Hour)}
+	if !waiting.WaitingForPersonMerge() {
+		t.Fatal("a succeeded run waiting on its pull request does not read as waiting for a person to merge it")
+	}
+	if dead := DeadClaims([]Claim{claimed("yoyodyne-ifd.9", "Waiting")}, []runstate.State{waiting}, auditNoon, 0, 0, nil); len(dead) != 0 {
+		t.Fatalf("DeadClaims() = %+v, want an item whose change waits for a person to merge it to keep its claim", dead)
+	}
+}
+
 // The 2026-09-22 shape, at the grain this reading works at. run-b0b6d18d's
 // change was approved and then stopped short of the target branch by a tracker
 // read that timed out, leaving a record that ends `failed` with the stop on it
