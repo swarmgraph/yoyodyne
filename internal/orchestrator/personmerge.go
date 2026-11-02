@@ -76,6 +76,10 @@ type PersonMergeSettlement struct {
 	MergeCommit string               `json:"merge_commit,omitempty"`
 	Catchup     *gitworktree.Catchup `json:"catchup,omitempty"`
 	ClosedBy    string               `json:"closed_by,omitempty"`
+	// CleanupProblem is why the run's branch and checkout were not removed
+	// after a merge the check settled. The merge and the item's settlement
+	// stand; the run owes the cleanup, and the next sweep tries it again.
+	CleanupProblem string `json:"cleanup_problem,omitempty"`
 	ClosedAt    *time.Time           `json:"closed_at,omitempty"`
 	// Kept is why a wait was deliberately left as it stands: a run a live
 	// process holds, or a branch the forge answers about with another request.
@@ -240,6 +244,19 @@ func (r Reconciler) settlePersonMerged(ctx context.Context, state *runstate.Stat
 		return fmt.Errorf("record the merge of pull request %d on run %s: %w", update.Number, state.RunID, err)
 	}
 	*state = recorded
+	// The run is now recorded as landed through its pull request and put at its
+	// cleanup, which is finished here the way a merge the forge made for the
+	// harness is finished: the branch and checkout are removed once the local
+	// target is proven to carry the change. A cleanup that cannot finish — a
+	// merge that rewrote the change, such as a squash, leaves the target without
+	// the run's own commit — keeps the run owing that step, retried by every
+	// sweep and shown as such, and does not undo the merge or the item's
+	// settlement.
+	if state.Integration != nil {
+		if _, err := r.completeIntegrated(ctx, *state, false); err != nil {
+			result.CleanupProblem = err.Error()
+		}
+	}
 	return nil
 }
 

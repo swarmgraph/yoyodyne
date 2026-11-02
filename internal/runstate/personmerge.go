@@ -105,6 +105,17 @@ func (s *Store) WaitingForPersonMerge() ([]State, error) {
 // commit, the request recorded merged, and the item's disposition where the
 // run's landing did not discharge it. The merge setting stops being what the
 // run is recorded as ended by, because its change landed.
+//
+// The run is recorded as integrated through its pull request, exactly as a
+// landing the forge merged for the harness is: the published head as both the
+// promoted and the target commit, the run's base as the commit it moved from,
+// and the forge's merge commit on the pull request. No merge method is
+// recorded, because the harness did not ask for this merge. The run is put at
+// its cleanup, which the sweep that settled it finishes (completeIntegrated in
+// internal/orchestrator), since a run complete with an integration is one
+// whose branch and checkout are gone. A record naming no target branch, or a
+// head that is its own base, has no promotion to describe and is left without
+// one.
 type PersonMergeMerged struct {
 	Number      int
 	MergeCommit string
@@ -140,6 +151,17 @@ func (u PersonMergeMerged) apply(state *State) (bool, error) {
 	state.LandingImpedimentProblem = u.LandingImpedimentProblem
 	if state.StopClass == StopIntegrationPolicy {
 		state.StopClass = ""
+	}
+	head := published.HeadCommit
+	if target := strings.TrimSpace(state.TargetBranch); target != "" && commitPattern.MatchString(head) && commitPattern.MatchString(state.BaseCommit) && head != state.BaseCommit {
+		state.Integration = &Integration{
+			TargetBranch:         target,
+			SourceCommit:         head,
+			TargetCommit:         head,
+			PreviousTargetCommit: state.BaseCommit,
+			ThroughPullRequest:   true,
+		}
+		state.Phase = PhaseCleaningUp
 	}
 	state.UpdatedAt = u.At
 	return true, nil
