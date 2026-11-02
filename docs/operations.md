@@ -1776,20 +1776,56 @@ The session records the poll as one made inside the provider's window, so
 channel says the same, and the watch log's idle line carries the window and its
 reset — which is what a maintenance script reads to stand its idle check down.
 It is never reported as a hold: nothing needs releasing, and the first poll past
-the reset pulls again. A limit with no reset named does not hold intake this
-way; a dispatch is how that one is asked about. A developer model the record
-does not refuse — a label mapped to a model the provider still serves — holds
-nothing for the whole pull, because work can run on it. What the window does
-hold then is each item whose run would ask for a closed model — the developer's
-own model for an item no `execution.developer_models` label names, and the
-mapped model otherwise — unless the developer's alternate is still served. Such
-an item is passed over by itself, keeps its priority and its place in the order,
-and is named as waiting for provider capacity with the reset, while work on a
-served model is pulled past it; the first poll past the reset pulls it again. A
-pull with a developer slot that routes to an endpoint pair of its own reads no
-window per item, because that slot dispatches somewhere this reading does not
-see. A pass that is not watching stops on the window
-instead of waiting it out.
+the reset pulls again. A limit with no reset named does not stop the whole
+pull this way; it holds item by item, as below, until its next probe. A
+developer model the record does not refuse — a label mapped to a model the
+provider still serves — holds nothing for the whole pull, because work can run
+on it. What the window does hold then is each item whose run would ask for a
+closed model — the developer's own model for an item no
+`execution.developer_models` label names, and the mapped model otherwise —
+unless the developer's alternate is still served. Such an item is passed over
+by itself, keeps its priority and its place in the order, and is named as
+waiting for provider capacity with the time it is next tried, while work on a
+served model is pulled past it; the first poll past that time pulls it again. A
+developer slot that routes to an endpoint pair of its own is read per slot: an
+item the slot reaches is held where the pair's primary and alternate are both
+closed on the accounts the pair names, and a refusal of the same model on
+another account holds nothing there. A pass that is not watching stops on the
+window instead of waiting it out.
+
+**A limit with no reset is probed on a paced interval.** Where the provider
+refused without saying when it lifts, the refused model is closed until one
+`execution.usage_limit_unknown_reset_pause` (thirty minutes by default) after
+the later of the refusal and the last probe of it. When that time comes, the
+first item that would ask for the model is sent as the probe, and nothing else
+is sent into the same window until the interval has passed again: one
+invocation per interval, never one per poll. The probe is written to
+`projects/<product>/state/capacity-probes.json` under the state root, so a
+session restarted a minute after it waits out the rest of the interval rather
+than probing at once. A probe the provider serves lifts the refusal (below) and
+the waiting work is pulled at once; one it refuses records a fresh refusal,
+from which the next probe is paced. While a run is parked on such a refusal it
+asks the provider again itself on the same interval, so nothing else is sent to
+probe beside it. The pass's `capacity_probes` names each run it sent as a
+probe.
+
+**A limit over the whole account closes every model on it.** Where the provider
+names the limit as one over the account rather than one model family —
+`five_hour`, `seven_day`, and the two limits on paid usage beyond the plan — a
+refusal met on one model closes every developer model of that provider: the
+developer's own, its alternate, each model a label maps to, and each slot's
+pair. A limit named for one family, such as `seven_day_opus`, closes that model
+alone. A turn served on any model under an account-wide limit after the refusal
+lifts it for all of them.
+
+**Scheduled role turns wait the same way.** A recurring pass of the architect,
+the development manager, the Lead Product Manager, or a program manager is not
+attempted while the model its role asks for — and its alternate, where it names
+one — is closed: not before the reset the provider named, and where it named
+none, not before the next paced probe, when one turn is sent as that probe.
+Nothing is claimed while it waits, so the firing stays due and is made at the
+first pull past that time; the watch shows it waiting for provider capacity
+with when it is next tried.
 
 **A served turn clears the window before its reset.** A quoted reset is a claim
 about the provider, and capacity bought mid-window makes it stale: on 2026-09-24

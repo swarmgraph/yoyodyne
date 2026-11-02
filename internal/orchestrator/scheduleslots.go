@@ -33,6 +33,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/developerslot"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -83,9 +84,9 @@ type eligibilityReading struct {
 	// entry on the schedule and also keeps the reason on the item, with the
 	// class the poll counts it under. See Schedule's keepWait.
 	keepWait func(workItemID string, class runstate.PassedOverClass, reason string)
-	// windows is the developer models a recorded usage window holds closed at
-	// this pull, where it closes some and not every one; see usageWindow.
-	windows closedModels
+	// windows is what the recorded usage windows hold at this pull, where they
+	// close some developer models and not every one; see usageWindow.
+	windows readmodel.CapacityWindows
 }
 
 // keepWaitOn keeps a ready entry's reason through keepWait, and names it
@@ -171,14 +172,20 @@ func (s Scheduler) eligibility(entry backlog.Entry, reading eligibilityReading) 
 		poll.pass(entry.ID, runstate.PassedOverPausedByDirective, "")
 		return passedOver, nil
 	}
-	// A recorded usage window that closes the model this item's run would ask
-	// for, with a reset the provider named still to come, is a refusal the
-	// dispatch would meet. The item is passed over rather than started into it,
-	// and nothing about it changes: it keeps its priority and its place, and the
-	// first pull after the reset reads it as startable again. It is re-read from
-	// the durable records at every pull, so a restarted session holds it too,
-	// and the reason is kept on the item so it is shown waiting with its reset.
-	if window, models, closed := s.windowFor(pull, reading.windows, read.items[entry.ID]); closed {
+	// A recorded usage window that closes the models this item's run would ask
+	// for — until a reset the provider named, or until the next paced probe of a
+	// refusal that named none — is a refusal the dispatch would meet. The item is
+	// passed over rather than started into it, and nothing about it changes: it
+	// keeps its priority and its place, and the first pull after the reset or at
+	// the probe reads it as startable again. It is re-read from the durable
+	// records at every pull, so a restarted session holds it too, and the reason
+	// is kept on the item so it is shown waiting with when it is next tried.
+	//
+	// A pull with a slot that dispatches onto an endpoint pair of its own asks
+	// this per slot instead, as the slot takes the item (windowFor), because the
+	// answer depends on which slot that is. A probe that is due is also decided
+	// there, since only the one item actually started is the probe.
+	if window, models, verdict := s.windowFor(pull, reading.windows, read.items[entry.ID], 0); verdict == readmodel.CapacityClosed && !pull.routesSlots() {
 		reason := windowReasonFor(window, models)
 		reading.keepWaitOn(entry.ID, runstate.PassedOverWaitingOnUsageWindow, reason)
 		poll.passWindow(entry.ID, reason)

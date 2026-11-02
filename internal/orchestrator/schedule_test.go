@@ -4000,6 +4000,11 @@ type scheduleHarness struct {
 	// capacityServed is what the provider has served since, read against the
 	// refusals above; nil for every test that does not ask, which lifts nothing.
 	capacityServed readmodel.CapacityServedRecord
+	// capacityProbes and unknownResetProbe are the probe record and the interval
+	// a refusal with no reset is probed on; nil and zero for every test that does
+	// not ask, which holds nothing on such a refusal.
+	capacityProbes    readmodel.CapacityProbeRecorder
+	unknownResetProbe time.Duration
 	// outstanding stands in for the decisions the development manager recorded
 	// and nobody has acted on, and carry for what firing one comes to. A pull is
 	// wired with them only where a test asks, so every other test's pass carries
@@ -4216,6 +4221,8 @@ func (h *scheduleHarness) open(context.Context) (Pull, error) {
 		Developers:                  h.developers,
 		DeveloperModels:             h.developerModels,
 		CapacityServed:              h.capacityServed,
+		CapacityProbes:              h.capacityProbes,
+		UnknownResetProbe:           h.unknownResetProbe,
 		Divergences:                 h.divergences,
 		SquashHolds:                 h.squashHolds,
 		LaunchSettings:              h.launchSettings,

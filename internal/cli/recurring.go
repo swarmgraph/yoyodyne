@@ -86,6 +86,14 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		// interval has passed, fires into it to find out whether it still does.
 		Outages:     parts.outages,
 		OutageProbe: parts.config.Execution.UsageLimitUnknownResetPause.Duration(),
+		// And the usage windows the provider has refused a role's model in, so a
+		// turn refused with a reset is not attempted before it, and one refused
+		// with none is tried again on the same paced interval a run is.
+		UsageLimits:       parts.usageLimits,
+		CapacityServed:    parts.capacityServed,
+		CapacityProbes:    parts.capacityProbes,
+		UnknownResetProbe: parts.config.Execution.UsageLimitUnknownResetPause.Duration(),
+		Endpoint:          roleEndpoint(parts.config),
 		// Where a cadence that went unfired is said, as the harness's own report
 		// in the pile every other report is in, so it reaches the operator the way
 		// breakage does rather than only the sweep log somebody has to go and read.
@@ -1382,4 +1390,22 @@ Options:
   --task <name>     show only this recurring task's sweeps
   --limit <n>       show this many of the most recent passes (default 20, 0 for all)
   --json            emit machine-readable JSON`)
+}
+
+// roleEndpoint is what a recurring turn asks the provider for: the agent
+// configured for the role, or the program manager instance named, with the
+// alternate it fails over to.
+func roleEndpoint(cfg config.Config) func(domain.AgentRole, string) (readmodel.AgentEndpoint, bool) {
+	endpoints := agentEndpoints(cfg)
+	return func(role domain.AgentRole, agent string) (readmodel.AgentEndpoint, bool) {
+		if agent == "" {
+			agent = agentNameForRole(cfg, role)
+		}
+		for _, endpoint := range endpoints {
+			if endpoint.Name == agent && agent != "" {
+				return endpoint, true
+			}
+		}
+		return readmodel.AgentEndpoint{}, false
+	}
 }

@@ -17,6 +17,13 @@ import (
 // seven_day limit on opus, with the reset the provider named.
 func recordSevenDay(t *testing.T, at, resetsAt time.Time) *runstate.UsageLimitStore {
 	t.Helper()
+	return recordLimit(t, "seven_day", "opus", at, &resetsAt)
+}
+
+// recordLimit writes one refusal of model under the limit kind into a fresh
+// usage-limit log, with the reset the provider named or none.
+func recordLimit(t *testing.T, kind, model string, at time.Time, resetsAt *time.Time) *runstate.UsageLimitStore {
+	t.Helper()
 	store, err := runstate.NewUsageLimitStore(t.TempDir(), "yoyodyne")
 	if err != nil {
 		t.Fatalf("NewUsageLimitStore() error = %v", err)
@@ -26,10 +33,10 @@ func recordSevenDay(t *testing.T, at, resetsAt time.Time) *runstate.UsageLimitSt
 		ProductID:     "yoyodyne",
 		At:            at,
 		Waiting:       "run run-1 of yoyodyne-ifd.400",
-		Kind:          "seven_day",
-		ResetsAt:      &resetsAt,
+		Kind:          kind,
+		ResetsAt:      resetsAt,
 		WorkItemID:    "yoyodyne-ifd.400",
-		Model:         "opus",
+		Model:         model,
 	}); err != nil {
 		t.Fatalf("Record() error = %v", err)
 	}
@@ -170,7 +177,9 @@ func TestARecordedWindowAServedTurnDisprovedHoldsNothing(t *testing.T) {
 // sonnet is work that can run, and a hold over it would be the harness idling on
 // its own misreading. What the window does hold is the work whose run would ask
 // for the closed model — even work ahead of it in the order — which keeps its
-// place and is named as waiting for provider capacity until the reset.
+// place and is named as waiting for provider capacity until the reset. The
+// limit is opus's own weekly one; a limit over the whole account closes sonnet
+// too (TestAnAccountWideWindowHoldsEveryModelInIt).
 func TestARecordedWindowHoldsOnlyTheWorkOnTheClosedModel(t *testing.T) {
 	t.Parallel()
 
@@ -180,7 +189,7 @@ func TestARecordedWindowHoldsOnlyTheWorkOnTheClosedModel(t *testing.T) {
 	onSonnet := beads.WorkItem{ID: "yoyodyne-ifd.402", Title: "docs", Status: "open", Priority: 2, Labels: []string{"docs"}}
 	harness := newScheduleHarness(onOpus, onSonnet)
 	harness.now = now
-	harness.usageLimits = recordSevenDay(t, now.Add(-time.Hour), lifts)
+	harness.usageLimits = recordLimit(t, "seven_day_opus", "opus", now.Add(-time.Hour), &lifts)
 	harness.developers = []readmodel.AgentEndpoint{
 		{Name: "developer", Provider: "claude-code", Model: "opus"},
 		{Name: "developer (docs)", Provider: "claude-code", Model: "sonnet"},
@@ -204,7 +213,7 @@ func TestARecordedWindowHoldsOnlyTheWorkOnTheClosedModel(t *testing.T) {
 		}
 	}
 	if !strings.Contains(said, "waiting for provider capacity") || !strings.Contains(said, "opus") ||
-		!strings.Contains(said, "seven_day") || !strings.Contains(said, lifts.Format(time.RFC3339)) {
+		!strings.Contains(said, "seven_day_opus") || !strings.Contains(said, lifts.Format(time.RFC3339)) {
 		t.Fatalf("passed over %s with %q, want it named as waiting for provider capacity on opus until %s", onOpus.ID, said, lifts.Format(time.RFC3339))
 	}
 	// The reason is kept on the item itself, under the usage-limit class, and the
@@ -231,9 +240,10 @@ func TestARecordedWindowHoldsNothingAnAlternateServes(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 9, 23, 9, 0, 0, 0, time.UTC)
+	lifts := now.Add(72 * time.Hour)
 	harness := newScheduleHarness(readyItems("yoyodyne-ifd.401")...)
 	harness.now = now
-	harness.usageLimits = recordSevenDay(t, now.Add(-time.Hour), now.Add(72*time.Hour))
+	harness.usageLimits = recordLimit(t, "seven_day_opus", "opus", now.Add(-time.Hour), &lifts)
 	harness.developers = []readmodel.AgentEndpoint{{Name: "developer", Provider: "claude-code", Model: "opus", Alternate: "sonnet"}}
 
 	schedule, err := Scheduler{Open: harness.open, Now: harness.clock}.Schedule(context.Background())

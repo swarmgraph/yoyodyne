@@ -311,9 +311,11 @@ func ParkedRunRefusals(runs []runstate.State) []runstate.UsageLimitExhaustion {
 // account of the window, and a reader that skipped it would pull fresh work
 // into the same refusal until the reset.
 //
-// Only a reset the provider named is read. A run that ended on a limit with no
-// reset recorded the harness's next probe in its place, and a probe interval
-// said as the provider's reset would hold work on a time nobody quoted.
+// Only a reset the provider named is read as one. A run that ended on a limit
+// with no reset recorded the harness's next probe in its place, and a probe
+// interval said as the provider's reset would hold work on a time nobody
+// quoted; such a run is read as a refusal that named no reset, which is what
+// it was, and what paces the next probe of it (ReadCapacityWindows).
 //
 // Every such run is read, not only an item's latest: the window is a fact about
 // the account and model, not about the item, and a later run of the same item
@@ -325,18 +327,21 @@ func WindowStoppedRunRefusals(runs []runstate.State) []runstate.UsageLimitExhaus
 	var stopped []runstate.UsageLimitExhaustion
 	for _, run := range runs {
 		refused := run.Environmental
-		if !run.Status.Terminal() || refused == nil || refused.Cause != runstate.CauseUsageWindow ||
-			refused.ResetsAt == nil || refused.ResetUnknown {
+		if !run.Status.Terminal() || refused == nil || refused.Cause != runstate.CauseUsageWindow {
 			continue
 		}
-		resetsAt := refused.ResetsAt.UTC()
+		var resetsAt *time.Time
+		if refused.ResetsAt != nil && !refused.ResetUnknown {
+			named := refused.ResetsAt.UTC()
+			resetsAt = &named
+		}
 		refusal := runstate.UsageLimitExhaustion{
 			SchemaVersion: runstate.UsageLimitSchemaVersion,
 			ProductID:     run.ProductID,
 			At:            refused.RecordedAt.UTC(),
 			Waiting:       fmt.Sprintf("run %s of %s", run.RunID, run.WorkItemID),
 			Kind:          strings.TrimSpace(run.UsageLimitKind),
-			ResetsAt:      &resetsAt,
+			ResetsAt:      resetsAt,
 			WorkItemID:    run.WorkItemID,
 			Model:         strings.TrimSpace(run.UsageLimitModel),
 			AccountAlias:  strings.TrimSpace(run.AccountAlias),
