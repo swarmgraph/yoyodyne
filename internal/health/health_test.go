@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
@@ -616,5 +618,126 @@ func TestAReleasedSlotIsTheDevelopmentManagersAndTheSlotHoldersAreCarried(t *tes
 	}
 	if !strings.Contains(Section(observation), `"developer_slots"`) {
 		t.Fatal("the pass's health section does not carry the developer slots")
+	}
+}
+
+// trackerOf answers each status listing with the items a test filed under it,
+// a listing of no status with every item, and the open ones as ready, as bd
+// does for work nothing blocks.
+type trackerOf map[string][]beads.WorkItem
+
+func (t trackerOf) List(_ context.Context, status string) ([]beads.WorkItem, error) {
+	if status != "" {
+		return t[status], nil
+	}
+	var every []beads.WorkItem
+	for _, items := range t {
+		every = append(every, items...)
+	}
+	return every, nil
+}
+
+func (t trackerOf) Ready(context.Context) ([]beads.WorkItem, error) { return t["open"], nil }
+
+// stoppedRuns is the harness's record of the runs it stopped, and no
+// escalations.
+type stoppedRuns []runstate.State
+
+func (s stoppedRuns) Recorded() ([]runstate.State, error)       { return s, nil }
+func (s stoppedRuns) Escalated() ([]runstate.Escalation, error) { return nil, nil }
+
+// Every item the harness holds after a stopped run is listed with its owner,
+// whatever the tracker says of it. A run claims its item and nothing reopens it
+// when the run stops, so a held item can stay marked in progress and assigned to
+// whoever claimed it; the admitted queue is read from open and blocked work
+// alone, and gives a parking, the needs-design label, or a conversation
+// carrying the work as its reason ahead of a hold, which is how held items went
+// missing from the list. The held items are built from tracker items and
+// stopped runs and read through the read model itself, so a filter anywhere
+// between the two drops one and fails here.
+func TestEveryHeldItemIsListedWhateverItsStatusOrAssignee(t *testing.T) {
+	t.Parallel()
+
+	stopped := func(id, item string) runstate.State {
+		state := run(id, item)
+		completed := observedAt.Add(-time.Hour)
+		state.Status, state.CompletedAt, state.UpdatedAt = runstate.StatusFailed, &completed, completed
+		state.Branch, state.WorktreePath = "yoyodyne/"+item+"/"+id, "/state/worktrees/"+id
+		state.Blocker = "Yoyodyne stopped this item: a configured check still failed after every permitted attempt."
+		return state
+	}
+	tracker := trackerOf{
+		"open": {
+			{ID: "yoyodyne-open", Title: "held and open", Status: "open"},
+			{ID: "yoyodyne-parked", Title: "held, open, and parked", Status: "open", Parking: "parked until the release ships"},
+			{ID: "yoyodyne-design", Title: "held, open, and waiting on a design", Status: "open", Labels: []string{domain.NeedsDesignLabel}},
+		},
+		"blocked": {{ID: "yoyodyne-blocked", Title: "held and blocked", Status: "blocked", Assignee: "Mason Bryant"}},
+		"in_progress": {
+			{ID: "yoyodyne-claimed", Title: "held and marked in progress", Status: "in_progress"},
+			{ID: "yoyodyne-assigned", Title: "held, in progress, and assigned to a person", Status: "in_progress", Assignee: "Mason Bryant"},
+			// Carried by a run in flight, so it is on the running line and not held.
+			{ID: "yoyodyne-carried", Title: "being worked on", Status: "in_progress", Assignee: "Mason Bryant"},
+			// In progress with nothing holding it.
+			{ID: "yoyodyne-free", Title: "claimed and not held", Status: "in_progress"},
+		},
+		"deferred": {{ID: "yoyodyne-deferred", Title: "held and deferred", Status: "deferred"}},
+		// Closed work stalls nothing, so a hold left on it is not listed.
+		"closed": {{ID: "yoyodyne-closed", Title: "held and closed", Status: "closed"}},
+	}
+	// Each held item, with the words that say why the not-startable line does
+	// not show it as held, where it does not.
+	held := map[string]string{
+		"yoyodyne-open":     "",
+		"yoyodyne-blocked":  "",
+		"yoyodyne-claimed":  ", though the tracker marks it in progress",
+		"yoyodyne-assigned": ", though the tracker marks it in progress",
+		"yoyodyne-deferred": ", though the tracker marks it deferred",
+		"yoyodyne-parked":   "; the list of work that cannot start gives another reason for it: ",
+		"yoyodyne-design":   "; the list of work that cannot start gives another reason for it: ",
+	}
+	var stoppages stoppedRuns
+	for item := range held {
+		stoppages = append(stoppages, stopped("run-"+item, item))
+	}
+	stoppages = append(stoppages, stopped("run-carried-old", "yoyodyne-carried"), stopped("run-closed", "yoyodyne-closed"))
+	carrying := run("run-carrying", "yoyodyne-carried")
+
+	observer, _ := whole(t)
+	observer.Sources.Runs = fakeRuns{states: []runstate.State{carrying}}
+	services := observer.standing(context.Background()).Services
+	sources := readmodel.Sources{Runs: fakeRuns{states: []runstate.State{carrying}}, Stoppages: stoppages, Tracker: tracker,
+		Capacity: 2, Now: func() time.Time { return observedAt }}
+	observer.Standing = func(ctx context.Context) readmodel.Standing {
+		standing := readmodel.ReadStanding(ctx, sources)
+		standing.Services = services
+		return standing
+	}
+	observation := observer.Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+
+	for item, elsewhere := range held {
+		var listed *Anomaly
+		for i, anomaly := range observation.Anomalies {
+			if anomaly.Key == "yoyodyne/run-"+item+"/held-after-stoppage" {
+				listed = &observation.Anomalies[i]
+			}
+		}
+		if listed == nil {
+			t.Fatalf("held item %s is missing from the health check: %+v", item, observation.Anomalies)
+		}
+		if listed.Classification != ClassHeldStoppage || listed.WorkItem != item || listed.Owner != ownership.MoverDevelopmentManager || listed.Needs == "" {
+			t.Fatalf("held item %s = %+v", item, *listed)
+		}
+		said := strings.TrimPrefix(listed.Says, item+" is held after run run-"+item+" stopped")
+		if (elsewhere == "" && said != "") || !strings.HasPrefix(said, elsewhere) || (strings.HasPrefix(elsewhere, ";") && len(said) == len(elsewhere)) {
+			t.Fatalf("held item %s says %q, want it to go on %q", item, listed.Says, elsewhere)
+		}
+	}
+	for _, anomaly := range observation.Anomalies {
+		switch {
+		case anomaly.WorkItem == "yoyodyne-free", anomaly.WorkItem == "yoyodyne-closed",
+			anomaly.WorkItem == "yoyodyne-carried" && anomaly.Classification == ClassHeldStoppage:
+			t.Fatalf("an item nothing holds, or one a run is carrying or that is closed, was listed as held: %+v", anomaly)
+		}
 	}
 }
