@@ -3046,7 +3046,7 @@ pulling:
 			runCtx, cancel := hostedContext(session.dispatching(ctx, task.WorkItemID), index, landings)
 			hosted[index] = cancel
 			var signal *carryOutSignal
-			if signalled {
+			if signalled && (tookSlot || slotBound) {
 				signal = newCarryOutSignal(task, tookSlot)
 				runCtx = withCarryOutBegun(runCtx, signal.begun)
 			}
@@ -3059,20 +3059,23 @@ pulling:
 			}(task)
 			return signal
 		}
-		// The decisions are fired in rounds. Where a decision was passed over for
-		// want of a slot, the pull waits for each decided recovery it fired to say
-		// whether its run began; one that came back without starting gives its slot
-		// back, and the next round offers it to the decisions behind, in this same
-		// pull, so a decision refused on every pass never keeps the slot from them
-		// (carryoutstart.go). What is left over after the last round goes to the
-		// queue below. A refusal for a full harness ends the rounds, because nothing
-		// more can start in this pull.
+		// The decisions are fired in rounds. The pull waits for each decided
+		// recovery it fired into a free slot, or fired while a decision behind it
+		// was passed over for want of one, to say whether its run began; one that
+		// came back without starting gives its slot back, and the next round offers
+		// it to the decisions behind, in this same pull, so a decision refused on
+		// every pass never keeps the slot from them (carryoutstart.go). What is left
+		// over after the last round goes to the queue below, so a decided repair
+		// that waits for the one slot it keeps never leaves another free slot
+		// empty while ready work waits. A refusal for a full harness ends the
+		// rounds, because nothing more can start in this pull.
 		_, waits := pull.CarryOut.(carryOutStarts)
+		unstartedCarryOuts := 0
 		for {
 			var signals []*carryOutSignal
 			for _, task := range tasks {
 				attempted[task.RunID] = true
-				if signal := fireCarryOut(task, waits && slotBound && decidedRecovery(task.Decision)); signal != nil {
+				if signal := fireCarryOut(task, waits && decidedRecovery(task.Decision)); signal != nil {
 					signals = append(signals, signal)
 				}
 			}
@@ -3080,10 +3083,18 @@ pulling:
 				break
 			}
 			unstarted, full := awaitCarryOutStarts(ctx, signals, s.carryOutStartWait())
+			unstartedCarryOuts += len(unstarted)
 			for _, signal := range unstarted {
 				if signal.tookSlot {
 					free++
 					filledByCarryOut--
+				}
+				// It holds no slot, so the queue's slot reading must not count one
+				// for it; it is kept only so its item is not started beside it.
+				id := signal.task.WorkItemID
+				if state, placed := occupied[id]; placed && state.RunID == "" {
+					delete(occupied, id)
+					waitingRuns[id] = state
 				}
 			}
 			if len(unstarted) == 0 || full {
@@ -3099,6 +3110,12 @@ pulling:
 			for _, task := range tasks {
 				schedule.unwaitCarryOut(task)
 			}
+		}
+		// A decision that came back without starting a run was not carried out,
+		// so where every one this pull fired came back that way the pull does not
+		// say it carried one out.
+		if firedCarryOuts > 0 && unstartedCarryOuts == firedCarryOuts {
+			carrying = false
 		}
 		// With no slot free this pull never walks the queue, so a decision held back
 		// for outranking work is written up now, beside the ones passed over.

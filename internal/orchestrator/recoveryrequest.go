@@ -356,7 +356,8 @@ func (c CarryOut) finishMerge(ctx context.Context, task CarryOutTask, carried Ca
 	case result.IntakeHeld != nil:
 		return waiting(runstate.TriageGateIntakeHold, fmt.Sprintf("the operator has held what the harness chooses, since %s", result.IntakeHeld.HeldAt.UTC().Format(time.RFC3339)))
 	case result.CapacityFull != nil:
-		return waiting(runstate.TriageGateCapacity, fmt.Sprintf("every developer slot is occupied: %d active, limit %d", result.CapacityFull.Active, result.CapacityFull.Limit))
+		carried.WaitsForSlot = result.CapacityFull.Slot
+		return waiting(runstate.TriageGateCapacity, capacityWaitSays(*result.CapacityFull))
 	case !result.Resumed:
 		carried.Gate = runstate.TriageGateHarness
 		carried.Problem = fmt.Sprintf("the harness did not finish run %s's merge: %s; the refusal is recorded on the request", task.RunID, strings.TrimSpace(refusalText(runErr)))

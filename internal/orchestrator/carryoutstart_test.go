@@ -311,3 +311,126 @@ func TestARerunTellsThePullItBeganOnlyOnceItsRunHoldsASlot(t *testing.T) {
 		})
 	}
 }
+
+// slotWaitingCarryOut is the schedule harness's carry-out where every decided
+// repair comes back without starting, waiting for the one developer slot its
+// run keeps the endpoint pair of, as the real one reports it.
+type slotWaitingCarryOut struct {
+	*scheduleHarness
+	slot int
+}
+
+func (slotWaitingCarryOut) SaysWhenStarted() bool { return true }
+
+func (c slotWaitingCarryOut) Carry(_ context.Context, task CarryOutTask) (CarriedOut, Outcome, error) {
+	c.mu.Lock()
+	c.carried = append(c.carried, task)
+	c.mu.Unlock()
+	capacity := runstate.CapacityError{Limit: 3, Active: 2, Slot: c.slot, HeldBy: "run-dddddddddddddddddddddddddddddddd", Pinned: true}
+	return CarriedOut{
+		WorkItemID: task.WorkItemID, RunID: task.RunID, Decision: task.Decision,
+		Gate: runstate.TriageGateCapacity, Waiting: true, WaitsForSlot: capacity.Slot,
+		Problem: capacityWaitSays(capacity),
+	}, Outcome{}, nil
+}
+
+// A decided repair that has not started a worker, because its run waits for
+// the one slot it keeps, is not counted as carried out and keeps no other free
+// slot from ready work: the pull that fired it gives the slot back and fills it
+// from the queue in the same pull.
+func TestADecidedRepairWaitingForItsOwnSlotLeavesTheFreeSlotToReadyWork(t *testing.T) {
+	t.Parallel()
+
+	waiting := decidedTaskOf("yoyodyne-ifd.434.14", "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	waiting.Decision = runstate.TriageDecisionRepair
+	harness := newScheduleHarness(readyItems("yoyodyne-ifd.500")...)
+	harness.capacity = 1
+	// The decision stands on every pull, as one waiting for its slot does, so
+	// a pull that let it keep the free slot would never pull the ready item.
+	harness.outstanding = func(*scheduleHarness) ([]CarryOutTask, error) {
+		return []CarryOutTask{waiting}, nil
+	}
+	carryOut := slotWaitingCarryOut{scheduleHarness: harness, slot: 3}
+	open := func(ctx context.Context) (Pull, error) {
+		pull, err := harness.open(ctx)
+		pull.CarryOut = carryOut
+		return pull, err
+	}
+
+	// Every decision fired counts against the bound on starts, so two starts
+	// are the repair's attempt and the ready item where the slot was given
+	// back, and two of the repair's attempts where it was not.
+	schedule, err := (Scheduler{Open: open, CarryOutStartWait: time.Minute, Limit: 2}).Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	harness.mu.Lock()
+	attempted := len(harness.carried)
+	harness.mu.Unlock()
+	if attempted == 0 {
+		t.Fatal("the decided repair was never attempted")
+	}
+	pulled := false
+	for _, run := range schedule.Started {
+		pulled = pulled || run.WorkItemID == "yoyodyne-ifd.500"
+	}
+	if !pulled {
+		t.Fatalf("%d start(s), stopped = %q; want the ready item pulled into the slot the waiting repair gave back", len(schedule.Started), schedule.Stopped)
+	}
+}
+
+// What a carry-out waiting for one particular slot records names that slot and
+// why it waits, and never reads as though every slot were taken.
+func TestAWaitForOneSlotNamesTheSlotAndWhy(t *testing.T) {
+	t.Parallel()
+
+	capacity := runstate.CapacityError{Limit: 3, Active: 2, Slot: 3, HeldBy: "run-dddddddddddddddddddddddddddddddd", Pinned: true}
+	for name, says := range map[string]string{
+		"the gate's account": capacityWaitSays(capacity),
+		"the item's note":    slotTakenNote("run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", capacity),
+		"what clears it":     capacityWaitClears(capacity),
+		"the put-back wait":  putBackWait(capacity),
+		"the put-back note":  slotWentElsewhere(capacity),
+	} {
+		if !strings.Contains(says, "developer slot 3") {
+			t.Errorf("%s = %q, want it to name developer slot 3", name, says)
+		}
+		for _, wrong := range []string{"last free developer slot", "every developer slot is occupied", "2 active"} {
+			if strings.Contains(says, wrong) {
+				t.Errorf("%s = %q, want no wording that reads as though no slot were free (%q)", name, says, wrong)
+			}
+		}
+	}
+	if says := capacityWaitSays(capacity); !strings.Contains(says, "endpoint pair") || !strings.Contains(says, capacity.HeldBy) {
+		t.Errorf("the gate's account = %q, want it to say the run keeps the slot's endpoint pair and name the run holding the slot", says)
+	}
+}
+
+// A repair decided on a run whose delivery workflow is recorded as standing in
+// abandoned starts: the workflow is an observation beside the run and never a
+// reason it does not go (declarative.go), so the decision is neither left
+// pending nor refused for it.
+func TestARepairOfARunWhoseWorkflowIsAbandonedStarts(t *testing.T) {
+	t.Parallel()
+
+	state := developingState()
+	state.CheckFailure = &runstate.CheckFailure{Command: "make test", ExitCode: 1, Output: "FAIL"}
+	state.Blocker = "Yoyodyne stopped this item: the repair budget was spent."
+	state.WorkflowInstanceID = deliveryInstanceID(state.RunID)
+	state.WorkflowDivergence = `the run performed "develop" and produced "reissued", and its instance stands in "abandoned"; the definition and the run are no longer in the same place`
+	harness := newUndecidedHarness(t, state)
+	grantedAgainstTheStoppage(t, harness)
+	carrying := harness.carryOut()
+	continuer := harness.continuer()
+	continuer.Remains = &orchestratortest.Survival{Survival: gitworktree.Survival{BranchExists: true, WorktreePresent: true}}
+	carrying.Repairer = continuer
+	begun := false
+	ctx := withCarryOutBegun(context.Background(), func() { begun = true })
+	carried, _, err := carrying.Carry(ctx, theOneOutstanding(t, carrying))
+	if err != nil {
+		t.Fatalf("Carry() error = %v", err)
+	}
+	if !carried.Carried || len(harness.started) != 1 || !begun {
+		t.Fatalf("carried = %#v, started = %#v, begun = %t; want the repair on the run whose workflow is abandoned started and the pull told it began", carried, harness.started, begun)
+	}
+}

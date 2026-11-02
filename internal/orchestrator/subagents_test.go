@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -466,5 +467,131 @@ func TestARunWhoseSlotWasTakenSaysWhichSlotItWasRecordedIn(t *testing.T) {
 	}
 	if state.Subagents != nil {
 		t.Fatalf("recorded sub-agents %+v, want slot 1's setting, which states none", state.Subagents)
+	}
+}
+
+// A stopped run taken up again while the slot it records is busy is made live
+// in a free slot, records that slot, and settles its sub-agent setting afresh
+// from it, whether the busy slot has no routing at all or is kept for a label
+// with sub-agents of its own; neither carries an endpoint pair, so neither is
+// one the run has to wait for.
+func TestARunTakenUpAgainInAFreeSlotRecordsItAndItsSubagents(t *testing.T) {
+	t.Parallel()
+
+	on, off := true, false
+	for _, test := range []struct {
+		name  string
+		slots []domain.DeveloperSlot
+		// settled is what the run recorded in slot 3 before it stopped.
+		settled *runstate.SubagentRecord
+		// busy are the slots other runs hold when it is taken up again.
+		busy    []int
+		slot    int
+		enabled bool
+		origin  string
+	}{
+		{
+			name:    "its slot has no routing",
+			slots:   []domain.DeveloperSlot{{}, {Subagents: &domain.SlotSubagents{Enabled: &on}}, {}},
+			busy:    []int{1, 3},
+			slot:    2,
+			enabled: true,
+			origin:  "execution.developer_slots slot 2.subagents",
+		},
+		{
+			name: "its slot is kept for a label",
+			slots: []domain.DeveloperSlot{
+				{Subagents: &domain.SlotSubagents{Enabled: &off}}, {},
+				{Prefer: []string{"team-development"}, Dedicated: true, Subagents: &domain.SlotSubagents{Enabled: &on}},
+			},
+			settled: &runstate.SubagentRecord{Enabled: true, Model: config.DefaultSubagentModel, Origin: "execution.developer_slots slot 3.subagents", Slot: 3},
+			busy:    []int{2, 3},
+			slot:    1,
+			enabled: false,
+			origin:  "execution.developer_slots slot 1.subagents",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			repository := pipelineRepository(t)
+			tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Work", Status: "open"}}
+			pipeline, store := newAutomaticPipeline(t, repository, tracker, orchestratortest.RoleBackend(nil, approveVerdict), []string{"exit 0"})
+			pipeline.Config.Execution.MaxConcurrentDevelopers = 3
+			pipeline.Config.Execution.DeveloperSlots = test.slots
+
+			stopped := approvedStoppedState()
+			stopped.LastSequence = 4
+			stopped.Subagents = test.settled
+			if err := store.Create(stopped); err != nil {
+				t.Fatalf("Create() error = %v", err)
+			}
+			stopped, err := store.ClaimSlot(ctx, stopped, 3, 3, time.Now())
+			if err != nil {
+				t.Fatalf("ClaimSlot() error = %v", err)
+			}
+			for index, number := range test.busy {
+				occupant := approvedStoppedState()
+				occupant.RunID, occupant.WorkItemID = "run-"+strings.Repeat(string(rune('a'+index)), 32), "yoyodyne-occupant-"+strconv.Itoa(index)
+				occupant.Status, occupant.Phase, occupant.CompletedAt = runstate.StatusRunning, runstate.PhaseDeveloping, nil
+				occupant.IntegrationStop, occupant.Environmental, occupant.Failure = nil, nil, ""
+				if err := store.Create(occupant); err != nil {
+					t.Fatalf("Create(occupant) error = %v", err)
+				}
+				if _, err := store.ClaimSlot(ctx, occupant, number, 3, time.Now()); err != nil {
+					t.Fatalf("ClaimSlot(occupant in %d) error = %v", number, err)
+				}
+			}
+
+			live := stopped
+			live.Status, live.Phase, live.CompletedAt = runstate.StatusRunning, runstate.PhaseDeveloping, nil
+			live.IntegrationStop, live.Environmental, live.Failure = nil, nil, ""
+			if err := store.ReserveLive(ctx, live, 3); err != nil {
+				t.Fatalf("ReserveLive() error = %v, want the run made live in a free slot", err)
+			}
+			taken, err := store.Load(stopped.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if taken.RecordedSlot() != test.slot {
+				t.Fatalf("taken up in slot %d, want free slot %d", taken.RecordedSlot(), test.slot)
+			}
+			run := &activeRun{pipeline: pipeline, state: taken}
+			// The move is said once in the run's history, naming the slot it
+			// left and why, and the next process to take the run up says
+			// nothing more about it.
+			for range 2 {
+				run.recordSlotMove()
+			}
+			events, err := store.LoadEvents(stopped.RunID)
+			if err != nil {
+				t.Fatalf("LoadEvents() error = %v", err)
+			}
+			said := 0
+			for _, event := range events {
+				if strings.Contains(string(event.Payload), "taken up again in another developer slot") {
+					said++
+					if !strings.Contains(string(event.Payload), "moved from developer slot 3") || !strings.Contains(string(event.Payload), "was held by run") {
+						t.Fatalf("the history says %s, want the slot left and why", event.Payload)
+					}
+				}
+			}
+			if said != 1 {
+				t.Fatalf("the history says the move %d time(s), want once", said)
+			}
+			run.settleSubagents()
+			record := run.state.Subagents
+			if record == nil || record.Enabled != test.enabled || record.Origin != test.origin || record.Slot != test.slot {
+				t.Fatalf("recorded sub-agents %+v, want slot %d's setting (enabled %t, from %s)", record, test.slot, test.enabled, test.origin)
+			}
+			if err := store.Save(run.state); err != nil {
+				t.Fatalf("Save() error = %v", err)
+			}
+			again := &activeRun{pipeline: pipeline, state: run.state}
+			again.settleSubagents()
+			if *again.state.Subagents != *record {
+				t.Fatalf("settled again to %+v, want the setting already settled for slot %d kept", again.state.Subagents, test.slot)
+			}
+		})
 	}
 }

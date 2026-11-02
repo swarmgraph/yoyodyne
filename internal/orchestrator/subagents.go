@@ -34,10 +34,16 @@ import (
 // already made a developer invocation without a setting on its record keeps
 // running without them, so turning them on mid-run reaches the next run
 // rather than this one.
+//
+// A run moved to another developer slot when it was taken up again (runstate's
+// RunRouting.MoveSlot) settles its setting afresh from the slot it now records,
+// whatever it settled before, because the setting is the slot's and the run is
+// no longer in the old one.
 func (a *activeRun) settleSubagents() {
-	if a.state.Subagents != nil || a.state.LastSequence > 0 || a.state.ProviderSessionID != "" {
+	if !a.movedSinceSubagentsSettled() && (a.state.Subagents != nil || a.state.LastSequence > 0 || a.state.ProviderSessionID != "") {
 		return
 	}
+	a.state.Subagents = nil
 	p := a.pipeline
 	setting := p.Config.DeveloperSubagents(p.developerName(), a.state.RecordedSlot())
 	stated := p.Config.Agents[p.developerName()].Subagents.Stated()
@@ -52,7 +58,18 @@ func (a *activeRun) settleSubagents() {
 		Model:   setting.Model,
 		Effort:  setting.Effort,
 		Origin:  setting.Origin,
+		Slot:    a.state.RecordedSlot(),
 	}
+}
+
+// movedSinceSubagentsSettled reports a run moved to another developer slot
+// whose sub-agent setting was not settled for the slot it records now.
+func (a *activeRun) movedSinceSubagentsSettled() bool {
+	routing := a.state.Routing
+	if routing == nil || routing.Slot == nil || routing.Slot.MovedFrom == 0 {
+		return false
+	}
+	return a.state.Subagents == nil || a.state.Subagents.Slot != routing.Slot.Number
 }
 
 // subagentsFor is what one developer invocation on the named provider is
