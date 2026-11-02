@@ -18,10 +18,12 @@ package dashboard
 // The library is loaded only where it matches its record: its checksum is the
 // one recorded, it names the recorded version, and its MIT license is beside
 // it. TestTheChartLibraryMatchesItsPinnedRecord holds the build's own assets to
-// that. Until the harness has fetched the library, the backlog page loads no
-// chart script and shows its figures as a table, saying the chart library is
-// not in this build. Changing the version is changing the record's address and
-// version in a reviewed change, and the harness fetches the new file.
+// that, and TestTheBacklogChartDrawsWithTheServedLibraryUnderNode runs the
+// page's chart code against this library. A build whose library is missing or
+// does not match loads no chart script and shows its figures as a table,
+// saying the chart library is not in this build. Changing the version is
+// changing the record's address and version in a reviewed change, and the
+// harness fetches the new file.
 
 import (
 	"errors"
