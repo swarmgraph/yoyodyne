@@ -1105,10 +1105,36 @@ func slotTakenMeanwhile(err error) (runstate.CapacityError, bool) {
 }
 
 // slotTakenNote tells a work item its stopped run was not made live because the
-// last developer slot went to another run first.
+// last developer slot went to another run first, or, where the run waits for
+// the one slot it records (runstate.CapacityError.Slot), names that slot, the
+// run holding it, and why this run waits for it, rather than a count of active
+// runs that would read as though no slot were free.
 func slotTakenNote(runID string, capacity runstate.CapacityError) string {
+	if capacity.Slot != 0 {
+		return fmt.Sprintf("Run %s was not made live: %s. Nothing was spent and the run is unchanged; it goes again once developer slot %d is free.",
+			runID, capacity.Error(), capacity.Slot)
+	}
 	return fmt.Sprintf("Run %s was not made live: the last free developer slot went to another run before this one could take it (%d active, limit %d). Nothing was spent and the run is unchanged; it goes again once a slot is free.",
 		runID, capacity.Active, capacity.Limit)
+}
+
+// capacityWaitClears is what clears a carry-out's wait for a developer slot:
+// any slot freeing, or the one slot the run waits for.
+func capacityWaitClears(capacity runstate.CapacityError) string {
+	if capacity.Slot != 0 {
+		return fmt.Sprintf("developer slot %d freeing, which needs nobody", capacity.Slot)
+	}
+	return "a developer slot freeing, which needs nobody"
+}
+
+// capacityWaitSays is what a carry-out refused a developer slot records as the
+// gate's account: every slot occupied, or the one slot the run waits for and
+// why (slotTakenNote).
+func capacityWaitSays(capacity runstate.CapacityError) string {
+	if capacity.Slot != 0 {
+		return capacity.Error()
+	}
+	return fmt.Sprintf("every developer slot is occupied: %d active, limit %d", capacity.Active, capacity.Limit)
 }
 
 // noteSlotTaken tells the work item its stopped run waits for a slot after the

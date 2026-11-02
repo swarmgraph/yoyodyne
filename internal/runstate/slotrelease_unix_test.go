@@ -280,30 +280,44 @@ func liveInSlot(t *testing.T, store *Store, workItem string, number int) State {
 	return claimed
 }
 
-// A released run whose slot number another run claimed meanwhile is not taken
-// up again on that number: it waits for the slot, saying which run holds it,
+// pinnedTo gives a run recorded in a slot the endpoint pair that slot is
+// configured with, as a run reserved for a routed slot records it.
+func pinnedTo(t *testing.T, store *Store, state State, number int) State {
+	t.Helper()
+	pinned, err := store.UpdateRouting(context.Background(), state, func(routing *RunRouting) (bool, error) {
+		return routing.RecordSnapshot(developerSnapshot(number, "cfg-0123abcd"))
+	})
+	if err != nil {
+		t.Fatalf("UpdateRouting() error = %v", err)
+	}
+	return pinned
+}
+
+// A released run whose slot number another run claimed meanwhile, and which
+// keeps that slot's endpoint pair, is not taken up again on that number or on
+// any other: it waits for the slot, saying which run holds it and why it waits,
 // rather than run beside it on the same slot's endpoints. Once the number is
 // free again it is taken up.
 func TestAReleasedRunWhoseNumberWasClaimedWaitsRatherThanShareIt(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store := newTestStore(t)
-	vanishedRun(t, store, "yoyodyne-gone", 1)
+	pinnedTo(t, store, vanishedRun(t, store, "yoyodyne-gone", 1), 1)
 	if _, err := store.ReleaseSlotsWithNoLiveWorker(ctx, time.Now()); err != nil {
 		t.Fatalf("ReleaseSlotsWithNoLiveWorker() error = %v", err)
 	}
 	other := liveInSlot(t, store, "yoyodyne-other", 1)
 
-	_, lease, err := store.Adopt(ctx, "yoyodyne-gone")
+	_, lease, err := store.AdoptWithin(ctx, "yoyodyne-gone", 3)
 	var capacity CapacityError
-	if !errors.As(err, &capacity) || capacity.Slot != 1 || capacity.HeldBy != other.RunID {
+	if !errors.As(err, &capacity) || capacity.Slot != 1 || capacity.HeldBy != other.RunID || !capacity.Pinned {
 		if lease != nil {
 			_ = lease.Release()
 		}
-		t.Fatalf("Adopt() error = %v, want it to wait for slot 1, which run %s holds", err, other.RunID)
+		t.Fatalf("AdoptWithin() error = %v, want it to wait for slot 1, which run %s holds", err, other.RunID)
 	}
-	if !strings.Contains(err.Error(), "developer slot 1") || !strings.Contains(err.Error(), other.RunID) {
-		t.Fatalf("Adopt() error = %q, want it to name the slot and the run holding it", err)
+	if says := err.Error(); !strings.Contains(says, "developer slot 1") || !strings.Contains(says, other.RunID) || !strings.Contains(says, "endpoint pair") || strings.Contains(says, "active run") {
+		t.Fatalf("AdoptWithin() error = %q, want it to name the slot, the run holding it, and why this run waits for it, and no count of active runs", says)
 	}
 
 	moved := load(t, store, other.RunID)
@@ -313,20 +327,123 @@ func TestAReleasedRunWhoseNumberWasClaimedWaitsRatherThanShareIt(t *testing.T) {
 	if err := store.Save(moved); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
-	_, lease, err = store.Adopt(ctx, "yoyodyne-gone")
+	_, lease, err = store.AdoptWithin(ctx, "yoyodyne-gone", 3)
 	if err != nil {
-		t.Fatalf("Adopt() once the number is free again error = %v", err)
+		t.Fatalf("AdoptWithin() once the number is free again error = %v", err)
 	}
 	_ = lease.Release()
 }
 
+// A released run whose slot number another run claimed meanwhile, and which
+// keeps no endpoint pair — its slot has no routing, or is kept only for a
+// label — is taken up again in the lowest free slot and records it, so it does
+// not wait while another slot is free. Told no capacity, Adopt cannot choose a
+// slot within it and leaves the run waiting for its own.
+func TestAReleasedRunWhoseNumberWasClaimedIsTakenUpInAFreeSlot(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newTestStore(t)
+	gone := vanishedRun(t, store, "yoyodyne-gone", 3)
+	if _, err := store.ReleaseSlotsWithNoLiveWorker(ctx, time.Now()); err != nil {
+		t.Fatalf("ReleaseSlotsWithNoLiveWorker() error = %v", err)
+	}
+	occupant := liveInSlot(t, store, "yoyodyne-other", 3)
+	liveInSlot(t, store, "yoyodyne-first", 1)
+
+	if _, lease, err := store.Adopt(ctx, "yoyodyne-gone"); err == nil {
+		_ = lease.Release()
+		t.Fatal("Adopt() told no capacity took the run up in a slot it cannot know is within it")
+	}
+	adopted, lease, err := store.AdoptWithin(ctx, "yoyodyne-gone", 3)
+	if err != nil {
+		t.Fatalf("AdoptWithin() error = %v, want the run taken up in free slot 2", err)
+	}
+	t.Cleanup(func() { _ = lease.Release() })
+	if adopted.RecordedSlot() != 2 || adopted.Routing.Slot.MovedFrom != 3 {
+		t.Fatalf("taken up in slot %d (moved from %d), want slot 2, moved from 3", adopted.RecordedSlot(), adopted.Routing.Slot.MovedFrom)
+	}
+	if because := adopted.Routing.Slot.MovedBecause; !strings.Contains(because, "developer slot 3 was held by run "+occupant.RunID) || !strings.Contains(because, "endpoint pair") {
+		t.Fatalf("recorded the move because %q, want it to name slot 3, the run holding it, and that this run keeps no endpoint pair", because)
+	}
+	if says := adopted.SlotMoveSays(); !strings.Contains(says, "moved from developer slot 3 to developer slot 2") || !strings.Contains(says, occupant.RunID) {
+		t.Fatalf("SlotMoveSays() = %q, want the slot left, the slot taken, and why", says)
+	}
+	if !adopted.SlotMoveUnrecorded() {
+		t.Fatal("SlotMoveUnrecorded() = false for a move no event log has said yet")
+	}
+	if stored := load(t, store, gone.RunID); stored.RecordedSlot() != 2 {
+		t.Fatalf("the record names slot %d, want the slot the run was taken up in", stored.RecordedSlot())
+	}
+	if err := store.Save(adopted); err != nil {
+		t.Fatalf("Save() of the adopted run error = %v, want its copy to hold the routing written", err)
+	}
+}
+
+// A stopped run made live again by a repair or continuation, whose slot
+// number another run holds and which keeps no endpoint pair, is made live in a
+// free slot; one that keeps its slot's pair waits for that slot.
+func TestARunMadeLiveAgainTakesAFreeSlotUnlessItKeepsItsPair(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		pinned bool
+	}{
+		{name: "no endpoint pair"},
+		{name: "keeps its slot's endpoint pair", pinned: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			store := newTestStore(t)
+			stopped := testState(t, StatusFailed)
+			stopped.WorkItemID = "yoyodyne-stopped"
+			completed := time.Now()
+			stopped.CompletedAt = &completed
+			if err := store.Create(stopped); err != nil {
+				t.Fatalf("Create() error = %v", err)
+			}
+			stopped, err := store.ClaimSlot(ctx, stopped, 3, 3, routingAt)
+			if err != nil {
+				t.Fatalf("ClaimSlot() error = %v", err)
+			}
+			if test.pinned {
+				stopped = pinnedTo(t, store, stopped, 3)
+			}
+			other := liveInSlot(t, store, "yoyodyne-other", 3)
+
+			live := stopped
+			live.Status = StatusRunning
+			live.CompletedAt = nil
+			err = store.ReserveLive(ctx, live, 3)
+			stored := load(t, store, stopped.RunID)
+			if test.pinned {
+				var capacity CapacityError
+				if !errors.As(err, &capacity) || capacity.Slot != 3 || capacity.HeldBy != other.RunID || !capacity.Pinned {
+					t.Fatalf("ReserveLive() error = %v, want it to wait for slot 3, which run %s holds", err, other.RunID)
+				}
+				if stored.Status != StatusFailed || stored.RecordedSlot() != 3 {
+					t.Fatalf("the refused run is %s in slot %d, want it left as it was", stored.Status, stored.RecordedSlot())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ReserveLive() error = %v, want the run made live in a free slot", err)
+			}
+			if stored.Status != StatusRunning || stored.RecordedSlot() != 1 || stored.Routing.Slot.MovedFrom != 3 {
+				t.Fatalf("the run is %s in slot %d (moved from %d), want it running in slot 1, moved from 3", stored.Status, stored.RecordedSlot(), stored.Routing.Slot.MovedFrom)
+			}
+		})
+	}
+}
+
 // A run paused on work its item waits on keeps nobody out of its number, so a
-// continuation whose number another run now holds waits for it the same way.
+// continuation whose number another run now holds, and which keeps that slot's
+// endpoint pair, waits for it the same way.
 func TestAPausedRunWhoseNumberWasClaimedWaitsToContinue(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store := newTestStore(t)
-	paused := vanishedRun(t, store, "yoyodyne-paused", 2)
+	paused := pinnedTo(t, store, vanishedRun(t, store, "yoyodyne-paused", 2), 2)
 	paused.DependencyPause = &DependencyPause{Blockers: []string{"yoyodyne-z"}}
 	if err := store.Save(paused); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -340,5 +457,30 @@ func TestAPausedRunWhoseNumberWasClaimedWaitsToContinue(t *testing.T) {
 	}
 	if stored := load(t, store, paused.RunID); stored.DependencyPause == nil {
 		t.Fatal("the refused continuation lifted the pause")
+	}
+}
+
+// The same continuation, where the paused run keeps no endpoint pair, goes on
+// in a free slot and records it.
+func TestAPausedRunWhoseNumberWasClaimedContinuesInAFreeSlot(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newTestStore(t)
+	paused := vanishedRun(t, store, "yoyodyne-paused", 2)
+	paused.DependencyPause = &DependencyPause{Blockers: []string{"yoyodyne-z"}}
+	if err := store.Save(paused); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	liveInSlot(t, store, "yoyodyne-other", 2)
+
+	reclaimed, err := store.ReclaimSlot(ctx, load(t, store, paused.RunID), 3)
+	if err != nil {
+		t.Fatalf("ReclaimSlot() error = %v, want the continuation to go on in a free slot", err)
+	}
+	if reclaimed.RecordedSlot() != 1 || reclaimed.DependencyPause != nil {
+		t.Fatalf("continued in slot %d with pause %+v, want slot 1 and the pause lifted", reclaimed.RecordedSlot(), reclaimed.DependencyPause)
+	}
+	if stored := load(t, store, paused.RunID); stored.RecordedSlot() != 1 || stored.DependencyPause != nil {
+		t.Fatalf("the record names slot %d with pause %+v, want slot 1 and the pause lifted", stored.RecordedSlot(), stored.DependencyPause)
 	}
 }

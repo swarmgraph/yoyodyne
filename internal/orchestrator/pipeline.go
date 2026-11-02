@@ -211,6 +211,10 @@ type StateStore interface {
 	// against execution.document_landings and never a developer slot.
 	ReserveDocumentLanding(ctx context.Context, state runstate.State, maxLandings int) (*runstate.Lease, error)
 	Adopt(ctx context.Context, workItemID string) (runstate.State, *runstate.Lease, error)
+	// AdoptWithin is Adopt told the developer capacity, so a run whose recorded
+	// slot another run holds is taken up in a free one instead, unless it keeps
+	// that slot's endpoint pair (runstate's takeUpSlot).
+	AdoptWithin(ctx context.Context, workItemID string, capacity int) (runstate.State, *runstate.Lease, error)
 	// ReclaimSlot takes a developer slot back for an adopted run paused on work
 	// its item waited on, under the limit Reserve enforces and refusing with the
 	// same CapacityError; the pause gave its slot up as it was recorded.
@@ -1332,7 +1336,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	// recorded the deadline it is waiting on, and a run that recorded the directive
 	// it stopped short for — which is reached only once that directive is settled,
 	// because the directives were read a moment ago.
-	inFlight, lease, err := p.Store.Adopt(ctx, workItemID)
+	inFlight, lease, err := p.Store.AdoptWithin(ctx, workItemID, p.Config.Execution.MaxConcurrentDevelopers)
 	switch {
 	case err == nil:
 		defer lease.Release()
@@ -1805,7 +1809,7 @@ func (p Pipeline) Continue(ctx context.Context, workItemID, runID string) (Outco
 	if blockers := blockingDependencies(item); len(blockers) > 0 {
 		return pauseWorkItemForDependencies(workItemID, blockers), nil
 	}
-	inFlight, lease, err := p.Store.Adopt(ctx, workItemID)
+	inFlight, lease, err := p.Store.AdoptWithin(ctx, workItemID, p.Config.Execution.MaxConcurrentDevelopers)
 	switch {
 	case err == nil:
 		defer lease.Release()
@@ -2126,6 +2130,7 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	}
 	run.keptChecksOwed = pickedUpAtChecks
 	run.clearAcceptedSchedulingWait(ctx)
+	run.recordSlotMove()
 	// A run resumed at its promotion carries the verdict that authorized it into
 	// the outcome it reports, because the steps past this point read the outcome:
 	// the independence check reads the two sessions off it, the notes recorded on
@@ -5924,7 +5929,7 @@ func pauseWorkItemForDependencies(workItemID string, blockers []string) Outcome 
 // process's to pause, and is left alone.
 func (p Pipeline) waitInFlightOnDependencies(ctx context.Context, workItemID string, blockers []string) (Outcome, error) {
 	paused := pauseWorkItemForDependencies(workItemID, blockers)
-	inFlight, lease, err := p.Store.Adopt(ctx, workItemID)
+	inFlight, lease, err := p.Store.AdoptWithin(ctx, workItemID, p.Config.Execution.MaxConcurrentDevelopers)
 	if err != nil {
 		// No run in flight, a live holder, or a store that would not answer: in
 		// every case nothing is started, and nothing was ever written here.

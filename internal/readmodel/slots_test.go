@@ -236,3 +236,46 @@ func TestADedicatedSlotSaysWhetherItsRunIsOnItsLabel(t *testing.T) {
 		t.Fatalf("rendered:\n%s\nwant the free dedicated slot said as kept for its label", rendered)
 	}
 }
+
+// A run moved to another developer slot when it was taken up again says so on
+// its running line — the slot it left and why — whether or not any slot
+// prefers a label, so the move is never silent; a run never moved says nothing
+// more than it did.
+func TestTheRunningLineSaysARunWasMovedToAnotherSlotAndWhy(t *testing.T) {
+	t.Parallel()
+	moved := runstate.State{RunID: "run-a", WorkItemID: "yoyodyne-ifd.1", Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping, StartedAt: moment.Add(-2 * time.Hour),
+		Routing: &runstate.RunRouting{Version: runstate.RoutingVersion, Slot: &runstate.RoutedSlot{
+			Number: 2, Origin: runstate.RoutingClaimed, RecordedAt: moment.Add(-time.Hour), MovedFrom: 3,
+			MovedBecause: "developer slot 3 was held by run run-b when this run was taken up again, and this run keeps no endpoint pair that would make it wait for that slot",
+		}}}
+	still := runstate.State{RunID: "run-c", WorkItemID: "yoyodyne-ifd.3", Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping, StartedAt: moment.Add(-time.Hour)}
+	for name, slots := range map[string][]domain.DeveloperSlot{
+		"no slot prefers a label":    {{}, {}, {}},
+		"a slot is kept for a label": {{}, {}, {Prefer: []string{"team-development"}, Dedicated: true}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			sources := quietSources()
+			sources.Capacity = 3
+			sources.Slots = slots
+			sources.Runs = fakeRuns{incomplete: []runstate.State{moved, still}}
+			standing := ReadStanding(context.Background(), sources)
+			rendered := standing.Render()
+			var line, other string
+			for _, each := range strings.Split(rendered, "\n") {
+				switch {
+				case strings.Contains(each, "yoyodyne-ifd.1"):
+					line = each
+				case strings.Contains(each, "yoyodyne-ifd.3"):
+					other = each
+				}
+			}
+			if !strings.Contains(line, "moved from developer slot 3 to developer slot 2") || !strings.Contains(line, "because developer slot 3 was held by run run-b") {
+				t.Fatalf("running line %q, want it to say the run moved from slot 3 and why\nrendered:\n%s", line, rendered)
+			}
+			if other == "" || strings.Contains(other, "moved") {
+				t.Fatalf("running line %q, want a run never moved to say nothing about a move", other)
+			}
+		})
+	}
+}

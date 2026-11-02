@@ -1051,6 +1051,7 @@ var notAStep = map[string]string{
 	// kept for why the item had not started changes nothing about the work and
 	// decides nothing; it is the record of a choice already made.
 	"clearAcceptedSchedulingWait": "clears the reason the scheduler kept for why the item had not started, once the run is accepted",
+	"recordSlotMove":              "writes into the run's event log a move to another developer slot the run store already made and recorded; it moves nothing itself",
 
 	// The environment an invocation is made in, prepared before the first one and
 	// again by any process that resumes the run. It is not a step of the delivery

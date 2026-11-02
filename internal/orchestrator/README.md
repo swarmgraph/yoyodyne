@@ -225,7 +225,13 @@ attempt (`prepareDeveloperAttempt`, `Pipeline.EndpointLimits` for a primary
 already known to be limited), records how it ended (`finishDeveloperAttempt`),
 and on a classified usage limit makes the operation's one switch
 (`switchDeveloperEndpoint`), which rewrites those fields to the alternate. The
-slot comes from the scheduler on the run's context (`withDeveloperSlot`).
+slot comes from the scheduler on the run's context (`withDeveloperSlot`). A run
+taken up again while another run holds the slot it records is moved to a free
+slot and records it (runstate's `takeUpSlot`, reached through `AdoptWithin`,
+`ReclaimSlot` and `ReserveLive`), unless it is pinned to that slot's pair, in
+which case it waits for the slot; a moved run settles its sub-agent setting
+afresh from the new slot (`settleSubagents`), and the move, with its reason, is
+written once into its event log when it is next taken up (`recordSlotMove`).
 
 ### How is a stopped run classified, and what does the item say?
 `stop` decides first whether the error is a pause (usage limit, provider stop,
@@ -301,7 +307,7 @@ context bundle come from `internal/contextbundle`.
 | `needsdesignwake.go` | the architect woken by the needs-design label and once a day behind it (`needsDesignWake`, `needsDesignMessage`), recorded under `NeedsDesignWakeTask` |
 | `triage.go` | `Docketer`: `RecordStoppedRun`, `RecordUnstartedRun`, `RecordEscalation`, `SettleClosedItem`, `Build` (and `endedReruns`, which it dockets) |
 | `rerun.go`, `repaircontinue.go`, `carryout.go`, `carryrearm.go`, `rearm.go` | carrying out the development manager's decisions on docketed runs |
-| `carryoutstart.go` | whether a decided repair or re-run a pull fired began: `withCarryOutBegun` / `carryOutBegun` (called by `Pipeline.Run` once a re-run's fresh run has reserved its slot, and by `RepairContinuer.dispatchContinuation`), `awaitCarryOutStarts`, and the rounds in `Scheduler.Schedule` that give a slot a refused decision handed back to the decisions behind it in the same pull (`nextCarryOutsExcept`) |
+| `carryoutstart.go` | whether a decided repair or re-run a pull fired began: `withCarryOutBegun` / `carryOutBegun` (called by `Pipeline.Run` once a re-run's fresh run has reserved its slot, and by `RepairContinuer.dispatchContinuation`), `awaitCarryOutStarts`, and the rounds in `Scheduler.Schedule` that give a slot a refused decision handed back to the decisions behind it, and then to the queue, in the same pull (`nextCarryOutsExcept`); a decision waiting for the one slot its run keeps the pair of (`CarriedOut.WaitsForSlot`) never ends those rounds as a full harness |
 | `recoveryapplicability.go` | whether a repair or re-run still applies: `settledWorkOf` (the run itself merged, a later run merged, or the harness settled its docket entry) and `CarryOut.recoverySettled`, asked by `CarryOut.read` before a recovery is offered and by `CarryOut.Carry` before one is carried out; `recordNoLongerApplies` writes the `no-longer-applies` finding and the item's note |
 | `stallcontinue.go`, `checkstagecontinue.go`, `integrationresume.go` | the harness's own continuations of a stopped run |
 | `recordedbackend.go` | `DeveloperBackends`, `developerBackendFor`, `RecordedBackendError`: a run's developer on the backend the run recorded; `recordedModel`, `restoreModel`, `RecordedModelError`: the model it asks for there; `erasedSession`: a session a failed attempt erased, read back from the event log |

@@ -185,9 +185,12 @@ type CapacityError struct {
 	OutsideFiles bool `json:"outside_files,omitempty"`
 	// Slot and HeldBy are a run taken up again refused because the slot number
 	// it records was claimed by another run while it held none, which now holds
-	// it (slotNumberTaken). It waits for that slot, as any refusal here waits.
+	// it (takeUpSlot). It waits for that slot, as any refusal here waits, and
+	// every other slot stays free for other work. Pinned says why it waits for
+	// that one: it keeps the endpoint pair that slot is configured with.
 	Slot   int    `json:"slot,omitempty"`
 	HeldBy string `json:"held_by,omitempty"`
+	Pinned bool   `json:"pinned,omitempty"`
 }
 
 func (e CapacityError) Error() string {
@@ -196,6 +199,9 @@ func (e CapacityError) Error() string {
 	}
 	if e.Landings {
 		return fmt.Sprintf("document landings are full: %d landing(s) running, limit %d", e.Active, e.Limit)
+	}
+	if e.Slot != 0 && e.Pinned {
+		return fmt.Sprintf("developer slot %d is held by run %s, and this run waits for that slot because it keeps the endpoint pair slot %d is configured with; no other slot is held for it", e.Slot, e.HeldBy, e.Slot)
 	}
 	if e.Slot != 0 {
 		return fmt.Sprintf("developer slot %d, which this run records, is held by run %s, so the run waits for it rather than share it", e.Slot, e.HeldBy)
@@ -264,25 +270,57 @@ func (s *Store) developerSlotsFull(active []State, runID string, maxConcurrent i
 	return nil
 }
 
-// slotNumberTaken refuses taking a run up again on the developer slot number
-// it records while another run that holds a slot now records the same number
-// (slotNumberHolder). A run holding no slot — paused on work its item waits on,
-// released for want of a live worker, or not in flight — keeps nobody out of
-// its number, so another run may have claimed it meanwhile; the run's pinned
-// endpoint pair is that slot's, and it is never renumbered, so it waits for the
-// number rather than run on it beside the other. Like developerSlotsFull it is
-// only meaningful under the reservation lock, with active read inside it.
-func (s *Store) slotNumberTaken(active []State, state State, maxConcurrent int, now time.Time) error {
+// takeUpSlot is how a run taken up again comes to record a developer slot
+// number no other run holding a slot now records (slotNumberHolder). A run
+// holding no slot — paused on work its item waits on, released for want of a
+// live worker, or not in flight — keeps nobody out of its number, so another
+// run may have claimed it meanwhile. Where that happened the run is moved to
+// the lowest number free within capacity and records it (RunRouting.MoveSlot),
+// so ready work never waits behind one busy slot while another sits idle. The
+// one exception is a run pinned to its slot's endpoint pair: the pair is that
+// slot's and is never renumbered, so it waits for the number rather than run
+// on it beside the other, and the refusal names the slot and why.
+//
+// A capacity below one is a caller that does not know the configured limit
+// (Adopt); it cannot choose a number within it, so the run waits for its own.
+// Like developerSlotsFull it is only meaningful under the reservation lock,
+// with active read inside it, which is what keeps two runs taken up at once
+// from moving to one number.
+func (s *Store) takeUpSlot(ctx context.Context, active []State, state State, capacity int, now time.Time) (State, error) {
 	number := state.RecordedSlot()
 	if number == 0 {
-		return nil
+		return state, nil
 	}
+	taken := map[int]string{}
 	for _, existing := range active {
-		if s.slotNumberHolder(existing, state.RunID, now) == number {
-			return CapacityError{Limit: maxConcurrent, Active: s.HoldingDeveloperSlotsNow(active, now), Slot: number, HeldBy: existing.RunID}
+		if held := s.slotNumberHolder(existing, state.RunID, now); held != 0 {
+			taken[held] = existing.RunID
 		}
 	}
-	return nil
+	holder, busy := taken[number]
+	if !busy {
+		return state, nil
+	}
+	pinned := state.Routing.Developer != nil
+	refusal := CapacityError{Limit: capacity, Active: s.HoldingDeveloperSlotsNow(active, now), Slot: number, HeldBy: holder, Pinned: pinned}
+	if pinned || capacity < 1 {
+		return state, refusal
+	}
+	for free := 1; free <= capacity; free++ {
+		if _, busy := taken[free]; busy {
+			continue
+		}
+		because := fmt.Sprintf("developer slot %d was held by run %s when this run was taken up again, and this run keeps no endpoint pair that would make it wait for that slot", number, holder)
+		moved, err := s.UpdateRouting(ctx, state, func(routing *RunRouting) (bool, error) {
+			return routing.MoveSlot(free, because, now)
+		})
+		if err != nil {
+			return state, fmt.Errorf("record developer slot %d for run %s, taken up again while slot %d is held by run %s: %w", free, state.RunID, number, holder, err)
+		}
+		state.Routing = moved.Routing
+		return state, nil
+	}
+	return state, CapacityError{Limit: capacity, Active: refusal.Active}
 }
 
 // ReserveDocumentLanding is Reserve for a confirmed document's landing, counted
@@ -466,10 +504,10 @@ func (s *Store) ReclaimSlot(ctx context.Context, state State, maxConcurrent int)
 	if err := s.developerSlotsFull(active, state.RunID, maxConcurrent, now); err != nil {
 		return state, err
 	}
-	if err := s.slotNumberTaken(active, state, maxConcurrent, now); err != nil {
+	reclaimed, err := s.takeUpSlot(ctx, active, state, maxConcurrent, now)
+	if err != nil {
 		return state, err
 	}
-	reclaimed := state
 	reclaimed.DependencyPause = nil
 	if err := s.Save(reclaimed); err != nil {
 		return state, fmt.Errorf("clear the dependency pause: %w", err)
@@ -518,7 +556,7 @@ func (s *Store) ReserveLive(ctx context.Context, live State, maxConcurrent int) 
 		if err := s.developerSlotsFull(active, live.RunID, maxConcurrent, now); err != nil {
 			return err
 		}
-		if err := s.slotNumberTaken(active, live, maxConcurrent, now); err != nil {
+		if live, err = s.takeUpSlot(ctx, active, live, maxConcurrent, now); err != nil {
 			return err
 		}
 	}
@@ -532,6 +570,14 @@ func (s *Store) ReserveLive(ctx context.Context, live State, maxConcurrent int) 
 // belongs to a live holder and is reported as an existing run rather than
 // picked up.
 func (s *Store) Adopt(ctx context.Context, workItemID string) (State, *Lease, error) {
+	return s.AdoptWithin(ctx, workItemID, 0)
+}
+
+// AdoptWithin is Adopt told the configured developer capacity, so a run whose
+// recorded slot another run now holds is taken up in a free slot within it
+// rather than waiting for its own (takeUpSlot). Adopt, which is told none,
+// leaves such a run waiting for its own slot.
+func (s *Store) AdoptWithin(ctx context.Context, workItemID string, capacity int) (State, *Lease, error) {
 	if strings.TrimSpace(workItemID) == "" {
 		return State{}, nil, errors.New("work item id is required")
 	}
@@ -567,10 +613,11 @@ func (s *Store) Adopt(ctx context.Context, workItemID string) (State, *Lease, er
 		if err != nil {
 			return State{}, nil, errors.Join(err, lease.Release())
 		}
-		// A run taken up again holds its slot number again, so one whose number
-		// another run claimed while it held none waits rather than share it.
+		// A run taken up again holds a slot number again: its own where that is
+		// free, and otherwise another free one, unless it keeps its slot's
+		// endpoint pair (takeUpSlot).
 		if state.HoldsDeveloperSlot() {
-			if err := s.slotNumberTaken(active, state, 0, time.Now()); err != nil {
+			if state, err = s.takeUpSlot(ctx, active, state, capacity, time.Now()); err != nil {
 				return State{}, nil, errors.Join(err, lease.Release())
 			}
 		}
