@@ -51,6 +51,8 @@ func TestRecordedDeveloperCallIsReadAsExecutedUnderTheDeveloperPolicy(t *testing
 	}
 	visibility := result.ToolVisibility
 	if !visibility.Read || visibility.Policy != backendapi.ToolPolicyDeveloper || len(visibility.Gaps) != 0 || visibility.Subagents {
+		// The recorded stream's every event is one the parser reads, so it names
+		// nothing as unseen.
 		t.Fatalf("ToolVisibility = %#v, want a complete reading under the developer's policy", visibility)
 	}
 }
@@ -133,5 +135,25 @@ func TestAnOrphanToolResultIsALimit(t *testing.T) {
 	)
 	if len(result.ToolCalls) != 0 || len(result.ToolVisibility.Gaps) != 1 {
 		t.Fatalf("result = %#v / %#v, want no call and one limit", result.ToolCalls, result.ToolVisibility)
+	}
+}
+
+// A top-level event type the parser has no reading of is said once as tool use
+// that could not be seen, however often it arrives, while the types Claude
+// Code sends that never carry a tool call add nothing.
+func TestAnUnknownTopLevelEventIsALimit(t *testing.T) {
+	t.Parallel()
+	result := runRoleStream(t, domain.RoleDeveloper,
+		toolStreamInit,
+		`{"type":"stream_event","event":{"type":"content_block_delta"}}`,
+		`{"type":"keep_alive"}`,
+		`{"type":"control_request","request_id":"r1","request":{"subtype":"interrupt"}}`,
+		`{"type":"tool_invocation_v2","name":"Bash"}`,
+		`{"type":"tool_invocation_v2","name":"Bash"}`,
+		toolStreamResult,
+	)
+	gaps := result.ToolVisibility.Gaps
+	if len(gaps) != 1 || !strings.Contains(gaps[0], `"tool_invocation_v2"`) {
+		t.Fatalf("Gaps = %q, want the one unread event type named once", gaps)
 	}
 }

@@ -243,6 +243,13 @@ func (p *streamParser) ParseLine(line string) error {
 	case rateLimitEventType:
 		return p.parseRateLimit(envelope)
 	default:
+		// An event type this parser has no reading of could carry a tool call in
+		// a shape a newer CLI writes, so it is said as what could not be seen
+		// rather than read as no tool use. The types Claude Code is known to send
+		// that carry none are recorded and nothing more.
+		if !carriesNoToolCalls(envelope.Type) {
+			p.tools.Gap(fmt.Sprintf("Claude Code wrote a %q event the harness does not read, so a tool call it may carry was not observed", truncate(envelope.Type)))
+		}
 		return p.emit(execution.EventProcessOutput, map[string]any{
 			"provider_type":    envelope.Type,
 			"provider_subtype": envelope.Subtype,
@@ -621,6 +628,18 @@ func (p *streamParser) parseMessage(messageType string, raw json.RawMessage, par
 		}
 	}
 	return nil
+}
+
+// carriesNoToolCalls reports a top-level event type Claude Code sends that
+// never carries a tool call: a partial message streamed ahead of the whole one,
+// which arrives as its own event, a keep-alive, and the control messages the
+// CLI exchanges about its own settings.
+func carriesNoToolCalls(eventType string) bool {
+	switch eventType {
+	case "stream_event", "keep_alive":
+		return true
+	}
+	return strings.HasPrefix(eventType, "control_")
 }
 
 // toolOutcome is what a tool_result says became of its call. A refusal is told
