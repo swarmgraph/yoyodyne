@@ -1035,6 +1035,13 @@ A run's record can name the slot it occupies. Where it does, that is the run's
 slot and no other: a change of labels, a different start order, a restart, or a
 lowered `max_concurrent_developers` never moves it, and a run whose recorded
 slot lies beyond the capacity is reported beyond the slots, keeping its number.
+The one move is a run taken up again — a repair, a continuation, or a run picked
+up by a new worker after a restart — while another run holds its recorded slot:
+it goes on in the lowest free slot instead of waiting, records that slot, the
+one it moved from, when, and why, says so in its history and on its status line,
+and reads its sub-agent setting from the new slot. A run that
+keeps its slot's endpoint pair is never moved; it waits for that slot, and the
+wait names the slot, the run holding it, and why.
 A run the scheduler pulled into a slot records that slot in every project, or
 the lowest free one where that was taken by the time the run recorded it, and
 then its selection reason names the slot it runs in. The recorded slot is also

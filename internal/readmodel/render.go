@@ -308,15 +308,22 @@ func dispatches(number int) string {
 // where none does — a project that configured no preference reads exactly as it
 // did — and for a run in flight beyond the configured capacity, which no slot
 // holds.
+//
+// A run moved to another slot when it was taken up again says so after it,
+// whatever the slots prefer, so a move is never silent.
 func slotOf(run RunningRun) string {
+	moved := ""
+	if run.SlotMoved != "" {
+		moved = ", " + run.SlotMoved
+	}
 	if run.Slot == 0 {
-		return ""
+		return moved
 	}
 	slot := DeveloperSlotStanding{Number: run.Slot, Preferred: run.SlotPrefers, Dedicated: run.SlotDedicated}
 	if working := slot.Working(run.Labels); working != "" {
-		return ", in " + slot.Says() + ", " + working
+		return ", in " + slot.Says() + ", " + working + moved
 	}
-	return ", in " + slot.Says()
+	return ", in " + slot.Says() + moved
 }
 
 func (s Standing) renderWorking() string {
