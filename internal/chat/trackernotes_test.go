@@ -343,9 +343,47 @@ func TestAFieldNameInsideAFailureIsReadByWhereItSits(t *testing.T) {
 			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the schema is stale\nCheck: regenerate it first\nCheck: make test (passed=true, exit=0, 1s of 30m0s)",
 			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the schema is stale\nCheck: regenerate it first",
 		},
+		"a failure that quotes a later opening field before the real one": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nBranch: stale, rebase it\nand then retry\nPhase: checking\nBranch: b\nWorktree: w",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nBranch: stale, rebase it\nand then retry\nPhase: checking",
+		},
+		"a failure that quotes a field of its own group before the real one": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the run said:\nPhase: developing, which it was not\nso it stopped\nPhase: checking\nBranch: b",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the run said:\nPhase: developing, which it was not\nso it stopped\nPhase: checking",
+		},
+		"a failure that quotes a field already written": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: it named another run:\nRun: run-0\nwhich still holds the lock\nPhase: checking\nBranch: b\nWorktree: w\nBase commit: c",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: it named another run:\nRun: run-0\nwhich still holds the lock\nPhase: checking",
+		},
 		"opening field names in a review summary with nothing after it": {
 			note: "Yoyodyne stopped this item: its reviewer required repair.\nRun: run-1\nBranch: b\nReview decision: repair\nReview summary: Not yet.\nRun: the suite again after pinning.\nReason: the pin is missing.",
 			want: "Yoyodyne stopped this item: its reviewer required repair.\nRun: run-1\nReview decision: repair\nReview summary: Not yet.\nRun: the suite again after pinning.\nReason: the pin is missing.",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := trackerStopExcerpt(test.note); got != test.want {
+				t.Fatalf("excerpt:\n%s\nwant:\n%s", got, test.want)
+			}
+		})
+	}
+}
+
+// The documentation names the cases still read as a field; this pins them, so
+// the paragraph and the reader cannot drift apart.
+func TestTheCasesStillReadAsAFieldAreTheOnesDocumented(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		note string
+		want string
+	}{
+		"a field the note does not write itself, with nothing before it after": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nBranch: stale\nand then retry\nCheck: make test (passed=true, exit=0, 1s of 30m0s)",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:",
+		},
+		"the same field with the first group after it is text": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nBranch: stale\nand then retry\nPhase: checking\nCheck: make test (passed=true, exit=0, 1s of 30m0s)",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nBranch: stale\nand then retry\nPhase: checking",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -1151,18 +1151,25 @@ notes. The stop excerpt keeps its run and failure reason, including a multiline
 failure. The latest review also keeps its decision, what an approval approved,
 and its reasoning, even when those fields follow a long diff or a newer stop
 has no review. A line inside a failure or a review summary that itself begins
-with a field name, such as `Check:` or `Reason:`, stays part of that failure or
-summary. A field is found by where it sits, not by its name alone: every
-writer puts a stop's fields in the same order, first what stopped and where the
-work is, then the change and the checks, then the review, then where the change
-landed. So a field name from an earlier part than the field already open is
-text inside that field. Only free text, the change listings, and a failed
-check's output run onto further lines, so a field name inside one of those
-starts a new field only when the rest of the note then reads in that order
-better than it would if the line were text. The one case still read as a
-field is a line in a failure that copies a check result exactly, with nothing
-but the checks after the failure: the order cannot tell the copy from a real
-check, so the copy is read as one and the failure ends there. These extracts are outside the notes' byte bound; captured check
+with a field name, such as `Check:`, `Reason:`, `Run:` or `Branch:`, is found
+to be a field or text by where it sits, not by its name alone. Every writer
+puts a stop's fields in the same order: what stopped (the run, the failure or
+reason, the phase, in an order that varies by writer), then where the work is
+(branch, worktree, base commit, session), then the change and the checks, then
+the review, then where the change landed. Every writer also writes each field
+once, except a check. So a field name that would go back in that order, or
+names a field the note already has, is text inside the field already open.
+Only free text, the change listings, and a failed check's output run onto
+further lines, so a field name inside one of those starts a new field only when
+the rest of the note then reads in that order better than it would if the line
+were text; where both readings are as good, it is text. Two kinds of line are
+still read as a field, because the note reads in order either way. One names a
+field the note does not write itself, where every field after it could follow
+that one: `Branch:` inside a failure, in a note that records no branch and
+nothing from its first group after the failure. The
+other copies a check result exactly, inside a failure followed only by the
+checks, since a note can carry any number of checks. Either ends the failure
+there. These extracts are outside the notes' byte bound; captured check
 output, diffs, older decisions and other details can still be cut, and the read
 says so.
 A later report mapping or recovery follow-up cannot displace those records.

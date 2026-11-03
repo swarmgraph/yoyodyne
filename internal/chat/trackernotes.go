@@ -208,44 +208,45 @@ func trackerStopExcerpt(note string) string {
 	return strings.TrimSpace(strings.Join(kept, "\n"))
 }
 
-// The parts of a stop note, in the order every writer of one puts them: what
-// stopped and where the work is, then the change and the checks, then the
-// review, then where the change landed or was published
-// (renderFailureNotes and the blocker writers in internal/orchestrator).
-const (
-	stopOpening = iota
-	stopChecks
-	stopReview
-	stopLanding
-)
+// Where each field of a stop note sits, in the order every writer of one puts
+// them (renderFailureNotes, the blocker and pause writers in
+// internal/orchestrator): what stopped, then where the work is, then the change
+// and the checks, then the review, then where the change landed or was
+// published. The fields of the first group come in an order that differs from
+// writer to writer, so they share a rank; every later field has its own. Fields
+// that never appear in the same note can share a rank.
+const stopHeadRank, stopCheckRank = 0, 10
 
-var trackerStopFieldPart = map[string]int{
-	"Run": stopOpening, "Phase": stopOpening, "Repair attempts": stopOpening, "Failing check": stopOpening,
-	"Waiting out": stopOpening, "Asks again by": stopOpening, "Failure": stopOpening, "Reason": stopOpening,
-	"Round": stopOpening, "Directive": stopOpening, "Refused paths": stopOpening, "Integration stop": stopOpening,
-	"Replay conflict": stopOpening, "Branch": stopOpening, "Worktree": stopOpening, "Base commit": stopOpening,
-	"Claude session": stopOpening, "Developer model": stopOpening, "Developer effort": stopOpening,
-	"Protected by this project": stopOpening, "Granted by this work item": stopOpening, "Role definitions": stopOpening,
+var trackerStopFieldRank = map[string]int{
+	"Run": stopHeadRank, "Failure": stopHeadRank, "Reason": stopHeadRank, "Repair attempts": stopHeadRank,
+	"Phase": stopHeadRank, "Round": stopHeadRank, "Integration stop": stopHeadRank, "Replay conflict": stopHeadRank,
+	"Waiting out": stopHeadRank, "Asks again by": stopHeadRank, "Directive": stopHeadRank,
 
-	"Changes when the run ended": stopChecks, "Diff stat when the run ended": stopChecks,
-	"Check stage": stopChecks, "Check": stopChecks,
+	"Branch": 1, "Worktree": 2,
+	"Base commit": 3, "Failing check": 3, "Refused paths": 3,
+	"Claude session": 4, "Protected by this project": 4,
+	"Developer model": 5, "Role definitions": 5,
+	"Developer effort": 6, "Granted by this work item": 6,
 
-	"Invariants delivered": stopReview, "Reviewer session": stopReview, "Reviewer model": stopReview,
-	"Reviewer effort": stopReview, "Reviewed against": stopReview, "Review decision": stopReview,
-	"Approved as": stopReview, "Review summary": stopReview,
+	"Changes when the run ended": 7, "Diff stat when the run ended": 8, "Check stage": 9, "Check": stopCheckRank,
 
-	"Lands on": stopLanding, "Commit to land": stopLanding, "Target commit it was prepared on": stopLanding,
-	"Integrated into": stopLanding, "Integrated commit": stopLanding, "Previous target commit": stopLanding,
-	"Pull request": stopLanding, "Pull request merged": stopLanding,
+	"Invariants delivered": 11, "Reviewer session": 12, "Reviewer model": 13, "Reviewer effort": 14,
+	"Reviewed against": 15, "Review decision": 16, "Approved as": 17, "Review summary": 18,
+
+	"Lands on": 19, "Integrated into": 19, "Commit to land": 20, "Integrated commit": 20,
+	"Target commit it was prepared on": 21, "Previous target commit": 21,
+	"Pull request": 22, "Pull request merged": 23,
 }
 
 // trackerStopFields says which lines of a stop note open a field. A failure, a
 // reason, or a review summary is free text and can hold a line that begins with
 // a field's name, so a name alone does not open a field. What does is where the
-// line sits, in two ways the writers guarantee:
+// line sits, in three ways the writers guarantee:
 //
-//   - A writer never goes back to an earlier part of the note, so a named line
-//     from an earlier part than a field already open is text inside that field.
+//   - A writer never goes back to an earlier field (trackerStopFieldRank), so a
+//     named line ranked before the field already open is text inside that field.
+//   - A writer writes each field once, except a check, so a field's name after
+//     that field is already open is text too.
 //   - Only some fields run onto further lines (trackerStopFieldRunsOn). A named
 //     line straight after a field that does not cannot be inside free text, so
 //     it opens a field. One inside a field that does opens a field only where
@@ -256,48 +257,62 @@ var trackerStopFieldPart = map[string]int{
 // A check line must also have the shape renderCheckNotes gives it.
 func trackerStopFields(lines []string) []bool {
 	type named struct {
-		line int
-		part int
+		line  int
+		label string
+		rank  int
 	}
 	var candidates []named
 	for index, line := range lines {
 		label, value, field := strings.Cut(line, ":")
-		part, known := trackerStopFieldPart[label]
+		rank, known := trackerStopFieldRank[label]
 		if !field || !known || (label == "Check" && !trackerCheckLine(value)) {
 			continue
 		}
-		candidates = append(candidates, named{line: index, part: part})
+		candidates = append(candidates, named{line: index, label: label, rank: rank})
+	}
+	// follows says whether a writer can put field b after field a.
+	follows := func(a, b named) bool {
+		if b.rank != a.rank {
+			return b.rank > a.rank
+		}
+		return (a.rank == stopHeadRank && a.label != b.label) || a.label == "Check"
 	}
 	// longest[i] is how many named lines from candidate i onward can open fields
-	// in order with candidate i opening the first; best[p] is the most from any
-	// later candidate of part p.
+	// in order with candidate i opening the first.
 	longest := make([]int, len(candidates))
-	var best [stopLanding + 1]int
 	for index := len(candidates) - 1; index >= 0; index-- {
-		part := candidates[index].part
-		longest[index] = 1 + slices.Max(best[part:])
-		best[part] = max(best[part], longest[index])
-	}
-	// later[i][p] is best[p] as it stood just after candidate i: the most from a
-	// candidate after i, in each part.
-	later := make([][stopLanding + 1]int, len(candidates))
-	best = [stopLanding + 1]int{}
-	for index := len(candidates) - 1; index >= 0; index-- {
-		later[index] = best
-		part := candidates[index].part
-		best[part] = max(best[part], longest[index])
+		longest[index] = 1
+		for after := index + 1; after < len(candidates); after++ {
+			if follows(candidates[index], candidates[after]) {
+				longest[index] = max(longest[index], 1+longest[after])
+			}
+		}
 	}
 	opens := make([]bool, len(lines))
-	part, runsOn := stopOpening, false
+	opened := make(map[string]bool)
+	var open *named
+	runsOn := false
+	canOpen := func(candidate named) bool {
+		return (open == nil || follows(*open, candidate)) && (!opened[candidate.label] || candidate.label == "Check")
+	}
 	for index, candidate := range candidates {
-		if candidate.part < part {
+		if !canOpen(candidate) {
 			continue
 		}
-		if runsOn && longest[index] <= slices.Max(later[index][part:]) {
-			continue
+		if runsOn {
+			rival := 0
+			for after := index + 1; after < len(candidates); after++ {
+				if canOpen(candidates[after]) {
+					rival = max(rival, longest[after])
+				}
+			}
+			if longest[index] <= rival {
+				continue
+			}
 		}
 		opens[candidate.line] = true
-		part = candidate.part
+		opened[candidate.label] = true
+		open = &candidates[index]
 		runsOn = trackerStopFieldRunsOn(lines[candidate.line])
 	}
 	return opens
