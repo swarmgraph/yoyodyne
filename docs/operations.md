@@ -6819,9 +6819,12 @@ measures software teams commonly use for how often and how safely they ship:
 how many changes merge, how long a change takes from being asked for to being
 merged, how often a merged change turns out broken, and how long a breakage
 takes to put right — for each of the last thirty days and the last thirteen
-weeks, oldest first. Every day, and every week from Monday to Sunday, is counted in Pacific time,
-named under `zone` rather than taken from the machine, so the same records read
-the same on a machine in any zone. A merge is a change whose run recorded a
+weeks, oldest first. Every day, and every week from Monday to Sunday, is
+counted in your local time zone, which is the zone of the machine the dashboard
+runs on, and named under `zone`, such as `America/New_York`. The dashboard
+takes the zone's name from `TZ` where it is set, and otherwise from where
+`/etc/localtime` points; on a machine whose zone it cannot name, it counts in
+Pacific time and names that instead. A merge is a change whose run recorded a
 promotion, counted where `/api/throughput` counts it landed. For each period:
 
 - `merges`: how many changes merged, and which.
@@ -6932,6 +6935,48 @@ chart library is not in this build. The table, under "The figures as a table",
 is under the chart either way. Each series is told apart by its point shape and
 line pattern as well as its colour, and the chart's text and rules take the
 page's light or dark colours.
+
+### The delivery page
+
+The link "How the work ships" in the top status band, beside the link to the
+backlog page, opens the delivery page, at `/delivery`, which charts
+`/api/delivery` so you can see how often changes merge and how safely. The
+backlog page links to it, and it links back to both. It uses the main page's
+token, so a tab already signed in opens it signed in. It reads the measures when
+it opens and every minute after, and changes nothing.
+
+One control chooses the time scale: daily, the last thirty days, or weekly, the
+last thirteen weeks from Monday. The page names the zone the periods are counted
+in, for example `America/Los_Angeles (PDT)`, and says so when your browser is in
+a different one, since the dashboard counts in its machine's zone rather than
+the browser's.
+
+Each measure has a panel of its own, a chart with a table of the same figures
+under it, newest first: changes merged; lead time, from filing to merge, as the
+median and the 90th percentile; lead time by stage, as each stage's median;
+the change failure rate; recovery time; the rework rate, with the share of
+merges whose item records no kind beside it; hand steps per merged change, which
+is at least the recorded count; the first-pass rate; and tokens per merged
+change, one series per model. Durations are in hours on the charts and in words
+in the tables, and shares are percentages. Each panel names the records its
+measure was read from.
+
+A figure the reading does not carry is never drawn as zero. Where a measure's
+records could not be read for a day or week, its table says `not recorded`,
+its chart leaves a gap in the line there, and a note under the chart gives the
+reason and the days or weeks it held for; a source the dashboard could not read
+at all is also named at the top of the page. A day or week in which nothing
+merged says `nothing merged` in the tables of the measures taken over merges,
+and is a gap too, because a rate over no changes is not zero. A figure that
+really is zero, such as no failed changes among two merged, is drawn as zero.
+
+The page draws with the same chart library as the backlog page, the one copy
+the build carries in `internal/dashboard/assets/chart.umd.js`, loaded only where
+it matches its record, so the page loads nothing from anywhere else. A build
+whose library is missing or does not match shows every measure as its table,
+open, and says the chart library is not in this build. Each series is told
+apart by its point shape and line pattern as well as its colour, and the charts
+take the page's light or dark colours.
 
 ### The dashboard under the product
 

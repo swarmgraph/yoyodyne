@@ -610,7 +610,7 @@ func (r dashboardReader) Accomplishment(ctx context.Context) (readmodel.Accompli
 }
 
 // Delivery is the factory's delivery measures, day by day and week by week in
-// Pacific time. readmodel.ReadDelivery counts a merge exactly where the
+// the operator's local zone (operatorZone). readmodel.ReadDelivery counts a merge exactly where the
 // throughput counts a landing, and the hand steps per change by
 // readmodel.CountInterventions, the count `yoyo intervention` prints.
 func (r dashboardReader) Delivery(ctx context.Context) (readmodel.Delivery, error) {
@@ -628,7 +628,9 @@ func (r dashboardReader) Delivery(ctx context.Context) (readmodel.Delivery, erro
 // store that will not open costs the measures read from it, and the reason
 // travels with the gap.
 //
-// The tracker is told the zone its writers ran bd in: this repository's are in
+// The days and weeks are counted in the operator's local zone (operatorZone),
+// which the delivery page names. The tracker is told the zone its writers ran
+// bd in, which is a different question: this repository's are in
 // Pacific time, and a dependency stamp bd wrote in a writer's wall clock is
 // corrected in that zone rather than in whichever zone the dashboard happens to
 // run in (beads.Client.WriterZone). No delivery measure is read from a
@@ -636,7 +638,7 @@ func (r dashboardReader) Delivery(ctx context.Context) (readmodel.Delivery, erro
 // which another status reading's client may have made without the zone.
 func deliverySources(resolved config.Resolved) readmodel.DeliverySources {
 	zone := readmodel.DeliveryZone()
-	sources := readmodel.DeliverySources{TrackerTimeout: chatTrackerTimeout, Zone: zone}
+	sources := readmodel.DeliverySources{TrackerTimeout: chatTrackerTimeout, Zone: operatorZone()}
 	roots, err := resolveRoots(resolved)
 	if err != nil {
 		problem := fmt.Sprintf("the product's directories could not be resolved: %v", err)
@@ -766,8 +768,8 @@ blocked, what needs you, and what it cost, counted from today or over the last
 seven days, at /api/summary?since=today or ?since=week, what landed over today
 and the last seven days at /api/throughput, what was spent over the last 24 hours and the last seven local
 days with a line for each of the last thirty at /api/spend, the factory's
-delivery measures for each of the last thirty days and thirteen weeks in Pacific
-time at /api/delivery, what the spend of the current week and the three before
+delivery measures for each of the last thirty days and thirteen weeks in this
+machine's time zone at /api/delivery, which the delivery page at /delivery charts, what the spend of the current week and the three before
 it accomplished at /api/accomplishment -- the reading `+"`yoyo status --spend --from`"+`
 prints, rebuilt every fifteen minutes -- and one work item
 whole -- its tracker fields and the run last made for it -- at
@@ -776,7 +778,8 @@ and one program manager instance with its current lane report at
 /api/program-managers/<agent>, which is what the page's report card reads,
 and every work item the tracker holds, open and closed, with when it was filed
 and closed, its priority, labels, who does it, whether it is ready or waiting,
-and who filed it, at /api/backlog; the page shell at / and its own script and style are
+and who filed it, at /api/backlog, which the backlog page at /backlog charts; the
+page shells at /, /backlog, and /delivery and their own script and style are
 static text with nothing of the read model in them, served to the browser before
 it has a token. Everything else is refused: a request for the read model with no
 token or the wrong one, a Host or Origin that is not the address it bound, and

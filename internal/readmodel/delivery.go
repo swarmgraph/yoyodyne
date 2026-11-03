@@ -2,7 +2,7 @@ package readmodel
 
 // The factory's delivery measures, modelled on the ones software teams
 // commonly use for how often and how safely they ship, day by day and week by
-// week in Pacific time, for the dashboard's delivery page (the delivery page
+// week in the operator's local zone, for the dashboard's delivery page (the delivery page
 // in docs/designs/observability-and-dashboard.md).
 //
 // A deployment is a change merged to main: an item whose run recorded a
@@ -27,9 +27,10 @@ package readmodel
 //     first review verdict;
 //   - tokens, from the usage the provider reported for each invocation.
 //
-// Every period is a calendar day or a week from Monday to Sunday in Pacific time,
-// named rather than taken from the machine, so the same records read the same
-// on a machine in any zone. A measure whose source could not be read says so in
+// Every period is a calendar day or a week from Monday to Sunday in the zone
+// the sources name, and the reading names it: the dashboard names the
+// operator's, which is the machine's (internal/cli, operatorZone), and a caller
+// that names none gets Pacific time, DeliveryZoneName. A measure whose source could not be read says so in
 // its own words under not_recorded and carries no figure; one read from only
 // some of its sources names the others under not_read and is a floor. Nothing
 // unknown is reported as zero.
@@ -54,9 +55,11 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-// DeliveryZoneName is the zone every delivery period is counted in. It is
-// Pacific time because that is the operator's, and it is named rather than read
-// from the machine so a reading does not change with where it is taken.
+// DeliveryZoneName is the zone delivery periods are counted in where the
+// sources name none, and the zone the tracker's writers in this repository ran
+// bd in (beads.Client.WriterZone). The dashboard names the operator's own zone
+// instead, and falls back to this one only where the machine's zone has no
+// name it can load.
 const DeliveryZoneName = "America/Los_Angeles"
 
 const (
@@ -161,9 +164,8 @@ type DeliverySources struct {
 	FactoryStallsProblem string
 	Reverts              DeliveryReverts
 	RevertsProblem       string
-	// Zone is the zone the periods are counted in. Nil is DeliveryZoneName; a
-	// test names another only to show it is the zone, not the machine, that
-	// decides.
+	// Zone is the zone the periods are counted in. Nil is DeliveryZoneName;
+	// the dashboard names the operator's.
 	Zone *time.Location
 	// Now stamps the reading and anchors the periods. It defaults to the wall
 	// clock.

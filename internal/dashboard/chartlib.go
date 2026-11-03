@@ -1,9 +1,9 @@
 package dashboard
 
-// The backlog page draws with Chart.js at one exact version, kept in the
-// assets, as the observability-and-dashboard design's "the chart library"
-// rules: served by the dashboard itself, so the policy stays script-src 'self'
-// and the browser fetches nothing from a CDN.
+// The backlog and delivery pages draw with Chart.js at one exact version, one
+// copy for both, kept in the assets, as the observability-and-dashboard
+// design's "the chart library" rules: served by the dashboard itself, so the
+// policy stays script-src 'self' and the browser fetches nothing from a CDN.
 //
 // The library is a pinned outside file (docs/designs/pinned-outside-files.md):
 // nobody checks it in by hand. Its record, assets/chart.umd.js.yoyodyne-source.yaml,
@@ -97,8 +97,8 @@ func chartLibraryIn(files fs.FS) (chartLibrary, error) {
 	return chartLibrary{Record: record, License: string(license)}, nil
 }
 
-// chartLibraryLoads says whether the backlog page loads the library from
-// files: it is there and matches its record.
+// chartLibraryLoads says whether the backlog and delivery pages load the
+// library from files: it is there and matches its record.
 func chartLibraryLoads(files fs.FS) bool {
 	_, err := chartLibraryIn(files)
 	return err == nil

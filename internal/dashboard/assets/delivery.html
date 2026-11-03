@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Product}} — how the work ships — yoyo dashboard</title>
+<link rel="stylesheet" href="/assets/dashboard.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="mark" aria-hidden="true">yoyo</span>
+    <h1>{{.Product}}: how the work ships</h1>
+  </div>
+  <p class="observed"><a class="page-link" href="/">Back to the dashboard</a> · <a class="page-link" href="/backlog">The backlog over time</a> · read <time id="observed-at">—</time></p>
+</header>
+<main id="page" data-state="signin">
+  <section class="state state-signin" aria-labelledby="signin-heading">
+    <h2 id="signin-heading">This dashboard needs its token</h2>
+    <p>The token was printed once, in the terminal where <code>yoyo dashboard</code> was started. Paste it here; it is kept in this tab's session storage, scoped to this address and port, and is never put in a URL or a cookie.</p>
+    <p id="signin-note" role="alert" class="note"></p>
+    <form id="signin">
+      <label for="token">Token</label>
+      <input id="token" name="token" type="password" autocomplete="off" required>
+      <button type="submit">Open the delivery measures</button>
+    </form>
+  </section>
+  <section class="state state-loading" aria-live="polite">
+    <p class="waiting"><span class="pulse" aria-hidden="true"></span>Reading every merged change and the records about it…</p>
+  </section>
+  <section class="state state-error" role="alert">
+    <h2>The delivery measures could not be read</h2>
+    <p id="problem" class="problem"></p>
+    <p id="remedy" class="remedy"></p>
+  </section>
+  <div class="state state-ready">
+    <section id="delivery" class="panel" aria-labelledby="delivery-heading">
+      <div class="panel-head">
+        <h2 id="delivery-heading">How often and how safely does the work ship?</h2>
+        <p id="delivery-zone" class="panel-note"></p>
+      </div>
+      <form id="delivery-controls" class="backlog-controls">
+        <label>Time scale
+          <select id="delivery-scale">
+            <option value="daily" selected>daily: the last 30 days</option>
+            <option value="weekly">weekly: the last 13 weeks</option>
+          </select>
+        </label>
+      </form>
+      <p id="delivery-stale" class="banner" role="status" hidden></p>
+      <ul id="delivery-sources" class="footnotes" aria-label="Records that could not be read" hidden></ul>
+      <p id="delivery-nochart" class="footnote" hidden>The chart library is not in this build of the dashboard, so the figures are shown as tables only.</p>
+    </section>
+    <div id="delivery-measures"></div>
+  </div>
+</main>
+{{if .ChartLibrary}}<script src="/assets/chart.umd.js"></script>
+{{end}}<script src="/assets/delivery-figures.js"></script>
+<script src="/assets/delivery.js"></script>
+</body>
+</html>
