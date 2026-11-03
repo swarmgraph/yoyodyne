@@ -5688,8 +5688,22 @@ Between 2026-09-08 and 09-13 the harness recorded 134 of these refusals and
 said nothing about what they added up to; this is what says it. Where the
 session's own window and this are both true, the session's is the banner —
 it is the same fact with less inference — and the hold is still on the
-attention line. Nothing else is ever put above the four lines: every other
-reason the harness is choosing nothing is inside them.
+attention line.
+
+Where nothing pauses the harness on the provider, the same place says why **no
+new work is starting because pull requests are waiting for a person to merge**,
+once as many are waiting as
+[`execution.max_waiting_pull_requests`](configuration/runs.md#pull-requests-waiting-for-a-person-to-merge)
+allows, naming each one by number and by its work item:
+
+```text
+Not starting new work because 5 pull requests are waiting for a person to merge (the limit is 5): #41 for (P1) Retry the merge (ex-7); ... New work starts again by itself once one of them is merged or closed.
+Running: ...
+```
+
+It goes once the count falls below the limit, with nothing to release. Nothing
+else is ever put above the four lines: every other reason the harness is
+choosing nothing is inside them.
 
 **Under the four lines, each account's provider usage**, as Claude Code last
 reported it:
@@ -7174,7 +7188,9 @@ has a merge queue record, each drawn from the read model and from nothing
 else. Above them, one banner and only one, while it stands: the same sentence
 the terminal prints above the four lines when the harness is paused on the
 provider's usage window, when every role is held by one, or when the provider
-is answering nobody. Beside the product's name the page says when the reading
+is answering nobody, and, where none of those stands, when no new work is
+starting because as many pull requests as the limit allows are waiting for a
+person to merge, each named by number and by its work item. Beside the product's name the page says when the reading
 was observed, how old the dashboard's snapshot of it was when it was served —
 `taken 4s ago; asks again every 10 s` — and when it asks again. Where a
 reading takes the dashboard longer than its interval, the age says how long

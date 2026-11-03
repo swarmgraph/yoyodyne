@@ -3381,25 +3381,6 @@ pulling:
 			continue
 		}
 
-		// At the limit on pull requests waiting for a person to merge, nothing is
-		// chosen from the queue. It is read here, after every start that is not
-		// new work has been made above — decided repairs, continuations,
-		// re-adopted runs, documents, outside files — so those carry on, and it
-		// is read again at every pull, so the merge or closing that brings the
-		// count below the limit starts new work at the next pull with nothing to
-		// release (waitingpullrequests.go).
-		if waiting, reached := s.waitingPullRequestsReached(&schedule, pull); reached {
-			if !s.Watching {
-				schedule.Stopped = ScheduleWaitingPullRequests
-				break
-			}
-			if !awaitProvider(pull, account{reason: waiting.Says(), running: running}) {
-				schedule.Stopped = ScheduleCancelled
-				break
-			}
-			continue
-		}
-
 		// The hold's start goes first to a decided recovery of its own test run,
 		// ahead of every other decision and every ready item: that recovery is the
 		// hold's test run still, its landing lifts the hold and its blocking keeps
@@ -3421,6 +3402,27 @@ pulling:
 				}
 				continue
 			}
+		}
+
+		// At the limit on pull requests waiting for a person to merge, nothing is
+		// chosen from the queue. It is read here, after every start that is not
+		// new work has been made above — decided repairs, the decided recovery of
+		// the brake's own test run, continuations, re-adopted runs, documents,
+		// outside files — so those carry on, and a probe the brake would choose
+		// fresh from the queue waits like any other new work. It is read again at
+		// every pull, so the merge or closing that brings the count below the
+		// limit starts new work at the next pull with nothing to release
+		// (waitingpullrequests.go).
+		if waiting, reached := s.waitingPullRequestsReached(&schedule, pull); reached {
+			if !s.Watching {
+				schedule.Stopped = ScheduleWaitingPullRequests
+				break
+			}
+			if !awaitProvider(pull, account{reason: waiting.Says(), running: running}) {
+				schedule.Stopped = ScheduleCancelled
+				break
+			}
+			continue
 		}
 
 		// The queue a decision was ranked against is the one this pull chooses from,
