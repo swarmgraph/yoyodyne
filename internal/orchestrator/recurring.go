@@ -428,6 +428,19 @@ type Trigger struct {
 	// running still finds the network back on its own. Zero fires into every
 	// due firing, which is what a trigger did before the wait was named.
 	OutageProbe time.Duration
+	// UsageLimits is the product's record of the provider refusing the harness
+	// for want of capacity, CapacityServed what it has served since, and
+	// CapacityProbes the probes sent into windows it refused with no reset time,
+	// paced on UnknownResetProbe — execution.usage_limit_unknown_reset_pause.
+	// Endpoint is what a role's turn asks for: the agent configured for the role,
+	// or the program manager instance named. All optional, and a trigger wired
+	// without the log or the endpoints fires into every refusal, which is what
+	// every firing did until the wait was named. See capacityWait.
+	UsageLimits       readmodel.UsageLimits
+	CapacityServed    readmodel.CapacityServedRecord
+	CapacityProbes    readmodel.CapacityProbeRecorder
+	UnknownResetProbe time.Duration
+	Endpoint          func(role domain.AgentRole, agent string) (readmodel.AgentEndpoint, bool)
 	// Forge is the harness's own reading of the forge's open pull requests,
 	// taken on every pass of a development manager's task. Optional: a trigger
 	// wired without one records what the role said and reads the forge for

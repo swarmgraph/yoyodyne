@@ -43,6 +43,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -112,6 +113,11 @@ type WaitingFiring struct {
 	Conversation string
 	Due          time.Time
 	Full         bool
+	// Capacity is what is said of a firing a recorded usage window kept from
+	// its turn, and empty for any other wait; NextTry is when the turn is next
+	// tried — the reset the provider named, or the next paced probe.
+	Capacity string
+	NextTry  time.Time
 }
 
 // claimedFiring is one firing a candidate claimed: recorded already where
@@ -205,6 +211,10 @@ func (t Trigger) Start(ctx context.Context, busy map[string]bool, free int) (Rec
 	}
 	var start RecurringStart
 	now := t.now()
+	windows, windowProblem := t.capacityWindows(now)
+	if windowProblem != nil {
+		problems = append(problems, windowProblem)
+	}
 	for _, next := range candidates {
 		if taken[next.conversation] {
 			if next.dueBy(now) {
@@ -218,12 +228,30 @@ func (t Trigger) Start(ctx context.Context, busy map[string]bool, free int) (Rec
 			}
 			continue
 		}
+		// A turn whose model a recorded usage window holds closed is not
+		// attempted: not before the reset the provider named, and, where it
+		// named none, not before the next paced probe. Nothing is claimed, so
+		// the firing stays due and is made at the first pull past that time.
+		window, models, verdict := t.capacityWait(windows, next)
+		if verdict == readmodel.CapacityClosed {
+			if next.dueBy(now) {
+				start.Waiting = append(start.Waiting, WaitingFiring{
+					Task: next.name, Conversation: next.conversation, Due: next.due,
+					Capacity: fmt.Sprintf("waiting for provider capacity: its turn would ask for %s, and %s", models, window.Says(window.Model)),
+					NextTry:  window.Until,
+				})
+			}
+			continue
+		}
 		claimed, took, err := next.claim(ctx)
 		if err != nil {
 			problems = append(problems, err)
 		}
 		if !took {
 			continue
+		}
+		if verdict == readmodel.CapacityProbeDue && claimed.settled == nil {
+			problems = append(problems, t.sendCapacityProbe(windows, window, next))
 		}
 		taken[next.conversation] = true
 		if claimed.settled != nil {
@@ -551,8 +579,99 @@ func (s Scheduler) startFirings(ctx context.Context, schedule *Schedule, recurri
 	return held
 }
 
+// capacityWindows is the usage windows the records hold at now, read against
+// every endpoint a firing may ask for. A record that cannot be read is said,
+// and the firings are made as though no window stood: a schedule that stopped
+// firing because it could not open one file would be a worse failure than a
+// turn spent into a refusal.
+func (t Trigger) capacityWindows(now time.Time) (readmodel.CapacityWindows, error) {
+	if t.UsageLimits == nil || t.Endpoint == nil {
+		return readmodel.CapacityWindows{}, nil
+	}
+	refusals, err := t.UsageLimits.List()
+	if err != nil {
+		return readmodel.CapacityWindows{}, fmt.Errorf("read whether a provider usage limit holds a role's turn, so the firings were made as though none did: %w", err)
+	}
+	var problems []error
+	evidence, problem := readmodel.ReadCapacityEvidence(t.CapacityServed, nil)
+	if problem != "" {
+		problems = append(problems, errors.New(problem))
+	}
+	var probes []runstate.CapacityProbe
+	if t.CapacityProbes != nil {
+		listed, err := t.CapacityProbes.List()
+		if err != nil {
+			problems = append(problems, fmt.Errorf("read when the provider was last asked again about a usage limit with no reset time: %w", err))
+		}
+		probes = listed
+	}
+	var endpoints []readmodel.AgentEndpoint
+	for _, role := range domain.Roles() {
+		if endpoint, configured := t.Endpoint(role, ""); configured {
+			endpoints = append(endpoints, endpoint)
+		}
+	}
+	for _, agent := range t.instanceNames() {
+		if endpoint, configured := t.Endpoint(domain.RoleProgramManager, agent); configured {
+			endpoints = append(endpoints, endpoint)
+		}
+	}
+	return readmodel.ReadCapacityWindows(readmodel.CapacityWindowReading{
+		Refusals:  refusals,
+		Probes:    probes,
+		Endpoints: endpoints,
+		Evidence:  evidence,
+		Interval:  t.UnknownResetProbe,
+	}, now), errors.Join(problems...)
+}
+
+// capacityWait is what the windows make of a candidate's turn: the role's
+// model, then the alternate it fails over to.
+func (t Trigger) capacityWait(windows readmodel.CapacityWindows, next candidate) (readmodel.CapacityWindow, string, readmodel.CapacityVerdict) {
+	if windows.Empty() || t.Endpoint == nil {
+		return readmodel.CapacityWindow{}, "", readmodel.CapacityOpen
+	}
+	agent := ""
+	if next.conversation == instanceConversationKey(next.name) {
+		agent = next.name
+	}
+	endpoint, configured := t.Endpoint(next.role, agent)
+	if !configured {
+		return readmodel.CapacityWindow{}, "", readmodel.CapacityOpen
+	}
+	asks := []readmodel.CapacityAsk{{Model: endpoint.Model}}
+	models := strings.TrimSpace(endpoint.Model)
+	if alternate := strings.TrimSpace(endpoint.Alternate); alternate != "" {
+		asks = append(asks, readmodel.CapacityAsk{Model: alternate})
+		models += " and " + alternate
+	}
+	window, verdict := windows.Ask(asks...)
+	return window, models, verdict
+}
+
+// sendCapacityProbe records that a firing's turn is being sent as the paced
+// probe of a window refused with no reset, and holds the rest of the pull off
+// the same window, so two roles on one model do not each probe it at once.
+func (t Trigger) sendCapacityProbe(windows readmodel.CapacityWindows, window readmodel.CapacityWindow, next candidate) error {
+	now := t.now()
+	windows.Probed(window, now)
+	if t.CapacityProbes == nil {
+		return nil
+	}
+	var problems []error
+	for _, probe := range window.Probes(now, fmt.Sprintf("a turn of the %s for %s", next.role, next.name)) {
+		if err := t.CapacityProbes.Record(probe); err != nil {
+			problems = append(problems, fmt.Errorf("record that the turn of %s was sent to ask the provider again about %s: %w", next.name, probe.Model, err))
+		}
+	}
+	return errors.Join(problems...)
+}
+
 // waitingReason is what kept one due firing behind the others.
 func waitingReason(waiting WaitingFiring, firings *recurringFirings) string {
+	if waiting.Capacity != "" {
+		return waiting.Capacity
+	}
 	if waiting.Full {
 		var holding []string
 		for _, started := range firings.inFlight {

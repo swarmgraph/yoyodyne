@@ -73,6 +73,7 @@ var strictSites = map[string]strictSite{
 	"internal/runstate/exchange.go:(*ExchangeStore).load":                            {strictDoor, "Load is strict for the conductor that answers and settles; Read, List, and the spend totals are tolerant"},
 	"internal/runstate/directive.go:(*DirectiveStore).load":                          {strictDoor, "Find and Pausing are strict for settling and gating; List, which the read model and the sink read, is tolerant"},
 	"internal/runstate/firstseen.go:(*FirstSeenStore).read":                          {strictDoor, "Observe is strict under its lock before it rewrites the record; FirstSeen, which the read model reads, is tolerant"},
+	"internal/runstate/capacityprobe.go:(*CapacityProbeStore).read":                  {strictDoor, "Record is strict because it rewrites what it read; List, which the watch and the recurring firings read to pace their probes, is tolerant"},
 	"internal/runstate/capacityserved.go:(*CapacityServedStore).read":                {strictDoor, "Record is strict because it rewrites what it read; List, which the read model, the sink, and the watch read, is tolerant"},
 	"internal/runstate/usagewindow.go:(*UsageWindowStore).read":                      {strictDoor, "RecordUsageWindows is strict because it rewrites what it read; List, which the read model reads, is tolerant"},
 	"internal/runstate/trackerlisting.go:(*TrackerListingStore).read":                {strictDoor, "Failed and Answered are strict because they rewrite what they read; Read, which the read model reads, is tolerant"},

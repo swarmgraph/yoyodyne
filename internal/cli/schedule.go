@@ -890,6 +890,11 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// turn has disproved or on a conversation nothing will speak in again.
 		CapacityServed: parts.capacityServed,
 		Conversations:  pullConversations(parts),
+		// A refusal with no reset time holds dispatch to its model until the next
+		// probe, paced on the one interval the configuration states for asking
+		// again rather than being told when, and recorded so a restart keeps it.
+		CapacityProbes:    parts.capacityProbes,
+		UnknownResetProbe: parts.config.Execution.UsageLimitUnknownResetPause.Duration(),
 		// The audit that gives back a claim with nothing alive behind it. It is
 		// wired into the pull rather than into a run for the reason the escalation
 		// is, and a sharper one: the state it catches is a run that is not there, so

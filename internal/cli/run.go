@@ -163,6 +163,10 @@ type components struct {
 	// model, written by every served invocation and read against the usage
 	// limits: a refusal recorded before it on that account and model is lifted.
 	capacityServed *runstate.CapacityServedStore
+	// capacityProbes is when the harness last asked the provider again about a
+	// window it refused with no reset time, per account and model, which paces
+	// the next such probe across sessions and restarts.
+	capacityProbes *runstate.CapacityProbeStore
 	// divergences is the product's record of the target branches the harness
 	// will not catch up to the remote's: written by the run whose promotion is
 	// refused on one, read by a watching session that chooses nothing while one
@@ -443,6 +447,10 @@ func buildComponents(configPath string) (components, error) {
 	if err != nil {
 		return components{}, err
 	}
+	capacityProbes, err := runstate.NewCapacityProbeStore(stateRoot, cfg.Product.ID)
+	if err != nil {
+		return components{}, err
+	}
 	divergences, err := runstate.NewDivergedTargetStore(stateRoot, cfg.Product.ID)
 	if err != nil {
 		return components{}, err
@@ -518,6 +526,7 @@ func buildComponents(configPath string) (components, error) {
 		usageLimits:      usageLimits,
 		outages:          outages,
 		capacityServed:   capacityServed,
+		capacityProbes:   capacityProbes,
 		divergences:      divergences,
 		launchSettings:   launchSettings,
 		squashHolds:      squashHolds,

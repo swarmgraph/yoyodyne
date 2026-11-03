@@ -824,6 +824,16 @@ type Pull struct {
 	// Optional; a pull wired without it reads every item as asking for that agent's
 	// own model.
 	DeveloperModels []config.DeveloperModelRule
+	// CapacityProbes is the record of the probes sent into windows the provider
+	// refused with no reset time, and UnknownResetProbe the interval they are
+	// paced on: execution.usage_limit_unknown_reset_pause as this pull read it.
+	// A refusal with no reset holds fresh dispatch to its model until one
+	// interval after the later of the refusal and the last probe, when one run is
+	// sent as the next probe. Both optional: a pull wired without the interval
+	// holds nothing on a refusal with no reset, and one wired without the record
+	// paces its probes in memory only, so a restarted session may probe at once.
+	CapacityProbes    readmodel.CapacityProbeRecorder
+	UnknownResetProbe time.Duration
 	// CapacityServed and Conversations are what the refusals above are read
 	// against before they hold anything: a refusal the provider has since served
 	// its account and model through, or a refusal of a conversation its role has
@@ -1339,6 +1349,10 @@ type Schedule struct {
 	// read past as though no window stood.
 	UsageWindowResetsAt *time.Time `json:"usage_window_resets_at,omitempty"`
 	UsageWindowProblem  string     `json:"usage_window_problem,omitempty"`
+	// CapacityProbes is the developer runs this pass sent as the paced probe of a
+	// window the provider refused with no reset time, at most one per window per
+	// probe interval.
+	CapacityProbes []CapacityProbeSent `json:"capacity_probes,omitempty"`
 	// ReleasedClaims is the claims this pass audited against the runs the harness
 	// has, found nothing alive behind, and gave back to the queue. It is on the
 	// schedule for the reason the started runs are: a pass that freed work somebody
@@ -2586,7 +2600,7 @@ pulling:
 		// here: what it closes is read again per item below, so an item whose run
 		// would ask for a closed model waits in its place in the order while work
 		// on a model still served is pulled past it.
-		recordedClosed, closedModels, standing := s.usageWindow(&schedule, pull)
+		recordedClosed, capacityWindows, standing := s.usageWindow(&schedule, pull)
 		if standing {
 			if !s.Watching {
 				schedule.Stopped = ScheduleProviderWindow
@@ -3462,7 +3476,7 @@ pulling:
 			answer, err := s.eligibility(entry, eligibilityReading{
 				pull: pull, read: read, tried: tried, occupied: occupied, waiting: waitingRuns,
 				schedule: &schedule, poll: &poll, passOver: passOver, keepWait: keepWait,
-				windows: closedModels,
+				windows: capacityWindows,
 			})
 			if err == nil {
 				decided[entry.ID] = answer
@@ -3569,6 +3583,11 @@ pulling:
 		// (outranksPreference). A dedicated slot walks past priority-0 work too,
 		// and what it walked past is reported as waiting for another slot.
 		var leftBehind []walkedPast
+		// capacityHeld is the items a recorded window kept from the slot that
+		// reached them, with what is said of each. One another slot then started
+		// is not waiting on anything, so each is named only once the slots are
+		// filled.
+		capacityHeld := map[string]string{}
 		fill := func(slot developerslot.Slot, labelled bool) (walk, error) {
 			var past []walkedPast
 			for _, entry := range queue.Entries {
@@ -3611,8 +3630,22 @@ pulling:
 					poll.pass(entry.ID, runstate.PassedOverSequencedBehindWork, "")
 					continue
 				}
+				// The recorded windows are asked again for the slot taking the item:
+				// a slot with an endpoint pair of its own sends the run somewhere
+				// the pull-wide answer did not read, and a window whose probe is due
+				// lets exactly one item through as that probe.
+				window, models, verdict := s.windowFor(pull, capacityWindows, read.items[entry.ID], slot.Number)
+				if verdict == readmodel.CapacityClosed {
+					capacityHeld[entry.ID] = windowReasonFor(window, models)
+					continue
+				}
 				if !start(entry, slot, pulledInto{slot: slot, labelled: labelled && preferred, outranked: labelled && !preferred}) {
 					return walkStopped, nil
+				}
+				// The probe is recorded once the run is actually started, so a start
+				// that did not happen never pushes the next probe back an interval.
+				if verdict == readmodel.CapacityProbeDue {
+					s.sendCapacityProbe(&schedule, pull, capacityWindows, window, entry.ID)
 				}
 				for index := range past {
 					past[index].took = entry.ID
@@ -3664,6 +3697,12 @@ pulling:
 					// over them because they are in flight.
 					continue pulling
 				}
+			}
+		}
+		for _, entry := range queue.Entries {
+			if reason, held := capacityHeld[entry.ID]; held && !startedNow[entry.ID] {
+				keepWait(entry.ID, runstate.PassedOverWaitingOnUsageWindow, reason)
+				poll.passWindow(entry.ID, reason)
 			}
 		}
 		// What a preferring slot walked past for want of its label on the way to
@@ -4851,25 +4890,28 @@ type recordedWindow struct {
 // See readmodel.WindowStoppedRunRefusals.
 //
 // Where the window closes some developer models and not every one, nothing
-// stands for the whole pull, and what is returned instead is the models it
-// closes: an item whose run would ask for one of them is passed over by
-// itself, keeping its place in the order (see windowFor).
+// stands for the whole pull, and what is returned instead is every window the
+// records hold (readmodel.ReadCapacityWindows): an item whose run would ask
+// only for closed models is passed over by itself, keeping its place in the
+// order (see windowFor). Those windows include the refusals that named no
+// reset, which hold their models until the next paced probe, and the
+// account-wide limits, which close every developer model of their provider.
 //
 // A pull wired without the endpoints reads none, and a record that cannot be
 // read is said on the schedule and read past, for the reason the outage reading
 // gives: a session that stopped choosing work because it could not open one
 // file would be a worse failure than dispatching into a refusal.
-func (s Scheduler) usageWindow(schedule *Schedule, pull Pull) (recordedWindow, closedModels, bool) {
+func (s Scheduler) usageWindow(schedule *Schedule, pull Pull) (recordedWindow, readmodel.CapacityWindows, bool) {
 	schedule.UsageWindowResetsAt = nil
 	if len(pull.Developers) == 0 || (pull.UsageLimits == nil && pull.Stoppages == nil) {
-		return recordedWindow{}, nil, false
+		return recordedWindow{}, readmodel.CapacityWindows{}, false
 	}
 	var refusals []runstate.UsageLimitExhaustion
 	if pull.UsageLimits != nil {
 		listed, err := pull.UsageLimits.List()
 		if err != nil {
 			schedule.UsageWindowProblem = fmt.Sprintf("whether a provider usage limit is reached could not be read, so work was picked as though none were: %v", err)
-			return recordedWindow{}, nil, false
+			return recordedWindow{}, readmodel.CapacityWindows{}, false
 		}
 		refusals = listed
 	}
@@ -4917,7 +4959,11 @@ func (s Scheduler) usageWindow(schedule *Schedule, pull Pull) (recordedWindow, c
 	// stand here.
 	hold := readmodel.ReadCapacityHold(pull.Developers, nil, standing, now, 0, evidence)
 	if !hold.Holding || hold.ResetsAt.IsZero() || !now.Before(hold.ResetsAt) {
-		return recordedWindow{}, closedDeveloperModels(evidence.Standing(standing), now), false
+		// Every refusal is read here, not only the developer models': a limit
+		// over the whole account met by another role's model closes the
+		// developer's models too.
+		all := append(append(readmodel.ParkedRunRefusals(runs), stopped...), refusals...)
+		return recordedWindow{}, s.capacityWindows(schedule, pull, all, runs, evidence, now), false
 	}
 	resetsAt := hold.ResetsAt.UTC()
 	schedule.UsageWindowResetsAt = &resetsAt
@@ -4933,99 +4979,178 @@ func (s Scheduler) usageWindow(schedule *Schedule, pull Pull) (recordedWindow, c
 		window: providerWindow{waiting: true, resetsAt: resetsAt},
 		found: fmt.Sprintf("the usage-limit record holds %s closed on %s until %s, which every developer turn ends on, so nothing is chosen until it lifts",
 			limit, strings.Join(models, " and "), resetsAt.Format(time.RFC3339)),
-	}, nil, true
+	}, readmodel.CapacityWindows{}, true
 }
 
-// closedModels is the developer models a recorded usage window holds closed at
-// one pull, each with the window that closes it.
-type closedModels map[string]modelWindow
-
-// modelWindow is one model's closed window: when the provider said it reopens,
-// and the provider's own name for the limit, empty where it named none.
-type modelWindow struct {
-	resetsAt time.Time
-	kind     string
-}
-
-// closedDeveloperModels is the models the standing refusals close, each until
-// the latest reset any of them named. A refusal names a model or closes nothing
-// here: one that named none cannot be told apart from a refusal of a model a
-// run would not ask for, and holding an item on it would hold work the
-// provider is serving. A turn an alternate served for want of capacity still
-// closes the model it moved off; a substitution for any other reason names no
-// window.
-func closedDeveloperModels(standing []runstate.UsageLimitExhaustion, now time.Time) closedModels {
-	closed := closedModels{}
-	for _, refusal := range standing {
-		model := strings.TrimSpace(refusal.Model)
-		if model == "" || refusal.ResetsAt == nil || !refusal.WindowClosed(now, 0) {
-			continue
+// capacityWindows is the windows the refusals hold at this pull, read against
+// every endpoint a developer run can be sent to: the developer's own, each model
+// execution.developer_models maps a label to, and each developer slot's own
+// endpoint pair. A probe record that cannot be read paces nothing, and is said.
+func (s Scheduler) capacityWindows(schedule *Schedule, pull Pull, refusals []runstate.UsageLimitExhaustion, runs []runstate.State, evidence readmodel.CapacityEvidence, now time.Time) readmodel.CapacityWindows {
+	var probes []runstate.CapacityProbe
+	if pull.CapacityProbes != nil {
+		listed, err := pull.CapacityProbes.List()
+		if err != nil {
+			schedule.UsageWindowProblem = fmt.Sprintf("when the provider was last asked again about a usage limit with no reset time could not be read, so a probe may be sent early: %v", err)
 		}
-		if refusal.Substituted() && refusal.Reason() != runstate.SubstitutedForCapacity {
-			continue
-		}
-		if window, seen := closed[model]; !seen || refusal.ResetsAt.After(window.resetsAt) {
-			closed[model] = modelWindow{resetsAt: refusal.ResetsAt.UTC(), kind: strings.TrimSpace(refusal.Kind)}
-		}
+		probes = listed
 	}
-	if len(closed) == 0 {
+	return readmodel.ReadCapacityWindows(readmodel.CapacityWindowReading{
+		Refusals:  refusals,
+		Runs:      runs,
+		Probes:    probes,
+		Endpoints: append(append([]readmodel.AgentEndpoint(nil), pull.Developers...), pull.slotEndpoints()...),
+		Evidence:  evidence,
+		Interval:  pull.UnknownResetProbe,
+	}, now)
+}
+
+// slotEndpoints is each developer slot's own endpoint pair as the window
+// reading needs it, so an account-wide window closes a slot's models too.
+func (pull Pull) slotEndpoints() []readmodel.AgentEndpoint {
+	var endpoints []readmodel.AgentEndpoint
+	for index := range pull.Slots {
+		asks := pull.slotAsks(index + 1)
+		if len(asks) == 0 {
+			continue
+		}
+		endpoint := readmodel.AgentEndpoint{Name: fmt.Sprintf("developer slot %d", index+1), Provider: pull.pairProvider(index+1, false), Model: asks[0].Model}
+		if len(asks) > 1 {
+			endpoint.Alternate, endpoint.AlternateProvider = asks[1].Model, pull.pairProvider(index+1, true)
+		}
+		endpoints = append(endpoints, endpoint)
+	}
+	return endpoints
+}
+
+// slotAsks is what a run dispatched into a slot with an endpoint pair of its own
+// asks for: the pair's primary, then its alternate, each on the account it
+// names. A spec that names no model asks for the developer's. It is nil for a
+// slot with no enabled pair, whose runs ask what the developer asks.
+func (pull Pull) slotAsks(number int) []readmodel.CapacityAsk {
+	if number < 1 || number > len(pull.Slots) || len(pull.Developers) == 0 {
 		return nil
 	}
-	return closed
+	pair := pull.Slots[number-1].Routing
+	if pair == nil || !pair.Enabled || pair.Primary == nil {
+		return nil
+	}
+	developer := pull.Developers[0]
+	ask := func(spec *domain.EndpointSpec, fallback string) readmodel.CapacityAsk {
+		model := strings.TrimSpace(spec.ModelVersion)
+		if model == "" {
+			model = strings.TrimSpace(spec.Model)
+		}
+		if model == "" {
+			model = strings.TrimSpace(fallback)
+		}
+		return readmodel.CapacityAsk{Account: strings.TrimSpace(spec.Account), Model: model}
+	}
+	asks := []readmodel.CapacityAsk{ask(pair.Primary, developer.Model)}
+	if pair.Alternate != nil {
+		asks = append(asks, ask(pair.Alternate, developer.Alternate))
+	}
+	return asks
 }
 
-// windowFor reports the window an item's developer run would be refused by,
-// where the models its run would ask for are all closed.
+// pairProvider is the provider a slot's primary, or its alternate, runs on: the
+// spec's own where it names one, and the developer's otherwise.
+func (pull Pull) pairProvider(number int, alternate bool) domain.Backend {
+	pair := pull.Slots[number-1].Routing
+	spec := pair.Primary
+	if alternate {
+		spec = pair.Alternate
+	}
+	if spec != nil && strings.TrimSpace(string(spec.Provider)) != "" {
+		return spec.Provider
+	}
+	if len(pull.Developers) > 0 {
+		return pull.Developers[0].Provider
+	}
+	return ""
+}
+
+// windowFor reports what the recorded windows make of an item's developer run
+// started in a slot: open, closed until the window's next reset or probe, or the
+// paced probe of a window refused with no reset.
 //
 // The run asks for the developer's model, or the one execution.developer_models
 // maps the item's labels to — the same resolution the run makes as it is
 // reserved — and falls over to the developer's alternate where one is
 // configured, so the item waits only where both are closed, and until the
-// earlier of the two reopens. A developer slot with an endpoint pair of its own
-// dispatches onto that pair rather than this resolution, so a pull with any such
-// slot reads nothing per item: holding an item the slot would have served on
-// another endpoint would be idling on a misreading, and the slot's own
-// alternates are the slot routing's business.
-func (Scheduler) windowFor(pull Pull, closed closedModels, item beads.WorkItem) (modelWindow, string, bool) {
-	if len(closed) == 0 || len(pull.Developers) == 0 {
-		return modelWindow{}, "", false
+// earlier of the two reopens. A slot with an endpoint pair of its own dispatches
+// onto that pair rather than this resolution, so a run in it asks for the
+// pair's primary and alternate, on their accounts. Slot 0 is no particular
+// slot, and asks what a slot without a pair would.
+func (Scheduler) windowFor(pull Pull, windows readmodel.CapacityWindows, item beads.WorkItem, slot int) (readmodel.CapacityWindow, string, readmodel.CapacityVerdict) {
+	if windows.Empty() || len(pull.Developers) == 0 {
+		return readmodel.CapacityWindow{}, "", readmodel.CapacityOpen
 	}
-	for _, slot := range pull.Slots {
-		if slot.Routing != nil && slot.Routing.Enabled {
-			return modelWindow{}, "", false
+	asks := pull.slotAsks(slot)
+	if len(asks) == 0 {
+		developer := pull.Developers[0]
+		model := strings.TrimSpace(developer.Model)
+		if choice := config.ResolveDeveloperModel(pull.DeveloperModels, item.Labels, model); choice.Chosen() {
+			model = strings.TrimSpace(choice.Model)
+		}
+		asks = []readmodel.CapacityAsk{{Model: model}}
+		if alternate := strings.TrimSpace(developer.Alternate); alternate != "" {
+			asks = append(asks, readmodel.CapacityAsk{Model: alternate})
 		}
 	}
-	developer := pull.Developers[0]
-	model := strings.TrimSpace(developer.Model)
-	if choice := config.ResolveDeveloperModel(pull.DeveloperModels, item.Labels, model); choice.Chosen() {
-		model = strings.TrimSpace(choice.Model)
+	window, verdict := windows.Ask(asks...)
+	models := make([]string, 0, len(asks))
+	for _, ask := range asks {
+		models = append(models, ask.Model)
 	}
-	window, held := closed[model]
-	if !held {
-		return modelWindow{}, "", false
-	}
-	if alternate := strings.TrimSpace(developer.Alternate); alternate != "" {
-		other, alsoHeld := closed[alternate]
-		if !alsoHeld {
-			return modelWindow{}, "", false
-		}
-		model += " and " + alternate
-		if other.resetsAt.Before(window.resetsAt) {
-			window = other
+	return window, strings.Join(models, " and "), verdict
+}
+
+// routesSlots reports a pull with any developer slot dispatching onto an
+// endpoint pair of its own, whose items are read per slot rather than once.
+func (pull Pull) routesSlots() bool {
+	for index := range pull.Slots {
+		if len(pull.slotAsks(index+1)) > 0 {
+			return true
 		}
 	}
-	return window, model, true
+	return false
+}
+
+// sendCapacityProbe records that a developer run of an item is being sent as
+// the paced probe of a window refused with no reset, and holds the rest of the
+// pull off the same window: one probe per interval, never one per pull. The
+// record is what a restarted session reads the next probe time from; one that
+// cannot be written is said, and the pull still holds off in memory.
+func (s Scheduler) sendCapacityProbe(schedule *Schedule, pull Pull, windows readmodel.CapacityWindows, window readmodel.CapacityWindow, workItemID string) {
+	now := s.now()
+	windows.Probed(window, now)
+	schedule.CapacityProbes = append(schedule.CapacityProbes, CapacityProbeSent{WorkItemID: workItemID, Models: append([]string(nil), window.Scope...), At: now.UTC()})
+	if pull.CapacityProbes == nil {
+		return
+	}
+	for _, probe := range window.Probes(now, "a developer run of "+workItemID) {
+		if err := pull.CapacityProbes.Record(probe); err != nil && schedule.UsageWindowProblem == "" {
+			schedule.UsageWindowProblem = fmt.Sprintf("the developer run of %s was sent to ask the provider again about %s, and that could not be recorded, so a restarted session may ask again before the interval: %v", workItemID, probe.Model, err)
+		}
+	}
+}
+
+// CapacityProbeSent is one developer run sent to ask the provider again whether
+// a window it refused with no reset time has reopened: the item, the models the
+// window covers, and when.
+type CapacityProbeSent struct {
+	WorkItemID string    `json:"work_item_id"`
+	Models     []string  `json:"models"`
+	At         time.Time `json:"at"`
 }
 
 // windowReasonFor is what the report says of an item a closed window holds:
-// the model, the limit, when it reopens, and that the item has kept its place.
-func windowReasonFor(window modelWindow, models string) string {
-	limit := "a usage limit"
-	if window.kind != "" {
-		limit = "the " + window.kind + " usage limit"
-	}
-	return fmt.Sprintf("waiting for provider capacity: its developer run would ask for %s, which %s holds closed until %s; it keeps its place in the order and is pulled again once the window reopens",
-		models, limit, window.resetsAt.UTC().Format(time.RFC3339))
+// the models, the limit, when it is next tried, and that the item has kept its
+// place.
+func windowReasonFor(window readmodel.CapacityWindow, models string) string {
+	return fmt.Sprintf("waiting for provider capacity: its developer run would ask for %s, and %s; it keeps its place in the order and is pulled again once the window reopens or a probe finds it open",
+		models, window.Says(window.Model))
 }
 
 // escalate puts the oldest stopped run the development manager has not been

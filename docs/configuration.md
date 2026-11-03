@@ -5204,7 +5204,12 @@ the quoted edge. So a run sleeps this interval or the time left to the deadline,
 whichever is shorter, and then asks again; a probe into a window that is still
 closed costs one refused request and re-parks on whatever the provider now
 reports. Every probe spends the same budget as any other wait, so a provider
-that keeps refusing reaches the maximum rather than polling forever.
+that keeps refusing reaches the maximum rather than polling forever. The same
+interval paces what is sent fresh into a limit with no reset named: a watching
+session sends no new developer run, and fires no scheduled role turn, on the
+refused model until one interval after the later of the refusal and the last
+probe of it, and then sends one as the probe (see
+[a limit with no reset is probed on a paced interval](operations.md#a-watch-session-inside-a-recorded-window)).
 
 The same interval is how often a run asks again when the provider is
 [not authenticated or cannot be reached](operations.md#waiting-out-a-provider-nobody-can-reach),
@@ -5287,6 +5292,9 @@ reset, the ended run's record holds more than its own item: a watching session,
 including one restarted after the run ended, starts no other work whose run
 would ask for the refused model until the reset, and that work keeps its place
 in the order. Work on a model the provider still serves goes on being pulled.
+Where the provider named no reset, the ended run's record holds the same work
+until the next paced probe rather than until a reset, and where it named a limit
+over the whole account, every model on that account is held with it.
 The item's notes, the run's
 ending in `yoyo status` (and its `capacity_blocked` entry), and the channel all
 name the window and its reset.

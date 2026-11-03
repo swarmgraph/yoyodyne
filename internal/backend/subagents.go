@@ -194,6 +194,23 @@ func LimitFamily(kind string) string {
 	return ""
 }
 
+// AccountWideLimit reports a usage limit's kind that names a window over the
+// whole account rather than over one model family: five_hour, seven_day, and
+// the two limits on paid usage beyond the plan. A refusal of one model under
+// such a limit is a refusal of every model the account asks for, because the
+// window it names is shared by all of them. A kind the provider did not name,
+// or one the harness does not recognize, says nothing about what else is
+// closed, and is not read as account-wide.
+func AccountWideLimit(kind string) bool {
+	key := strings.ToLower(strings.TrimSpace(kind))
+	switch key {
+	case usageWindowOverageIncluded, "overage":
+		return true
+	}
+	_, known := limitWindows[key]
+	return known
+}
+
 // limitWindows are the usage-limit windows a provider names, in the words a
 // person reads them in.
 var limitWindows = map[string]string{
