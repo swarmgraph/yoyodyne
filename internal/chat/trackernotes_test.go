@@ -293,3 +293,134 @@ func TestUnframedHistoryDoesNotLetACapturedSentenceReplaceARecord(t *testing.T) 
 		t.Fatalf("ambiguous history carried the captured output as a stop reason: %d bytes", len(rendered))
 	}
 }
+
+func TestFreeTextThatBeginsWithAFieldNameStaysInsideItsField(t *testing.T) {
+	t.Parallel()
+
+	fixture, err := os.ReadFile("testdata/label-shaped-stop.notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The orchestrator's test pins this fixture to renderFailureNotes. Its failure
+	// quotes a check line, and its review summary, after the diff, has a paragraph
+	// beginning "Reason:"; both are text inside their field.
+	note := strings.ReplaceAll(strings.TrimSuffix(string(fixture), "\n"), "LONG_DIFF_OUTPUT",
+		strings.Repeat("diff output describing the change\n", 1000))
+	const failure = "Failure: verification failed after 2 of 2 permitted attempt(s):\nCheck: make generate (passed=false, exit=1, 2s of 30m0s)\nThe generated schema is older than its source; regenerate it and run the checks again.\nPhase: checking"
+	const summary = "Review decision: repair\nReview summary: The change regenerates the schema.\n\nReason: the generator is still pinned to the old version, so the next run undoes it.\nPin it as well.\nFinding [major]: Pin the generator."
+	for _, framed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("framed=%t", framed), func(t *testing.T) {
+			later := "Yoyodyne recorded a later report mapping.\n" + strings.Repeat("later details\n", 1500)
+			notes := note + "\n" + later
+			if framed {
+				notes = framedTrackerNotes(note, later)
+			}
+			rendered := renderTrackerNotes(notes, minTrackerNotesBytes)
+			for _, want := range []string{"Run: run-label", failure, summary, "are cut; treat them as unread rather than absent"} {
+				if !strings.Contains(rendered, want) {
+					t.Fatalf("read lost %q:\n%s", want, rendered)
+				}
+			}
+			if strings.Contains(rendered, "diff output describing the change") || strings.Contains(rendered, "Check: make test") {
+				t.Fatalf("read kept the diff or the checks rather than the reasoning:\n%s", rendered)
+			}
+		})
+	}
+}
+
+func TestAFieldNameInsideAFailureIsReadByWhereItSits(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		note string
+		want string
+	}{
+		"a check line quoted in a failure that the opening fields follow": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the suite failed:\nCheck: make race (passed=false, exit=2, 9s of 30m0s)\nwhich the developer did not fix\nBranch: b\nCheck: make test (passed=true, exit=0, 1s of 30m0s)",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the suite failed:\nCheck: make race (passed=false, exit=2, 9s of 30m0s)\nwhich the developer did not fix",
+		},
+		"a check-like line in a failure without a check's shape": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the schema is stale\nCheck: regenerate it first\nCheck: make test (passed=true, exit=0, 1s of 30m0s)",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the schema is stale\nCheck: regenerate it first",
+		},
+		"a failure that quotes a later opening field before the real one": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nBranch: stale, rebase it\nand then retry\nPhase: checking\nBranch: b\nWorktree: w",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nBranch: stale, rebase it\nand then retry\nPhase: checking",
+		},
+		"a failure that quotes a field of its own group before the real one": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the run said:\nPhase: developing, which it was not\nso it stopped\nPhase: checking\nBranch: b",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the run said:\nPhase: developing, which it was not\nso it stopped\nPhase: checking",
+		},
+		"a failure that quotes a field already written": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: it named another run:\nRun: run-0\nwhich still holds the lock\nPhase: checking\nBranch: b\nWorktree: w\nBase commit: c",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: it named another run:\nRun: run-0\nwhich still holds the lock\nPhase: checking",
+		},
+		"opening field names in a review summary with nothing after it": {
+			note: "Yoyodyne stopped this item: its reviewer required repair.\nRun: run-1\nBranch: b\nReview decision: repair\nReview summary: Not yet.\nRun: the suite again after pinning.\nReason: the pin is missing.",
+			want: "Yoyodyne stopped this item: its reviewer required repair.\nRun: run-1\nReview decision: repair\nReview summary: Not yet.\nRun: the suite again after pinning.\nReason: the pin is missing.",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := trackerStopExcerpt(test.note); got != test.want {
+				t.Fatalf("excerpt:\n%s\nwant:\n%s", got, test.want)
+			}
+		})
+	}
+}
+
+// The documentation names the cases still read as a field; this pins them, so
+// the paragraph and the reader cannot drift apart.
+func TestTheCasesStillReadAsAFieldAreTheOnesDocumented(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		note string
+		want string
+	}{
+		"a field the note does not write itself, with nothing before it after": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nBranch: stale\nand then retry\nCheck: make test (passed=true, exit=0, 1s of 30m0s)",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:",
+		},
+		"a field the note does not write itself, in its own part": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nWorktree: stale\nand then retry\nPhase: checking\nBranch: b",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nPhase: checking",
+		},
+		"a field from a later part, with an earlier part after it, is text": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nReview decision: repair\nand then retry\nPhase: checking\nCheck: make test (passed=true, exit=0, 1s of 30m0s)",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nReview decision: repair\nand then retry\nPhase: checking",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := trackerStopExcerpt(test.note); got != test.want {
+				t.Fatalf("excerpt:\n%s\nwant:\n%s", got, test.want)
+			}
+		})
+	}
+}
+
+// Writers differ in where they put a field within a part, and where they put the
+// fields saying where a change landed. Each fixture is pinned to its writer by a
+// test in internal/orchestrator.
+func TestEachWritersOwnFieldOrderIsReadWhole(t *testing.T) {
+	t.Parallel()
+
+	for fixture, want := range map[string]string{
+		// renderOutcomeNotes writes the repair attempts after the base commit.
+		"testdata/raised-stop.notes": "Yoyodyne run raised this item as one that cannot be met as it stands, in the round the reviewer reached. Nothing was integrated; the escalation is on the triage docket for the development manager and the item is parked until the development manager decides what happens to it.\n" +
+			"Run: run-raised\nRepair attempts: 2\nReviewed against: base base-raised, tip tip-raised\nReview decision: escalate\n" +
+			"Review summary: The item asks for two things that contradict each other.\nBranch: the design names one, the criteria another.",
+		// renderReconciledIntegrationNotes writes where the change landed before the review.
+		"testdata/reconciled-integration.notes": "Yoyodyne reconciled an interrupted run: the change was already integrated, so the item is being closed and the run's artifacts removed.\n" +
+			"Run: run-reconciled\nReviewed against: base base-reconciled, tip tip-reconciled\nReview decision: approve",
+	} {
+		t.Run(fixture, func(t *testing.T) {
+			note, err := os.ReadFile(fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := trackerStopExcerpt(strings.TrimSuffix(string(note), "\n")); got != want {
+				t.Fatalf("excerpt:\n%s\nwant:\n%s", got, want)
+			}
+		})
+	}
+}

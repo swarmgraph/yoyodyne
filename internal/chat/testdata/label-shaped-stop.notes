@@ -1,0 +1,18 @@
+Yoyodyne blocked this item; the blocker recorded on the item says what stopped it.
+Run: run-label
+Failure: verification failed after 2 of 2 permitted attempt(s):
+Check: make generate (passed=false, exit=1, 2s of 30m0s)
+The generated schema is older than its source; regenerate it and run the checks again.
+Phase: checking
+Changes when the run ended:
+M feature.go
+Diff stat when the run ended:
+LONG_DIFF_OUTPUT
+Check: make test (passed=true, exit=0, 5s of 30m0s)
+Reviewed against: base base-revision, tip reviewed-revision
+Review decision: repair
+Review summary: The change regenerates the schema.
+
+Reason: the generator is still pinned to the old version, so the next run undoes it.
+Pin it as well.
+Finding [major]: Pin the generator.
