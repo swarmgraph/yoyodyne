@@ -993,8 +993,9 @@ nothing watching the queue.
 The first two are opposites. "rerun" starts a fresh run of the item, which
 is what a correct change whose ground moved needs. "repair" continues the run
 that stopped -- same branch, same worktree, same developer session, the
-reviewer's findings handed back exactly as they were written -- under a grant of
-further repair attempts sized by triage.repair_grant_attempts.
+reviewer's findings handed back exactly as they were written -- under the one
+grant the decision bought, worth the repair attempts triage.repair_grant_attempts
+sized it at when it was recorded, and no more.
 
 Precondition refusals happen before a claim or continuation is written, so they
 cost nothing. A later failure can leave a claim or a charged continuation already

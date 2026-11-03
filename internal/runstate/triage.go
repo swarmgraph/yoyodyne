@@ -1122,6 +1122,7 @@ func (s *TriageStore) GrantRepair(ctx context.Context, workItemID string, decisi
 		// can release exactly that rather than everything the item stands committed
 		// to.
 		decided.Rounds = granted.Rounds
+		decided.Truncated = granted.Truncated
 		return counters.recordDecision(decided)
 	})
 	if err != nil {

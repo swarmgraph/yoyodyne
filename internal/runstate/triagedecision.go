@@ -141,6 +141,12 @@ type TriageDecision struct {
 	// committed to beyond what it has cost, which is the one reservation such a
 	// record can be holding.
 	Rounds int `json:"rounds,omitempty"`
+	// Truncated says the round cap cut this decision's grant below what the
+	// project configured a grant to be worth, so Rounds is what the cap had room
+	// for. It is written beside Rounds and by the same grant, so a carry-out can
+	// say whether the grant it carries out was the one cut rather than whether
+	// any grant on the item ever was.
+	Truncated bool `json:"truncated,omitempty"`
 	// SupersededBy is the work item that supersedes the stopped run's work, on a
 	// stop decision where there is one. It is taken by that decision and by no
 	// other: what a stop answers is why the run should not go on, and the item
@@ -211,6 +217,9 @@ func (d TriageDecision) Validate() error {
 	}
 	if d.Rounds > 0 && d.Decision != TriageDecisionRepair {
 		problems = append(problems, fmt.Errorf("a %q decision reserves no rounds, and this one records %d", d.Decision, d.Rounds))
+	}
+	if d.Truncated && d.Rounds < 1 {
+		problems = append(problems, errors.New("a decision whose grant the round cap cut records the rounds it was cut to"))
 	}
 	switch superseded := strings.TrimSpace(d.SupersededBy); {
 	case superseded == "":

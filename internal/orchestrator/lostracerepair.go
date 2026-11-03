@@ -80,8 +80,8 @@ func resumedAfterLostRace(state runstate.State) bool {
 // developer.
 func lostRaceReplayReason(entry triage.Entry, granted repairGrant, prior runstate.State) string {
 	reason := fmt.Sprintf(
-		"Triaged: the development manager's triage decided a repair of run %s, %s, whose approved change lost the race to land on %s and gave back its developer slot with its work kept. The harness put the run back at its promotion to bring the kept change up to date with %s before anything else, check it and have it reviewed again, and land it; the races it lost before are not counted against it, and a conflict goes to the developer under a grant of %d further repair attempt(s) recorded against %s's durable triage budget. The reasoning that decision was recorded with: ",
-		entry.RunID, granted.decision.Cite(), prior.TargetBranch, prior.TargetBranch, granted.attempts, entry.WorkItemID)
+		"Triaged: the development manager's triage decided a repair of run %s, %s, whose approved change lost the race to land on %s and gave back its developer slot with its work kept. The harness put the run back at its promotion to bring the kept change up to date with %s before anything else, check it and have it reviewed again, and land it; the races it lost before are not counted against it, and a conflict goes to the developer under %s, recorded against %s's durable triage budget. The reasoning that decision was recorded with: ",
+		entry.RunID, granted.decision.Cite(), prior.TargetBranch, prior.TargetBranch, granted.says(), entry.WorkItemID)
 	room := max(runstate.MaxSelectionReasonBytes-len(reason), 0)
 	return singleLine(reason+singleLine(strings.TrimSpace(granted.decision.Reason), room), runstate.MaxSelectionReasonBytes)
 }

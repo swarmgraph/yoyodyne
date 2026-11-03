@@ -1094,6 +1094,14 @@ have. A project that configured no routine repair attempts at all still gets a
 derived grant of 1 rather than a configuration that fails to load — the grant is
 triage's deliberate exception to that budget, not another helping of it.
 
+A grant is counted in repair attempts, and a decision buys one. Carrying out a
+decision of `repair` hands the run the attempts that one grant was worth when it
+was recorded, as the round cap left it, and no more: an earlier grant the item's
+record still holds that nothing carried out — its run could not be re-entered,
+or a re-run was decided in its place — is not added to it. The run's record and
+the item's notes say both: one repair grant, what it bought, and how many of
+those attempts the run was handed.
+
 ### What one work item has been given
 
 The thresholds above bound something, and what they bound is a durable record

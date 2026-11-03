@@ -1051,7 +1051,7 @@ func TestARepairCarriesOutTheGrantAtTheSizeTheCapLeftIt(t *testing.T) {
 	if budget := harness.reload(t).RepairBudget(2); budget != 3 {
 		t.Fatalf("repair budget = %d, want the configured two plus the one round granted", budget)
 	}
-	if !strings.Contains(result.Reason, "already cut to 1") {
+	if !strings.Contains(result.Reason, "bought for 1 repair attempt(s), all the review-round cap had room for") {
 		t.Fatalf("reason = %q, want the cut said out loud", result.Reason)
 	}
 }
@@ -1863,5 +1863,129 @@ func TestAHeldIntakeContinuesTheRepairItsRecordNamesAsItsTestRun(t *testing.T) {
 		if !named && (result.IntakeHeld == nil || len(harness.started) != 0) {
 			t.Fatalf("held = %#v, started = %#v, want a repair the record does not name held", result.IntakeHeld, harness.started)
 		}
+	}
+}
+
+// A cap crossing buys one grant, and one grant is worth what the project
+// configured a grant to be, in repair attempts. The item's record can hold more
+// than that: an earlier grant nothing ever carried out — its run's checkout was
+// gone, or a re-run was decided in its place — is still in the item's total.
+// Carried out at that total, the decision the crossing was for handed the run
+// both grants' attempts, which on role-definition binding (yoyodyne-ifd.434.6)
+// read as "a grant of 4 further repair attempts" beside a decision that bought
+// one grant of two. The run is handed the one grant's attempts, and its record
+// names the grant and its attempts together.
+func TestACapCrossingThatBuysOneGrantHandsTheRunThatGrantsAttemptsAndNoMore(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	harness := newUndecidedHarness(t, continuableState())
+	triage := harness.runs.Triage()
+	// The item's one grant, decided about an earlier run and never carried out.
+	if _, err := triage.GrantRepair(ctx, docketedItem, triageDecided(runstate.TriageDecisionRepair, decidedRunID), continueGrantRounds, docketedNow, continueCaps); err != nil {
+		t.Fatalf("GrantRepair() of the earlier run error = %v", err)
+	}
+	// The cap refuses a second, and the development manager crosses it for one.
+	if _, err := triage.CrossCap(ctx, docketedItem, domain.RoleDevelopmentManager, runstate.TriageRepairGrantBudget, "one bounded repair of the change it already has; it buys one grant and nothing more", docketedNow, continueCaps); err != nil {
+		t.Fatalf("CrossCap() error = %v", err)
+	}
+	granted, err := triage.GrantRepair(ctx, docketedItem, triageDecided(runstate.TriageDecisionRepair, docketedRunID), continueGrantRounds, docketedNow, continueCaps)
+	if err != nil || granted.Rounds != continueGrantRounds || granted.Truncated {
+		t.Fatalf("GrantRepair() after the crossing = %#v, %v, want one whole grant of %d", granted, err, continueGrantRounds)
+	}
+	if spent := harness.spent(t); spent.GrantedRounds != 2*continueGrantRounds {
+		t.Fatalf("granted rounds = %d, want both grants on the item's record, which is what this test is about", spent.GrantedRounds)
+	}
+
+	result, err := harness.continuer().Continue(ctx, continueRequest())
+	if err != nil {
+		t.Fatalf("Continue() error = %v", err)
+	}
+	if result.Granted != continueGrantRounds || result.Decided != continueGrantRounds {
+		t.Fatalf("granted = %d of %d decided, want the one grant's %d attempts and no more", result.Granted, result.Decided, continueGrantRounds)
+	}
+	state := harness.reload(t)
+	if len(state.RepairContinuations) != 1 || state.RepairContinuations[0].GrantedAttempts != continueGrantRounds {
+		t.Fatalf("continuations = %#v, want the run handed the one grant's attempts", state.RepairContinuations)
+	}
+	if budget := state.RepairBudget(2); budget != 2+continueGrantRounds {
+		t.Fatalf("repair budget = %d, want the configured two plus the one grant's two", budget)
+	}
+	// The record names the grant in the decision's unit and its attempts in the
+	// run's, and never the item's total as though it were this grant.
+	for _, want := range []string{
+		"under one repair grant, which this decision bought for 2 repair attempt(s), and the run is handed those 2 further repair attempt(s) and no more",
+	} {
+		if !strings.Contains(result.Reason, want) || !strings.Contains(harness.tracker.Notes, want) {
+			t.Fatalf("reason = %q, notes = %q, want both to say %q", result.Reason, harness.tracker.Notes, want)
+		}
+	}
+	if strings.Contains(result.Reason, "4 further repair attempt(s)") {
+		t.Fatalf("reason = %q, states the item's total as this grant", result.Reason)
+	}
+	if rendered := result.Render(); !strings.Contains(rendered, "carried out one repair grant, which the decision bought for 2 repair attempt(s), by handing the run 2 further repair attempt(s)") {
+		t.Fatalf("rendered = %q, want the grant and its attempts said together", rendered)
+	}
+}
+
+// Whatever the item's record has left over from earlier grants, a carry-out
+// hands the run what the decision it carries out bought and no more: in full,
+// as the cap cut it, and for a stall as for a repair. And having carried it out
+// once, it cannot carry the same decision out again for whatever is left.
+func TestACarryOutNeverReEntersWithMoreAttemptsThanTheDecisionBought(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name  string
+		state runstate.State
+		// caps are what the decisions are recorded against: the round budget
+		// decides whether the last grant is cut.
+		caps runstate.TriageCaps
+		want int
+	}{
+		{name: "a repair", state: continuableState(), caps: runstate.TriageCaps{ReviewRounds: 12, RepairGrants: 3, Reruns: 1, MergeRearms: 2}, want: continueGrantRounds},
+		{name: "a stall", state: stalledState(), caps: runstate.TriageCaps{ReviewRounds: 12, RepairGrants: 3, Reruns: 1, MergeRearms: 2}, want: continueGrantRounds},
+		{name: "a grant the cap cut", state: continuableState(), caps: runstate.TriageCaps{ReviewRounds: 2*continueGrantRounds + 1, RepairGrants: 3, Reruns: 1, MergeRearms: 2}, want: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			harness := newUndecidedHarness(t, test.state)
+			triage := harness.runs.Triage()
+			// Two earlier grants about other runs of the item, neither carried out.
+			for _, run := range []string{decidedRunID, undocketedRunID} {
+				if _, err := triage.GrantRepair(ctx, docketedItem, triageDecided(runstate.TriageDecisionRepair, run), continueGrantRounds, docketedNow, test.caps); err != nil {
+					t.Fatalf("GrantRepair() of %s error = %v", run, err)
+				}
+			}
+			granted, err := triage.GrantRepair(ctx, docketedItem, triageDecided(runstate.TriageDecisionRepair, docketedRunID), continueGrantRounds, docketedNow, test.caps)
+			if err != nil || granted.Rounds != test.want {
+				t.Fatalf("GrantRepair() = %#v, %v, want a grant of %d", granted, err, test.want)
+			}
+			counters := harness.spent(t)
+			if decision, _ := counters.DecisionOf(docketedRunID); decision.Rounds != test.want || decision.Truncated != granted.Truncated {
+				t.Fatalf("decision = %#v, want it to keep the %d rounds it bought and whether the cap cut them", decision, test.want)
+			}
+
+			result, err := harness.continuer().Continue(ctx, continueRequest())
+			if err != nil {
+				t.Fatalf("Continue() error = %v", err)
+			}
+			if result.Granted != test.want || result.Decided != test.want || result.Truncated != granted.Truncated {
+				t.Fatalf("granted = %d of %d decided (truncated %t), want the decision's %d attempts and no more of the %d the item's record holds",
+					result.Granted, result.Decided, result.Truncated, test.want, counters.GrantedRounds)
+			}
+			if carried := harness.reload(t).GrantedRepairAttempts(); carried != test.want {
+				t.Fatalf("handed the run %d attempts, want %d", carried, test.want)
+			}
+			// What the item's record still has left is not this decision's to spend.
+			if _, err := harness.continuer().Continue(ctx, continueRequest()); err == nil && harness.reload(t).GrantedRepairAttempts() != test.want {
+				t.Fatalf("a second carry-out of the same decision handed the run %d attempts", harness.reload(t).GrantedRepairAttempts())
+			}
+			if carried := harness.reload(t).GrantedRepairAttempts(); carried != test.want {
+				t.Fatalf("after asking again the run holds %d granted attempts, want %d", carried, test.want)
+			}
+		})
 	}
 }
