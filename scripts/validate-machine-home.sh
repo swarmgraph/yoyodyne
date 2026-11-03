@@ -3,9 +3,12 @@
 # validate-machine-home.sh - the validation project. It proves, on a machine
 # that has never run Yoyodyne, that a contributor's adoption works end to end:
 # fresh Git repositories holding none of the harness's files, a home directory
-# of their own, and the seven checks of the machine home's validation
-# (docs/designs/machine-home.md#validation) asserted one by one, each printed
-# with its number and name as it passes or fails.
+# of their own, and the seven checks the validation project's work item
+# (yoyodyne-ifd.434.14) records from the architect's ruling of October 13
+# asserted one by one, each printed with its number and name as it passes or
+# fails. The machine home design's own validation section
+# (docs/designs/machine-home.md#validation) numbers and scopes its checks
+# differently; docs/developing-yoyo.md names what of it this does not cover.
 #
 #   scripts/validate-machine-home.sh        what `make validate-machine-home` runs
 #   VALIDATION_RECORD=<file> scripts/validate-machine-home.sh

@@ -345,9 +345,11 @@ adoption:
 	scripts/walk-adoption.sh
 
 # The validation project: fresh repositories holding none of the harness's
-# files, each under a home directory of its own, held to the seven checks of
-# the machine home's validation (docs/designs/machine-home.md#validation) and
-# the first-use measurements. It fails when any of checks 1 to 6 does; check 7
+# files, each under a home directory of its own, held to the seven checks the
+# work item (yoyodyne-ifd.434.14) records from the architect's ruling of
+# October 13, and the first-use measurements. The machine home design's own
+# validation section numbers and scopes its checks differently;
+# docs/developing-yoyo.md names what of it this does not cover. It fails when any of checks 1 to 6 does; check 7
 # waits on the contributor-mode work. Like `adoption` it stays out of `check`,
 # and docs/developing-yoyo.md says why CI does not run it yet.
 validate-machine-home:

@@ -132,7 +132,10 @@ the validation project. It runs
 against fresh Git repositories holding none of the harness's files, each
 started under a home directory of its own inside a temporary root it removes on
 exit, so the real `~/.yoyodyne` is never read or written. It asserts the seven
-checks [the machine home design](designs/machine-home.md#validation) lists,
+checks the validation project's work item (yoyodyne-ifd.434.14) records from the
+architect's ruling of October 13: home layout, first start, second clone, moved
+clone, old home only, migration by `yoyo home migrate`, and the companion intent
+repository,
 printing each check's number and name as it passes or fails, and then records
 what it measured of first use: when the empty repository was made, the
 decisions asked of the person, with brief and goals approvals listed apart, and
@@ -150,7 +153,13 @@ walk it needs a scratch root outside every Git repository. CI does not run it
 yet, because checks 1, 5 and 6 fail on behaviour the harness does not have yet,
 and a job that failed on every pull request would stop every change; the job
 joins `adoption` in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
-once those checks pass.
+once those checks pass. [The machine home design's own
+validation](designs/machine-home.md#validation) numbers and scopes its checks
+differently, and two of them are not covered here: its check 5, `yoyo project
+bind --replace` and `yoyo project rename` with a committed id that does not
+read the new name, and its check 6, the supervisor moving the state by itself,
+with `moving.json`, the drain limit, a supervisor stopped before or during the
+move, and a failing step undone.
 
 ## What a document landing runs: `make doccheck`
 
