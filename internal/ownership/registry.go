@@ -103,6 +103,9 @@ type Record struct {
 	// WaitingForPerson is a published change the project's merge setting leaves
 	// for a person to merge (runstate.State.WaitingForPersonMerge).
 	WaitingForPerson bool
+	// UpdateRefused is such a change whose request the target moved past and
+	// the harness cannot bring up to date (runstate.PersonMerge.UpdateRefused).
+	UpdateRefused bool
 
 	// PassFailure is the factory's ownership of a repeatedly failing product
 	// pass, where one is recorded (ResolvePassFailureForRole), and
@@ -343,6 +346,10 @@ func publicationRule(r Record) (Answer, bool) {
 	switch {
 	// The project's merge setting reserves the merge for a person, and the
 	// harness never merges such a request, so only a person can move it.
+	// A waiting request the harness cannot bring up to date may be unmergeable
+	// where branches must be up to date, and what becomes of it is hers.
+	case r.WaitingForPerson && r.UpdateRefused:
+		return owned(MoverDevelopmentManager, "decide what becomes of a waiting pull request the harness cannot bring up to date", "triage decision")
 	case r.WaitingForPerson:
 		return operator(OperatorHumanGate, "merge the pull request on the forge, or close it", "")
 	case !r.PullRequest:

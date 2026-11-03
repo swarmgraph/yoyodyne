@@ -1115,6 +1115,8 @@ func printPersonMerges(stdout, stderr io.Writer, merges []orchestrator.PersonMer
 			fmt.Fprintf(stderr, "pull request #%d of %s not settled: %s\n", merge.Number, merge.WorkItemID, merge.Failure)
 		case merge.Kept != "":
 			fmt.Fprintf(stdout, "pull request #%d of %s left as it stands: %s\n", merge.Number, merge.WorkItemID, merge.Kept)
+		case merge.Updating:
+			fmt.Fprintf(stdout, "pull request #%d of %s is being brought up to date: %s\n", merge.Number, merge.WorkItemID, merge.Update)
 		case merge.Found == orchestrator.PersonMergeOpen:
 			fmt.Fprintf(stdout, "%s is waiting for a person to merge pull request #%d\n", merge.WorkItemID, merge.Number)
 		case merge.Settled && merge.Found == orchestrator.PersonMergeMerged:

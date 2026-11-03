@@ -138,7 +138,12 @@ func TestCancellingTheMessageStillStopsItsDocumentRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	// The message's own deadline is past the wait for the check to start, so the
+	// one thing that ends it is the cancellation. A deadline that passed first —
+	// a run that took over a minute to reach its check under the race detector on
+	// a loaded machine — is one the run rightly outlives, and the cancellation
+	// after it reaches nothing.
+	ctx, cancel := context.WithTimeout(context.Background(), startWatchBound+time.Minute)
 	defer cancel()
 	whenStarted(started, cancel)
 	_, _ = session.Send(ctx, "Write it.")

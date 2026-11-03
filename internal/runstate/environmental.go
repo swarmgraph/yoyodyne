@@ -177,6 +177,14 @@ const (
 	// main and failing two tests its change never touched (yoyodyne-ifd.429.16).
 	// Only the sweep records it, on the resumption it makes.
 	CauseQueuedHeadBehind EnvironmentalCause = "queued-head-behind"
+	// CausePersonMergeBehind is an approved change published for a person to
+	// merge whose pull request the target branch moved past while it waited,
+	// because other contributors' work landed first. The forge check withdraws
+	// the request's merge authority and puts the run back at its promotion, where
+	// the change is replayed onto the new target, checked and reviewed again,
+	// and its pull request updated, for the person to merge as before. Only the
+	// forge check records it, on the resumption it makes (personmerge.go).
+	CausePersonMergeBehind EnvironmentalCause = "person-merge-behind"
 	// CauseCheckStageBound is a check stage stopped at its bound — the
 	// configured execution.check_stage_timeout already scaled for the machine's
 	// load the way a local Git command's budget is — before the checks reached a
@@ -265,7 +273,7 @@ func EnvironmentalCauses() []EnvironmentalCause {
 		CauseHandbackMissingChange, CauseDirtyPrimary, CauseWorktreeCheckoutKilled,
 		CauseSandboxSpawnFailure, CauseStaleBinaryDispatch, CauseTransportFailure,
 		CauseProcessVanished, CauseUsageWindow, CauseReplayKilled, CauseDivergedTarget,
-		CauseRemoteAuthRefused, CauseQueuedHeadBehind, CauseCheckStageBound,
+		CauseRemoteAuthRefused, CauseQueuedHeadBehind, CausePersonMergeBehind, CauseCheckStageBound,
 		CauseDeveloperSettingsNotApplied, CauseCheckTimeLimit, CauseMergeQueueHeld,
 		CauseNoCheckRan, CauseInstallUnavailable, CauseInstallNeverWorked,
 	}
@@ -347,6 +355,8 @@ func (c EnvironmentalCause) Title() string {
 		return "the remote refused the credential the harness presented"
 	case CauseQueuedHeadBehind:
 		return "its queued merge's head fell behind the target and failed checks on files the change does not touch"
+	case CausePersonMergeBehind:
+		return "the target moved past its pull request while the pull request waited for a person to merge it"
 	case CauseCheckStageBound:
 		return "the check stage reached its bound, already scaled for the machine's load, before the checks judged the change"
 	case CauseCheckTimeLimit:

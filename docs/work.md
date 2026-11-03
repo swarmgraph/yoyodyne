@@ -2585,7 +2585,10 @@ means. The run gives up its developer slot once it has published, and its item
 says it is waiting for a person to merge the pull request until `yoyo
 reconcile` finds the request merged (the item closes, naming the merge commit)
 or closed unmerged (the item goes back to the Lead Product Manager with the
-work kept). See the
+work kept). While it waits, a target that other people's work moved past the
+request is caught up with: the change is replayed onto it, checked and
+reviewed again, and pushed to the same request, never over a merge a person
+has already started. See the
 [configuration guide](configuration.md#publishing-through-pull-requests).
 
 ## Merge queues on `yoyo status` and the dashboard

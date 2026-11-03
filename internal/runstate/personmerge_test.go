@@ -51,3 +51,30 @@ func TestPersonMergeRecordsOneEndingWithWhatItNeeds(t *testing.T) {
 		t.Fatal("a run whose wait ended still reads as waiting")
 	}
 }
+
+// Bringing a waiting request up to date does not spend the bound on a run's
+// integration resumptions: however often the target moves, the record keeps one
+// such resumption, and a record already full of others stays within the bound.
+func TestBringingAWaitingRequestUpToDateNeverSpendsTheResumptionBound(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+	waiting := State{Status: StatusSucceeded, PullRequest: &PullRequest{Number: 7}, PersonMerge: &PersonMerge{Number: 7, Since: at}}
+	for update := range 40 {
+		waiting = waiting.PutBackToBringUpToDate("the target moved", at.Add(time.Duration(update)*time.Minute))
+		if waiting.ResumptionsLeft() != MaxIntegrationResumptions-1 || !waiting.BringingPersonMergeUpToDate() {
+			t.Fatalf("update %d: %d resumption(s) left, want one spent however many updates", update+1, waiting.ResumptionsLeft())
+		}
+		// The run publishes and waits again, as it does after each update.
+		waiting.Status, waiting.PersonMerge = StatusSucceeded, &PersonMerge{Number: 7, Since: at}
+	}
+
+	full := waiting
+	full.IntegrationResumptions = nil
+	for range MaxIntegrationResumptions {
+		full.IntegrationResumptions = append(full.IntegrationResumptions, IntegrationResumption{Cause: CauseTransportFailure, Reason: "the forge did not answer", ResumedAt: at})
+	}
+	updated := full.PutBackToBringUpToDate("the target moved", at)
+	if len(updated.IntegrationResumptions) != MaxIntegrationResumptions || !updated.BringingPersonMergeUpToDate() {
+		t.Fatalf("%d resumptions recorded, latest %v; want the bound kept and the update recorded last", len(updated.IntegrationResumptions), updated.IntegrationResumptions[len(updated.IntegrationResumptions)-1].Cause)
+	}
+}
