@@ -45,7 +45,7 @@ PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64
 # outgrows it is a package to split.
 TEST_TIMEOUT ?= 43m
 
-.PHONY: build test race vet fmt fmtcheck cachecheck check doccheck adoption codex-resume dist dist-verify clean-dist release release-notes
+.PHONY: build test race vet fmt fmtcheck cachecheck check doccheck adoption validate-machine-home codex-resume dist dist-verify clean-dist release release-notes
 .NOTPARALLEL: check
 
 # Every Go command below writes what it compiles to the build cache before it
@@ -343,6 +343,17 @@ doccheck: cachecheck
 #   WALK_PROVIDER=1 make adoption    also hand an item to a developer agent
 adoption:
 	scripts/walk-adoption.sh
+
+# The validation project: fresh repositories holding none of the harness's
+# files, each under a home directory of its own, held to the seven checks the
+# work item (yoyodyne-ifd.434.14) records from the architect's ruling of
+# October 13, and the first-use measurements. The machine home design's own
+# validation section numbers and scopes its checks differently;
+# docs/developing-yoyo.md names what of it this does not cover. It fails when any of checks 1 to 6 does; check 7
+# waits on the contributor-mode work. Like `adoption` it stays out of `check`,
+# and docs/developing-yoyo.md says why CI does not run it yet.
+validate-machine-home:
+	scripts/validate-machine-home.sh
 
 # The Codex native-resume test, run where it can run and required to have run.
 # It launches the real Codex, so the harness's checks -- which hide the
