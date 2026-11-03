@@ -266,12 +266,14 @@ func (window CapacityWindow) Probes(at time.Time, what string) []runstate.Capaci
 
 // Says is what a person is told about work this window holds: which models, the
 // limit, and when it is next tried — the provider's reset where it named one,
-// and the next probe where it did not.
+// and the next probe where it did not. The time is said in the operator's local
+// zone with the zone named, and with the day, because a weekly window resets on
+// another day; Until itself stays in UTC wherever it is kept.
 func (window CapacityWindow) Says(models string) string {
 	// The limit is said in the words a person reads, never the provider's own
 	// key: "the Opus weekly limit" rather than seven_day_opus.
 	limit := "the " + backend.LimitName(window.Kind)
-	when := window.Until.UTC().Format(time.RFC3339)
+	when := localMoment(window.Until)
 	switch {
 	case window.Prober != "":
 		return fmt.Sprintf("%s holds %s closed with no reset time named, and %s is asking the provider again itself, next at %s", limit, models, window.Prober, when)

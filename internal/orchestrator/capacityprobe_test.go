@@ -62,7 +62,7 @@ func TestARefusalWithNoResetHoldsDispatchUntilItsProbe(t *testing.T) {
 	if order := harness.pullOrder(); len(order) != 0 {
 		t.Fatalf("started = %v, want nothing before the probe is due", order)
 	}
-	next := refused.Add(probeInterval).Format(time.RFC3339)
+	next := refused.Add(probeInterval).Local().Format("2006-01-02 15:04 MST")
 	said := deferredReason(schedule, "yoyodyne-one")
 	if !strings.Contains(said, "waiting for provider capacity") || !strings.Contains(said, "no reset time") || !strings.Contains(said, next) {
 		t.Fatalf("passed over yoyodyne-one with %q, want it waiting for provider capacity with the next probe at %s", said, next)
@@ -97,7 +97,7 @@ func TestOneProbeIsSentPerInterval(t *testing.T) {
 	if len(recorded) != 1 || recorded[0].Model != "opus" || !recorded[0].At.Equal(now) || !strings.Contains(recorded[0].What, "yoyodyne-one") {
 		t.Fatalf("probe record = %+v, want opus probed at %s by the run of yoyodyne-one", recorded, now)
 	}
-	next := now.Add(probeInterval).Format(time.RFC3339)
+	next := now.Add(probeInterval).Local().Format("2006-01-02 15:04 MST")
 	if said := deferredReason(schedule, "yoyodyne-two"); !strings.Contains(said, next) {
 		t.Fatalf("passed over yoyodyne-two with %q, want it waiting for the next probe at %s", said, next)
 	}
@@ -159,7 +159,7 @@ func TestARefusedProbeExtendsTheWait(t *testing.T) {
 	if order := harness.pullOrder(); len(order) != 1 {
 		t.Fatalf("started = %v, want only the probe", order)
 	}
-	next := refusedAgain.Add(probeInterval).Format(time.RFC3339)
+	next := refusedAgain.Add(probeInterval).Local().Format("2006-01-02 15:04 MST")
 	if said := deferredReason(schedule, "yoyodyne-two"); !strings.Contains(said, next) {
 		t.Fatalf("passed over yoyodyne-two with %q, want the wait extended to %s by the refused probe", said, next)
 	}
@@ -199,7 +199,7 @@ func TestTheProbeScheduleSurvivesARestart(t *testing.T) {
 	if order := early.pullOrder(); len(order) != 0 {
 		t.Fatalf("restarted session started %v inside the interval, want nothing", order)
 	}
-	next := now.Add(probeInterval).Format(time.RFC3339)
+	next := now.Add(probeInterval).Local().Format("2006-01-02 15:04 MST")
 	if said := deferredReason(schedule, "yoyodyne-two"); !strings.Contains(said, next) {
 		t.Fatalf("restarted session passed over yoyodyne-two with %q, want the next probe at %s read from the record", said, next)
 	}
@@ -250,8 +250,8 @@ func TestAnAccountWideWindowHoldsEveryModelInIt(t *testing.T) {
 				t.Fatalf("started = %v, want nothing while the account's window is closed", order)
 			}
 			said := deferredReason(schedule, onSonnet.ID)
-			if !strings.Contains(said, "waiting for provider capacity") || !strings.Contains(said, "sonnet") || !strings.Contains(said, tc.until.Format(time.RFC3339)) {
-				t.Fatalf("passed over %s with %q, want it waiting on the shared window until %s", onSonnet.ID, said, tc.until.Format(time.RFC3339))
+			if !strings.Contains(said, "waiting for provider capacity") || !strings.Contains(said, "sonnet") || !strings.Contains(said, tc.until.Local().Format("2006-01-02 15:04 MST")) {
+				t.Fatalf("passed over %s with %q, want it waiting on the shared window until %s", onSonnet.ID, said, tc.until.Local().Format("2006-01-02 15:04 MST"))
 			}
 		})
 	}
@@ -304,8 +304,8 @@ func TestASlotRoutedEndpointIsHeldByItsOwnRefusal(t *testing.T) {
 			if started == tc.held {
 				t.Fatalf("started = %v, want held %v", harness.pullOrder(), tc.held)
 			}
-			if said := deferredReason(schedule, "yoyodyne-ifd.401"); tc.held && !strings.Contains(said, lifts.Format(time.RFC3339)) {
-				t.Fatalf("passed over the item with %q, want it waiting on the slot's window until %s", said, lifts.Format(time.RFC3339))
+			if said := deferredReason(schedule, "yoyodyne-ifd.401"); tc.held && !strings.Contains(said, lifts.Local().Format("2006-01-02 15:04 MST")) {
+				t.Fatalf("passed over the item with %q, want it waiting on the slot's window until %s", said, lifts.Local().Format("2006-01-02 15:04 MST"))
 			}
 		})
 	}

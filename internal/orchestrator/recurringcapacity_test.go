@@ -60,11 +60,11 @@ func TestARecurringTurnRefusedWithAStatedResetWaitsForIt(t *testing.T) {
 	}
 	if len(start.Waiting) != 1 || !start.Waiting[0].NextTry.Equal(resets) ||
 		!strings.Contains(start.Waiting[0].Capacity, "waiting for provider capacity") ||
-		!strings.Contains(start.Waiting[0].Capacity, resets.Format(time.RFC3339)) ||
+		!strings.Contains(start.Waiting[0].Capacity, resets.Local().Format("2006-01-02 15:04 MST")) ||
 		!strings.Contains(start.Waiting[0].Capacity, "Opus weekly limit") || strings.Contains(start.Waiting[0].Capacity, "seven_day_opus") {
 		t.Fatalf("waiting = %+v, want the firing shown waiting for provider capacity until %s", start.Waiting, resets)
 	}
-	if said := waitingReason(start.Waiting[0], newRecurringFirings(context.Background())); !strings.Contains(said, resets.Format(time.RFC3339)) {
+	if said := waitingReason(start.Waiting[0], newRecurringFirings(context.Background())); !strings.Contains(said, resets.Local().Format("2006-01-02 15:04 MST")) {
 		t.Fatalf("waiting reason = %q, want the next try named", said)
 	}
 	if recorded, _, err := store.List(); err != nil || len(recorded) != 0 {
