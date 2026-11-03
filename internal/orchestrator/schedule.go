@@ -3634,14 +3634,18 @@ pulling:
 				// a slot with an endpoint pair of its own sends the run somewhere
 				// the pull-wide answer did not read, and a window whose probe is due
 				// lets exactly one item through as that probe.
-				if window, models, verdict := s.windowFor(pull, capacityWindows, read.items[entry.ID], slot.Number); verdict == readmodel.CapacityClosed {
+				window, models, verdict := s.windowFor(pull, capacityWindows, read.items[entry.ID], slot.Number)
+				if verdict == readmodel.CapacityClosed {
 					capacityHeld[entry.ID] = windowReasonFor(window, models)
 					continue
-				} else if verdict == readmodel.CapacityProbeDue {
-					s.sendCapacityProbe(&schedule, pull, capacityWindows, window, entry.ID)
 				}
 				if !start(entry, slot, pulledInto{slot: slot, labelled: labelled && preferred, outranked: labelled && !preferred}) {
 					return walkStopped, nil
+				}
+				// The probe is recorded once the run is actually started, so a start
+				// that did not happen never pushes the next probe back an interval.
+				if verdict == readmodel.CapacityProbeDue {
+					s.sendCapacityProbe(&schedule, pull, capacityWindows, window, entry.ID)
 				}
 				for index := range past {
 					past[index].took = entry.ID

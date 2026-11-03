@@ -268,10 +268,9 @@ func (window CapacityWindow) Probes(at time.Time, what string) []runstate.Capaci
 // limit, and when it is next tried — the provider's reset where it named one,
 // and the next probe where it did not.
 func (window CapacityWindow) Says(models string) string {
-	limit := "a usage limit"
-	if window.Kind != "" {
-		limit = "the " + window.Kind + " usage limit"
-	}
+	// The limit is said in the words a person reads, never the provider's own
+	// key: "the Opus weekly limit" rather than seven_day_opus.
+	limit := "the " + backend.LimitName(window.Kind)
 	when := window.Until.UTC().Format(time.RFC3339)
 	switch {
 	case window.Prober != "":

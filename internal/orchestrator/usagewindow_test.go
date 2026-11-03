@@ -213,7 +213,7 @@ func TestARecordedWindowHoldsOnlyTheWorkOnTheClosedModel(t *testing.T) {
 		}
 	}
 	if !strings.Contains(said, "waiting for provider capacity") || !strings.Contains(said, "opus") ||
-		!strings.Contains(said, "seven_day_opus") || !strings.Contains(said, lifts.Format(time.RFC3339)) {
+		!strings.Contains(said, "Opus weekly limit") || strings.Contains(said, "seven_day_opus") || !strings.Contains(said, lifts.Format(time.RFC3339)) {
 		t.Fatalf("passed over %s with %q, want it named as waiting for provider capacity on opus until %s", onOpus.ID, said, lifts.Format(time.RFC3339))
 	}
 	// The reason is kept on the item itself, under the usage-limit class, and the
