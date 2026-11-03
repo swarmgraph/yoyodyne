@@ -74,3 +74,54 @@ func TestTheLabelShapedTrackerReadFixtureMatchesTheStoppedRunWriter(t *testing.T
 		t.Fatalf("tracker read fixture differs from the actual stop writer:\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// renderOutcomeNotes writes "Repair attempts" after the base commit, and the
+// chat package's tracker read is pinned against what it writes for a raise.
+func TestTheRaisedTrackerReadFixtureMatchesTheOutcomeWriter(t *testing.T) {
+	t.Parallel()
+
+	fixture, err := os.ReadFile("../chat/testdata/raised-stop.notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome := Outcome{
+		RunID:            "run-raised",
+		Branch:           "branch-raised",
+		WorktreePath:     "worktree-raised",
+		BaseCommit:       "base-raised",
+		RepairAttempts:   2,
+		ReviewBaseCommit: "base-raised",
+		ReviewHeadCommit: "tip-raised",
+		ReviewDecision:   review.DecisionEscalate,
+		ReviewSummary:    "The item asks for two things that contradict each other.\nBranch: the design names one, the criteria another.",
+	}
+	if got, want := renderOutcomeNotes(outcome), strings.TrimSuffix(string(fixture), "\n"); got != want {
+		t.Fatalf("tracker read fixture differs from the actual outcome writer:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// renderReconciledIntegrationNotes writes where the change was integrated
+// before the review, and the chat package's tracker read is pinned against it.
+func TestTheReconciledTrackerReadFixtureMatchesTheReconcileWriter(t *testing.T) {
+	t.Parallel()
+
+	fixture, err := os.ReadFile("../chat/testdata/reconciled-integration.notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := runstate.State{
+		RunID:  "run-reconciled",
+		Phase:  runstate.PhaseIntegrating,
+		Branch: "branch-reconciled",
+		Integration: &runstate.Integration{
+			TargetBranch: "main", SourceCommit: "source-reconciled", PreviousTargetCommit: "previous-reconciled",
+		},
+		ReviewSessionID:  "review-session",
+		ReviewBaseCommit: "base-reconciled",
+		ReviewHeadCommit: "tip-reconciled",
+		ReviewDecision:   "approve",
+	}
+	if got, want := renderReconciledIntegrationNotes(state, false), strings.TrimSuffix(string(fixture), "\n"); got != want {
+		t.Fatalf("tracker read fixture differs from the actual reconcile writer:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}

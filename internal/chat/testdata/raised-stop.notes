@@ -1,0 +1,10 @@
+Yoyodyne run raised this item as one that cannot be met as it stands, in the round the reviewer reached. Nothing was integrated; the escalation is on the triage docket for the development manager and the item is parked until the development manager decides what happens to it.
+Run: run-raised
+Branch: branch-raised
+Worktree: worktree-raised
+Base commit: base-raised
+Repair attempts: 2
+Reviewed against: base base-raised, tip tip-raised
+Review decision: escalate
+Review summary: The item asks for two things that contradict each other.
+Branch: the design names one, the criteria another.

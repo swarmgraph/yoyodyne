@@ -381,14 +381,45 @@ func TestTheCasesStillReadAsAFieldAreTheOnesDocumented(t *testing.T) {
 			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nBranch: stale\nand then retry\nCheck: make test (passed=true, exit=0, 1s of 30m0s)",
 			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:",
 		},
-		"the same field with the first group after it is text": {
-			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nBranch: stale\nand then retry\nPhase: checking\nCheck: make test (passed=true, exit=0, 1s of 30m0s)",
-			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nBranch: stale\nand then retry\nPhase: checking",
+		"a field the note does not write itself, in its own part": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nWorktree: stale\nand then retry\nPhase: checking\nBranch: b",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nPhase: checking",
+		},
+		"a field from a later part, with an earlier part after it, is text": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nReview decision: repair\nand then retry\nPhase: checking\nCheck: make test (passed=true, exit=0, 1s of 30m0s)",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the reviewer said:\nReview decision: repair\nand then retry\nPhase: checking",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := trackerStopExcerpt(test.note); got != test.want {
 				t.Fatalf("excerpt:\n%s\nwant:\n%s", got, test.want)
+			}
+		})
+	}
+}
+
+// Writers differ in where they put a field within a part, and where they put the
+// fields saying where a change landed. Each fixture is pinned to its writer by a
+// test in internal/orchestrator.
+func TestEachWritersOwnFieldOrderIsReadWhole(t *testing.T) {
+	t.Parallel()
+
+	for fixture, want := range map[string]string{
+		// renderOutcomeNotes writes the repair attempts after the base commit.
+		"testdata/raised-stop.notes": "Yoyodyne run raised this item as one that cannot be met as it stands, in the round the reviewer reached. Nothing was integrated; the escalation is on the triage docket for the development manager and the item is parked until the development manager decides what happens to it.\n" +
+			"Run: run-raised\nRepair attempts: 2\nReviewed against: base base-raised, tip tip-raised\nReview decision: escalate\n" +
+			"Review summary: The item asks for two things that contradict each other.\nBranch: the design names one, the criteria another.",
+		// renderReconciledIntegrationNotes writes where the change landed before the review.
+		"testdata/reconciled-integration.notes": "Yoyodyne reconciled an interrupted run: the change was already integrated, so the item is being closed and the run's artifacts removed.\n" +
+			"Run: run-reconciled\nReviewed against: base base-reconciled, tip tip-reconciled\nReview decision: approve",
+	} {
+		t.Run(fixture, func(t *testing.T) {
+			note, err := os.ReadFile(fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := trackerStopExcerpt(strings.TrimSuffix(string(note), "\n")); got != want {
+				t.Fatalf("excerpt:\n%s\nwant:\n%s", got, want)
 			}
 		})
 	}

@@ -1,0 +1,10 @@
+Yoyodyne reconciled an interrupted run: the change was already integrated, so the item is being closed and the run's artifacts removed.
+Run: run-reconciled
+Phase when interrupted: integrating
+Branch: branch-reconciled
+Integrated into: main
+Integrated commit: source-reconciled
+Previous target commit: previous-reconciled
+Reviewer session: review-session
+Reviewed against: base base-reconciled, tip tip-reconciled
+Review decision: approve
