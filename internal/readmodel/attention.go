@@ -573,6 +573,9 @@ func (a Attention) What() string {
 				if a.Publication.PullRequest != nil && a.Publication.PullRequest.URL != "" {
 					what += " " + a.Publication.PullRequest.URL
 				}
+				if wait.UpdateRefused != "" {
+					what += "; " + wait.UpdateRefused
+				}
 				return what
 			}
 			target := a.Publication.TargetBranch
@@ -781,6 +784,8 @@ func (a Attention) Whose() string {
 			// because that is what stops a reader going looking for a lever that
 			// is not there.
 			switch {
+			case a.Publication.PersonMerge != nil && a.Publication.PersonMerge.UpdateRefused != "":
+				return a.Mover.Possessive() + " — decide what becomes of it: a re-run of the item onto the moved target, or leaving it to the person to merge; `yoyo reconcile` still closes the item if the request merges"
 			case a.Publication.PersonMerge != nil:
 				return a.Mover.Possessive() + " — the project's merge setting leaves the merge to a person, and the harness never merges it; the run holds no developer slot meanwhile, and `yoyo reconcile` closes the item once the request merges, or gives it back to the Lead Product Manager with the work kept if it is closed without merging"
 			case a.Publication.PullRequest == nil:
@@ -1294,6 +1299,7 @@ func (a Attention) ownershipRecord() ownership.Record {
 			record.UnresolvedFindings = unresolvedFindings(p.ReconcileFindings)
 			record.MergeDropped, record.Unarmed = p.MergeDrop != nil, p.Unarmed
 			record.WaitingForPerson = p.PersonMerge != nil
+			record.UpdateRefused = p.PersonMerge != nil && p.PersonMerge.UpdateRefused != ""
 			if pr := p.PullRequest; pr != nil {
 				record.PullRequest, record.MergeQueued = true, pr.MergeQueued
 				record.ChecksUnread = pr.Checks != nil && pr.Checks.ReadError != ""

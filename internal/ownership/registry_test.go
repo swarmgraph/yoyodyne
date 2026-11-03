@@ -265,6 +265,7 @@ func TestTheRulesFollowTheDesignsTable(t *testing.T) {
 		{"an unmerged request nothing explains is the development manager's", KindPublication, Record{PullRequest: true}, MoverDevelopmentManager, ""},
 		{"a queued merge is the forge's", KindPublication, Record{PullRequest: true, MergeQueued: true}, MoverForge, ""},
 		{"a request left for a person to merge is the operator's, as a step reserved for a person", KindPublication, Record{PullRequest: true, WaitingForPerson: true}, MoverOperator, OperatorHumanGate},
+		{"a waiting request the harness cannot bring up to date is the development manager's", KindPublication, Record{PullRequest: true, WaitingForPerson: true, UpdateRefused: true}, MoverDevelopmentManager, ""},
 		{"a degraded service is the harness's", KindDegradedService, Record{}, MoverHarness, ""},
 		{"a conversation that will not open is the harness's", KindFailingTask, Record{ConversationUnopened: true}, MoverHarness, ""},
 		{"the operator's hold is his", KindHold, Record{Hold: OperatorHold}, MoverOperator, OperatorOwnHold},

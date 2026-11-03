@@ -1670,6 +1670,37 @@ func TestAChangeWaitingForAPersonToMergeNeedsAHuman(t *testing.T) {
 	}
 }
 
+// A waiting change whose request the harness cannot bring up to date with a
+// moved target is the development manager's to decide, not the person's, and
+// the attention line says why.
+func TestAWaitingChangeThatCannotBeBroughtUpToDateIsTheDevelopmentManagers(t *testing.T) {
+	t.Parallel()
+	refused := runstate.State{
+		RunID:        "run-refused",
+		WorkItemID:   "item-refused",
+		Status:       runstate.StatusSucceeded,
+		Branch:       "yoyodyne/item/refused",
+		TargetBranch: "main",
+		PullRequest:  &runstate.PullRequest{Number: 413, URL: "https://forge.invalid/pull/413"},
+		PersonMerge:  &runstate.PersonMerge{Number: 413, Since: moment, UpdateRefused: "pull request 413 is 2 commit(s) behind main, and the harness cannot bring it up to date because its worktree is gone"},
+	}
+	sources := quietSources()
+	sources.Runs = fakeRuns{prices: map[string]runstate.ItemPrice{}, recorded: []runstate.State{refused}}
+	standing := ReadStanding(context.Background(), sources)
+	var entry *Attention
+	for index := range standing.NeedsHuman {
+		if standing.NeedsHuman[index].ID == "run-refused" {
+			entry = &standing.NeedsHuman[index]
+		}
+	}
+	if entry == nil || entry.Mover != MoverDevelopmentManager {
+		t.Fatalf("attention = %+v, want the waiting publication as the development manager's", standing.NeedsHuman)
+	}
+	if !strings.Contains(entry.What(), "its worktree is gone") || !strings.Contains(entry.Whose(), "re-run") {
+		t.Errorf("what = %q, whose = %q; want why it cannot be brought up to date and what she decides", entry.What(), entry.Whose())
+	}
+}
+
 // A promotion the forge has not published is on the attention line by the same
 // predicate the channel's heartbeat counts it by, so the hourly "N promotions
 // awaiting the forge" and the four lines name the same runs. A run settled after

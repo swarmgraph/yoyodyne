@@ -310,3 +310,38 @@ func TestConflictsBringingAWaitingPullRequestUpToDateAreRoundsUnderTheirOwnLimit
 		t.Fatalf("worktree removed %t, branch removed %t; want the change kept and the pull request untouched", after.WorktreeRemoved, after.BranchRemoved)
 	}
 }
+
+// A request behind its target that the harness cannot bring up to date, for a
+// reason no later check clears, is told on the item once and recorded on the
+// wait for the development manager, and nothing is withdrawn or replayed. The
+// wait goes on, so a later check still settles a merge.
+func TestAWaitingPullRequestThatCannotBeBroughtUpToDateGoesToTheDevelopmentManagerOnce(t *testing.T) {
+	t.Parallel()
+	fixture := newPersonMergeUpdateFixture(t)
+	gone := fixture.load(t)
+	gone.ProviderSessionID = ""
+	if err := fixture.store.Save(gone); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	driftRemoteTarget(t, fixture.remote, "main")
+
+	settled, updates := fixture.check(t)
+	if settled.Updating || settled.Failure != "" || !strings.Contains(settled.Kept, "its record names no developer session") || !strings.Contains(settled.Kept, "development manager") || len(updates) != 0 {
+		t.Fatalf("check = %#v / %#v, want the request left as it stands and given to the development manager", settled, updates)
+	}
+	if len(fixture.forge.Withdrawn) != 0 {
+		t.Fatalf("withdrawn = %v, want nothing withdrawn for a request the harness will not update", fixture.forge.Withdrawn)
+	}
+	after := fixture.load(t)
+	if !after.WaitingForPersonMerge() || !strings.Contains(after.PersonMerge.UpdateRefused, "no developer session") {
+		t.Fatalf("wait = %#v, want it still waiting with the reason recorded", after.PersonMerge)
+	}
+	const told = "cannot bring this item's waiting pull request up to date"
+	if strings.Count(fixture.tracker.Notes, told) != 1 || !strings.Contains(fixture.tracker.Notes, "development manager decides") {
+		t.Fatalf("item notes:\n%s\nwant one note naming the development manager", fixture.tracker.Notes)
+	}
+
+	if settled, _ := fixture.check(t); !strings.Contains(settled.Kept, "development manager") || strings.Count(fixture.tracker.Notes, told) != 1 {
+		t.Fatalf("second check = %#v, notes told %d times; want the same answer and no second note", settled, strings.Count(fixture.tracker.Notes, told))
+	}
+}

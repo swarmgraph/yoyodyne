@@ -26,7 +26,7 @@ package orchestrator
 //     checked and reviewed again, and pushed to the same request, which waits
 //     for the person again. A request the forge is already merging is left
 //     alone, and the run reads the request again immediately before it pushes
-//     (activeRun.handOverUpdated). A conflict in the replay is handed to the
+//     (activeRun.publishUpdated). A conflict in the replay is handed to the
 //     developer, up to runstate.MaxUpToDateConflicts times.
 //
 // Every write here reads the item first and is not made again where an earlier
@@ -355,8 +355,7 @@ func (r Reconciler) updatePersonMerge(ctx context.Context, recorded runstate.Sta
 		return result
 	}
 	if refusal := cannotUpdatePersonMerge(recorded); refusal != "" {
-		result.Kept = fmt.Sprintf("pull request %d is %d commit(s) behind %s, and the harness cannot bring it up to date: %s", number, reading.BehindBy, target, refusal)
-		return result
+		return r.refusePersonMergeUpdate(ctx, recorded, reading.BehindBy, refusal, result)
 	}
 	if !r.HostsRuns {
 		return keep("this pass hosts no runs (`yoyo reconcile` does)")
@@ -467,10 +466,70 @@ func cannotUpdatePersonMerge(state runstate.State) string {
 		return "its record carries no standing approval"
 	case strings.TrimSpace(state.ProviderSessionID) == "":
 		return "its record names no developer session"
-	case state.ResumptionsLeft() == 0:
-		return fmt.Sprintf("its promotion has been resumed %d times, which is the record's bound", runstate.MaxIntegrationResumptions)
 	}
 	return ""
+}
+
+// refusePersonMergeUpdate settles a request behind its target that the harness
+// cannot bring up to date, for a reason no later check will clear: the item is
+// told once and the reason is recorded on the wait, which every surface then
+// shows as the development manager's to decide (a re-run onto the moved target,
+// or leaving the request to the person). A request whose reason is already
+// recorded is left as it stands. The wait goes on either way, so a merge or a
+// closing is still settled by the next check.
+func (r Reconciler) refusePersonMergeUpdate(ctx context.Context, recorded runstate.State, behind int, refusal string, result PersonMergeSettlement) PersonMergeSettlement {
+	number := recorded.PersonMerge.Number
+	target := recorded.TargetBranch
+	reason := boundedReason(fmt.Sprintf("pull request %d is %d commit(s) behind %s, and the harness cannot bring it up to date because %s", number, behind, target, refusal))
+	result.Kept = reason + "; the development manager decides what becomes of it"
+	if recorded.PersonMerge.UpdateRefused != "" {
+		return result
+	}
+	state, lease, err := r.Store.AdoptRun(ctx, recorded.RunID)
+	switch {
+	case errors.Is(err, runstate.ErrRunHeld):
+		return result
+	case err != nil:
+		result.Failure = fmt.Errorf("adopt run %s to record why pull request %d cannot be brought up to date: %w", recorded.RunID, number, err).Error()
+		return result
+	}
+	defer lease.Release()
+	if !state.WaitingForPersonMerge() || state.PersonMerge.Number != number || state.PersonMerge.UpdateRefused != "" {
+		return result
+	}
+	notes := renderPersonMergeRefusedNotes(state, reason)
+	err = r.recovering(ctx, &state, runstate.RetryTrackerWrite, func(ctx context.Context) error {
+		item, err := r.Tracker.Show(ctx, state.WorkItemID)
+		if err != nil {
+			return fmt.Errorf("load work item %s: %w", state.WorkItemID, err)
+		}
+		if beads.NotesEndWith(item.Notes, notes) {
+			return nil
+		}
+		if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, notes); err != nil {
+			return fmt.Errorf("record on %s that pull request %d cannot be brought up to date: %w", state.WorkItemID, number, err)
+		}
+		return nil
+	})
+	if err != nil {
+		result.Failure = err.Error()
+		return result
+	}
+	if _, err := r.Store.Update(ctx, state.RunID, runstate.PersonMergeUpdateRefused{Number: number, Reason: reason, At: r.clock().Now()}); err != nil {
+		result.Failure = fmt.Errorf("record on run %s why pull request %d cannot be brought up to date: %w", state.RunID, number, err).Error()
+	}
+	return result
+}
+
+// renderPersonMergeRefusedNotes tells the item its waiting pull request cannot
+// be brought up to date, and who decides what becomes of it.
+func renderPersonMergeRefusedNotes(state runstate.State, reason string) string {
+	return strings.Join([]string{
+		"Yoyodyne cannot bring this item's waiting pull request up to date with its target: " + reason + ".",
+		"Run: " + state.RunID,
+		fmt.Sprintf("Pull request: #%d %s", state.PullRequest.Number, state.PullRequest.URL),
+		"The pull request is left as it is and still waits for a person to merge it. Where the project requires branches to be up to date before merging, it cannot be merged until something changes, so the development manager decides what becomes of it: a re-run of the item onto the moved target, or leaving it to the person.",
+	}, "\n")
 }
 
 // renderPersonMergeUpdateNotes tells the work item its waiting pull request is

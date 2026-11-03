@@ -5016,6 +5016,11 @@ the forge about every request waiting this way:
   the conflicting files named; these rounds are counted against a limit of
   three of their own, not the item's repair attempts, and a conflict after
   the third stops the run for the development manager with the change kept.
+  However often the target moves, these updates never use up the run's
+  allowance of resumed promotions. If the harness cannot bring the request up
+  to date at all, because the run's branch, worktree, approval or developer
+  session is gone, it says so once on the item, and the request is shown as
+  the development manager's to decide rather than only yours to merge.
 
 That is deliberate rather than a gap. Merging is a promotion, promotion is what
 `approvals.integration` governs, and a harness that merged under a `human`

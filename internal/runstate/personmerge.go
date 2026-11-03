@@ -31,6 +31,13 @@ type PersonMerge struct {
 	ClosedAt    *time.Time `json:"closed_at,omitempty"`
 	ClosedBy    string     `json:"closed_by,omitempty"`
 	ReturnedAt  *time.Time `json:"returned_at,omitempty"`
+	// UpdateRefused is why the harness cannot bring the request up to date with
+	// a target that moved past it, recorded once by the forge check when nothing
+	// the harness does will change the answer (PersonMergeUpdateRefused): the
+	// run's worktree or branch is gone, or its record carries no approval or no
+	// developer session. While it is set the wait is the development manager's
+	// to decide, not only the person's to merge.
+	UpdateRefused string `json:"update_refused,omitempty"`
 }
 
 // maxForgeLoginBytes bounds the forge account a closing is recorded under. A
@@ -73,6 +80,9 @@ func (p PersonMerge) Validate() error {
 	}
 	if p.Returned() && p.ClosedAt == nil {
 		problems = append(problems, errors.New("a returned person_merge requires when the request was closed"))
+	}
+	if len(p.UpdateRefused) > MaxSelectionReasonBytes {
+		problems = append(problems, fmt.Errorf("person_merge update_refused exceeds %d bytes", MaxSelectionReasonBytes))
 	}
 	if !p.Returned() && (p.ClosedAt != nil || strings.TrimSpace(p.ClosedBy) != "") {
 		problems = append(problems, errors.New("person_merge closed_at and closed_by require returned_at"))
@@ -223,9 +233,25 @@ func (s State) BringingPersonMergeUpToDate() bool {
 // and starts again when the run publishes the updated head; while it is live the
 // run holds a developer slot. The caller saves it through Store.ReserveLive,
 // which takes that slot in the same act.
+//
+// These updates are not stops the environment caused, and a request in a busy
+// shared repository is brought up to date as often as the target moves, so they
+// do not spend MaxIntegrationResumptions: the record keeps only the latest one,
+// in place of any earlier, and where the record is still full of other
+// resumptions the oldest of them gives way. Each update is also told on the
+// work item, which keeps the whole account.
 func (s State) PutBackToBringUpToDate(reason string, at time.Time) State {
 	resumed := s
-	resumed.IntegrationResumptions = append(append([]IntegrationResumption{}, s.IntegrationResumptions...),
+	kept := make([]IntegrationResumption, 0, len(s.IntegrationResumptions)+1)
+	for _, earlier := range s.IntegrationResumptions {
+		if earlier.Cause != CausePersonMergeBehind {
+			kept = append(kept, earlier)
+		}
+	}
+	if over := len(kept) + 1 - MaxIntegrationResumptions; over > 0 {
+		kept = kept[over:]
+	}
+	resumed.IntegrationResumptions = append(kept,
 		IntegrationResumption{
 			Cause:             CausePersonMergeBehind,
 			Reason:            reason,
@@ -253,4 +279,28 @@ func (s *State) StartUpToDateConflictRound(at time.Time) {
 	s.UpToDateConflicts++
 	s.Phase = PhaseDeveloping
 	s.UpdatedAt = at
+}
+
+// PersonMergeUpdateRefused records, once, why the forge check cannot bring a
+// waiting request up to date, so the wait is shown as the development
+// manager's to decide and the item is not told again at every check. It
+// changes nothing where the same reason is already recorded.
+type PersonMergeUpdateRefused struct {
+	Number int
+	Reason string
+	At     time.Time
+}
+
+func (u PersonMergeUpdateRefused) apply(state *State) (bool, error) {
+	if !state.WaitingForPersonMerge() || state.PersonMerge.Number != u.Number {
+		return false, fmt.Errorf("run %s is not waiting for a person to merge pull request %d, so why it cannot be brought up to date is not recorded on it", state.RunID, u.Number)
+	}
+	if state.PersonMerge.UpdateRefused == u.Reason {
+		return false, nil
+	}
+	wait := *state.PersonMerge
+	wait.UpdateRefused = u.Reason
+	state.PersonMerge = &wait
+	state.UpdatedAt = u.At
+	return true, nil
 }

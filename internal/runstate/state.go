@@ -2464,6 +2464,7 @@ func (s *State) recordedTexts() []recordedText {
 	}
 	if s.PersonMerge != nil {
 		unstated("person_merge.closed_by", "person_merge.closed_by", &s.PersonMerge.ClosedBy, maxForgeLoginBytes)
+		unstated("person_merge.update_refused", "person_merge.update_refused", &s.PersonMerge.UpdateRefused, MaxSelectionReasonBytes)
 	}
 	if s.MergeDrop != nil {
 		unstated("merge_drop.reason", "merge_drop.reason", &s.MergeDrop.Reason, MaxRecordedTextBytes)
