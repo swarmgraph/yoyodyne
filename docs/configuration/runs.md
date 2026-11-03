@@ -1390,6 +1390,35 @@ What changes when you watch is what bounds the spend. A drain is bounded by the
 queue emptying; a watching session is bounded by what you admit to the queue. The
 backlog's order stops being a schedule and becomes the throttle.
 
+### Pull requests waiting for a person to merge
+
+Where your merge setting leaves each pull request for a person to merge, every
+approved change the harness publishes waits on that person. A harness that
+went on starting new work would only pile up more of them, each built on a
+target that has moved further from the rest, so there is a limit:
+
+```yaml
+execution:
+  max_waiting_pull_requests: 5   # the default; 0 is no limit
+```
+
+With that many pull requests waiting, no new developer work is started. What
+is already under way carries on: repair rounds the development manager
+decided, reviews, runs paused on other work, documents being landed, and the
+bringing up to date of the waiting pull requests themselves. The status line,
+the dashboard, the channel's hourly message, and the Lead Product Manager's
+sweep all open with the same sentence, so the quiet never reads as a stall:
+
+```
+Not starting new work because 5 pull requests are waiting for a person to merge (the limit is 5): #41 for (P1) Retry the merge (ex-7); ... New work starts again by itself once one of them is merged or closed.
+```
+
+Nothing needs releasing. The count is read again at every pull, so once a
+check of the forge finds one of them merged or closed, the next pull starts new
+work. Setting the limit is the development manager's decision, like the other
+numeric limits here. A drain (`yoyo work` without `--watch`) stops when it
+meets the limit, and says so.
+
 ### When a configuration change takes effect
 
 **At the next selection.** `yoyo work` re-reads the configuration before every
@@ -1405,7 +1434,7 @@ changing them under a running developer would mean a run judged by rules it was
 never started under.
 
 A watching session is the same answer said again: `work_poll`,
-`blocked_runs_before_intake_hold`, `brake_cooldown`, and
+`blocked_runs_before_intake_hold`, `max_waiting_pull_requests`, `brake_cooldown`, and
 `brake_escalation_cycles` are re-read at every pull too, so an interval you
 shorten or a brake you loosen takes effect at the next wait rather than at the
 next restart, and a bound you tighten under a standing loop is heard at the

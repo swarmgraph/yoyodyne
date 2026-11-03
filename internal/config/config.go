@@ -466,6 +466,15 @@ type Execution struct {
 	// fix one. Zero never brakes, which is the behaviour a pass had before this
 	// bound existed.
 	BlockedRunsBeforeIntakeHold int `yaml:"blocked_runs_before_intake_hold" json:"blocked_runs_before_intake_hold"`
+	// MaxWaitingPullRequests is how many approved changes may stand waiting for a
+	// person to merge their pull request before the scheduler starts no new
+	// developer work: at the limit it chooses nothing from the queue, while
+	// repair rounds, reviews, and the bringing up to date of the waiting pull
+	// requests carry on, and it chooses again once a merge or a closing brings
+	// the count below the limit. Every surface says why nothing new is starting
+	// and names each pull request with its item (runstate.WaitingPullRequests).
+	// Zero is no limit.
+	MaxWaitingPullRequests int `yaml:"max_waiting_pull_requests" json:"max_waiting_pull_requests"`
 	// BrakeCooldown is how long a tripped brake waits for the development
 	// manager's decision before it probes the line by itself: one run started
 	// under the hold, whose landing reopens intake and whose blocking keeps it
@@ -663,6 +672,11 @@ const (
 	// unlucky item after it do not stop the line, and short of a session that
 	// spends the whole backlog finding out the machine is broken.
 	defaultBlockedRunsBeforeIntakeHold = 3
+	// defaultMaxWaitingPullRequests is five: enough that a person merging once
+	// or twice a day does not stop the line, and few enough that a pile of
+	// unmerged changes is noticed before the work behind them is built on a
+	// target that has moved away from all of them.
+	defaultMaxWaitingPullRequests = 5
 	// defaultBrakeCooldown is thirty minutes: long enough for the development
 	// manager's summoned turn to be taken and answered several times over — a
 	// turn is minutes — and short enough that a summons the provider refused, or
@@ -1296,6 +1310,10 @@ func (c Config) Validate() error {
 	// anybody could count, is refused.
 	if c.Execution.BlockedRunsBeforeIntakeHold < 0 {
 		problems = append(problems, "blocked_runs_before_intake_hold cannot be negative")
+	}
+	// Zero is no limit, so only a negative one is refused.
+	if c.Execution.MaxWaitingPullRequests < 0 {
+		problems = append(problems, "execution.max_waiting_pull_requests cannot be negative")
 	}
 	// Zero is a choice here too: the cooldown probes nothing while her summons
 	// is being taken or waits for her conversation, so a cooldown of no time at

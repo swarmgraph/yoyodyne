@@ -3981,6 +3981,11 @@ type scheduleHarness struct {
 	// squashHolds is maintenance's hold on new runs for a tracker squash, wired
 	// only where a test asks.
 	squashHolds ScheduleSquashHolds
+	// maxWaitingPullRequests and personMerges are the limit on pull requests
+	// waiting for a person to merge and the runs waiting, wired only where a
+	// test asks.
+	maxWaitingPullRequests int
+	personMerges           PersonMergeWaits
 	// launchSettings is the product's record of a developer's provider that did
 	// not apply its launch settings, build the harness revision the
 	// pull runs, and developerProvider the configured developer's provider. A
@@ -4225,6 +4230,8 @@ func (h *scheduleHarness) open(context.Context) (Pull, error) {
 		UnknownResetProbe:           h.unknownResetProbe,
 		Divergences:                 h.divergences,
 		SquashHolds:                 h.squashHolds,
+		MaxWaitingPullRequests:      h.maxWaitingPullRequests,
+		PersonMerges:                h.personMerges,
 		LaunchSettings:              h.launchSettings,
 		Build:                       h.build,
 		DeveloperProvider:           h.developerProvider,

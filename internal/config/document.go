@@ -127,6 +127,7 @@ type executionDocument struct {
 	UsageWindowDegradedPercent             *int      `yaml:"usage_window_degraded_percent"`
 	MissingReportsBeforeFreshConversation  *int      `yaml:"missing_reports_before_fresh_conversation"`
 	BlockedRunsBeforeIntakeHold            *int      `yaml:"blocked_runs_before_intake_hold"`
+	MaxWaitingPullRequests                 *int      `yaml:"max_waiting_pull_requests"`
 	SchedulingWaitProblemAfter             *Duration `yaml:"scheduling_wait_problem_after"`
 	BrakeCooldown                          *Duration `yaml:"brake_cooldown"`
 	BrakeEscalationCycles                  *int      `yaml:"brake_escalation_cycles"`

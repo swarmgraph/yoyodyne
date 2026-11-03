@@ -406,6 +406,11 @@ type Sources struct {
 	// SchedulingWaitProblemAfter is execution.scheduling_wait_problem_after as
 	// the caller read it. Zero takes DefaultSchedulingWaitProblemAfter.
 	SchedulingWaitProblemAfter time.Duration
+	// MaxWaitingPullRequests is execution.max_waiting_pull_requests as the
+	// caller read it: how many approved changes may wait for a person to merge
+	// them before the scheduler starts no new developer work. Zero is no limit,
+	// and nothing is said about it (waitingpullrequests.go).
+	MaxWaitingPullRequests int
 	// FactoryStallAfter is execution.factory_stall_after as the caller read it:
 	// how long no pull and no successful recurring pass may go before the
 	// factory is said to have stalled. Zero takes DefaultFactoryStallAfter.
@@ -678,9 +683,13 @@ type Standing struct {
 	OwnerInterventions OwnerInterventions `json:"owner_interventions"`
 
 	// Paused is the harness waiting out the provider's usage window, said above
-	// the four lines rather than inside them.
+	// the four lines rather than inside them. Where the provider pauses nothing,
+	// it says instead that no new work is starting because as many pull
+	// requests as the limit allows are waiting for a person to merge
+	// (WaitingPullRequests below): that pause is otherwise a quiet line nobody
+	// can tell from a stalled one.
 	//
-	// It is the one state that goes there, and it is there because the operator
+	// The provider's pause is the state that goes there first, and it is there because the operator
 	// asked for it in those terms: when the system is paused on a provider usage
 	// window, the cause is the first words of any message that reaches him. A
 	// reading is a message — it is what he runs when he wants to know why nothing
@@ -715,6 +724,14 @@ type Standing struct {
 	// watching session chooses nothing; each is on the attention line as the
 	// operator's, with the recovery.
 	DivergedTargets []runstate.DivergedTarget `json:"diverged_targets,omitempty"`
+	// WaitingPullRequests is the pull requests waiting for a person to merge,
+	// where as many are waiting as execution.max_waiting_pull_requests allows,
+	// and nil otherwise. While it stands the scheduler starts no new developer
+	// work, and the banner above says so, naming each pull request and its work
+	// item, wherever nothing that stops more than new work is said there first.
+	// WaitingPullRequestsProblem is why the waits could not be read.
+	WaitingPullRequests        *runstate.WaitingPullRequests `json:"waiting_pull_requests,omitempty"`
+	WaitingPullRequestsProblem string                        `json:"waiting_pull_requests_problem,omitempty"`
 
 	Running        []RunningRun `json:"running"`
 	RunningProblem string       `json:"running_problem,omitempty"`
@@ -1339,6 +1356,19 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 			standing.Titles = UnreadableWorkItemTitles(standing.ObservedAt, prefixes...)
 		}
 	}
+	// The limit on pull requests waiting for a person to merge is said in the
+	// banner where nothing else is: every other banner stops more than new
+	// work, so it is the first thing to say when it stands, and this says the
+	// rest once it lifts. It is worded after the titles are read, so each pull
+	// request's item is named with its title from this same listing.
+	waiting, waitingProblem := WaitingPullRequestsOf(sources)
+	standing.WaitingPullRequestsProblem = waitingProblem
+	if waiting.Reached() {
+		standing.WaitingPullRequests = &waiting
+		if standing.Paused == "" {
+			standing.Paused = SayWaitingPullRequests(waiting, standing.Titles)
+		}
+	}
 	standing.WorkItemNames = standing.Titles.Names(standing.namedItems()...)
 	standing.wording = ReadTextTerms(sources.Repository)
 	for index := range standing.NeedsHuman {
@@ -1371,6 +1401,11 @@ func (s Standing) namedItems() []string {
 	}
 	for _, entry := range s.NeedsHuman {
 		ids = append(ids, entry.WorkItemID)
+	}
+	if s.WaitingPullRequests != nil {
+		for _, request := range s.WaitingPullRequests.Waiting {
+			ids = append(ids, request.WorkItemID)
+		}
 	}
 	for _, instance := range s.ProgramManagers {
 		for _, entries := range [][]LaneEntry{instance.Completed, instance.HandedOff} {
