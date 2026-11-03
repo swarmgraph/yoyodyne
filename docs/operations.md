@@ -1785,8 +1785,10 @@ closed model — the developer's own model for an item no
 `execution.developer_models` label names, and the mapped model otherwise —
 unless the developer's alternate is still served. Such an item is passed over
 by itself, keeps its priority and its place in the order, and is named as
-waiting for provider capacity with the time it is next tried, while work on a
-served model is pulled past it; the first poll past that time pulls it again. A
+waiting for provider capacity with the time it is next tried — the provider's
+reset, or the next probe where it named none, said in the operator's local time
+with the zone named, such as 2026-10-11 03:30 PDT — while work on a served model
+is pulled past it; the first poll past that time pulls it again. A
 developer slot that routes to an endpoint pair of its own is read per slot: an
 item the slot reaches is held where the pair's primary and alternate are both
 closed on the accounts the pair names, and a refusal of the same model on

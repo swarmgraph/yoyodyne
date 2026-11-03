@@ -213,8 +213,8 @@ func TestARecordedWindowHoldsOnlyTheWorkOnTheClosedModel(t *testing.T) {
 		}
 	}
 	if !strings.Contains(said, "waiting for provider capacity") || !strings.Contains(said, "opus") ||
-		!strings.Contains(said, "Opus weekly limit") || strings.Contains(said, "seven_day_opus") || !strings.Contains(said, lifts.Format(time.RFC3339)) {
-		t.Fatalf("passed over %s with %q, want it named as waiting for provider capacity on opus until %s", onOpus.ID, said, lifts.Format(time.RFC3339))
+		!strings.Contains(said, "Opus weekly limit") || strings.Contains(said, "seven_day_opus") || !strings.Contains(said, lifts.Local().Format("2006-01-02 15:04 MST")) {
+		t.Fatalf("passed over %s with %q, want it named as waiting for provider capacity on opus until %s", onOpus.ID, said, lifts.Local().Format("2006-01-02 15:04 MST"))
 	}
 	// The reason is kept on the item itself, under the usage-limit class, and the
 	// item's priority is untouched: it keeps its place in the order.
@@ -225,7 +225,7 @@ func TestARecordedWindowHoldsOnlyTheWorkOnTheClosedModel(t *testing.T) {
 			continue
 		}
 		wait := item.SchedulingWait
-		if wait == nil || wait.Class != string(runstate.PassedOverWaitingOnUsageWindow) || !strings.Contains(wait.Reason, lifts.Format(time.RFC3339)) {
+		if wait == nil || wait.Class != string(runstate.PassedOverWaitingOnUsageWindow) || !strings.Contains(wait.Reason, lifts.Local().Format("2006-01-02 15:04 MST")) {
 			t.Fatalf("kept wait on %s = %+v, want the usage-limit wait with its reset", onOpus.ID, wait)
 		}
 		if item.Priority != onOpus.Priority {
