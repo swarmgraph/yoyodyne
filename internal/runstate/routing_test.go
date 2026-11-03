@@ -760,3 +760,30 @@ func TestNothingLaunchesForAnOperationWhileAnEarlierAttemptsStopIsUncertain(t *t
 	relaunched = route(t, store, relaunched, end("op-1", "att-2", "connection_lost", TerminationConfirmed))
 	route(t, store, relaunched, planSwitch("op-1", "sw-1", "", "att-3"))
 }
+
+// A move to another developer slot is said in the operator's local time with
+// the zone named, on the status line and the run's history line alike, while
+// the record keeps the moment as stored. It sets the process's zone to one
+// that is not UTC, so it passes whatever zone the machine is in, and does not
+// run in parallel.
+func TestASlotMoveIsSaidInLocalTimeAndStoredAsRecorded(t *testing.T) {
+	saved := time.Local
+	time.Local = time.FixedZone("PDT", -7*60*60)
+	defer func() { time.Local = saved }()
+
+	moved := State{Routing: &RunRouting{Slot: &RoutedSlot{Number: 2, Origin: RoutingClaimed, RecordedAt: time.Date(2026, 11, 1, 8, 0, 0, 0, time.UTC), MovedFrom: 3, MovedBecause: "slot 3 was held by another run"}}}
+	says := moved.SlotMoveSays()
+	if want := "moved from developer slot 3 to developer slot 2 at 2026-11-01 01:00 PDT, because slot 3 was held by another run"; says != want {
+		t.Fatalf("SlotMoveSays() = %q, want %q", says, want)
+	}
+	if strings.Contains(says, "08:00") || strings.Contains(says, "T08") || strings.Contains(says, "UTC") {
+		t.Fatalf("SlotMoveSays() = %q, want no UTC time in it", says)
+	}
+	stored, err := json.Marshal(moved.Routing.Slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(stored), `"recorded_at":"2026-11-01T08:00:00Z"`) {
+		t.Fatalf("stored slot %s, want the move's time kept in UTC", stored)
+	}
+}

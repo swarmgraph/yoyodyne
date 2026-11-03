@@ -135,13 +135,15 @@ type RoutedSlot struct {
 }
 
 // SlotMoveSays is the run's last move to another developer slot in words a
-// person reads — which slot it left and why — and empty for a run that has
-// never been moved.
+// person reads — which slot it left, when, and why — and empty for a run that
+// has never been moved. The status line and the run's history line both say
+// it, so the time is the operator's local time with the zone named; the record
+// itself keeps RecordedAt as stored.
 func (s State) SlotMoveSays() string {
 	if s.Routing == nil || s.Routing.Slot == nil || s.Routing.Slot.MovedFrom == 0 {
 		return ""
 	}
-	says := fmt.Sprintf("moved from developer slot %d to developer slot %d at %s", s.Routing.Slot.MovedFrom, s.Routing.Slot.Number, s.Routing.Slot.RecordedAt.UTC().Format(time.RFC3339))
+	says := fmt.Sprintf("moved from developer slot %d to developer slot %d at %s", s.Routing.Slot.MovedFrom, s.Routing.Slot.Number, s.Routing.Slot.RecordedAt.Local().Format("2006-01-02 15:04 MST"))
 	if because := strings.TrimSpace(s.Routing.Slot.MovedBecause); because != "" {
 		says += ", because " + because
 	}
