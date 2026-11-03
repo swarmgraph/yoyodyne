@@ -1210,12 +1210,13 @@ input:focus-visible {
   color: var(--ink-soft);
 }
 
-/* ---- the backlog page ------------------------------------------------------------ */
+/* ---- the backlog and delivery pages ---------------------------------------------- */
 
-/* The backlog page shares this stylesheet; these are its own pieces. The link
-   that reaches it sits in the top status band, and the link back in its
-   header. The chart's box sets its height, since the library fills its box
-   rather than choosing one. */
+/* The backlog and delivery pages share this stylesheet and these pieces with
+   each other. The links that reach them sit in the top status band, and the
+   links back in their headers. A chart's box sets its height, since the
+   library fills its box rather than choosing one; the delivery page draws a
+   chart per measure, so each is shorter. */
 
 .page-link {
   color: var(--accent-ink);
@@ -1272,6 +1273,12 @@ input[type="checkbox"]:focus-visible {
 .backlog-chart {
   position: relative;
   height: 24rem;
+  margin: 0.75rem 0;
+}
+
+.delivery-chart {
+  position: relative;
+  height: 16rem;
   margin: 0.75rem 0;
 }
 
@@ -1354,6 +1361,10 @@ input[type="checkbox"]:focus-visible {
 
   .backlog-chart {
     height: 18rem;
+  }
+
+  .delivery-chart {
+    height: 14rem;
   }
 
   .backlog-controls label:not(.check) {

@@ -37,13 +37,14 @@
 //     last good one, with the failure beside its age.
 //
 // What is served without a token is the page shell, the backlog page's shell
-// at /backlog, and their own script and style — the chart library the backlog
-// page draws with included, where the build carries it (chartlib.go): static
+// at /backlog, the delivery page's at /delivery, and their own script and
+// style — the chart library both pages draw with included, where the build
+// carries it (chartlib.go): static
 // text compiled into the binary, with nothing of the read model in it, which
 // is what a browser needs before it can present a token at all.
 // Everything that reads state is behind the token: the standing, the owner
 // summary at /api/summary, the throughput, the spend, the delivery measures at
-// /api/delivery, what the spend accomplished at /api/accomplishment, one work item
+// /api/delivery, which is what the delivery page charts, what the spend accomplished at /api/accomplishment, one work item
 // at a time at /api/items/<id>, which is
 // what the page opens a card from, and one program manager instance's lane
 // report at a time at /api/program-managers/<agent>, and every work item the
@@ -104,6 +105,9 @@ var shell = template.Must(template.ParseFS(assets, "assets/shell.html"))
 // backlogShell is the backlog page, parsed once and escaped the same way.
 var backlogShell = template.Must(template.ParseFS(assets, "assets/backlog.html"))
 
+// deliveryShell is the delivery page, parsed once and escaped the same way.
+var deliveryShell = template.Must(template.ParseFS(assets, "assets/delivery.html"))
+
 // tokenBytes is the entropy behind one token. Thirty-two bytes is more than any
 // guess on a loopback port could ever cover, and it renders as sixty-four hex
 // characters, which is short enough to paste.
@@ -148,7 +152,7 @@ type Reader interface {
 	// than once every ten seconds. The same rule holds.
 	Spend(ctx context.Context) (readmodel.Spend, error)
 	// Delivery reads the factory's delivery measures, day by day and week by
-	// week in Pacific time, for the delivery page. It is a reading of its own
+	// week in the zone the reading names, for the delivery page. It is a reading of its own
 	// because it reads every run's event log and the whole tracker; the page
 	// asks for it once a minute. The same rule holds.
 	Delivery(ctx context.Context) (readmodel.Delivery, error)
@@ -598,6 +602,8 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 		s.servePage(writer)
 	case request.URL.Path == "/backlog":
 		s.serveBacklogPage(writer)
+	case request.URL.Path == "/delivery":
+		s.serveDeliveryPage(writer)
 	case strings.HasPrefix(request.URL.Path, "/assets/"):
 		s.serveAsset(writer, request)
 	case request.URL.Path == "/api/standing", request.URL.Path == summaryPath, request.URL.Path == "/api/throughput", request.URL.Path == "/api/spend", request.URL.Path == "/api/backlog", request.URL.Path == "/api/delivery", request.URL.Path == "/api/accomplishment", request.URL.Path == sessionPath, strings.HasPrefix(request.URL.Path, "/api/items/"), strings.HasPrefix(request.URL.Path, "/api/program-managers/"):
@@ -681,6 +687,19 @@ func (s *Server) serveBacklogPage(writer http.ResponseWriter) {
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 	writer.WriteHeader(http.StatusOK)
 	_ = backlogShell.Execute(writer, struct {
+		Product      string
+		ChartLibrary bool
+	}{Product: s.Product, ChartLibrary: chartLibraryLoads(s.assetFiles())})
+}
+
+// serveDeliveryPage is the delivery page's shell, served without a token as
+// the backlog page's is: static text its script fills from /api/delivery,
+// which is behind the token. It loads the same chart library on the same
+// terms, the one copy this build carries.
+func (s *Server) serveDeliveryPage(writer http.ResponseWriter) {
+	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writer.WriteHeader(http.StatusOK)
+	_ = deliveryShell.Execute(writer, struct {
 		Product      string
 		ChartLibrary bool
 	}{Product: s.Product, ChartLibrary: chartLibraryLoads(s.assetFiles())})
@@ -835,8 +854,8 @@ func (s *Server) serveAsset(writer http.ResponseWriter, request *http.Request) {
 	}
 }
 
-// assetFiles is what serveAsset serves and the backlog page looks for the
-// chart library in.
+// assetFiles is what serveAsset serves and the backlog and delivery pages look
+// for the chart library in.
 func (s *Server) assetFiles() fs.FS {
 	if s.files != nil {
 		return s.files
