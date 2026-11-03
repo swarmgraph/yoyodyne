@@ -293,3 +293,65 @@ func TestUnframedHistoryDoesNotLetACapturedSentenceReplaceARecord(t *testing.T) 
 		t.Fatalf("ambiguous history carried the captured output as a stop reason: %d bytes", len(rendered))
 	}
 }
+
+func TestFreeTextThatBeginsWithAFieldNameStaysInsideItsField(t *testing.T) {
+	t.Parallel()
+
+	fixture, err := os.ReadFile("testdata/label-shaped-stop.notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The orchestrator's test pins this fixture to renderFailureNotes. Its failure
+	// quotes a check line, and its review summary, after the diff, has a paragraph
+	// beginning "Reason:"; both are text inside their field.
+	note := strings.ReplaceAll(strings.TrimSuffix(string(fixture), "\n"), "LONG_DIFF_OUTPUT",
+		strings.Repeat("diff output describing the change\n", 1000))
+	const failure = "Failure: verification failed after 2 of 2 permitted attempt(s):\nCheck: make generate (passed=false, exit=1, 2s of 30m0s)\nThe generated schema is older than its source; regenerate it and run the checks again.\nPhase: checking"
+	const summary = "Review decision: repair\nReview summary: The change regenerates the schema.\n\nReason: the generator is still pinned to the old version, so the next run undoes it.\nPin it as well.\nFinding [major]: Pin the generator."
+	for _, framed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("framed=%t", framed), func(t *testing.T) {
+			later := "Yoyodyne recorded a later report mapping.\n" + strings.Repeat("later details\n", 1500)
+			notes := note + "\n" + later
+			if framed {
+				notes = framedTrackerNotes(note, later)
+			}
+			rendered := renderTrackerNotes(notes, minTrackerNotesBytes)
+			for _, want := range []string{"Run: run-label", failure, summary, "are cut; treat them as unread rather than absent"} {
+				if !strings.Contains(rendered, want) {
+					t.Fatalf("read lost %q:\n%s", want, rendered)
+				}
+			}
+			if strings.Contains(rendered, "diff output describing the change") || strings.Contains(rendered, "Check: make test") {
+				t.Fatalf("read kept the diff or the checks rather than the reasoning:\n%s", rendered)
+			}
+		})
+	}
+}
+
+func TestAFieldNameInsideAFailureIsReadByWhereItSits(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		note string
+		want string
+	}{
+		"a check line quoted in a failure that the opening fields follow": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the suite failed:\nCheck: make race (passed=false, exit=2, 9s of 30m0s)\nwhich the developer did not fix\nBranch: b\nCheck: make test (passed=true, exit=0, 1s of 30m0s)",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the suite failed:\nCheck: make race (passed=false, exit=2, 9s of 30m0s)\nwhich the developer did not fix",
+		},
+		"a check-like line in a failure without a check's shape": {
+			note: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the schema is stale\nCheck: regenerate it first\nCheck: make test (passed=true, exit=0, 1s of 30m0s)",
+			want: "Yoyodyne stopped this item: a check failed.\nRun: run-1\nFailure: the schema is stale\nCheck: regenerate it first",
+		},
+		"opening field names in a review summary with nothing after it": {
+			note: "Yoyodyne stopped this item: its reviewer required repair.\nRun: run-1\nBranch: b\nReview decision: repair\nReview summary: Not yet.\nRun: the suite again after pinning.\nReason: the pin is missing.",
+			want: "Yoyodyne stopped this item: its reviewer required repair.\nRun: run-1\nReview decision: repair\nReview summary: Not yet.\nRun: the suite again after pinning.\nReason: the pin is missing.",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := trackerStopExcerpt(test.note); got != test.want {
+				t.Fatalf("excerpt:\n%s\nwant:\n%s", got, test.want)
+			}
+		})
+	}
+}

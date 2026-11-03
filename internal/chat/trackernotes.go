@@ -172,37 +172,31 @@ func trackerNoteKind(line string) (kind string, boundary bool) {
 // summary and findings, which the writer can put after bulky output and diffs.
 func trackerStopExcerpt(note string) string {
 	lines := strings.Split(note, "\n")
+	// Captured output is the last field a check blocker writes, so nothing after
+	// it is another field.
+	for index, line := range lines[1:] {
+		if strings.HasPrefix(line, "Captured output:") {
+			lines = lines[:index+1]
+			break
+		}
+	}
+	opens := trackerStopFields(lines[1:])
 	kept := []string{lines[0]}
 	keeping := false
-	bulk := false
-	for _, line := range lines[1:] {
+	for index, line := range lines[1:] {
 		keepLine := keeping
-		if label, _, field := strings.Cut(line, ":"); field {
+		if opens[index] {
+			label, _, _ := strings.Cut(line, ":")
 			switch label {
-			case "Run", "Phase", "Repair attempts", "Failing check", "Waiting out", "Asks again by":
-				keepLine = !bulk
-				keeping = false
-			case "Failure", "Reason", "Round", "Directive", "Refused paths", "Integration stop", "Replay conflict":
-				// Matching stop fields inside captured output or a diff are data,
-				// not a second account of which run stopped or why.
-				keeping = !bulk
-				keepLine = keeping
-			case "Reviewed against", "Review decision", "Approved as":
+			case "Run", "Phase", "Repair attempts", "Failing check", "Waiting out", "Asks again by",
+				"Reviewed against", "Review decision", "Approved as":
 				keepLine = true
 				keeping = false
-			case "Review summary":
+			case "Failure", "Reason", "Round", "Directive", "Refused paths", "Integration stop", "Replay conflict",
+				"Review summary":
 				keepLine = true
 				keeping = true
-			case "Captured output":
-				return strings.TrimSpace(strings.Join(kept, "\n"))
-			case "Changes when the run ended", "Diff stat when the run ended", "Check stage", "Check":
-				bulk = true
-				keepLine = false
-				keeping = false
-			case "Branch", "Worktree", "Base commit", "Claude session", "Developer model", "Developer effort",
-				"Reviewer session", "Reviewer model", "Reviewer effort", "Invariants delivered",
-				"Pull request", "Pull request merged", "Protected by this project", "Granted by this work item", "Role definitions",
-				"Lands on", "Commit to land", "Target commit it was prepared on", "Integrated into", "Integrated commit", "Previous target commit":
+			default:
 				keepLine = false
 				keeping = false
 			}
@@ -212,4 +206,121 @@ func trackerStopExcerpt(note string) string {
 		}
 	}
 	return strings.TrimSpace(strings.Join(kept, "\n"))
+}
+
+// The parts of a stop note, in the order every writer of one puts them: what
+// stopped and where the work is, then the change and the checks, then the
+// review, then where the change landed or was published
+// (renderFailureNotes and the blocker writers in internal/orchestrator).
+const (
+	stopOpening = iota
+	stopChecks
+	stopReview
+	stopLanding
+)
+
+var trackerStopFieldPart = map[string]int{
+	"Run": stopOpening, "Phase": stopOpening, "Repair attempts": stopOpening, "Failing check": stopOpening,
+	"Waiting out": stopOpening, "Asks again by": stopOpening, "Failure": stopOpening, "Reason": stopOpening,
+	"Round": stopOpening, "Directive": stopOpening, "Refused paths": stopOpening, "Integration stop": stopOpening,
+	"Replay conflict": stopOpening, "Branch": stopOpening, "Worktree": stopOpening, "Base commit": stopOpening,
+	"Claude session": stopOpening, "Developer model": stopOpening, "Developer effort": stopOpening,
+	"Protected by this project": stopOpening, "Granted by this work item": stopOpening, "Role definitions": stopOpening,
+
+	"Changes when the run ended": stopChecks, "Diff stat when the run ended": stopChecks,
+	"Check stage": stopChecks, "Check": stopChecks,
+
+	"Invariants delivered": stopReview, "Reviewer session": stopReview, "Reviewer model": stopReview,
+	"Reviewer effort": stopReview, "Reviewed against": stopReview, "Review decision": stopReview,
+	"Approved as": stopReview, "Review summary": stopReview,
+
+	"Lands on": stopLanding, "Commit to land": stopLanding, "Target commit it was prepared on": stopLanding,
+	"Integrated into": stopLanding, "Integrated commit": stopLanding, "Previous target commit": stopLanding,
+	"Pull request": stopLanding, "Pull request merged": stopLanding,
+}
+
+// trackerStopFields says which lines of a stop note open a field. A failure, a
+// reason, or a review summary is free text and can hold a line that begins with
+// a field's name, so a name alone does not open a field. What does is where the
+// line sits, in two ways the writers guarantee:
+//
+//   - A writer never goes back to an earlier part of the note, so a named line
+//     from an earlier part than a field already open is text inside that field.
+//   - Only some fields run onto further lines (trackerStopFieldRunsOn). A named
+//     line straight after a field that does not cannot be inside free text, so
+//     it opens a field. One inside a field that does opens a field only where
+//     reading it so lets more of the named lines after it open fields in order
+//     than reading it as text would; where the two readings are as good, it is
+//     text, because the field already open is what it most plainly belongs to.
+//
+// A check line must also have the shape renderCheckNotes gives it.
+func trackerStopFields(lines []string) []bool {
+	type named struct {
+		line int
+		part int
+	}
+	var candidates []named
+	for index, line := range lines {
+		label, value, field := strings.Cut(line, ":")
+		part, known := trackerStopFieldPart[label]
+		if !field || !known || (label == "Check" && !trackerCheckLine(value)) {
+			continue
+		}
+		candidates = append(candidates, named{line: index, part: part})
+	}
+	// longest[i] is how many named lines from candidate i onward can open fields
+	// in order with candidate i opening the first; best[p] is the most from any
+	// later candidate of part p.
+	longest := make([]int, len(candidates))
+	var best [stopLanding + 1]int
+	for index := len(candidates) - 1; index >= 0; index-- {
+		part := candidates[index].part
+		longest[index] = 1 + slices.Max(best[part:])
+		best[part] = max(best[part], longest[index])
+	}
+	// later[i][p] is best[p] as it stood just after candidate i: the most from a
+	// candidate after i, in each part.
+	later := make([][stopLanding + 1]int, len(candidates))
+	best = [stopLanding + 1]int{}
+	for index := len(candidates) - 1; index >= 0; index-- {
+		later[index] = best
+		part := candidates[index].part
+		best[part] = max(best[part], longest[index])
+	}
+	opens := make([]bool, len(lines))
+	part, runsOn := stopOpening, false
+	for index, candidate := range candidates {
+		if candidate.part < part {
+			continue
+		}
+		if runsOn && longest[index] <= slices.Max(later[index][part:]) {
+			continue
+		}
+		opens[candidate.line] = true
+		part = candidate.part
+		runsOn = trackerStopFieldRunsOn(lines[candidate.line])
+	}
+	return opens
+}
+
+// trackerStopFieldRunsOn reports whether a field can carry lines after its own:
+// free text, the change and diff listings, and a failed check's output.
+func trackerStopFieldRunsOn(line string) bool {
+	label, value, _ := strings.Cut(line, ":")
+	switch label {
+	case "Failure", "Reason", "Round", "Directive", "Refused paths", "Integration stop", "Replay conflict", "Waiting out",
+		"Review summary", "Changes when the run ended", "Diff stat when the run ended":
+		return true
+	case "Check":
+		return strings.Contains(value, " (passed=false,")
+	}
+	return false
+}
+
+// trackerCheckLine reports whether a "Check:" value has the shape
+// renderCheckNotes writes: the command with its result in parentheses at the
+// end, or the command and why it could not run.
+func trackerCheckLine(value string) bool {
+	return strings.HasSuffix(value, ")") &&
+		(strings.Contains(value, " (passed=") || strings.Contains(value, " could not run, so it judged nothing"))
 }

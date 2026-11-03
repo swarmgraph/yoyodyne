@@ -1150,10 +1150,19 @@ harness's recorded continuation, with their reasons and their order in the
 notes. The stop excerpt keeps its run and failure reason, including a multiline
 failure. The latest review also keeps its decision, what an approval approved,
 and its reasoning, even when those fields follow a long diff or a newer stop
-has no review. One limit remains: a line inside a failure or a review summary
-that itself begins with a field name, such as `Check:` or `Reason:`, is read as
-that field, so what follows it in that failure or summary can be left out of
-the excerpt. These extracts are outside the notes' byte bound; captured check
+has no review. A line inside a failure or a review summary that itself begins
+with a field name, such as `Check:` or `Reason:`, stays part of that failure or
+summary. A field is found by where it sits, not by its name alone: every
+writer puts a stop's fields in the same order, first what stopped and where the
+work is, then the change and the checks, then the review, then where the change
+landed. So a field name from an earlier part than the field already open is
+text inside that field. Only free text, the change listings, and a failed
+check's output run onto further lines, so a field name inside one of those
+starts a new field only when the rest of the note then reads in that order
+better than it would if the line were text. The one case still read as a
+field is a line in a failure that copies a check result exactly, with nothing
+but the checks after the failure: the order cannot tell the copy from a real
+check, so the copy is read as one and the failure ends there. These extracts are outside the notes' byte bound; captured check
 output, diffs, older decisions and other details can still be cut, and the read
 says so.
 A later report mapping or recovery follow-up cannot displace those records.
