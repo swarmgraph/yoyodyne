@@ -81,6 +81,38 @@
         </details>
       </div>
     </section>
+    <section id="closed" class="panel backlog" data-state="loading" aria-labelledby="closed-heading">
+      <div class="panel-head">
+        <h2 id="closed-heading">Is more work closing than a week earlier?</h2>
+        <p id="closed-zone" class="panel-note"></p>
+      </div>
+      <form id="closed-controls" class="backlog-controls">
+        <label>Time scale
+          <select id="closed-scale">
+            <option value="daily" selected>daily</option>
+            <option value="weekly">weekly</option>
+          </select>
+        </label>
+        <label>Label
+          <select id="closed-label">
+            <option value="" selected>every work item</option>
+          </select>
+        </label>
+      </form>
+      <div class="section-loading"><p class="waiting"><span class="pulse" aria-hidden="true"></span>Reading…</p></div>
+      <div class="section-error" role="alert"><p id="closed-problem" class="problem"></p><p id="closed-remedy" class="remedy"></p></div>
+      <div class="section-empty"><p id="closed-empty" class="empty"></p></div>
+      <div class="section-ready">
+        <p id="closed-window" class="panel-note"></p>
+        <div id="closed-chart" class="backlog-chart"><canvas id="closed-canvas" role="img" aria-label="Work closed and its change from a week earlier; the same figures are in the table below it"></canvas></div>
+        <p id="closed-nochart" class="footnote" hidden>The chart library is not in this build of the dashboard, so the figures are shown as a table only.</p>
+        <ul id="closed-notes" class="footnotes"></ul>
+        <details id="closed-figures" class="backlog-figures">
+          <summary>The figures as a table</summary>
+          <div class="backlog-table-wrap"><table id="closed-table" class="backlog-table"></table></div>
+        </details>
+      </div>
+    </section>
   </div>
 </main>
 {{if .ChartLibrary}}<script src="/assets/chart.umd.js"></script>

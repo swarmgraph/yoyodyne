@@ -4,7 +4,11 @@
 // that library draws: the script reads a backlog, the library is handed the
 // page's canvas, and every series is drawn with its own colour, line pattern,
 // and name, in the stylesheet's ink. Changing a control draws the chart again
-// in place of the old one, and a dark stylesheet reaches the drawing.
+// in place of the old one, and a dark stylesheet reaches the drawing. The
+// chart of work closed against a week earlier is drawn on its own canvas, at a
+// fixed time, with its bars green for more and red for fewer, the period under
+// way dashed and faded, and its hover naming the count, what it was compared
+// with, and the difference.
 //
 // No browser runs here. The page's elements are stand-ins that hold what the
 // script writes, and the canvas is one whose drawing calls are recorded, which
@@ -88,8 +92,13 @@ function page(tones) {
   byId("backlog-show").value = "filed";
   byId("backlog-split").value = "priority";
   byId("backlog-scale").value = "daily";
-  const canvas = recordingCanvas();
+  byId("closed-scale").value = "daily";
+  byId("closed-label").value = "";
+  const canvases = { "backlog-canvas": recordingCanvas(), "closed-canvas": recordingCanvas() };
+  const canvas = canvases["backlog-canvas"];
   const made = [];
+  const closedMade = [];
+  const closedConfigs = [];
   const window = {
     sessionStorage: { getItem: () => "token", setItem() {}, removeItem() {} },
     setTimeout: () => 0,
@@ -101,13 +110,17 @@ function page(tones) {
     // configuration is copied into the library's own context first: the
     // library fills in its defaults only on objects made by its own Object,
     // which in a browser every object is, and a configuration made in the
-    // script's context here is not. A copy refuses a function, so a
-    // configuration that came to carry one would fail here and need this
-    // changed.
+    // script's context here is not. Functions, the closed chart's hover, are
+    // passed through as they are.
     Chart: function (target, config) {
-      assert.strictEqual(target, byId("backlog-canvas"), "the chart is not drawn on the page's canvas");
-      const chart = new Chart(canvas, structuredClone(config));
-      made.push(chart);
+      assert.ok(target === byId("backlog-canvas") || target === byId("closed-canvas"), "the chart is not drawn on one of the page's canvases");
+      const chart = new Chart(canvases[target.id], inThisContext(config));
+      if (target.id === "closed-canvas") {
+        closedMade.push(chart);
+        closedConfigs.push(config);
+      } else {
+        made.push(chart);
+      }
       return chart;
     }
   };
@@ -116,7 +129,21 @@ function page(tones) {
     createElement: (tag) => element(tag),
     documentElement: element("html")
   };
-  return { elements, byId, canvas, made, window, document };
+  return { elements, byId, canvas, canvases, made, closedMade, closedConfigs, window, document };
+}
+
+// inThisContext copies a configuration's objects and arrays into this
+// context, leaving its functions and other values as they are.
+function inThisContext(value) {
+  if (Array.isArray(value)) {
+    return Array.from(value, (each) => inThisContext(each));
+  }
+  if (value && typeof value === "object") {
+    const copy = {};
+    Object.keys(value).forEach((key) => { copy[key] = inThisContext(value[key]); });
+    return copy;
+  }
+  return value;
 }
 
 const day = 86400000;
@@ -135,13 +162,18 @@ for (let index = 0; index < 60; index++) {
 }
 const reading = { observed_at: iso(now), items };
 
-function run(tones) {
+// run opens the page on a reading, by default the one above at the real
+// time in this machine's zone; the closed chart's run fixes both.
+function run(tones, fixed) {
   const built = page(tones);
+  const answer = fixed ? fixed.reading : reading;
   const context = vm.createContext({
-    window: built.window, document: built.document, backlogCount, Date, Math, Intl, String, Error, Promise, console,
+    window: built.window, document: built.document, Math, Intl, String, Error, Promise, console,
+    backlogCount: fixed ? Object.assign({}, backlogCount, { localZone: () => fixed.zone }) : backlogCount,
+    Date: fixed ? class extends Date { static now() { return fixed.now; } } : Date,
     fetch: (address) => {
       assert.strictEqual(address, "/api/backlog");
-      return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve(reading) });
+      return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve(answer) });
     }
   });
   vm.runInContext(script, context, { filename: "backlog.js" });
@@ -218,7 +250,105 @@ async function main() {
   assert.ok(darkText.length > 0 && darkText.every((drawn) => drawn.colour === dark["--ink-soft"]), "text drawn in a colour other than the dark ink: " + JSON.stringify(darkText.filter((drawn) => drawn.colour !== dark["--ink-soft"])));
   assert.ok(darker.canvas.calls.some((call) => call.name === "stroke" && call.state.strokeStyle === dark["--rule"]), "the grid is not drawn in the dark rule colour");
 
+  await closedChart();
+
   console.log("backlog chart: drawn with Chart.js " + Chart.version + ", " + counted.series.length + " series");
+}
+
+// closedAt is one item closed at a Los Angeles summer-time clock reading.
+function closedAt(clock, labels) {
+  return {
+    id: "c-" + clock, title: "t", status: "closed", filed_at: "2026-10-01T12:00:00Z",
+    closed_at: new Date(Date.parse(clock + "Z") + 7 * 3600000).toISOString(),
+    priority: 2, labels: labels || [], kind: "task", parent: "", done_by: "developer run", state: "closed",
+    origin: { recorded: false, filed_by: "not recorded" }
+  };
+}
+
+// cells is a table row's text, its heading first.
+function cells(row) {
+  return row.children.map((cell) => cell.textContent);
+}
+
+async function closedChart() {
+  // Wednesday 28 October 10:00 in Los Angeles; the counting test works the
+  // same closings through by hand.
+  const fixed = {
+    zone: "America/Los_Angeles",
+    now: Date.parse("2026-10-28T17:00:00Z"),
+    reading: {
+      observed_at: "2026-10-28T17:00:00Z",
+      items: [
+        "2026-10-19T10:00:00", "2026-10-19T11:00:00", "2026-10-20T12:00:00", "2026-10-21T09:00:00", "2026-10-21T15:00:00",
+        "2026-10-21T16:00:00", "2026-10-22T08:00:00", "2026-10-27T09:10:00", "2026-10-27T09:20:00", "2026-10-28T08:00:00",
+        "2026-10-28T09:59:00"
+      ].map((clock) => closedAt(clock)).concat([closedAt("2026-10-27T09:00:00", ["dashboard"])])
+    }
+  };
+  const light = { "--ink-soft": "#3d444d", "--rule": "#d9dde3" };
+  const built = run(light, fixed);
+  await settle();
+  await settle();
+  assert.strictEqual(built.byId("closed").getAttribute("data-state"), "ready", "the closed panel is not ready");
+  assert.strictEqual(built.closedMade.length, 1, "the page made " + built.closedMade.length + " closed charts");
+  assert.ok(!built.byId("closed-chart").hasAttribute("hidden"));
+
+  const config = built.closedConfigs[0];
+  const [line, partial, bars] = config.data.datasets;
+  assert.deepStrictEqual(config.data.labels, ["Mon 19 Oct", "Tue 20 Oct", "Wed 21 Oct", "Thu 22 Oct", "Fri 23 Oct", "Sat 24 Oct", "Sun 25 Oct", "Mon 26 Oct", "Tue 27 Oct", "Wed 28 Oct"]);
+  assert.deepStrictEqual(line.data, [2, 1, 3, 1, 0, 0, 0, 0, 3, null], "the finished days' line");
+  assert.deepStrictEqual(partial.data, [null, null, null, null, null, null, null, null, 3, 2], "the line into the day under way");
+  assert.deepStrictEqual(bars.data, [2, 1, 3, 1, 0, 0, 0, -2, 2, 1], "the change from the same weekday a week earlier");
+
+  // Bars: green for more, red for fewer, faded for the day under way; the
+  // line into today dashed and faded.
+  const green = "#1a7f37", red = "#cf222e", fadedGreen = "rgba(26, 127, 55, 0.35)";
+  assert.strictEqual(bars.backgroundColor[0], green);
+  assert.strictEqual(bars.backgroundColor[7], red, "a fall is not red");
+  assert.strictEqual(bars.backgroundColor[8], green, "a rise is not green");
+  assert.strictEqual(bars.backgroundColor[9], fadedGreen, "the day under way is not faded");
+  assert.strictEqual(JSON.stringify(partial.borderDash), "[6,4]");
+  assert.notStrictEqual(partial.borderColor, line.borderColor);
+  const canvas = built.canvases["closed-canvas"];
+  const fills = canvas.calls.filter((call) => call.name === "fill" || call.name === "fillRect").map((call) => call.state.fillStyle);
+  assert.ok(fills.includes(green) && fills.includes(red) && fills.includes(fadedGreen), "the bars were not drawn green, red, and faded: " + JSON.stringify([...new Set(fills)]));
+  assert.ok(canvas.calls.some((call) => call.name === "setLineDash" && JSON.stringify(call.args[0]) === "[6,4]"), "the line into the day under way was not drawn dashed");
+  assert.ok(canvas.calls.some((call) => call.name === "stroke" && call.state.strokeStyle === partial.borderColor), "the faded line was not drawn");
+
+  // Hovering on a point: one entry per day, its count, its comparison, and
+  // the difference.
+  const tooltip = config.options.plugins.tooltip;
+  assert.ok(tooltip.filter({ datasetIndex: 2 }) && !tooltip.filter({ datasetIndex: 0 }) && !tooltip.filter({ datasetIndex: 1 }));
+  assert.deepStrictEqual(inThisContext(tooltip.callbacks.label({ dataIndex: 7 })), ["closed: 0", "the same weekday a week earlier: 2", "change: -2"]);
+  assert.deepStrictEqual(inThisContext(tooltip.callbacks.label({ dataIndex: 9 })), ["closed: 2 so far", "the same weekday a week earlier, to the same time of day: 1", "change: +1"]);
+  assert.strictEqual(tooltip.callbacks.title([{ dataIndex: 9 }]), "Wed 28 Oct, so far");
+
+  // The table, newest first.
+  const rows = built.byId("closed-table").children[1].children;
+  assert.deepStrictEqual(cells(rows[0]), ["Wed 28 Oct, so far", "2", "1", "+1"]);
+  assert.deepStrictEqual(cells(rows[2]), ["Mon 26 Oct", "0", "2", "-2"]);
+
+  // Weekly: this week so far against last week to the same weekday and time.
+  built.byId("closed-scale").value = "weekly";
+  built.byId("closed-scale").fire("change");
+  assert.strictEqual(built.closedMade.length, 2);
+  assert.strictEqual(Chart.getChart(canvas), built.closedMade[1], "the old closed chart is still the canvas's chart");
+  const weekly = built.closedConfigs[1];
+  assert.deepStrictEqual(weekly.data.labels, ["week of Mon 19 Oct", "week of Mon 26 Oct"]);
+  assert.deepStrictEqual(weekly.data.datasets[2].data, [7, 1]);
+  assert.deepStrictEqual(inThisContext(weekly.options.plugins.tooltip.callbacks.label({ dataIndex: 1 })), ["closed: 5 so far", "the week before, from Monday to the same weekday and time: 4", "change: +1"]);
+
+  // The label filter offers every label a closed item carries and narrows
+  // the chart to it.
+  const offered = built.byId("closed-label").children.map((option) => option.value);
+  assert.deepStrictEqual(offered, ["", "dashboard"]);
+  built.byId("closed-scale").value = "daily";
+  built.byId("closed-label").value = "dashboard";
+  built.byId("closed-label").fire("change");
+  const filtered = built.closedConfigs[built.closedConfigs.length - 1];
+  assert.deepStrictEqual(filtered.data.labels, ["Tue 27 Oct", "Wed 28 Oct"]);
+  assert.deepStrictEqual(filtered.data.datasets[2].data, [1, 0]);
+  assert.strictEqual(built.byId("closed-label").value, "dashboard");
 }
 
 main().catch((error) => {

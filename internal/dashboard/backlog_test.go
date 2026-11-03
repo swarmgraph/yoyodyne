@@ -25,7 +25,8 @@ import (
 
 // The page is served without the token, because a browser needs it before it
 // can present one, so it carries nothing of the read model: its states, its
-// three controls with every choice the design names, and its own scripts. It
+// three controls with every choice the design names, the panel of work closed
+// against a week earlier with its two controls, and its own scripts. It
 // is read-only like every other path.
 func TestServesTheBacklogPageWithoutTheTokenAndNothingOfTheReadModel(t *testing.T) {
 	t.Parallel()
@@ -46,6 +47,8 @@ func TestServesTheBacklogPageWithoutTheTokenAndNothingOfTheReadModel(t *testing.
 		`<select id="backlog-split">`, `value="priority"`, `value="done_by"`, `value="label"`, `value="state"`, `value="filed_by"`,
 		`<select id="backlog-scale">`, `value="hourly"`, `value="daily"`, `value="weekly"`,
 		`id="backlog-splits" type="checkbox"`,
+		`id="closed" class="panel backlog" data-state="loading"`, `<select id="closed-scale">`, `<select id="closed-label">`,
+		`<canvas id="closed-canvas"`, `<table id="closed-table"`,
 		`<a class="page-link" href="/">`,
 		`<script src="/assets/backlog-count.js"></script>`, `<script src="/assets/backlog.js"></script>`,
 	} {

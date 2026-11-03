@@ -13,6 +13,12 @@
 // well as its colour, and the colours are read from the stylesheet, so the
 // chart follows the reader's light or dark setting.
 //
+// A second panel draws the work closed in each day or week as a line, with a
+// bar over each point for the change from a week earlier: green and upward for
+// more, red and downward for fewer, so the sign is in the bar's direction and
+// in the figures as well as in its colour. The day or week still under way is
+// drawn dashed and faded. backlog-count.js says what each is compared with.
+//
 // The backlog is read when the page opens and every five minutes after, since
 // it lists the whole tracker; it is read once per page, not polled like the
 // main page's readings.
@@ -28,15 +34,19 @@
   var signinNote = document.getElementById("signin-note");
   var tokenField = document.getElementById("token");
   var panel = document.getElementById("backlog");
+  var closedPanel = document.getElementById("closed");
   var controls = {
     show: document.getElementById("backlog-show"),
     split: document.getElementById("backlog-split"),
     scale: document.getElementById("backlog-scale"),
-    splits: document.getElementById("backlog-splits")
+    splits: document.getElementById("backlog-splits"),
+    closedScale: document.getElementById("closed-scale"),
+    closedLabel: document.getElementById("closed-label")
   };
 
   var reading = null;
   var chart = null;
+  var closedChart = null;
   var timer = null;
   var generation = 0;
 
@@ -45,6 +55,14 @@
   var shapes = ["circle", "triangle", "rect", "rectRot", "star", "crossRot", "cross", "rectRounded"];
   var dashes = [[], [6, 4], [2, 3], [10, 3, 2, 3]];
   var palette = ["#0072b2", "#e69f00", "#009e73", "#cc79a7", "#56b4e9", "#d55e00", "#999999", "#f0e442"];
+
+  // The closed chart's colours: its line, and the bars for more and for fewer
+  // than a week earlier, each full and faded for the period still under way.
+  var closedTones = {
+    line: "#0072b2", lineFaded: "rgba(0, 114, 178, 0.4)",
+    more: "#1a7f37", moreFaded: "rgba(26, 127, 55, 0.35)",
+    fewer: "#cf222e", fewerFaded: "rgba(207, 34, 46, 0.35)"
+  };
 
   function text(id, words) {
     document.getElementById(id).textContent = words;
@@ -66,6 +84,13 @@
     panel.setAttribute("data-state", state);
     if (state === "empty") {
       text("backlog-empty", words);
+    }
+  }
+
+  function closedSection(state, words) {
+    closedPanel.setAttribute("data-state", state);
+    if (state === "empty") {
+      text("closed-empty", words);
     }
   }
 
@@ -191,21 +216,30 @@
     setHidden(banner, !reading.readiness_problem);
 
     if (reading.tracker_problem) {
-      text("backlog-problem", reading.tracker_problem);
-      text("backlog-remedy", "Nothing is charted, because a chart drawn from part of the tracker would be wrong. This page asks again in five minutes.");
+      ["backlog", "closed"].forEach(function (name) {
+        text(name + "-problem", reading.tracker_problem);
+        text(name + "-remedy", "Nothing is charted, because a chart drawn from part of the tracker would be wrong. This page asks again in five minutes.");
+      });
       section("error");
+      closedSection("error");
       dropChart();
+      dropClosedChart();
       return;
     }
     var items = reading.items || [];
     var now = Date.now();
     var zone = backlogCount.localZone();
-    text("backlog-zone", "Every hour, day, and week is in your local time zone, " + zone + " (" + backlogCount.calendar(zone).zoneName(now) + "), as this browser reports it, and weeks start on Monday.");
+    var zoneWords = "Every hour, day, and week is in your local time zone, " + zone + " (" + backlogCount.calendar(zone).zoneName(now) + "), as this browser reports it, and weeks start on Monday.";
+    text("backlog-zone", zoneWords);
+    text("closed-zone", zoneWords.replace("Every hour, day, and week", "Every day and week"));
     if (items.length === 0) {
       section("empty", "The tracker holds no work items yet, so there is nothing to chart.");
+      closedSection("empty", "The tracker holds no work items yet, so there is nothing to chart.");
       dropChart();
+      dropClosedChart();
       return;
     }
+    drawClosed(items, zone, now);
     var picked = choice();
     var counted = backlogCount.series(items, picked, now);
     if (counted.series.length === 0) {
@@ -359,17 +393,224 @@
     });
   }
 
+  // ---- work closed against a week earlier ------------------------------------
+
+  function dropClosedChart() {
+    if (closedChart) {
+      closedChart.destroy();
+      closedChart = null;
+    }
+  }
+
+  // labelChoices offers every label a closed item carries, keeping the one
+  // chosen while it is still among them.
+  function labelChoices(names) {
+    var select = controls.closedLabel;
+    var kept = select.value;
+    while (select.firstChild) {
+      select.removeChild(select.firstChild);
+    }
+    [""].concat(names).forEach(function (name) {
+      var option = document.createElement("option");
+      option.value = name;
+      option.textContent = name === "" ? "every work item" : name;
+      select.appendChild(option);
+    });
+    select.value = names.indexOf(kept) >= 0 ? kept : "";
+  }
+
+  // signed is a change as the page writes it: +2, -1, or 0.
+  function signed(change) {
+    return change > 0 ? "+" + change : String(change);
+  }
+
+  // comparedWith says what one window was compared with.
+  function comparedWith(scale, partial) {
+    if (scale === "weekly") {
+      return partial ? "the week before, from Monday to the same weekday and time" : "the week before";
+    }
+    return partial ? "the same weekday a week earlier, to the same time of day" : "the same weekday a week earlier";
+  }
+
+  function drawClosed(items, zone, now) {
+    var scale = controls.closedScale.value === "weekly" ? "weekly" : "daily";
+    var wanted = controls.closedLabel.value;
+    var counted = backlogCount.againstAWeekEarlier(items, { scale: scale, label: wanted, zone: zone }, now);
+    // A label no closed item carries any more is dropped from the choices,
+    // and the chart counts every item instead.
+    labelChoices(counted.itemLabels);
+    var label = controls.closedLabel.value;
+    if (label !== wanted) {
+      counted = backlogCount.againstAWeekEarlier(items, { scale: scale, label: label, zone: zone }, now);
+    }
+    if (counted.keys.length === 0) {
+      closedSection("empty", label === "" ? "No work item has closed yet." : "No work item labelled " + label + " has closed yet.");
+      dropClosedChart();
+      return;
+    }
+    closedSection("ready");
+    var unit = scaleWords[scale];
+    text("closed-window", "Work items " + (label === "" ? "" : "labelled " + label + " ") + "closed in each " + unit +
+      ", from " + counted.labels[0] + " to " + counted.labels[counted.partial] + ". Each bar is the change from " +
+      comparedWith(scale, false) + ", upward and green for more, downward and red for fewer. The last " + unit +
+      " is still under way, so it is drawn dashed and faded and compared with " + comparedWith(scale, true) + ".");
+    closedNotes(counted);
+    closedTable(scale, counted);
+    drawClosedChart(scale, counted);
+  }
+
+  function closedNotes(counted) {
+    var list = document.getElementById("closed-notes");
+    while (list.firstChild) {
+      list.removeChild(list.firstChild);
+    }
+    var lines = ["Every closed work item is counted, parts split from an item included, and by its labels now rather than its labels when it closed."];
+    if (counted.noClosed > 0) {
+      lines.push(counted.noClosed + " closed " + plural(counted.noClosed, "item has", "items have") + " no closing time recorded and " + plural(counted.noClosed, "is", "are") + " not counted.");
+    }
+    lines.forEach(function (line) {
+      var entry = document.createElement("li");
+      entry.textContent = line;
+      list.appendChild(entry);
+    });
+  }
+
+  // closedTable is the same figures as the chart, newest first.
+  function closedTable(scale, counted) {
+    var element = document.getElementById("closed-table");
+    while (element.firstChild) {
+      element.removeChild(element.firstChild);
+    }
+    var head = document.createElement("thead");
+    var headRow = document.createElement("tr");
+    [scaleWords[scale], "closed", "a week earlier", "change"].forEach(function (name) {
+      var cell = document.createElement("th");
+      cell.setAttribute("scope", "col");
+      cell.textContent = name;
+      headRow.appendChild(cell);
+    });
+    head.appendChild(headRow);
+    element.appendChild(head);
+    var body = document.createElement("tbody");
+    for (var index = counted.keys.length - 1; index >= 0; index--) {
+      var row = document.createElement("tr");
+      var when = document.createElement("th");
+      when.setAttribute("scope", "row");
+      when.textContent = counted.labels[index] + (index === counted.partial ? ", so far" : "");
+      row.appendChild(when);
+      [String(counted.closed[index]), String(counted.earlier[index]), signed(counted.change[index])].forEach(function (figure) {
+        var cell = document.createElement("td");
+        cell.textContent = figure;
+        row.appendChild(cell);
+      });
+      body.appendChild(row);
+    }
+    element.appendChild(body);
+  }
+
+  // barTone is a bar's colour: green for more, red for fewer, faded for the
+  // period still under way. A bar of no change has no height to colour.
+  function barTone(change, partial) {
+    if (change < 0) {
+      return partial ? closedTones.fewerFaded : closedTones.fewer;
+    }
+    return partial ? closedTones.moreFaded : closedTones.more;
+  }
+
+  function drawClosedChart(scale, counted) {
+    var library = window.Chart;
+    setHidden(document.getElementById("closed-chart"), !library);
+    setHidden(document.getElementById("closed-nochart"), !!library);
+    if (!library) {
+      document.getElementById("closed-figures").setAttribute("open", "");
+      return;
+    }
+    dropClosedChart();
+    var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var ink = tone("--ink-soft"), rule = tone("--rule");
+    var last = counted.partial;
+    var unit = scaleWords[scale];
+    var radius = counted.keys.length > 60 ? 2 : 4;
+    closedChart = new library(document.getElementById("closed-canvas"), {
+      type: "bar",
+      data: {
+        labels: counted.labels,
+        datasets: [
+          {
+            type: "line", label: "closed in the " + unit, order: 0,
+            data: counted.closed.map(function (value, index) { return index === last ? null : value; }),
+            borderColor: closedTones.line, backgroundColor: closedTones.line,
+            borderWidth: 2, pointStyle: "circle", pointRadius: radius, pointHoverRadius: 6, tension: 0
+          },
+          {
+            type: "line", label: "closed so far, " + unit + " under way", order: 0,
+            data: counted.closed.map(function (value, index) { return index >= last - 1 ? value : null; }),
+            borderColor: closedTones.lineFaded, backgroundColor: closedTones.lineFaded, borderDash: [6, 4],
+            borderWidth: 2, pointStyle: "circle", pointRadius: radius, pointHoverRadius: 6, tension: 0
+          },
+          {
+            type: "bar", label: "change from a week earlier (up: more, down: fewer)", order: 1,
+            data: counted.change,
+            backgroundColor: counted.change.map(function (change, index) { return barTone(change, index === last); }),
+            borderColor: counted.change.map(function (change) { return barTone(change, false); }),
+            borderWidth: counted.change.map(function (change, index) { return index === last ? 1 : 0; })
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: still ? false : { duration: 300 },
+        interaction: { mode: "index", intersect: false },
+        color: ink,
+        scales: {
+          x: { ticks: { color: ink, autoSkip: true, maxRotation: 0 }, grid: { color: rule } },
+          y: { beginAtZero: true, ticks: { color: ink, precision: 0 }, grid: { color: rule },
+               title: { display: true, color: ink, text: "closed in the " + unit + ", and the change" } }
+        },
+        plugins: {
+          legend: { position: "bottom", labels: { color: ink } },
+          tooltip: {
+            // One entry per window, from the bar every window has, naming the
+            // count, what it was compared with, and the difference.
+            filter: function (item) { return item.datasetIndex === 2; },
+            callbacks: {
+              title: function (entries) {
+                var index = entries.length ? entries[0].dataIndex : 0;
+                return counted.labels[index] + (index === last ? ", so far" : "");
+              },
+              label: function (entry) { return closedHover(scale, counted, entry.dataIndex); }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // closedHover is what hovering on one window shows: its count, the count it
+  // was compared with, and the difference.
+  function closedHover(scale, counted, index) {
+    var partial = index === counted.partial;
+    return [
+      "closed: " + counted.closed[index] + (partial ? " so far" : ""),
+      comparedWith(scale, partial) + ": " + counted.earlier[index],
+      "change: " + signed(counted.change[index])
+    ];
+  }
+
   // ---- controls --------------------------------------------------------------
 
-  ["show", "split", "scale", "splits"].forEach(function (name) {
+  ["show", "split", "scale", "splits", "closedScale", "closedLabel"].forEach(function (name) {
     controls[name].addEventListener("change", function () {
       if (reading) {
         draw();
       }
     });
   });
-  document.getElementById("backlog-controls").addEventListener("submit", function (event) {
-    event.preventDefault();
+  ["backlog-controls", "closed-controls"].forEach(function (id) {
+    document.getElementById(id).addEventListener("submit", function (event) {
+      event.preventDefault();
+    });
   });
   if (window.matchMedia) {
     var scheme = window.matchMedia("(prefers-color-scheme: dark)");
