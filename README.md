@@ -300,6 +300,28 @@ non-interactive, and must exit non-zero on failure. Checks have [time
 limits](docs/configuration.md#how-long-a-check-may-take), thirty minutes by
 default.
 
+**If your checks need packages a fresh clone does not have** — `node_modules`,
+a Python virtual environment, anything a package manager downloads — declare
+the step that installs them under `install`. A run's worktree starts without
+them, and the developer working in it cannot reach the network, so without
+this step its checks fail on every run. The harness runs the step itself, with
+network access, before the developer starts and again whenever the files you
+name as its inputs change. You write it once, now, while setting the project
+up; no role may write it for you, because it decides what is downloaded onto
+your machine:
+
+```yaml
+install:
+  - name: npm packages
+    run: npm ci --cache "$YOYODYNE_INSTALL_CACHE" --prefer-offline
+    inputs: [package.json, package-lock.json]   # tracked files that decide what is installed
+    outputs: [node_modules]                     # folders it makes; must be in .gitignore
+```
+
+[Installing a project's
+dependencies](docs/configuration/runs.md#installing-a-projects-dependencies)
+has every field, what makes a step refused, and the same for Python.
+
 **Then validate the file, and the installation:**
 
 ```sh
