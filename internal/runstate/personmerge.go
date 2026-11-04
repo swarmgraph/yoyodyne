@@ -3,6 +3,7 @@ package runstate
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -303,4 +304,98 @@ func (u PersonMergeUpdateRefused) apply(state *State) (bool, error) {
 	state.PersonMerge = &wait
 	state.UpdatedAt = u.At
 	return true, nil
+}
+
+// WaitingPullRequests is the limit on approved changes waiting for a person to
+// merge them (execution.max_waiting_pull_requests) read against the runs that
+// are waiting, oldest wait first. At the limit the scheduler starts no new
+// developer work, and every surface says why in the words of Says. It is one
+// reading shared by the scheduler, which decides from it, and the read model,
+// which reports it, so the two cannot count the waits differently.
+type WaitingPullRequests struct {
+	// Limit is the configured limit, and zero is no limit.
+	Limit   int                  `json:"limit"`
+	Waiting []WaitingPullRequest `json:"waiting"`
+}
+
+// WaitingPullRequest is one pull request a person is to merge, with the work
+// item its run carried.
+type WaitingPullRequest struct {
+	Number     int       `json:"number"`
+	URL        string    `json:"url,omitempty"`
+	WorkItemID string    `json:"work_item_id"`
+	Title      string    `json:"title,omitempty"`
+	RunID      string    `json:"run_id"`
+	Since      time.Time `json:"since"`
+}
+
+// WaitingPullRequestsOf is the limit read against the runs given, keeping only
+// those waiting for a person to merge their pull request. One pull request is
+// counted once however many records name it.
+func WaitingPullRequestsOf(limit int, states []State) WaitingPullRequests {
+	reading := WaitingPullRequests{Limit: limit, Waiting: []WaitingPullRequest{}}
+	seen := map[int]bool{}
+	for _, state := range states {
+		if !state.WaitingForPersonMerge() || seen[state.PersonMerge.Number] {
+			continue
+		}
+		seen[state.PersonMerge.Number] = true
+		reading.Waiting = append(reading.Waiting, WaitingPullRequest{
+			Number:     state.PersonMerge.Number,
+			URL:        state.PullRequest.URL,
+			WorkItemID: state.WorkItemID,
+			Title:      strings.TrimSpace(state.WorkItemTitle),
+			RunID:      state.RunID,
+			Since:      state.PersonMerge.Since,
+		})
+	}
+	sort.SliceStable(reading.Waiting, func(i, j int) bool {
+		left, right := reading.Waiting[i], reading.Waiting[j]
+		if !left.Since.Equal(right.Since) {
+			return left.Since.Before(right.Since)
+		}
+		return left.Number < right.Number
+	})
+	return reading
+}
+
+// Reached reports the limit standing: a limit is set and as many pull
+// requests as it allows, or more, are waiting.
+func (w WaitingPullRequests) Reached() bool {
+	return w.Limit > 0 && len(w.Waiting) >= w.Limit
+}
+
+// Says is why no new work is starting, naming every pull request waited on by
+// number and by its work item's title, and what starts it again. It is empty
+// where the limit is not reached.
+func (w WaitingPullRequests) Says() string {
+	return w.SaysNaming(WaitingPullRequest.Says)
+}
+
+// SaysNaming is Says with each pull request named by the function given, for
+// a surface that names work items its own way, such as with their current
+// title from the tracker.
+func (w WaitingPullRequests) SaysNaming(name func(WaitingPullRequest) string) string {
+	if !w.Reached() {
+		return ""
+	}
+	named := make([]string, 0, len(w.Waiting))
+	for _, waiting := range w.Waiting {
+		named = append(named, name(waiting))
+	}
+	requests := "pull requests are"
+	if len(w.Waiting) == 1 {
+		requests = "pull request is"
+	}
+	return fmt.Sprintf("Not starting new work because %d %s waiting for a person to merge (the limit is %d): %s. New work starts again by itself once one of them is merged or closed.",
+		len(w.Waiting), requests, w.Limit, strings.Join(named, "; "))
+}
+
+// Says is the pull request by number and by its work item, titled where the
+// run recorded a title.
+func (w WaitingPullRequest) Says() string {
+	if w.Title == "" {
+		return fmt.Sprintf("#%d for %s", w.Number, w.WorkItemID)
+	}
+	return fmt.Sprintf("#%d for %s (%s)", w.Number, w.Title, w.WorkItemID)
 }

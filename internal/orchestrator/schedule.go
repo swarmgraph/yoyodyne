@@ -285,6 +285,11 @@ const (
 	// waits it out instead, until maintenance lifts the hold or it ends on its
 	// own (squashhold.go).
 	ScheduleSquashHeld = "maintenance is squashing the tracker store's history, so nothing more was chosen"
+	// ScheduleWaitingPullRequests reports a drain that stopped because as many
+	// approved changes as execution.max_waiting_pull_requests allows are waiting
+	// for a person to merge their pull requests. A watch waits it out instead,
+	// and chooses again once one is merged or closed (waitingpullrequests.go).
+	ScheduleWaitingPullRequests = "as many pull requests as the limit allows are waiting for a person to merge, so nothing more was chosen"
 	// ScheduleLaunchSettingsHeld reports a drain that stopped because the
 	// developer's provider was found not to apply what a developer is
 	// launched with. A watch waits it out instead; every developer a drain
@@ -730,6 +735,13 @@ type Pull struct {
 	// same number across every process, and this only keeps the scheduler from
 	// walking into a refusal it can see coming.
 	Capacity int
+	// MaxWaitingPullRequests is execution.max_waiting_pull_requests as this pull
+	// read it, and PersonMerges is where the runs waiting for a person to merge
+	// their pull request are read from. At the limit the pull chooses nothing
+	// from the queue (waitingpullrequests.go). Zero, or no PersonMerges, is no
+	// limit. PersonMerges is satisfied by *runstate.Store.
+	MaxWaitingPullRequests int
+	PersonMerges           PersonMergeWaits
 	// Slots is execution.developer_slots as this pull read it: what each of the
 	// Capacity developer slots prefers, in slot order, with the slots the list
 	// does not name preferring nothing. A slot that prefers a label pulls the
@@ -1338,6 +1350,12 @@ type Schedule struct {
 	// read past as though none stood.
 	SquashHold        *runstate.TrackerSquashHold `json:"squash_hold,omitempty"`
 	SquashHoldProblem string                      `json:"squash_hold_problem,omitempty"`
+	// WaitingPullRequests is the pull requests waiting for a person to merge as
+	// the last pull found them, where they were at the limit that stops new
+	// work, and nil otherwise. WaitingPullRequestsProblem names a reading that
+	// failed, which the pull read past as though the limit were not reached.
+	WaitingPullRequests        *runstate.WaitingPullRequests `json:"waiting_pull_requests,omitempty"`
+	WaitingPullRequestsProblem string                        `json:"waiting_pull_requests_problem,omitempty"`
 	// LaunchSettingsHold is the hold on developers the last pull found standing,
 	// nil once it is lifted or a pull was let through to check again.
 	// LaunchSettingsProblem names a record that could not be read or lifted.
@@ -3384,6 +3402,27 @@ pulling:
 				}
 				continue
 			}
+		}
+
+		// At the limit on pull requests waiting for a person to merge, nothing is
+		// chosen from the queue. It is read here, after every start that is not
+		// new work has been made above — decided repairs, the decided recovery of
+		// the brake's own test run, continuations, re-adopted runs, documents,
+		// outside files — so those carry on, and a probe the brake would choose
+		// fresh from the queue waits like any other new work. It is read again at
+		// every pull, so the merge or closing that brings the count below the
+		// limit starts new work at the next pull with nothing to release
+		// (waitingpullrequests.go).
+		if waiting, reached := s.waitingPullRequestsReached(&schedule, pull); reached {
+			if !s.Watching {
+				schedule.Stopped = ScheduleWaitingPullRequests
+				break
+			}
+			if !awaitProvider(pull, account{reason: waiting.Says(), running: running}) {
+				schedule.Stopped = ScheduleCancelled
+				break
+			}
+			continue
 		}
 
 		// The queue a decision was ranked against is the one this pull chooses from,
@@ -8175,6 +8214,12 @@ func (s Schedule) Render() string {
 	}
 	if s.SquashHold != nil {
 		fmt.Fprintf(&rendered, "%s\n", s.SquashHold.Says())
+	}
+	if s.WaitingPullRequests != nil {
+		fmt.Fprintf(&rendered, "%s\n", s.WaitingPullRequests.Says())
+	}
+	if s.WaitingPullRequestsProblem != "" {
+		fmt.Fprintf(&rendered, "%s\n", s.WaitingPullRequestsProblem)
 	}
 	if s.SquashHoldProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.SquashHoldProblem)

@@ -571,7 +571,9 @@ var standingWarningAgeSeconds = 5 * 60;
     }
     // One thing is printed above the sections, and only one: the same sentence
     // the terminal prints above the four lines while the harness is paused on
-    // the provider's usage limit, or the provider is answering nobody.
+    // the provider's usage limit, or the provider is answering nobody, or no
+    // new work is starting because pull requests are waiting for a person to
+    // merge.
     if (standing && standing.paused) {
       banner.textContent = standing.paused;
       setHidden(banner, false);

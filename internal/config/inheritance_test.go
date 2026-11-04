@@ -672,6 +672,37 @@ func TestTheWatchSettingsRefuseWhatWouldNotBeAWatch(t *testing.T) {
 	}
 }
 
+// The limit on pull requests waiting for a person to merge defaults to five in
+// every layer that writes nothing, takes what a project sets, reads zero as no
+// limit rather than as the default, and refuses a negative one.
+func TestTheLimitOnPullRequestsWaitingForAPersonResolvesFromEveryLayer(t *testing.T) {
+	t.Parallel()
+
+	inherited := loadProject(t, minimalProjectConfig, nil)
+	if got := inherited.Config.Execution.MaxWaitingPullRequests; got != 5 {
+		t.Fatalf("inherited max_waiting_pull_requests = %d, want 5", got)
+	}
+	generated := loadScaffold(t, ScaffoldOptions{ProductID: "example", Repository: "."}).Config
+	if got := generated.Execution.MaxWaitingPullRequests; got != 5 {
+		t.Fatalf("generated max_waiting_pull_requests = %d, want 5", got)
+	}
+	overridden := loadProject(t, minimalProjectConfig+"execution:\n  max_waiting_pull_requests: 2\n", nil)
+	if got := overridden.Config.Execution.MaxWaitingPullRequests; got != 2 {
+		t.Fatalf("overridden max_waiting_pull_requests = %d, want 2", got)
+	}
+	if origin := overridden.Origins["execution.max_waiting_pull_requests"]; origin == BuiltinV1 {
+		t.Fatalf("an overridden key kept the bundle's origin %q", origin)
+	}
+	none := loadProject(t, minimalProjectConfig+"execution:\n  max_waiting_pull_requests: 0\n", nil)
+	if got := none.Config.Execution.MaxWaitingPullRequests; got != 0 {
+		t.Fatalf("max_waiting_pull_requests = %d, want zero kept as no limit", got)
+	}
+	_, err := loadProjectError(t, minimalProjectConfig+"execution:\n  max_waiting_pull_requests: -1\n", nil)
+	if err == nil || !strings.Contains(err.Error(), "execution.max_waiting_pull_requests cannot be negative") {
+		t.Fatalf("LoadResolved() error = %v, want a negative limit refused", err)
+	}
+}
+
 // A non-positive interval is refused, because the whole of an overload's wait is
 // this interval: there is no reset time underneath it to fall back on.
 func TestServerOverloadPauseMustBePositive(t *testing.T) {

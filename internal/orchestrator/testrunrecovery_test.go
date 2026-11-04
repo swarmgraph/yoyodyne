@@ -258,3 +258,31 @@ func TestATestRunsRepairWaitingForTheHoldSaysItIsTheRunThatLiftsIt(t *testing.T)
 		t.Fatalf("attempted %#v, want the other decided recovery offered and refused by the hold as before", attempted)
 	}
 }
+
+// At the limit on pull requests waiting for a person to merge, the test run's
+// decided repair still takes the hold's start: it is a repair of a change a run
+// already wrote, not new work. Nothing is chosen from the queue beside it.
+func TestTheTestRunsDecidedRepairStartsAtTheLimitOnWaitingPullRequests(t *testing.T) {
+	t.Parallel()
+
+	harness, startedOrder := recoveryHarness(func(h *scheduleHarness) Outcome {
+		h.retire(testRunItem)
+		return Outcome{RunID: testRunID, WorkItemID: testRunItem, Status: runstate.StatusFailed, Blocked: true,
+			Failure: "lost the race to land on main again"}
+	})
+	harness.maxWaitingPullRequests = 1
+	harness.personMerges = waitingOnPullRequests(1, harness.now)
+	harness.onSleep = func(_ *scheduleHarness, sleeps int) bool { return sleeps < 4 }
+
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Sessions: &recordedSessions{}, Now: harness.clock}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if len(*startedOrder) == 0 || (*startedOrder)[0] != testRunItem {
+		t.Fatalf("started %v, want the test run's repair started at the limit: %s", *startedOrder, schedule.Render())
+	}
+	if order := harness.pullOrder(); len(order) != 0 {
+		t.Fatalf("pulled %v, want nothing chosen from the queue at the limit", order)
+	}
+}

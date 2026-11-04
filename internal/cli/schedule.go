@@ -809,8 +809,13 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 			product:    parts.config.Product,
 			tracker:    tracker,
 		},
-		Environment:                 parts.worktrees,
-		Capacity:                    parts.config.Execution.MaxConcurrentDevelopers,
+		Environment: parts.worktrees,
+		Capacity:    parts.config.Execution.MaxConcurrentDevelopers,
+		// The approved changes waiting for a person to merge them, read from the
+		// run index at every pull, so at the limit nothing new is chosen and the
+		// merge that brings the count under it starts work again by itself.
+		MaxWaitingPullRequests:      parts.config.Execution.MaxWaitingPullRequests,
+		PersonMerges:                parts.store,
 		DocumentLandings:            parts.config.Execution.DocumentLandingLimit(),
 		Slots:                       parts.config.Execution.DeveloperSlots,
 		Poll:                        parts.config.Execution.WorkPoll.Duration(),

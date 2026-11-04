@@ -371,6 +371,11 @@ execution:
   # environment made counts toward nothing -- and "0" turns it off, leaving you
   # as the only thing that holds intake.
   blocked_runs_before_intake_hold: %d
+  # How many approved changes may wait for a person to merge their pull request
+  # before no new developer work is started. Repairs, reviews, and bringing the
+  # waiting pull requests up to date carry on, and new work starts again by
+  # itself once one is merged or closed. "0" is no limit.
+  max_waiting_pull_requests: %d
   # How long a tripped brake waits for her decision before it probes the line by
   # itself: one run under the hold, whose landing reopens intake and whose
   # blocking keeps it held and asks her again. A hold she escalates goes to the
@@ -515,6 +520,7 @@ approvals:
 		effective.Execution.UsageWindowDegradedPercent,
 		effective.Execution.MissingReportLimit(),
 		effective.Execution.BlockedRunsBeforeIntakeHold,
+		effective.Execution.MaxWaitingPullRequests,
 		renderScaffoldDuration(effective.Execution.SchedulingWaitProblemAfter),
 		renderScaffoldDuration(effective.Execution.BrakeCooldown),
 		effective.Execution.BrakeEscalationCycles,

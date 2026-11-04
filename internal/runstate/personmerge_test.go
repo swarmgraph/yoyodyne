@@ -78,3 +78,38 @@ func TestBringingAWaitingRequestUpToDateNeverSpendsTheResumptionBound(t *testing
 		t.Fatalf("%d resumptions recorded, latest %v; want the bound kept and the update recorded last", len(updated.IntegrationResumptions), updated.IntegrationResumptions[len(updated.IntegrationResumptions)-1].Cause)
 	}
 }
+
+// The limit counts each pull request still waiting once, leaves out a wait
+// that has ended, and is never reached at zero.
+func TestWaitingPullRequestsCountOnlyTheWaitsStillStanding(t *testing.T) {
+	t.Parallel()
+	since := time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC)
+	waiting := func(runID string, number int, workItemID, title string) State {
+		return State{
+			RunID: runID, WorkItemID: workItemID, WorkItemTitle: title, Status: StatusSucceeded,
+			PullRequest: &PullRequest{Number: number},
+			PersonMerge: &PersonMerge{Number: number, Since: since.Add(time.Duration(number) * time.Minute)},
+		}
+	}
+	merged := waiting("run-merged", 3, "ex-3", "Merged already")
+	mergedAt := since.Add(time.Hour)
+	merged.PersonMerge.MergedAt = &mergedAt
+	states := []State{waiting("run-2", 2, "ex-2", "Second"), waiting("run-1", 1, "ex-1", ""), waiting("run-1-again", 1, "ex-1", ""), merged}
+
+	reading := WaitingPullRequestsOf(2, states)
+	if len(reading.Waiting) != 2 || reading.Waiting[0].Number != 1 || reading.Waiting[1].Number != 2 || !reading.Reached() {
+		t.Fatalf("reading = %#v, want pull requests 1 and 2, oldest first, at the limit", reading)
+	}
+	want := "Not starting new work because 2 pull requests are waiting for a person to merge (the limit is 2): #1 for ex-1; #2 for Second (ex-2). New work starts again by itself once one of them is merged or closed."
+	if got := reading.Says(); got != want {
+		t.Fatalf("says %q, want %q", got, want)
+	}
+	if single := WaitingPullRequestsOf(1, states[:1]); !strings.Contains(single.Says(), "1 pull request is waiting") {
+		t.Fatalf("says %q, want one pull request said in the singular", single.Says())
+	}
+	for _, limit := range []int{0, 3} {
+		if under := WaitingPullRequestsOf(limit, states); under.Reached() || under.Says() != "" {
+			t.Fatalf("limit %d: reached = %v, says %q; want nothing", limit, under.Reached(), under.Says())
+		}
+	}
+}

@@ -46,17 +46,20 @@ const tally = "  - "
 // whatever they carry indented under them.
 //
 // One thing can come above them, and only one: the harness being paused on the
-// provider's usage window. It is a banner rather than a fifth line — the four
-// are unchanged and are still all printed every time — and it is there because
-// the operator asked that the cause be the first words of any message that
-// reaches him when the system is paused on a window. Nothing else is ever put
-// above them: a state that will not render into the four is a bug in the state.
+// provider, or, where it is not, new work held back because as many pull
+// requests as the limit allows are waiting for a person to merge. It is a
+// banner rather than a fifth line — the four are unchanged and are still all
+// printed every time — and it is there because the operator asked that the
+// cause be the first words of any message that reaches him when the system is
+// paused on a window, and a line that starts nothing new for want of a merge
+// must not read as an unexplained stall either. Nothing else is ever put above
+// them: a state that will not render into the four is a bug in the state.
 func (s Standing) Render() string {
 	return s.RenderBanner() + s.RenderLines()
 }
 
-// RenderBanner is the banner alone, with its line ending, and empty where the
-// harness is not paused on the provider's usage window. It is for `yoyo
+// RenderBanner is the banner alone, with its line ending, and empty where
+// nothing is said there (Standing.Paused). It is for `yoyo
 // status`, which opens with the owner summary: the banner goes above the
 // summary there, so the pause is still the first words, and the four lines
 // follow the summary without it.

@@ -149,6 +149,15 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 	trigger.ClosedWork = closedWork{
 		items: withTrackerRecords(chatTracker(parts.runner, parts.repository), parts.trackerListings, parts.trackerSlowCalls),
 	}
+	// Why no new work is starting, where pull requests waiting for a person to
+	// merge are at their limit, so her sweep says what the status line says.
+	trigger.WaitingPullRequests = func() string {
+		waiting, _ := readmodel.WaitingPullRequestsOf(readmodel.Sources{
+			Runs:                   parts.store,
+			MaxWaitingPullRequests: parts.config.Execution.MaxWaitingPullRequests,
+		})
+		return readmodel.SayWaitingPullRequests(waiting, nil)
+	}
 	// The program manager instances, with the cursor each keeps over the
 	// streams its triggers watch and the streams themselves, the requests for
 	// their passes the operator and the Lead Product Manager make, and whether a

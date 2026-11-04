@@ -527,6 +527,14 @@ type Trigger struct {
 	// it. Optional: a trigger wired without it hands the pass nothing to audit.
 	// See closedwork.go.
 	ClosedWork RecurringClosedWork
+	// WaitingPullRequests is why no new developer work is starting, where as
+	// many pull requests as execution.max_waiting_pull_requests allows are
+	// waiting for a person to merge, and empty otherwise: the sentence the
+	// status line opens with (readmodel.SayWaitingPullRequests). Every pass of
+	// a recurring task of the Lead Product Manager's is handed it in its first
+	// turn, so her sweep says why the line is quiet rather than finding it
+	// stalled. Optional: a trigger wired without it hands her nothing about it.
+	WaitingPullRequests func() string
 	// StopCauses is each program manager instance's account of why runs
 	// stopped, read for the section a pass handed stopped runs carries.
 	// Optional: a trigger wired without it still hands the stops over, and the
@@ -1251,6 +1259,13 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			problems = append(problems, problem)
 		}
 		message = section + "\n" + message
+	}
+	// New work held back for the pull requests waiting on a person goes in the
+	// first turn's message too, above everything else she is handed.
+	if t.WaitingPullRequests != nil && task.Role == domain.RoleProductManager && f.agent == "" {
+		if said := t.WaitingPullRequests(); said != "" {
+			message = waitingPullRequestsSection(said) + "\n" + message
+		}
 	}
 	// The work waiting in the conversation as the pass was first handed it, and
 	// every item its turns' tracker actions changed: the two halves of what says
@@ -2498,4 +2513,11 @@ func (s RecurringSweep) Render() string {
 		}
 	}
 	return rendered.String()
+}
+
+// waitingPullRequestsSection is the section a pass of the Lead Product
+// Manager's is handed while new work is held back for the pull requests
+// waiting on a person to merge them.
+func waitingPullRequestsSection(said string) string {
+	return "## New work is not starting\n\n" + said + "\n\nNothing needs releasing: the harness starts new work again by itself once one of them is merged or closed. Say this in your sweep's account of the line rather than reporting it as stalled.\n"
 }
