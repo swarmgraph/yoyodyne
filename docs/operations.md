@@ -7097,8 +7097,13 @@ replaces whole who it accepts:
 So an operator bound in the configuration, and whose token is stored, is
 accepted within ten seconds of the later of the two, and an old token — one
 changed, removed, or no longer bound — is refused within ten seconds of the
-change. A token that cannot be read is not accepted until it can be: a person
-whose token is missing is left unbound, and a shared token taken out of its
+change. A person whose entry names
+`file` and whose token file is not there is given one: the dashboard creates it
+with a fresh token, readable and writable by the user the harness runs as alone,
+and says in its log where it is, so a token file taken out comes back holding a
+new token and the old one is refused. A file that is there is never replaced or
+rotated. A token that cannot be read is not accepted until it can be: a person
+whose keychain item is missing is left unbound, and a shared token taken out of its
 store is refused until it is stored again, with a person's own token still
 reading and acting. None of this restarts the dashboard, so a generated shared
 token a tab holds goes on working throughout. A configuration that does not
@@ -7640,13 +7645,17 @@ operators:
       - decide-amendments
 ```
 
-and store the token where it names: `security add-generic-password -s
-yoyo-dashboard.<product id>.<name> -a yoyo -w` for the keychain, or `mkdir -p
-<state root>/projects/<product id>/state && (umask 077 && openssl rand -hex 32 >
-<state root>/projects/<product id>/state/dashboard.<name>.token)` for the
-file. `yoyo dashboard` reads each person's token as it starts and says, in a
-line per person, which were bound and which could not be read, with the
-command that stores the missing one, and reads them all again every ten
+and, for the keychain, store the token where it names: `security
+add-generic-password -s yoyo-dashboard.<product id>.<name> -a yoyo -w`. For the
+file there is nothing to do: where
+<state root>/projects/<product id>/state/dashboard.<name>.token is not there,
+the dashboard creates it with a fresh token, readable and writable by the user
+the harness runs as alone, and says in its log where it is; paste the token in
+that file into the page. A token file that is there is never replaced or
+rotated, so one you wrote yourself is the one read. `yoyo dashboard` reads each
+person's token as it starts and says, in a line per person, which were bound
+and which could not be read, with the command that stores a missing keychain
+item, and reads them all again every ten
 seconds while it runs, so a token stored after it started is accepted and one
 changed or removed is refused without a restart ([who the dashboard accepts is
 applied while it runs](#the-dashboard-under-the-product)); a token shorter than sixty-four
