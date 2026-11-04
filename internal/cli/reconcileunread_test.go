@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -193,5 +194,29 @@ func TestTheSweepsStepsShareOneReadingOfClosedWork(t *testing.T) {
 	}
 	if tracker.lists["open"] != 2 {
 		t.Fatalf("open work listed %d times, want each asked of the tracker", tracker.lists["open"])
+	}
+}
+
+// A reading of closed work the tracker did not answer is the one failure the
+// docket step does not ask again: the merge check before it already waited out
+// every attempt on the same busy store. The step says the closed work is unread,
+// so the development manager is told, and the sweep goes on to its other steps.
+func TestTheDocketStepDoesNotAskAgainForClosedWorkTheTrackerDidNotAnswer(t *testing.T) {
+	t.Parallel()
+
+	tracker := &countingTracker{
+		closed:   []beads.WorkItem{{ID: deliveredEntry().WorkItemID, Status: "closed"}},
+		failures: []error{fmt.Errorf("%s: %w", unansweredClosedListing, beads.ErrUnanswered)},
+	}
+	listing := &orchestrator.ClosedListing{Tracker: tracker}
+	if _, err := listing.List(context.Background(), "closed"); !beads.Unanswered(err) {
+		t.Fatalf("List() error = %v, want the tracker not answering", err)
+	}
+	closed, _, err := sweepClosedItems(context.Background(), orchestrator.Docketer{Docket: standingDocket(t)}, listing)
+	if unread := orchestrator.UnreadClosedItems(err); closed != 0 || len(unread) != 1 || unread[0].Need != "close their docket entries" {
+		t.Fatalf("sweepClosedItems() = %d, %v; want nothing closed and the closed work unread", closed, err)
+	}
+	if tracker.lists["closed"] != 1 || tracker.shows != 0 {
+		t.Fatalf("tracker asked %v listings and %d reads, want the one unanswered listing and nothing more", tracker.lists, tracker.shows)
 	}
 }

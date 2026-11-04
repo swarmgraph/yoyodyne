@@ -129,7 +129,10 @@ type reconcileOutput struct {
 	// long the forge took: only the unsettled ones are asked, in batches, and a
 	// pass that takes long says where the time went.
 	Forge *orchestrator.ForgeQuestions `json:"forge,omitempty"`
-	Error string                       `json:"error,omitempty"`
+	// Tracker says how many calls this sweep made to the tracker, how long they
+	// took together, and the longest of them.
+	Tracker string `json:"tracker,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 // reconcileSweep is everything one sweep found, gathered so the reporting takes
@@ -176,7 +179,17 @@ type reconcileSweep struct {
 	// Forge is what the sweep asked the forge about its publications, and how
 	// long the forge took.
 	Forge *orchestrator.ForgeQuestions
+	// Tracker is what the sweep asked the tracker, and how long the tracker
+	// took.
+	Tracker *beads.CallTally
 }
+
+// slowReconcileTrackerCall is how long a tracker call of the sweep runs before
+// it is said on standard error as it ends. A read of one item answers in about
+// a second on a store over 1 GB with nothing else holding it, so one that took
+// this long spent nearly all of it waiting for other processes to let go of the
+// store.
+const slowReconcileTrackerCall = 30 * time.Second
 
 // reconcileRuns settles every run an interrupted process left outstanding and
 // then converges local state onto the forge's. It is safe to repeat: a run that
@@ -220,6 +233,12 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	if err != nil {
 		return reportReconcileResult(stdout, stderr, *jsonOutput, reconcileSweep{}, err)
 	}
+	// Every tracker call the sweep makes is accounted for, and a slow one is said
+	// on standard error as soon as it ends: the maintenance pass bounds this
+	// command as a whole, and a sweep stopped at that bound has printed nothing
+	// else of where its time went (beads.CallTally).
+	trackerCalls := &beads.CallTally{Slow: stderr, SlowAfter: slowReconcileTrackerCall}
+	parts.trackerCalls = trackerCalls
 	ctx = beads.OnBehalfOf(ctx, "yoyo reconcile, which settles stopped and finished runs and runs in every maintenance pass")
 	// Typed by a person, this is the operator settling runs by hand; run by the
 	// supervisor's maintenance pass it is the harness's own sweep, and the pass
@@ -366,6 +385,7 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 		Stall:              stall,
 		StallProblem:       stallProblem,
 		Forge:              reconciler.Forge,
+		Tracker:            trackerCalls,
 		Feedback:           feedback,
 	}
 	// The runs that exited on their in-process usage-limit bound and whose
@@ -747,6 +767,9 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		if sweep.Messages.Caught != nil || sweep.Messages.Problem != "" {
 			output.Messages = &sweep.Messages
 		}
+		if sweep.Tracker != nil {
+			output.Tracker = sweep.Tracker.Describe()
+		}
 		if results == nil {
 			output.Runs = []orchestrator.Reconciliation{}
 		}
@@ -943,7 +966,10 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		printFeedback(stdout, stderr, sweep.Feedback)
 		printContinuations(stdout, stderr, sweep.Continuations)
 		// Said last, so the maintenance pass, which records the end of what this
-		// prints, carries how long the forge took on every pass.
+		// prints, carries how long the tracker and the forge took on every pass.
+		if sweep.Tracker != nil {
+			fmt.Fprintln(stdout, sweep.Tracker.Describe())
+		}
 		if sweep.Forge != nil {
 			fmt.Fprintln(stdout, sweep.Forge.Describe())
 		}

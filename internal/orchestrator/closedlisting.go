@@ -38,15 +38,20 @@ type ClosedListingTracker interface {
 // ClosedListing is a tracker whose listing of closed work is read at most once
 // and then answered from what was read. Every other listing, and every item, is
 // asked of the tracker as it would have been. A listing that failed is not kept,
-// so the next step that needs it asks again; a listing bd cut at its default
-// limit is kept as the cut it was, because asking again would be cut the same.
+// so the next step that needs it asks again, except one the tracker did not
+// answer in time: that listing has already spent every attempt it makes, up to
+// six minutes of a sweep the maintenance pass bounds at fifteen, and a second
+// step asking again would spend as long waiting on the same busy store. A
+// listing bd cut at its default limit is kept as the cut it was, because asking
+// again would be cut the same.
 type ClosedListing struct {
 	Tracker ClosedListingTracker
 
-	mu    sync.Mutex
-	read  bool
-	items []beads.WorkItem
-	cut   *beads.ListingCut
+	mu         sync.Mutex
+	read       bool
+	items      []beads.WorkItem
+	cut        *beads.ListingCut
+	unanswered error
 }
 
 // List answers a listing of closed work from the one reading, taking it on the
@@ -57,12 +62,18 @@ func (l *ClosedListing) List(ctx context.Context, status string) ([]beads.WorkIt
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.unanswered != nil {
+		return nil, fmt.Errorf("not asked again in this sweep, because an earlier step's listing of closed work got no answer: %w", l.unanswered)
+	}
 	if !l.read {
 		items, err := l.Tracker.List(ctx, status)
 		var cut *beads.ListingCut
 		switch {
 		case err == nil:
 		case errors.As(err, &cut):
+		case beads.Unanswered(err) && ctx.Err() == nil:
+			l.unanswered = err
+			return nil, err
 		default:
 			return nil, err
 		}

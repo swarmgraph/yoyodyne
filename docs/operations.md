@@ -2837,7 +2837,10 @@ which every maintenance pass runs, needs to know which work items are closed
 for two of its steps: checking runs recorded as merged against their target
 branch, and closing the docket entries of closed items. It reads the tracker's
 closed work once for the sweep and both steps use that reading; a reading that
-failed is not kept, so the second step asks again. A step that still cannot
+failed is not kept, so the second step asks again, unless the tracker did not
+answer it at all. That listing has already been tried three times, up to two
+minutes each, so the second step is told the same failure rather than spending
+as long again waiting on the same busy store. A step that still cannot
 read it does nothing of what it needed it for, and the sweep ends failed, so
 the maintenance pass's record says `read which work items are closed to …`
 with the tracker's own words. The pass is raised as a finding only after three
@@ -4290,7 +4293,20 @@ took — `asked the forge about 12 unsettled publication(s) in 3 request(s),
 which took 4.2s` — and `--json` carries the same under `forge`, with the time
 in nanoseconds as `took_ns`; the
 [maintenance pass](#the-supervisors-maintenance-pass) records the end of what
-the sweep prints, so its record carries the line too. Until yoyodyne-ifd.429.38
+the sweep prints, so its record carries the line too. Just before it, the pass
+says how many times it asked the tracker, how long that took in all, and the
+three longest calls — `asked the tracker 61 time(s), which took 3m12s in all;
+the longest: reading work item yoyodyne-ifd.429.96 (1m47s), …` — and `--json`
+carries the same line under `tracker`. Any tracker call that took 30 seconds or
+more, or was stopped at its limit, is also said on standard error the moment it
+ends: `the tracker took 47s to answer reading work item …`, or `the tracker did
+not answer listing the work items with status closed: it was stopped after
+2m0s, at its limit of 2m0s`. The maintenance pass bounds the sweep at fifteen
+minutes and records the end of what a sweep stopped at that bound wrote to
+standard error, so a timed-out reconcile's record names the reads that held it
+up rather than only that it timed out.
+[The diagnosis](diagnoses/yoyodyne-ifd-428-126-4-14-1-reconcile-tracker-waits.md)
+says why those reads are slow. Until yoyodyne-ifd.429.38
 every recorded request that was not merged was asked about on every pass, one
 listing and one merge-queue question at a time: on 2026-09-29, over 798
 recorded publications, one pass ran past an hour while the two runs a redeploy
