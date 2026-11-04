@@ -27,6 +27,10 @@
 // is counted under each, so those series overlap and the page says that too.
 // An item whose filing or closing time the tracker did not record is left out
 // of what that time decides and counted in the notes, never placed at a guess.
+//
+// The page's second chart, work closed against a week earlier, is counted by
+// againstAWeekEarlier below, which says how an unfinished day or week is
+// compared.
 
 var backlogCount = (function () {
   "use strict";
@@ -67,7 +71,7 @@ var backlogCount = (function () {
   // called at an instant.
   function calendar(zone) {
     var civil = new Intl.DateTimeFormat("en-US", {
-      timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+      timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
     });
     var named = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "short" });
 
@@ -109,6 +113,19 @@ var backlogCount = (function () {
       return key + (scale === "weekly" ? 7 : 1);
     }
 
+    // into is how far into its window an instant falls, by the zone's clock
+    // rather than by elapsed time: the time of day, and for a week the whole
+    // days since its Monday before that. Two instants a week apart by the
+    // clock fall the same distance in, across a change of summer time too.
+    function into(ms, scale) {
+      var found = parts(civil, ms);
+      var clock = ((Number(found.hour) % 24) * 60 + Number(found.minute)) * minute + Number(found.second) * 1000 + ((ms % 1000) + 1000) % 1000;
+      if (scale === "weekly") {
+        return (dayNumber(ms) - windowOf(ms, scale)) * day + clock;
+      }
+      return clock;
+    }
+
     // zoneName is what the zone is called at an instant, such as PDT, and the
     // zone's own name where the platform has no shorter one for it.
     function zoneName(ms) {
@@ -131,7 +148,7 @@ var backlogCount = (function () {
       return scale === "weekly" ? "week of " + words : words;
     }
 
-    return { windowOf: windowOf, next: next, label: label, zoneName: zoneName };
+    return { windowOf: windowOf, next: next, label: label, zoneName: zoneName, into: into };
   }
 
   // groupsOf is every series one item counts in, for the chosen split.
@@ -302,7 +319,78 @@ var backlogCount = (function () {
     return result;
   }
 
-  return { series: series, localZone: localZone, calendar: calendar, splitSeries: splitSeries, unknownOrigin: unknownOrigin, hourlyWindows: hourlyWindows };
+  // againstAWeekEarlier counts the work items closed in each day or Monday
+  // week, in the zone choice.zone names or this browser's own, and sets each
+  // beside the count a week earlier: a day beside the same weekday the week
+  // before, a week beside the week before. The day or week now under way is
+  // unfinished, so it is set beside only the part of its comparison that had
+  // passed by the same weekday and time of day a week earlier: today until
+  // now against the same weekday last week until the same time, and this
+  // week from Monday until now against last week from Monday until the same
+  // weekday and time. Comparing a part with a whole would draw every
+  // unfinished period as a fall.
+  //
+  // choice.label keeps only the items carrying that label; none keeps every
+  // item. Every closed item is counted, parts split from an item included,
+  // since each is work that closed. The windows run from the first one an
+  // item closed in to the one now under way, and the result also lists every
+  // label a closed item carries, for the page's filter.
+  function againstAWeekEarlier(items, choice, now) {
+    var scale = choice.scale === "weekly" ? "weekly" : "daily";
+    var zone = choice.zone || localZone();
+    var cal = calendar(zone);
+    var result = {
+      keys: [], labels: [], closed: [], earlier: [], change: [], partial: -1,
+      zone: cal.zoneName(now), zoneId: zone, noClosed: 0, itemLabels: []
+    };
+    var last = cal.windowOf(now, scale);
+    var reached = cal.into(now, scale);
+    var whole = {}, soFar = {};
+    var seen = {};
+    var first = null;
+    items.forEach(function (item) {
+      if (item.state !== "closed" && !item.closed_at) {
+        return;
+      }
+      var closed = instant(item.closed_at);
+      if (closed === null) {
+        result.noClosed += 1;
+        return;
+      }
+      (item.labels || []).forEach(function (name) { seen[name] = true; });
+      if (choice.label && (item.labels || []).indexOf(choice.label) < 0) {
+        return;
+      }
+      var key = cal.windowOf(closed, scale);
+      whole[key] = (whole[key] || 0) + 1;
+      if (cal.into(closed, scale) <= reached) {
+        soFar[key] = (soFar[key] || 0) + 1;
+      }
+      if (first === null || key < first) {
+        first = key;
+      }
+    });
+    result.itemLabels = Object.keys(seen).sort();
+    if (first === null || first > last) {
+      return result;
+    }
+    var nowYear = yearLabel.format(new Date(now));
+    // Days and Monday weeks are both keyed by a day number, so the window a
+    // week earlier is seven less either way.
+    for (var key = first; key <= last; key = cal.next(key, scale)) {
+      var earlier = key === last ? soFar[key - 7] || 0 : whole[key - 7] || 0;
+      var closedThen = whole[key] || 0;
+      result.keys.push(key);
+      result.labels.push(cal.label(key, scale, nowYear));
+      result.closed.push(closedThen);
+      result.earlier.push(earlier);
+      result.change.push(closedThen - earlier);
+    }
+    result.partial = result.keys.length - 1;
+    return result;
+  }
+
+  return { series: series, againstAWeekEarlier: againstAWeekEarlier, localZone: localZone, calendar: calendar, splitSeries: splitSeries, unknownOrigin: unknownOrigin, hourlyWindows: hourlyWindows };
 })();
 
 if (typeof module !== "undefined" && module.exports) {
