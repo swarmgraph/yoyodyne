@@ -152,6 +152,114 @@ func TestAConsistentRevisionThatAddsOrRemovesAGoalWaitsForTheOperator(t *testing
 	}
 }
 
+// A revision of the goals or the brief marked consistent is approved as the Lead
+// Product Manager's only where the document as it stood before it was approved:
+// a rewording of an approved document, and a second rewording after one she
+// approved, are hers; a rewording of a document the operator never approved, or
+// has not approved since it last changed, waits for him and says why, because
+// her approval would make goals he never saw read as approved.
+func TestAConsistentRevisionIsHersOnlyWhereTheGoalsStoodApproved(t *testing.T) {
+	for _, kind := range []Kind{KindGoals, KindBrief} {
+		for _, mode := range []domain.ApprovalMode{domain.ApprovalHuman, domain.ApprovalAutomatic} {
+			t.Run(string(kind)+"/"+string(mode), func(t *testing.T) {
+				policy := Policy{Brief: mode, Goals: mode, SpecificationsHome: productHome}
+				reworded := Write{Action: WriteRevise, ID: "the-goals", Body: strings.Replace(twoGoals, "and say so", "and say plainly", 1), Reason: "yoyodyne-ifd.500 - consistent wording", Intent: IntentConsistent}
+				land := func(store Store, candidate ConfirmedDocument) Artifact {
+					t.Helper()
+					if err := os.WriteFile(filepath.Join(store.RepositoryRoot, candidate.Artifact.Path), []byte(candidate.Content), 0o644); err != nil {
+						t.Fatal(err)
+					}
+					set, err := store.Load()
+					if err != nil || len(set.Problems) != 0 {
+						t.Fatalf("Load() error = %v, problems = %v", err, set.Problems)
+					}
+					landed, _ := set.Find("the-goals")
+					return landed
+				}
+
+				// Approved by the operator: her rewording is approved without him,
+				// and so is a second one after it.
+				store := generatedStore(t.TempDir())
+				if _, err := store.Create(domain.RoleProductManager, Draft{ID: "the-goals", Kind: kind, Title: "Goals", Directory: productHome, Body: twoGoals, Reason: "created by owner"}, moment()); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := store.Approve("the-goals", "approved by the operator in conversation", moment().Add(time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+				candidate, approved, err := store.PrepareConfirmation(domain.RoleProductManager, reworded, policy, "confirmed under policy", moment().Add(time.Hour))
+				if err != nil || !approved || !candidate.ProductManagerApproved() {
+					t.Fatalf("a rewording of approved goals: %v, %v", approved, err)
+				}
+				if landed := land(store, candidate); landed.ApprovalState() != ApprovalApproved {
+					t.Fatalf("landed state = %q", landed.ApprovalState())
+				}
+				again := reworded
+				again.Body = strings.Replace(reworded.Body, "say plainly", "say it plainly", 1)
+				if _, approved, err := store.PrepareConfirmation(domain.RoleProductManager, again, policy, "confirmed under policy", moment().Add(2*time.Hour)); err != nil || !approved {
+					t.Fatalf("a second rewording after one she approved: %v, %v", approved, err)
+				}
+
+				// Never approved: it waits for him, and says why.
+				store = generatedStore(t.TempDir())
+				if _, err := store.Create(domain.RoleProductManager, Draft{ID: "the-goals", Kind: kind, Title: "Goals", Directory: productHome, Body: twoGoals, Reason: "created by owner"}, moment()); err != nil {
+					t.Fatal(err)
+				}
+				if _, approved, err := store.PrepareConfirmation(domain.RoleProductManager, reworded, policy, "confirmed under policy", moment().Add(time.Hour)); err != nil || approved {
+					t.Fatalf("a rewording of goals never approved was approved without the operator: %v, %v", approved, err)
+				}
+				why, err := store.ConsistentMarkOverruled(domain.RoleProductManager, reworded, moment().Add(time.Hour))
+				if err != nil || !strings.Contains(why, "as it stood before it was not approved") || !strings.Contains(why, "operator's to approve whatever it is marked") {
+					t.Fatalf("ConsistentMarkOverruled() = %q, %v", why, err)
+				}
+				// Recorded by hand all the same, it leaves the document unapproved.
+				if _, err := store.Amend(domain.RoleProductManager, "the-goals", reworded.Amendment(), moment().Add(time.Hour)); err != nil {
+					t.Fatal(err)
+				}
+				set, err := store.Load()
+				if err != nil {
+					t.Fatal(err)
+				}
+				recorded, _ := set.Find("the-goals")
+				if recorded.ApprovalState() != ApprovalUnapproved {
+					t.Fatalf("state = %q", recorded.ApprovalState())
+				}
+				if delegated, why := recorded.DelegatedAt(1); delegated || !strings.Contains(why, "as it stood before it was not approved") {
+					t.Fatalf("DelegatedAt(1) = %v, %q", delegated, why)
+				}
+
+				// Approved, then amended without him: her rewording on top of that
+				// waits for him too, and counts against his approval.
+				store = generatedStore(t.TempDir())
+				if _, err := store.Create(domain.RoleProductManager, Draft{ID: "the-goals", Kind: kind, Title: "Goals", Directory: productHome, Body: twoGoals, Reason: "created by owner"}, moment()); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := store.Approve("the-goals", "approved by the operator in conversation", moment().Add(time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+				unseen := strings.Replace(twoGoals, "Keep the boundary", "Hold the boundary", 1)
+				if _, err := store.Amend(domain.RoleProductManager, "the-goals", Amendment{Body: &unseen, Reason: "yoyodyne-ifd.501 - a change he has not seen", Intent: IntentFundamental}, moment().Add(2*time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+				reworded.Body = strings.Replace(reworded.Body, "Keep the boundary", "Hold the boundary", 1)
+				if _, approved, err := store.PrepareConfirmation(domain.RoleProductManager, reworded, policy, "confirmed under policy", moment().Add(time.Hour)); err != nil || approved {
+					t.Fatalf("a rewording of goals amended since approval was approved without the operator: %v, %v", approved, err)
+				}
+				if _, err := store.Amend(domain.RoleProductManager, "the-goals", reworded.Amendment(), moment().Add(time.Hour)); err != nil {
+					t.Fatal(err)
+				}
+				set, err = store.Load()
+				if err != nil {
+					t.Fatal(err)
+				}
+				recorded, _ = set.Find("the-goals")
+				if recorded.ApprovalState() != ApprovalAmended || recorded.RevisionsSinceApproval() != 2 || len(recorded.RewordingsSinceApproval()) != 0 {
+					t.Fatalf("state = %q, since = %d, rewordings = %d", recorded.ApprovalState(), recorded.RevisionsSinceApproval(), len(recorded.RewordingsSinceApproval()))
+				}
+			})
+		}
+	}
+}
+
 // A consistent rewording held back only because its record is short — its
 // reason names no work item — is the Lead Product Manager's to put right, not
 // the operator's to decide, so it is not offered as a reason the operator must

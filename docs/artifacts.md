@@ -112,7 +112,10 @@ it takes the Lead Product Manager's recorded claim to move off it. Two changes
 are put to you however they are marked, because they always change what the
 goals admit: creating a goals document or the brief, and a revision of either
 that adds or removes a goal; she is told which goal, and a goal reworded where
-it stands is still hers. The reviewer of the run that lands a change she marked
+it stands is still hers. A revision of either that was not approved as it stood
+before it is put to you too, because her approval would make goals you never
+approved read as approved; `yoyo artifact list` says so of a revision recorded
+that way. The reviewer of the run that lands a change she marked
 consistent is told to test the mark and to refuse the change where it is wrong.
 `yoyo artifact list` and `show` say which, naming whose approval a document
 carries.
@@ -382,7 +385,8 @@ lands through a reviewed run as a confirmed document does — left on its branch
 for you to merge where `approvals.integration` is not `automatic`, as every
 change there is. Any other creation or revision of one is put to you, however
 those settings are set, and so is a new goals document or brief, or a revision
-of either that adds or removes a goal, whatever it is marked.
+of either that adds or removes a goal or was not approved as it stood before
+it, whatever it is marked.
 For the documents put to you, you are shown what would happen and the document itself,
 and asked:
 

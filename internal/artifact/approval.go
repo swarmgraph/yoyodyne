@@ -228,12 +228,62 @@ func (a Artifact) RevisionsSinceApproval() int {
 	}
 	count := 0
 	for index := latest.Revision + 1; index < len(a.Revisions); index++ {
-		revision := a.Revisions[index]
-		if delegated, _ := a.Rewording(revision); revision.Action != ActionIdentified && !delegated {
+		if delegated, _ := a.DelegatedAt(index); a.Revisions[index].Action != ActionIdentified && !delegated {
 			count++
 		}
 	}
 	return count
+}
+
+// DelegatedAt is Rewording for the revision at index in this artifact's log,
+// with one more condition on a document that states goals: the document as it
+// stood before the revision was approved. A rewording of goals the operator
+// never approved, or has not approved since they last changed, would otherwise
+// be approved as hers, and that approval would make every goal the document
+// states read as approved, including ones he never saw.
+func (a Artifact) DelegatedAt(index int) (bool, string) {
+	if delegated, why := a.Rewording(a.Revisions[index]); !delegated {
+		return false, why
+	}
+	if StatesGoals(a.Kind) && !a.StoodApproved(index) {
+		return false, unapprovedGoalsReason(a.Kind)
+	}
+	return true, ""
+}
+
+// StoodApproved reports whether the document as it stood before the revision
+// at index, its revisions before that one and the approvals naming them, was
+// approved as it stood.
+func (a Artifact) StoodApproved(index int) bool {
+	latest := -1
+	for _, approval := range a.Approvals {
+		if approval.Revision < index {
+			latest = approval.Revision
+		}
+	}
+	if latest < 0 {
+		return false
+	}
+	for between := latest + 1; between < index && between < len(a.Revisions); between++ {
+		revision := a.Revisions[between]
+		// Every revision before this one stood approved, or the loop would have
+		// ended, so Rewording alone is DelegatedAt here.
+		if delegated, _ := a.Rewording(revision); revision.Action != ActionIdentified && !delegated {
+			return false
+		}
+	}
+	return true
+}
+
+// unapprovedGoalsReason is why a revision marked consistent with intent of a
+// document that states goals is the operator's when the document was not
+// approved as it stood before it.
+func unapprovedGoalsReason(kind Kind) string {
+	what := "goals document"
+	if kind == KindBrief {
+		what = "brief"
+	}
+	return fmt.Sprintf("the %s as it stood before it was not approved, so approving it as consistent with intent would make goals the operator never approved read as approved, and it is the operator's to approve whatever it is marked", what)
 }
 
 // RewordingsSinceApproval returns the delegated rewordings recorded after the
@@ -247,7 +297,7 @@ func (a Artifact) RewordingsSinceApproval() []Revision {
 	}
 	var rewordings []Revision
 	for index := latest.Revision + 1; index < len(a.Revisions); index++ {
-		if delegated, _ := a.Rewording(a.Revisions[index]); delegated {
+		if delegated, _ := a.DelegatedAt(index); delegated {
 			rewordings = append(rewordings, a.Revisions[index])
 		}
 	}

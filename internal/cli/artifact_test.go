@@ -666,6 +666,33 @@ func TestAProductDocumentSaysWhetherItsApprovalIsTheOperatorsOrTheLeadProductMan
 	}
 }
 
+// A goals document the operator never approved, revised under a consistent mark
+// that names its directing item, is still his to approve, and a listing says why:
+// the document as it stood before the revision was not approved.
+func TestAConsistentRevisionOfUnapprovedGoalsSaysWhyItIsTheOperatorsToApprove(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	goals := artifact.Artifact{
+		ID: "v2-goals", Kind: artifact.KindGoals, Title: "V2 goals", Status: artifact.StatusActive, Path: "docs/product/goals/v2-goals.md", Supports: []string{"brief"},
+		Revisions: []artifact.Revision{
+			{Action: artifact.ActionCreated, By: domain.RoleProductManager, At: createdAt, Reason: "yoyodyne-ifd.500 - goals the operator described"},
+			{Action: artifact.ActionAmended, By: domain.RoleProductManager, At: createdAt.Add(time.Hour), Reason: "yoyodyne-ifd.501 - a goal reworded", Intent: artifact.IntentConsistent},
+		},
+	}
+	if err := goals.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []domain.ApprovalMode{domain.ApprovalHuman, domain.ApprovalAutomatic} {
+		rendered := renderArtifactApproval(goals, artifact.Policy{Goals: mode, SpecificationsHome: "docs/product"})
+		for _, want := range []string{"none recorded", "revision 1 is labelled consistent and is still yours, because the goals document as it stood before it was not approved"} {
+			if !strings.Contains(rendered, want) {
+				t.Fatalf("under %s, rendered = %q, want it to contain %q", mode, rendered, want)
+			}
+		}
+	}
+}
+
 // A goals document whose creation is marked consistent with intent is still the
 // operator's to approve, and a listing says why rather than leaving the mark to
 // read as ignored.
