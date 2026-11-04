@@ -1,12 +1,13 @@
 package config
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -537,9 +538,68 @@ var earlierHomeReaders = map[string]bool{"internal/home/migrate.go": true, "inte
 func TestNothingButTheMigrationNamesTheEarlierConfigurationsHome(t *testing.T) {
 	t.Parallel()
 
+	for _, finding := range earlierHomeNamers(t, filepath.Join("..", "..")) {
+		t.Errorf("%s, which only the migration reads", finding)
+	}
+}
+
+// The guard reads a script committed under bin/ and never what a build leaves
+// there: a bin/yoyo built from older source carries the earlier home in its
+// messages, and an ignored file is no part of the change being checked.
+func TestTheEarlierHomeGuardReadsOnlyTrackedFilesUnderBin(t *testing.T) {
+	t.Parallel()
+
+	repository := t.TempDir()
+	files := map[string]string{
+		".gitignore":     "/bin/*\n!/bin/wrapper.sh\n",
+		"bin/wrapper.sh": "#!/bin/sh\nexec yoyo --config \"$HOME/.config/yoyodyne/config.yaml\"\n",
+		// Text rather than a compiled binary, so it is the tracking that keeps
+		// it out and not anything about its content.
+		"bin/yoyo":      "usage: reads $HOME/.config/yoyodyne/projects\n",
+		"bin/notes.txt": "left over: ~/.config/yoyodyne\n",
+	}
+	for name, content := range files {
+		path := filepath.Join(repository, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	installGitIn(t, repository, "init", "--quiet")
+	installGitIn(t, repository, "add", ".gitignore", "bin/wrapper.sh")
+	installGitIn(t, repository, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "start")
+
+	got := earlierHomeNamers(t, repository)
+	if len(got) != 1 || !strings.HasPrefix(got[0], "bin/wrapper.sh:2 ") {
+		t.Fatalf("earlierHomeNamers() = %q, want only the tracked bin/wrapper.sh:2", got)
+	}
+}
+
+// earlierHomeNamers returns each line, as "path:line names the earlier
+// configurations home: text", of the Go sources, shell scripts, and files under
+// bin/ in repository that name the earlier home, leaving out earlierHomeReaders.
+// Under bin/ it reads only what Git tracks: that directory is also where a build
+// writes, and .gitignore keeps everything there but the committed scripts.
+func earlierHomeNamers(t *testing.T, repository string) []string {
+	t.Helper()
+
+	command := exec.Command("git", "-C", repository, "ls-files", "-z", "--", "bin")
+	listed, err := command.Output()
+	if err != nil {
+		t.Fatalf("git ls-files bin in %s: %v", repository, err)
+	}
+	tracked := map[string]bool{}
+	for _, name := range strings.Split(string(listed), "\x00") {
+		if name != "" {
+			tracked[name] = true
+		}
+	}
+
 	earlier := regexp.MustCompile(`YOYODYNE_CONFIG_HOME|\.config/yoyodyne|"\.config",\s*"yoyodyne"|XDG_CONFIG_HOME.*"yoyodyne"`)
-	repository := filepath.Join("..", "..")
-	err := filepath.WalkDir(repository, func(path string, entry os.DirEntry, err error) error {
+	var findings []string
+	err = filepath.WalkDir(repository, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -554,8 +614,10 @@ func TestNothingButTheMigrationNamesTheEarlierConfigurationsHome(t *testing.T) {
 			return err
 		}
 		relative = filepath.ToSlash(relative)
-		shipped := strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") ||
-			strings.HasPrefix(relative, "bin/") || strings.HasSuffix(path, ".sh")
+		shipped := strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, ".sh")
+		if strings.HasPrefix(relative, "bin/") {
+			shipped = tracked[relative]
+		}
 		if !shipped || earlierHomeReaders[relative] {
 			return nil
 		}
@@ -563,15 +625,9 @@ func TestNothingButTheMigrationNamesTheEarlierConfigurationsHome(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		// A compiled binary under bin/ — the bin/yoyo a build leaves there — is
-		// built from the Go sources this reads already, the migration's among them,
-		// so it carries the migration's own words; only scripts are read there.
-		if bytes.IndexByte(source, 0) >= 0 {
-			return nil
-		}
 		for number, line := range strings.Split(string(source), "\n") {
 			if earlier.MatchString(line) {
-				t.Errorf("%s:%d names the earlier configurations home, which only the migration reads: %s", relative, number+1, strings.TrimSpace(line))
+				findings = append(findings, fmt.Sprintf("%s:%d names the earlier configurations home: %s", relative, number+1, strings.TrimSpace(line)))
 			}
 		}
 		return nil
@@ -579,4 +635,5 @@ func TestNothingButTheMigrationNamesTheEarlierConfigurationsHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return findings
 }
