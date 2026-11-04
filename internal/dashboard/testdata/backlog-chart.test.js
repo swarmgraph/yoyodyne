@@ -86,7 +86,11 @@ function element(id) {
   return node;
 }
 
-function page(tones) {
+// page is the backlog page's elements and window. Its local storage is the
+// browser's for this dashboard's origin, holding by default the token the main
+// page kept there under the key every page of the dashboard shares.
+function page(tones, storage) {
+  const kept = storage || new Map([["yoyo-dashboard-token", "token"]]);
   const elements = {};
   const byId = (id) => (elements[id] = elements[id] || element(id));
   byId("backlog-show").value = "filed";
@@ -100,7 +104,11 @@ function page(tones) {
   const closedMade = [];
   const closedConfigs = [];
   const window = {
-    sessionStorage: { getItem: () => "token", setItem() {}, removeItem() {} },
+    localStorage: {
+      getItem: (key) => (kept.has(key) ? kept.get(key) : null),
+      setItem: (key, value) => kept.set(key, String(value)),
+      removeItem: (key) => kept.delete(key)
+    },
     setTimeout: () => 0,
     clearTimeout() {},
     matchMedia: () => ({ matches: false, addEventListener() {} }),
@@ -129,7 +137,7 @@ function page(tones) {
     createElement: (tag) => element(tag),
     documentElement: element("html")
   };
-  return { elements, byId, canvas, canvases, made, closedMade, closedConfigs, window, document };
+  return { elements, byId, canvas, canvases, made, closedMade, closedConfigs, window, document, asked: [] };
 }
 
 // inThisContext copies a configuration's objects and arrays into this
@@ -163,16 +171,22 @@ for (let index = 0; index < 60; index++) {
 const reading = { observed_at: iso(now), items };
 
 // run opens the page on a reading, by default the one above at the real
-// time in this machine's zone; the closed chart's run fixes both.
-function run(tones, fixed) {
-  const built = page(tones);
+// time in this machine's zone; the closed chart's run fixes both. A storage
+// given is the browser's for the origin, and a status given is the
+// dashboard's answer in place of the reading.
+function run(tones, fixed, storage, status) {
+  const built = page(tones, storage);
   const answer = fixed ? fixed.reading : reading;
   const context = vm.createContext({
     window: built.window, document: built.document, Math, Intl, String, Error, Promise, console,
     backlogCount: fixed ? Object.assign({}, backlogCount, { localZone: () => fixed.zone }) : backlogCount,
     Date: fixed ? class extends Date { static now() { return fixed.now; } } : Date,
-    fetch: (address) => {
+    fetch: (address, options) => {
       assert.strictEqual(address, "/api/backlog");
+      built.asked.push(options.headers.Authorization);
+      if (status) {
+        return Promise.resolve({ status, ok: false, statusText: "Unauthorized", json: () => Promise.resolve({ error: "this dashboard requires the token it printed when it started, as a bearer token" }) });
+      }
       return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve(answer) });
     }
   });
@@ -349,6 +363,35 @@ async function closedChart() {
   assert.deepStrictEqual(filtered.data.labels, ["Tue 27 Oct", "Wed 28 Oct"]);
   assert.deepStrictEqual(filtered.data.datasets[2].data, [1, 0]);
   assert.strictEqual(built.byId("closed-label").value, "dashboard");
+
+  await tokenKeeping(light);
+}
+
+// The backlog page reads with the token the main page kept for this origin,
+// without asking; a browser holding none asks; and a token the dashboard
+// refuses is removed from storage, for every page of the dashboard, and asked
+// for again rather than tried again.
+async function tokenKeeping(tones) {
+  const key = "yoyo-dashboard-token";
+  const browser = new Map([[key, "kept on the main page"]]);
+  const signedIn = run(tones, null, browser);
+  await settle();
+  await settle();
+  assert.strictEqual(signedIn.byId("page").getAttribute("data-state"), "ready", "the backlog page asks for a token the main page kept");
+  assert.deepStrictEqual(signedIn.asked, ["Bearer kept on the main page"]);
+
+  const otherPort = run(tones, null, new Map());
+  await settle();
+  assert.strictEqual(otherPort.byId("page").getAttribute("data-state"), "signin", "a backlog page whose origin holds no token does not ask for one");
+  assert.deepStrictEqual(otherPort.asked, []);
+
+  const rotated = new Map([[key, "replaced since"]]);
+  const refused = run(tones, null, rotated, 401);
+  await settle();
+  await settle();
+  assert.strictEqual(refused.byId("page").getAttribute("data-state"), "signin", "a refused token does not send the backlog page back to asking for it");
+  assert(!rotated.has(key), "a token refused on the backlog page is still kept");
+  assert.deepStrictEqual(refused.asked, ["Bearer replaced since"], "a refused token was tried again");
 }
 
 main().catch((error) => {

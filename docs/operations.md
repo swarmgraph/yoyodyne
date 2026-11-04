@@ -6747,7 +6747,7 @@ prints the token to your terminal when it starts:
 ```text
 dashboard for yoyodyne serving at http://127.0.0.1:52341/
 token: 9f2c41ab7e05…
-the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/summary?since=today or ?since=week, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/accomplishment, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask
+the page asks for the token and keeps it in this browser's local storage for the dashboard's address, shared by its tabs and windows; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/summary?since=today or ?since=week, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/accomplishment, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask
 a restarted dashboard prints a new one; stop with ctrl-c
 it is also in …/projects/yoyodyne/state/dashboard/token while this dashboard runs, and `yoyo dashboard token` prints it
 mason approves, declines, and asks from the page with their own token, read from the keychain item yoyo-dashboard.yoyodyne.mason under the account yoyo and not printed
@@ -6773,7 +6773,7 @@ the value:
 ```text
 dashboard for yoyodyne serving at http://127.0.0.1:8765/
 the token was read from the keychain item yoyo-dashboard.yoyodyne under the account yoyo, as services.dashboard.token names, and is not printed
-the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/summary?since=today or ?since=week, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/accomplishment, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask
+the page asks for the token and keeps it in this browser's local storage for the dashboard's address, shared by its tabs and windows; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/summary?since=today or ?since=week, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/accomplishment, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask
 it outlives a restart: a restarted dashboard reads the same one; stop with ctrl-c
 ```
 
@@ -7832,10 +7832,13 @@ plane, and work is still directed from the conversation and the commands above.
   cookies on the host and not the port, so a cookie on `127.0.0.1` is sent to
   every other service on every other port of `127.0.0.1` the browser visits,
   and two dashboards for two products would overwrite each other's. So the page
-  keeps the token in the tab's session storage, which is scoped to the origin
+  keeps the token in the browser's local storage, which is scoped to the origin
   with its port, and sends it as `Authorization: Bearer` on each fetch; the
-  server accepts it from that header and from nowhere else. Session storage
-  ends with the tab, so a new tab asks again. A restarted dashboard under the
+  server accepts it from that header and from nowhere else. Local storage is
+  shared by every tab and window on that origin, so a token entered once is
+  used by a new tab, a new window, and the backlog and delivery pages without
+  asking, while a dashboard on another port asks for its own. A token the
+  dashboard refuses is removed from storage and the page asks for it again. A restarted dashboard under the
   `generated` source generates a new token, so a bookmark outlives the token
   and the page simply asks again; under `keychain` or `file` it reads the same
   one, and what the page asks for after a restart is the token it already had.

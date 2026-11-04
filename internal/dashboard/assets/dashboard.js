@@ -3,14 +3,18 @@
 // comes back. It is served from this origin
 // because the policy allows script from nowhere else.
 //
-// The token lives in sessionStorage and nowhere else. Session storage is scoped
-// to the origin — scheme, host, and port — so two dashboards on two ports of
-// 127.0.0.1 hold two tokens and neither sees the other's, and it is never sent
-// anywhere on its own: this script puts it in the Authorization header of each
-// fetch to this origin and nothing else reads it. A cookie would be the wrong
-// place, because a cookie on 127.0.0.1 is sent to every port of 127.0.0.1. The
-// storage is per tab and ends with the tab, so a new tab asks for the token
-// again.
+// The token lives in localStorage and nowhere else. Local storage is scoped to
+// the origin — scheme, host, and port — exactly as session storage is, so two
+// dashboards on two ports of 127.0.0.1 hold two tokens and neither sees the
+// other's, and it is never sent anywhere on its own: this script puts it in the
+// Authorization header of each fetch to this origin and nothing else reads it.
+// A cookie would be the wrong place, because a cookie on 127.0.0.1 is sent to
+// every port of 127.0.0.1. Unlike session storage it is shared by every tab and
+// window on the same origin and outlives them, so a token entered once is used
+// by a new tab, a new window, and the /backlog and /delivery pages without
+// asking. A token the dashboard refuses — a mistyped one, or one replaced since
+// it was entered — is removed from storage and asked for again, so a stale one
+// is never kept or retried.
 //
 // Nothing the read model says is written into the page as markup. Every value
 // goes in through textContent, so a work-item title that happens to contain a
@@ -2847,7 +2851,8 @@ var standingWarningAgeSeconds = 5 * 60;
   // send posts one act and says what came back: the verb's own account where
   // it was carried out, and the refusal's reason where it was not. A decision
   // carried out leaves the list here at once, and the standing is asked for
-  // again so the list catches up.
+  // again so the list catches up. A 401 is the token being refused, and sends
+  // the page back to asking for it, as every reading does.
   function send(path, body, decided) {
     var current = token();
     decideBusy = true;
@@ -2873,6 +2878,12 @@ var standingWarningAgeSeconds = 5 * 60;
       body: JSON.stringify(body)
     })
       .then(function (response) {
+        if (response.status === 401) {
+          decideBusy = false;
+          forget();
+          askForToken("that is not the token this dashboard printed when it started");
+          return;
+        }
         return response.json().then(function (answer) {
           if (!response.ok) {
             finish("Refused: " + ((answer && answer.error) || (response.status + " " + response.statusText)), true);
@@ -3092,7 +3103,7 @@ var standingWarningAgeSeconds = 5 * 60;
 
   function token() {
     try {
-      return window.sessionStorage.getItem(storageKey) || "";
+      return window.localStorage.getItem(storageKey) || "";
     } catch (error) {
       return "";
     }
@@ -3100,7 +3111,7 @@ var standingWarningAgeSeconds = 5 * 60;
 
   function remember(value) {
     try {
-      window.sessionStorage.setItem(storageKey, value);
+      window.localStorage.setItem(storageKey, value);
     } catch (error) {
       // Storage refused (a private window, say): the token is held for this
       // page load only, and the page asks again on the next one.
@@ -3109,7 +3120,7 @@ var standingWarningAgeSeconds = 5 * 60;
 
   function forget() {
     try {
-      window.sessionStorage.removeItem(storageKey);
+      window.localStorage.removeItem(storageKey);
     } catch (error) {
       // Nothing to forget where nothing could be kept.
     }

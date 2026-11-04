@@ -517,12 +517,16 @@ function settle() {
   return new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
 }
 
-async function run(scenario) {
+// run opens the page on one scenario. A storage given is the browser's local
+// storage for this dashboard's origin, kept between runs the way one browser
+// keeps it between its tabs and windows; without one, the page opens in a
+// browser that has never held anything for this origin.
+async function run(scenario, shared) {
   const shell = fs.readFileSync(path.join(assets, "shell.html"), "utf8").replace(/\{\{\.Product\}\}/g, "yoyodyne");
   const document = parse(shell);
   const script = fs.readFileSync(path.join(assets, "dashboard.js"), "utf8");
 
-  const storage = new Map();
+  const storage = shared || new Map();
   if (scenario.token) {
     storage.set("yoyo-dashboard-token", scenario.token);
   }
@@ -559,7 +563,7 @@ async function run(scenario) {
   };
 
   const window = {
-    sessionStorage: {
+    localStorage: {
       getItem: (key) => (storage.has(key) ? storage.get(key) : null),
       setItem: (key, value) => storage.set(key, String(value)),
       removeItem: (key) => storage.delete(key)
@@ -603,6 +607,13 @@ async function run(scenario) {
       if (clicked.some((element) => element.isConnected)) {
         throw new Error(`${scenario.name}: a poll left the clicked opener on the page`);
       }
+      continue;
+    }
+    // Signing in is the token typed into the sign-in field and the form sent.
+    if (step.signin) {
+      document.getElementById("token").value = step.signin;
+      document.getElementById("signin").dispatch("submit", { preventDefault() {} });
+      await settle();
       continue;
     }
     // Typing is a value set on the field named, as a reader's typing leaves it.
@@ -741,7 +752,40 @@ async function run(scenario) {
     .join("\n")
     .replace('href="/assets/dashboard.css"', 'href="../../assets/dashboard.css"')
     .replace('src="/assets/dashboard.js"', 'src="about:blank" data-note="the script ran once to produce this render; it is not loaded again here"');
-  return { matrix, html: "<!doctype html>\n" + html + "\n", standingWarningAgeSeconds: context.standingWarningAgeSeconds, requests };
+  return { matrix, html: "<!doctype html>\n" + html + "\n", standingWarningAgeSeconds: context.standingWarningAgeSeconds, requests, storage };
+}
+
+// The token is kept for the dashboard's origin, not for the tab: one entered
+// on the main page is used without asking by a page opened later in the same
+// browser, a browser holding nothing for another origin (another port) asks
+// for its own, and a token the dashboard refuses — on a reading or on an act —
+// is removed from storage and asked for again rather than tried again.
+async function checkTokenKeeping() {
+  const key = "yoyo-dashboard-token";
+  const quiet = Object.assign({}, pages.find((page) => page.name === "quiet"), { token: "" });
+
+  const browser = new Map();
+  const signedIn = await run(Object.assign({}, quiet, { open: [{ signin: "entered" }] }), browser);
+  assert.strictEqual(signedIn.matrix.page, "ready", "a token entered on the sign-in form does not open the page");
+  assert.strictEqual(browser.get(key), "entered", "a token entered is not kept in local storage under " + key);
+
+  const newTab = await run(quiet, browser);
+  assert.strictEqual(newTab.matrix.page, "ready", "a page opened after signing in asks for the token again");
+  assert(newTab.requests.length > 0 && newTab.requests.every((request) => request.authorization === "Bearer entered"), "a page opened after signing in does not read with the kept token");
+
+  const otherPort = await run(quiet, new Map());
+  assert.strictEqual(otherPort.matrix.page, "signin", "a dashboard whose origin holds no token does not ask for one");
+  assert.strictEqual(otherPort.requests.length, 0, "a dashboard whose origin holds no token asked the model for something");
+
+  const refusedReading = await run(pages.find((page) => page.name === "wrong-token"), new Map());
+  assert.strictEqual(refusedReading.matrix.page, "signin", "a refused token does not send the page back to asking for it");
+  assert(!refusedReading.storage.has(key), "a token refused on a reading is still kept");
+  const askedOnce = refusedReading.requests.filter((request) => request.url === "/api/standing").length;
+  assert.strictEqual(askedOnce, 1, "a refused token was tried again " + (askedOnce - 1) + " times");
+
+  const refusedAct = await run(over("decide-refused-token", "decisions", { acts: { "/api/session": ok(boundSession), "/api/acts/decide": refused(401, "this dashboard requires the token it printed when it started, as a bearer token") }, open: [{ decide: "list" }, { act: "approve" }] }), new Map());
+  assert.strictEqual(refusedAct.matrix.page, "signin", "a token refused on an act does not send the page back to asking for it");
+  assert(!refusedAct.storage.has(key), "a token refused on an act is still kept");
 }
 
 // Exercise the standing's warning boundary through the page itself, reading
@@ -777,6 +821,7 @@ async function main() {
     const rendered = await run(Object.assign({}, pages.find((page) => page.name === "busy"), { standing: ok(reading) }));
     assert(rendered.html.includes("codex · gpt-6.1-sol · effort " + description), "the run card must project its effort source");
   }
+  await checkTokenKeeping();
   const matrix = {};
   const runSteps = fixture("standing-run-steps");
   for (const scenario of scenarios) {
