@@ -387,6 +387,10 @@ func (r Reconciler) armRecoveredMerge(ctx context.Context, state runstate.State,
 	}
 	defer func() { _ = promotion.Release() }()
 
+	// From here every refusal is recorded with the method beside it, for the
+	// reason recordMergeMethod gives: a retry repeats a request whose method is
+	// on the record and refuses one whose is not.
+	published.MergeMethod = string(mergeMethod)
 	if err := r.Worktrees.VerifyRemoteTarget(ctx, integration); err != nil {
 		return r.recordRecoveredDrop(state, published, recovery, fmt.Errorf("check the remote target branch before merging: %w", err))
 	}
@@ -400,7 +404,6 @@ func (r Reconciler) armRecoveredMerge(ctx context.Context, state runstate.State,
 	}
 	recovery.Armed = true
 	recovery.Queued = result.Queued
-	published.MergeMethod = string(mergeMethod)
 	published.MergeQueued = true
 	queuedAt := r.clock().Now()
 	published.QueuedAt = &queuedAt
