@@ -996,7 +996,7 @@ func pullRequestBody(item beads.WorkItem, outcome Outcome, base string, automati
 	if automatic {
 		lines = append(lines, fmt.Sprintf("- The harness merges this request with the `%s` method once the configured checks pass and an independent reviewer approves it; `docs/designs/v1-harness-design.md` says what that involves.", mergeMethod))
 	} else {
-		lines = append(lines, "- The harness does not merge this request: this project leaves the merge to a person. A change is handed over only once the configured checks pass and an independent reviewer approves it.")
+		lines = append(lines, "- A person merges this request, not the harness: this project leaves the merge to a person. The harness opened it only once the configured checks passed and an independent reviewer approved it, so it is ready to merge now.")
 	}
 	return strings.Join(lines, "\n")
 }

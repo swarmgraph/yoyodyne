@@ -172,18 +172,22 @@ func TestAHumanApprovalRunThatNeverPassesReviewBlocksWithNothingPublished(t *tes
 }
 
 // TestAPullRequestLeftForAPersonSaysTheHarnessDoesNotMergeIt holds the body a
-// person merges from to what the harness does under their approval: it never
-// claims the harness will merge the request.
+// person merges from to what the harness does under their approval: it says a
+// person merges the request, already checked and approved, and never claims
+// the harness will. Under automatic integration the merge line is unchanged.
 func TestAPullRequestLeftForAPersonSaysTheHarnessDoesNotMergeIt(t *testing.T) {
 	t.Parallel()
 
 	outcome := Outcome{RunID: "run-1", WorkItemID: "yoyodyne-task", Branch: "run", BaseCommit: "1a2b3c4"}
 	item := beads.WorkItem{ID: "yoyodyne-task", Title: "Task"}
 	human := pullRequestBody(item, outcome, "main", false)
-	if strings.Contains(human, "The harness merges this request") || !strings.Contains(human, "does not merge this request") {
+	if strings.Contains(human, "The harness merges this request") ||
+		!strings.Contains(human, "- A person merges this request, not the harness") ||
+		!strings.Contains(human, "only once the configured checks passed and an independent reviewer approved it") {
 		t.Errorf("body under a person's approval says the wrong thing about who merges it:\n%s", human)
 	}
-	if automatic := pullRequestBody(item, outcome, "main", true); !strings.Contains(automatic, "The harness merges this request") {
-		t.Errorf("body under automatic integration no longer says the harness merges it:\n%s", automatic)
+	wantAutomatic := "- The harness merges this request with the `" + string(mergeMethod) + "` method once the configured checks pass and an independent reviewer approves it; `docs/designs/v1-harness-design.md` says what that involves."
+	if automatic := pullRequestBody(item, outcome, "main", true); !strings.HasSuffix(automatic, "\n"+wantAutomatic) || strings.Contains(automatic, "A person merges") {
+		t.Errorf("body under automatic integration changed its merge line:\n%s", automatic)
 	}
 }
