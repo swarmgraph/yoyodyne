@@ -331,7 +331,9 @@ run without asking you, whatever your approval settings say, and the document
 records that approval as the Lead Product Manager's, naming that item. A new
 goals document or brief, and a revision of either that adds or removes a goal,
 are not among those however they are marked: they always change what the goals
-admit, and the Lead Product Manager is told so. Anything
+admit, and the Lead Product Manager is told so. Nor is a revision of either
+that you had not approved as it stood, because her approval would make goals
+you never approved read as approved. Anything
 else is yours to approve: you are shown what would be written and asked; your `y` records the Lead Product Manager's revision and your
 approval in it and sends its exact content through the same isolated run,
 checks, and independent review a document confirmed under an automatic policy

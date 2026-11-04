@@ -40,6 +40,11 @@ func TestIntentRequiresConsistentOwnerRevisionBeforeAutomaticConfirmation(t *tes
 				if _, err := store.Create(domain.RoleProductManager, Draft{ID: id, Kind: kind, Title: "Product intent", Directory: productHome, Body: "# Goals\n\n- Keep the boundary.", Reason: "created by owner"}, moment()); err != nil {
 					t.Fatal(err)
 				}
+				// Approved as it stands, because a consistent revision of the goals or
+				// the brief is hers only where it was (TestAConsistentRevisionIsHersOnlyWhereTheGoalsStoodApproved).
+				if _, err := store.Approve(id, "approved by the operator in conversation", moment().Add(time.Minute)); err != nil {
+					t.Fatal(err)
+				}
 				candidate, automatic, err := store.PrepareConfirmation(domain.RoleProductManager, Write{Action: WriteRevise, ID: id, Body: "# Goals\n\n- Keep the same boundary.", Reason: "yoyodyne-ifd.500 - consistent wording", Intent: intent}, Policy{Brief: domain.ApprovalAutomatic, Goals: domain.ApprovalAutomatic}, "confirmed under policy", moment().Add(time.Hour))
 				if err != nil {
 					t.Fatal(err)

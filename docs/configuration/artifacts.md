@@ -594,8 +594,9 @@ asking you, records the harness and the policy as what confirmed it, and merges
 through a reviewed run with its own checks and an independent review. A
 document of the product's intent that the Lead Product Manager records as
 `intent: consistent` is approved by her the same way, save a new goals document
-or brief, or a revision of either that adds or removes a goal, which waits for
-you however it is marked. A new or revised document of any other kind, and a
+or brief, a revision of either that adds or removes a goal, and a revision of
+either that was not approved as it stood before it, which wait for you however
+they are marked. A new or revised document of any other kind, and a
 change of the product's intent, still waits for your confirmation, and once you give it lands through the same reviewed run; nothing
 is left in your checkout for you to commit — see [writing a document from a
 conversation](../artifacts.md#writing-a-document-from-a-conversation). A role that

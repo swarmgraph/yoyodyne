@@ -533,7 +533,8 @@ func rewordedSince(recorded artifact.Artifact) string {
 // against the approval, or is still the operator's to approve where nothing has
 // been approved, so the label does not read as ignored: what the record is
 // missing is what whoever recorded it has to supply, and a goals document or a
-// brief created under the label is the operator's whatever it says. consequence
+// brief created under the label, or revised under it when it was not approved as
+// it stood, is the operator's whatever it says. consequence
 // is what the label failed to prevent, said after the revision it labels.
 func undelegated(recorded artifact.Artifact, approvedRevision int, consequence string) string {
 	var missing []string
@@ -542,7 +543,7 @@ func undelegated(recorded artifact.Artifact, approvedRevision int, consequence s
 		if revision.Intent != artifact.IntentConsistent {
 			continue
 		}
-		if delegated, why := recorded.Rewording(revision); !delegated {
+		if delegated, why := recorded.DelegatedAt(index); !delegated {
 			missing = append(missing, fmt.Sprintf("revision %d is labelled consistent and %s, because %s", index, consequence, why))
 		}
 	}

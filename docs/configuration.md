@@ -1405,7 +1405,7 @@ directory included — is never confirmed by the harness, whatever those setting
 say: it is approved by the Lead Product Manager where she records the creation
 or revision as consistent with intent with its directing work item, and is yours
 to approve otherwise, as below — a new goals document or brief, and a revision
-of either that adds or removes a goal, among them however it is marked. [Writing a document from a conversation](artifacts.md#writing-a-document-from-a-conversation)
+of either that adds or removes a goal or was not approved as it stood before it, among them however it is marked. [Writing a document from a conversation](artifacts.md#writing-a-document-from-a-conversation)
 describes restart recovery and failures returned to the owner.
 
 `at` is when the approval was **recorded**, which is not always when it was given
