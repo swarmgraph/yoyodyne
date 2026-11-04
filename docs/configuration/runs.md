@@ -548,16 +548,62 @@ install:
     time_limit: 10m
 ```
 
-`run` is the command, run through `/bin/sh -c` in the root of the checkout.
-`inputs` are the files whose content decides what the step installs, and each
-must be tracked by Git. `outputs` are the folders it produces, and each must be
-ignored by Git, so nothing it installs can reach a commit. `time_limit` bounds
-one attempt and is 10 minutes where left out. The list is empty by default, and
-an empty list changes nothing. The configuration is refused when it is read,
-naming the path, if an input is not tracked, an output is not ignored or holds
-a tracked file, an output lies outside the repository, or two steps name the
-same output. `yoyo doctor` shows each step and says whether this machine can
-start its command.
+`install` is a list, empty by default, and an empty list changes nothing. Each
+entry takes these fields and no others:
+
+| Field | Required | What it is |
+| --- | --- | --- |
+| `name` | yes | what the step is called wherever it is shown, such as on the status line when it fails |
+| `run` | yes | the command, run through `/bin/sh -c` in the root of the checkout, as a check is |
+| `inputs` | yes, at least one | the files, relative to the repository root, whose content decides what the step installs; each must be tracked by Git |
+| `outputs` | yes, at least one | the folders, relative to the repository root, the step produces; each must be ignored by Git, so nothing it installs can reach a commit |
+| `time_limit` | no | how long one attempt may run, written like `10m` or `1h`; 10 minutes where left out |
+
+The configuration is refused when it is read, and the refusal names the step
+and the path it is about (or, for the last two below, the line of the file),
+if:
+
+- a step has no `name`, or two steps have the same one;
+- a step's `run` is empty;
+- a step names no `inputs`, or no `outputs`;
+- a path is empty, is absolute, or lies outside the repository root (`..`, or
+  `.` for the root itself);
+- an input is not tracked by Git; add it with `git add`, or name one that is;
+- an output is not ignored by Git; add it to `.gitignore`;
+- an output holds a file Git tracks; take it out of the index with
+  `git rm --cached`;
+- an output that already exists is a link to somewhere outside the repository;
+- two steps name the same output;
+- `time_limit` is negative;
+- the repository the configuration names cannot be read by Git, so none of the
+  checks above could be made; every step is refused rather than passed
+  unchecked;
+- `time_limit` is not a duration such as `10m`;
+- an entry carries a field the table above does not list.
+
+`yoyo doctor` shows each step and says whether this machine can start its
+command.
+
+A Python project that keeps its packages in a virtual environment declares the
+same thing with its own tools, and points its checks at the environment's
+Python:
+
+```yaml
+install:
+  - name: Python packages
+    run: python3 -m venv .venv && .venv/bin/pip install --cache-dir "$YOYODYNE_INSTALL_CACHE" -r requirements.txt
+    inputs: [requirements.txt]
+    outputs: [.venv]
+
+checks:
+  - .venv/bin/python -m pytest -q
+```
+
+Either example needs its output in the project's `.gitignore` (`node_modules/`,
+`.venv/`) before the configuration loads. The harness adds nothing to the
+command: whether npm runs the scripts a package carries when it is installed
+(`--ignore-scripts`), or pip uses a lock file with hashes, is the project's to
+say in `run`, because the harness knows no package manager.
 
 A step is run the way a check is: as the harness's own user, with the
 environment a check gets ([above](#the-environment-a-check-runs-in)), in a
@@ -627,7 +673,9 @@ files is held for the development manager rather than tried again.
 
 `install` is the operator's to write and never a role's, because a command that
 fetches from the network and runs what it fetched decides what reaches the
-machine.
+machine. A role may recommend a step; you write it once, when you set the
+project up, beside the checks `yoyo init` proposed, and a role's attempt to
+write it is refused with that reason.
 [Installing a project's dependencies before a developer run](../designs/project-dependencies-in-runs.md)
 is the design the rest follows.
 
