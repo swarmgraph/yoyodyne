@@ -20,6 +20,8 @@ package dashboard
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -51,7 +53,9 @@ func PersonTokenSecret(productID domain.ProductID, operator string) string {
 }
 
 // PersonTokenFile is where one person's file-sourced token lives, beside the
-// shared one under the product's state directory.
+// shared one under the product's state directory. Where it is not there, the
+// dashboard creates it as it reads who it accepts (internal/cli/dashboardaccess.go),
+// so nobody is asked to make it by hand.
 func PersonTokenFile(stateRoot string, productID domain.ProductID, operator string) string {
 	return filepath.Join(home.ProductDirectory(stateRoot, string(productID)), "dashboard."+operator+".token")
 }
@@ -66,6 +70,18 @@ const TokenFileName = "dashboard.token"
 // there.
 func TokenFile(stateRoot string, productID domain.ProductID) string {
 	return filepath.Join(home.ProductDirectory(stateRoot, string(productID)), TokenFileName)
+}
+
+// NewToken is a fresh token of the shape the server generates for itself and a
+// person's token is held to: tokenBytes of randomness written as hex, on one
+// line. It is what the harness writes into a person's token file where their
+// entry names `file` and there is none.
+func NewToken() (string, error) {
+	raw := make([]byte, tokenBytes)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate token: %w", err)
+	}
+	return hex.EncodeToString(raw), nil
 }
 
 // KeychainStoreCommand is the command that stores the keychain token. `-w`

@@ -350,7 +350,7 @@ func waitFor(t *testing.T, asked chan string) string {
 }
 
 // Each person who named a dashboard token of their own is bound from the store
-// named, and one whose token is not there is left unbound with the command
+// named, and one whose token cannot be read is left unbound with the command
 // that stores it; the token itself is never printed.
 func TestTheDashboardBindsEachPersonFromTheirOwnStore(t *testing.T) {
 	t.Parallel()
@@ -370,7 +370,7 @@ func TestTheDashboardBindsEachPersonFromTheirOwnStore(t *testing.T) {
 	}
 	cfg := config.Config{Product: config.Product{ID: "yoyodyne"}, Operators: map[string]config.Operator{
 		"mason":  {DashboardToken: config.DashboardTokenFile, Grants: []config.Grant{config.GrantOwnIntent}},
-		"jordan": {DashboardToken: config.DashboardTokenFile},
+		"jordan": {DashboardToken: config.DashboardTokenKeychain},
 	}}
 	lines := strings.Join(bindDashboardPeople(context.Background(), server, cfg, stores), "\n")
 	if !strings.Contains(lines, "mason approves, declines, and asks from the page with their own token, read from the file "+file) {

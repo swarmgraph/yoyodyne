@@ -83,7 +83,9 @@ nobody, since no act can arrive carrying an identifier that reaches them.
   it is checked in here with the rest.
 - `dashboard_token` — where their own dashboard token is kept, `keychain` (the
   item `yoyo-dashboard.<product id>.<name>` under the account `yoyo`) or `file`
-  (`<state root>/projects/<product id>/state/dashboard.<name>.token`). It names
+  (`<state root>/projects/<product id>/state/dashboard.<name>.token`, which the
+  dashboard creates with a fresh token, readable by the user the harness runs
+  as alone, where it is not there, and never replaces where it is). It names
   a store and never holds the token. A dashboard tab signed in with that token
   is this person, which is what lets [the page take their own approve and
   decline](../operations.md#deciding-from-the-page); the dashboard's shared token resolves to nobody. For now only the

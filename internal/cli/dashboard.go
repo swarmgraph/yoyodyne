@@ -797,7 +797,8 @@ document. Asking decides nothing. Only a person acts: the token printed or read
 above reads only, and the operator -- for now the one person holding own-intent
 -- binds a token of their own under operators.<name>.dashboard_token --
 `+"`keychain`"+`, the item yoyo-dashboard.<product id>.<name> under the account yoyo,
-or `+"`file`"+`, <state root>/projects/<product id>/state/dashboard.<name>.token --
+or `+"`file`"+`, <state root>/projects/<product id>/state/dashboard.<name>.token, which
+the dashboard creates with a fresh token where it is not there and never replaces --
 and acts only where they hold the grant: own-intent for a document or proposed work, and
 decide-amendments for a proposed change, with own-intent beside it for a change
 to a document the Lead Product Manager owns. Every other act is refused.

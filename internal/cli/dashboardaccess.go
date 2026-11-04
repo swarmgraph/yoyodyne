@@ -11,7 +11,9 @@ package cli
 // the dashboard reads all of it again and replaces what it accepts whole. An
 // operator bound in the configuration, or a token file created, is accepted
 // from the next re-read on; a token changed or taken out of its store, or a
-// person no longer bound, is refused from then on. Nothing it re-reads is a
+// person no longer bound, is refused from then on. A person whose entry names a
+// token file that is not there is given one by the dashboard as it reads them
+// (createPersonTokenFile), so a file taken out comes back holding a new token. Nothing it re-reads is a
 // restart, so the shared token a tab holds goes on working throughout.
 //
 // What cannot be applied is said where the running parts are watched: the
@@ -28,12 +30,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/dashboard"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // dashboardAccessEvery is how often a running dashboard re-reads who it
@@ -163,7 +167,18 @@ func dashboardPeople(ctx context.Context, server *dashboard.Server, cfg config.C
 	read := make([]dashboard.PersonBinding, 0, len(bindings))
 	origins := map[string]string{}
 	unread := map[string]error{}
+	var created []string
 	for _, binding := range bindings {
+		if binding.Source == config.DashboardTokenFile {
+			line, err := createPersonTokenFile(stores.StateRoot, cfg.Product.ID, binding.Operator)
+			if err != nil {
+				unread[binding.Operator] = err
+				continue
+			}
+			if line != "" {
+				created = append(created, line)
+			}
+		}
 		supplied, err := stores.ReadPerson(ctx, binding.Source, cfg.Product.ID, binding.Operator)
 		if err != nil {
 			unread[binding.Operator] = err
@@ -173,7 +188,8 @@ func dashboardPeople(ctx context.Context, server *dashboard.Server, cfg config.C
 		read = append(read, dashboard.PersonBinding{Token: supplied.Value, Person: dashboard.Person{Name: binding.Operator, Grants: binding.Grants}})
 	}
 	refused := server.BindPeople(read)
-	var lines, problems []string
+	lines := created
+	var problems []string
 	for _, binding := range bindings {
 		err := unread[binding.Operator]
 		if err == nil {
@@ -188,6 +204,30 @@ func dashboardPeople(ctx context.Context, server *dashboard.Server, cfg config.C
 		lines = append(lines, fmt.Sprintf("%s approves, declines, and asks from the page with their own token, read from %s and not printed", binding.Operator, origins[binding.Operator]))
 	}
 	return lines, problems
+}
+
+// createPersonTokenFile makes one person's token file where their entry names
+// `file` and there is none, so a token file is never something a person is
+// asked to make by hand: a fresh token, readable and writable by the user the
+// harness runs as alone. A file that is there is left byte for byte as it is,
+// whatever it holds, so this never replaces or rotates a token somebody is
+// using; one that holds nothing usable is still refused by the read that
+// follows, with its own reason. The line it returns says where a file it made
+// is, so the operator can paste the token from it into the page, and is empty
+// where it made none.
+func createPersonTokenFile(stateRoot string, productID domain.ProductID, operator string) (string, error) {
+	token, err := dashboard.NewToken()
+	if err != nil {
+		return "", fmt.Errorf("%w: their token file %s could not be created: %v", dashboard.ErrTokenUnavailable, dashboard.PersonTokenFile(stateRoot, productID, operator), err)
+	}
+	file, created, err := runstate.CreateProductSecret(stateRoot, productID, filepath.Base(dashboard.PersonTokenFile(stateRoot, productID, operator)), []byte(token+"\n"))
+	if err != nil {
+		return "", fmt.Errorf("%w: their token file %s was not there and could not be created: %v", dashboard.ErrTokenUnavailable, file, err)
+	}
+	if !created {
+		return "", nil
+	}
+	return fmt.Sprintf("%s's token file was not there, so the harness created it at %s, readable by this user alone; paste the token in it into the page to sign in as %s", operator, file, operator), nil
 }
 
 // bindDashboardPeople is dashboardPeople's lines alone.

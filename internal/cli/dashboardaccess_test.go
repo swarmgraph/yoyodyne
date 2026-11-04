@@ -183,38 +183,47 @@ func writePersonToken(t *testing.T, stateRoot, token string) string {
 	return file
 }
 
-// An operator bound in the configuration of a dashboard already running, and
-// whose token file is then created, is accepted as that person with nobody
-// restarting it; in between, the dashboard records that it could not read the
-// token, with the command that stores it.
-func TestARunningDashboardAcceptsAnOperatorBoundAndStoredAfterItStarted(t *testing.T) {
+// An operator bound in the configuration of a dashboard already running, whose
+// entry names a token file that is not there, is given one by the dashboard
+// itself, readable by this user alone, and the token in it is accepted as that
+// person with nobody restarting the dashboard or making the file by hand.
+// Nothing is recorded as unapplied, so nothing reaches the operator as a step
+// for him to take.
+func TestARunningDashboardCreatesTheTokenFileOfAnOperatorBoundAfterItStarted(t *testing.T) {
 	t.Parallel()
 	stateRoot := t.TempDir()
 	path := writeProjectConfig(t, accessConfig(false))
 	running := startRunningDashboard(t, path, stateRoot, false)
-	token := strings.Repeat("c3", 32)
-
-	if code, _ := running.session("127.0.0.1", token); code != http.StatusUnauthorized {
-		t.Fatalf("a token nobody bound: %d, want it refused", code)
+	file := dashboard.PersonTokenFile(stateRoot, "yoyodyne", "mason")
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("a token file before anybody was bound: %v", err)
 	}
+
 	if err := os.WriteFile(path, []byte(accessConfig(true)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, "the newly bound operator's missing token recorded", func() bool {
-		return strings.Contains(running.recordedProblems(), "mason cannot approve, decline, or ask from the page") &&
-			strings.Contains(running.recordedProblems(), "dashboard.mason.token")
+	var token string
+	eventually(t, "the newly bound operator's token file created", func() bool {
+		contents, err := os.ReadFile(file)
+		token = strings.TrimSpace(string(contents))
+		return err == nil && token != ""
 	})
-	if code, _ := running.session("127.0.0.1", token); code != http.StatusUnauthorized {
-		t.Fatalf("a token not yet stored: %d, want it refused", code)
+	info, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
 	}
-	writePersonToken(t, stateRoot, token)
-	eventually(t, "the operator's token accepted", func() bool {
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("the created token file's permissions = %o, want readable and writable by its owner alone", perm)
+	}
+	if len(token) != 64 {
+		t.Fatalf("the created token is %d characters, want sixty-four", len(token))
+	}
+	eventually(t, "the created token accepted", func() bool {
 		code, person := running.session("127.0.0.1", token)
 		return code == http.StatusOK && person == "mason"
 	})
-	eventually(t, "nothing left recorded as unapplied", func() bool { return running.recordedProblems() == "" })
-	if strings.Contains(running.recordedProblems(), token) {
-		t.Fatal("a token was recorded")
+	if problems := running.recordedProblems(); problems != "" {
+		t.Fatalf("recorded as unapplied: %q", problems)
 	}
 }
 
@@ -249,9 +258,19 @@ func TestARunningDashboardRefusesAnOperatorTokenChangedOrRemoved(t *testing.T) {
 		code, _ := running.session("127.0.0.1", replacement)
 		return code == http.StatusUnauthorized
 	})
-	eventually(t, "the removed token recorded", func() bool {
-		return strings.Contains(running.recordedProblems(), "is not there; store it with")
+	var recreated string
+	eventually(t, "the removed token file created again with a new token", func() bool {
+		contents, err := os.ReadFile(file)
+		recreated = strings.TrimSpace(string(contents))
+		return err == nil && recreated != "" && recreated != replacement
 	})
+	eventually(t, "the new token accepted", func() bool {
+		code, person := running.session("127.0.0.1", recreated)
+		return code == http.StatusOK && person == "mason"
+	})
+	if problems := running.recordedProblems(); problems != "" {
+		t.Fatalf("recorded as unapplied: %q", problems)
+	}
 
 	// Stored again, and then the person unbound in the configuration.
 	writePersonToken(t, stateRoot, replacement)
