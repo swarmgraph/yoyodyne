@@ -489,6 +489,7 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 		// movement is one no fast-forward reconciles, and the two say different
 		// things — that the publication is not going to happen by itself, and that
 		// this run is stopped on something a person has to settle.
+		a.recordMergeMethod(&published)
 		a.recordDroppedMerge(cause)
 		if errors.Is(verifyFailure, gitworktree.ErrRemoteTargetDrift) {
 			return a.settlePromotedDivergence(ctx, integration, cause)
@@ -496,6 +497,7 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 		return nil
 	}
 	if err != nil {
+		a.recordMergeMethod(&published)
 		a.recordDroppedMerge(err)
 		return nil
 	}
@@ -875,6 +877,19 @@ func describeArming(published runstate.PullRequest) string {
 		arming += " by the " + published.MergeMethod + " method"
 	}
 	return arming
+}
+
+// recordMergeMethod writes onto the run's request the method its merge was
+// asked, or was about to be asked, by, ahead of recording that merge as
+// dropped. A retry repeats the request the reviewer's verdict authorized and
+// refuses one whose record does not say how it was to be merged
+// (rearmablePublication), so a refusal that left the method off the record
+// would leave a re-run as the only way to land an approved change. The target
+// is already on the record, in the promotion.
+func (a *activeRun) recordMergeMethod(published *runstate.PullRequest) {
+	published.MergeMethod = string(mergeMethod)
+	a.state.PullRequest = published
+	a.outcome.PullRequest = published
 }
 
 // recordDroppedMerge records an outstanding publication whose merge is also over:

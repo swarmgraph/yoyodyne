@@ -3,10 +3,13 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
@@ -195,6 +198,70 @@ func TestARunRecordedAsMergedOverItsDroppedMergeIsRetriedFromTheRecordItHas(t *t
 		t.Fatalf("Rearm() error = %v, want the retry decided from the disagreement entry carried out", err)
 	}
 	assertRepeated(t, forge, result, state)
+}
+
+// A run whose own merge the forge refuses still records how that merge was to
+// be made, so the retry the development manager decides is carried out as the
+// identical request rather than refused for want of a method. This is pull
+// request #1081's case: the forge required its merge queue and refused every
+// direct merge, and the run's record kept no method (yoyodyne-doa).
+func TestARunWhoseFirstMergeIsRefusedIsRetriedFromItsOwnRecord(t *testing.T) {
+	t.Parallel()
+
+	fixture := newQueuedFixture(t)
+	protectBranch(t, fixture.remote, "main")
+	fixture.forge.SetTargetProtection(publish.BranchProtection{Protected: true, By: "branch protection"})
+	fixture.forge.SetMergeErr(publish.MergeRefused{
+		Number: 1, Method: publish.MergeCommit, Status: "BLOCKED",
+		Reason: "Changes must be made through the merge queue", QueueRequired: true,
+	})
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	pipeline := publishing(automatic(newSharedPipeline(t, fixture.repository, fixture.worktreeRoot, fixture.store, fixture.tracker, provider, []string{"exit 0"}), provider), fixture.forge)
+	// A landing through the pull request whose merge is refused is the change not
+	// landed, and the run stops on it.
+	outcome, err := pipeline.Run(context.Background(), fixture.tracker.Record().Item.ID)
+	if err == nil || !strings.Contains(err.Error(), "was not landed on main") {
+		t.Fatalf("Run() error = %v, want the run stopped on the refused merge", err)
+	}
+	if outcome.PullRequest == nil || outcome.PullRequest.MergeMethod != string(mergeMethod) {
+		t.Fatalf("outcome pull request = %+v, want the refused merge's method reported", outcome.PullRequest)
+	}
+	refused, err := fixture.store.Load(pipelineRunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !strings.Contains(refused.PublishFailure, "merge queue") || refused.StopClass != runstate.StopForgeQueueRequired {
+		t.Fatalf("publish failure = %q, stop class %q; want the forge's refusal recorded", refused.PublishFailure, refused.StopClass)
+	}
+	assertUnfinishedMergeOnFile(t, refused)
+
+	docket := &memoryDocket{}
+	if _, err := docketerOverStore(docket, fixture.store, rearmConfig()).Build(); err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	key := triage.PublicationKey(refused.RunID, refused.PullRequest.Number)
+	if !docketHolds(t, docket, key) {
+		t.Fatalf("docket = %v, want the refused merge listed as publication %s", docket.keys(), key)
+	}
+	rearmer, forge := rearmerOver(docket, fixture.store, refused, execution.RealClock{})
+	if _, err := fixture.store.Triage().RecordMergeRearm(context.Background(), refused.WorkItemID, key,
+		triageDecided(runstate.TriageDecisionRearm, refused.RunID), docketedNow, rearmCaps); err != nil {
+		t.Fatalf("RecordMergeRearm() error = %v", err)
+	}
+	result, err := rearmer.Rearm(context.Background(), RearmRequest{Run: refused.RunID, Reason: rearmReasoning})
+	if err != nil {
+		t.Fatalf("Rearm() error = %v, want the decided retry carried out", err)
+	}
+	assertRepeated(t, forge, result, refused)
+	retried, err := fixture.store.Load(pipelineRunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !retried.PullRequest.MergeQueued || retried.PullRequest.MergeRearms != 1 || retried.MergeDropped() {
+		t.Fatalf("publication = %+v, want the merge queued again and the retry counted", retried.PullRequest)
+	}
 }
 
 // assertUnfinishedMergeOnFile is the reading every route takes of a run whose

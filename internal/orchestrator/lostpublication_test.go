@@ -624,6 +624,11 @@ func TestAReconciledMergeTheForgeRefusesIsDocketedForTriage(t *testing.T) {
 	if recovered.PullRequest == nil || recovered.PullRequest.Number != outcome.PullRequest.Number || recovered.PullRequest.MergeQueued {
 		t.Fatalf("recovered pull request = %#v, want #%d recorded and not queued", recovered.PullRequest, outcome.PullRequest.Number)
 	}
+	// How the refused merge was to be made stays on the record, which is what a
+	// decided retry repeats.
+	if recovered.PullRequest.MergeMethod != string(mergeMethod) {
+		t.Fatalf("recovered merge method = %q, want %q kept beside the refusal", recovered.PullRequest.MergeMethod, mergeMethod)
+	}
 	if !strings.Contains(recovered.PublishFailure, "requires a review") || recovered.MergeDrop == nil {
 		t.Fatalf("publish failure = %q, merge drop = %#v; want the refusal recorded as a dropped merge", recovered.PublishFailure, recovered.MergeDrop)
 	}

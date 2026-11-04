@@ -1553,8 +1553,9 @@ type PullRequest struct {
 	HeadCommit string `json:"head_commit"`
 	State      string `json:"state,omitempty"`
 	Merged     bool   `json:"merged,omitempty"`
-	// MergeMethod is the method the forge was asked to merge by, recorded
-	// because it decides what the remote history looks like: only one of the
+	// MergeMethod is the method the forge was asked to merge by, recorded on a
+	// merge the forge refused as well as one it took, because a retry repeats
+	// the request this names. It also decides what the remote history looks like: only one of the
 	// methods puts the promoted commit itself on the remote target rather than a
 	// rewritten copy of it. MergeCommit is where that merge left the remote
 	// target branch, which is the forge's own merge commit and therefore a
