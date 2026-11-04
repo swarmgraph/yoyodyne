@@ -240,7 +240,7 @@ for.
 `closed-loop` `coined-term` `coined-terms` `compare-and-swap` `connect-src`
 `ctrl-c` `cut-off` `dead-claim` `default-src` `development-manager` `directive-id`
 `end-to-end` `exactly-once` `fan-out` `fast-forward` `fast-forwarding`
-`fast-forwards` `find-generic-password` `follow-on` `follow-up` `follow-ups`
+`fast-forwards` `find-generic-password` `follow-on` `follow-up` `follow-ups` `forge-check`
 `form-action` `frame-ancestors` `free-form` `front-loading` `general-purpose`
 `grep-resistant` `hand-edit` `hand-written` `heavy-checks` `high-judgment` `high-risk`
 `highest-priority` `html-comment` `img-src` `input-token` `intra-document`

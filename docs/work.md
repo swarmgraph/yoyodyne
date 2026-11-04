@@ -2582,8 +2582,9 @@ exactly as automatic integration does, opens the pull request once the reviewer
 approves, and stops: nothing is merged, the run branch survives on the remote, and
 the worktree is preserved for you — which is what a `human` integration policy
 means. The run gives up its developer slot once it has published, and its item
-says it is waiting for a person to merge the pull request until `yoyo
-reconcile` finds the request merged (the item closes, naming the merge commit)
+says it is waiting for a person to merge the pull request until a check of the
+forge (every `execution.forge_check_interval`, five minutes by default) finds
+the request merged (the item closes, naming the merge commit)
 or closed unmerged (the item goes back to the Lead Product Manager with the
 work kept). While it waits, a target that other people's work moved past the
 request is caught up with: the change is replayed onto it, checked and

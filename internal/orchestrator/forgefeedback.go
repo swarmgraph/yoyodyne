@@ -228,6 +228,17 @@ func (r Reconciler) takeUpFeedback(ctx context.Context, recorded runstate.State)
 	}
 	switch {
 	case len(repairs) == 0:
+		// The approvals are told on the item before the cursor moves past them,
+		// so a note that could not be written is written by the next check, which
+		// reads the same feedback again; a note an earlier check did write is not
+		// written twice.
+		for _, note := range notes {
+			if err := r.noteOnce(ctx, state.WorkItemID, note); err != nil {
+				result.Failure = fmt.Sprintf("record the approvals on pull request %d on %s: %v; the next check reads them again", published.Number, state.WorkItemID, err)
+				return result
+			}
+		}
+		notes = nil
 		if _, err := r.Store.Update(ctx, state.RunID, runstate.FeedbackRead{Number: published.Number, Read: fresh, At: now}); err != nil {
 			result.Failure = fmt.Errorf("record what was read of pull request %d on run %s: %w", published.Number, state.RunID, err).Error()
 			return result
@@ -253,13 +264,30 @@ func (r Reconciler) takeUpFeedback(ctx context.Context, recorded runstate.State)
 	default:
 		feedback := forgeFeedbackRound(published, repairs, now)
 		blocker := renderFeedbackBlockerNotes(state, feedback, limit)
+		// The approvals are told first, for the reason they are above.
+		for _, note := range notes {
+			if err := r.noteOnce(ctx, state.WorkItemID, note); err != nil {
+				result.Failure = fmt.Sprintf("record the approvals on pull request %d on %s: %v; the next check reads them again", published.Number, state.WorkItemID, err)
+				return result
+			}
+		}
+		notes = nil
 		// The item is blocked before the run is written down as stopped, as a
 		// stopping run blocks its item before its terminal write: a run recorded
 		// as stopped behind an item that still reads as waiting would be a
-		// stoppage nobody reading the item could see.
-		if _, err := r.Tracker.Block(ctx, state.WorkItemID, blocker); err != nil {
-			result.Failure = fmt.Errorf("block %s on the feedback its repair budget cannot answer: %w", state.WorkItemID, err).Error()
+		// stoppage nobody reading the item could see. An item an earlier check
+		// blocked with these words, whose run was not then written down as
+		// stopped, is not blocked a second time.
+		item, err := r.Tracker.Show(ctx, state.WorkItemID)
+		if err != nil {
+			result.Failure = fmt.Errorf("load work item %s before blocking it on the feedback its repair budget cannot answer: %w; the next check reads the feedback again", state.WorkItemID, err).Error()
 			return result
+		}
+		if item.Status != "blocked" || !notesCarry(item.Notes, blocker) {
+			if _, err := r.Tracker.Block(ctx, state.WorkItemID, blocker); err != nil {
+				result.Failure = fmt.Errorf("block %s on the feedback its repair budget cannot answer: %w; the next check reads the feedback again", state.WorkItemID, err).Error()
+				return result
+			}
 		}
 		stopped, err := r.Store.Update(ctx, state.RunID, runstate.FeedbackRepairRefused{Feedback: feedback, Read: fresh, Limit: limit, Blocker: blocker, At: now})
 		if err != nil {
@@ -283,6 +311,37 @@ func (r Reconciler) takeUpFeedback(ctx context.Context, recorded runstate.State)
 		}
 	}
 	return result
+}
+
+// noteOnce writes a note on an item unless the item already carries it, which
+// is what makes a note a check writes safe to write again: a note an earlier
+// check wrote, in a write that timed out after it had gone through, is not
+// written a second time.
+func (r Reconciler) noteOnce(ctx context.Context, workItemID, note string) error {
+	item, err := r.Tracker.Show(ctx, workItemID)
+	if err != nil {
+		return fmt.Errorf("load work item %s: %w", workItemID, err)
+	}
+	if notesCarry(item.Notes, note) {
+		return nil
+	}
+	_, err = r.Tracker.RecordOutcome(ctx, workItemID, note)
+	return err
+}
+
+// notesCarry reports whether an item's notes already hold a note, wherever it
+// is among them, ignoring the trailing spaces the tracker may add or drop.
+func notesCarry(notes, note string) bool {
+	wanted := trimNoteLines(note)
+	return wanted != "" && strings.Contains(trimNoteLines(notes), wanted)
+}
+
+func trimNoteLines(text string) string {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	for index, line := range lines {
+		lines[index] = strings.TrimRight(line, " \t")
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 // newFeedback is the feedback on a reading that a check has not acted on: what

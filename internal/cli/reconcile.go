@@ -40,10 +40,6 @@ type reconcileOutput struct {
 	// rather than folded into it because the two are different acts — one writes
 	// what the forge says, the other finishes what the record says is unfinished.
 	Settlements []orchestrator.PublicationSettlement `json:"settlements"`
-	// PersonMerges is what this sweep found of the pull requests waiting for a
-	// person to merge them: still open, merged and its item closed, or closed
-	// without merging and its item given back to the Lead Product Manager.
-	PersonMerges []orchestrator.PersonMergeSettlement `json:"person_merges"`
 	// RedTargets is what this sweep did about the publications waiting on their
 	// target's red check: still waiting on an open item, brought up to date
 	// where the fix left the head behind, filed again where the check is still
@@ -117,13 +113,9 @@ type reconcileOutput struct {
 	// the replay, the re-review, and the merge queued again, with what it came
 	// to. Like the continuations it is written once those runs have finished.
 	Updates []orchestrator.UpdateContinuation `json:"updates"`
-	// Feedback is what this sweep read of the reviews and comments on the pull
-	// requests waiting for a person to merge them, and what it did about it: a
-	// repair round started on the same run, a run stopped on a spent repair
-	// budget, comments put on the development manager's list, and approvals
-	// recorded as information. FeedbackRepairs is each repair round it started,
-	// hosted by this process, with what it came to.
-	Feedback        []orchestrator.FeedbackSettlement   `json:"feedback"`
+	// FeedbackRepairs is each repair round the forge check started to answer
+	// feedback on a pull request and left nothing hosting, hosted by this
+	// process, with what it came to.
 	FeedbackRepairs []orchestrator.FeedbackContinuation `json:"feedback_repairs"`
 	// Forge is what this sweep asked the forge about its publications and how
 	// long the forge took: only the unsettled ones are asked, in batches, and a
@@ -143,7 +135,6 @@ type reconcileSweep struct {
 	Recoveries     []orchestrator.PublicationRecovery
 	Publications   []orchestrator.PublicationRefresh
 	Settlements    []orchestrator.PublicationSettlement
-	PersonMerges   []orchestrator.PersonMergeSettlement
 	RedTargets     []orchestrator.RedTargetResumption
 	// MergeDisagreements is what the sweep read of the target branch for the
 	// runs recorded as merged whose item is still open.
@@ -172,9 +163,8 @@ type reconcileSweep struct {
 	Messages      messageCatchUp
 	Continuations []orchestrator.WaitContinuation
 	Updates       []orchestrator.UpdateContinuation
-	// Feedback is what the sweep did about what was said on the pull requests
-	// waiting for a person, and FeedbackRepairs the repair rounds it hosted.
-	Feedback        []orchestrator.FeedbackSettlement
+	// FeedbackRepairs are the repair rounds the forge check started that the
+	// sweep hosted.
 	FeedbackRepairs []orchestrator.FeedbackContinuation
 	// Forge is what the sweep asked the forge about its publications, and how
 	// long the forge took.
@@ -281,12 +271,11 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// would hold an item whose publication is about to stop being outstanding.
 	settlements, settlementErr := reconciler.FinishPublications(ctx)
 	err = errors.Join(err, settlementErr)
-	// The pull requests waiting for a person to merge them are read next, before
-	// the docket is built: one merged closes its item, so work waiting on it goes
-	// on, and one closed unmerged gives its item back to the Lead Product Manager
-	// (personmerge.go).
-	personMerges, personMergeErr := reconciler.SettlePersonMerges(ctx)
-	err = errors.Join(err, personMergeErr)
+	// The pull requests waiting for a person to merge them, and what people said
+	// on them, are read by the forge check on its own schedule rather than here
+	// (forgecheck.go): how long this sweep took would otherwise decide how late a
+	// person's merge was noticed. This sweep still hosts a run the check put back
+	// and left nothing hosting, below.
 	// The publications waiting on their target's red check are taken up next,
 	// before the docket is built and before the runs this sweep makes live are
 	// hosted: one whose items have closed and whose head the fix left behind is
@@ -299,13 +288,6 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// one whose change is not there is listed by this sweep rather than the next.
 	disagreements, disagreementErr := reconciler.FindMergeDisagreements(ctx)
 	err = errors.Join(err, disagreementErr)
-	// What people said on the pull requests waiting for a person to merge them is
-	// read next, after every step that settles a merge, so a request merged or
-	// closed is not read, and before the docket is built, so a run this stops on
-	// a spent repair budget is docketed by this sweep (forgefeedback.go). The
-	// repair rounds it starts are hosted with the other continuations below.
-	feedback, feedbackErr := reconciler.TakeUpFeedback(ctx)
-	err = errors.Join(err, feedbackErr)
 	// Convergence is swept even when settling a run failed. The two are
 	// independent — one finishes runs, the other finishes branches — and a
 	// checkout left behind the forge because some unrelated run could not be
@@ -370,7 +352,6 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 		Recoveries:         recoveries,
 		Publications:       publications,
 		Settlements:        settlements,
-		PersonMerges:       personMerges,
 		RedTargets:         redTargets,
 		MergeDisagreements: disagreements,
 		Convergence:        convergence,
@@ -386,7 +367,6 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 		StallProblem:       stallProblem,
 		Forge:              reconciler.Forge,
 		Tracker:            trackerCalls,
-		Feedback:           feedback,
 	}
 	// The runs that exited on their in-process usage-limit bound and whose
 	// deadline has since passed are continued last, after everything the sweep
@@ -744,7 +724,6 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			Recoveries:         sweep.Recoveries,
 			Publications:       publications,
 			Settlements:        sweep.Settlements,
-			PersonMerges:       sweep.PersonMerges,
 			RedTargets:         sweep.RedTargets,
 			MergeDisagreements: sweep.MergeDisagreements,
 			Convergence:        convergence,
@@ -760,7 +739,6 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			StallProblem:       sweep.StallProblem,
 			Continuations:      sweep.Continuations,
 			Updates:            sweep.Updates,
-			Feedback:           sweep.Feedback,
 			FeedbackRepairs:    sweep.FeedbackRepairs,
 			Forge:              sweep.Forge,
 		}
@@ -779,9 +757,6 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		if output.Updates == nil {
 			output.Updates = []orchestrator.UpdateContinuation{}
 		}
-		if output.Feedback == nil {
-			output.Feedback = []orchestrator.FeedbackSettlement{}
-		}
 		if output.FeedbackRepairs == nil {
 			output.FeedbackRepairs = []orchestrator.FeedbackContinuation{}
 		}
@@ -799,9 +774,6 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		}
 		if output.Settlements == nil {
 			output.Settlements = []orchestrator.PublicationSettlement{}
-		}
-		if output.PersonMerges == nil {
-			output.PersonMerges = []orchestrator.PersonMergeSettlement{}
 		}
 		if output.RedTargets == nil {
 			output.RedTargets = []orchestrator.RedTargetResumption{}
@@ -952,7 +924,6 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		printRecoveries(stdout, stderr, sweep.Recoveries)
 		printPublications(stdout, stderr, publications)
 		printSettlements(stdout, stderr, sweep.Settlements)
-		printPersonMerges(stdout, stderr, sweep.PersonMerges)
 		printRedTargets(stdout, stderr, sweep.RedTargets)
 		printConvergence(stdout, stderr, convergence)
 		printSupervision(stdout, sweep.Supervision)
@@ -963,7 +934,6 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		if sweep.Messages.Problem != "" {
 			fmt.Fprintln(stderr, "the operator's earlier messages were not read back: "+sweep.Messages.Problem)
 		}
-		printFeedback(stdout, stderr, sweep.Feedback)
 		printContinuations(stdout, stderr, sweep.Continuations)
 		// Said last, so the maintenance pass, which records the end of what this
 		// prints, carries how long the tracker and the forge took on every pass.
@@ -1352,6 +1322,11 @@ back for a fresh run is never asked about again, and the rest are asked in
 batches, one forge query for up to 50 branches; the sweep's last line says how
 many it asked about and how long the forge took. Nothing is merged for you: the
 record is brought onto the truth, so what reads it afterwards reads truth too.
+
+The pull requests waiting for a person to merge them, and the reviews and
+comments on them, are not read here: `+"`yoyo forge-check`"+` reads them on a
+schedule of its own. A repair round or an update that check started and left
+nothing hosting is hosted by this sweep with the other continuations.
 
 It then closes the pull requests whose work landed by another vehicle: a run
 that ended without integrating, whose item a later run of this harness did

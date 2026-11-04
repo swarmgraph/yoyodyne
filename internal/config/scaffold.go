@@ -339,6 +339,12 @@ execution:
   # reorder while it is running. An idle watch costs one local tracker read per
   # interval and asks no provider anything.
   work_poll: %s
+  # How often the supervisor checks the forge, on a schedule of its own apart
+  # from the maintenance pass: the pull requests waiting for a person to merge
+  # them, the reviews and comments on them, and how far the target branch has
+  # moved past each. Reads the forge can answer conditionally are asked that
+  # way, so an unchanged answer costs little. At least a minute.
+  forge_check_interval: %s
   # A watching session that finds a build deployed over it waits out the runs it
   # hosts before restarting into the new build -- for at most this long. Past it
   # the session restarts anyway and the hosted runs are stopped and preserved
@@ -514,6 +520,7 @@ approvals:
 		renderScaffoldDuration(effective.Execution.CheckStageTimeout),
 		renderScaffoldDuration(effective.Execution.LandingCheckTimeout),
 		renderScaffoldDuration(effective.Execution.WorkPoll),
+		renderScaffoldDuration(effective.Execution.ForgeCheckInterval),
 		renderScaffoldDuration(effective.Execution.RedeployDrainLimit),
 		renderScaffoldDuration(effective.Execution.FactoryStallAfter),
 		effective.Execution.CouldNotRunBeforeStatus,

@@ -204,6 +204,35 @@ func (g GitHub) Checks(ctx context.Context, number int, base string) (CheckReadi
 	return reading, nil
 }
 
+// Behind reads how many commits the base branch carries past a pull request's
+// head: the comparison Checks ends on, without the head, the files, and the
+// check runs it reads first. It is what the forge check asks of every request
+// waiting for a person to merge it, and with a ResponseCache it is asked
+// conditionally, so a target and a head that have both stayed where they were
+// cost an answer of 304.
+func (g GitHub) Behind(ctx context.Context, head, base string) (int, error) {
+	if !commitPattern.MatchString(head) {
+		return 0, fmt.Errorf("head commit %q is invalid", head)
+	}
+	if err := validateArgument("base branch", base); err != nil {
+		return 0, err
+	}
+	answer, err := g.conditionalRead(ctx, "repos/{owner}/{repo}/compare/"+head+"..."+base, "{ahead_by: .ahead_by}")
+	if err != nil {
+		return 0, fmt.Errorf("compare %s with %s: %w", head, base, err)
+	}
+	var distance struct {
+		AheadBy *int `json:"ahead_by"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(answer.Body)), &distance); err != nil {
+		return 0, fmt.Errorf("decode the comparison of %s with %s: %w", head, base, err)
+	}
+	if distance.AheadBy == nil || *distance.AheadBy < 0 {
+		return 0, fmt.Errorf("the comparison of %s with %s did not say how far %s has moved on", head, base, base)
+	}
+	return *distance.AheadBy, nil
+}
+
 // checkRuns reads every check run on one commit and how each ended: the failing
 // ones with the files and annotations the forge filed on them, the names of
 // those not finished, and how many passed.

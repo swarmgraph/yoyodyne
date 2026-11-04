@@ -285,6 +285,15 @@ const DefaultDocumentLandings = 2
 // is.
 func DefaultRedeployDrainLimit() time.Duration { return defaultRedeployDrainLimit.Duration() }
 
+// ForgeCheckEvery is execution.forge_check_interval, with zero — a
+// configuration assembled without the resolver's defaults — read as the default.
+func (e Execution) ForgeCheckEvery() time.Duration {
+	if e.ForgeCheckInterval <= 0 {
+		return DefaultForgeCheckInterval.Duration()
+	}
+	return e.ForgeCheckInterval.Duration()
+}
+
 // DocumentLandingLimit is execution.document_landings, with zero — a
 // configuration assembled without the resolver's defaults — read as the default.
 func (e Execution) DocumentLandingLimit() int {
@@ -420,6 +429,16 @@ type Execution struct {
 	// work admitted, reprioritized, or unblocked is picked up at the next poll
 	// rather than by anything detecting it.
 	WorkPoll Duration `yaml:"work_poll" json:"work_poll"`
+	// ForgeCheckInterval is how often the supervisor checks the forge: the pull
+	// requests waiting for a person to merge them, the reviews and comments on
+	// them, and how far the target branch has moved past each (`yoyo
+	// forge-check`). It is a schedule of its own rather than a step of the
+	// maintenance pass, so how long maintenance takes never decides how late a
+	// person's merge is noticed. Each check asks conditionally whatever the forge
+	// can answer that way, so an unchanged answer costs little; much shorter than
+	// a minute is load on the forge for news nobody is waiting on. Zero, which a
+	// configuration built in code rather than loaded carries, is the default.
+	ForgeCheckInterval Duration `yaml:"forge_check_interval" json:"forge_check_interval"`
 	// RedeployDrainLimit bounds how long a watch session that has found a build
 	// deployed over it waits out the runs it hosts before it restarts anyway.
 	// Past it the hosted runs are stopped and preserved — worktree, branch,
@@ -645,6 +664,13 @@ const (
 	// responsive. Shorter buys latency nobody is waiting on; much longer makes
 	// reordering the queue feel like it did nothing.
 	defaultWorkPoll = Duration(60 * time.Second)
+	// DefaultForgeCheckInterval is five minutes: a person's merge, review, or
+	// comment is acted on within a few minutes, which is fast enough for work
+	// measured in runs, at a handful of conditional requests per waiting pull
+	// request each time.
+	DefaultForgeCheckInterval = Duration(5 * time.Minute)
+	// MinForgeCheckInterval is the shortest a project may set.
+	MinForgeCheckInterval = Duration(time.Minute)
 	// defaultRedeployDrainLimit is measured in minutes, deliberately. On
 	// 2026-09-19 a session found a build deployed over it at 07:35Z and then did
 	// nothing for two hours, waiting out one hosted run whose race suite alone
@@ -1279,6 +1305,9 @@ func (c Config) Validate() error {
 	// for as long as the queue stayed empty, which is a spin rather than a watch.
 	if c.Execution.WorkPoll <= 0 {
 		problems = append(problems, "execution.work_poll must be positive")
+	}
+	if c.Execution.ForgeCheckInterval != 0 && c.Execution.ForgeCheckInterval < MinForgeCheckInterval {
+		problems = append(problems, fmt.Sprintf("execution.forge_check_interval must be at least %s", time.Duration(MinForgeCheckInterval)))
 	}
 	// Zero is not a choice here: a drain with no bound is a session that waits
 	// on whatever its hosted run happens to be doing, which on 2026-09-19 was two

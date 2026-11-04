@@ -455,7 +455,7 @@ func (a *activeRun) exhausted(boundary string, cause error) error {
 func (r Reconciler) recovering(ctx context.Context, state *runstate.State, boundary string, attempt func(context.Context) error) error {
 	for {
 		err := attempt(ctx)
-		if err == nil || !recovery.Recoverable(err) {
+		if err == nil || !recovery.Recoverable(err) || r.RetryAtNextCheck {
 			return err
 		}
 		waited := state.RetryAttempts(boundary)

@@ -218,8 +218,10 @@ remote, and a preserved worktree; the harness never merges the request.
 Once it has published, the run ends and gives up its developer slot, so other
 ready work can start. Its item stays claimed, and the item's notes, `yoyo
 status` and the dashboard all say it is waiting for a person to merge pull
-request #N. Each `yoyo reconcile` (which every maintenance pass runs) then asks
-the forge about every request waiting this way:
+request #N. Each check of the forge, which the supervisor makes on a schedule of
+its own every `execution.forge_check_interval` (five minutes by default), apart
+from the maintenance pass, then asks the forge about every request waiting this
+way (`yoyo forge-check` makes one check by hand):
 
 - **Merged:** the local target branch is brought onto the merge by
   fast-forward, the item is closed with the merge commit named, so work
@@ -231,10 +233,10 @@ the forge about every request waiting this way:
   parked with a note naming who closed the request and when, so nothing starts
   it again before she decides whether to drop the work, revise it, or admit it
   again. The branch and the worktree are kept, and nothing is deleted.
-- **Still open:** nothing changes, and the next sweep asks again, unless the
+- **Still open:** nothing changes, and the next check asks again, unless the
   target branch has moved past the request because other people's work
   landed first. Then the harness brings the request up to date, at most once
-  per sweep: it first withdraws any merge the forge was set to make of it and
+  per check: it first withdraws any merge the forge was set to make of it and
   checks that it is withdrawn, then replays the change onto the new target,
   runs the configured checks and the independent review again on the
   replayed change, and pushes it to the same request, which waits for you
@@ -250,6 +252,32 @@ the forge about every request waiting this way:
   to date at all, because the run's branch, worktree, approval or developer
   session is gone, it says so once on the item, and the request is shown as
   the development manager's to decide rather than only yours to merge.
+
+How often the forge is checked is `execution.forge_check_interval`, five
+minutes by default and at least a minute; setting it is the development
+manager's decision. The check runs on its own schedule, not inside the
+maintenance pass, so a slow or failing maintenance step never delays it, and it
+runs only for a project whose `approvals.publishing` is `automatic`. Each check
+reads the pull requests waiting for a person to merge them, the reviews and
+comments on them, and how far the target branch has moved past each. The reads
+GitHub can answer conditionally are asked that way, carrying the answer kept
+from the last check (in the product's state directory, as
+`forge-responses.json`), so an answer that has not changed costs a "not
+modified" reply rather than the whole answer again. The batched query for each
+request's state is GitHub's GraphQL API, which has no conditional requests, so
+it is asked in full: one query for up to 50 requests.
+
+```yaml
+execution:
+  forge_check_interval: 5m   # the default
+```
+
+A check that cannot reach the forge changes nothing, and the next check tries
+again. A change a check read but could not finish acting on, such as closing an
+item whose pull request merged while the tracker write timed out, is read and
+acted on again by the next check; a write repeated after it had in fact gone
+through leaves the item as it was, with no second note. Neither stops a run or
+holds back other work.
 
 That is deliberate rather than a gap. Merging is a promotion, promotion is what
 `approvals.integration` governs, and a harness that merged under a `human`
@@ -345,9 +373,8 @@ the next section says how.
 ### Reviews and comments on a pull request waiting for you
 
 While a pull request waits for a person to merge it, under
-`approvals.integration: human`, each `yoyo reconcile` (which every maintenance
-pass runs) reads the reviews and comments left on it since the harness last
-pushed its head. What the forge account the harness publishes under wrote is
+`approvals.integration: human`, each check of the forge reads the reviews and
+comments left on it since the harness last pushed its head. What the forge account the harness publishes under wrote is
 left out, and nothing is acted on twice.
 
 - **A review that requests changes, or a comment on a line of the change,**
@@ -358,7 +385,7 @@ left out, and nothing is acted on twice.
   path. The repaired change goes through the configured checks and the
   independent reviewer again, and only an approved change is pushed to the
   same pull request. A round needs a free developer slot; without one the
-  feedback waits for the next sweep. Where the repair budget is already spent,
+  feedback waits for the next check. Where the repair budget is already spent,
   the run stops in the ordinary way with the feedback kept, and the development
   manager decides what happens next.
 - **An ordinary comment on the pull request** goes on the development
