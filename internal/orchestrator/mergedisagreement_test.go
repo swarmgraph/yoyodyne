@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -629,5 +630,42 @@ func TestASweepReadsClosedWorkThroughTheSharedReading(t *testing.T) {
 	}
 	if tracker.lists != 1 {
 		t.Fatalf("closed work listed %d times, want once for the sweep and the step after it", tracker.lists)
+	}
+}
+
+// unansweredListingTracker is a tracker whose listing of closed work got no
+// answer in time on every attempt, which is how the tracker client reports a
+// store that other processes kept busy.
+type unansweredListingTracker struct {
+	*orchestratortest.Tracker
+	lists int
+}
+
+func (l *unansweredListingTracker) List(context.Context, string) ([]beads.WorkItem, error) {
+	l.lists++
+	return nil, fmt.Errorf("bd list did not answer within its 2m0s bound on any of 3 attempts over 6m10s: %w", beads.ErrUnanswered)
+}
+
+// A listing of closed work the tracker did not answer has already spent every
+// attempt it makes, up to six minutes of a sweep bounded at fifteen, so the
+// step after it is answered with the same failure rather than asking again.
+func TestASharedReadingTheTrackerDidNotAnswerIsNotAskedAgain(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDisagreementFixture(t)
+	fixture.forgetMerge(t)
+	tracker := &unansweredListingTracker{Tracker: fixture.run.tracker}
+	shared := &ClosedListing{Tracker: tracker}
+	fixture.reconciler.ClosedListing = shared
+	_, err := fixture.reconciler.FindMergeDisagreements(context.Background())
+	if unread := UnreadClosedItems(err); len(unread) != 1 {
+		t.Fatalf("FindMergeDisagreements() error = %v, want the closed work unread", err)
+	}
+	_, err = shared.List(context.Background(), "closed")
+	if !beads.Unanswered(err) || !strings.Contains(err.Error(), "not asked again in this sweep") {
+		t.Fatalf("List() after an unanswered reading error = %v, want the same failure, said as not asked again", err)
+	}
+	if tracker.lists != 1 {
+		t.Fatalf("closed work listed %d times, want once: the tracker did not answer the first", tracker.lists)
 	}
 }

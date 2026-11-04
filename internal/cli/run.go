@@ -196,6 +196,10 @@ type components struct {
 	// trackerSlowCalls is where every tracker call stopped at its limit is kept,
 	// with how long it ran, the store's size, and what held the store.
 	trackerSlowCalls *runstate.TrackerSlowCallStore
+	// trackerCalls is told of every tracker call the command makes, and nil
+	// for a command that does not account for them; `yoyo reconcile` does
+	// (beads.CallTally).
+	trackerCalls beads.CallObserver
 	// interventions is the product's record of the operator's hand steps: what a
 	// verb that carries one out writes, and what a conversation's operator
 	// commands write (see intervention.go).
@@ -581,7 +585,7 @@ func primaryCheckout(repository, worktreeRoot string) (string, error) {
 // reads to say the tracker is not answering listings and since when, and every
 // call stopped at its limit is kept in the product's record of slow calls.
 func (c components) tracker() beads.Client {
-	return withTrackerRecords(beads.Client{Runner: c.runner, Dir: c.repository}, c.trackerListings, c.trackerSlowCalls)
+	return withTrackerRecords(beads.Client{Runner: c.runner, Dir: c.repository, Calls: c.trackerCalls}, c.trackerListings, c.trackerSlowCalls)
 }
 
 // withTrackerRecords has a client write how its listings end, and each call

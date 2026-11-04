@@ -523,6 +523,9 @@ type Client struct {
 	// nothing beyond the call's own failure. A record that cannot be written is
 	// said in that failure and changes nothing else about it.
 	SlowCalls SlowCallRecorder
+	// Calls is told of every bd invocation once it has ended, with how long it
+	// ran (calltally.go). Nil tells nothing.
+	Calls CallObserver
 	// WriterZone is the zone the tracker's writers ran bd in, which a listing
 	// reads a provably early dependency stamp in (dependencyCreatedAt). Nil is
 	// this machine's own zone, which is right for a tracker only this machine
@@ -2037,6 +2040,10 @@ func (c Client) runWithin(ctx context.Context, limit time.Duration, args ...stri
 	started := time.Now()
 	deadline, deadlined := ctx.Deadline()
 	result, err := runner.Run(ctx, command, nil)
+	if c.Calls != nil {
+		c.Calls.ObserveCall(TrackerCall{Call: observedCall(args), Took: time.Since(started), Limit: limit,
+			StoppedAtLimit: err == nil && result.Status == execution.ProcessTimedOut})
+	}
 	if err != nil {
 		return nil, fmt.Errorf("run bd %s: %w", args[0], err)
 	}
