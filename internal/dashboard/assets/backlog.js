@@ -1,9 +1,10 @@
 // The backlog page's script: hold the token, read /api/backlog with it, and
 // draw what backlog-count.js counts from it as a chart and as a table.
 //
-// The token is the main page's: the same session storage key on the same
-// origin, so a tab signed in on the main page opens this one signed in. The
-// same rules hold as there (dashboard.js): the token goes in the Authorization
+// The token is the main page's: the same local storage key on the same
+// origin, so a browser signed in on the main page in any tab or window opens
+// this one signed in, and a token refused here is cleared for every page of
+// this dashboard. The same rules hold as there (dashboard.js): the token goes in the Authorization
 // header of a request to this origin and nowhere else, every value goes into
 // the page through textContent, and nothing here sets a style.
 //
@@ -98,7 +99,7 @@
 
   function token() {
     try {
-      return window.sessionStorage.getItem(storageKey) || "";
+      return window.localStorage.getItem(storageKey) || "";
     } catch (error) {
       return "";
     }
@@ -106,7 +107,7 @@
 
   function remember(value) {
     try {
-      window.sessionStorage.setItem(storageKey, value);
+      window.localStorage.setItem(storageKey, value);
     } catch (error) {
       // Storage refused: the token is held for this page load only.
     }
@@ -114,7 +115,7 @@
 
   function forget() {
     try {
-      window.sessionStorage.removeItem(storageKey);
+      window.localStorage.removeItem(storageKey);
     } catch (error) {
       // Nothing to forget where nothing could be kept.
     }

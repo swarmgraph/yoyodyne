@@ -27,8 +27,8 @@ package cli
 // restart and nobody pastes a fresh one. The token is never put in the URL,
 // where it would reach a browser history and every log a proxy keeps, and
 // never in a cookie, which on 127.0.0.1 is sent to every port of 127.0.0.1;
-// the page asks for it and keeps it in the tab's session storage, scoped to
-// this port.
+// the page asks for it and keeps it in the browser's local storage, scoped to
+// this port and shared by the browser's tabs and windows.
 
 import (
 	"context"
@@ -386,7 +386,7 @@ func dashboardTokenStores(stateRoot string) dashboard.TokenStores {
 
 // dashboardHeaderLine is said whichever way the token came, because it is
 // about how the token is presented rather than where it came from.
-const dashboardHeaderLine = "the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/summary?since=today or ?since=week, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/accomplishment, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask"
+const dashboardHeaderLine = "the page asks for the token and keeps it in this browser's local storage for the dashboard's address, shared by its tabs and windows; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/summary?since=today or ?since=week, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/accomplishment, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask"
 
 // dashboardServer makes the server under the token the entry names, and says
 // what the command prints about it. Under `generated` the server makes its own
@@ -760,8 +760,8 @@ yoyo-dashboard.<product id> under the account yoyo or the file
 <state root>/projects/<product id>/state/dashboard.token, is never printed, and the
 same one serves after a restart. A store that does not hold the token refuses to
 start with the command that stores it, the one `+"`yoyo doctor`"+` prints. The page
-asks for the token and keeps it in the tab's session storage, scoped to this
-port, and never in a URL or a cookie. It serves
+asks for the token and keeps it in the browser's local storage, scoped to this
+port and shared by its tabs and windows, and never in a URL or a cookie. It serves
 the read model as JSON behind the token -- the four lines and the capacity state
 at /api/standing, the summary of what landed, what is in progress, what is
 blocked, what needs you, and what it cost, counted from today or over the last

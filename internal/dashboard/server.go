@@ -15,8 +15,9 @@
 //     keeps. It is never in a cookie either: a cookie on 127.0.0.1 is sent to
 //     every other service on every other port of 127.0.0.1, so a cookie would
 //     hand the credential to whatever else the operator's browser visits on
-//     this machine. The page keeps it in the browser's session storage, which
-//     is scoped to this origin, port included.
+//     this machine. The page keeps it in the browser's local storage, which
+//     is scoped to this origin, port included, and shared by its tabs and
+//     windows.
 //   - The Host and Origin headers are validated against the address it bound,
 //     and the names services.dashboard.allowed_hosts adds for a dashboard the
 //     supervisor starts, and anything else is refused. A page on some other origin that scripts a

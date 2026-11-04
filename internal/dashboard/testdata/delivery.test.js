@@ -222,7 +222,7 @@ function page(withLibrary) {
   byId("delivery-scale").value = "daily";
   const made = [];
   const window = {
-    sessionStorage: { getItem: () => "token", setItem() {}, removeItem() {} },
+    localStorage: { getItem: () => "token", setItem() {}, removeItem() {} },
     setTimeout: () => 0,
     clearTimeout() {},
     matchMedia: () => ({ matches: false, addEventListener() {} }),

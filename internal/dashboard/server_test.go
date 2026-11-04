@@ -325,8 +325,10 @@ func TestASuppliedTokenIsRequiredFromTheBearerHeaderAlone(t *testing.T) {
 // a cookie carrying the token is no credential. A cookie on 127.0.0.1 is sent
 // to every port of 127.0.0.1, so a cookie would hand the credential to every
 // other loopback service the operator's browser visits, and two dashboards
-// would overwrite each other's; session storage in the page is scoped to the
-// port, which is why the credential lives there and in the header only.
+// would overwrite each other's; local storage in the page is scoped to the
+// port, which is why the credential lives there and in the header only. Every
+// page of the dashboard keeps it under one key, so one sign-in serves the main
+// page, /backlog, and /delivery in every tab and window of the same origin.
 func TestTheTokenIsNeverACookie(t *testing.T) {
 	t.Parallel()
 	w := serve(t, stubReader{standing: standingWith("secret title")})
@@ -345,13 +347,17 @@ func TestTheTokenIsNeverACookie(t *testing.T) {
 			t.Fatalf("a cookie %q carrying the token was accepted: %d %s", name, response.StatusCode, body)
 		}
 	}
-	// The page's own script keeps it in session storage and nowhere else.
-	_, script := w.get("/assets/dashboard.js", nil)
-	if !strings.Contains(script, "sessionStorage") || strings.Contains(script, "document.cookie") || strings.Contains(script, "localStorage") {
-		t.Fatalf("the script does not keep the token in session storage alone:\n%s", script)
-	}
-	if !strings.Contains(script, `Authorization: "Bearer " + current`) {
-		t.Fatalf("the script does not present the token as a bearer:\n%s", script)
+	// Each page's own script keeps it in local storage under the one key and
+	// nowhere else.
+	for _, path := range []string{"/assets/dashboard.js", "/assets/backlog.js", "/assets/delivery.js"} {
+		_, script := w.get(path, nil)
+		if !strings.Contains(script, "window.localStorage.getItem(storageKey)") || !strings.Contains(script, `var storageKey = "yoyo-dashboard-token";`) ||
+			strings.Contains(script, "sessionStorage") || strings.Contains(script, "document.cookie") {
+			t.Fatalf("%s does not keep the token in local storage alone, under the shared key:\n%s", path, script)
+		}
+		if !strings.Contains(script, `Authorization: "Bearer " + current`) {
+			t.Fatalf("%s does not present the token as a bearer:\n%s", path, script)
+		}
 	}
 }
 
