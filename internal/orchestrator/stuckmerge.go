@@ -221,8 +221,8 @@ func putBackAtPromotion(continued *runstate.State, prior runstate.State, reason 
 // back at its promotion rather than invoking its developer.
 func replayReason(entry triage.Entry, granted repairGrant, prior runstate.State) string {
 	reason := fmt.Sprintf(
-		"Triaged: the development manager's triage decided a repair of run %s, %s, whose approved change the forge did not merge (pull request %d). Nothing was returned to its developer, so the harness put the run back at its merge to bring the kept change up to date with %s, check it and have it reviewed again, and queue its merge again; a conflict goes to the developer under a grant of %d further repair attempt(s) recorded against %s's durable triage budget. The reasoning that decision was recorded with: ",
-		entry.RunID, granted.decision.Cite(), prior.PullRequest.Number, prior.TargetBranch, granted.attempts, entry.WorkItemID)
+		"Triaged: the development manager's triage decided a repair of run %s, %s, whose approved change the forge did not merge (pull request %d). Nothing was returned to its developer, so the harness put the run back at its merge to bring the kept change up to date with %s, check it and have it reviewed again, and queue its merge again; a conflict goes to the developer under %s, recorded against %s's durable triage budget. The reasoning that decision was recorded with: ",
+		entry.RunID, granted.decision.Cite(), prior.PullRequest.Number, prior.TargetBranch, granted.says(), entry.WorkItemID)
 	room := max(runstate.MaxSelectionReasonBytes-len(reason), 0)
 	return singleLine(reason+singleLine(strings.TrimSpace(granted.decision.Reason), room), runstate.MaxSelectionReasonBytes)
 }

@@ -272,10 +272,12 @@ type RepairContinueResult struct {
 	// the development manager's recorded decision, cited to the record it was read
 	// from, and the reasoning it was recorded with.
 	Reason string `json:"reason"`
-	// Granted is what this re-entry added to the run's repair budget, out of the
-	// Decided rounds the development manager's grant is worth. Truncated says the
-	// item's record has a grant the round cap cut, which is what says the item is
-	// at the end of what it will be given.
+	// Granted is what this re-entry added to the run's repair budget, in repair
+	// attempts, out of the Decided attempts the development manager's one grant
+	// bought; it is never more. Decided is zero for a repair recorded before a
+	// decision kept what its grant was worth. Truncated says the round cap cut
+	// this decision's grant, which is what says the item is at the end of what it
+	// will be given.
 	Granted   int  `json:"granted,omitempty"`
 	Decided   int  `json:"decided,omitempty"`
 	Truncated bool `json:"truncated,omitempty"`
@@ -691,8 +693,8 @@ func (c RepairContinuer) recoverContinuation(ctx context.Context, prior runstate
 		return result, fmt.Errorf("run %s is already running but its continuation does not carry the standing repair decision, so no repair transition was repeated", prior.RunID)
 	}
 	if !continuation.DispatchPending || completedRepairContinuation(prior) {
-		result.Decided = counters.GrantedRounds
-		result.Truncated = counters.TruncatedGrants > 0
+		result.Decided = decision.Rounds
+		result.Truncated = decision.Truncated
 		c.confirmedContinuation(&result, prior)
 		result.AlreadyContinued = true
 		if continuation.SuccessNotePending {
@@ -725,8 +727,8 @@ func (c RepairContinuer) recoverContinuation(ctx context.Context, prior runstate
 	if err != nil {
 		return c.unconfirmedContinuation(ctx, result, err)
 	}
-	result.Decided = counters.GrantedRounds
-	result.Truncated = counters.TruncatedGrants > 0
+	result.Decided = decision.Rounds
+	result.Truncated = decision.Truncated
 	c.confirmedContinuation(&result, confirmed)
 	confirmed = c.recordContinuation(ctx, &result, confirmed, continuation.Reason)
 	return c.dispatchContinuation(ctx, result, continuation, lease)
@@ -930,14 +932,37 @@ func (c RepairContinuer) recordDispatchedContinuation(ctx context.Context, runID
 }
 
 // repairGrant is the development manager's grant as this carry-out found it:
-// the decision it was recorded as, how many of its rounds are left to carry out,
-// how many it was worth in total, and whether the round cap cut it when it was
-// recorded.
+// the decision it was recorded as, the attempts this carry-out hands the run,
+// the attempts that one decision bought, whether the round cap cut it when it
+// was recorded.
+//
+// A decision buys one grant, and a grant is worth a number of repair attempts,
+// so the two are counted together rather than confused: decided is the grant
+// in attempts, and attempts is never more than it. decided is zero only for a
+// repair recorded before a decision kept what its grant was worth, which is
+// carried out at what the item's record has left, as every repair was then.
 type repairGrant struct {
 	decision  runstate.TriageDecision
 	attempts  int
 	decided   int
 	truncated bool
+}
+
+// says is the grant as the run's and the item's records state it, in the
+// decision's unit and in the run's: one grant, what it bought in attempts, and
+// how many of those this run is handed.
+func (g repairGrant) says() string {
+	if g.decided < 1 {
+		return fmt.Sprintf("%d further repair attempt(s), which is what the item's record had left of every repair grant it was given, because this decision was recorded before a decision kept what its own grant was worth", g.attempts)
+	}
+	bought := fmt.Sprintf("one repair grant, which this decision bought for %d repair attempt(s)", g.decided)
+	if g.truncated {
+		bought += ", all the review-round cap had room for"
+	}
+	if g.attempts < g.decided {
+		return fmt.Sprintf("%s, of which the run is handed %d further repair attempt(s), because that is all the item's record has left of every grant it was given", bought, g.attempts)
+	}
+	return fmt.Sprintf("%s, and the run is handed those %d further repair attempt(s) and no more", bought, g.attempts)
 }
 
 // granted reports a repair grant of the development manager's that this
@@ -1018,7 +1043,18 @@ func (c RepairContinuer) granted(workItemID string, run runstate.State) (repairG
 			"triage has granted %s %d repair attempt(s) and the harness has carried out %d, so there is nothing of that grant left to re-enter on: a further stoppage of an item that has already been handed back needs a further decision, which past the cap is an escalation rather than a larger budget",
 			workItemID, counters.GrantedRounds, carried)
 	}
-	return repairGrant{decision: standing, attempts: remaining, decided: counters.GrantedRounds, truncated: counters.TruncatedGrants > 0}, nil
+	// What is left on the item's record is every grant it was given less what
+	// was handed to a run, and that includes an earlier grant nothing ever
+	// carried out: one whose run the harness could not re-enter, or whose
+	// decision a re-run replaced. Handing the run all of it would carry out this
+	// decision at the size of every grant the item has had, so the run is handed
+	// what this decision bought and no more. A further grant is a decision of
+	// its own, and past the cap a crossing the development manager records.
+	attempts := remaining
+	if standing.Rounds > 0 && attempts > standing.Rounds {
+		attempts = standing.Rounds
+	}
+	return repairGrant{decision: standing, attempts: attempts, decided: standing.Rounds, truncated: standing.Truncated}, nil
 }
 
 // carriedOut is how much of one item's repair grant the harness has already
@@ -1490,27 +1526,23 @@ func continuedPhase(prior runstate.State, stalled bool) runstate.Phase {
 // back at, because no developer is invoked there and a reader told the session
 // was carried on would look for an attempt that never happens.
 func continueReason(entry triage.Entry, granted repairGrant, stalled, checks bool, resumesAt runstate.Phase) string {
-	grant := fmt.Sprintf("%d further repair attempt(s)", granted.attempts)
-	if granted.truncated {
-		grant = fmt.Sprintf("%d further repair attempt(s), from a grant the review-round cap had already cut to %d",
-			granted.attempts, granted.decided)
-	}
+	grant := granted.says()
 	decided := granted.decision.Cite()
 	reason := fmt.Sprintf(
-		"Triaged: the development manager's triage decided a repair of the stopped work of run %s, %s, and the harness re-entered that run's repair loop on the change it already has, under a grant of %s recorded against %s's durable triage budget. The durable blocker that run stopped on is superseded by this re-entry. The reasoning that decision was recorded with: ",
+		"Triaged: the development manager's triage decided a repair of the stopped work of run %s, %s, and the harness re-entered that run's repair loop on the change it already has, under %s, recorded against %s's durable triage budget. The durable blocker that run stopped on is superseded by this re-entry. The reasoning that decision was recorded with: ",
 		entry.RunID, decided, grant, entry.WorkItemID)
 	if stalled {
 		reason = fmt.Sprintf(
-			"Triaged: the development manager's triage decided a repair of the stopped work of run %s, %s, and the run was continued in the developer session it stalled in, at the attempt the harness stopped it in, under a grant of %s recorded against %s's durable triage budget. Nothing had judged the work, so the continuation counts no review round and no repair attempt. The durable blocker that run stopped on is superseded by this re-entry. The reasoning that decision was recorded with: ",
+			"Triaged: the development manager's triage decided a repair of the stopped work of run %s, %s, and the run was continued in the developer session it stalled in, at the attempt the harness stopped it in, under %s, recorded against %s's durable triage budget. Nothing had judged the work, so the continuation counts no review round and no repair attempt. The durable blocker that run stopped on is superseded by this re-entry. The reasoning that decision was recorded with: ",
 			entry.RunID, decided, grant, entry.WorkItemID)
 		if resumesAt != runstate.PhaseDeveloping && resumesAt != "" {
 			reason = fmt.Sprintf(
-				"Triaged: the development manager's triage decided a repair of the stopped work of run %s, %s, and the run was continued at the %s phase, the step it stalled in, on the change its completed developer attempt left in the preserved worktree and branch, with no developer attempt, under a grant of %s recorded against %s's durable triage budget. Nothing had judged the work, so the continuation itself counts no review round and no repair attempt; what the step it asks again decides is charged as that step always is. The durable blocker that run stopped on is superseded by this re-entry. The reasoning that decision was recorded with: ",
+				"Triaged: the development manager's triage decided a repair of the stopped work of run %s, %s, and the run was continued at the %s phase, the step it stalled in, on the change its completed developer attempt left in the preserved worktree and branch, with no developer attempt, under %s, recorded against %s's durable triage budget. Nothing had judged the work, so the continuation itself counts no review round and no repair attempt; what the step it asks again decides is charged as that step always is. The durable blocker that run stopped on is superseded by this re-entry. The reasoning that decision was recorded with: ",
 				entry.RunID, decided, resumesAt, grant, entry.WorkItemID)
 		}
 	}
 	if checks {
-		reason = fmt.Sprintf("Triaged: the development manager's triage decided a repair of the stopped work of run %s, %s, and the harness continued the same run at its checks after the check-stage bound stopped it, on the change its developer already finished, under a grant of %s recorded against %s's durable triage budget. No developer attempt or review round is counted by this continuation. The reasoning that decision was recorded with: ", entry.RunID, decided, grant, entry.WorkItemID)
+		reason = fmt.Sprintf("Triaged: the development manager's triage decided a repair of the stopped work of run %s, %s, and the harness continued the same run at its checks after the check-stage bound stopped it, on the change its developer already finished, under %s, recorded against %s's durable triage budget. No developer attempt or review round is counted by this continuation. The reasoning that decision was recorded with: ", entry.RunID, decided, grant, entry.WorkItemID)
 	}
 
 	// The reasoning is folded to what the run's record will hold rather than
@@ -1624,9 +1656,15 @@ func (result RepairContinueResult) Render() string {
 	default:
 		fmt.Fprintf(&rendered, "re-entered the repair loop of run %s on the change it already has\n", result.RunID)
 	}
-	fmt.Fprintf(&rendered, "carried out %d further repair attempt(s)", result.Granted)
-	if result.Truncated {
-		fmt.Fprintf(&rendered, ", from a grant the review-round cap had already cut to %d", result.Decided)
+	switch {
+	case result.Decided < 1:
+		fmt.Fprintf(&rendered, "carried out %d further repair attempt(s), what the item's record had left, for a decision recorded before decisions kept what their grant was worth", result.Granted)
+	default:
+		fmt.Fprintf(&rendered, "carried out one repair grant, which the decision bought for %d repair attempt(s)", result.Decided)
+		if result.Truncated {
+			fmt.Fprint(&rendered, ", all the review-round cap had room for")
+		}
+		fmt.Fprintf(&rendered, ", by handing the run %d further repair attempt(s)", result.Granted)
 	}
 	fmt.Fprintf(&rendered, "; %d of %d attempt(s) now spent\n", result.RepairAttempts, result.RepairBudget)
 	if result.Stall || result.Checks {
