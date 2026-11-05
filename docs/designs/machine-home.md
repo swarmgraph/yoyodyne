@@ -26,6 +26,10 @@ revisions:
       by: architect
       at: 2026-10-22T16:23:35.35373Z
       reason: 'Replacing a retired phrase, as the terms register''s row for it says: the list under One home now calls the file at the top of the home the operator''s pause, set by yoyo pause, and says one pause stops every project. Read at 145efe18; no other sentence and no requirement changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-05T04:05:48.441083Z
+      reason: Answers a developer's proposal to split the heavy-check permit record into one part for each project (amendment-5f451235, declined). The permits count heavy checks across the whole machine, so no project owns them. This revision names their place at the top of the home as `heavy-checks/` and says why the record is not split. Read at main c7798eda; no other sentence changes.
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -47,6 +51,11 @@ approvals:
       by: harness
       at: 2026-10-22T16:23:35.35373Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1498, for document-1498.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-05T04:05:48.441083Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2269, for document-2269.1 under the automatic approval policy
 ---
 # The machine home
 
@@ -75,6 +84,13 @@ project owns:
 - `operator-hold.json` — the operator's pause, set by `yoyo pause`, which is
   machine-wide by decision: one pause stops every project on the machine, as it
   does today.
+- `heavy-checks/` — the permits for heavy checks and the lock beside them.
+  They count the heavy checks running across every project on the machine, so
+  no project owns them; see
+  [capacity for heavy checks](heavy-check-capacity.md). The record is one
+  record with one lock, never split into a part for each project, because a
+  count split across projects would need every project's lock for each request
+  and would move with a project when it is renamed.
 - `logs/` — the harness's own logs.
 
 Anything that today sits beside `products/` under the state root and belongs to
