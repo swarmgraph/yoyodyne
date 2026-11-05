@@ -326,3 +326,53 @@ func (r *failingRemote) PushClaim(ctx context.Context, workItemID, record, paren
 	}
 	return r.Remote.PushClaim(ctx, workItemID, record, parent, expected, now)
 }
+
+// Two factories that name themselves the same, such as two homes on one
+// machine, are still two holders: the second cannot take the first's live
+// claim, and is told it is held.
+func TestAFactoryUnderTheSameNameCannotTakeALiveClaim(t *testing.T) {
+	t.Parallel()
+	remote := sharedRemote(t)
+	clock := &testClock{now: time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)}
+	first := factory(t, remote, "example on studio", clock)
+	second := factory(t, remote, "example on studio", clock)
+	ctx := context.Background()
+	taken, err := first.Take(ctx, "example-7", "run-a")
+	if err != nil {
+		t.Fatalf("first Take() error = %v", err)
+	}
+	clock.advance(20 * time.Minute)
+	var held HeldError
+	if _, err := second.Take(ctx, "example-7", "run-b"); !errors.As(err, &held) {
+		t.Fatalf("second Take() under the same name error = %v, want the item held", err)
+	}
+	if !strings.Contains(held.Error(), "last renewed 20 minutes ago") {
+		t.Errorf("refusal %q, want how long ago the claim was renewed in plain words", held.Error())
+	}
+	if got := remoteClaim(t, remote, "example-7"); got != taken.Commit {
+		t.Errorf("remote claim = %s, want the first factory's %s left alone", got, taken.Commit)
+	}
+}
+
+// A machine whose name changed since it took a claim still knows the claim is
+// its own, from its own record, and its next run of the item takes it on.
+func TestAClaimStaysThisMachinesOwnWhenItsNameChanges(t *testing.T) {
+	t.Parallel()
+	remote := sharedRemote(t)
+	clock := &testClock{now: time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)}
+	alpha := factory(t, remote, "example on alpha", clock)
+	ctx := context.Background()
+	first, err := alpha.Take(ctx, "example-8", "run-a")
+	if err != nil {
+		t.Fatalf("Take() error = %v", err)
+	}
+	renamed := alpha
+	renamed.Factory = "example on alpha-2"
+	second, err := renamed.Take(ctx, "example-8", "run-b")
+	if err != nil {
+		t.Fatalf("Take() after the name changed error = %v, want this machine's own claim taken on", err)
+	}
+	if second.Commit == first.Commit || second.PreviousHolder != "" {
+		t.Errorf("claim after the rename = %#v, want a fresh claim with no earlier holder", second)
+	}
+}

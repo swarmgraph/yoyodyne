@@ -76,6 +76,9 @@ type HeldError struct {
 	Holder string
 	// RenewedAt is when the holder last renewed it, where known.
 	RenewedAt time.Time
+	// Age is how long before the refusal that was. The sentence a person reads
+	// says this rather than the moment, so it needs no time zone.
+	Age time.Duration
 }
 
 func (e HeldError) Error() string {
@@ -86,7 +89,20 @@ func (e HeldError) Error() string {
 	if e.RenewedAt.IsZero() {
 		return fmt.Sprintf("%s is claimed on the shared remote by %s", e.WorkItemID, holder)
 	}
-	return fmt.Sprintf("%s is claimed on the shared remote by %s, last renewed at %s", e.WorkItemID, holder, e.RenewedAt.UTC().Format(time.RFC3339))
+	return fmt.Sprintf("%s is claimed on the shared remote by %s, last renewed %s", e.WorkItemID, holder, renewedAgo(e.Age))
+}
+
+// renewedAgo says how long ago a claim was renewed, in whole minutes.
+func renewedAgo(age time.Duration) string {
+	minutes := int(age.Round(time.Minute) / time.Minute)
+	switch {
+	case minutes < 1:
+		return "less than a minute ago"
+	case minutes == 1:
+		return "1 minute ago"
+	default:
+		return fmt.Sprintf("%d minutes ago", minutes)
+	}
 }
 
 // UnreachableError is a claim that could not be taken because the remote could
@@ -107,9 +123,10 @@ func (e UnreachableError) Unwrap() error { return e.Err }
 type Claims struct {
 	Remote Remote
 	Store  Store
-	// Factory is who this machine names itself as in a claim. A claim found on
-	// the remote under the same name is this machine's own, left by an earlier
-	// run of the item, and a later run takes it on rather than waiting for it.
+	// Factory is who this machine names itself as in a claim, so another
+	// factory can say who holds an item. It decides nothing: which claims are
+	// this machine's own is read from Store, never from a name another machine
+	// could share.
 	Factory string
 	Clock   execution.Clock
 }
@@ -164,15 +181,19 @@ func (c Claims) Take(ctx context.Context, workItemID, runID string) (runstate.Te
 	record := Record{Factory: c.Factory, WorkItemID: workItemID, RunID: runID, TakenAt: now, RenewedAt: now}
 	expected := ""
 	if reading.Exists {
+		own, err := c.ownClaim(workItemID, reading.Commit)
+		if err != nil {
+			return runstate.TeamClaim{}, err
+		}
 		holder, renewed := readRecord(reading)
 		switch {
-		case holder.Factory == c.Factory:
-			// This factory's own claim, left by an earlier run of the item that
+		case own:
+			// This machine's own claim, left by an earlier run of the item that
 			// has not released it yet: the run starting now holds it from here.
 		case now.Sub(renewed) >= ExpireAfter:
 			record.PreviousHolder = holderName(holder)
 		default:
-			return runstate.TeamClaim{}, HeldError{WorkItemID: workItemID, Holder: holder.Factory, RenewedAt: renewed}
+			return runstate.TeamClaim{}, HeldError{WorkItemID: workItemID, Holder: holder.Factory, RenewedAt: renewed, Age: now.Sub(renewed)}
 		}
 		expected = reading.Commit
 	}
@@ -207,6 +228,19 @@ func (c Claims) Take(ctx context.Context, workItemID, runID string) (runstate.Te
 	return claim, nil
 }
 
+// ownClaim reports whether the claim the remote holds on an item, at commit,
+// is this machine's: its own record of the item is still held and names that
+// same commit. Nothing else counts, so another factory under the same name,
+// such as a second home on this machine, never takes a live claim over, and a
+// machine whose host name changed still knows its own claims.
+func (c Claims) ownClaim(workItemID, commit string) (bool, error) {
+	local, found, err := c.Store.Load(workItemID)
+	if err != nil {
+		return false, err
+	}
+	return found && local.Held() && local.Commit == commit, nil
+}
+
 // heldAfterRace names whoever won the push this claim lost.
 func (c Claims) heldAfterRace(ctx context.Context, workItemID string) error {
 	held := HeldError{WorkItemID: workItemID}
@@ -218,7 +252,7 @@ func (c Claims) heldAfterRace(ctx context.Context, workItemID string) error {
 		return held
 	}
 	holder, renewed := readRecord(reading)
-	held.Holder, held.RenewedAt = holder.Factory, renewed
+	held.Holder, held.RenewedAt, held.Age = holder.Factory, renewed, c.now().Sub(renewed)
 	return held
 }
 

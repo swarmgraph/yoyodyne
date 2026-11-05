@@ -5303,14 +5303,19 @@ it, so two factories never do the same work:
 - **Taking over.** A claim nobody has renewed for two hours may be taken over,
   with a lease naming the stale commit. The new claim names the earlier holder,
   and so does a note on the item. A claim this machine left from an earlier run
-  of the same item is taken on by the next run without waiting.
+  of the same item is taken on by the next run without waiting. A claim counts
+  as this machine's own only when its record under `team-claims/` is still held
+  and names the very commit the remote has; a claim under the same name is
+  never enough, so a second home on the same machine is held to the same two
+  hours as anybody else.
 - **Releasing.** Once the run no longer holds the item, the watch loop deletes
   the reference with a lease naming its own commit. A reference that is no
   longer this machine's, because another factory took it over, is left alone and
   said on the schedule.
 
 Each claim is a commit of the empty tree whose message records the factory
-holding it (for now, the product and the machine's host name), the item, the
+holding it (the product, the machine's host name, and the machine identifier
+kept in the state directory's `machine.identity`), the item, the
 run, and when it was taken and last renewed. What this machine holds is kept
 under its state directory in `team-claims/`. Only the harness pushes these
 references, as it pushes pull request branches; no agent is given anything that

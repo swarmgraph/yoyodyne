@@ -25,14 +25,23 @@ func teamClaims(parts components) (teamclaim.Claims, bool) {
 	return claims, true
 }
 
-// factoryName is how this machine names itself in a claim: the product and the
-// machine's host name. A claim found under the same name is this machine's own.
+// factoryName is how this machine names itself in a claim, for another factory
+// to say who holds an item: the product, the machine's host name, and the
+// machine identifier the run store keeps, which is what tells two homes on one
+// machine, or two machines that kept the same name, apart. Which claims are
+// this machine's own is never read from it (teamclaim.Claims.Factory).
 func factoryName(parts components) string {
 	host, err := os.Hostname()
 	if err != nil || strings.TrimSpace(host) == "" {
 		host = "an unnamed machine"
 	}
-	return string(parts.config.Product.ID) + " on " + host
+	name := string(parts.config.Product.ID) + " on " + host
+	if parts.store != nil {
+		if machine, err := parts.store.MachineID(); err == nil {
+			name += " (" + machine + ")"
+		}
+	}
+	return name
 }
 
 // pipelineTeamClaims is what a run starting in team mode takes its claim
