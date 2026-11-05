@@ -398,7 +398,7 @@ services:
       max_hold: 15s        # the longest one cleanup holds the store; 20s at most
 ```
 
-Each pass takes ten steps, in this order, and each is recorded:
+Each pass takes eleven steps, in this order, and each is recorded:
 
 - **provider** — whether the provider is answering, read from the product's
   [outage record](#waiting-out-a-provider-nobody-can-reach). While it stands,
@@ -465,7 +465,30 @@ Each pass takes ten steps, in this order, and each is recorded:
   days, history of the last thirty days, and current data. Every bd command is
   run in the copy's directory with `BEADS_DIR` naming the copy, so none of them
   reaches the live store, which is only read to be copied; the copy is removed
-  when the measurement ends. The first measurement is taken at the first pass
+  when the measurement ends.
+  Once the copy as it is has been measured, and before the cleanup and the
+  squashes run on it, the pass copies it again into `server-copy/` beside it
+  and starts the tracker's server mode there (`bd dolt start`), with server
+  mode turned on and every `BEADS_DOLT_` variable it inherited taken out, so the
+  server serves that second copy and nothing else; one bd says serves anything
+  outside it is stopped at once. It records the process and port bd names, every
+  address `lsof` says the server listens on, and whether a connection to it made
+  with `nc` under `sandbox-exec`, with the network rules a developer run's
+  Claude Code sandbox is given (binding, accepting, and connecting on localhost
+  only), connects, beside the same connection made with no sandbox, which says
+  whether the server was answering at all. That reproduces the developer
+  sandbox's network rules rather than running Claude Code's own, and only on
+  macOS; elsewhere the step says it was not tried. Through the server it then
+  reads the store's history for the last week (`bd sql`, which bd runs only in
+  server mode): each kind of write, by bd's own name for the command that wrote
+  it, with the commits it made, the rows it changed, and the tables it changed
+  them in, and each kind's share of how much the store grew since the
+  measurement before. The server is stopped with `bd dolt stop`, then `--force`,
+  then by killing its process, however the measurement ends, and one a killed
+  measurement left running is stopped by the next before its copy is removed.
+  The measurement also counts the harness's own tracker calls over the hour
+  before it by caller, from the log described under
+  [a tracker that does not answer a listing](#a-tracker-that-does-not-answer-a-listing). The first measurement is taken at the first pass
   after this step lands, and the next a week after the last one that finished,
   or a day after the last that failed. While it runs, which can take a while
   on a large store and is bounded at two hours, the pass waits for it.
@@ -519,6 +542,16 @@ Each pass takes ten steps, in this order, and each is recorded:
   long the same squash took on the measured copy, which is the figure to read beforehand; bd is stopped after twenty minutes. A
   squash bd failed or that was stopped is a failure of the pass, and its copy is
   what the store is restored from.
+- **limits** — the live tracker store held to
+  `services.maintenance.tracker_limits`: its size on disk against
+  `store_megabytes`, and how long the harness's own listings of open and ready
+  work took over the hour before against `listing_seconds`. It asks the store
+  nothing: the size is read from the disk and the listing times from the log of
+  calls every harness process keeps. Within both, the step says the figures;
+  past either, it begins `THE TRACKER IS PAST ITS LIMITS`, says which and by how
+  much, names the setting, and files one warning for the development manager.
+  It warns again only when what is past its bound changes, and once more after
+  the supervisor restarts.
 - **rebuild** — what the supervisor's rebuilder last came to. It builds the
   binary on its own thirty-second look when the branch lands something the
   binary is made of (above), so a deploy has a build to take up.
@@ -2828,7 +2861,23 @@ the limit and any shorter deadline of its caller's, the store's path and size,
 and the processes that had the store open, or why either could not be read.
 The newest thousand are kept. Read together, they say whether calls run out
 of time behind one another or with nothing else holding the store, which is
-the tracker itself being slow, and how big the store was each time. A record
+the tracker itself being slow, and how big the store was each time.
+`yoyo tracker slow-calls` reads them together for you: how many there are and
+over what time, how many waited behind another process and how many found
+none, which callers appear most often and how long their calls ran, and which
+kinds of process (`bd list`, `bd export`, `yoyo watch`) held the store while
+they waited. It asks the tracker nothing.
+
+**Every tracker call is also logged, for two days.** Each `yoyo` process,
+from the moment it loads the product's configuration, appends every tracker
+call it makes to a file of its own for each hour under
+`projects/<product-id>/state/tracker-calls/`: when it started, whom it was
+for, what it asked, how long it took, and whether it was stopped at its limit,
+with the command the process was started as. The maintenance pass reads it to
+count the harness's own calls over an hour by caller, on each measurement of
+the store, and to check how long the listings took, on every pass. Calls on a
+measurement's copy of the store are not logged, and nor is the export the
+pre-commit hook takes, which loads no configuration. A record
 that cannot be written is said at the end of the call's own failure, which is
 otherwise unchanged. A write that waited out another
 write to the same item names what held that item's write lock the same way. A

@@ -20,6 +20,7 @@ var version = "dev"
 // cancellation on its own turned out not to be enough.
 func main() {
 	ctx, stop := shutdown.Answering(context.Background(), os.Stderr)
+	cli.KeepTrackerCalls(os.Args[1:])
 	code := cli.RunContext(ctx, os.Args[1:], os.Stdout, os.Stderr, buildinfo.Resolve(version))
 	stop()
 	os.Exit(code)

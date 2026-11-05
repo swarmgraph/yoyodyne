@@ -50,6 +50,21 @@ type TrackerStoreMeasurement struct {
 	// the supervisor stopping. A stage whose command failed is recorded on the
 	// stage rather than here.
 	Failed string `json:"failed,omitempty"`
+	// Grew is how much the store grew on disk since the measurement before this
+	// one, where there was one, which is what the growth by kind of write is a
+	// share of.
+	Grew *StoreGrew `json:"grew,omitempty"`
+	// Callers is the harness's own tracker calls over the hour before the
+	// measurement, counted by caller, from the log every process keeps
+	// (trackercalllog.go), and nil where no log is wired.
+	Callers *TrackerCallCount `json:"callers,omitempty"`
+}
+
+// StoreGrew is the store's size at an earlier measurement and at this one.
+type StoreGrew struct {
+	Since time.Time `json:"since"`
+	From  int64     `json:"from"`
+	To    int64     `json:"to"`
 }
 
 // StartedAt is when the measurement started.
@@ -118,8 +133,91 @@ func (m TrackerStoreMeasurement) Says() string {
 	for _, stage := range measured.Stages {
 		said += "; " + sayStage(stage)
 	}
+	if server := measured.Server; server != nil {
+		said += "; " + SayServer(*server)
+		if growth := SayGrowth(server.Growth, m.Grew); growth != "" {
+			said += "; " + growth
+		}
+	}
+	if m.Callers != nil {
+		said += "; " + m.Callers.Says()
+	}
 	if m.Failed != "" {
 		said += "; it did not finish: " + m.Failed
+	}
+	return said
+}
+
+// SayServer is what server mode came to on the second copy: where it listened
+// and whether the developer sandbox reached it.
+func SayServer(server beads.StoreServer) string {
+	said := "server mode on a second copy"
+	if server.Port != 0 {
+		said += fmt.Sprintf(" started as process %d on port %d", server.PID, server.Port)
+	}
+	switch {
+	case len(server.Listening) > 0:
+		said += ", listening on " + strings.Join(server.Listening, " and ")
+	case server.ListeningUnread != "":
+		said += ", where it listened could not be read: " + server.ListeningUnread
+	}
+	if server.Failed != "" {
+		said += ": " + server.Failed
+	} else {
+		reach := server.Reach
+		switch {
+		case reach.Failed != "":
+			said += "; whether a developer run reaches it could not be tried: " + reach.Failed
+		case reach.Reached:
+			said += fmt.Sprintf("; a developer run CAN reach it: a connection to %s made under %s connected", reach.Address, reach.How)
+		case reach.ReachedUnsandboxed:
+			said += fmt.Sprintf("; a developer run cannot reach it: a connection to %s made under %s was refused (%s), and the same connection made outside the sandbox connected", reach.Address, reach.How, reach.Said)
+		default:
+			said += fmt.Sprintf("; whether a developer run reaches it is not known: a connection to %s failed both under the sandbox (%s) and outside it, so the server was not answering", reach.Address, reach.Said)
+		}
+	}
+	if server.StopFailed != "" {
+		said += "; " + server.StopFailed
+	}
+	return said
+}
+
+// SayGrowth is which writes grew the store over the window its history was
+// read for, with each kind's share of the rows changed, and where grew says
+// how much the store grew, each kind's estimated share of that.
+func SayGrowth(growth beads.StoreGrowth, grew *StoreGrew) string {
+	if growth.Since.IsZero() {
+		return ""
+	}
+	since := growth.Since.Local().Format("2006-01-02 15:04 MST")
+	if growth.Failed != "" {
+		return "which writes grew the store since " + since + " could not be read: " + growth.Failed
+	}
+	said := fmt.Sprintf("since %s the store's history holds %d commits changing %d rows", since, growth.Commits, growth.RowsChanged)
+	if grew != nil {
+		said += fmt.Sprintf(", and the store grew from %s to %s on disk since the measurement at %s", SayBytes(grew.From), SayBytes(grew.To), grew.Since.Local().Format("2006-01-02 15:04 MST"))
+	}
+	var parts []string
+	for _, write := range growth.Writes {
+		part := fmt.Sprintf("%s: %d commits, %d rows", write.Kind, write.Commits, write.RowsChanged)
+		if growth.RowsChanged > 0 {
+			share := float64(write.RowsChanged) / float64(growth.RowsChanged)
+			part += fmt.Sprintf(" (%.0f%% of the rows changed", 100*share)
+			if grew != nil && grew.To > grew.From {
+				part += fmt.Sprintf(", so an estimated %s of the growth", SayBytes(int64(share*float64(grew.To-grew.From))))
+			}
+			part += ")"
+		}
+		if len(write.Tables) > 0 {
+			part += " in " + strings.Join(write.Tables, ", ")
+		}
+		parts = append(parts, part)
+	}
+	if len(parts) > 0 {
+		said += "; by kind of write, most rows first: " + strings.Join(parts, "; ")
+	}
+	if len(growth.Unread) > 0 {
+		said += "; not counted: " + strings.Join(growth.Unread, "; ")
 	}
 	return said
 }

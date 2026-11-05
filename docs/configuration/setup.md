@@ -436,8 +436,10 @@ Up to three layers produce the effective configuration, later ones winning:
    (`generated`), `services.scheduler.enabled` (`true`),
    `services.maintenance.enabled` (`true`), `services.maintenance.every`
    (`10m`), `services.maintenance.tracker_cleanup.every` (`24h`),
-   `services.maintenance.tracker_cleanup.grown_megabytes` (128), and
-   `services.maintenance.tracker_cleanup.max_hold` (`15s`).
+   `services.maintenance.tracker_cleanup.grown_megabytes` (128),
+   `services.maintenance.tracker_cleanup.max_hold` (`15s`),
+   `services.maintenance.tracker_limits.store_megabytes` (1024), and
+   `services.maintenance.tracker_limits.listing_seconds` (10).
    `triage.repair_grant_attempts` is filled in too, but as a derivation rather
    than a fixed default: it takes the size of the effective
    `execution.repair_attempts_before_replan`, read after every layer has been

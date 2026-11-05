@@ -40,7 +40,11 @@ import (
 //  2. On the copy as it is, it measures the database directory's size, times a
 //     listing of open items, a listing of ready items, and a read of one item,
 //     and takes a full export.
-//  3. It then runs, one after another on the same copy, the cleanup the
+//  3. It starts the tracker's server mode on a second copy of the copy, and
+//     records where the server listens, whether the developer sandbox reaches
+//     it, and which writes grew the store over the last week
+//     (storeserver.go).
+//  4. It then runs, one after another on the first copy, the cleanup the
 //     maintenance pass runs (`bd gc --skip-decay --force`), a squash of the
 //     history older than thirty days (`bd compact --days 30 --force`), and a
 //     squash of all history (`bd flatten --force`), and after each takes the
@@ -106,6 +110,10 @@ type StoreMeasurement struct {
 	// Stages is each state of the copy measured, in order. A stage whose command
 	// failed is the last.
 	Stages []StoreStage `json:"stages,omitempty"`
+	// Server is what server mode came to on a second copy, made once the copy
+	// as it is had been measured (storeserver.go), and nil where the measurement
+	// did not get that far.
+	Server *StoreServer `json:"server,omitempty"`
 }
 
 // StoreStage is one state of the copy: the command that made it, and what was
@@ -200,6 +208,7 @@ func (c Client) MeasureStore(ctx context.Context, work *repowrite.PinnedRoot) (m
 		return measurement, fmt.Errorf("no tracker store was found from %s", describeDir(c.Dir))
 	}
 	measurement.Store = store
+	c.stopLeftServer(ctx, work)
 	if err := work.RemoveAll(measuredCopyName); err != nil {
 		return measurement, fmt.Errorf("remove the copy of the tracker's store an earlier measurement left in %s: %w", work.Path(), err)
 	}
@@ -241,6 +250,7 @@ func (c Client) MeasureStore(ctx context.Context, work *repowrite.PinnedRoot) (m
 		Dir:        project,
 		Timeout:    measureCallLimit,
 		Holders:    c.Holders,
+		Server:     c.Server,
 		WriterZone: c.WriterZone,
 		beadsDir:   filepath.Join(project, ".beads"),
 	}
@@ -248,6 +258,9 @@ func (c Client) MeasureStore(ctx context.Context, work *repowrite.PinnedRoot) (m
 
 	first := copied.measureStage(ctx, StoreStage{Name: StageAsItIs}, database, "", nil)
 	measurement.Stages = append(measurement.Stages, first.stage)
+	// Before the cleanup and the squashes, so the history it reads is all there
+	// (storeserver.go).
+	measurement.Server = copied.measureServer(ctx, work, project, measurement.StartedAt)
 	previous := first
 	for _, next := range measuredStages {
 		if ctx.Err() != nil {

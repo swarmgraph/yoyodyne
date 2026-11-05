@@ -73,6 +73,43 @@ type MaintenanceService struct {
 	// TrackerCleanup is when the pass cleans up the work tracker's store, and
 	// for how long a cleanup may hold it.
 	TrackerCleanup TrackerCleanup `yaml:"tracker_cleanup" json:"tracker_cleanup"`
+	// TrackerLimits is the size the work tracker's store and the time its
+	// listings are held to, which every pass checks.
+	TrackerLimits TrackerLimits `yaml:"tracker_limits" json:"tracker_limits"`
+}
+
+// TrackerLimits is what every maintenance pass holds the live tracker store
+// to: its size on disk, and how long the harness's own listings of open and
+// ready work took over the hour before the pass. The pass reads both without
+// asking the store anything — the size from the disk, the listing times from
+// the log of calls every process keeps — and says in ordinary words, and warns
+// the development manager, when either is past its bound. The listing bound is
+// the limit the design on keeping the store small sets
+// (docs/designs/tracker-store-size.md).
+type TrackerLimits struct {
+	// StoreMegabytes is the largest the store may be on disk.
+	StoreMegabytes int `yaml:"store_megabytes" json:"store_megabytes"`
+	// ListingSeconds is the longest a listing of open or ready work may take.
+	ListingSeconds int `yaml:"listing_seconds" json:"listing_seconds"`
+}
+
+const (
+	// DefaultTrackerStoreMegabytes is about the size at which listings of open
+	// work began to run past their limit with nothing else holding the store.
+	DefaultTrackerStoreMegabytes = 1024
+	// MaxTrackerStoreMegabytes is far beyond any store the tracker answers in
+	// time.
+	MaxTrackerStoreMegabytes = 1 << 20
+	// DefaultTrackerListingSeconds is the design's limit on a listing.
+	DefaultTrackerListingSeconds = 10
+	// MaxTrackerListingSeconds is the longest a tracker read is waited for, so
+	// a bound past it could never be passed.
+	MaxTrackerListingSeconds = 120
+)
+
+// DefaultTrackerLimits is the limits a project that says nothing gets.
+func DefaultTrackerLimits() TrackerLimits {
+	return TrackerLimits{StoreMegabytes: DefaultTrackerStoreMegabytes, ListingSeconds: DefaultTrackerListingSeconds}
 }
 
 // TrackerCleanup is when the maintenance pass cleans up the work tracker's
@@ -268,7 +305,7 @@ func DefaultServices() Services {
 			Token:        DashboardTokenGenerated,
 		},
 		Scheduler:   Service{Enabled: true},
-		Maintenance: MaintenanceService{Enabled: true, Every: Duration(DefaultMaintenanceInterval), TrackerCleanup: DefaultTrackerCleanup()},
+		Maintenance: MaintenanceService{Enabled: true, Every: Duration(DefaultMaintenanceInterval), TrackerCleanup: DefaultTrackerCleanup(), TrackerLimits: DefaultTrackerLimits()},
 	}
 }
 
@@ -369,7 +406,21 @@ func (m MaintenanceService) problems() []string {
 		problems = append(problems, fmt.Sprintf("services.maintenance.every is %s, and the shortest interval allowed is %s: every pass reads the tracker and asks the forge about every unsettled publication, so a shorter interval is load rather than maintenance",
 			m.Every, Duration(MinMaintenanceInterval)))
 	}
-	return append(problems, m.TrackerCleanup.problems()...)
+	problems = append(problems, m.TrackerCleanup.problems()...)
+	return append(problems, m.TrackerLimits.problems()...)
+}
+
+func (t TrackerLimits) problems() []string {
+	var problems []string
+	if t.StoreMegabytes < 1 || t.StoreMegabytes > MaxTrackerStoreMegabytes {
+		problems = append(problems, fmt.Sprintf("services.maintenance.tracker_limits.store_megabytes is %d, and must be between 1 and %d",
+			t.StoreMegabytes, MaxTrackerStoreMegabytes))
+	}
+	if t.ListingSeconds < 1 || t.ListingSeconds > MaxTrackerListingSeconds {
+		problems = append(problems, fmt.Sprintf("services.maintenance.tracker_limits.listing_seconds is %d, and must be between 1 and %d: a tracker read is waited for at most %d seconds, so a bound past that could never be passed",
+			t.ListingSeconds, MaxTrackerListingSeconds, MaxTrackerListingSeconds))
+	}
+	return problems
 }
 
 func (t TrackerCleanup) problems() []string {

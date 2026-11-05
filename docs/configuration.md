@@ -259,6 +259,9 @@ services:           # the parts of the product, each on or off; see Services
       every: 24h
       grown_megabytes: 128
       max_hold: 15s
+    tracker_limits:
+      store_megabytes: 1024
+      listing_seconds: 10
 
 checks: []          # yours to write; a run with none is refused
 landing_checks: []  # what runs whole, once per landing; see "Where the whole suite runs"
@@ -979,8 +982,10 @@ Up to three layers produce the effective configuration, later ones winning:
    (`generated`), `services.scheduler.enabled` (`true`),
    `services.maintenance.enabled` (`true`), `services.maintenance.every`
    (`10m`), `services.maintenance.tracker_cleanup.every` (`24h`),
-   `services.maintenance.tracker_cleanup.grown_megabytes` (128), and
-   `services.maintenance.tracker_cleanup.max_hold` (`15s`).
+   `services.maintenance.tracker_cleanup.grown_megabytes` (128),
+   `services.maintenance.tracker_cleanup.max_hold` (`15s`),
+   `services.maintenance.tracker_limits.store_megabytes` (1024), and
+   `services.maintenance.tracker_limits.listing_seconds` (10).
    `triage.repair_grant_attempts` is filled in too, but as a derivation rather
    than a fixed default: it takes the size of the effective
    `execution.repair_attempts_before_replan`, read after every layer has been
@@ -8530,6 +8535,9 @@ services:
       every: 24h
       grown_megabytes: 128
       max_hold: 15s
+    tracker_limits:
+      store_megabytes: 1024
+      listing_seconds: 10
 ```
 
 **Every service is present whether or not a project mentions it.** The section is
@@ -8733,6 +8741,18 @@ stopped when this runs out and the next pass finishes the work, and its
 ceiling leaves a call that arrives the moment a cleanup starts most of its own
 time limit (two minutes) to answer in. Each bound is read on its own, so a
 file may set one and keep the defaults for the others.
+
+**Every pass also holds the store to `services.maintenance.tracker_limits`.**
+`store_megabytes` (1024 by default, between 1 and 1048576) is the largest the
+store may be on disk, and `listing_seconds` (10 by default, between 1 and 120)
+the longest one of the harness's own listings of open or ready work may take,
+which is the limit [the design on keeping the store small](designs/tracker-store-size.md)
+sets. The pass reads the size from the disk and the listing times from the log
+of tracker calls every harness process keeps, over the hour before the pass,
+so the check asks the store nothing. Within both, the pass's `limits` step says
+the figures; past either, it says which and by how much, with the setting that
+bounds it, and warns the development manager once, and again only when what is
+past its bound changes. Each bound is read on its own.
 
 ## Recurring tasks
 

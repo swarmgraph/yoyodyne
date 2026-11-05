@@ -137,3 +137,53 @@ func TestAMeasurementWithNoStartIsRefused(t *testing.T) {
 		t.Error("Record() of a measurement with no start = nil, want it refused")
 	}
 }
+
+// A measurement says where server mode listened on its second copy, whether a
+// developer run can reach it, which writes grew the store and each one's share
+// of the growth, and the harness's own calls by caller.
+func TestAMeasurementSaysTheServerTheGrowthAndTheCallers(t *testing.T) {
+	t.Parallel()
+	measurement := fullMeasurement()
+	measurement.Measurement.Server = &beads.StoreServer{
+		PID: 4321, Port: 13307, Listening: []string{"127.0.0.1:13307"},
+		Reach: beads.SandboxReach{Address: "127.0.0.1:13307", How: "the developer sandbox", Tried: true, Reached: true, ReachedUnsandboxed: true},
+		Growth: beads.StoreGrowth{
+			Since: time.Date(2026, 10, 21, 15, 0, 0, 0, time.UTC), Commits: 43, RowsChanged: 100,
+			Writes: []beads.WriteGrowth{
+				{Kind: "bd: update", Commits: 40, RowsChanged: 75, Tables: []string{"events", "issues"}},
+				{Kind: "bd: create", Commits: 3, RowsChanged: 25, Tables: []string{"issues"}},
+			},
+		},
+	}
+	measurement.Grew = &StoreGrew{Since: time.Date(2026, 10, 21, 15, 0, 0, 0, time.UTC), From: 730 * measuredMegabyte, To: 930 * measuredMegabyte}
+	hour := time.Date(2026, 10, 28, 14, 0, 0, 0, time.UTC)
+	measurement.Callers = &TrackerCallCount{Since: hour, Until: hour.Add(time.Hour), Calls: 12, Took: time.Minute,
+		Callers: []TrackerCallerCount{{Caller: "developer runs", Calls: 12, Took: time.Minute, Longest: 20 * time.Second}}}
+
+	said := measurement.Says()
+	for _, want := range []string{
+		"server mode on a second copy started as process 4321 on port 13307, listening on 127.0.0.1:13307",
+		"a developer run CAN reach it: a connection to 127.0.0.1:13307 made under the developer sandbox connected",
+		"43 commits changing 100 rows",
+		"the store grew from 730 MB to 930 MB on disk",
+		"bd: update: 40 commits, 75 rows (75% of the rows changed, so an estimated 150 MB of the growth) in events, issues",
+		"bd: create: 3 commits, 25 rows (25% of the rows changed, so an estimated 50 MB of the growth)",
+		"the harness's own processes asked the tracker 12 times",
+		"developer runs 12",
+	} {
+		if !strings.Contains(said, want) {
+			t.Errorf("Says() = %q\nwant %q in it", said, want)
+		}
+	}
+
+	refused := *measurement.Measurement.Server
+	refused.Reach = beads.SandboxReach{Address: "127.0.0.1:13307", How: "the developer sandbox", Tried: true, ReachedUnsandboxed: true, Said: "Operation not permitted"}
+	if got := SayServer(refused); !strings.Contains(got, "a developer run cannot reach it") || !strings.Contains(got, "outside the sandbox connected") {
+		t.Errorf("SayServer() of a refused attempt = %q", got)
+	}
+	silent := refused
+	silent.Reach.ReachedUnsandboxed = false
+	if got := SayServer(silent); !strings.Contains(got, "is not known") {
+		t.Errorf("SayServer() of a server answering nobody = %q", got)
+	}
+}

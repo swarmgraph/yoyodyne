@@ -818,7 +818,11 @@ func loadConfiguration(explicitPath string) (config.Resolved, error) {
 // definition. A record that cannot be read is a refusal rather than an
 // activation nobody made.
 func loadActivatedConfiguration(path string) (config.Resolved, error) {
-	return config.LoadResolvedActivated(path, readRoleActivations)
+	resolved, err := config.LoadResolvedActivated(path, readRoleActivations)
+	if err == nil {
+		installTrackerCallLog(resolved)
+	}
+	return resolved, err
 }
 
 func readRoleActivations(resolved config.Resolved) (config.RoleActivationCheck, error) {
@@ -925,6 +929,7 @@ Commands:
   reconcile         settle interrupted runs, then converge local state on the forge
   forge-check       read the pull requests waiting for a person, and act on what changed
   tracker export    export the tracker into this checkout, as a commit carrying the export needs
+  tracker slow-calls  say which tracker calls ran out of time, for whom, for how long, and what held the store
   heavy-checks      read the places among this machine's heavy checks and what each cost, and give a kept one back
   slack             report what the harness is doing into a Slack channel
   doctor            check this installation, and say what would fix what is wrong

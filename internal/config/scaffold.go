@@ -730,6 +730,12 @@ func renderScaffoldServices(builder *strings.Builder, services Services) {
 # It does not start while another process is using the store, and it is
 # stopped after max_hold, at most 20s, so no other tracker call waits on it
 # past its own limit; the next pass finishes what a stopped one began.
+#
+# Every pass also checks the store against tracker_limits: its size on disk
+# against store_megabytes, and how long the harness's own listings of open and
+# ready work took over the hour before against listing_seconds. It asks the
+# store nothing to do it, and says so, and warns the development manager, when
+# either is past its bound.
 services:
   slack:
     enabled: %t
@@ -748,6 +754,9 @@ services:
       every: %s
       grown_megabytes: %d
       max_hold: %s
+    tracker_limits:
+      store_megabytes: %d
+      listing_seconds: %d
 `,
 		services.Slack.Enabled,
 		services.Dashboard.Enabled,
@@ -761,6 +770,8 @@ services:
 		renderScaffoldDuration(services.Maintenance.TrackerCleanup.Every),
 		services.Maintenance.TrackerCleanup.GrownMegabytes,
 		renderScaffoldDuration(services.Maintenance.TrackerCleanup.MaxHold),
+		services.Maintenance.TrackerLimits.StoreMegabytes,
+		services.Maintenance.TrackerLimits.ListingSeconds,
 	)
 }
 
