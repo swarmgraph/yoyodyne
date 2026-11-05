@@ -472,10 +472,11 @@ func TestAnIDThatIsARolesNameIsTheRoleUnlessTheClauseNamesTheDocument(t *testing
 		t.Fatalf("ConditionProblems(%q) = %v, want the recorded design refused for naming no executor", recorded, problems)
 	}
 
-	// An id that is no role's name keeps the older reading: the words are the
-	// document, with nothing beside them.
+	// An id that ends in a document word says it alone: slack-reporting-design
+	// written as "the slack-reporting design" is already "the <name> design", so
+	// nothing more beside it is needed.
 	if conditions := defaultHomes().Ungranted("Done means the slack-reporting design names the sink.", "", nil); len(conditions) != 1 {
-		t.Fatalf("Ungranted() on an id that is no role's name = %#v, want the document", conditions)
+		t.Fatalf("Ungranted() on an id ending in a document word = %#v, want the document", conditions)
 	}
 }
 

@@ -769,9 +769,9 @@ one week (`yoyodyne-ifd.141.1`, `.63`, and `.68.25` before them), each caught by
 the reviewer after the run had spent itself, each fixed afterwards by the
 architect amending the document through the governed path. So the check is made
 where the item is written: a creation, an update that rewrites the description,
-or a proposal whose "Done means" clauses or acceptance criteria name a path
-under the product, designs, decisions, or invariants homes — or a document one
-of those homes owns, by its name — is refused unless the item grants that path,
+or a proposal whose "Done means" clauses or acceptance criteria name a document
+the product, designs, decisions, or invariants homes own — by the path of a file
+in one of them, or by its name as below — is refused unless the item grants that path,
 with the clause quoted and both fixes named: take the clause out and say the
 document's owner amends it through the governed path once the run's summary
 names what there is to record, or, where the change behind it is already
