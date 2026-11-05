@@ -741,3 +741,27 @@ func TestEveryHeldItemIsListedWhateverItsStatusOrAssignee(t *testing.T) {
 		}
 	}
 }
+
+// A standing read from the tracker's last good listing, because the latest one
+// failed, leaves the held source not read whole, saying so: the held items it
+// lists may be out of date, and an observation must not call it complete.
+func TestAStandingFromTheLastGoodListingIsNotReadWhole(t *testing.T) {
+	t.Parallel()
+
+	observer, _ := whole(t)
+	failedAt := observedAt.Add(-time.Minute)
+	observer = withStanding(observer, readmodel.Standing{ObservedAt: observedAt, TrackerListing: &readmodel.TrackerListingAge{
+		TakenAt: observedAt.Add(-time.Hour), Failure: "the listing of every item: bd list timed out after 30s", FailedAt: &failedAt,
+	}})
+	observation := observer.Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+	for _, source := range observation.Sources {
+		if source.Name != SourceHeld {
+			continue
+		}
+		if source.Complete || !strings.Contains(source.Problem, "last good listing") || !strings.Contains(source.Problem, "bd list timed out after 30s") {
+			t.Fatalf("the held source is %+v; want it not read whole, naming the last good listing and the failure", source)
+		}
+		return
+	}
+	t.Fatalf("no held source in %+v", observation.Sources)
+}

@@ -6931,8 +6931,12 @@ standing's own age. A listing that fails does not take the work off the page:
 the last good listing is used in its place, `tracker_listing.failure` and
 `tracker_listing.failed_at` say what the failed listing said and when, and the
 page says the work shown is the tracker's last good listing and when it was
-taken. Only where no listing has ever succeeded is the work said to be
-unreadable.
+taken. `yoyo status` and Slack say the same under the not-startable line,
+in the short hourly message too: `not fully read: the open and ready work is
+the tracker's last good listing, taken …, because the latest listing failed
+at …: …`. The health observation counts the held work as not read whole, with
+the same words, for as long as the listings keep failing. Only where no
+listing has ever succeeded is the work said to be unreadable.
 
 At `/api/delivery` it serves the factory's delivery measures — modelled on the
 measures software teams commonly use for how often and how safely they ship:

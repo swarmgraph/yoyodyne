@@ -394,6 +394,9 @@ func (s Standing) renderNotStartable() string {
 		fmt.Fprintf(&rendered, "Not startable (%d of %s%s):\n",
 			len(s.NotStartable), count(s.Admitted, "admitted item"), s.heldSplit())
 	}
+	if said := s.ListingProblem(); said != "" {
+		fmt.Fprintf(&rendered, "%s%s\n", partialRead, said)
+	}
 	if s.WaitingForSlot != nil {
 		fmt.Fprintf(&rendered, "%s%s — %s\n", tally, s.WaitingForSlot.Says(), slotWaitNext)
 	}
@@ -745,6 +748,27 @@ func heldSince(since *time.Time, now time.Time) string {
 		return ""
 	}
 	return fmt.Sprintf("held since %s, %s; ", localMoment(*since), agoSaid(now.Sub(*since)))
+}
+
+// ListingProblem is the sentence a standing read from the tracker's last good
+// listing calls for, because its latest listing failed: that the open and
+// ready work is that listing, when it was taken, and what the failed listing
+// said. It is empty where the latest listing did not fail. Every surface that
+// says what is admitted and ready says it — the four lines `yoyo status` and
+// Slack print, under the not-startable line and kept in the brief rendering,
+// and the health observation, as the held source not read whole — so a
+// tracker that keeps failing is never shown as current work.
+func (s Standing) ListingProblem() string {
+	listing := s.TrackerListing
+	if listing == nil || listing.Failure == "" {
+		return ""
+	}
+	said := fmt.Sprintf("the open and ready work is the tracker's last good listing, taken %s, %s, because the latest listing failed",
+		localMoment(listing.TakenAt), agoSaid(s.ObservedAt.Sub(listing.TakenAt)))
+	if listing.FailedAt != nil && !listing.FailedAt.IsZero() {
+		said += " at " + localMoment(*listing.FailedAt)
+	}
+	return said + ": " + listing.Failure
 }
 
 // localMoment is a moment as a person reads one: the day and the minute in the

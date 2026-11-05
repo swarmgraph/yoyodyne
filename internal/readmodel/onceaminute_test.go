@@ -169,6 +169,19 @@ func TestAFailedListingKeepsTheLastGoodListingAndItsTime(t *testing.T) {
 	if title, found := held.Titles.Title("yoyodyne-1"); !found || title != "Queued" {
 		t.Fatalf("the standing after a failed listing names yoyodyne-1 %q (found = %v); want the last good listing's title", title, found)
 	}
+	// What `yoyo status` and Slack print says so too, in full and in the brief
+	// rendering an unasked message carries: the work is the last good listing,
+	// when it was taken, and what the failed listing said.
+	said := partialRead + "the open and ready work is the tracker's last good listing, taken " + localMoment(good) +
+		", 1 minute ago, because the latest listing failed at " + localMoment(failedAt) + ": the listing of every item: " + errStoreHeld.Error()
+	for name, rendered := range map[string]string{"the four lines": held.Render(), "the brief four lines": held.RenderBrief()} {
+		if !strings.Contains(rendered, said) {
+			t.Fatalf("%s after a failed listing do not say it is the last good listing; want %q in\n%s", name, said, rendered)
+		}
+	}
+	if rendered := first.Render(); strings.Contains(rendered, "last good listing") {
+		t.Fatalf("the four lines from a listing that did not fail speak of a last good listing:\n%s", rendered)
+	}
 
 	// A second failure a minute later still carries the first good listing's
 	// time, not the time of the failure before it.
