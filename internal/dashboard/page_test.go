@@ -944,6 +944,14 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			`class="freshness freshness-stale">stale<`, "The dashboard's last reading of the standing failed — bd list timed out after 30s — so what is shown is the reading taken 34s ago.",
 			`<p id="throughput-stale" class="stale" role="status">The dashboard's last reading of the throughput failed — the state root could not be resolved — so what is shown is the reading taken 1m ago.</p>`,
 		},
+		// The tracker listing the open and ready work came from: said with the
+		// time it was taken, and where the latest listing failed, said as the
+		// last good one with its time beside the failure.
+		"listing": {`class="freshness">taken 4s ago; open and ready work as the tracker listed it at 14:04:20; asks again every 10 s<`},
+		"listing-failed": {
+			`class="freshness freshness-stale">stale<`,
+			"The tracker's latest listing of open and ready work failed at 14:04:50 — the listing of every item: bd list timed out after 30s — so the open and ready work shown is the tracker's last good listing, taken at 14:02:00.",
+		},
 		"throughput-stale": {`class="freshness freshness-stale">stale<`, "The last reading failed for the throughput", `<p id="throughput-stale" class="stale" role="status">The last reading failed`},
 		// The spend box while the month is still being priced, and after a poll
 		// that failed on a page that had already been drawn: the figures it had

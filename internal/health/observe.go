@@ -338,7 +338,11 @@ func (o Observer) readRuns(r *reading) {
 // (readmodel.Standing.AlsoHeld). Each of the others says why that line does not
 // show it as held.
 func (o Observer) readHeld(r *reading, standing readmodel.Standing) {
-	r.source(SourceHeld, standing.NotStartableProblem)
+	problem := standing.NotStartableProblem
+	if problem == "" {
+		problem = standing.ListingProblem()
+	}
+	r.source(SourceHeld, problem)
 	held := make([]readmodel.Refused, 0, len(standing.NotStartable)+len(standing.AlsoHeld))
 	held = append(held, standing.NotStartable...)
 	held = append(held, standing.AlsoHeld...)

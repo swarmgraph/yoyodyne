@@ -30,12 +30,20 @@ package readmodel
 // before it; it asks the tracker for the closed items changed since the last
 // time it did only where an item it had listed as unfinished is no longer
 // listed so, or closedRefresh has passed (readEvery).
+//
+// The shared reading is made at most once every sharedReadingFresh, however
+// many dashboard pages, surfaces, and passes ask for it, and a reading whose
+// listing fails does not take the listing away: the last good listing is
+// handed over in its place, with the time it was taken and what the failed
+// listing said, and a standing carries both (TrackerListingAge) so the page
+// can say how old the work it shows is.
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,9 +52,15 @@ import (
 )
 
 // sharedReadingFresh is how old a shared reading may be and still be handed to
-// a status reading. It is the dashboard's own interval between standings, so a
-// reading shared at it is never staler than the page that shows it already is.
-const sharedReadingFresh = 10 * time.Second
+// a status reading, and so how often the tracker is asked for the open and
+// ready listings at most. The dashboard builds a standing every ten seconds,
+// so five standings in six are answered from a listing up to a minute old;
+// the standing says when that listing was taken (TrackerListingAge) rather
+// than passing it off as the standing's own moment. Each listing holds the
+// tracker's store under its one exclusive lock, so asking for it once a minute
+// rather than six times is what keeps the dashboard from queuing the writes
+// and the passes behind it.
+const sharedReadingFresh = time.Minute
 
 // wholeReadingEvery is how often the shared reading lists every item, closed
 // work included, rather than carrying closed items forward. The listing of
@@ -104,6 +118,24 @@ type sharedTracker struct {
 	once  sync.Once
 	every sharedRead
 	ready sharedRead
+	// listing is when the listings the reading was answered from were taken,
+	// set before either read is done; nil where they were not shared.
+	listing *TrackerListingAge
+	// everyKept is what the latest listing of every item said where it failed
+	// and the last good one was handed over in its place, and empty otherwise.
+	everyKept   string
+	everyKeptAt time.Time
+}
+
+// TrackerListingAge is when the open and ready listings a reading was
+// answered from were taken, which is earlier than the reading itself where the
+// shared listing was made before it or the latest listing failed. Failure is
+// what the latest listing said where it failed, and FailedAt when; what was
+// answered then is the last good listing, taken at TakenAt.
+type TrackerListingAge struct {
+	TakenAt  time.Time  `json:"taken_at"`
+	Failure  string     `json:"failure,omitempty"`
+	FailedAt *time.Time `json:"failed_at,omitempty"`
 }
 
 // sharedRead is one tracker command's answer, kept for every caller.
@@ -184,6 +216,7 @@ func (t *sharedTracker) share(ctx context.Context) {
 		if ready.err != nil {
 			reading.Ready, reading.ReadyFailure = nil, ready.err.Error()
 		}
+		keepLastGood(&reading, kept)
 		// A reading whose own caller gave up says nothing about the tracker, so
 		// it is not handed to anybody else.
 		return reading, ctx.Err() == nil
@@ -194,12 +227,84 @@ func (t *sharedTracker) share(ctx context.Context) {
 		return
 	}
 	t.every.items, t.ready.items = reading.Every, reading.Ready
-	if reading.EveryFailure != "" {
+	everyAt, carriesEvery := reading.CarriesEvery()
+	readyAt, carriesReady := reading.CarriesReady()
+	if !carriesEvery {
 		t.every.items, t.every.err = nil, errors.New(reading.EveryFailure)
 	}
-	if reading.ReadyFailure != "" {
+	if !carriesReady {
 		t.ready.items, t.ready.err = nil, errors.New(reading.ReadyFailure)
 	}
+	if carriesEvery || carriesReady {
+		t.listing = listingAge(reading, everyAt, readyAt, carriesEvery, carriesReady)
+	}
+	if carriesEvery && reading.EveryFailure != "" {
+		t.everyKept, t.everyKeptAt = reading.EveryFailure, everyAt
+	}
+}
+
+// keepLastGood puts the last good listing kept carries in place of each of
+// reading's listings that failed, with the time it was taken, leaving the
+// failure said beside it. A listing nothing good was ever kept for stays
+// failed.
+func keepLastGood(reading *runstate.TrackerReading, kept *runstate.TrackerReading) {
+	if kept == nil {
+		return
+	}
+	if reading.EveryFailure != "" {
+		if at, ok := kept.CarriesEvery(); ok {
+			reading.Every, reading.EveryAt = kept.Every, at
+		}
+	}
+	if reading.ReadyFailure != "" {
+		if at, ok := kept.CarriesReady(); ok {
+			reading.Ready, reading.ReadyAt = kept.Ready, at
+		}
+	}
+}
+
+// listingAge is the age of the listings reading carries: the older of the two
+// it carries, and what failed, where anything did.
+func listingAge(reading runstate.TrackerReading, everyAt, readyAt time.Time, carriesEvery, carriesReady bool) *TrackerListingAge {
+	age := &TrackerListingAge{TakenAt: everyAt}
+	if !carriesEvery || (carriesReady && readyAt.Before(everyAt)) {
+		age.TakenAt = readyAt
+	}
+	var failures []string
+	if reading.EveryFailure != "" {
+		failures = append(failures, "the listing of every item: "+reading.EveryFailure)
+	}
+	if reading.ReadyFailure != "" {
+		failures = append(failures, "the listing of what is ready: "+reading.ReadyFailure)
+	}
+	if len(failures) > 0 {
+		failedAt := reading.StartedAt
+		age.Failure, age.FailedAt = strings.Join(failures, "; "), &failedAt
+	}
+	return age
+}
+
+// keptEvery is, where the listing of every item failed and the last good one
+// was handed over in its place, what the failed listing said and when the kept
+// one was taken; ok is false otherwise. A caller that cannot say the listing is
+// old reports the failure rather than presenting old work as current.
+func (t *sharedTracker) keptEvery() (failure string, takenAt time.Time, ok bool) {
+	if t.listingAge() == nil || t.everyKept == "" {
+		return "", time.Time{}, false
+	}
+	return t.everyKept, t.everyKeptAt, true
+}
+
+// listingAge is when the listings this reading was answered from were taken,
+// once both reads are done, and nil where they were not shared or neither
+// carried a listing.
+func (t *sharedTracker) listingAge() *TrackerListingAge {
+	if t == nil || t.every.done == nil {
+		return nil
+	}
+	<-t.every.done
+	<-t.ready.done
+	return t.listing
 }
 
 // readEvery is the shared reading's account of every item: a listing of every

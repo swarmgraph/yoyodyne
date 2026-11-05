@@ -556,6 +556,15 @@ func readDeliverySources(ctx context.Context, sources DeliverySources, since tim
 		items, err := tracker.List(listCtx, "")
 		cancel()
 		shared.finish()
+		// A listing kept in place of a failed one is not used here: every
+		// measure read from the tracker would be presented as current, and the
+		// delivery page says only which sources could not be read and that the
+		// measures read from them say so. So it is reported as the failure it
+		// is, with when the last good listing was taken (sharedlisting.go).
+		if failure, takenAt, kept := shared.keptEvery(); err == nil && kept {
+			err = fmt.Errorf("its latest listing of every item failed: %s; its last good listing, taken %s, is not used for these measures",
+				failure, localMoment(takenAt))
+		}
 		if err != nil {
 			read.trackerErr = fmt.Sprintf("%s could not be read: %v", sourceTracker, err)
 		} else {

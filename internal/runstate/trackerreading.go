@@ -43,8 +43,9 @@ const maxTrackerReadingBytes = 512 << 20
 
 // TrackerReading is one reading of every item the tracker holds and of what it
 // reports ready, and when it began. A listing that failed carries what it said
-// in place of its items, so the callers queued behind a reading the tracker did
-// not answer are told so rather than each asking the tracker again.
+// beside the last good listing, where there was one, so the callers queued
+// behind a reading the tracker did not answer are told so and shown what it
+// last answered rather than each asking the tracker again.
 type TrackerReading struct {
 	SchemaVersion int              `json:"schema_version"`
 	ProductID     domain.ProductID `json:"product_id"`
@@ -67,6 +68,37 @@ type TrackerReading struct {
 	// listing failed and Every carries none, so the next reading can still
 	// carry them rather than listing every item again.
 	Closed []beads.WorkItem `json:"closed,omitempty"`
+	// EveryAt and ReadyAt are when the listings Every and Ready carry were
+	// taken. Where the reading's own listing succeeded that is StartedAt. Where
+	// it failed, the last good listing is carried in its place with the time it
+	// was taken, and the failure is said beside it (internal/readmodel,
+	// sharedlisting.go). Zero on a reading whose listing succeeded is
+	// StartedAt, and zero beside a failure is no listing carried at all.
+	EveryAt time.Time `json:"every_at,omitzero"`
+	ReadyAt time.Time `json:"ready_at,omitzero"`
+}
+
+// CarriesEvery reports whether the reading carries a listing of every item,
+// its own or the last good one kept in place of a failed one, and when it was
+// taken.
+func (r TrackerReading) CarriesEvery() (time.Time, bool) {
+	return carriedAt(r.EveryFailure, r.EveryAt, r.StartedAt)
+}
+
+// CarriesReady is CarriesEvery for the listing of what is ready.
+func (r TrackerReading) CarriesReady() (time.Time, bool) {
+	return carriedAt(r.ReadyFailure, r.ReadyAt, r.StartedAt)
+}
+
+func carriedAt(failure string, at, started time.Time) (time.Time, bool) {
+	switch {
+	case !at.IsZero():
+		return at, true
+	case failure == "":
+		return started, true
+	default:
+		return time.Time{}, false
+	}
 }
 
 // TrackerReadingStore is where the product's shared reading is kept, one file
@@ -123,6 +155,12 @@ func (s *TrackerReadingStore) Share(ctx context.Context, fresh time.Duration, re
 	started := s.now()
 	reading, keep := read(previous)
 	reading.SchemaVersion, reading.ProductID, reading.StartedAt = TrackerReadingSchemaVersion, s.productID, started.UTC()
+	if reading.EveryFailure == "" {
+		reading.EveryAt = reading.StartedAt
+	}
+	if reading.ReadyFailure == "" {
+		reading.ReadyAt = reading.StartedAt
+	}
 	if keep {
 		_ = s.write(reading)
 	}

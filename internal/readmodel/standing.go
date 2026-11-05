@@ -668,6 +668,12 @@ type Standing struct {
 	FactoryProblems        []Attention `json:"factory_problems"`
 	FactoryProblemsProblem string      `json:"factory_problems_problem,omitempty"`
 	ObservedAt             time.Time   `json:"observed_at"`
+	// TrackerListing is when the tracker's open and ready listings this
+	// standing was read from were taken, which can be up to a minute before
+	// ObservedAt (sharedlisting.go), and what the latest listing said where it
+	// failed and the last good one was used. It is absent where the standing
+	// did not read from the shared listing.
+	TrackerListing *TrackerListingAge `json:"tracker_listing,omitempty"`
 
 	// UsageWindows is each account's usage windows as the provider last
 	// reported them: the share of the week used, each model's own week beside
@@ -1378,6 +1384,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	for index := range standing.ProgramManagers {
 		standing.ProgramManagers[index] = citeProgramManager(standing.ProgramManagers[index], standing.Titles)
 	}
+	standing.TrackerListing = shared.listingAge()
 	return standing
 }
 

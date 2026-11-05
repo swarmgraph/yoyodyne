@@ -180,7 +180,13 @@ func TestADashboardRefreshListsEveryClosedItemOnlyOnTheFirst(t *testing.T) {
 	if made := refresh(); !reflect.DeepEqual(made, map[string]int{"every": 1, "ready": 1}) {
 		t.Fatalf("the first refresh asked the tracker %v; want one listing of every item and one readiness query", made)
 	}
-	for round := range 5 {
+	// Every refresh that makes a new shared reading inside closedRefresh of the
+	// first lists only the unfinished work.
+	rounds := int(closedRefresh / (sharedReadingFresh + time.Second))
+	if rounds < 1 {
+		t.Fatalf("closedRefresh %s leaves no room for a refresh after %s", closedRefresh, sharedReadingFresh)
+	}
+	for round := range rounds {
 		clock = clock.Add(sharedReadingFresh + time.Second)
 		if made := refresh(); !reflect.DeepEqual(made, map[string]int{"unfinished": 1, "ready": 1}) {
 			t.Fatalf("refresh %d asked the tracker %v; want only the unfinished work and the readiness query", round+2, made)
