@@ -47,6 +47,17 @@ func landedInvariant(t *testing.T, repository string, provider interface {
 	if len(provider.RequestsForRole(domain.RoleDeveloper)) != 0 || len(provider.RequestsForRole(domain.RoleReviewer)) != 1 {
 		t.Fatal("publication did not use exactly an independent review")
 	}
+	// The reviewer is told, above the evidence and from the run's own record,
+	// that this is the architect's own invariant, so it does not refuse the
+	// change to an invariant that is the whole of the run.
+	reviewed := provider.RequestsForRole(domain.RoleReviewer)[0].Prompt
+	notice, untrusted := strings.Index(reviewed, "# The architect's own invariant"), strings.Index(reviewed, "# Untrusted review evidence")
+	if notice < 0 || notice > untrusted || !strings.Contains(reviewed[notice:untrusted], path) {
+		t.Fatalf("the reviewer was not told this is the architect's own invariant at %s:\n%s", path, reviewed)
+	}
+	if !strings.Contains(reviewed, "own architectural invariant") || !strings.Contains(reviewed, "confirmed by the harness under approvals.designs") {
+		t.Fatalf("the publication's work item does not say whose invariant it is:\n%s", reviewed)
+	}
 	if state.Document.Owner != domain.RoleArchitect || state.Document.Candidate.Artifact.Kind != artifact.KindInvariant || state.Document.Candidate.Artifact.Path != path {
 		t.Fatalf("publication = %+v", state.Document)
 	}
@@ -193,5 +204,47 @@ func TestAnotherRolesInvariantWriteIsRefused(t *testing.T) {
 	// The store refuses it too, whoever asks.
 	if err := artifact.StoreFor(repository, pipeline.Config.Product).CheckWrite(domain.RoleProductManager, artifact.Write{Action: artifact.WriteCreate, ID: "not-hers-to-write", Kind: artifact.KindInvariant, Title: "Not hers", Directory: "docs/decisions/invariants", EstablishedBy: []string{"yoyodyne-1m3"}, Body: "## Must hold\n\nx\n\n## Why\n\ny", Reason: "tried"}); !errors.Is(err, artifact.ErrUnauthorized) {
 		t.Fatalf("CheckWrite = %v, want ErrUnauthorized", err)
+	}
+}
+
+// Only a publication of the architect's own invariant is named to its reviewer
+// as one; a design's is not.
+func TestOnlyAnInvariantPublicationIsNamedAsTheArchitectsOwn(t *testing.T) {
+	t.Parallel()
+
+	invariantRun := runstate.State{Document: &runstate.DocumentPublication{Owner: domain.RoleArchitect, Candidate: artifact.ConfirmedDocument{Artifact: artifact.Artifact{Kind: artifact.KindInvariant, Path: "docs/decisions/invariants/x.md"}}}}
+	if got := architectInvariant(invariantRun); got != "docs/decisions/invariants/x.md" {
+		t.Fatalf("architectInvariant(invariant) = %q", got)
+	}
+	designRun := runstate.State{Document: &runstate.DocumentPublication{Owner: domain.RoleArchitect, Candidate: artifact.ConfirmedDocument{Artifact: artifact.Artifact{Kind: artifact.KindDesign, Path: "docs/designs/x.md"}}}}
+	if got := architectInvariant(designRun); got != "" {
+		t.Fatalf("architectInvariant(design) = %q, want none", got)
+	}
+	if got := architectInvariant(runstate.State{}); got != "" {
+		t.Fatalf("architectInvariant(no document) = %q, want none", got)
+	}
+}
+
+// A development manager's retry of a stopped invariant publication is refused
+// where the target branch already carries a later revision of that invariant,
+// as it is for any other document, and allowed where it does not.
+func TestARetryIsRefusedOverALaterRevisionOfTheInvariant(t *testing.T) {
+	t.Parallel()
+
+	written := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	candidate := artifact.ConfirmedDocument{Artifact: artifact.Artifact{ID: "checks-are-honest", Kind: artifact.KindInvariant, Title: "Checks report what they did", Revisions: []artifact.Revision{{Action: artifact.ActionAmended, By: domain.RoleArchitect, At: written, Reason: "the ruling"}}}}
+	state := runstate.State{RunID: "run-stopped", TargetBranch: "main", Document: &runstate.DocumentPublication{Owner: domain.RoleArchitect, Candidate: candidate}}
+	copyAt := func(at time.Time) []byte {
+		content, err := invariant.Render(invariant.Invariant{ID: "checks-are-honest", Title: "Checks report what they did", Status: invariant.StatusActive, Statement: "s", Rationale: "r", EstablishedBy: []string{"yoyodyne-1m3"}, Revisions: []invariant.Revision{{Action: invariant.ActionCreated, By: domain.RoleArchitect, At: at, Reason: "recorded"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return []byte(content)
+	}
+	if said := laterInvariantRevision(state, copyAt(written.Add(time.Hour))); !strings.Contains(said, "is not retried") || !strings.Contains(said, "checks-are-honest") {
+		t.Fatalf("laterInvariantRevision(later) = %q, want the retry refused", said)
+	}
+	if said := laterInvariantRevision(state, copyAt(written.Add(-time.Hour))); said != "" {
+		t.Fatalf("laterInvariantRevision(earlier) = %q, want the retry allowed", said)
 	}
 }

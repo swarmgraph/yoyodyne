@@ -366,7 +366,36 @@ func triedAgain(document runstate.DocumentPublication) string {
 // against, so what the reviewer of a document run is told to check beyond the
 // document's own words is said there (consistentMarkReview).
 func documentItem(document runstate.DocumentPublication, attempt int) beads.WorkItem {
-	return beads.WorkItem{ID: document.RunIDFor(attempt), Title: "Publishing " + document.Candidate.Artifact.Title, Status: "open", Description: "Publish exactly the document confirmed in its owning conversation." + consistentMarkReview(document.Candidate) + "\nprotected-path grant: " + document.Candidate.Artifact.Path}
+	return beads.WorkItem{ID: document.RunIDFor(attempt), Title: "Publishing " + document.Candidate.Artifact.Title, Status: "open", Description: "Publish exactly the document confirmed in its owning conversation." + invariantReview(document) + consistentMarkReview(document.Candidate) + "\nprotected-path grant: " + document.Candidate.Artifact.Path}
+}
+
+// architectInvariant is the path of the architect's own invariant a run
+// publishes, read from its record, or empty for any other run. It is what the
+// reviewer is told in place of the rule that a change to an invariant is a
+// finding (review.Request.ArchitectInvariant), so it is set only for a
+// publication the harness built from the architect's conversation or her
+// standing approval, owned by her and of the invariant kind.
+func architectInvariant(state runstate.State) string {
+	document := state.Document
+	if document == nil || document.Owner != domain.RoleArchitect || document.Candidate.Artifact.Kind != artifact.KindInvariant {
+		return ""
+	}
+	return document.Candidate.Artifact.Path
+}
+
+// invariantReview says, in the work item a publication run is recorded under,
+// that the document is the architect's own invariant and how it was
+// confirmed. It is empty for any other document.
+func invariantReview(document runstate.DocumentPublication) string {
+	if document.Owner != domain.RoleArchitect || document.Candidate.Artifact.Kind != artifact.KindInvariant {
+		return ""
+	}
+	confirmed := "approved by the operator"
+	if approval, ok := document.Candidate.Artifact.LatestApproval(); ok && approval.By == artifact.ApproverHarness {
+		confirmed = "confirmed by the harness under " + approval.Policy
+	}
+	return fmt.Sprintf(" It is the %s's own architectural invariant %s, written in her conversation and %s; changing that file is how she lands it.",
+		document.Owner.Title(), document.Candidate.Artifact.ID, confirmed)
 }
 
 // consistentMarkReview tells the reviewer of a document of the product's intent

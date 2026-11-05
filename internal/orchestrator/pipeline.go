@@ -9306,6 +9306,10 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		// reached the developer's context, so a change that violates one is judged
 		// against it whether or not the work item ever mentioned it.
 		Invariants: a.reviewedInvariants(changes).Text(),
+		// A run publishing the architect's own invariant says so from its own
+		// record, outside the evidence, so the reviewer does not refuse the
+		// change to an invariant that is the whole of the run.
+		ArchitectInvariant: architectInvariant(a.state),
 		// What the developer claimed its change does to the item, so the change is
 		// judged against what it was offered as. It comes from the durable record
 		// rather than from what this attempt happened to return, so a repair round

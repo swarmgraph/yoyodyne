@@ -538,7 +538,10 @@ was started on her decision; the stopped run's pull request is closed, since the
 fresh run opens its own, and a fresh run that stops again without judging the
 document is continued by the harness. A retry is refused before any run
 starts when the target branch already carries a later confirmed revision of the
-same document, and the refusal names that revision and when it was confirmed;
+same document, and the refusal names that revision and when it was confirmed.
+An invariant's file records no confirmations, so for an invariant it is the
+copy's last revision, written after the text the run carries, that refuses the
+retry;
 retiring the run is what answers it. `retire` closes the pull request with her
 reason and lands nothing. Both are recorded on the stopped run, and the closed
 pull request carries a comment saying who decided what and why. Each run's start and end is also noted on the work item
@@ -817,6 +820,10 @@ the [pushes and merges the harness never routes through an agent](designs/v1-har
 what stands in the way of it editing an invariant is its contract, which forbids
 it and tells it to propose the amendment instead, and the reviewer, which is
 told that a change creating, amending, retiring, or editing one is a finding.
+The one exception is the run that publishes an invariant the architect wrote in
+her own conversation: the harness tells that run's reviewer, from the run's own
+record and above everything the change supplied, which file is hers, and the
+reviewer judges its wording and form rather than the fact that it changed.
 Treat "only the architect changes an invariant" as the authorized path plus a
 caught one rather than as something the harness makes impossible.
 
