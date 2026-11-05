@@ -414,12 +414,14 @@ func (p Policy) Setting(kind Kind) (name string, mode domain.ApprovalMode, gover
 		// The operating rules are product intent filed beside the goals, so the
 		// setting that governs the product's intent governs them too.
 		return "approvals.goals", p.Goals, true
-	case KindDesign, KindSpecification, KindDecision:
+	case KindDesign, KindSpecification, KindDecision, KindInvariant:
 		// A decision record is the architect's account of how something was
 		// decided rather than a statement of what the product should do, so it is
 		// governed as the architect's designs are: one written from a
 		// conversation is confirmed or put to the operator as a design is, rather
-		// than waiting for a decision no setting would ever make.
+		// than waiting for a decision no setting would ever make. An invariant is
+		// a constraint extracted from those decisions, so the same setting governs
+		// it rather than a key of its own.
 		return "approvals.designs", p.Designs, true
 	default:
 		return "", "", false

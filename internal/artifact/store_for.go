@@ -32,6 +32,10 @@ func StoreFor(repositoryRoot string, product config.Product) Store {
 			KindDesign:        product.Designs,
 			KindSpecification: product.Designs,
 			KindDecision:      product.Decisions,
+			// An invariant is filed in its own directory rather than in an artifact
+			// home, and that directory is also the invariants store this one writes
+			// an invariant through (invariantStore).
+			KindInvariant: product.Invariants,
 		},
 	}
 }

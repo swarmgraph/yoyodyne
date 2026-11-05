@@ -26,6 +26,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/invariant"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -132,6 +133,9 @@ func (d DocumentDecider) laterRevision(ctx context.Context, state runstate.State
 	if artifact.DocumentIdentity(copied.Content) == artifact.DocumentIdentity([]byte(candidate.Content)) {
 		return "", nil
 	}
+	if candidate.Artifact.Kind == artifact.KindInvariant {
+		return laterInvariantRevision(state, copied.Content), nil
+	}
 	standing, err := artifact.ParseDocument(copied.Content)
 	if err != nil || standing.ID != candidate.Artifact.ID {
 		return "", nil
@@ -148,6 +152,27 @@ func (d DocumentDecider) laterRevision(ctx context.Context, state runstate.State
 	when := func(at time.Time) string { return at.Local().Format("2006-01-02 15:04 MST") }
 	return fmt.Sprintf("run %s is not retried: %s already carries a later confirmed revision of %s (%s), revision %d, written by the %s at %s (%s) and confirmed by the %s at %s, after the text this run carries was written at %s. A fresh run of that text would stop on the same changed copy, so nothing was recorded; retiring the run is the decision that fits",
 		state.RunID, state.TargetBranch, candidate.Artifact.Title, candidate.Artifact.ID, approval.Revision, confirmed.By.Title(), when(confirmed.At), oneline.Fold(confirmed.Reason, 300), approval.By, when(approval.At), when(written.At)), nil
+}
+
+// laterInvariantRevision is laterRevision for an invariant, whose file records
+// no approvals: every revision on the target branch reached it through a
+// reviewed run or `yoyo invariant`, so the copy's last revision is the one that
+// stands, and the retry is refused where it was written after the text the run
+// carries.
+func laterInvariantRevision(state runstate.State, content []byte) string {
+	candidate := state.Document.Candidate
+	standing, err := invariant.Parse(string(content))
+	if err != nil || standing.ID != candidate.Artifact.ID || len(standing.Revisions) == 0 {
+		return ""
+	}
+	last := standing.Revisions[len(standing.Revisions)-1]
+	written := candidate.Artifact.Revisions[len(candidate.Artifact.Revisions)-1]
+	if !last.At.After(written.At) {
+		return ""
+	}
+	when := func(at time.Time) string { return at.Local().Format("2006-01-02 15:04 MST") }
+	return fmt.Sprintf("run %s is not retried: %s already carries a later revision of the invariant %s (%s), revision %d, %s by the %s at %s (%s), after the text this run carries was written at %s. A fresh run of that text would stop on the same changed copy, so nothing was recorded; retiring the run is the decision that fits",
+		state.RunID, state.TargetBranch, candidate.Artifact.Title, candidate.Artifact.ID, len(standing.Revisions)-1, last.Action, last.By.Title(), when(last.At), oneline.Fold(last.Reason, 300), when(written.At))
 }
 
 // RetireDocument closes a stopped document run's pull request and records why.

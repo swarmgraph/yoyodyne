@@ -538,7 +538,10 @@ was started on her decision; the stopped run's pull request is closed, since the
 fresh run opens its own, and a fresh run that stops again without judging the
 document is continued by the harness. A retry is refused before any run
 starts when the target branch already carries a later confirmed revision of the
-same document, and the refusal names that revision and when it was confirmed;
+same document, and the refusal names that revision and when it was confirmed.
+An invariant's file records no confirmations, so for an invariant it is the
+copy's last revision, written after the text the run carries, that refuses the
+retry;
 retiring the run is what answers it. `retire` closes the pull request with her
 reason and lands nothing. Both are recorded on the stopped run, and the closed
 pull request carries a comment saying who decided what and why. Each run's start and end is also noted on the work item
@@ -817,6 +820,10 @@ the [pushes and merges the harness never routes through an agent](designs/v1-har
 what stands in the way of it editing an invariant is its contract, which forbids
 it and tells it to propose the amendment instead, and the reviewer, which is
 told that a change creating, amending, retiring, or editing one is a finding.
+The one exception is the run that publishes an invariant the architect wrote in
+her own conversation: the harness tells that run's reviewer, from the run's own
+record and above everything the change supplied, which file is hers, and the
+reviewer judges its wording and form rather than the fact that it changed.
 Treat "only the architect changes an invariant" as the authorized path plus a
 caught one rather than as something the harness makes impossible.
 
@@ -837,10 +844,20 @@ invariant the harness could not read is named as a gap rather than dropped
 silently, and what was delivered is recorded on the work item so an operator can
 see afterwards which constraints applied.
 
-The architect can be asked what an invariant should say — `yoyo agent chat
-architect` — and it cannot write one, because no conversation has tools. So the
-lifecycle is reachable from the command line, acting with the architect's
-authority and recording that it did:
+The architect submits invariants herself. From her conversation — `yoyo agent
+chat architect`, or one of her recurring passes — she writes a new invariant or
+an amendment of one as a document of kind `invariant`, in the same block she
+writes her designs in, with the constraint's two sections as its body and
+`established_by` and `scope` beside it. The harness refuses it from any other
+role, holds it to this directory's form, confirms it under `approvals.designs`
+or puts it to the operator where that setting is `human`, and publishes it
+through its own reviewed run with its checks and an independent review, as it
+does her designs and decision records. The file it lands keeps the invariant's
+own form: the confirmation is kept on the run's record rather than in the
+file, which has no place for one.
+
+The command line is the manual alternative, acting with the architect's
+authority and recording that it did, and it is the only way to retire one:
 
 ```sh
 ./bin/yoyo invariant list

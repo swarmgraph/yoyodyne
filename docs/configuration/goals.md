@@ -539,10 +539,16 @@ item, and a scoped one is delivered when the work item's prose — or, for the
 reviewer, the change itself — names a path it constrains. A missing directory is
 not an error; the project simply records no invariants.
 
-Writing these by hand works, and `yoyo invariant create|amend|retire` is the
-supported path: it validates the constraint, records who changed it and why, and
-refuses every role but the architect. Retirement sets `status: retired` and
-records the reason. The file stays and stops being delivered, because an
+Writing these by hand works, and two paths are supported, both of which
+validate the constraint, record who changed it and why, and refuse every role
+but the architect. The architect writes a new invariant or an amendment of one
+from her own conversation, as a document of kind `invariant` in the same block
+she writes her designs in: it is confirmed under `approvals.designs`, or put to
+the operator where that setting is `human`, and published through its own
+reviewed run, in this directory's form, exactly as her designs and decision
+records are. `yoyo invariant create|amend|retire` is the manual alternative,
+and the only way to retire one. Retirement sets `status: retired` and records
+the reason. The file stays and stops being delivered, because an
 invariant that vanished leaves whoever read it last month with no way to find out
 it was lifted.
 

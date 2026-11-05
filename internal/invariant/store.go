@@ -169,6 +169,21 @@ type Amendment struct {
 
 // Create records a new invariant. Only the architect may: see Authorize.
 func (s Store) Create(role domain.AgentRole, draft Draft, now time.Time) (Invariant, error) {
+	created, err := s.PrepareCreate(role, draft, now)
+	if err != nil {
+		return Invariant{}, err
+	}
+	if err := s.write(created.Path, created); err != nil {
+		return Invariant{}, err
+	}
+	return created, nil
+}
+
+// PrepareCreate is Create without the write: the invariant a creation would
+// record, validated and placed at the file it would land in, refused exactly
+// where Create would refuse it. It is what a reviewed run is handed instead of a
+// change to the checkout.
+func (s Store) PrepareCreate(role domain.AgentRole, draft Draft, now time.Time) (Invariant, error) {
 	if err := Authorize(role); err != nil {
 		return Invariant{}, err
 	}
@@ -200,9 +215,6 @@ func (s Store) Create(role domain.AgentRole, draft Draft, now time.Time) (Invari
 		return Invariant{}, fmt.Errorf("inspect invariant %q: %w", created.ID, err)
 	}
 	created.Path = relative
-	if err := s.write(relative, created); err != nil {
-		return Invariant{}, err
-	}
 	return created, nil
 }
 
@@ -212,6 +224,19 @@ func (s Store) Create(role domain.AgentRole, draft Draft, now time.Time) (Invari
 // a constraint left describing last month's system is one a developer learns to
 // discount.
 func (s Store) Amend(role domain.AgentRole, id string, amendment Amendment, now time.Time) (Invariant, error) {
+	amended, err := s.PrepareAmend(role, id, amendment, now)
+	if err != nil {
+		return Invariant{}, err
+	}
+	if err := s.write(amended.Path, amended); err != nil {
+		return Invariant{}, err
+	}
+	return amended, nil
+}
+
+// PrepareAmend is Amend without the write, as PrepareCreate is Create without
+// it.
+func (s Store) PrepareAmend(role domain.AgentRole, id string, amendment Amendment, now time.Time) (Invariant, error) {
 	if err := Authorize(role); err != nil {
 		return Invariant{}, err
 	}
@@ -253,10 +278,39 @@ func (s Store) Amend(role domain.AgentRole, id string, amendment Amendment, now 
 	if err := amended.Validate(); err != nil {
 		return Invariant{}, err
 	}
-	if err := s.write(amended.Path, amended); err != nil {
-		return Invariant{}, err
-	}
 	return amended, nil
+}
+
+// Find reads the one invariant an id names, active or retired, and reports
+// whether one is recorded under it. A file that is there and cannot be read as
+// an invariant is an error rather than an absent invariant: a write that took it
+// for absent would create a second constraint over the first.
+func (s Store) Find(id string) (Invariant, bool, error) {
+	path, relative, err := s.path(id)
+	if err != nil {
+		return Invariant{}, false, err
+	}
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return Invariant{}, false, nil
+	} else if err != nil {
+		return Invariant{}, false, fmt.Errorf("inspect invariant %q: %w", id, err)
+	}
+	found, err := s.loadOne(strings.TrimSpace(id))
+	if err != nil {
+		return Invariant{}, false, err
+	}
+	found.Path = relative
+	return found, true, nil
+}
+
+// ResolvedDirectory is the invariants directory as this store resolves it, relative to
+// the repository root.
+func (s Store) ResolvedDirectory() (string, error) {
+	_, directory, err := s.resolve()
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(directory), nil
 }
 
 // changesNothing reports an amendment that names no change at all, which is a
@@ -417,14 +471,9 @@ func parse(content string) (Invariant, error) {
 	if err := decoder.Decode(&decoded); err != nil {
 		return Invariant{}, fmt.Errorf("its frontmatter could not be read: %w", err)
 	}
-	sections := splitSections(body)
-	statement, hasStatement := sections[statementHeading]
-	rationale, hasRationale := sections[rationaleHeading]
-	if !hasStatement {
-		return Invariant{}, errors.New("it has no `## Must hold` section stating what must hold")
-	}
-	if !hasRationale {
-		return Invariant{}, errors.New("it has no `## Why` section stating why the constraint holds")
+	statement, rationale, err := ParseBody(body)
+	if err != nil {
+		return Invariant{}, err
 	}
 	return Invariant{
 		ID:            strings.TrimSpace(decoded.ID),
@@ -487,6 +536,34 @@ func splitSections(body string) map[string]string {
 	}
 	flush()
 	return sections
+}
+
+// Parse reads one invariant file's content as Load would, without the check
+// that its id matches a file name, since the content alone does not say where
+// it was read from.
+func Parse(content string) (Invariant, error) {
+	return parse(content)
+}
+
+// ParseBody reads the prose half of an invariant file — the `## Must hold` and
+// `## Why` sections — and returns what each says. It is how an invariant written
+// as a document is held to the same two sections a file is.
+func ParseBody(body string) (statement, rationale string, err error) {
+	sections := splitSections(body)
+	statement, hasStatement := sections[statementHeading]
+	rationale, hasRationale := sections[rationaleHeading]
+	if !hasStatement {
+		return "", "", errors.New("it has no `## Must hold` section stating what must hold")
+	}
+	if !hasRationale {
+		return "", "", errors.New("it has no `## Why` section stating why the constraint holds")
+	}
+	return statement, rationale, nil
+}
+
+// Render is the file an invariant is written as.
+func Render(recorded Invariant) (string, error) {
+	return render(recorded)
 }
 
 // render writes an invariant back out in the shape parse reads, so an amendment

@@ -767,17 +767,20 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 	}
 	account := p.accountFor(run.AccountAlias)
 	result, reviewErr := p.Reviewer.Review(ctx, review.Request{
-		RunID:        generation.EventStream(),
-		WorkItemID:   entry.WorkItemID,
-		Context:      candidateReviewContext(entry, generation, item.Title, item.Description, item.Design, item.AcceptanceCriteria) + intent,
-		Invariants:   selected.Text(),
-		WorktreePath: generation.Checkout,
-		Changes:      change.Changes,
-		Repository:   reviewedRepository(ctx, w.Candidates, generation.Candidate, item, change.Changes),
-		Checks:       candidateCheckResults(generation),
-		RedactValues: p.RedactValues,
-		LastSequence: generation.LastSequence,
-		EventSink:    w.Events,
+		RunID:      generation.EventStream(),
+		WorkItemID: entry.WorkItemID,
+		Context:    candidateReviewContext(entry, generation, item.Title, item.Description, item.Design, item.AcceptanceCriteria) + intent,
+		Invariants: selected.Text(),
+		// A queued publication of the architect's own invariant is reviewed as
+		// one here too, said from the run's record.
+		ArchitectInvariant: architectInvariant(run),
+		WorktreePath:       generation.Checkout,
+		Changes:            change.Changes,
+		Repository:         reviewedRepository(ctx, w.Candidates, generation.Candidate, item, change.Changes),
+		Checks:             candidateCheckResults(generation),
+		RedactValues:       p.RedactValues,
+		LastSequence:       generation.LastSequence,
+		EventSink:          w.Events,
 		Spend: spend.Attribution{
 			ProductID:      p.Config.Product.ID,
 			Agent:          p.agentNameForRole(domain.RoleReviewer),

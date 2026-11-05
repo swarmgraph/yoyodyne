@@ -1985,3 +1985,33 @@ func TestTheReviewContractsApplyStandingGoals(t *testing.T) {
 		}
 	}
 }
+
+// A run publishing the architect's own invariant says so above the untrusted
+// evidence, naming the one file the rule against changing invariants does not
+// reach; any other run carries no such notice.
+func TestTheArchitectsOwnInvariantIsNamedAboveTheEvidence(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"fine"}`}
+	request := newRequest(nil)
+	request.ArchitectInvariant = "docs/decisions/invariants/checks-are-honest.md"
+	if _, err := (Reviewer{Backend: provider, Clock: reviewClock{}, Model: testReviewModel}).Review(context.Background(), request); err != nil {
+		t.Fatalf("Review() error = %v", err)
+	}
+	notice := strings.Index(provider.request.Prompt, "# The architect's own invariant")
+	untrusted := strings.Index(provider.request.Prompt, "# Untrusted review evidence")
+	if notice < 0 || untrusted < 0 || notice > untrusted || !strings.Contains(provider.request.Prompt, request.ArchitectInvariant) {
+		t.Fatalf("notice = %d, untrusted evidence = %d: %q", notice, untrusted, provider.request.Prompt)
+	}
+	if !strings.Contains(provider.request.SystemPrompt, "publishes the architect's own invariant, and then only for the file it names") {
+		t.Fatalf("review contract does not name the exception: %q", provider.request.SystemPrompt)
+	}
+
+	plain := &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"fine"}`}
+	if _, err := (Reviewer{Backend: plain, Clock: reviewClock{}, Model: testReviewModel}).Review(context.Background(), newRequest(nil)); err != nil {
+		t.Fatalf("Review() error = %v", err)
+	}
+	if strings.Contains(plain.request.Prompt, "# The architect's own invariant") {
+		t.Fatal("a run publishing no invariant was told it publishes the architect's")
+	}
+}

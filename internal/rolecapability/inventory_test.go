@@ -363,6 +363,23 @@ var expresses = map[string]expression{
 		question: "does the amending role hold the invariants?",
 		asks:     []capability.Capability{capability.InvariantMutate},
 	},
+	"invariant.prepare-create": {
+		question: "does the creating role hold the invariants?",
+		asks:     []capability.Capability{capability.InvariantMutate},
+	},
+	"invariant.prepare-amend": {
+		question: "does the amending role hold the invariants?",
+		asks:     []capability.Capability{capability.InvariantMutate},
+	},
+	"artifact.prepare-invariant": {
+		question: "does the role writing an invariant from a conversation hold the invariants?",
+		asks:     []capability.Capability{capability.InvariantMutate},
+		gap:      "the invariants directory's form and filing are conditions on the document rather than capabilities that grant its author more authority",
+	},
+	"artifact.record-invariant": {
+		question: "does the role whose invariant the operator approved hold the invariants?",
+		asks:     []capability.Capability{capability.InvariantMutate},
+	},
 	"invariant.retire": {
 		question: "does the retiring role hold the invariants?",
 		asks:     []capability.Capability{capability.InvariantMutate},

@@ -517,6 +517,9 @@ type PendingWrite struct {
 	// Hold is what its owning role put on sending it; see artifact.Write.
 	Answers []string              `json:"answers,omitempty"`
 	Hold    *artifact.SendingHold `json:"hold,omitempty"`
+	// EstablishedBy and Scope are an invariant's own fields; see artifact.Write.
+	EstablishedBy []string  `json:"established_by,omitempty"`
+	Scope         *[]string `json:"scope,omitempty"`
 }
 
 // Held reports a document kept ready to send under a hold its owner put on

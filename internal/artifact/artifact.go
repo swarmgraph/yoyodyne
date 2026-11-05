@@ -67,11 +67,19 @@ const (
 	KindDesign        Kind = "design"
 	KindSpecification Kind = "specification"
 	KindDecision      Kind = "decision"
+	// KindInvariant is an architectural invariant. It is a kind a role writes
+	// rather than one an artifact file carries: an invariant keeps the scheme of
+	// its own directory (internal/invariant), where the file name is the id and
+	// the frontmatter records no kind and no approvals, so it is read and written
+	// through that package and an artifact file claiming the kind is refused. It
+	// is a kind here so the architect writes one through the same typed action,
+	// confirmation, and reviewed run as her other documents; see invariantwrite.go.
+	KindInvariant Kind = "invariant"
 )
 
 func (k Kind) Valid() bool {
 	switch k {
-	case KindBrief, KindGoals, KindNonGoals, KindRules, KindDesign, KindSpecification, KindDecision:
+	case KindBrief, KindGoals, KindNonGoals, KindRules, KindDesign, KindSpecification, KindDecision, KindInvariant:
 		return true
 	default:
 		return false
@@ -81,7 +89,7 @@ func (k Kind) Valid() bool {
 // Kinds lists every artifact kind, so a message that has to name them stays
 // equal to what is accepted.
 func Kinds() []Kind {
-	return []Kind{KindBrief, KindGoals, KindNonGoals, KindRules, KindDesign, KindSpecification, KindDecision}
+	return []Kind{KindBrief, KindGoals, KindNonGoals, KindRules, KindDesign, KindSpecification, KindDecision, KindInvariant}
 }
 
 // Status is where an artifact is in its lifecycle. It is explicit for the same

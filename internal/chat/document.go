@@ -181,6 +181,11 @@ func (o WriteOutcome) Render() string {
 		return fmt.Sprintf("[%s] wrote %s to %s\n", o.WriteID, o.Artifact, o.Path) +
 			indent("the record is incomplete: "+o.Problem) +
 			indent(o.PendingCommit)
+	case !o.Approval:
+		// An invariant, whose file records no approvals: the approval is in this
+		// conversation's record instead.
+		return fmt.Sprintf("[%s] wrote %s to %s; an invariant's file records no approvals, so your approval is kept in this conversation's record\n", o.WriteID, o.Artifact, o.Path) +
+			indent(o.PendingCommit)
 	default:
 		return fmt.Sprintf("[%s] wrote %s to %s, with your approval recorded in it\n", o.WriteID, o.Artifact, o.Path) +
 			// Said every time, at the moment of the write, because the write stops
@@ -479,8 +484,13 @@ func (s *Session) ApproveWrite(writeID string) (WriteOutcome, error) {
 		return s.approveForPublication(record, preparer, outcome, now)
 	}
 	var written artifact.Artifact
-	switch write.Action {
-	case artifact.WriteCreate:
+	wroteInvariant := false
+	if recorder, ok := s.options.Documents.(invariantRecorder); ok {
+		written, wroteInvariant, err = recorder.RecordInvariant(s.state.Role, write, now)
+	}
+	switch {
+	case wroteInvariant:
+	case write.Action == artifact.WriteCreate:
 		written, err = s.options.Documents.Create(s.state.Role, write.Draft(), now)
 	default:
 		written, err = s.options.Documents.Amend(s.state.Role, strings.TrimSpace(write.ID), write.Amendment(), now)
@@ -504,6 +514,12 @@ func (s *Session) ApproveWrite(writeID string) (WriteOutcome, error) {
 		"action":   string(write.Action),
 	}); err != nil {
 		return outcome, fmt.Errorf("record written document %s: %w", written.ID, err)
+	}
+	// An invariant's file has no place for an approval (see the artifact
+	// package's invariantwrite.go), so the operator's is the one this
+	// conversation's record already holds.
+	if wroteInvariant {
+		return outcome, nil
 	}
 	// The operator's approval goes into the document's own frontmatter, against
 	// the revision this write just recorded. It is the last step because it is the
@@ -547,6 +563,12 @@ func (s *Session) unwrittenApproval(record *writeRecord, outcome WriteOutcome, e
 	}
 	outcome.Undecided = true
 	return outcome, fmt.Errorf("write document %s: %w", id, err)
+}
+
+// invariantRecorder is the part of the store that writes an invariant into the
+// checkout, in its own directory's form, and reports whether the write was one.
+type invariantRecorder interface {
+	RecordInvariant(domain.AgentRole, artifact.Write, time.Time) (artifact.Artifact, bool, error)
 }
 
 // approvalPreparer is the part of the store that renders an approved document
@@ -863,6 +885,16 @@ func (p PendingWrite) body() []string {
 	if len(p.Write.Supports) > 0 {
 		lines = append(lines, "supports: "+strings.Join(p.Write.Supports, ", "))
 	}
+	if len(p.Write.EstablishedBy) > 0 {
+		lines = append(lines, "established by: "+strings.Join(p.Write.EstablishedBy, ", "))
+	}
+	if p.Write.Scope != nil {
+		scope := "the whole repository"
+		if len(*p.Write.Scope) > 0 {
+			scope = strings.Join(*p.Write.Scope, ", ")
+		}
+		lines = append(lines, "scope: "+scope)
+	}
 	lines = append(lines, "because: "+strings.TrimSpace(p.Write.Reason), "", strings.TrimSpace(p.Write.Body))
 	return lines
 }
@@ -910,6 +942,10 @@ func (p PendingWrite) recorded() runstate.PendingWrite {
 		Reason:      strings.TrimSpace(p.Write.Reason),
 		Answers:     p.Write.Answers,
 		Hold:        p.Write.Hold,
+		// An invariant's own fields, carried so the invariant approved later is
+		// the one written.
+		EstablishedBy: p.Write.EstablishedBy,
+		Scope:         p.Write.Scope,
 	}
 }
 
@@ -937,6 +973,9 @@ func restoredWrite(conversationID string, recorded runstate.PendingWrite) Pendin
 			Reason:    recorded.Reason,
 			Answers:   recorded.Answers,
 			Hold:      recorded.Hold,
+
+			EstablishedBy: recorded.EstablishedBy,
+			Scope:         recorded.Scope,
 		},
 	}
 }
