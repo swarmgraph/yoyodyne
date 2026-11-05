@@ -6935,8 +6935,11 @@ taken. `yoyo status` and Slack say the same under the not-startable line,
 in the short hourly message too: `not fully read: the open and ready work is
 the tracker's last good listing, taken …, because the latest listing failed
 at …: …`. The health observation counts the held work as not read whole, with
-the same words, for as long as the listings keep failing. Only where no
-listing has ever succeeded is the work said to be unreadable.
+the same words, for as long as the listings keep failing. The delivery
+measures at `/api/delivery` cannot say how old their figures are, so they do
+not use a kept listing: they report the tracker as not read, saying what the
+failed listing said and when the last good one was taken. Only where no
+listing has ever succeeded is the work said to be unreadable everywhere.
 
 At `/api/delivery` it serves the factory's delivery measures — modelled on the
 measures software teams commonly use for how often and how safely they ship:
@@ -7307,10 +7310,13 @@ is answering nobody, and, where none of those stands, when no new work is
 starting because as many pull requests as the limit allows are waiting for a
 person to merge, each named by number and by its work item. Beside the product's name the page says when the reading
 was observed, how old the dashboard's snapshot of it was when it was served —
-`taken 4s ago; asks again every 10 s` — and when it asks again. Where a
-reading takes the dashboard longer than its interval, the age says how long
-the reading took: `taken 1m ago, by a reading that took 58s; asks again every
-10 s`. It marks the page **stale** when a reading is older than two of its
+`taken 4s ago; open and ready work as the tracker listed it at 14:04:20; asks
+again every 10 s` — when the tracker listed the open and ready work it shows,
+and when it asks again. Where a reading takes the dashboard longer than its
+interval, the age says how long the reading took: `taken 1m ago, by a reading
+that took 58s; open and ready work as the tracker listed it at 14:04:20; asks
+again every 10 s`. A standing that says nothing of when the tracker listed its
+work leaves the middle part out. It marks the page **stale** when a reading is older than two of its
 intervals and two of the time its last build took. For the
 standing, routine lag shows only that small marker and the observed time; its
 red age warning appears once the reading is five minutes old or more. The

@@ -179,6 +179,13 @@ func TestAFailedListingKeepsTheLastGoodListingAndItsTime(t *testing.T) {
 			t.Fatalf("%s after a failed listing do not say it is the last good listing; want %q in\n%s", name, said, rendered)
 		}
 	}
+	// The delivery measures cannot say their figures are old, so they report
+	// the tracker as not read, naming the failure and the kept listing's time,
+	// rather than presenting it as current.
+	delivery := ReadDelivery(context.Background(), DeliverySources{Tracker: tracker, TrackerReadings: readings, Now: now})
+	if source := deliveryTracker(delivery); source.Read || !strings.Contains(source.Problem, errStoreHeld.Error()) || !strings.Contains(source.Problem, "last good listing, taken "+localMoment(good)) {
+		t.Fatalf("the delivery measures after a failed listing give the tracker as %+v; want it not read, naming the failure and the last good listing's time", source)
+	}
 	if rendered := first.Render(); strings.Contains(rendered, "last good listing") {
 		t.Fatalf("the four lines from a listing that did not fail speak of a last good listing:\n%s", rendered)
 	}
@@ -212,4 +219,14 @@ func TestAFailedFirstListingHasNothingToKeep(t *testing.T) {
 	if !strings.Contains(standing.NotStartableProblem, errStoreHeld.Error()) {
 		t.Fatalf("a standing whose first listing failed says %q; want the tracker's failure", standing.NotStartableProblem)
 	}
+}
+
+// deliveryTracker is the delivery reading's account of the tracker as a source.
+func deliveryTracker(delivery Delivery) DeliverySource {
+	for _, source := range delivery.Sources {
+		if source.Name == sourceTracker {
+			return source
+		}
+	}
+	return DeliverySource{}
 }

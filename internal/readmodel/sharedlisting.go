@@ -121,6 +121,10 @@ type sharedTracker struct {
 	// listing is when the listings the reading was answered from were taken,
 	// set before either read is done; nil where they were not shared.
 	listing *TrackerListingAge
+	// everyKept is what the latest listing of every item said where it failed
+	// and the last good one was handed over in its place, and empty otherwise.
+	everyKept   string
+	everyKeptAt time.Time
 }
 
 // TrackerListingAge is when the open and ready listings a reading was
@@ -234,6 +238,9 @@ func (t *sharedTracker) share(ctx context.Context) {
 	if carriesEvery || carriesReady {
 		t.listing = listingAge(reading, everyAt, readyAt, carriesEvery, carriesReady)
 	}
+	if carriesEvery && reading.EveryFailure != "" {
+		t.everyKept, t.everyKeptAt = reading.EveryFailure, everyAt
+	}
 }
 
 // keepLastGood puts the last good listing kept carries in place of each of
@@ -275,6 +282,17 @@ func listingAge(reading runstate.TrackerReading, everyAt, readyAt time.Time, car
 		age.Failure, age.FailedAt = strings.Join(failures, "; "), &failedAt
 	}
 	return age
+}
+
+// keptEvery is, where the listing of every item failed and the last good one
+// was handed over in its place, what the failed listing said and when the kept
+// one was taken; ok is false otherwise. A caller that cannot say the listing is
+// old reports the failure rather than presenting old work as current.
+func (t *sharedTracker) keptEvery() (failure string, takenAt time.Time, ok bool) {
+	if t.listingAge() == nil || t.everyKept == "" {
+		return "", time.Time{}, false
+	}
+	return t.everyKept, t.everyKeptAt, true
 }
 
 // listingAge is when the listings this reading was answered from were taken,
