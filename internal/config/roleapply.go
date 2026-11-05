@@ -27,6 +27,7 @@ var roleApplicableKeys = []string{
 	"execution.repair_attempts_before_replan",
 	"execution.integration_retries_before_reconciliation",
 	"execution.transient_relaunches_before_blocking",
+	"execution.forge_check_interval",
 }
 
 // operatorKeyReasons says why a key that is never a role's is the operator's,

@@ -223,7 +223,7 @@ func (r Reconciler) settlePersonMerged(ctx context.Context, state *runstate.Stat
 		if itemSettled(*state, item.Status) {
 			return nil
 		}
-		if !beads.NotesEndWith(item.Notes, notes) {
+		if !notesCarry(item.Notes, personMergedHeadline(*state, mergeCommit)) {
 			if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, notes); err != nil {
 				return fmt.Errorf("record the merge of pull request %d on %s: %w", state.PersonMerge.Number, state.WorkItemID, err)
 			}
@@ -341,21 +341,21 @@ func (r Reconciler) updatePersonMerge(ctx context.Context, recorded runstate.Sta
 		result.Kept = fmt.Sprintf("a merge of pull request %d is in progress on the forge, so it is left alone", number)
 		return result
 	}
-	reading, err := r.Checks.Checks(ctx, number, target)
+	behindBy, err := r.behindBy(ctx, number, observed.HeadCommit, target)
 	if err != nil {
 		result.Failure = fmt.Errorf("read whether pull request %d is behind %s: %w; it is read again at the next check", number, target, err).Error()
 		return result
 	}
-	if reading.BehindBy <= 0 {
+	if behindBy <= 0 {
 		return result
 	}
-	result.BehindBy = reading.BehindBy
+	result.BehindBy = behindBy
 	keep := func(why string) PersonMergeSettlement {
-		result.Kept = fmt.Sprintf("pull request %d is %d commit(s) behind %s, and %s, so the next check tries again to bring it up to date", number, reading.BehindBy, target, why)
+		result.Kept = fmt.Sprintf("pull request %d is %d commit(s) behind %s, and %s, so the next check tries again to bring it up to date", number, behindBy, target, why)
 		return result
 	}
 	if refusal := cannotUpdatePersonMerge(recorded); refusal != "" {
-		return r.refusePersonMergeUpdate(ctx, recorded, reading.BehindBy, refusal, result)
+		return r.refusePersonMergeUpdate(ctx, recorded, behindBy, refusal, result)
 	}
 	if !r.HostsRuns {
 		return keep("this pass hosts no runs (`yoyo reconcile` does)")
@@ -417,7 +417,7 @@ func (r Reconciler) updatePersonMerge(ctx context.Context, recorded runstate.Sta
 	}
 
 	reason := fmt.Sprintf("%s moved %d commit(s) past pull request %d while it waited for a person to merge it, so the forge check withdrew its merge authority and put the run back at its promotion to replay the change onto %s, run the checks and the independent review again, and push the result to the same pull request",
-		target, reading.BehindBy, number, target)
+		target, behindBy, number, target)
 	notes := renderPersonMergeUpdateNotes(state, reason)
 	err = r.recovering(ctx, &state, runstate.RetryTrackerWrite, func(ctx context.Context) error {
 		item, err := r.Tracker.Show(ctx, state.WorkItemID)
@@ -450,6 +450,40 @@ func (r Reconciler) updatePersonMerge(ctx context.Context, recorded runstate.Sta
 	result.Updating = true
 	result.Update = reason
 	return result
+}
+
+// BehindReads is the forge answering how far a target branch has moved past a
+// pull request's head, and nothing else. A Checks that has it is asked this
+// rather than for the whole check reading, which also reads the head, its files
+// and every check run on it (publish.GitHub.Behind, asked conditionally).
+type BehindReads interface {
+	Behind(ctx context.Context, head, base string) (int, error)
+}
+
+// behindBy is how many commits target carries past the request's head.
+func (r Reconciler) behindBy(ctx context.Context, number int, head, target string) (int, error) {
+	if light, ok := r.Checks.(BehindReads); ok && strings.TrimSpace(head) != "" {
+		return light.Behind(ctx, strings.TrimSpace(head), target)
+	}
+	reading, err := r.Checks.Checks(ctx, number, target)
+	if err != nil {
+		return 0, err
+	}
+	return reading.BehindBy, nil
+}
+
+// personMergedHeadline is the part of the merge's note that says the same
+// whichever check writes it. What follows it says how the local target was
+// caught up, which a check that writes the note again after an earlier one's
+// write timed out finds already done, so it is the headline that says whether
+// the note is already on the item.
+func personMergedHeadline(state runstate.State, mergeCommit string) string {
+	return strings.Join([]string{
+		fmt.Sprintf("Pull request #%d was merged by a person, so the change this run published has landed and the item is settled on it.", state.PersonMerge.Number),
+		"Run: " + state.RunID,
+		fmt.Sprintf("Pull request: #%d %s", state.PullRequest.Number, state.PullRequest.URL),
+		"Merge commit: " + nonEmpty(mergeCommit, "not named by the forge"),
+	}, "\n")
 }
 
 // cannotUpdatePersonMerge says why a run waiting for a person to merge its pull
@@ -552,12 +586,7 @@ func personMergeLocalTime(at time.Time) string {
 
 // renderPersonMergedNotes is the note a merge a person made leaves on the item.
 func renderPersonMergedNotes(state runstate.State, mergeCommit string, catchup *gitworktree.Catchup) string {
-	lines := []string{
-		fmt.Sprintf("Pull request #%d was merged by a person, so the change this run published has landed and the item is settled on it.", state.PersonMerge.Number),
-		"Run: " + state.RunID,
-		fmt.Sprintf("Pull request: #%d %s", state.PullRequest.Number, state.PullRequest.URL),
-		"Merge commit: " + nonEmpty(mergeCommit, "not named by the forge"),
-	}
+	lines := []string{personMergedHeadline(state, mergeCommit)}
 	if catchup == nil {
 		lines = append(lines, "The run recorded no target branch, so no local branch was brought onto the merge.")
 	}

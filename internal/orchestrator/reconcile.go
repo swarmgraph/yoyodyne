@@ -265,6 +265,14 @@ type Reconciler struct {
 	Feedback    ReconcileFeedback
 	Reports     ReportCollector
 	RepairLimit int
+	// RetryAtNextCheck says a write that fails on something a later attempt may
+	// survive is not waited out and asked again here: it fails this pass, as it
+	// stands, and the next pass makes it again. The forge check sets it
+	// (forgecheck.go), because it runs every few minutes and a backoff of up to
+	// half an hour inside one check would hold back the checks after it. Every
+	// write it makes can be made twice without harm, so nothing is lost by
+	// leaving the retry to the next check.
+	RetryAtNextCheck bool
 }
 
 // DefaultVanishedGrace is how long a run the harness stopped on time is left

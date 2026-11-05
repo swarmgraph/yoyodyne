@@ -45,6 +45,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/doctor"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/forgecheck"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/launchd"
 	"github.com/mason-bryant/yoyodyne/internal/maintain"
@@ -689,6 +690,9 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 	if watch, ok := p.factoryWatch(log); ok {
 		residents = append(residents, watch)
 	}
+	if check, ok := p.forgeCheck(repository, log); ok {
+		residents = append(residents, check)
+	}
 	maintenance := p.resolved.Config.Services.Maintenance
 	if !maintenance.Enabled {
 		return residents, nil, nil
@@ -781,6 +785,28 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 		pass.Build = buildinfo.Commit()
 	}
 	return append(residents, pass), pass, nil
+}
+
+// forgeCheck is the check of the forge the supervisor runs on a schedule of its
+// own, apart from the maintenance pass and whether or not that pass is enabled
+// (internal/forgecheck). A product that publishes nothing has no pull request
+// to wait on, so it has no check.
+func (p *product) forgeCheck(repository string, log func(format string, args ...any)) (*forgecheck.Check, bool) {
+	cfg := p.resolved.Config
+	if p.runner == nil || cfg.Approvals.Publishing != domain.ApprovalAutomatic {
+		return nil, false
+	}
+	return &forgecheck.Check{
+		Every:      cfg.Execution.ForgeCheckEvery(),
+		Program:    p.program,
+		Config:     p.resolved.Path,
+		Repository: repository,
+		Environ:    slack.WithoutSecrets(p.environ),
+		ReadLine:   ForgeCheckReadLine,
+		Runner:     p.runner,
+		Now:        p.now,
+		Log:        log,
+	}, true
 }
 
 // releaseCutter is the maintenance pass's release step: a release the Lead

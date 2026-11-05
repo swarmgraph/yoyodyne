@@ -64,29 +64,49 @@ type FeedbackReading struct {
 	Reviews      []FeedbackReview
 	LineComments []FeedbackComment
 	Comments     []FeedbackComment
+	// Unchanged is the forge saying of every read this reading is made of that
+	// nothing has changed since the answers kept for them, which is only ever
+	// true of a client asking conditionally (conditional.go).
+	Unchanged bool
 }
 
 // Feedback reads the reviews, the comments on lines of the change, and the
-// comments on one pull request, every page of each.
+// comments on one pull request, every page of each. With a ResponseCache each
+// read is asked conditionally, so an unchanged request costs four answers of
+// 304 rather than every page again.
 func (g GitHub) Feedback(ctx context.Context, number int) (FeedbackReading, error) {
 	if number <= 0 {
 		return FeedbackReading{}, fmt.Errorf("pull request number %d is not a request", number)
 	}
 	reading := FeedbackReading{Number: number}
-	request, err := g.apiQuery(ctx, "GET", fmt.Sprintf("repos/{owner}/{repo}/pulls/%d", number),
-		"--jq", "{state: .state, merged: .merged, opener: .user.login}")
-	if err != nil {
-		return FeedbackReading{}, fmt.Errorf("ask the forge about pull request %d: %w", number, err)
-	}
-	if request.Status != execution.ProcessSucceeded {
-		return FeedbackReading{}, g.forgeFailure(fmt.Sprintf("ask the forge about pull request %d", number), request)
+	// With a ResponseCache every read below is asked conditionally, and the
+	// reading is Unchanged where the forge said so of all four.
+	unchanged := g.Responses != nil
+	requestEndpoint := fmt.Sprintf("repos/{owner}/{repo}/pulls/%d", number)
+	requestSelection := "{state: .state, merged: .merged, opener: .user.login}"
+	var requestBody string
+	if g.Responses != nil {
+		answer, err := g.conditionalRead(ctx, requestEndpoint, requestSelection)
+		if err != nil {
+			return FeedbackReading{}, fmt.Errorf("ask the forge about pull request %d: %w", number, err)
+		}
+		requestBody, unchanged = answer.Body, unchanged && answer.Unchanged
+	} else {
+		request, err := g.apiQuery(ctx, "GET", requestEndpoint, "--jq", requestSelection)
+		if err != nil {
+			return FeedbackReading{}, fmt.Errorf("ask the forge about pull request %d: %w", number, err)
+		}
+		if request.Status != execution.ProcessSucceeded {
+			return FeedbackReading{}, g.forgeFailure(fmt.Sprintf("ask the forge about pull request %d", number), request)
+		}
+		requestBody = request.Stdout
 	}
 	var head struct {
 		State  string `json:"state"`
 		Merged bool   `json:"merged"`
 		Opener string `json:"opener"`
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(request.Stdout)), &head); err != nil {
+	if err := json.Unmarshal([]byte(strings.TrimSpace(requestBody)), &head); err != nil {
 		return FeedbackReading{}, fmt.Errorf("decode pull request %d: %w", number, err)
 	}
 	reading.State = strings.ToUpper(strings.TrimSpace(head.State))
@@ -108,16 +128,36 @@ func (g GitHub) Feedback(ctx context.Context, number int) (FeedbackReading, erro
 		Original  *int   `json:"original_line"`
 		URL       string `json:"html_url"`
 	}
-	read := func(what, endpoint, fields string) ([]entry, error) {
-		result, err := g.apiQuery(ctx, "GET", endpoint, "--paginate", "--jq", ".[] | "+fields)
+	// A listing asked conditionally that has more than one page is read again
+	// in full, every page of it: see conditionalAnswer.Paged.
+	listing := func(what, endpoint, selection string) (string, error) {
+		if g.Responses != nil {
+			answer, err := g.conditionalRead(ctx, endpoint, selection)
+			if err != nil {
+				return "", fmt.Errorf("ask the forge for the %s on pull request %d: %w", what, number, err)
+			}
+			if !answer.Paged {
+				unchanged = unchanged && answer.Unchanged
+				return answer.Body, nil
+			}
+			unchanged = false
+		}
+		result, err := g.apiQuery(ctx, "GET", endpoint, "--paginate", "--jq", selection)
 		if err != nil {
-			return nil, fmt.Errorf("ask the forge for the %s on pull request %d: %w", what, number, err)
+			return "", fmt.Errorf("ask the forge for the %s on pull request %d: %w", what, number, err)
 		}
 		if result.Status != execution.ProcessSucceeded {
-			return nil, g.forgeFailure(fmt.Sprintf("ask the forge for the %s on pull request %d", what, number), result)
+			return "", g.forgeFailure(fmt.Sprintf("ask the forge for the %s on pull request %d", what, number), result)
+		}
+		return result.Stdout, nil
+	}
+	read := func(what, endpoint, fields string) ([]entry, error) {
+		listed, err := listing(what, endpoint, ".[] | "+fields)
+		if err != nil {
+			return nil, err
 		}
 		var entries []entry
-		lines := bufio.NewScanner(strings.NewReader(result.Stdout))
+		lines := bufio.NewScanner(strings.NewReader(listed))
 		lines.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 		for lines.Scan() {
 			line := strings.TrimSpace(lines.Text())
@@ -184,5 +224,6 @@ func (g GitHub) Feedback(ctx context.Context, number int) (FeedbackReading, erro
 			URL: strings.TrimSpace(comment.URL),
 		})
 	}
+	reading.Unchanged = unchanged
 	return reading, nil
 }

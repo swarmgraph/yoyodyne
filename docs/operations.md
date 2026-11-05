@@ -412,7 +412,9 @@ Each pass takes ten steps, in this order, and each is recorded:
 - **reconcile** — [`yoyo reconcile`](#recovering-interrupted-runs), run from the
   supervisor's own binary: it settles what interrupted runs left behind,
   converges the checkout and the worktrees, and takes the
-  [stall reading](#when-nothing-happened-at-all). It runs beside the
+  [stall reading](#when-nothing-happened-at-all). The pull requests waiting
+  for a person to merge them are not read here but by
+  [the forge check](#the-supervisors-forge-check). It runs beside the
   supervisor's looks at the parts rather than holding them up, and is marked
   as the pass's so it is not [counted as a hand step](#counting-your-hand-steps).
 - **cleanup** — the work tracker's store in the primary checkout
@@ -754,6 +756,28 @@ and files under `.yoyodyne/roles/`. An operator flag or ordinary repair prose
 alone cannot transfer ownership to the operator. The factory-flow program
 manager still watches unless her own pass is failing; the role named in the
 finding still resolves the cause.
+
+### The supervisor's forge check
+
+Beside the maintenance pass, and apart from it, the supervisor checks the forge
+on a schedule of its own: every `execution.forge_check_interval`, five minutes
+by default, for a project whose `approvals.publishing` is `automatic`. Each
+check is one [`yoyo forge-check`](configuration.md#publishing-through-pull-requests)
+run from the supervisor's own binary. It reads every pull request waiting for a
+person to merge it, and settles one that merged or closed, brings one the
+target branch has moved past up to date, and reads the reviews and comments
+left on the rest. `yoyo reconcile` no longer reads these, so a maintenance pass
+that is slow, or keeps failing at one of its steps, never delays the check: a
+check falls due every interval whether a pass is under way or not.
+
+Only one check reads at a time. A check that starts a repair round or an update
+hosts that run itself, after saying it has finished reading, and the next check
+starts on time while it does. A check that cannot reach the forge, or whose
+tracker write does not go through, changes nothing it could not finish, says so
+in the supervisor's log, and leaves it for the next check, which reads the same
+change and acts on it again without writing a second note. Neither stops a run
+or holds back other work. Run `yoyo forge-check` yourself to check the forge
+now; it is safe to run beside the supervisor's own checks.
 
 ## Setting up with `yoyo setup`
 

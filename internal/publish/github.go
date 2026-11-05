@@ -302,6 +302,10 @@ type GitHub struct {
 	// RedactValues are the sensitive environment values scrubbed from anything
 	// the CLI prints, so a token in a diagnostic never reaches a report.
 	RedactValues []string
+	// Responses keeps the answers the reads that can be asked conditionally were
+	// given, so an unchanged answer is not fetched again in full
+	// (conditional.go). Nil asks every read in full.
+	Responses ResponseCache
 }
 
 func (g GitHub) Availability(ctx context.Context) (Availability, error) {
