@@ -41,6 +41,9 @@ var artifactOwners = map[artifact.Kind]domain.AgentRole{
 	artifact.KindDesign:        domain.RoleArchitect,
 	artifact.KindSpecification: domain.RoleArchitect,
 	artifact.KindDecision:      domain.RoleArchitect,
+	// An invariant written as a document answers to the owner invariant.Authorize
+	// always named.
+	artifact.KindInvariant: domain.RoleArchitect,
 }
 
 func TestArtifactOwnershipDecidesWhatItDecidedBeforeTheConversion(t *testing.T) {
