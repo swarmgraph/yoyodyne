@@ -525,6 +525,29 @@ var standingWarningAgeSeconds = 5 * 60;
     return "";
   }
 
+  // listedAt is when the tracker listed the open and ready work the standing
+  // shows, which the dashboard asks the tracker for at most once a minute
+  // however often the standing is read, and nothing where the standing does
+  // not say.
+  function listedAt(standing) {
+    var listing = standing && standing.tracker_listing;
+    if (!listing || !listing.taken_at) {
+      return "";
+    }
+    return "open and ready work as the tracker listed it at " + clock(listing.taken_at) + "; ";
+  }
+
+  // listingNote is the sentence a failed tracker listing calls for: the open
+  // and ready work shown is the last listing the tracker answered, and when
+  // that was. Nothing where the latest listing did not fail.
+  function listingNote(standing) {
+    var listing = standing && standing.tracker_listing;
+    if (!listing || !listing.failure) {
+      return "";
+    }
+    return "The tracker's latest listing of open and ready work failed at " + clock(listing.failed_at) + " — " + listing.failure + " — so the open and ready work shown is the tracker's last good listing, taken at " + clock(listing.taken_at) + ".";
+  }
+
   function renderHeader() {
     var standing = model.standing;
     if (standing) {
@@ -559,6 +582,10 @@ var standingWarningAgeSeconds = 5 * 60;
         behind.push(said);
       }
     });
+    var listingSaid = listingNote(standing);
+    if (listingSaid) {
+      behind.push(listingSaid);
+    }
     if (failed.length > 0 || behind.length > 0 || snapshotStale) {
       freshness.textContent = "stale";
       freshness.className = "freshness freshness-stale";
@@ -569,7 +596,7 @@ var standingWarningAgeSeconds = 5 * 60;
       stale.textContent = sentences.concat(behind).join(" ");
       setHidden(stale, stale.textContent === "");
     } else {
-      freshness.textContent = standing ? takenAgo(standing) + asksAgain("standing") : "";
+      freshness.textContent = standing ? takenAgo(standing) + listedAt(standing) + asksAgain("standing") : "";
       freshness.className = "freshness";
       stale.textContent = "";
       setHidden(stale, true);

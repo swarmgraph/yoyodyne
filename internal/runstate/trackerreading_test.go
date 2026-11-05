@@ -240,3 +240,43 @@ func TestASharedTrackerReadingKeepsEveryFieldOfAnItem(t *testing.T) {
 		}
 	}
 }
+
+// A listing that succeeded is stamped with the reading's start as the time it
+// was taken; one that failed keeps whatever time the reading gave the listing
+// carried in its place, and with none carries no listing at all.
+func TestATrackerReadingSaysWhenEachListingItCarriesWasTaken(t *testing.T) {
+	t.Parallel()
+	store := newTrackerReadingStore(t)
+	good := time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)
+	clock := good
+	store.now = func() time.Time { return clock }
+	first, err := store.Share(context.Background(), time.Minute, func(*TrackerReading) (TrackerReading, bool) {
+		return TrackerReading{Every: []beads.WorkItem{{ID: "yoyodyne-1", Status: "open"}}, ReadyFailure: "bd ready timed out"}, true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at, ok := first.CarriesEvery(); !ok || !at.Equal(good) || !first.EveryAt.Equal(good) {
+		t.Fatalf("a listing that succeeded is carried as taken at %s (%v, every_at %s); want %s", at, ok, first.EveryAt, good)
+	}
+	if _, ok := first.CarriesReady(); ok || !first.ReadyAt.IsZero() {
+		t.Fatalf("a readiness query that failed with nothing kept is carried as a listing (ready_at %s)", first.ReadyAt)
+	}
+
+	clock = clock.Add(2 * time.Minute)
+	second, err := store.Share(context.Background(), time.Minute, func(kept *TrackerReading) (TrackerReading, bool) {
+		return TrackerReading{Every: kept.Every, EveryAt: kept.EveryAt, EveryFailure: "bd list timed out"}, true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at, ok := second.CarriesEvery(); !ok || !at.Equal(good) || !second.StartedAt.Equal(clock) {
+		t.Fatalf("a failed listing carrying the last good one is carried as taken at %s (%v), started %s; want %s, started %s", at, ok, second.StartedAt, good, clock)
+	}
+
+	// A reading kept before the times were recorded carries its own listing as
+	// taken when it began.
+	if at, ok := (TrackerReading{StartedAt: good}).CarriesEvery(); !ok || !at.Equal(good) {
+		t.Fatalf("a reading with no every_at is carried as taken at %s (%v); want %s", at, ok, good)
+	}
+}

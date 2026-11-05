@@ -390,6 +390,11 @@ const pages = [
   // as new as one read of it can be: it is said with its age and how long the
   // read took, and not marked stale.
   { name: "snapshot-slow", token: "t", standing: ok(aged(fixture("standing-busy"), { age_seconds: 92, build_seconds: 58 })), throughput: ok(aged(fixture("throughput-busy"), { age_seconds: 20, interval_seconds: 60 })), spend: ok(fixture("spend-busy")) },
+  // The standing says when the tracker listed the open and ready work it
+  // shows, and where the latest listing failed, that what is shown is the
+  // last good one and when it was taken.
+  { name: "listing", token: "t", standing: ok(Object.assign(aged(fixture("standing-busy"), {}), { tracker_listing: { taken_at: "2026-09-18T14:04:20Z" } })), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
+  { name: "listing-failed", token: "t", standing: ok(Object.assign(aged(fixture("standing-busy"), {}), { tracker_listing: { taken_at: "2026-09-18T14:02:00Z", failure: "the listing of every item: bd list timed out after 30s", failed_at: "2026-09-18T14:04:50Z" } })), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "snapshot-failed", token: "t", standing: ok(aged(fixture("standing-busy"), { age_seconds: 34, failure: "bd list timed out after 30s" })), throughput: ok(aged(fixture("throughput-busy"), { age_seconds: 95, interval_seconds: 60, failure: "the state root could not be resolved" })), spend: ok(fixture("spend-busy")) },
   // A standing with things waiting on the operator's own approve or decline,
   // which puts the band's "Your decisions" tile on the page; and one whose

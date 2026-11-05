@@ -6921,6 +6921,19 @@ of 117 one build took 6.4 seconds, and under more load it passed the tracker's
 thirty-second timeout and the page hung or showed errors exactly when the
 harness was busiest.
 
+The open and ready work a standing shows comes from one listing of the
+tracker shared by every dashboard tab, `yoyo status`, Slack, and the passes on
+the machine, and the tracker is asked for it at most once a minute however many
+of them ask. So five standings in six are read from a listing up to a minute
+older than the standing itself, and the standing says when that listing was
+taken under `tracker_listing.taken_at`; the page prints it beside the
+standing's own age. A listing that fails does not take the work off the page:
+the last good listing is used in its place, `tracker_listing.failure` and
+`tracker_listing.failed_at` say what the failed listing said and when, and the
+page says the work shown is the tracker's last good listing and when it was
+taken. Only where no listing has ever succeeded is the work said to be
+unreadable.
+
 At `/api/delivery` it serves the factory's delivery measures — modelled on the
 measures software teams commonly use for how often and how safely they ship:
 how many changes merge, how long a change takes from being asked for to being
