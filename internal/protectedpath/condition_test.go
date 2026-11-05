@@ -574,7 +574,6 @@ func TestTheProductDocumentsAreNamedByTheirKind(t *testing.T) {
 		{"Done means the operating rules say the seat is dedicated.", "docs/product/operating-rules.md"},
 		{"Done means the merge-affinity decision record names the lease.", "docs/decisions/merge-affinity.md"},
 		{"Done means the decision record merge-affinity names the lease.", "docs/decisions/merge-affinity.md"},
-		{"Done means the merge affinity rules name the lease.", "docs/decisions/merge-affinity.md"},
 	} {
 		conditions := homes.Ungranted(document.clause, "", nil)
 		if len(conditions) != 1 || conditions[0].Path != document.path {
@@ -589,8 +588,70 @@ func TestTheProductDocumentsAreNamedByTheirKind(t *testing.T) {
 	}
 
 	// A single goal or rule is not the document: "the merge affinity rule" is
-	// what a gate enforces, as often as it is a decision record.
-	if conditions := homes.Ungranted("Done means the merge affinity rule holds under load.", "", nil); len(conditions) != 0 {
-		t.Errorf("Ungranted() on a singular rule = %#v, want nothing", conditions)
+	// what a gate enforces, as often as it is a decision record. And a plural
+	// after an id is as often a verb as a noun, so it is not read as the
+	// document either.
+	for _, words := range []string{
+		"Done means the merge affinity rule holds under load.",
+		"Done means the merge affinity rules out a second lease.",
+	} {
+		if conditions := homes.Ungranted(words, "", nil); len(conditions) != 0 {
+			t.Errorf("Ungranted(%q) = %#v, want nothing", words, conditions)
+		}
+	}
+}
+
+// A design's name followed by a verb is the thing the name describes acting,
+// not the design. "records", "rules", "designs", and "documents" are verbs as
+// often as nouns, so after an id only the singular nouns name the document, and
+// before one the noun has to follow "the".
+func TestADesignsNameFollowedByAVerbIsNotTheDesign(t *testing.T) {
+	t.Parallel()
+
+	homes := ArtifactHomes(config.Config{Product: config.Product{
+		Specifications: config.DefaultSpecifications,
+		Designs:        config.DefaultDesigns,
+		Decisions:      config.DefaultDecisions,
+		Invariants:     config.DefaultInvariants,
+	}},
+		Document{ID: "program-manager", Path: "docs/designs/program-manager.md"},
+		Document{ID: "machine-home", Path: "docs/designs/machine-home.md"},
+		Document{ID: "merge-affinity", Path: "docs/decisions/merge-affinity.md"},
+	)
+
+	for _, clause := range []string{
+		"Done means the program manager records its lane report each pass.",
+		"Done means the program manager rules on the stoppage.",
+		"Done means the program manager designs its own remit.",
+		"Done means the program manager documents its lane in its report.",
+		"Done means the program manager decisions are listed on the dashboard.",
+		"Done means the machine home records the intent path.",
+		"Done means the harness can record machine home paths and design program manager lanes.",
+	} {
+		if conditions := homes.Ungranted(clause, "", nil); len(conditions) != 0 {
+			t.Errorf("Ungranted(%q) = %#v, want nothing", clause, conditions)
+		}
+		if problems := homes.ConditionProblems(Subject{Description: clause}); len(problems) != 0 {
+			t.Errorf("ConditionProblems(%q) = %v, want the item admitted", clause, problems)
+		}
+		if problems := homes.ConditionProblems(Subject{AcceptanceCriteria: clause}); len(problems) != 0 {
+			t.Errorf("ConditionProblems() on acceptance criteria %q = %v, want the item admitted", clause, problems)
+		}
+	}
+
+	for _, document := range []struct {
+		clause string
+		path   string
+	}{
+		{"Done means the program manager design lists the lane report.", "docs/designs/program-manager.md"},
+		{"Done means the merge-affinity decision record names the lease.", "docs/decisions/merge-affinity.md"},
+		{"Done means the machine home record names the intent path.", "docs/designs/machine-home.md"},
+	} {
+		if conditions := homes.Ungranted(document.clause, "", nil); len(conditions) != 1 || conditions[0].Path != document.path {
+			t.Errorf("Ungranted(%q) = %#v, want %s refused", document.clause, conditions, document.path)
+		}
+		if problems := homes.ConditionProblems(Subject{AcceptanceCriteria: document.clause}); len(problems) != 1 {
+			t.Errorf("ConditionProblems() on acceptance criteria %q = %v, want it refused", document.clause, problems)
+		}
 	}
 }

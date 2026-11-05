@@ -711,15 +711,16 @@ path. A creation, an update that rewrites the description, or a proposal whose
 "Done means" clauses or acceptance criteria name a document the product,
 designs, decisions, or invariants homes own is refused with the clause quoted
 and the fix named. A document is named by the path of a file in one of those
-homes, or by a phrase whose subject is the document itself: its name with
-`design`, `document`, `decision`, `record`, `goals`, or `rules` beside it
-("the machine-home design"), or a name that ends in such a word on its own, so
-"the v1 goals" names `docs/product/goals/v1-goals.md` and "the
+homes, or by a phrase whose subject is the document itself: its name with the
+noun `design`, `document`, `decision`, or `record` beside it ("the machine-home
+design"), or a name that ends in such a word, or in `goals` or `rules`, on its
+own, so "the v1 goals" names `docs/product/goals/v1-goals.md` and "the
 slack-reporting design" names `docs/designs/slack-reporting-design.md` as surely
 as the path does. A home's own path, or a folder inside one, names no document,
 and neither does a design's name used as ordinary words about something else —
-"the machine-home project directory" is a folder — or a file of the design's
-name written without the home's path. The fix is one of two things:
+"the machine-home project directory" is a folder, "the program manager records
+its report" is the role acting — or a file of the design's name written without
+the home's path. The fix is one of two things:
 take the clause out of what done means and say that the document's owner (the
 architect for a design or a decision record, the Lead Product Manager for a product
 artifact) amends it through the governed path once the run's summary names what
