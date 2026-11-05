@@ -10,14 +10,68 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 func runTracker(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] != "export" {
+	if len(args) == 0 {
 		printTrackerUsage(stderr)
 		return 2
 	}
-	return exportTracker(ctx, args[1:], stdout, stderr)
+	switch args[0] {
+	case "export":
+		return exportTracker(ctx, args[1:], stdout, stderr)
+	case "slow-calls":
+		return summarizeSlowTrackerCalls(args[1:], stdout, stderr)
+	}
+	printTrackerUsage(stderr)
+	return 2
+}
+
+// summarizeSlowTrackerCalls reads every tracker call the product recorded as
+// running out of time and says them together: which callers appear most
+// often, how long their calls ran, and what held the store. It asks the
+// tracker nothing.
+func summarizeSlowTrackerCalls(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("tracker slow-calls", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	configPath := flags.String("config", "", "configuration file path (default: the nearest project configuration)")
+	positional, err := parseArguments(flags, args)
+	if err != nil {
+		return 2
+	}
+	if len(positional) != 0 {
+		fmt.Fprintln(stderr, "tracker slow-calls does not accept positional arguments")
+		printTrackerUsage(stderr)
+		return 2
+	}
+	resolved, err := loadConfiguration(*configPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	stateRoot, err := productStateRoot(resolved)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := runstate.NewTrackerSlowCallStore(stateRoot, resolved.Config.Product.ID)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	calls, err := store.Read()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	for _, line := range runstate.SummarizeSlowCalls(calls).Says() {
+		fmt.Fprintln(stdout, line)
+	}
+	if len(calls) > 0 {
+		fmt.Fprintf(stdout, "Each call's own record is in %s.\n", store.Path())
+	}
+	return 0
 }
 
 // exportTracker takes a fresh export of the tracker into a checkout. It reads
@@ -56,13 +110,19 @@ func exportTracker(ctx context.Context, args []string, stdout, stderr io.Writer)
 func printTrackerUsage(writer io.Writer) {
 	fmt.Fprintln(writer, strings.TrimSpace(`
 Usage: yoyo tracker export [options]
+       yoyo tracker slow-calls [--config <path>]
 
-Take a fresh export of the tracker into this checkout's .beads/issues.jsonl.
-The repository's pre-commit hook runs it before every commit that carries the
-export, so what is committed is never older than the tracker. The harness
-otherwise exports on its own, at most every five minutes when the tracker
-changed, and no tracker write exports by itself.
+export takes a fresh export of the tracker into this checkout's
+.beads/issues.jsonl. The repository's pre-commit hook runs it before every
+commit that carries the export, so what is committed is never older than the
+tracker. The harness otherwise exports on its own, at most every five minutes
+when the tracker changed, and no tracker write exports by itself.
 
-Options:
+slow-calls reads every tracker call the product recorded as running out of
+time and says them together: which callers appear most often, how long their
+calls ran, and what held the tracker's store while they waited. It asks the
+tracker nothing.
+
+Options for export:
   --dir <path>      the checkout whose export is taken (default: this directory)`))
 }

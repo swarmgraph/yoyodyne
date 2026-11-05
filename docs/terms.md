@@ -247,13 +247,14 @@ for.
 `intra-file` `local-timezone` `long-running` `long-term` `low-cost` `lower-case`
 `lowest-cost` `ls-tree` `machine-readably` `merge-queue` `minute-long`
 `mirror-image` `mis-selection` `month-old` `near-autonomous` `near-misses`
-`near-term` `nearly-every` `newly-available` `operating-system` `opt-in`
+`near-term` `nearly-every` `network-bind` `network-inbound` `network-outbound`
+`newly-available` `operating-system` `opt-in`
 `opt-ins` `opt-out` `parent-child` `part-way` `plain-http` `plain-language`
 `plain-word` `pop-up` `pop-ups` `product-manager` `read-back` `read-write`
 `reduced-motion` `release-manager` `repo-root` `required-status-check`
-`rev-list` `rev-parse` `root-cause` `round-robin` `round-trip` `run-id` `say-so`
+`rev-list` `rev-parse` `root-cause` `round-robin` `round-trip` `run-id` `sandbox-exec` `say-so`
 `script-src` `several-turn` `shift-return` `side-effect` `skip-worktree`
-`ssh-add` `stand-in` `state-root` `status-check` `style-src` `test-data`
+`slow-calls` `ssh-add` `stand-in` `state-root` `status-check` `style-src` `test-data`
 `thinking-token` `tie-break` `tie-breaker` `timed-out` `tool-less` `trade-off`
 `twice-daily` `unasked-for` `union-merge` `union-merges` `unique-prefix`
 `unit-test` `unknown-flag` `url-of-your-fork` `wall-clock` `warning-or-above`

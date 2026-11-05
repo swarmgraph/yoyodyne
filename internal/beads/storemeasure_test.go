@@ -35,6 +35,13 @@ type fakeTracker struct {
 	fail string
 	// changed is every verb run so far that changes the store.
 	changed []string
+	// serve is whether `bd dolt start` starts a server, as it does in server
+	// mode, rather than refusing as bd does on an embedded store; serveOutside
+	// is a data directory it says it serves in place of the copy's; serving says
+	// a server it started has not been stopped.
+	serve        bool
+	serveOutside string
+	serving      bool
 }
 
 func (f *fakeTracker) Run(_ context.Context, command execution.Command, _ execution.OutputObserver) (execution.ProcessResult, error) {
@@ -60,8 +67,56 @@ func (f *fakeTracker) Run(_ context.Context, command execution.Command, _ execut
 	case "export":
 		_, err := io.WriteString(command.RawStdout, f.export())
 		return execution.ProcessResult{Status: execution.ProcessSucceeded}, err
+	case "dolt":
+		return f.dolt(command), nil
+	case "sql":
+		return f.sql(command.Args[len(command.Args)-1]), nil
 	}
 	return execution.ProcessResult{}, fmt.Errorf("unexpected command %v", command.Args)
+}
+
+// dolt answers `bd dolt start` and `bd dolt stop` as bd does: a start in
+// server mode says the process, port, and data directory it started; a start
+// on an embedded store is refused; a stop with nothing running fails.
+func (f *fakeTracker) dolt(command execution.Command) execution.ProcessResult {
+	switch command.Args[1] {
+	case "start":
+		if !f.serve || environmentValue(command.Env, "BEADS_DOLT_SERVER_MODE") != "1" {
+			return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "Error: 'bd dolt start' is not supported in embedded mode (no Dolt server)"}
+		}
+		data := filepath.Join(environmentValue(command.Env, "BEADS_DIR"), "embeddeddolt")
+		if f.serveOutside != "" {
+			data = f.serveOutside
+		}
+		f.serving = true
+		return execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: fmt.Sprintf("Dolt server started (PID 4321, port 13307)\n  Data: %s\n  Logs: %s\n", data, filepath.Join(environmentValue(command.Env, "BEADS_DIR"), "dolt-server.log"))}
+	case "stop":
+		if !f.serving {
+			return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "Error: Dolt server is not running"}
+		}
+		f.serving = false
+		return execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "Dolt server stopped."}
+	}
+	return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "unknown dolt command"}
+}
+
+// sql answers the three reads of the store's history a measurement makes: the
+// commits of each kind of write, the tables they changed, and each table's
+// rows changed by kind, with counts written both as numbers and as strings, as
+// bd's driver hands them back.
+func (f *fakeTracker) sql(query string) execution.ProcessResult {
+	answer := "[]"
+	switch {
+	case strings.Contains(query, "FROM dolt_log WHERE"):
+		answer = `[{"kind":"bd: update","commits":"40"},{"kind":"bd: create","commits":3}]`
+	case strings.Contains(query, "FROM dolt_diff WHERE"):
+		answer = `[{"table_name":"issues"},{"table_name":"events"},{"table_name":"x; DROP TABLE issues"}]`
+	case strings.Contains(query, "dolt_diff_issues"):
+		answer = `[{"kind":"bd: update","rows_changed":"40"},{"kind":"bd: create","rows_changed":3}]`
+	case strings.Contains(query, "dolt_diff_events"):
+		answer = `[{"kind":"bd: update","rows_changed":80}]`
+	}
+	return execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: answer}
 }
 
 func (f *fakeTracker) export() string {
@@ -196,6 +251,9 @@ func TestAMeasurementMeasuresEveryStageOnACopyAndLeavesTheLiveStoreAlone(t *test
 	}
 	copyDir := filepath.Join(workDir, measuredCopyName)
 	for _, command := range tracker.ran() {
+		if command.Args[0] == "dolt" {
+			continue
+		}
 		if command.Dir != copyDir {
 			t.Errorf("bd %v ran in %s, want the copy's directory %s", command.Args, command.Dir, copyDir)
 		}

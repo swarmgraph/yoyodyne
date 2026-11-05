@@ -430,6 +430,8 @@ func newResolution() *resolution {
 			"services.maintenance.tracker_cleanup.every":           OriginDefault,
 			"services.maintenance.tracker_cleanup.grown_megabytes": OriginDefault,
 			"services.maintenance.tracker_cleanup.max_hold":        OriginDefault,
+			"services.maintenance.tracker_limits.store_megabytes":  OriginDefault,
+			"services.maintenance.tracker_limits.listing_seconds":  OriginDefault,
 			"product.specifications":                               OriginDefault,
 			"product.invariants":                                   OriginDefault,
 			"product.designs":                                      OriginDefault,
@@ -662,6 +664,10 @@ func (r *resolution) apply(applied layer) error {
 				setValue(r.origins, "services.maintenance.tracker_cleanup.every", cleanup.Every, &r.config.Services.Maintenance.TrackerCleanup.Every, applied.origin)
 				setValue(r.origins, "services.maintenance.tracker_cleanup.grown_megabytes", cleanup.GrownMegabytes, &r.config.Services.Maintenance.TrackerCleanup.GrownMegabytes, applied.origin)
 				setValue(r.origins, "services.maintenance.tracker_cleanup.max_hold", cleanup.MaxHold, &r.config.Services.Maintenance.TrackerCleanup.MaxHold, applied.origin)
+			}
+			if limits := maintenance.TrackerLimits; limits != nil {
+				setValue(r.origins, "services.maintenance.tracker_limits.store_megabytes", limits.StoreMegabytes, &r.config.Services.Maintenance.TrackerLimits.StoreMegabytes, applied.origin)
+				setValue(r.origins, "services.maintenance.tracker_limits.listing_seconds", limits.ListingSeconds, &r.config.Services.Maintenance.TrackerLimits.ListingSeconds, applied.origin)
 			}
 		}
 	}

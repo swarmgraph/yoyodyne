@@ -249,6 +249,12 @@ type maintenanceServiceDocument struct {
 	Enabled        *bool                   `yaml:"enabled"`
 	Every          *Duration               `yaml:"every"`
 	TrackerCleanup *trackerCleanupDocument `yaml:"tracker_cleanup"`
+	TrackerLimits  *trackerLimitsDocument  `yaml:"tracker_limits"`
+}
+
+type trackerLimitsDocument struct {
+	StoreMegabytes *int `yaml:"store_megabytes"`
+	ListingSeconds *int `yaml:"listing_seconds"`
 }
 
 type trackerCleanupDocument struct {

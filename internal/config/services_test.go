@@ -29,7 +29,7 @@ func TestAProjectThatSaysNothingAboutServicesGetsEveryServiceAtItsDefault(t *tes
 			Every:          Duration(DefaultTrackerCleanupInterval),
 			GrownMegabytes: DefaultTrackerCleanupGrownMegabytes,
 			MaxHold:        Duration(DefaultTrackerCleanupMaxHold),
-		}},
+		}, TrackerLimits: TrackerLimits{StoreMegabytes: DefaultTrackerStoreMegabytes, ListingSeconds: DefaultTrackerListingSeconds}},
 	}
 	if !reflect.DeepEqual(resolved.Config.Services, want) {
 		t.Fatalf("services = %+v, want the defaults %+v", resolved.Config.Services, want)
@@ -47,6 +47,8 @@ func TestAProjectThatSaysNothingAboutServicesGetsEveryServiceAtItsDefault(t *tes
 		"services.maintenance.tracker_cleanup.every",
 		"services.maintenance.tracker_cleanup.grown_megabytes",
 		"services.maintenance.tracker_cleanup.max_hold",
+		"services.maintenance.tracker_limits.store_megabytes",
+		"services.maintenance.tracker_limits.listing_seconds",
 	} {
 		if origin := resolved.Origins[key]; origin != OriginDefault {
 			t.Errorf("origin[%q] = %q, want %q", key, origin, OriginDefault)
@@ -203,6 +205,14 @@ func TestServicesAreValidatedLikeEveryOtherKey(t *testing.T) {
 			section: "services:\n  maintenance:\n    tracker_cleanup:\n      max_hold: 25s\n",
 			want:    "services.maintenance.tracker_cleanup.max_hold is 25s, and must be between 1s and 20s",
 		},
+		"a tracker store bound of nothing": {
+			section: "services:\n  maintenance:\n    tracker_limits:\n      store_megabytes: 0\n",
+			want:    "services.maintenance.tracker_limits.store_megabytes is 0, and must be between 1 and 1048576",
+		},
+		"a tracker listing bound past the longest wait": {
+			section: "services:\n  maintenance:\n    tracker_limits:\n      listing_seconds: 121\n",
+			want:    "services.maintenance.tracker_limits.listing_seconds is 121, and must be between 1 and 120",
+		},
 		"the slack service over reporting that is off": {
 			section: "services:\n  slack:\n    enabled: true\n",
 			want:    "services.slack is enabled and slack reporting is off",
@@ -326,6 +336,30 @@ func TestTrackerCleanupBoundsAreReadOneByOne(t *testing.T) {
 		"services.maintenance.tracker_cleanup.every":           OriginDefault,
 		"services.maintenance.tracker_cleanup.grown_megabytes": resolved.Path,
 		"services.maintenance.tracker_cleanup.max_hold":        resolved.Path,
+	} {
+		if resolved.Origins[key] != origin {
+			t.Errorf("origin[%q] = %q, want %q", key, resolved.Origins[key], origin)
+		}
+	}
+}
+
+// The two limits are read one by one, each keeping the harness's default where
+// the file says nothing about it.
+func TestTrackerLimitsAreReadOneByOne(t *testing.T) {
+	t.Parallel()
+
+	resolved := loadProject(t, minimalProjectConfig+`services:
+  maintenance:
+    tracker_limits:
+      listing_seconds: 20
+`, nil)
+	limits := resolved.Config.Services.Maintenance.TrackerLimits
+	if want := (TrackerLimits{StoreMegabytes: DefaultTrackerStoreMegabytes, ListingSeconds: 20}); limits != want {
+		t.Fatalf("tracker limits = %+v, want %+v", limits, want)
+	}
+	for key, origin := range map[string]string{
+		"services.maintenance.tracker_limits.store_megabytes": OriginDefault,
+		"services.maintenance.tracker_limits.listing_seconds": resolved.Path,
 	} {
 		if resolved.Origins[key] != origin {
 			t.Errorf("origin[%q] = %q, want %q", key, resolved.Origins[key], origin)

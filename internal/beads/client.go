@@ -537,6 +537,13 @@ type Client struct {
 	// measurement runs bd over (storemeasure.go), so that no BEADS_DIR in the
 	// supervisor's environment can turn bd back to the live store.
 	beadsDir string
+	// serverMode runs bd in server mode, over the second copy a measurement
+	// starts a server on (storeserver.go), and is set only with beadsDir.
+	serverMode bool
+	// Server is how a measurement learns where the server it started on its copy
+	// listens, and whether the developer sandbox reaches it (storeserver.go). Nil
+	// asks the operating system.
+	Server ServerProbe
 	// storeCopied is called once a measurement has copied the store and before
 	// it looks at the store again. It is set only by this package's tests, which
 	// write to the store at that moment to show a copy made while the store
@@ -554,17 +561,24 @@ func (c Client) beadsDirVariable() string {
 }
 
 // environment is what bd is run with: this process's environment, with
-// BEADS_DIR replaced where the client is pinned to a store.
+// BEADS_DIR replaced where the client is pinned to a store. A client in server
+// mode also has every variable that could point bd's server at another data
+// directory, port, or a server shared between projects taken out, and server
+// mode turned on, so the server it starts serves the copy and nothing else.
 func (c Client) environment() []string {
 	environment := os.Environ()
 	if c.beadsDir == "" {
 		return environment
 	}
-	pinned := make([]string, 0, len(environment)+1)
+	pinned := make([]string, 0, len(environment)+3)
 	for _, entry := range environment {
-		if !strings.HasPrefix(entry, "BEADS_DIR=") {
-			pinned = append(pinned, entry)
+		if strings.HasPrefix(entry, "BEADS_DIR=") || (c.serverMode && strings.HasPrefix(entry, "BEADS_DOLT_")) {
+			continue
 		}
+		pinned = append(pinned, entry)
+	}
+	if c.serverMode {
+		pinned = append(pinned, "BEADS_DOLT_SERVER_MODE=1", "BEADS_DOLT_SHARED_SERVER=0")
 	}
 	return append(pinned, "BEADS_DIR="+c.beadsDir)
 }
@@ -2040,10 +2054,11 @@ func (c Client) runWithin(ctx context.Context, limit time.Duration, args ...stri
 	started := time.Now()
 	deadline, deadlined := ctx.Deadline()
 	result, err := runner.Run(ctx, command, nil)
+	took, stopped := time.Since(started), err == nil && result.Status == execution.ProcessTimedOut
 	if c.Calls != nil {
-		c.Calls.ObserveCall(TrackerCall{Call: observedCall(args), Took: time.Since(started), Limit: limit,
-			StoppedAtLimit: err == nil && result.Status == execution.ProcessTimedOut})
+		c.Calls.ObserveCall(TrackerCall{Call: observedCall(args), Took: took, Limit: limit, StoppedAtLimit: stopped})
 	}
+	c.logCall(LoggedCall{At: started, For: Caller(ctx), Call: observedCall(args), Verb: args[0], Took: took, StoppedAtLimit: stopped})
 	if err != nil {
 		return nil, fmt.Errorf("run bd %s: %w", args[0], err)
 	}

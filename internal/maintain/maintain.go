@@ -54,7 +54,12 @@
 //     data, history, and leftover data a cleanup takes back, how long a listing
 //     of open items, a listing of ready items, and a read of one item take as
 //     it is, after the cleanup, and after squashing old history and then all of
-//     it, and whether a full export is the same after each. The live store is
+//     it, and whether a full export is the same after each. On a second copy it
+//     starts the tracker's server mode and records where the server listens,
+//     whether a connection made under the developer sandbox's network rules
+//     reaches it, and which writes grew the store over the last week; and it
+//     counts the harness's own tracker calls over the hour before by caller,
+//     from the log every process keeps. The live store is
 //     only read, and only to copy it, while no other process has it open. It
 //     runs after the cleanup, on the same goroutine, where none has been
 //     recorded, a week after the last that finished, or a day after the last
@@ -74,6 +79,11 @@
 //     flight, giving up if they have not finished within the watch session's
 //     redeploy drain bound. That wait holds the pass up for as long as the
 //     bound.
+//   - limits: the live store's size on disk, and how long the harness's own
+//     listings of open and ready work took over the hour before, against
+//     services.maintenance.tracker_limits (trackerlimits.go). It asks the store
+//     nothing, says the figures either way, and warns the development manager
+//     once when either is past its bound.
 //   - rebuild: what the supervisor's rebuilder last came to — it builds the
 //     binary on its own thirty-second look when the branch lands something the
 //     binary is made of, so a deploy has a build to take up.
@@ -119,6 +129,7 @@ const (
 	StepTrackerCleanup  = "cleanup"
 	StepTrackerMeasure  = "measure"
 	StepTrackerSquash   = "squash"
+	StepTrackerLimits   = "limits"
 	StepRebuild         = "rebuild"
 	StepRestartRequests = "restart-requests"
 	StepRedeploy        = "redeploy"
@@ -266,6 +277,12 @@ type Pass struct {
 	// is nil the step says so.
 	Measurer     StoreMeasurer
 	Measurements Measurements
+	// Calls is the log of every tracker call the harness's processes made,
+	// which the measurement counts by caller and the limits step reads the
+	// listings' times from, and TrackerLimits the bounds that step holds the
+	// store to; its zero value is the configuration's default.
+	Calls         TrackerCalls
+	TrackerLimits config.TrackerLimits
 	// Squasher is the primary checkout's tracker store as the squashing step
 	// squashes it, Squashes the record of each decision and where the copies are
 	// kept, and Reports where the warning about changed records is filed; where
@@ -311,6 +328,10 @@ type Pass struct {
 	// lostLookedAt is when the pass last looked for the items a cleanup found
 	// missing, so it looks once a cleanup interval rather than at every pass.
 	lostLookedAt time.Time
+	// limitsWarned is which of the tracker's limits the development manager was
+	// last warned of being past, and empty once both are within them
+	// (trackerlimits.go).
+	limitsWarned string
 }
 
 type cutting struct {
@@ -326,13 +347,15 @@ type underway struct {
 
 // offGoroutine is what the pass does off the supervisor's goroutine: reconcile,
 // then the tracker's cleanup, with the record of the cleanup where one ran,
-// then the measurement of the tracker's store, and then its squash.
+// then the measurement of the tracker's store, then its squash, and then the
+// check of its limits.
 type offGoroutine struct {
 	reconciled runstate.SweepStep
 	cleaned    runstate.SweepStep
 	cleanup    *runstate.TrackerStoreCleanup
 	measured   runstate.SweepStep
 	squashed   runstate.SweepStep
+	limits     runstate.SweepStep
 }
 
 // Name is how the pass is named in what the supervisor says, and Service the
@@ -411,6 +434,7 @@ func (p *Pass) Look(ctx context.Context, now time.Time) {
 		work.cleaned, work.cleanup = p.cleanUpTracker(ctx)
 		work.measured = p.measureTracker(ctx)
 		work.squashed = p.squashTracker(ctx)
+		work.limits = p.checkTrackerLimits()
 		done <- work
 	}()
 	if p.Release != nil && p.releasing == nil && p.released == nil {
@@ -482,6 +506,7 @@ func (p *Pass) finish(ctx context.Context, done offGoroutine) {
 	recorded.Steps = append(recorded.Steps, done.cleaned)
 	recorded.Steps = append(recorded.Steps, done.measured)
 	recorded.Steps = append(recorded.Steps, done.squashed)
+	recorded.Steps = append(recorded.Steps, done.limits)
 	if done.cleanup != nil {
 		p.cleanedUp, p.cleanupsRead = done.cleanup, true
 	}
@@ -724,9 +749,16 @@ func (p *Pass) measureTracker(ctx context.Context) runstate.SweepStep {
 		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the tracker's store is due to be measured, and it could not be copied: %v", err)
 		return step
 	}
-	record := runstate.TrackerStoreMeasurement{Measurement: measured}
+	record := runstate.TrackerStoreMeasurement{Measurement: measured, Callers: p.countCalls(measured.StartedAt)}
 	if err != nil {
 		record.Failed = err.Error()
+	}
+	if last, found := earlier.Latest(); found {
+		before, beforeFound := last.Measurement.Stage(beads.StageAsItIs)
+		now, nowFound := measured.Stage(beads.StageAsItIs)
+		if beforeFound && nowFound && before.Size > 0 && now.Size > 0 {
+			record.Grew = &runstate.StoreGrew{Since: last.StartedAt(), From: before.Size, To: now.Size}
+		}
 	}
 	recordFailure := ""
 	if err := p.Measurements.Record(record); err != nil {

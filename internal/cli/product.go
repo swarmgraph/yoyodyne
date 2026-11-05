@@ -760,6 +760,14 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 		}
 		pass.Measurer = beads.Client{Runner: p.runner, Dir: repository}
 		pass.Measurements = measurements
+		// Read back only: the pass's own calls are kept by the log this process
+		// installed when it loaded the configuration (trackercalls.go).
+		calls, err := runstate.NewTrackerCallLogStore(p.stateRoot, productID, "")
+		if err != nil {
+			return nil, nil, err
+		}
+		pass.Calls = calls
+		pass.TrackerLimits = maintenance.TrackerLimits
 		squashes, err := runstate.NewTrackerStoreSquashStore(p.stateRoot, productID)
 		if err != nil {
 			return nil, nil, err
