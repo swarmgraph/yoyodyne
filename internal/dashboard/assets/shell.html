@@ -13,6 +13,7 @@
     <h1>{{.Product}}</h1>
   </div>
   <p class="observed">observed <time id="observed-at">—</time> <span id="freshness" class="freshness"></span></p>
+  <p class="switch-token"><button type="button" id="switch-token" class="switch-token-button" hidden>Use a different token</button></p>
 </header>
 <main id="page" data-state="signin">
   <section class="state state-signin" aria-labelledby="signin-heading">
@@ -252,6 +253,7 @@
           <dl id="decide-fields" class="card-fields"></dl>
           <div id="decide-actions" class="decide-actions"></div>
           <p id="decide-outcome" class="decide-outcome" role="status" hidden></p>
+          <p id="decide-switch" class="decide-switch" hidden><button type="button" id="decide-switch-token">Use a different token</button></p>
         </div>
       </div>
     </div>

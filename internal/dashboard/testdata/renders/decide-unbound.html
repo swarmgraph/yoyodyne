@@ -19,7 +19,7 @@
           <button type="button" id="decide-close" class="popup-close">Close</button>
         </div>
         <div class="section-ready">
-          <p id="decide-session" class="decide-session">this session is bound to nobody: the dashboard's shared token reads and acts on nothing. To approve, decline, or ask from here, sign in with your own token, bound to you under operators.&lt;your name&gt;.dashboard_token in the configuration</p>
+          <p id="decide-session" class="decide-session">This page is using the dashboard's shared token, which can read everything but cannot approve, decline, or ask. To do any of those, this action needs your own dashboard token: choose Use a different token and paste yours. If you have no token of your own yet, the section on deciding from the page in the operations guide says how to set one up.</p>
           <dl id="decide-fields" class="card-fields">
             <div class="card-field card-field-prose">
               <dt>What</dt>
@@ -69,7 +69,10 @@
             <button class="decide-quiet" type="button" data-act="decline">Decline</button>
             <button class="decide-quiet" type="button" data-act="ask">Ask first</button>
           </div>
-          <p id="decide-outcome" class="decide-outcome decide-refused" role="status">Refused: this session is bound to nobody: the dashboard's shared token reads and acts on nothing. To approve, decline, or ask from here, sign in with your own token, bound to you under operators.&lt;your name&gt;.dashboard_token in the configuration</p>
+          <p id="decide-outcome" class="decide-outcome decide-refused" role="status">Refused: This page is using the dashboard's shared token, which can read everything but cannot approve, decline, or ask. To do any of those, this action needs your own dashboard token: choose Use a different token and paste yours. If you have no token of your own yet, the section on deciding from the page in the operations guide says how to set one up.</p>
+          <p id="decide-switch" class="decide-switch">
+            <button type="button" id="decide-switch-token">Use a different token</button>
+          </p>
         </div>
       </div>
     </div>

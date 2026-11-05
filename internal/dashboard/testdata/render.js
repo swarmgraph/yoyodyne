@@ -313,7 +313,7 @@ function summaryFor(scenario) {
 // Who a session is, as /api/session answers: one bound to a person, and one
 // holding the shared token, which reads only.
 const boundSession = { person: { name: "mason-bryant", grants: ["own-intent", "direct-work", "decide-amendments"] }, says: "this session is mason-bryant, and an approve, decline, or ask from here is recorded as theirs", acts: true };
-const unboundSession = { says: "this session is bound to nobody: the dashboard's shared token reads and acts on nothing. To approve, decline, or ask from here, sign in with your own token, bound to you under operators.<your name>.dashboard_token in the configuration", acts: false };
+const unboundSession = { says: "This page is using the dashboard's shared token, which can read everything but cannot approve, decline, or ask. To do any of those, this action needs your own dashboard token: choose Use a different token and paste yours. If you have no token of your own yet, the section on deciding from the page in the operations guide says how to set one up.", acts: false };
 const unreachable = { unreachable: true };
 
 // items answers /api/items/<id> for the ids named, from the item fixtures.
@@ -400,6 +400,11 @@ const pages = [
 ];
 
 const scenarios = pages.concat([
+  // The header's Use a different token, on a page holding one without any
+  // refusal: pressed, the page asks for another token; and the token entered
+  // there is the one the page reads with from then on.
+  Object.assign({}, pages.find((scenario) => scenario.name === "busy"), { name: "switch-token", open: [{ press: "switch-token" }] }),
+  over("switch-token-signin", "busy", { open: [{ press: "switch-token" }, { signin: "u" }] }),
   over("attention-run-steps", "run-steps", { open: [{ grouping: "attention" }] }),
   over("attention-run-queued", "run-steps", { open: [{ grouping: "attention" }, { entry: "owed-step:run-queued" }] }),
   over("attention-run-cleanup", "run-steps", { open: [{ grouping: "attention" }, { entry: "owed-step:run-cleanup" }] }),
@@ -498,6 +503,10 @@ const scenarios = pages.concat([
   over("decide-decline", "decisions", { acts: { "/api/session": ok(boundSession), "/api/acts/decide": ok({ done: "declined the proposed change amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d to v1-goals, under the Lead Product Manager's authority, because: the goal already says this", decided: true, person: "mason-bryant", decision: "amendment::amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d" }) }, open: [{ decide: "list" }, { act: "decline" }, { type: { "decide-reason": "the goal already says this" } }, { act: "decline-confirm" }] }),
   over("decide-ask", "decisions", { acts: { "/api/session": ok(boundSession), "/api/acts/ask": ok({ done: "asked the developer about proposed document change amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d in its conversation; its answer is recorded there and read with `yoyo agent chat developer`, and nothing was decided", decided: false, person: "mason-bryant", decision: "amendment::amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d" }) }, open: [{ decide: "list" }, { act: "ask" }, { type: { "decide-question": "Which goal would it change?" } }, { act: "ask-send" }] }),
   over("decide-unbound", "decisions", { acts: { "/api/session": ok(unboundSession), "/api/acts/decide": refused(403, unboundSession.says) }, open: [{ decide: "list" }, { act: "approve" }] }),
+  // The refusal's Use a different token: the shared token is refused, the
+  // control beside the refusal clears it and asks for another, and the
+  // person's own token, entered there, is the one the approval is sent with.
+  over("decide-switch", "decisions", { acts: { "/api/session": (held) => ok(held === "Bearer u" ? boundSession : unboundSession), "/api/acts/decide": (held) => (held === "Bearer u" ? ok({ done: "approved the proposed change amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d to v1-goals, under the Lead Product Manager's authority; nothing was written to v1-goals, and the Lead Product Manager makes the change", decided: true, person: "mason-bryant", decision: "amendment::amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d" }) : refused(403, unboundSession.says)) }, open: [{ decide: "list" }, { act: "approve" }, { press: "decide-switch-token" }, { signin: "u" }, { decide: "list" }, { act: "approve" }] }),
   over("decide-loading", "decisions", { acts: { "/api/session": pending }, open: [{ decide: "list" }] }),
   over("decide-empty", "decisions", { acts: { "/api/session": ok(boundSession) }, open: [{ decide: "list" }, { poll: { "/api/standing": ok(fixture("standing-busy")) } }] }),
   over("decide-error", "decisions-unreadable", { acts: { "/api/session": ok(boundSession) }, open: [{ decide: "list" }] }),
@@ -544,7 +553,9 @@ async function run(scenario, shared) {
 
   const fetch = (url, options) => {
     requests.push({ url, authorization: options && options.headers && options.headers.Authorization, method: (options && options.method) || "GET", contentType: options && options.headers && options.headers["Content-Type"], body: options && options.body });
-    const answer = answers[url];
+    // An answer may depend on the token the request carries, as the session
+    // and the acts do: it is then a function of the Authorization header.
+    const answer = typeof answers[url] === "function" ? answers[url](options && options.headers && options.headers.Authorization) : answers[url];
     if (!answer) {
       return Promise.reject(new Error("no fixture answers " + url));
     }
@@ -593,6 +604,10 @@ async function run(scenario, shared) {
   };
   const opened = [];
   const clicked = [];
+  const page = document.getElementById("page");
+  // switchedAt is how many requests had gone when a control was pressed last,
+  // so what went after it can be told from what went before.
+  let switchedAt = -1;
   for (const step of scenario.open || []) {
     if (step.poll) {
       // A poll given answers is the harness having moved in between: the
@@ -609,8 +624,24 @@ async function run(scenario, shared) {
       }
       continue;
     }
-    // Signing in is the token typed into the sign-in field and the form sent.
+    // A press is a click on the button with the id named, which must be shown:
+    // a control a reader cannot see is not one they can press.
+    if (step.press) {
+      const button = document.getElementById(step.press);
+      if (!button || button.getAttribute("hidden") !== null || (button.parentNode && button.parentNode.getAttribute("hidden") !== null)) {
+        throw new Error(`${scenario.name}: there is no shown button ${step.press} to press`);
+      }
+      button.dispatch("click", {});
+      switchedAt = requests.length;
+      await settle();
+      continue;
+    }
+    // Signing in is the token typed into the sign-in form and the form sent,
+    // which the page must be showing.
     if (step.signin) {
+      if (page.getAttribute("data-state") !== "signin") {
+        throw new Error(`${scenario.name}: the page is not asking for a token to sign in with`);
+      }
       document.getElementById("token").value = step.signin;
       document.getElementById("signin").dispatch("submit", { preventDefault() {} });
       await settle();
@@ -651,7 +682,6 @@ async function run(scenario, shared) {
     throw new Error(`${scenario.name}: focus did not return to the opener after Escape`);
   }
 
-  const page = document.getElementById("page");
   const sections = ["summary", "band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"];
   // A section shown only where the product has what it lists is dropped from
   // the render and the matrix while it is hidden, so a page without it renders
@@ -676,9 +706,11 @@ async function run(scenario, shared) {
     const popup = document.getElementById(id);
     matrix.popups[id] = popup.getAttribute("hidden") !== null ? "closed" : popup.getAttribute("data-state");
   });
-  // No token ever left the page except as a bearer to this origin.
+  // No token ever left the page except as a bearer to this origin: the one the
+  // scenario opened with, or the one it signed in with since.
+  const tokens = [scenario.token].concat((scenario.open || []).filter((step) => step.signin).map((step) => step.signin));
   requests.forEach((request) => {
-    if (!request.url.startsWith("/api/") || (scenario.token && request.authorization !== "Bearer " + scenario.token)) {
+    if (!request.url.startsWith("/api/") || (scenario.token && !tokens.some((held) => request.authorization === "Bearer " + held))) {
       throw new Error(`${scenario.name}: a request went to ${request.url} with ${request.authorization}`);
     }
   });
@@ -752,7 +784,7 @@ async function run(scenario, shared) {
     .join("\n")
     .replace('href="/assets/dashboard.css"', 'href="../../assets/dashboard.css"')
     .replace('src="/assets/dashboard.js"', 'src="about:blank" data-note="the script ran once to produce this render; it is not loaded again here"');
-  return { matrix, html: "<!doctype html>\n" + html + "\n", standingWarningAgeSeconds: context.standingWarningAgeSeconds, requests, storage };
+  return { matrix, html: "<!doctype html>\n" + html + "\n", standingWarningAgeSeconds: context.standingWarningAgeSeconds, requests, storage, switchedAt, stored: storage.get("yoyo-dashboard-token") };
 }
 
 // The token is kept for the dashboard's origin, not for the tab: one entered
@@ -866,7 +898,19 @@ async function main() {
       "decide-document-decline": ["/api/acts/decide", { kind: "document", agent: "product-manager", id: "document-2328.1", verdict: "decline", reason: "" }],
       "decide-document-ask": ["/api/acts/ask", { kind: "document", agent: "product-manager", id: "document-2328.1", question: "Does this change what v1 refuses?" }]
     };
-    if (expectedActs[scenario.name]) {
+    // Using a different token clears the stored one, the token signed in with
+    // is stored in its place, and every request from the press on carries it.
+    if (scenario.name.startsWith("switch-token") || scenario.name === "decide-switch") {
+      const signedIn = scenario.name !== "switch-token";
+      assert.strictEqual(rendered.stored, signedIn ? "u" : undefined, `${scenario.name} left ${rendered.stored} stored`);
+      const after = rendered.requests.slice(rendered.switchedAt);
+      assert.strictEqual(after.length > 0, signedIn, `${scenario.name} sent ${after.length} requests after the press`);
+      after.forEach((request) => assert.strictEqual(request.authorization, "Bearer u", `${scenario.name}: ${request.url} after the press carried ${request.authorization}`));
+    }
+    if (scenario.name === "decide-switch") {
+      const approve = { kind: "amendment", agent: "", id: "amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d", verdict: "approve" };
+      assert.deepStrictEqual(posted.map((request) => [request.url, request.authorization, JSON.parse(request.body)]), [["/api/acts/decide", "Bearer t", approve], ["/api/acts/decide", "Bearer u", approve]]);
+    } else if (expectedActs[scenario.name]) {
       const [where, body] = expectedActs[scenario.name];
       assert.strictEqual(posted.length, 1, `${scenario.name} posts one act`);
       assert.strictEqual(posted[0].method, "POST");

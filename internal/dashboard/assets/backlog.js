@@ -34,6 +34,7 @@
   var signin = document.getElementById("signin");
   var signinNote = document.getElementById("signin-note");
   var tokenField = document.getElementById("token");
+  var switchToken = document.getElementById("switch-token");
   var panel = document.getElementById("backlog");
   var closedPanel = document.getElementById("closed");
   var controls = {
@@ -124,11 +125,21 @@
   function askForToken(note) {
     generation += 1;
     window.clearTimeout(timer);
+    setHidden(switchToken, true);
     signinNote.textContent = note || "";
     tokenField.value = "";
     show("signin");
     tokenField.focus();
   }
+
+  // useAnotherToken clears the stored token and asks for the next, as the
+  // main page's does (dashboard.js); the token entered replaces it.
+  function useAnotherToken() {
+    forget();
+    askForToken("The token this page held has been cleared. Paste the token to use instead.");
+  }
+
+  switchToken.addEventListener("click", useAnotherToken);
 
   // ---- reading ---------------------------------------------------------------
 
@@ -628,6 +639,7 @@
   function start(current) {
     generation += 1;
     reading = null;
+    setHidden(switchToken, false);
     show("loading");
     read(current);
   }
