@@ -434,6 +434,10 @@ type Pipeline struct {
 	// for by name: what it holds is the choosing, so a run this pipeline was told
 	// to make proceeds under it exactly as it would have.
 	Intake IntakeHolds
+	// TeamClaims takes the item's claim on the shared remote before a fresh run
+	// claims it in the tracker (teamclaims.go). It is nil unless the project has
+	// team mode on, and a pipeline without it claims in the tracker alone.
+	TeamClaims TeamClaims
 	// ProviderOutages is the product's record of the provider answering nobody —
 	// a login nobody has renewed, an API nothing reaches — written by the run that
 	// meets it and cleared by the first the provider answers again. It is
@@ -1496,6 +1500,12 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		Build:  p.Build,
 		Status: runstate.StatusPending,
 	}
+	// In team mode the item is claimed on the shared remote first, and nothing
+	// below happens for an item another factory holds (teamclaims.go).
+	teamClaim, err := p.takeTeamClaim(ctx, workItemID, runID)
+	if err != nil {
+		return Outcome{}, err
+	}
 	// Which account will serve this run is settled here, before anything is
 	// claimed, so a pool with nothing left to spend refuses before a work item has
 	// been taken and a worktree cut for it. When the run started, why it was
@@ -1504,6 +1514,9 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	state, reservation, err := p.reserveRun(ctx, state)
 	if err != nil {
 		var existing runstate.ExistingWorkItemError
+		if !errors.As(err, &existing) {
+			p.giveBackTeamClaim(ctx, workItemID, runID)
+		}
 		if errors.As(err, &existing) {
 			return Outcome{}, ExistingRunError{State: existing.State}
 		}
@@ -1561,6 +1574,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		return run.fail(err, failureStatus(ctx, err))
 	}
 	run.observe(ctx, deliveryClaim, "claimed")
+	run.noteTeamTakeover(ctx, teamClaim)
 	// The target is fetched immediately before the worktree is cut from it, so
 	// the run starts from what the remote has now (startingtarget.go).
 	run.fetchTarget(ctx, targetBranch)

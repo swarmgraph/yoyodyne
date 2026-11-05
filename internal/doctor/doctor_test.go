@@ -143,6 +143,13 @@ func brokenInstallations() map[string]func(*world) {
 			w.configuration = publishingConfig
 			w.runner.reply("gh auth status", failed("You are not logged into any GitHub hosts"))
 		},
+		"team mode is on and the harness publishes nothing": func(w *world) {
+			w.configuration = healthyConfig + teamSection
+		},
+		"team mode is on and the remote refuses references under refs/yoyodyne/": func(w *world) {
+			w.configuration = publishingConfig + teamSection
+			w.runner.reply("--force-with-lease=refs/yoyodyne/probe/doctor:", failed("! [remote rejected] refs/yoyodyne/probe/doctor (deny updating a hidden ref)"))
+		},
 		"the project publishes and has no such remote": func(w *world) {
 			w.configuration = publishingConfig
 			w.runner.reply("remote get-url", failed("No such remote 'origin'"))
@@ -1776,6 +1783,11 @@ agents:
     failover:
       enabled: true
       model: sonnet
+`
+
+// teamSection turns team mode on, appended to a configuration that has none.
+const teamSection = `team:
+  enabled: true
 `
 
 const reportingConfig = `version: 1

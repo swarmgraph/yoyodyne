@@ -259,6 +259,7 @@ func Diagnose(ctx context.Context, env Environment) Report {
 	report.Findings = append(report.Findings, diagnosis.checkProviderAuthentication(resolved))
 	report.Findings = append(report.Findings, diagnosis.checkFailover(resolved))
 	report.Findings = append(report.Findings, diagnosis.checkForge(ctx, resolved, repository))
+	report.Findings = append(report.Findings, diagnosis.checkTeam(ctx, resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkSlack(ctx, resolved, installed)...)
 	report.Findings = append(report.Findings, diagnosis.checkServices(ctx, resolved)...)
 	report.Findings = append(report.Findings, diagnosis.checkConfigReaders(resolved)...)

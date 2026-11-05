@@ -4043,6 +4043,8 @@ type scheduleHarness struct {
 	// where a test asks, so every other test's pass closes nothing — which is
 	// what every pass did before this existed.
 	landings ScheduleLandings
+	// teamClaims keeps the claims on the shared remote, where a test wires one.
+	teamClaims ScheduleTeamClaims
 	// poll is the interval a watching pull reports. A minute is the shipped one,
 	// which no test spends: the fake sleep advances the clock by it instead. A
 	// test that needs the session to wake from a run it is waiting on, in real
@@ -4208,7 +4210,7 @@ func (h *scheduleHarness) open(context.Context) (Pull, error) {
 		Environment: h,
 		Capacity:    capacity, Slots: slots, Start: h.start, Escalations: escalations,
 		Tree: tree, Triage: docket, Recurring: recurring, CarryOut: carryOut, Holds: holds,
-		Claims: claims, Landings: h.landings,
+		Claims: claims, Landings: h.landings, TeamClaims: h.teamClaims,
 		// A minute is the shipped interval, and no test spends one: the sleep is
 		// the harness's own, so this is only what a watching pull is validated
 		// against — unless a test shortened it to wake a waiting session.

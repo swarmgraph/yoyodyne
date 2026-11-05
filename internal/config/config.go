@@ -80,7 +80,10 @@ type Config struct {
 	OutsideFiles OutsideFiles `yaml:"outside_files,omitempty" json:"outside_files,omitempty"`
 	// Intent says which repository holds the governed documents. It is absent
 	// from a project whose own repository holds them, which is the default.
-	Intent    Intent    `yaml:"intent,omitempty" json:"intent,omitempty"`
+	Intent Intent `yaml:"intent,omitempty" json:"intent,omitempty"`
+	// Team is whether this project is worked by more than one factory sharing
+	// its remote. It is off unless the project turns it on; see team.go.
+	Team      Team      `yaml:"team,omitempty" json:"team,omitempty"`
 	Approvals Approvals `yaml:"approvals" json:"approvals"`
 	Checks    []string  `yaml:"checks" json:"checks"`
 	// LandingChecks are the commands run once per landing on the target branch,

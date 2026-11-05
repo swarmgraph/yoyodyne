@@ -35,6 +35,7 @@ type configDocument struct {
 	Research     *researchDocument     `yaml:"research"`
 	OutsideFiles *outsideFilesDocument `yaml:"outside_files"`
 	Intent       *intentDocument       `yaml:"intent"`
+	Team         *teamDocument         `yaml:"team"`
 	Approvals    *approvalsDocument    `yaml:"approvals"`
 	Checks       *[]string             `yaml:"checks"`
 	// LandingChecks replaces an inherited list entirely rather than merging into
