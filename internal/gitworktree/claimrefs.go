@@ -228,36 +228,80 @@ func (m *Manager) pushClaimRef(ctx context.Context, ref, commit, expected string
 	if expected != "" && !commitPattern.MatchString(expected) {
 		return fmt.Errorf("expected claim commit %q is invalid", expected)
 	}
+	for attempt := 1; ; attempt++ {
+		line, err := m.pushClaimRefOnce(ctx, ref, commit, expected)
+		if err != nil || line == "" {
+			return err
+		}
+		// A push that lost a race inside the remote is refused in the remote's
+		// own words ("failed to update ref": another push held the reference's
+		// lock) rather than as stale info, and the winner's update may not be
+		// readable for a while after. So the reference is read again: one no
+		// longer where the lease expected it is another factory having moved it.
+		// One still where it was is pushed again after a wait while the refusal
+		// is that lock, and taken as the remote refusing references under
+		// refs/yoyodyne/ when it is anything else, such as a hook that declined.
+		current, err := m.remoteRef(ctx, ref)
+		if err != nil {
+			return fmt.Errorf("push %s to %s was refused (%s), and the reference could not be read again: %w", ref, m.remote, line, err)
+		}
+		if current != expected {
+			return fmt.Errorf("%w: %s on %s", ErrClaimLeaseRefused, ref, m.remote)
+		}
+		if !lostRefLock(line) {
+			return fmt.Errorf("%w: %s on %s: %s", ErrClaimRefRefused, ref, m.remote, line)
+		}
+		if attempt >= claimPushAttempts {
+			return fmt.Errorf("push %s to %s kept losing the remote's lock on it to another push (%s)", ref, m.remote, line)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt) * claimPushRetryWait):
+		}
+	}
+}
+
+// lostRefLock reports a refusal that is another push holding the reference on
+// the remote, rather than the remote refusing the reference itself.
+func lostRefLock(line string) bool {
+	return strings.Contains(line, "failed to update ref") || strings.Contains(line, "failed to lock") || strings.Contains(line, "cannot lock ref")
+}
+
+// claimPushAttempts bounds how many times a claim push that lost the remote's
+// lock on the reference is made, with the reference still where the lease
+// expected it, before it is reported as a push that did not go through. With
+// the waits below that is about fourteen seconds of waiting.
+const claimPushAttempts = 11
+
+// claimPushRetryWait is the first wait before such a push is made again; each
+// later wait is one more of it.
+const claimPushRetryWait = 250 * time.Millisecond
+
+// pushClaimRefOnce makes one claim push. It returns nil and an empty line where
+// the push landed, ErrClaimLeaseRefused where the remote said the lease was
+// stale, and the remote's own words for any other refusal of the reference,
+// which the caller judges by reading the reference again.
+func (m *Manager) pushClaimRefOnce(ctx context.Context, ref, commit, expected string) (string, error) {
 	result, err := m.runRemote(ctx, "-C", m.repositoryRoot,
 		"-c", "core.hooksPath="+os.DevNull,
 		"push", "--porcelain", "--no-verify",
 		"--force-with-lease="+ref+":"+expected,
 		m.remote, commit+":"+ref)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if result.Status == execution.ProcessSucceeded {
-		return nil
+		return "", nil
 	}
 	line, found := porcelainRefLine(result.Stdout, ref)
 	if !found || !strings.HasPrefix(line, "!") {
-		return fmt.Errorf("push %s to %s failed with exit code %d: %s", ref, m.remote, result.ExitCode, strings.TrimSpace(result.Stderr))
+		return "", fmt.Errorf("push %s to %s failed with exit code %d: %s", ref, m.remote, result.ExitCode, strings.TrimSpace(result.Stderr))
 	}
 	if strings.Contains(line, "stale info") {
-		return fmt.Errorf("%w: %s on %s", ErrClaimLeaseRefused, ref, m.remote)
+		return "", fmt.Errorf("%w: %s on %s", ErrClaimLeaseRefused, ref, m.remote)
 	}
-	// A push that lost a race inside the remote is refused in the remote's own
-	// words ("failed to update ref") rather than as stale info, so the reference
-	// is read again: one that is no longer where the lease expected it is another
-	// factory having moved it, and one that still is was refused for what it is.
-	current, err := m.remoteRef(ctx, ref)
-	if err != nil {
-		return fmt.Errorf("push %s to %s was refused (%s), and the reference could not be read again: %w", ref, m.remote, strings.TrimSpace(line), err)
-	}
-	if current != expected {
-		return fmt.Errorf("%w: %s on %s", ErrClaimLeaseRefused, ref, m.remote)
-	}
-	return fmt.Errorf("%w: %s on %s: %s", ErrClaimRefRefused, ref, m.remote, strings.TrimSpace(line))
+	return strings.TrimSpace(line), nil
 }
 
 // remoteRef is the commit ref is at on the claims remote, and empty where the
