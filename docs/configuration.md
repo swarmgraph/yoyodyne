@@ -1919,10 +1919,12 @@ acceptance criteria, and in the description the sentences from a "Done means"
 these documents in nearly every description, as the design it builds against or
 the ruling it obeys, and a citation is not a condition. A document is named by
 its path, or by a phrase whose subject is the document itself: its id, however
-the prose joins the words, with `design`, `document`, `decision`, or `record`
-beside it ("the machine-home design", "the program manager's design"), or an id
-that ends in such a word on its own ("the slack-reporting design" names
-`docs/designs/slack-reporting-design.md`). A design's name used as ordinary
+the prose joins the words, with `design`, `document`, `decision`, `record`,
+`goals`, or `rules` beside it ("the machine-home design", "the program
+manager's design"), or an id that ends in such a word on its own ("the
+slack-reporting design" names
+`docs/designs/slack-reporting-design.md`, and "the v1 goals" names
+`docs/product/goals/v1-goals.md`). A design's name used as ordinary
 words inside a phrase about something else is not the design: "the machine-home
 project directory" is a folder, "no program manager is configured" is the role,
 and a file of the design's name written without the home's path is a file

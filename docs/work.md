@@ -712,8 +712,9 @@ path. A creation, an update that rewrites the description, or a proposal whose
 designs, decisions, or invariants homes own is refused with the clause quoted
 and the fix named. A document is named by the path of a file in one of those
 homes, or by a phrase whose subject is the document itself: its name with
-`design`, `document`, `decision`, or `record` beside it ("the machine-home
-design"), or a name that ends in such a word on its own, so "the
+`design`, `document`, `decision`, `record`, `goals`, or `rules` beside it
+("the machine-home design"), or a name that ends in such a word on its own, so
+"the v1 goals" names `docs/product/goals/v1-goals.md` and "the
 slack-reporting design" names `docs/designs/slack-reporting-design.md` as surely
 as the path does. A home's own path, or a folder inside one, names no document,
 and neither does a design's name used as ordinary words about something else —

@@ -43,9 +43,10 @@ package protectedpath
 // (yoyodyne-ifd.262) passes.
 //
 // A document is named by its path, or by a phrase whose subject is the document
-// itself: its id with the word design, document, decision, or record beside it
-// — "the machine-home design" — or an id that ends in such a word on its own,
-// as "the slack-reporting design" names slack-reporting-design. A path names a
+// itself: its id with the word design, document, decision, record, goals, or
+// rules beside it — "the machine-home design" — or an id that ends in such a
+// word on its own, as "the slack-reporting design" names slack-reporting-design
+// and "the v1 goals" names v1-goals. A path names a
 // document only where it names a file: a home's own path, or a folder inside
 // one, is the home, which a done-condition lists as often as a rule about where
 // changes land as a place the run writes. A design's id used as ordinary words
@@ -224,18 +225,24 @@ func idShape(id string) (*regexp.Regexp, bool) {
 	return shape, true
 }
 
-// documentWord is a word that says the phrase it ends is a document: "the
+// documentWords are the words that say the phrase they end is a document: "the
 // slack-reporting design", "the machine-home design document", "the
-// merge-affinity decision record".
-var documentWord = regexp.MustCompile(`(?i)^(?:design|document|decision|record)s?$`)
+// merge-affinity decision record", and the product's own kinds, "the v1 goals",
+// "the operating rules". Goals and rules are read only in the plural, which is
+// how those documents are titled; "a goal" or "a rule" is what a gate enforces
+// as often as a document.
+const documentWords = `(?:designs?|documents?|decisions?|records?|goals|rules)`
 
-// documentAfter and documentBefore are the words beside an id that make it the
-// document: "the program manager design", "the observability-and-dashboard
-// design's query list", "the design program-manager". A possessive is allowed
-// between, because "the program manager's design" is the design too.
+// documentWord is one of documentWords standing alone, for the last word of an
+// id; documentAfter and documentBefore are those words beside an id: "the
+// program manager design", "the observability-and-dashboard design's query
+// list", "the design program-manager", "the decision record merge-affinity". A
+// possessive is allowed between, because "the program manager's design" is the
+// design too.
 var (
-	documentAfter  = regexp.MustCompile(`(?i)^(?:'s|’s)?\s+(?:design|document|decision|record)s?\b`)
-	documentBefore = regexp.MustCompile(`(?i)\b(?:design|document)\s+$`)
+	documentWord   = regexp.MustCompile(`(?i)^` + documentWords + `$`)
+	documentAfter  = regexp.MustCompile(`(?i)^(?:'s|’s)?\s+` + documentWords + `\b`)
+	documentBefore = regexp.MustCompile(`(?i)\b` + documentWords + `\s+$`)
 )
 
 // namesDocument reports a match of a document's id that names the document
@@ -247,9 +254,9 @@ var (
 // "developer-sub-agents.md" in the harness's source is a file of the same name
 // elsewhere. Each was read as the design of that name and refused work nobody
 // meant to touch a design with. So an id names the document only where the
-// phrase's subject is the document itself — the word design, document,
-// decision, or record beside it, or an id that ends in such a word and so says
-// it alone — and anywhere else it is the words. A path is read as a path
+// phrase's subject is the document itself — one of documentWords beside it, or
+// an id that ends in one and so says it alone — and anywhere else it is the
+// words. A path is read as a path
 // whatever is beside it, which is the unambiguous way to name the document.
 func (d ownedDocument) namesDocument(text string, at []int) bool {
 	if d.titled {

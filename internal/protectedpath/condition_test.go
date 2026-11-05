@@ -543,3 +543,54 @@ func TestADesignsNameUsedAsOrdinaryWordsIsNotACondition(t *testing.T) {
 		}
 	}
 }
+
+// The product's own documents are titled by their kind — v1-goals,
+// operating-rules — so "the v1 goals" and "the operating rules" name them as
+// surely as "the slack-reporting design" names that design, and a done-condition
+// asking a run to change one is still refused wherever it is written. The same
+// words beside an id, on either side, name the document too.
+func TestTheProductDocumentsAreNamedByTheirKind(t *testing.T) {
+	t.Parallel()
+
+	homes := ArtifactHomes(config.Config{Product: config.Product{
+		Specifications: config.DefaultSpecifications,
+		Designs:        config.DefaultDesigns,
+		Decisions:      config.DefaultDecisions,
+		Invariants:     config.DefaultInvariants,
+	}},
+		Document{ID: "v1-goals", Path: "docs/product/goals/v1-goals.md"},
+		Document{ID: "v1-non-goals", Path: "docs/product/goals/v1-non-goals.md"},
+		Document{ID: "operating-rules", Path: "docs/product/operating-rules.md"},
+		Document{ID: "merge-affinity", Path: "docs/decisions/merge-affinity.md"},
+	)
+
+	for _, document := range []struct {
+		clause string
+		path   string
+	}{
+		{"Done means the v1 goals state the new goal.", "docs/product/goals/v1-goals.md"},
+		{"Done means the V1-Goals gain a standing goal.", "docs/product/goals/v1-goals.md"},
+		{"Done means the v1 non-goals no longer exclude the dashboard.", "docs/product/goals/v1-non-goals.md"},
+		{"Done means the operating rules say the seat is dedicated.", "docs/product/operating-rules.md"},
+		{"Done means the merge-affinity decision record names the lease.", "docs/decisions/merge-affinity.md"},
+		{"Done means the decision record merge-affinity names the lease.", "docs/decisions/merge-affinity.md"},
+		{"Done means the merge affinity rules name the lease.", "docs/decisions/merge-affinity.md"},
+	} {
+		conditions := homes.Ungranted(document.clause, "", nil)
+		if len(conditions) != 1 || conditions[0].Path != document.path {
+			t.Errorf("Ungranted(%q) = %#v, want %s refused", document.clause, conditions, document.path)
+		}
+		if problems := homes.ConditionProblems(Subject{Description: document.clause}); len(problems) != 1 {
+			t.Errorf("ConditionProblems(%q) = %v, want it refused", document.clause, problems)
+		}
+		if problems := homes.ConditionProblems(Subject{AcceptanceCriteria: document.clause}); len(problems) != 1 {
+			t.Errorf("ConditionProblems() on acceptance criteria %q = %v, want it refused", document.clause, problems)
+		}
+	}
+
+	// A single goal or rule is not the document: "the merge affinity rule" is
+	// what a gate enforces, as often as it is a decision record.
+	if conditions := homes.Ungranted("Done means the merge affinity rule holds under load.", "", nil); len(conditions) != 0 {
+		t.Errorf("Ungranted() on a singular rule = %#v, want nothing", conditions)
+	}
+}
