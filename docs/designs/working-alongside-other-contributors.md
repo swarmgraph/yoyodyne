@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-10-29T02:56:39.625831Z
       reason: 'yoyodyne-ifd.429.111: claims, the team pause, the shared records and shared budgets apply only when the project turns team mode on, so a factory working a repository alone reads no team pause, takes no claim and never holds back new work for an unreachable remote; the forge check runs on its own schedule apart from the maintenance pass, and a change it read but could not finish acting on is acted on again at the next check.'
+    - action: amended
+      by: architect
+      at: 2026-11-05T18:08:29.095053Z
+      reason: 'Two lines of this section were out of date: the decision record on Beads gained its consequence on October 15, and the invariant on one promotion per target branch gained the remote compare and swap on November 5, so neither still waits. The v1 design line now names the fix it waits on.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -34,6 +38,11 @@ approvals:
       by: harness
       at: 2026-10-29T02:56:39.625831Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1930, for document-1930.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-05T18:08:29.095053Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2298, for document-2298.1 under the automatic approval policy
 ---
 # Working alongside other contributors
 
@@ -238,8 +247,8 @@ No build that lets a second factory run can start before claims (6), because two
 
 ## Documents this amends
 
-- [Beads is the durable workflow store](../decisions/beads-durable-workflow-store.md) gains a consequence. The claim reference is the cross-machine guarantee for who holds an item, while the tracker still records the holder; reports, directives and spends travel in the records reference beside it, not in the tracker. The architect revises it once this design lands.
-- [One promotion per target branch](../decisions/invariants/one-promotion-per-target-branch.md) gains the remote compare and swap as the guarantee across machines. This waits on the typed invariant write (yoyodyne-0bj).
-- The v1 harness design's text on fetching only during reconcile is replaced by section 3. This waits on that design being split into parts that can be read whole.
+- [Beads is the durable workflow store](../decisions/beads-durable-workflow-store.md) gained its consequence on October 15, 2026. The claim reference is the cross-machine guarantee for who holds an item, while the tracker still records the holder; reports, directives and spends travel in the records reference beside it, not in the tracker.
+- [One promotion per target branch](../decisions/invariants/one-promotion-per-target-branch.md) gained the remote compare and swap as the guarantee across machines on November 5, 2026. The lock stays per machine and covers only the guarded change.
+- The v1 harness design's text on fetching only during reconcile is replaced by section 3. This waits on the fix that lets roles read and revise long files (yoyodyne-t2j).
 - The Lead Product Manager's team-mode scope document should say that working alongside other contributors is designed, name this design, and say that its question on a team-wide pause and its gap on budgets are answered here. That change is hers.
 - The earlier draft docs/team-mode-coordination.md is replaced by this design, through build item 13.
