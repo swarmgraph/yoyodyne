@@ -39,50 +39,110 @@ func (d *diagnosis) checkTeam(ctx context.Context, resolved config.Resolved, rep
 			Remedy: editConfiguration,
 		}}
 	}
+	if !resolved.Config.Services.Scheduler.Enabled {
+		return []Finding{{
+			Check:  "team",
+			Status: StatusProblem,
+			Summary: "team mode is on, and the scheduler service is off, so team mode is refused: the scheduler is what renews this machine's claims every 15 minutes and releases them when a run ends, " +
+				"so without it another factory could take over an item a run is still working, and items would stay claimed after their runs end. Turn services.scheduler.enabled on, or turn team.enabled off",
+			Detail: "services.scheduler.enabled is false",
+			Remedy: editConfiguration,
+		}}
+	}
 	remote := resolved.Config.Execution.Remote
-	if refusal := d.probeTeamReferences(ctx, repository, remote); refusal != "" {
+	switch probe := d.probeTeamReferences(ctx, repository, remote); {
+	case probe.refused:
 		return []Finding{{
 			Check:  "team",
 			Status: StatusProblem,
 			Summary: fmt.Sprintf("team mode is on, and the remote %s would not take a reference under refs/yoyodyne/, so team mode is refused: "+
 				"that is where factories claim work, and without claims two factories would do the same work. "+
 				"Allow references under refs/yoyodyne/ on the forge, or turn team.enabled off", remote),
-			Detail: refusal,
+			Detail: probe.detail,
 			Remedy: editConfiguration,
+		}}
+	case probe.leftOver:
+		return []Finding{{
+			Check:   "team",
+			Status:  StatusProblem,
+			Summary: fmt.Sprintf("team mode is on, and whether %s accepts references under refs/yoyodyne/ could not be checked: an earlier check left its probe reference %s there", remote, teamProbeRef),
+			Detail:  probe.detail,
+			Remedy:  fmt.Sprintf("git -C %s push %s :%s", shellQuote(repository), remote, teamProbeRef),
+		}}
+	case probe.detail != "":
+		return []Finding{{
+			Check:  "team",
+			Status: StatusProblem,
+			Summary: fmt.Sprintf("team mode is on, and whether %s accepts references under refs/yoyodyne/ could not be checked, because the push did not reach it; "+
+				"in team mode no new work starts while the remote cannot be reached", remote),
+			Detail: probe.detail,
+			Remedy: fmt.Sprintf("git -C %s fetch %s", shellQuote(repository), remote),
 		}}
 	}
 	return []Finding{{
 		Check:   "team",
 		Status:  StatusOK,
-		Summary: fmt.Sprintf("team mode is on, the harness publishes pull requests, and %s accepts the references factories claim work with", remote),
+		Summary: fmt.Sprintf("team mode is on, the harness publishes pull requests, the scheduler renews claims, and %s accepts the references factories claim work with", remote),
 	}}
+}
+
+// teamProbe is what pushing the probe reference found: nothing wrong where
+// detail is empty; the remote refusing the reference; a probe left by an
+// earlier check in the way; or, with neither, a push that did not reach the
+// remote or could not be made.
+type teamProbe struct {
+	refused  bool
+	leftOver bool
+	detail   string
 }
 
 // probeTeamReferences pushes a reference of its own under refs/yoyodyne/ to the
 // remote and deletes it again, and says what refused it, or nothing where the
 // remote took both. The commit pushed is a new one of the empty tree, so the
 // probe carries none of the repository's content.
-func (d *diagnosis) probeTeamReferences(ctx context.Context, repository, remote string) string {
+func (d *diagnosis) probeTeamReferences(ctx context.Context, repository, remote string) teamProbe {
 	tree, err := d.run(ctx, repository, "git", "hash-object", "-t", "tree", "-w", os.DevNull)
 	if err != nil || tree.Status != execution.ProcessSucceeded {
-		return "the probe could not be written: " + describeFailure(tree, err)
+		return teamProbe{detail: "the probe could not be written: " + describeFailure(tree, err)}
 	}
 	commit, err := d.run(ctx, repository, "git",
 		"-c", "user.name=Yoyodyne Harness", "-c", "user.email=harness@yoyodyne.invalid",
 		"commit-tree", "--no-gpg-sign", strings.TrimSpace(tree.Stdout), "-m", "yoyo doctor checking that this remote accepts references under refs/yoyodyne/")
 	if err != nil || commit.Status != execution.ProcessSucceeded {
-		return "the probe could not be written: " + describeFailure(commit, err)
+		return teamProbe{detail: "the probe could not be written: " + describeFailure(commit, err)}
 	}
 	probe := strings.TrimSpace(commit.Stdout)
 	pushed, err := d.run(ctx, repository, "git", "push", "--porcelain", "--no-verify",
 		"--force-with-lease="+teamProbeRef+":", remote, probe+":"+teamProbeRef)
-	if err != nil || pushed.Status != execution.ProcessSucceeded {
-		return "pushing " + teamProbeRef + " was refused: " + describeFailure(pushed, err)
+	if failed := judgeProbePush("pushing", pushed, err); failed.detail != "" {
+		return failed
 	}
 	removed, err := d.run(ctx, repository, "git", "push", "--porcelain", "--no-verify",
 		"--force-with-lease="+teamProbeRef+":"+probe, remote, ":"+teamProbeRef)
-	if err != nil || removed.Status != execution.ProcessSucceeded {
-		return "removing " + teamProbeRef + " again was refused: " + describeFailure(removed, err)
+	return judgeProbePush("removing", removed, err)
+}
+
+// judgeProbePush reads one probe push the way the harness reads a claim push
+// (gitworktree's pushClaimRef): the line `git push --porcelain` printed for the
+// reference says whether the remote answered and refused it. A refusal for
+// stale info is a probe an earlier check left; any other refusal is the remote
+// refusing the reference; and no line for it at all is a push that never
+// reached the remote.
+func judgeProbePush(doing string, result execution.ProcessResult, err error) teamProbe {
+	if err == nil && result.Status == execution.ProcessSucceeded {
+		return teamProbe{}
 	}
-	return ""
+	detail := doing + " " + teamProbeRef + " failed: " + describeFailure(result, err)
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) < 3 || !strings.HasSuffix(fields[1], ":"+teamProbeRef) || !strings.HasPrefix(fields[0], "!") {
+			continue
+		}
+		detail = doing + " " + teamProbeRef + " was refused: " + strings.TrimSpace(fields[2])
+		if strings.Contains(fields[2], "stale info") {
+			return teamProbe{leftOver: true, detail: detail}
+		}
+		return teamProbe{refused: true, detail: detail}
+	}
+	return teamProbe{detail: detail}
 }

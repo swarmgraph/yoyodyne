@@ -148,7 +148,7 @@ func brokenInstallations() map[string]func(*world) {
 		},
 		"team mode is on and the remote refuses references under refs/yoyodyne/": func(w *world) {
 			w.configuration = publishingConfig + teamSection
-			w.runner.reply("--force-with-lease=refs/yoyodyne/probe/doctor:", failed("! [remote rejected] refs/yoyodyne/probe/doctor (deny updating a hidden ref)"))
+			w.runner.reply("--force-with-lease=refs/yoyodyne/probe/doctor:", probeRefused("[remote rejected] (deny updating a hidden ref)"))
 		},
 		"the project publishes and has no such remote": func(w *world) {
 			w.configuration = publishingConfig

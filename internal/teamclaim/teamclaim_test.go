@@ -376,3 +376,34 @@ func TestAClaimStaysThisMachinesOwnWhenItsNameChanges(t *testing.T) {
 		t.Errorf("claim after the rename = %#v, want a fresh claim with no earlier holder", second)
 	}
 }
+
+// A claim taken while the watch loop was between reading which runs hold their
+// items and listing the claims has nothing behind it yet on that reading. It
+// is kept rather than released, so the run that took it never works without
+// one; once it is older than that gap could be, a claim nothing holds is
+// released.
+func TestAFreshClaimIsNotReleasedBeforeItsRunIsRecorded(t *testing.T) {
+	t.Parallel()
+	remote := sharedRemote(t)
+	clock := &testClock{now: time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)}
+	alpha := factory(t, remote, "example on alpha", clock)
+	ctx := context.Background()
+	taken, err := alpha.Take(ctx, "example-9", "run-a")
+	if err != nil {
+		t.Fatalf("Take() error = %v", err)
+	}
+	nothingHolds := func(runstate.TeamClaim) (bool, error) { return false, nil }
+	clock.advance(time.Minute)
+	upkeep, err := alpha.Tend(ctx, nothingHolds)
+	if err != nil || len(upkeep.Released) != 0 {
+		t.Fatalf("Tend() just after the take = %#v, %v, want the fresh claim kept", upkeep, err)
+	}
+	if got := remoteClaim(t, remote, "example-9"); got != taken.Commit {
+		t.Fatalf("remote claim = %s, want the fresh claim %s still there", got, taken.Commit)
+	}
+	clock.advance(ReleaseAfter)
+	upkeep, err = alpha.Tend(ctx, nothingHolds)
+	if err != nil || len(upkeep.Released) != 1 {
+		t.Fatalf("Tend() once the claim is older = %#v, %v, want it released", upkeep, err)
+	}
+}

@@ -30,6 +30,14 @@ import (
 // RenewEvery is how often a held claim is renewed.
 const RenewEvery = 15 * time.Minute
 
+// ReleaseAfter is how long after it was taken a claim may first be released
+// for its run no longer holding the item. A run takes its claim before it
+// reserves its run record or claims the tracker, so for a moment a fresh claim
+// has nothing on this machine behind it; within this time it is renewed as
+// held instead. The cost is that an item whose run failed at once stays
+// claimed this long.
+const ReleaseAfter = RenewEvery
+
 // ExpireAfter is how long a claim may go unrenewed before another factory may
 // take it over. It is eight renewals, so only a holder that has been unable to
 // reach the remote for two hours, or has gone, loses one.
@@ -331,6 +339,13 @@ func (c Claims) tendOne(ctx context.Context, workItemID string, holding Holding,
 		return
 	}
 	held, err := holding(claim)
+	if !held && err == nil && c.now().Sub(claim.TakenAt) < ReleaseAfter {
+		// A claim this new may belong to a run that took it after the caller
+		// read which runs and items are held, and before it reserved its run or
+		// claimed the tracker: releasing it would leave that run working with
+		// no claim. So it is kept until it is older than any such gap.
+		held = true
+	}
 	if err != nil {
 		// Whether the run still holds its item could not be read, so the claim
 		// is kept and renewed: releasing on a reading that failed would let

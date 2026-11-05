@@ -5309,7 +5309,10 @@ it, so two factories never do the same work:
   never enough, so a second home on the same machine is held to the same two
   hours as anybody else.
 - **Releasing.** Once the run no longer holds the item, the watch loop deletes
-  the reference with a lease naming its own commit. A reference that is no
+  the reference with a lease naming its own commit. A claim taken in the last
+  15 minutes is not released, because a run takes its claim a moment before
+  it records itself and claims the tracker, and the watch loop must not take
+  that moment for a run that has ended. A reference that is no
   longer this machine's, because another factory took it over, is left alone and
   said on the schedule.
 
@@ -5321,12 +5324,16 @@ under its state directory in `team-claims/`. Only the harness pushes these
 references, as it pushes pull request branches; no agent is given anything that
 writes one.
 
-Team mode needs two things of the project, and `yoyo doctor` refuses team mode
-in plain words where either is missing: the harness has to publish through pull
-requests (`approvals.publishing: automatic`), because the forge is where
-factories learn about each other; and the remote has to accept references under
-`refs/yoyodyne/`, which doctor tests by pushing `refs/yoyodyne/probe/doctor` and
-deleting it again.
+Team mode needs three things of the project, and `yoyo doctor` refuses team
+mode in plain words where any is missing: the harness has to publish through
+pull requests (`approvals.publishing: automatic`), because the forge is where
+factories learn about each other; the scheduler service has to be on
+(`services.scheduler.enabled`), because the watch loop is what renews and
+releases claims, including those taken by `yoyo run`; and the remote has to
+accept references under `refs/yoyodyne/`, which doctor tests by pushing
+`refs/yoyodyne/probe/doctor` and deleting it again. A push that never reaches
+the remote is reported as a check that could not be made, not as the forge
+refusing the reference.
 
 ## Waiting out a provider that refuses
 

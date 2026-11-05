@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"strings"
 	"testing"
 )
@@ -19,7 +20,7 @@ func TestTeamModeIsRefusedWhereItCannotRun(t *testing.T) {
 
 	world = newWorld(t)
 	world.configuration = publishingConfig + teamSection
-	world.runner.reply("--force-with-lease=refs/yoyodyne/probe/doctor:", failed("! [remote rejected] refs/yoyodyne/probe/doctor (deny updating a hidden ref)"))
+	world.runner.reply("--force-with-lease=refs/yoyodyne/probe/doctor:", probeRefused("[remote rejected] (deny updating a hidden ref)"))
 	finding, found = findingFor(world.diagnose(), "team")
 	if !found || finding.Status != StatusProblem || !strings.Contains(finding.Summary, "refs/yoyodyne/") || !strings.Contains(finding.Detail, "deny updating a hidden ref") {
 		t.Fatalf("team finding with a refusing remote = %#v, want team mode refused naming the refusal", finding)
@@ -63,5 +64,61 @@ func TestTeamModeOffAsksNothing(t *testing.T) {
 		if strings.Contains(strings.Join(command, " "), "refs/yoyodyne/") {
 			t.Fatalf("team mode off pushed %v", command)
 		}
+	}
+}
+
+// probeRefused is what `git push --porcelain` prints, and how it exits, when
+// the remote answers and refuses the probe reference.
+func probeRefused(summary string) execution.ProcessResult {
+	return execution.ProcessResult{
+		Status:   execution.ProcessFailed,
+		ExitCode: 1,
+		Stdout:   "To example\n!\t1111111111111111111111111111111111111111:refs/yoyodyne/probe/doctor\t" + summary + "\nDone\n",
+		Stderr:   "error: failed to push some refs",
+	}
+}
+
+// A push that never reached the remote is not reported as the forge refusing
+// the reference, and the remedy is to find out why the remote cannot be
+// reached rather than to change the forge.
+func TestTeamModeOnAnUnreachableRemoteSaysItCouldNotCheck(t *testing.T) {
+	t.Parallel()
+
+	world := newWorld(t)
+	world.configuration = publishingConfig + teamSection
+	world.runner.reply("--force-with-lease=refs/yoyodyne/probe/doctor:", failed("ssh: Could not resolve hostname github.com: nodename nor servname provided"))
+	finding, found := findingFor(world.diagnose(), "team")
+	if !found || finding.Status != StatusProblem || !strings.Contains(finding.Summary, "could not be checked") || strings.Contains(finding.Summary, "Allow references") {
+		t.Fatalf("team finding = %#v, want a check that could not reach the remote, not a refusal", finding)
+	}
+	if !strings.Contains(finding.Remedy, " fetch origin") {
+		t.Errorf("remedy = %q, want one that asks the remote", finding.Remedy)
+	}
+}
+
+// A probe reference an earlier check left behind is named, with the command
+// that removes it.
+func TestTeamModeNamesAProbeLeftByAnEarlierCheck(t *testing.T) {
+	t.Parallel()
+
+	world := newWorld(t)
+	world.configuration = publishingConfig + teamSection
+	world.runner.reply("--force-with-lease=refs/yoyodyne/probe/doctor:", probeRefused("[rejected] (stale info)"))
+	finding, found := findingFor(world.diagnose(), "team")
+	if !found || finding.Status != StatusProblem || !strings.Contains(finding.Summary, "left its probe reference") || !strings.Contains(finding.Remedy, ":refs/yoyodyne/probe/doctor") {
+		t.Fatalf("team finding = %#v, want the leftover probe named with the command that removes it", finding)
+	}
+}
+
+// Team mode is refused while the scheduler service is off, because nothing
+// else renews or releases the claims.
+func TestTeamModeIsRefusedWithTheSchedulerOff(t *testing.T) {
+	t.Parallel()
+
+	world := newWorld(t)
+	world.configuration = publishingConfig + teamSection + "services:\n  scheduler:\n    enabled: false\n"
+	finding, found := findingFor(world.diagnose(), "team")
+	if !found || finding.Status != StatusProblem || !strings.Contains(finding.Summary, "scheduler service is off") {
+		t.Fatalf("team finding = %#v, want team mode refused with the scheduler off", finding)
 	}
 }
