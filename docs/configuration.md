@@ -5298,8 +5298,8 @@ it, so two factories never do the same work:
   merge, or stopped and kept for a decision, which is any run in flight or any
   item this machine's tracker still shows as claimed or blocked — the watch loop
   renews the claim every 15 minutes, with a lease naming the commit it last
-  pushed. A renewal that cannot reach the remote is tried again at the next poll
-  and charges the run nothing.
+  pushed. A renewal that cannot reach the remote is said on the schedule, tried
+  again at the next poll, and charges the run nothing.
 - **Taking over.** A claim nobody has renewed for two hours may be taken over,
   with a lease naming the stale commit. The new claim names the earlier holder,
   and so does a note on the item. A claim this machine left from an earlier run

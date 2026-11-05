@@ -174,3 +174,33 @@ func TestTheWatchLoopKeepsClaimsWhileTheirRunHoldsTheItem(t *testing.T) {
 		t.Fatalf("schedule team claims = %#v, problem %q, want the upkeep and its problem recorded", schedule.TeamClaims, schedule.TeamClaimProblem)
 	}
 }
+
+// What the upkeep did that a person is owed is in the schedule's text, not only
+// its JSON: a claim released, a claim found taken over by another factory, and
+// a renewal that could not reach the remote.
+func TestTheScheduleSaysWhatBecameOfTheClaimsOnTheRemote(t *testing.T) {
+	t.Parallel()
+
+	lost := "the claim on item-lost was no longer this machine's when it came to renew it, so it was left alone; it is held by yoyodyne on beta"
+	schedule := Schedule{
+		TeamClaims: &teamclaim.Upkeep{
+			Renewed:  []string{"item-renewed"},
+			Released: []string{"item-ended"},
+			Lost:     []string{lost},
+		},
+		TeamClaimProblem: "the claim on item-x could not be renewed and will be tried again: could not resolve host",
+	}
+	rendered := schedule.Render()
+	for _, want := range []string{
+		"the claim on item-ended on the shared remote was released, because its run no longer holds the item",
+		lost,
+		"the claim on item-x could not be renewed and will be tried again",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered schedule lacks %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "item-renewed") {
+		t.Errorf("rendered schedule names a routine renewal:\n%s", rendered)
+	}
+}

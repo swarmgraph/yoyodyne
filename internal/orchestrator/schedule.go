@@ -8167,6 +8167,21 @@ func (s Schedule) Render() string {
 	if s.ClaimProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.ClaimProblem)
 	}
+	// What the pass did to this machine's claims on the shared remote, in team
+	// mode. A renewal is routine and stays in the JSON; a release, a claim found
+	// taken over by another factory, and one that could not be renewed or
+	// released are what a reader is owed (teamclaims.go).
+	if team := s.TeamClaims; team != nil {
+		for _, item := range team.Released {
+			fmt.Fprintf(&rendered, "the claim on %s on the shared remote was released, because its run no longer holds the item\n", item)
+		}
+		for _, lost := range team.Lost {
+			fmt.Fprintf(&rendered, "%s\n", lost)
+		}
+	}
+	if s.TeamClaimProblem != "" {
+		fmt.Fprintf(&rendered, "%s\n", s.TeamClaimProblem)
+	}
 	for _, released := range s.ReleasedSlots {
 		fmt.Fprintf(&rendered, "run %s of %s: %s\n", released.RunID, released.WorkItemID, released.Release.Says)
 	}
