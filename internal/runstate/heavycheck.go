@@ -59,6 +59,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
@@ -68,7 +69,7 @@ const HeavyCheckSchemaVersion = 1
 
 // HeavyCheckDirectory is the directory under the state root the record, its
 // lock, and every permit's file are kept in.
-const HeavyCheckDirectory = "heavy-checks"
+const HeavyCheckDirectory = home.HeavyChecksDirectoryName
 
 const (
 	heavyCheckRecordName = "permits.json"

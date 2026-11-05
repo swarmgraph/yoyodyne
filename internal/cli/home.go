@@ -110,6 +110,11 @@ func migrateHome(args []string, stdout, stderr io.Writer) int {
 		migration.LeftBehind = append(migration.LeftBehind, home.LeftBehind{What: "the recorded worktree paths", Path: plan.To,
 			Why: err.Error() + "; running the migration again rewrites what is left", Failed: true})
 	}
+	// Each bound repository's state-root marker names the machine home from
+	// here on, so a build that resolves the emptied home is refused at once.
+	followed, unfollowed := runstate.FollowMovedRootMarkers(plan.From, plan.To)
+	migration.Moved = append(migration.Moved, followed...)
+	migration.LeftBehind = append(migration.LeftBehind, unfollowed...)
 	code := reportMigration(stdout, stderr, *jsonOutput, migration)
 	if code == 0 && migration.Failed() {
 		return 1
@@ -239,8 +244,11 @@ file and external configurations — into the machine home, ~/.yoyodyne: each pr
 records into projects/<product id>/state/, its worktrees into
 projects/<product id>/worktrees/ with Git told where each now is, each external
 configuration into the project directory its product id names, and the
-operator's pause, the provider accounts, and the logs to the top. It then says
-what it moved and what it left behind.
+operator's pause, the provider accounts, the logs, and the record of heavy check
+places to the top. Every bound repository's state-root marker is then pointed at
+the machine home,
+so a build that still resolves the earlier home is refused rather than started
+there. It then says what it moved and what it left behind.
 
 It moves nothing while any run, conversation turn, or recurring pass is in
 flight, and says which. Nothing else moves the state: a build that finds it in

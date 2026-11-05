@@ -185,3 +185,48 @@ func TestAMarkerNamingAMigratedHomeFollowsTheState(t *testing.T) {
 		t.Fatalf("AgreeRoot() back onto the emptied home = %v, want it refused as a second root", err)
 	}
 }
+
+// Once the migration has moved the state, every repository bound into the
+// machine home has its marker name the machine home at once, so a process that
+// resolves the emptied home — as a build from before the machine home does —
+// is refused by the guard against two homes before it opens anything, rather
+// than only after this build's first start rewrites the marker. A marker naming
+// a third home is not the migration's to change, and a second pass changes
+// nothing.
+func TestTheMigrationPointsEveryBoundRepositorysMarkerAtTheMachineHome(t *testing.T) {
+	t.Parallel()
+
+	earlier, machineHome := t.TempDir(), t.TempDir()
+	bound, elsewhere := gitCheckout(t), gitCheckout(t)
+	if err := AgreeRoot(bound, ResolvedRoot{Path: earlier, Origin: RootOriginEarlierDefault}); err != nil {
+		t.Fatal(err)
+	}
+	third := t.TempDir()
+	if err := AgreeRoot(elsewhere, ResolvedRoot{Path: third}); err != nil {
+		t.Fatal(err)
+	}
+	for id, checkout := range map[string]string{"yoyodyne": bound, "other": elsewhere} {
+		if _, err := home.Bind(home.AgreeOptions{Root: machineHome, ProductID: id, Checkout: checkout}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	followed, left := FollowMovedRootMarkers(earlier, machineHome)
+	if len(followed) != 1 || len(left) != 0 || !strings.Contains(followed[0].What, "yoyodyne") {
+		t.Fatalf("followed = %+v, left = %+v; want the one marker naming the emptied home rewritten", followed, left)
+	}
+	marker, err := ReadRootMarker(bound)
+	if err != nil || !sameRoot(marker.Recorded, machineHome) {
+		t.Fatalf("marker = %+v, %v; want it to name the machine home", marker, err)
+	}
+	var split *SplitRootError
+	if err := AgreeRoot(bound, ResolvedRoot{Path: earlier, Origin: RootOriginEarlierDefault}); !errors.As(err, &split) || !strings.Contains(err.Error(), machineHome) {
+		t.Fatalf("AgreeRoot() on the emptied home = %v, want it refused naming the machine home", err)
+	}
+	if untouched, err := ReadRootMarker(elsewhere); err != nil || !sameRoot(untouched.Recorded, third) {
+		t.Fatalf("a marker naming another home = %+v, %v; want it left alone", untouched, err)
+	}
+	if again, left := FollowMovedRootMarkers(earlier, machineHome); len(again) != 0 || len(left) != 0 {
+		t.Fatalf("a second pass = %+v, %+v; want nothing changed", again, left)
+	}
+}

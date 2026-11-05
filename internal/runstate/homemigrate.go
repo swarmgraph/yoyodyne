@@ -17,6 +17,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/home"
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
 // MaxHomeMigrationByBytes bounds the account of who ran a migration, which is a
@@ -239,4 +240,66 @@ func RewriteMigratedWorktrees(from, to string, products []string, now time.Time,
 		}
 	}
 	return rewritten, left, nil
+}
+
+// FollowMovedRootMarkers records to in the state-root marker of every
+// repository bound into to whose marker still names from, the home the
+// migration emptied. Until it does, a build that resolves from — every build
+// from before the machine home does by default — finds its own root in the
+// marker and starts there on an empty layout, so the guard against two homes
+// stops it only once it says where the state now is. A marker naming anything
+// else is left as it is: it is not this migration's to change. It returns each
+// rewrite as a move of the marker, and is as safe to repeat as the moves.
+func FollowMovedRootMarkers(from, to string) ([]home.Moved, []home.LeftBehind) {
+	var followed []home.Moved
+	var left []home.LeftBehind
+	if home.SameDirectory(from, to) {
+		return nil, nil
+	}
+	projects, err := home.Projects(to)
+	if err != nil {
+		return nil, []home.LeftBehind{{What: "the state-root markers of the bound repositories", Path: to, Why: err.Error(), Failed: true}}
+	}
+	for _, project := range projects {
+		if !project.Bound || !project.Binding.Present() {
+			continue
+		}
+		marker, moved, err := followMovedRoot(project.Binding.GitCommonDirectory, from, to)
+		if err != nil {
+			left = append(left, home.LeftBehind{What: "the state-root marker of " + project.ID, Path: marker,
+				Why: err.Error() + "; the next start of this build from that repository records the machine home in it", Failed: true})
+			continue
+		}
+		if moved {
+			followed = append(followed, home.Moved{What: "the state-root marker of " + project.ID + " (" + marker + ")", From: from, To: to})
+		}
+	}
+	return followed, left
+}
+
+// followMovedRoot replaces the marker in one repository's Git common directory
+// with to where it names from, and reports whether it did.
+func followMovedRoot(gitDirectory, from, to string) (string, bool, error) {
+	marker := filepath.Join(gitDirectory, filepath.FromSlash(RootMarkerName))
+	content, err := os.ReadFile(marker)
+	if errors.Is(err, os.ErrNotExist) {
+		return marker, false, nil
+	}
+	if err != nil {
+		return marker, false, fmt.Errorf("read the state-root marker %s: %w", marker, err)
+	}
+	if recorded := strings.TrimSpace(string(content)); recorded == "" || !sameRoot(recorded, from) {
+		return marker, false, nil
+	}
+	if err := refuseMarkerOutsideTemporary(gitDirectory); err != nil {
+		return marker, false, err
+	}
+	root, err := repowrite.NewRoot(gitDirectory)
+	if err != nil {
+		return marker, false, fmt.Errorf("record the machine home in %s: %w", marker, err)
+	}
+	if err := replaceRootMarker(root, marker, ResolvedRoot{Path: to}); err != nil {
+		return marker, false, err
+	}
+	return marker, true, nil
 }

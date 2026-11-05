@@ -1262,14 +1262,18 @@ and memory, sweep and pass records — from `products/<id>/` into
 `projects/<id>/worktrees/`, telling Git where it now is with
 `git worktree repair` and rewriting the worktree path on the run record that
 names it, with the old path kept beside it on the record; the operator's hold,
-the provider accounts, and the logs to the top; and
+the provider accounts, the logs, and the record of heavy check places, which is
+one record for the whole machine, to the top; and
 `~/.config/yoyodyne/machine.yaml` to `~/.yoyodyne/machine.yaml` where it exists.
 It writes each project's binding from the checkout it was run from, from a moved
 worktree, or from the repository an external configuration names, and any it
 cannot is written by that project's next start. It then prints what it moved and
 what it left behind, naming each, and leaves a file in the emptied home naming
-`~/.yoyodyne`, so each checkout's [state-root marker](#where-the-state-is-and-moving-it)
-follows the state to its new place on its next command rather than refusing.
+`~/.yoyodyne`. It points the [state-root marker](#where-the-state-is-and-moving-it)
+of every repository bound into `~/.yoyodyne` at the new home before it ends, so
+a build from before the machine home, which still resolves the emptied home, is
+refused naming `~/.yoyodyne` rather than started there; a checkout whose marker
+it could not reach follows the state to its new place on its next command.
 Every step is one move that is made or not, so a migration that stops part way
 names what it did not move, marked `NOT MOVED`, and running it again finishes
 it. A home `state_root` or `XDG_STATE_HOME` names is laid out the new way where
