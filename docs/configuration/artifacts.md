@@ -780,15 +780,19 @@ acceptance criteria, and in the description the sentences from a "Done means"
 (or "Done:", "done when") to the end of their paragraph — because an item cites
 these documents in nearly every description, as the design it builds against or
 the ruling it obeys, and a citation is not a condition. A document is named by
-its path or, where its id is two words or more, by its id however the prose
-joins the words ("the slack-reporting design" names
-`docs/designs/slack-reporting-design.md`); a one-word id such as `brief` is left
-to the path, and an invariant is named by its path only. An id that is also the
-name of one of the harness's roles is read as the document only where the clause
-names its path or names it as a document — the word `design` or `document`
-beside the id, or its file name — and the bare phrase is the role: "no program
-manager is configured" is about the role, while "the program manager design"
-names `docs/designs/program-manager.md`. A done-condition saying a design is
+its path, or by a phrase whose subject is the document itself: its id, however
+the prose joins the words, with `design`, `document`, `decision`, or `record`
+beside it ("the machine-home design", "the program manager's design"), or an id
+that ends in such a word on its own ("the slack-reporting design" names
+`docs/designs/slack-reporting-design.md`). A design's name used as ordinary
+words inside a phrase about something else is not the design: "the machine-home
+project directory" is a folder, "no program manager is configured" is the role,
+and a file of the design's name written without the home's path is a file
+somewhere else. A path names a document only where it names a file in a home: a
+home's own path, or a folder inside one, is mentioned as often as a rule about
+where changes land as a place the run writes, and is not refused. A one-word id
+such as `brief` is left to the path, and an invariant is named by its path only.
+A done-condition saying a design is
 recorded, published, or ratified is still refused on an item naming no
 executor, whichever document it names. The run asks the same
 question of the item it is handed, over the acceptance criteria as well, before

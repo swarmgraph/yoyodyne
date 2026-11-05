@@ -42,15 +42,19 @@ package protectedpath
 // product path in its done-means and carries the grant for it
 // (yoyodyne-ifd.262) passes.
 //
-// A document is named by its path, or by its id where the id is two words or
-// more. A single-word id is left to the path: the brief's id is "brief", and a
-// done-condition that says "the brief's acceptance criteria hold" is citing it,
-// which the 17 items whose done-means say something of that kind bear out.
-// An id that is also a role's name — program-manager, the design of the role
-// of that name — is the role where the clause says only the name, and the
-// document where it says design or document beside it or writes the file name:
-// read otherwise, every item about the role was refused for naming its design.
-// Documents under the invariants directory are named by path only, for the
+// A document is named by its path, or by a phrase whose subject is the document
+// itself: its id with the word design, document, decision, or record beside it
+// — "the machine-home design" — or an id that ends in such a word on its own,
+// as "the slack-reporting design" names slack-reporting-design. A path names a
+// document only where it names a file: a home's own path, or a folder inside
+// one, is the home, which a done-condition lists as often as a rule about where
+// changes land as a place the run writes. A design's id used as ordinary words
+// inside a phrase about something else — "the machine-home project directory",
+// "no program manager is configured" — is the words, and so is a file of the
+// same name written without the home's path. A single-word id is never looked
+// for: the brief's id is "brief", and a done-condition that says "the brief's
+// acceptance criteria hold" is citing it, which the 17 items whose done-means
+// say something of that kind bear out. Documents under the invariants directory are named by path only, for the
 // reason the artifact store excludes them from its identity scheme: an invariant
 // is delivered to every run by its id and cited by it in nearly every item, and
 // a done-condition that edited one would name its path.
@@ -125,10 +129,10 @@ type Homes struct {
 type ownedDocument struct {
 	Document
 	shape *regexp.Regexp
-	// roleName marks an id that is also the name of one of the harness's roles.
-	// Such an id is read as the document only where the clause says so; see
-	// namesDocument.
-	roleName bool
+	// titled marks an id whose own last word says what kind of document it is —
+	// slack-reporting-design — so the id written alone is already "the <name>
+	// design"; see namesDocument.
+	titled bool
 }
 
 // ArtifactHomes builds the homes a configuration names — the product artifacts,
@@ -168,7 +172,7 @@ func ArtifactHomes(cfg config.Config, documents ...Document) Homes {
 		if !named {
 			continue
 		}
-		homes.documents = append(homes.documents, ownedDocument{Document: Document{ID: id, Path: clean}, shape: shape, roleName: isRoleName(id)})
+		homes.documents = append(homes.documents, ownedDocument{Document: Document{ID: id, Path: clean}, shape: shape, titled: documentWord.MatchString(id[strings.LastIndex(id, "-")+1:])})
 	}
 	sort.Slice(homes.documents, func(i, j int) bool { return homes.documents[i].Path < homes.documents[j].Path })
 	return homes
@@ -220,36 +224,35 @@ func idShape(id string) (*regexp.Regexp, bool) {
 	return shape, true
 }
 
-// isRoleName reports an id that is also the name of one of the harness's roles.
-func isRoleName(id string) bool {
-	for _, name := range domain.RoleNames() {
-		if strings.EqualFold(id, name) {
-			return true
-		}
-	}
-	return false
-}
+// documentWord is a word that says the phrase it ends is a document: "the
+// slack-reporting design", "the machine-home design document", "the
+// merge-affinity decision record".
+var documentWord = regexp.MustCompile(`(?i)^(?:design|document|decision|record)s?$`)
 
-// documentAfter and documentBefore are the words that make a role's name the
-// document of the same name: "the program manager design", "program-manager.md",
-// "the design program-manager". A possessive is allowed between, because "the
-// program manager's design" is the design too.
+// documentAfter and documentBefore are the words beside an id that make it the
+// document: "the program manager design", "the observability-and-dashboard
+// design's query list", "the design program-manager". A possessive is allowed
+// between, because "the program manager's design" is the design too.
 var (
-	documentAfter  = regexp.MustCompile(`(?i)^(?:\.md\b|(?:'s|’s)?\s+(?:design|document)s?\b)`)
+	documentAfter  = regexp.MustCompile(`(?i)^(?:'s|’s)?\s+(?:design|document|decision|record)s?\b`)
 	documentBefore = regexp.MustCompile(`(?i)\b(?:design|document)\s+$`)
 )
 
 // namesDocument reports a match of a document's id that names the document
-// rather than something else the words also are. For most ids every match does.
-// An id that is also a role's name — docs/designs/program-manager.md is the
-// program manager's design, and "program manager" is written in full on every
-// surface — is the role where the clause says only the name: "no program
-// manager is configured" is about the role, and read as the design it refused
-// every item about the role until yoyodyne-ifd.433.5. So such an id is the
-// document only with the word design or document beside it, or as a file name;
-// its path is read as a path whatever is beside it.
+// rather than something else the words also are. A design's id is very often
+// ordinary words, and a done-condition uses them for the thing they describe:
+// "the machine-home project directory" is a folder in the machine home, "no
+// program manager is configured" is the role, "the pinned outside files section
+// of docs/configuration.md" is a section of another file, and
+// "developer-sub-agents.md" in the harness's source is a file of the same name
+// elsewhere. Each was read as the design of that name and refused work nobody
+// meant to touch a design with. So an id names the document only where the
+// phrase's subject is the document itself — the word design, document,
+// decision, or record beside it, or an id that ends in such a word and so says
+// it alone — and anywhere else it is the words. A path is read as a path
+// whatever is beside it, which is the unambiguous way to name the document.
 func (d ownedDocument) namesDocument(text string, at []int) bool {
-	if !d.roleName {
+	if d.titled {
 		return true
 	}
 	return documentAfter.MatchString(text[at[1]:]) || documentBefore.MatchString(text[:at[0]])
@@ -405,7 +408,7 @@ func (h Homes) Ungranted(description, acceptanceCriteria string, granted []strin
 		for _, clause := range clauses(span) {
 			for _, cited := range standingAlone(clause, writtenPath) {
 				path, ok := normalize(strings.TrimRight(cited, trailingDecoration))
-				if !ok || !within(path, h.directories) {
+				if !ok || !h.documentPath(path) {
 					continue
 				}
 				note(path, path, clause)
@@ -425,6 +428,30 @@ func (h Homes) Ungranted(description, acceptanceCriteria string, granted []strin
 		conditions = conditions[:maxConditions]
 	}
 	return conditions
+}
+
+// documentPath reports a written path that names a document under one of these
+// homes: a document the homes own, or a file — a last segment with an extension
+// — inside a home. A home's own path, or a folder inside one, names no document:
+// a done-condition listing "docs/product, docs/designs, and docs/decisions" as
+// the rule for which changes take a route is describing the homes, not asking a
+// run to change something in them.
+func (h Homes) documentPath(path string) bool {
+	if !within(path, h.directories) {
+		return false
+	}
+	for _, document := range h.documents {
+		if document.Path == path {
+			return true
+		}
+	}
+	for _, directory := range h.directories {
+		if within(directory, []string{path}) {
+			return false
+		}
+	}
+	name := path[strings.LastIndex(path, "/")+1:]
+	return strings.LastIndex(name, ".") > 0
 }
 
 // ownerOf is the role whose conversation writes the home a path is under, or
