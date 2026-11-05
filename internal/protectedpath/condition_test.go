@@ -152,12 +152,16 @@ func TestOnlyTheArtifactHomesAndTheirDocumentsAreConditions(t *testing.T) {
 	if conditions := homes.Ungranted("Done means docs/products/index.md lists it.", "", nil); len(conditions) != 0 {
 		t.Fatalf("Ungranted() on a sibling of the home = %#v, want nothing", conditions)
 	}
-	// A home named bare, with or without its trailing slash, is the home.
-	for _, named := range []string{"docs/designs", "docs/designs/"} {
-		conditions := homes.Ungranted("Done means a design under "+named+" records it.", "", nil)
-		if len(conditions) != 1 || conditions[0].Path != "docs/designs" {
-			t.Fatalf("Ungranted() on %q = %#v, want the home", named, conditions)
+	// A home named bare, with or without its trailing slash, is the home and names
+	// no document, and so is a folder inside one; a file inside one is a document
+	// whether or not the store knows it yet.
+	for _, named := range []string{"docs/designs", "docs/designs/", "docs/product/goals/", "docs/decisions/invariants"} {
+		if conditions := homes.Ungranted("Done means a design under "+named+" records it.", "", nil); len(conditions) != 0 {
+			t.Fatalf("Ungranted() on %q = %#v, want nothing", named, conditions)
 		}
+	}
+	if conditions := homes.Ungranted("Done means docs/designs/new-thing.md records it.", "", nil); len(conditions) != 1 || conditions[0].Path != "docs/designs/new-thing.md" {
+		t.Fatalf("Ungranted() on a new file in a home = %#v, want it refused", conditions)
 	}
 	// An id inside a longer identifier is not the id, and the id is found however
 	// the prose joined its words.
@@ -194,7 +198,7 @@ func TestConditionsAreDeduplicatedAndBounded(t *testing.T) {
 	if conditions[0].Path != "docs/designs/a.md" || conditions[1].Path != "docs/designs/b.md" {
 		t.Fatalf("Ungranted() = %#v, want a.md once and then b.md", conditions[:2])
 	}
-	long := "Done means " + strings.Repeat("the design under docs/designs/ records it and ", 20) + "so on."
+	long := "Done means " + strings.Repeat("the design at docs/designs/a.md records it and ", 20) + "so on."
 	conditions = defaultHomes().Ungranted(long, "", nil)
 	if len(conditions) != 1 || len(conditions[0].Clause) > maxClauseBytes+len("...") || !strings.HasSuffix(conditions[0].Clause, "...") {
 		t.Fatalf("Ungranted() on a long clause = %#v, want it folded to %d bytes", conditions, maxClauseBytes)
@@ -431,6 +435,9 @@ func TestAnIDThatIsARolesNameIsTheRoleUnlessTheClauseNamesTheDocument(t *testing
 		"Done means: the standing the read model derives lists each configured instance of the sixth role with its name, its lane, its status as the design derives it, and where its current report is; the section has the four states every section has, with its empty state saying in a sentence that no instance of that role is configured.",
 		"Done means the program-manager lane report is rewritten each pass, and a program manager's blocked status names its blocker.",
 		"Done means a Program Manager admits only under its own label.",
+		// A file of the design's name, written without the home's path, is a file
+		// of that name somewhere else.
+		"Done means program-manager.md in the harness's builtin personas says where the report lives.",
 	} {
 		if conditions := homes.Ungranted(role, "", nil); len(conditions) != 0 {
 			t.Errorf("Ungranted(%q) = %#v, want the role read as the role", role, conditions)
@@ -449,7 +456,6 @@ func TestAnIDThatIsARolesNameIsTheRoleUnlessTheClauseNamesTheDocument(t *testing
 		{"Done means the program manager's design names stale.", "program manager"},
 		{"Done means the program manager document says where the report lives.", "program manager"},
 		{"Done means the design program-manager says where the report lives.", "program-manager"},
-		{"Done means program-manager.md says where the report lives.", "program-manager"},
 		{"Done means docs/designs/program-manager.md says where the report lives.", "docs/designs/program-manager.md"},
 	} {
 		conditions := homes.Ungranted(document.clause, "", nil)
@@ -466,9 +472,186 @@ func TestAnIDThatIsARolesNameIsTheRoleUnlessTheClauseNamesTheDocument(t *testing
 		t.Fatalf("ConditionProblems(%q) = %v, want the recorded design refused for naming no executor", recorded, problems)
 	}
 
-	// An id that is no role's name keeps the older reading: the words are the
-	// document, with nothing beside them.
+	// An id that ends in a document word says it alone: slack-reporting-design
+	// written as "the slack-reporting design" is already "the <name> design", so
+	// nothing more beside it is needed.
 	if conditions := defaultHomes().Ungranted("Done means the slack-reporting design names the sink.", "", nil); len(conditions) != 1 {
-		t.Fatalf("Ungranted() on an id that is no role's name = %#v, want the document", conditions)
+		t.Fatalf("Ungranted() on an id ending in a document word = %#v, want the document", conditions)
+	}
+}
+
+// The over-matches reported against this check, each as its done-condition was
+// written, and the references to the same documents it still refuses. A design's
+// id used as words inside a phrase about something else is the words; the
+// document is named by its path or by a phrase whose subject is the document.
+func TestADesignsNameUsedAsOrdinaryWordsIsNotACondition(t *testing.T) {
+	t.Parallel()
+
+	homes := ArtifactHomes(config.Config{Product: config.Product{
+		Specifications: config.DefaultSpecifications,
+		Designs:        config.DefaultDesigns,
+		Decisions:      config.DefaultDecisions,
+		Invariants:     config.DefaultInvariants,
+	}},
+		Document{ID: "machine-home", Path: "docs/designs/machine-home.md"},
+		Document{ID: "pinned-outside-files", Path: "docs/designs/pinned-outside-files.md"},
+		Document{ID: "developer-sub-agents", Path: "docs/designs/developer-sub-agents.md"},
+	)
+
+	for _, clause := range []string{
+		// The companion intent repository work (yoyodyne-ifd.78.1): a folder.
+		"Done means the intent repository is created in the machine-home project directory and yoyo doctor reports it.",
+		// The documentation fix: a section of another file.
+		"Done means: The pinned outside files section of docs/configuration.md says what is pinned.",
+		// A source file the harness builds in, sharing the design's name.
+		"Done means developer-sub-agents.md is embedded in the harness and the developer contract reads it.",
+		"Done means internal/config/builtin/developer-sub-agents.md is embedded in the harness.",
+		// The document-landing update (yoyodyne-fp3): the homes listed as the rule
+		// for which changes take the route, not as places the run writes.
+		"Done means a change whose every path is under docs/product, docs/designs, docs/decisions, or docs/decisions/invariants/ takes the document route.",
+	} {
+		if conditions := homes.Ungranted(clause, "", nil); len(conditions) != 0 {
+			t.Errorf("Ungranted(%q) = %#v, want nothing", clause, conditions)
+		}
+		// Admission and the start of a run ask the same predicate.
+		if problems := homes.ConditionProblems(Subject{Description: clause}); len(problems) != 0 {
+			t.Errorf("ConditionProblems(%q) = %v, want the item admitted", clause, problems)
+		}
+		if problems := homes.ConditionProblems(Subject{AcceptanceCriteria: clause}); len(problems) != 0 {
+			t.Errorf("ConditionProblems() on acceptance criteria %q = %v, want the item admitted", clause, problems)
+		}
+	}
+
+	for _, document := range []struct {
+		clause string
+		path   string
+	}{
+		{"Done means the machine-home design says where the intent repository lives.", "docs/designs/machine-home.md"},
+		{"Done means the machine-home design document says where the intent repository lives.", "docs/designs/machine-home.md"},
+		{"Done means the machine home design's layout lists intent/.", "docs/designs/machine-home.md"},
+		{"Done means docs/designs/machine-home.md lists intent/.", "docs/designs/machine-home.md"},
+		{"Done means the pinned-outside-files design names the new file.", "docs/designs/pinned-outside-files.md"},
+		{"Done means docs/designs/developer-sub-agents.md describes the sub-agents.", "docs/designs/developer-sub-agents.md"},
+		{"Done means the developer sub-agents design describes them.", "docs/designs/developer-sub-agents.md"},
+	} {
+		conditions := homes.Ungranted(document.clause, "", nil)
+		if len(conditions) != 1 || conditions[0].Path != document.path {
+			t.Errorf("Ungranted(%q) = %#v, want %s refused", document.clause, conditions, document.path)
+		}
+		if problems := homes.ConditionProblems(Subject{AcceptanceCriteria: document.clause}); len(problems) != 1 {
+			t.Errorf("ConditionProblems() on acceptance criteria %q = %v, want it refused", document.clause, problems)
+		}
+	}
+}
+
+// The product's own documents are titled by their kind — v1-goals,
+// operating-rules — so "the v1 goals" and "the operating rules" name them as
+// surely as "the slack-reporting design" names that design, and a done-condition
+// asking a run to change one is still refused wherever it is written. The same
+// words beside an id, on either side, name the document too.
+func TestTheProductDocumentsAreNamedByTheirKind(t *testing.T) {
+	t.Parallel()
+
+	homes := ArtifactHomes(config.Config{Product: config.Product{
+		Specifications: config.DefaultSpecifications,
+		Designs:        config.DefaultDesigns,
+		Decisions:      config.DefaultDecisions,
+		Invariants:     config.DefaultInvariants,
+	}},
+		Document{ID: "v1-goals", Path: "docs/product/goals/v1-goals.md"},
+		Document{ID: "v1-non-goals", Path: "docs/product/goals/v1-non-goals.md"},
+		Document{ID: "operating-rules", Path: "docs/product/operating-rules.md"},
+		Document{ID: "merge-affinity", Path: "docs/decisions/merge-affinity.md"},
+	)
+
+	for _, document := range []struct {
+		clause string
+		path   string
+	}{
+		{"Done means the v1 goals state the new goal.", "docs/product/goals/v1-goals.md"},
+		{"Done means the V1-Goals gain a standing goal.", "docs/product/goals/v1-goals.md"},
+		{"Done means the v1 non-goals no longer exclude the dashboard.", "docs/product/goals/v1-non-goals.md"},
+		{"Done means the operating rules say the seat is dedicated.", "docs/product/operating-rules.md"},
+		{"Done means the merge-affinity decision record names the lease.", "docs/decisions/merge-affinity.md"},
+		{"Done means the decision record merge-affinity names the lease.", "docs/decisions/merge-affinity.md"},
+	} {
+		conditions := homes.Ungranted(document.clause, "", nil)
+		if len(conditions) != 1 || conditions[0].Path != document.path {
+			t.Errorf("Ungranted(%q) = %#v, want %s refused", document.clause, conditions, document.path)
+		}
+		if problems := homes.ConditionProblems(Subject{Description: document.clause}); len(problems) != 1 {
+			t.Errorf("ConditionProblems(%q) = %v, want it refused", document.clause, problems)
+		}
+		if problems := homes.ConditionProblems(Subject{AcceptanceCriteria: document.clause}); len(problems) != 1 {
+			t.Errorf("ConditionProblems() on acceptance criteria %q = %v, want it refused", document.clause, problems)
+		}
+	}
+
+	// A single goal or rule is not the document: "the merge affinity rule" is
+	// what a gate enforces, as often as it is a decision record. And a plural
+	// after an id is as often a verb as a noun, so it is not read as the
+	// document either.
+	for _, words := range []string{
+		"Done means the merge affinity rule holds under load.",
+		"Done means the merge affinity rules out a second lease.",
+	} {
+		if conditions := homes.Ungranted(words, "", nil); len(conditions) != 0 {
+			t.Errorf("Ungranted(%q) = %#v, want nothing", words, conditions)
+		}
+	}
+}
+
+// A design's name followed by a verb is the thing the name describes acting,
+// not the design. "records", "rules", "designs", and "documents" are verbs as
+// often as nouns, so after an id only the singular nouns name the document, and
+// before one the noun has to follow "the".
+func TestADesignsNameFollowedByAVerbIsNotTheDesign(t *testing.T) {
+	t.Parallel()
+
+	homes := ArtifactHomes(config.Config{Product: config.Product{
+		Specifications: config.DefaultSpecifications,
+		Designs:        config.DefaultDesigns,
+		Decisions:      config.DefaultDecisions,
+		Invariants:     config.DefaultInvariants,
+	}},
+		Document{ID: "program-manager", Path: "docs/designs/program-manager.md"},
+		Document{ID: "machine-home", Path: "docs/designs/machine-home.md"},
+		Document{ID: "merge-affinity", Path: "docs/decisions/merge-affinity.md"},
+	)
+
+	for _, clause := range []string{
+		"Done means the program manager records its lane report each pass.",
+		"Done means the program manager rules on the stoppage.",
+		"Done means the program manager designs its own remit.",
+		"Done means the program manager documents its lane in its report.",
+		"Done means the program manager decisions are listed on the dashboard.",
+		"Done means the machine home records the intent path.",
+		"Done means the harness can record machine home paths and design program manager lanes.",
+	} {
+		if conditions := homes.Ungranted(clause, "", nil); len(conditions) != 0 {
+			t.Errorf("Ungranted(%q) = %#v, want nothing", clause, conditions)
+		}
+		if problems := homes.ConditionProblems(Subject{Description: clause}); len(problems) != 0 {
+			t.Errorf("ConditionProblems(%q) = %v, want the item admitted", clause, problems)
+		}
+		if problems := homes.ConditionProblems(Subject{AcceptanceCriteria: clause}); len(problems) != 0 {
+			t.Errorf("ConditionProblems() on acceptance criteria %q = %v, want the item admitted", clause, problems)
+		}
+	}
+
+	for _, document := range []struct {
+		clause string
+		path   string
+	}{
+		{"Done means the program manager design lists the lane report.", "docs/designs/program-manager.md"},
+		{"Done means the merge-affinity decision record names the lease.", "docs/decisions/merge-affinity.md"},
+		{"Done means the machine home record names the intent path.", "docs/designs/machine-home.md"},
+	} {
+		if conditions := homes.Ungranted(document.clause, "", nil); len(conditions) != 1 || conditions[0].Path != document.path {
+			t.Errorf("Ungranted(%q) = %#v, want %s refused", document.clause, conditions, document.path)
+		}
+		if problems := homes.ConditionProblems(Subject{AcceptanceCriteria: document.clause}); len(problems) != 1 {
+			t.Errorf("ConditionProblems() on acceptance criteria %q = %v, want it refused", document.clause, problems)
+		}
 	}
 }
