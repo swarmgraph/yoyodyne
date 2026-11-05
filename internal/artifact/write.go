@@ -135,6 +135,14 @@ type Write struct {
 	// document is written, kept, and noted on the items it answers as any other
 	// is, and it is sent once the work item the hold names closes.
 	Hold *SendingHold `json:"hold,omitempty"`
+	// EstablishedBy and Scope are an invariant's own fields: the work items or
+	// designs the constraint came from, and the repository paths it constrains.
+	// Both are refused on any other kind. A creation requires EstablishedBy and
+	// leaving Scope out makes the invariant repository-wide; on a revision,
+	// leaving either out keeps what the invariant records, and an empty scope
+	// makes it repository-wide.
+	EstablishedBy []string  `json:"established_by,omitempty"`
+	Scope         *[]string `json:"scope,omitempty"`
 }
 
 // SendingHold is what an owning role puts on sending one finished document:
@@ -191,6 +199,9 @@ func (w Write) Validate() error {
 		if err := domain.ValidateIdentifier(fmt.Sprintf("supports[%d]", index), strings.TrimSpace(reference)); err != nil {
 			problems = append(problems, err)
 		}
+	}
+	if len(w.EstablishedBy) > MaxSupportsCount {
+		problems = append(problems, fmt.Errorf("established_by names %d entries, limit is %d", len(w.EstablishedBy), MaxSupportsCount))
 	}
 	if len(w.Answers) > MaxWriteAnswers {
 		problems = append(problems, fmt.Errorf("answers names %d work items, limit is %d", len(w.Answers), MaxWriteAnswers))
@@ -255,6 +266,16 @@ func (w Write) perActionProblems() []error {
 		}
 		if strings.TrimSpace(w.Section) != "" {
 			problems = append(problems, errors.New("section is refused on a creation; a new document is written whole"))
+		}
+		if w.Kind == KindInvariant {
+			if len(w.EstablishedBy) == 0 {
+				problems = append(problems, errors.New("established_by is required on an invariant, naming the work items or designs the constraint came from"))
+			}
+			if len(w.Supports) > 0 {
+				problems = append(problems, errors.New("supports is refused on an invariant; what established it is established_by"))
+			}
+		} else if len(w.EstablishedBy) > 0 || w.Scope != nil {
+			problems = append(problems, fmt.Errorf("established_by and scope are an invariant's, and are refused on a %s", w.Kind))
 		}
 	case WriteRevise:
 		if strings.TrimSpace(string(w.Kind)) != "" {
@@ -452,6 +473,15 @@ func (s Store) CheckWrite(role domain.AgentRole, write Write) error {
 	if err := write.Authorize(role); err != nil {
 		return err
 	}
+	// An invariant is checked by the invariants directory's own rules, which
+	// refuse everything here would and what that directory's scheme refuses
+	// besides; see invariantwrite.go.
+	if isInvariant, err := s.writesInvariant(write); err != nil {
+		return err
+	} else if isInvariant {
+		_, err := s.prepareInvariant(role, write, time.Now())
+		return err
+	}
 	id := strings.TrimSpace(write.ID)
 	if write.Action == WriteCreate {
 		if err := s.checkFiling(write.Kind, write.Directory); err != nil {
@@ -470,6 +500,11 @@ func (s Store) CheckWrite(role domain.AgentRole, write Write) error {
 		if exists {
 			return fmt.Errorf("artifact %q already exists at %s; revise it instead", id, found.Path)
 		}
+		if recorded, isInvariant, err := s.findInvariant(id); err != nil {
+			return err
+		} else if isInvariant {
+			return fmt.Errorf("invariant %q already exists at %s, and one id names one document; the %s needs an id of its own", id, recorded.Path, write.Kind)
+		}
 		return nil
 	}
 	if !exists {
@@ -478,6 +513,9 @@ func (s Store) CheckWrite(role domain.AgentRole, write Write) error {
 	}
 	if err := Authorize(role, found.Kind); err != nil {
 		return err
+	}
+	if len(write.EstablishedBy) > 0 || write.Scope != nil {
+		return fmt.Errorf("established_by and scope are an invariant's, and %q is a %s", id, found.Kind)
 	}
 	// Reviving replaced intent by editing it is not a decision anybody made, and
 	// the store refuses it too. It is refused here for the same reason the
@@ -505,6 +543,11 @@ func (s Store) CheckWrite(role domain.AgentRole, write Write) error {
 // is already read from. It is what the document is checked as before it is
 // written, since a link is resolved from the directory it is written in.
 func (s Store) WritePath(write Write) (string, error) {
+	if isInvariant, err := s.writesInvariant(write); err != nil {
+		return "", err
+	} else if isInvariant {
+		return s.invariantWritePath(write)
+	}
 	id := strings.TrimSpace(write.ID)
 	if write.Action == WriteCreate {
 		_, relative, err := s.path(id, write.Directory)
@@ -575,6 +618,14 @@ func roleName(role domain.AgentRole) string {
 	return "unnamed role"
 }
 
+// invariantContract is what the role that owns the invariants is told about
+// writing one, which differs from her other documents in the form of its file.
+func invariantContract(directory string) string {
+	return `
+An architectural invariant is written with the same block: ` + "`" + `{"action":"create","id":"invariant-id","kind":"invariant","title":"one line","directory":"` + directory + `","established_by":["the work items or designs it came from"],"scope":["repository paths it constrains"],"body":"## Must hold\n\nwhat must hold\n\n## Why\n\nwhy it holds","reason":"why you are recording it"}` + "`" + `. It keeps the invariants directory's own form, so its body is exactly those two sections and nothing else, "established_by" is required on a creation, "scope" is left out for a constraint on the whole repository, and "supports" and "section" are refused on one. A revision names the invariant's id and carries both sections whole, with "title", "established_by" and "scope" only where they change; "scope":[] makes it repository-wide again. An invariant is confirmed under the same approval setting as your designs and lands through its own reviewed run like them. Retiring one is not a write this block makes.
+`
+}
+
 // WriteContract is what a role that owns documents is told about writing one.
 // It is generated from the ownership table and this project's own filing rather
 // than written out per role, so a role is never told it may write a kind it does
@@ -604,7 +655,12 @@ func WriteContract(role domain.AgentRole, filing []KindHome) string {
 	// What a document of the product's intent answers to is said only to the
 	// role that writes one; to any other it is a rule about documents it is
 	// refused.
-	intent, intentField := "", ""
+	intent, intentField, invariants := "", "", ""
+	for _, filed := range filing {
+		if filed.Kind == KindInvariant {
+			invariants = invariantContract(filed.Directory)
+		}
+	}
 	for _, kind := range Owned(role) {
 		if IntentKind(kind) {
 			intent = ` A document of the product's intent — anything filed in the product's specification home: the brief, the goals, the non-goals, and the operating rules — answers to no approval setting. Where you record its creation or revision as consistent with intent, with the work item that directed it opening the reason, the harness records the approval as yours, naming you and that item, and does not ask the operator; that is how rules the operator already gave are recorded without going back to him. Where you mark it fundamental, or do not say, it waits for the operator whatever the setting says. Two changes wait for him however you mark them, because they always change what the goals admit: creating a goals document or the brief, and a revision of either that adds or removes a goal under its Goals heading. Rewording a goal in place is still yours, and the reviewer of the run that lands it checks your mark against what the goals admit and refuse.`
@@ -624,7 +680,7 @@ To write one, end your reply with exactly one block of this shape:
 A revision replaces what an existing document says: ` + "`" + `{"action":"revise","id":"artifact-id","body":"the whole document","reason":"why it is changing"}` + "`" + `.` + intentField + ` It carries the document whole rather than the part that changed, and it takes "title" and "supports" only where those change too. A document longer than you can read whole is revised one section at a time: add "section":"the heading, as the document writes it", and the body is then the new text under that heading, its subsections included, without the heading line itself. The rest of the document is left exactly as it is; a heading the document does not have, or has twice, is refused. "kind" and "directory" are refused on a revision — the kind decides who owns the document, and the file has already been referred to by where it is.
 
 The kinds you may write, and where this project files each of them, are ` + strings.Join(kinds, ", ") + `. Any other kind is refused and nothing is written, and so is a document filed anywhere but the directory its own kind belongs in — being inside one of this project's ` + strings.Join(directories, " or ") + ` is not enough. The id is the file name without its extension, so it also has to be one: an id that already answers to a document is a revision rather than a creation.
-
+` + invariants + `
 When you write it, the body is checked for a coined word or compound the project's register of terms does not define, and for a link to a file or heading that is not there. Either refuses the document back to you in the same message, naming each one and its line in the body; reword or register it, mend the link, and write the document again.
 
 Automatic publication leaves no uncommitted document in the primary checkout. If checks fail, review refuses it, or target changes conflict, the findings return to this conversation for you to revise; no developer rewrites it and no operator decision is requested. A revision opens a fresh run. After three returned runs for one document in this conversation, automatic publication stops and you must revise your plan. A document the operator approves lands the same way, through its own reviewed run with the operator's approval recorded in it, wherever the project integrates automatically from its own repository. Never claim that a document landed until the harness reports it.

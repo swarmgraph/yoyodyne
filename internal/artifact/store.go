@@ -100,7 +100,13 @@ func (s Store) Filing(role domain.AgentRole) ([]KindHome, error) {
 		if !filed || strings.TrimSpace(home) == "" {
 			continue
 		}
-		directory, err := s.resolveDirectory(home)
+		resolve := s.resolveDirectory
+		if kind == KindInvariant {
+			// The invariants directory is not an artifact home, and is excluded
+			// from them where it sits inside one; it is filed in as itself.
+			resolve = s.invariantDirectory
+		}
+		directory, err := resolve(home)
 		if err != nil {
 			return nil, err
 		}
@@ -746,6 +752,12 @@ func (s Store) read(path, relative string) (Artifact, error) {
 	parsed.Path = relative
 	if err := parsed.Validate(); err != nil {
 		return Artifact{}, unreadableError{reason: err.Error()}
+	}
+	// An invariant is written and read through its own directory's scheme, so a
+	// document in an artifact home claiming the kind would be a constraint no
+	// developer is delivered.
+	if parsed.Kind == KindInvariant {
+		return Artifact{}, unreadableError{reason: "its kind is invariant, and an invariant is a file in the invariants directory in that directory's own form rather than an artifact"}
 	}
 	return parsed, nil
 }

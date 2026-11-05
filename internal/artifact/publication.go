@@ -49,6 +49,20 @@ func DocumentIdentity(content []byte) string {
 // removes a goal, and a revision of either that was not approved as it stood
 // before it, are his however they are marked (markOverruled).
 func (s Store) PrepareConfirmation(role domain.AgentRole, write Write, policy Policy, reason string, now time.Time) (ConfirmedDocument, bool, error) {
+	if isInvariant, err := s.writesInvariant(write); err != nil {
+		return ConfirmedDocument{}, false, err
+	} else if isInvariant {
+		prepared, err := s.prepareInvariant(role, write, now)
+		if err != nil {
+			return ConfirmedDocument{}, false, err
+		}
+		name, mode, governed := policy.Setting(KindInvariant)
+		if !governed || mode != domain.ApprovalAutomatic {
+			return ConfirmedDocument{}, false, nil
+		}
+		confirmed, err := s.invariantCandidate(prepared, Approval{By: ApproverHarness, Policy: name, At: now.UTC(), Reason: reason})
+		return confirmed, err == nil, err
+	}
 	recorded, body, err := s.prepareCandidate(role, write, now)
 	if err != nil {
 		return ConfirmedDocument{}, false, err
@@ -92,6 +106,9 @@ func (s Store) PrepareConfirmation(role domain.AgentRole, write Write, policy Po
 func (s Store) ConsistentMarkOverruled(role domain.AgentRole, write Write, now time.Time) (string, error) {
 	if write.Intent != IntentConsistent {
 		return "", nil
+	}
+	if isInvariant, err := s.writesInvariant(write); err != nil || isInvariant {
+		return "", err
 	}
 	recorded, body, err := s.prepareCandidate(role, write, now)
 	if err != nil {
@@ -158,12 +175,21 @@ func (s Store) goalsChanged(write Write, recorded Artifact, body string) (string
 // run, so an approval never leaves the checkout holding a change nobody
 // committed.
 func (s Store) PrepareApproval(role domain.AgentRole, write Write, reason string, now time.Time) (ConfirmedDocument, error) {
+	if strings.TrimSpace(reason) == "" {
+		return ConfirmedDocument{}, fmt.Errorf("approving artifact %q needs a reason saying how the approval was given", strings.TrimSpace(write.ID))
+	}
+	if isInvariant, err := s.writesInvariant(write); err != nil {
+		return ConfirmedDocument{}, err
+	} else if isInvariant {
+		prepared, err := s.prepareInvariant(role, write, now)
+		if err != nil {
+			return ConfirmedDocument{}, err
+		}
+		return s.invariantCandidate(prepared, Approval{By: ApproverOperator, At: now.UTC(), Reason: strings.TrimSpace(reason)})
+	}
 	recorded, body, err := s.prepareCandidate(role, write, now)
 	if err != nil {
 		return ConfirmedDocument{}, err
-	}
-	if strings.TrimSpace(reason) == "" {
-		return ConfirmedDocument{}, fmt.Errorf("approving artifact %q needs a reason saying how the approval was given", recorded.ID)
 	}
 	recorded.Approvals = append(recorded.Approvals, Approval{Revision: len(recorded.Revisions) - 1, By: ApproverOperator, At: now.UTC(), Reason: strings.TrimSpace(reason)})
 	return s.renderCandidate(recorded, body)
@@ -322,13 +348,21 @@ func (d ConfirmedDocument) Validate() error {
 	if len(problems) > 0 {
 		return errors.Join(problems...)
 	}
-	parsed, err := parse(d.Content)
-	if err != nil {
-		return err
-	}
-	parsed.Path = d.Artifact.Path
-	if !reflect.DeepEqual(parsed, d.Artifact) {
-		return errors.New("confirmed content and artifact identity disagree")
+	if d.Artifact.Kind == KindInvariant {
+		// An invariant's file keeps its own directory's form, and its approval is
+		// kept on this candidate rather than in the file; see invariantwrite.go.
+		if err := d.invariantContentProblem(); err != nil {
+			return err
+		}
+	} else {
+		parsed, err := parse(d.Content)
+		if err != nil {
+			return err
+		}
+		parsed.Path = d.Artifact.Path
+		if !reflect.DeepEqual(parsed, d.Artifact) {
+			return errors.New("confirmed content and artifact identity disagree")
+		}
 	}
 	if path.Clean(d.Artifact.Path) != d.Artifact.Path || strings.HasPrefix(d.Artifact.Path, "../") || path.IsAbs(d.Artifact.Path) || path.Base(d.Artifact.Path) != d.Artifact.ID+".md" {
 		return errors.New("confirmed document has an invalid path")

@@ -837,10 +837,20 @@ invariant the harness could not read is named as a gap rather than dropped
 silently, and what was delivered is recorded on the work item so an operator can
 see afterwards which constraints applied.
 
-The architect can be asked what an invariant should say — `yoyo agent chat
-architect` — and it cannot write one, because no conversation has tools. So the
-lifecycle is reachable from the command line, acting with the architect's
-authority and recording that it did:
+The architect submits invariants herself. From her conversation — `yoyo agent
+chat architect`, or one of her recurring passes — she writes a new invariant or
+an amendment of one as a document of kind `invariant`, in the same block she
+writes her designs in, with the constraint's two sections as its body and
+`established_by` and `scope` beside it. The harness refuses it from any other
+role, holds it to this directory's form, confirms it under `approvals.designs`
+or puts it to the operator where that setting is `human`, and publishes it
+through its own reviewed run with its checks and an independent review, as it
+does her designs and decision records. The file it lands keeps the invariant's
+own form: the confirmation is kept on the run's record rather than in the
+file, which has no place for one.
+
+The command line is the manual alternative, acting with the architect's
+authority and recording that it did, and it is the only way to retire one:
 
 ```sh
 ./bin/yoyo invariant list

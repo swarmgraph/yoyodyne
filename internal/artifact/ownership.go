@@ -75,6 +75,10 @@ func authority(kind Kind) (capability.Capability, bool) {
 		return capability.ArtifactProductMutate, true
 	case KindDesign, KindSpecification, KindDecision:
 		return capability.ArtifactDesignMutate, true
+	case KindInvariant:
+		// The capability internal/invariant authorizes every write with, so a
+		// written invariant and `yoyo invariant amend` answer to one holder.
+		return capability.InvariantMutate, true
 	default:
 		return "", false
 	}
