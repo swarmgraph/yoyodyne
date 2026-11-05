@@ -10,6 +10,7 @@
 //	  accounts/                provider accounts, which serve every project
 //	  operator-hold.json       the operator's hold, one for the whole machine
 //	  logs/                    the harness's own logs
+//	  heavy-checks/            the places for heavy checks, counted for the whole machine
 //	  projects/<product id>/
 //	    config.yaml            the configuration, where the repository does not carry it
 //	    repository.json        the binding: which repository this id is
@@ -264,17 +265,18 @@ func Resolve(getenv func(string) string, userHomeDir func() (string, error), goo
 // ProjectsDirectoryName holds one directory per project.
 const ProjectsDirectoryName = "projects"
 
-// The machine-wide records at the top of a home.
+// The machine-wide records at the top of a home, with HeavyChecksDirectoryName.
 const (
 	AccountsDirectoryName = "accounts"
 	OperatorHoldFileName  = "operator-hold.json"
 	LogsDirectoryName     = "logs"
 )
 
-// HeavyChecksDirectoryName is where builds before the record of heavy check
-// places was kept per project kept it, at the top of a home. Nothing writes it
-// there any more: run state keeps each product's part of the record under that
-// product's records directory, and files one it finds at the top there.
+// HeavyChecksDirectoryName is the record of heavy check places, which run state
+// keeps at the top of the home as one record for the machine: every product's
+// runs count against the same places, because a machine has one set of cores.
+// The architect's machine-home ruling places it at the top beside the records
+// below, rather than split by project.
 const HeavyChecksDirectoryName = "heavy-checks"
 
 // Names inside a project directory.

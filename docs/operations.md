@@ -1262,9 +1262,9 @@ and memory, sweep and pass records — from `products/<id>/` into
 `projects/<id>/worktrees/`, telling Git where it now is with
 `git worktree repair` and rewriting the worktree path on the run record that
 names it, with the old path kept beside it on the record; the operator's hold,
-the provider accounts, and the logs to the top; the record of heavy check
-places earlier builds kept at the top, filed under each project its permits
-name; and `~/.config/yoyodyne/machine.yaml` to `~/.yoyodyne/machine.yaml` where it exists.
+the provider accounts, the logs, and the record of heavy check places, which is
+one record for the whole machine, to the top; and
+`~/.config/yoyodyne/machine.yaml` to `~/.yoyodyne/machine.yaml` where it exists.
 It writes each project's binding from the checkout it was run from, from a moved
 worktree, or from the repository an external configuration names, and any it
 cannot is written by that project's next start. It then prints what it moved and

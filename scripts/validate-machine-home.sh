@@ -182,12 +182,14 @@ if [ -d "$HOME/.yoyodyne" ]; then
   pass "the harness's state is under ~/.yoyodyne"
   extra=""
   # machine.yaml is the state-root setting's own file, which the v1 harness
-  # design keeps in the home whatever it says; the rest is the design's list.
+  # design keeps in the home whatever it says; heavy-checks is the record of
+  # heavy check places, one for the whole machine, which the architect's
+  # machine-home ruling places at the top; the rest is the design's list.
   for entry in $(ls -A "$HOME/.yoyodyne"); do
-    case "$entry" in (projects|accounts|operator-hold.json|logs|machine.yaml) ;; (*) extra="$extra $entry" ;; esac
+    case "$entry" in (projects|accounts|operator-hold.json|logs|heavy-checks|machine.yaml) ;; (*) extra="$extra $entry" ;; esac
   done
-  if [ -z "$extra" ]; then pass "the top of the home holds only projects, accounts, operator-hold.json and logs"
-  else fail "the top of the home holds something no single project owns beyond projects, accounts, operator-hold.json and logs:$extra"; fi
+  if [ -z "$extra" ]; then pass "the top of the home holds only projects, accounts, operator-hold.json, logs and heavy-checks"
+  else fail "the top of the home holds something no single project owns beyond projects, accounts, operator-hold.json, logs and heavy-checks:$extra"; fi
 else
   fail "nothing was written under ~/.yoyodyne"
 fi

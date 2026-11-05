@@ -5,13 +5,11 @@ package runstate
 //
 // A project names the checks only so many of may run at once
 // (execution.heavy_checks): the race suite, the whole test run. Every run
-// asking to start one asks this record for a place first. Each project keeps
-// the permits of its own runs in a file under its own records directory, and a
-// request takes every project's lock, in the order of their ids, and reads
-// every project's file before it decides anything, so every run on the machine,
-// of every product, counts against the same places while the top of the home
-// holds nothing but what no project owns (docs/designs/machine-home.md). Every
-// change is decided from the records as they are read under those locks.
+// asking to start one asks this record for a place first, and the record is
+// one file under the state root, so every run on the machine, of every
+// product, counts against the same places. It is changed only under a file
+// lock beside it, and every change is decided from the record as it is read
+// under that lock.
 //
 // A place is a permit, and a permit moves through four states, each recorded
 // before the step it names:
@@ -69,12 +67,8 @@ import (
 // HeavyCheckSchemaVersion is 1 and has never changed.
 const HeavyCheckSchemaVersion = 1
 
-// HeavyCheckDirectory is the directory under each product's records directory
-// that product's record, its lock, and each of its permits' files are kept in.
-// Builds before the record was kept per project kept the one record in a
-// directory of this name at the top of the home; the first request for a place
-// that finds it there files what it holds under each project it names, and
-// removes it once every part of it has landed (adoptTopLevel).
+// HeavyCheckDirectory is the directory under the state root the record, its
+// lock, and every permit's file are kept in.
 const HeavyCheckDirectory = home.HeavyChecksDirectoryName
 
 const (
@@ -242,8 +236,7 @@ func (p HeavyCheckPermit) validate() error {
 
 // HeavyCheckRecord is the whole of the record: each heavy check's number of
 // places, as last asked with, and every permit not yet released together with
-// the last few that were. Read from the store, it is every project's record
-// together.
+// the last few that were.
 type HeavyCheckRecord struct {
 	SchemaVersion int                `json:"schema_version"`
 	Limits        map[string]int     `json:"limits,omitempty"`
@@ -372,10 +365,10 @@ func (a HeavyCheckAsk) validate() error {
 	return errors.Join(problems...)
 }
 
-// HeavyCheckStore is the record of places for every product under one state
-// root, read and counted together because a machine has one set of cores.
+// HeavyCheckStore is the record of places, at the state root above every
+// product's records, because a machine has one set of cores.
 type HeavyCheckStore struct {
-	stateRoot string
+	root string
 	// The rest are a test's ways in, and zero in every store the harness makes.
 	now         func() time.Time
 	poll        time.Duration
@@ -389,18 +382,11 @@ func NewHeavyCheckStore(root string) (*HeavyCheckStore, error) {
 	if !filepath.IsAbs(root) {
 		return nil, errors.New("state root must be an absolute path")
 	}
-	return &HeavyCheckStore{stateRoot: filepath.Clean(root)}, nil
+	return &HeavyCheckStore{root: filepath.Join(filepath.Clean(root), HeavyCheckDirectory)}, nil
 }
 
-// Directory is the directory one product's part of the record is kept in.
-func (s *HeavyCheckStore) Directory(product string) string {
-	return filepath.Join(home.ProductDirectory(s.stateRoot, product), HeavyCheckDirectory)
-}
-
-// topLevel is where builds before the record was kept per project kept it.
-func (s *HeavyCheckStore) topLevel() string {
-	return filepath.Join(s.stateRoot, HeavyCheckDirectory)
-}
+// Root is the directory the record is kept in.
+func (s *HeavyCheckStore) Root() string { return s.root }
 
 func (s *HeavyCheckStore) clock() time.Time {
 	if s.now != nil {
@@ -416,83 +402,35 @@ func (s *HeavyCheckStore) currentBoot() string {
 	return currentBoot()
 }
 
-// pinDirectory opens one part of the record's directory pinned against
-// replacement, creating it the first time, as every harness-owned write is
+// pin opens the record's directory pinned against replacement, creating it
+// the first time, as every harness-owned write is
 // (docs/decisions/invariants, repository-writes-are-physically-confined).
-func pinDirectory(directory string) (*repowrite.PinnedRoot, error) {
-	stateRoot, anchor, err := confinedStateRoot(directory)
+func (s *HeavyCheckStore) pin() (*repowrite.PinnedRoot, error) {
+	stateRoot, anchor, err := confinedStateRoot(s.root)
 	if err != nil {
 		return nil, err
 	}
 	return pinStateRoot(stateRoot, anchor)
 }
 
-// pinExisting opens a directory that is already there, and creates nothing: a
-// directory that is missing is os.ErrNotExist. It is what a reader that only
-// shows the record opens, so showing it never writes anything.
-func pinExisting(directory string) (*repowrite.PinnedRoot, error) {
-	stateRoot, anchor, err := confinedStateRoot(directory)
-	if err != nil {
-		return nil, err
-	}
-	if !filepath.IsAbs(stateRoot) || filepath.Clean(stateRoot) != filepath.Clean(anchor) {
-		return nil, os.ErrNotExist
-	}
-	return pinStateRoot(stateRoot, anchor)
-}
-
-// heavyCheckPart is one product's part of the record, held under its lock.
-type heavyCheckPart struct {
-	product string
-	root    *repowrite.PinnedRoot
-	lock    *os.File
-	// limits is each heavy check's number of places as this product last
-	// asked with.
-	limits map[string]int
-}
-
-// heavyCheckSession is the record held under every part's lock.
+// heavyCheckSession is the record held under its lock.
 type heavyCheckSession struct {
-	store *HeavyCheckStore
-	// parts is every product's part, by product, and order their ids in the
-	// order their locks were taken.
-	parts map[string]*heavyCheckPart
-	order []string
-	// topLevel is the record builds before this one kept at the top of the
-	// home, held under its own lock while it is filed under each project.
-	topLevel *heavyCheckPart
-	// owner is, for each permit, the product whose part keeps it.
-	owner  map[string]string
+	store  *HeavyCheckStore
+	root   *repowrite.PinnedRoot
+	lock   *os.File
 	record HeavyCheckRecord
 	// alive is, for each waiting permit, whether a process is waiting on it,
 	// as settle found.
 	alive map[string]bool
 }
 
-// heavyCheckProducts is every product the record has a part for under the
-// state root, with product among them where it is given, and every product a
-// permit in the top-level record names, in the order their locks are taken.
-func (s *HeavyCheckStore) heavyCheckProducts(product string, topLevel []string) ([]string, error) {
-	ids, err := home.ProductIDs(s.stateRoot)
+// open takes the record's lock, waiting for whoever holds it, and reads the
+// record.
+func (s *HeavyCheckStore) open(ctx context.Context) (*heavyCheckSession, error) {
+	root, err := s.pin()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open the record of heavy check places: %w", err)
 	}
-	seen := map[string]bool{}
-	for _, id := range ids {
-		seen[id] = true
-	}
-	for _, id := range append([]string{product}, topLevel...) {
-		if id != "" && !seen[id] && domain.ValidateIdentifier("product id", id) == nil {
-			seen[id] = true
-			ids = append(ids, id)
-		}
-	}
-	sort.Strings(ids)
-	return ids, nil
-}
-
-// lockPart takes one part's lock, waiting for whoever holds it.
-func lockPart(ctx context.Context, product string, root *repowrite.PinnedRoot) (*heavyCheckPart, error) {
 	lock, err := root.OpenLock(heavyCheckLockName, 0o600)
 	if err != nil {
 		root.Close()
@@ -503,131 +441,19 @@ func lockPart(ctx context.Context, product string, root *repowrite.PinnedRoot) (
 		root.Close()
 		return nil, fmt.Errorf("lock the record of heavy check places: %w", err)
 	}
-	return &heavyCheckPart{product: product, root: root, lock: lock, limits: map[string]int{}}, nil
-}
-
-// open takes every part's lock, and the top-level record's first where a
-// build before this one left it, waiting for whoever holds each, and reads the
-// record. product is the product asking, whose part is made where it has none
-// yet. A product whose records directory appeared while the locks were being
-// taken is one whose part this session did not lock, so it lets every lock go
-// and takes them again.
-func (s *HeavyCheckStore) open(ctx context.Context, product string) (*heavyCheckSession, error) {
-	for {
-		session, complete, err := s.openOnce(ctx, product)
-		if err != nil {
-			return nil, err
-		}
-		if complete {
-			return session, nil
-		}
-		session.close()
-	}
-}
-
-func (s *HeavyCheckStore) openOnce(ctx context.Context, product string) (*heavyCheckSession, bool, error) {
-	session := &heavyCheckSession{store: s, parts: map[string]*heavyCheckPart{}, owner: map[string]string{}, alive: map[string]bool{},
-		record: HeavyCheckRecord{SchemaVersion: HeavyCheckSchemaVersion, Limits: map[string]int{}}}
-	var topLevel topLevelRecord
-	if root, err := pinExisting(s.topLevel()); err == nil {
-		part, err := lockPart(ctx, "", root)
-		if err != nil {
-			return nil, false, err
-		}
-		session.topLevel = part
-		// A top-level record that cannot be read is left where it is and
-		// filed nowhere, so nothing in it is lost; the places are counted
-		// without it.
-		topLevel = readTopLevel(root)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, false, fmt.Errorf("open the record of heavy check places builds before this one kept: %w", err)
-	}
-	products, err := s.heavyCheckProducts(product, topLevel.products())
+	session := &heavyCheckSession{store: s, root: root, lock: lock, alive: map[string]bool{}}
+	record, err := readHeavyCheckRecord(root, true)
 	if err != nil {
 		session.close()
-		return nil, false, err
+		return nil, err
 	}
-	for _, id := range products {
-		root, err := pinDirectory(s.Directory(id))
-		if err != nil {
-			session.close()
-			return nil, false, fmt.Errorf("open the record of heavy check places of %s: %w", id, err)
-		}
-		part, err := lockPart(ctx, id, root)
-		if err != nil {
-			session.close()
-			return nil, false, err
-		}
-		session.parts[id] = part
-		session.order = append(session.order, id)
-	}
-	again, err := s.heavyCheckProducts(product, topLevel.products())
-	if err != nil {
-		session.close()
-		return nil, false, err
-	}
-	for _, id := range again {
-		if session.parts[id] == nil {
-			return session, false, nil
-		}
-	}
-	for _, id := range session.order {
-		part := session.parts[id]
-		record, err := readHeavyCheckRecord(part.root, true)
-		if err != nil {
-			session.close()
-			return nil, false, fmt.Errorf("%s: %w", id, err)
-		}
-		for check, limit := range record.Limits {
-			part.limits[check] = limit
-			session.record.Limits[check] = limit
-		}
-		for _, permit := range record.Permits {
-			session.owner[permit.ID] = id
-			session.record.Permits = append(session.record.Permits, permit)
-		}
-	}
-	if session.topLevel != nil {
-		session.adoptTopLevel(topLevel)
-	}
-	return session, true, nil
+	session.record = record
+	return session, nil
 }
 
 func (h *heavyCheckSession) close() {
-	for index := len(h.order) - 1; index >= 0; index-- {
-		part := h.parts[h.order[index]]
-		_ = releaseStateFile(part.lock)
-		_ = part.root.Close()
-	}
-	if h.topLevel != nil {
-		_ = releaseStateFile(h.topLevel.lock)
-		_ = h.topLevel.root.Close()
-	}
-}
-
-// ownerOf is the product whose part keeps permit: the part it was read from,
-// or for a permit this session made, the product that asked for it.
-func (h *heavyCheckSession) ownerOf(permit HeavyCheckPermit) string {
-	if owner, ok := h.owner[permit.ID]; ok {
-		return owner
-	}
-	return permit.Product
-}
-
-// rootOf is the directory of the part that keeps permit.
-func (h *heavyCheckSession) rootOf(permit HeavyCheckPermit) *repowrite.PinnedRoot {
-	return h.parts[h.ownerOf(permit)].root
-}
-
-// limitOf is how many of a permit's check may run at once, as the product
-// that asked for it last said.
-func (h *heavyCheckSession) limitOf(permit HeavyCheckPermit) int {
-	if part := h.parts[h.ownerOf(permit)]; part != nil {
-		if limit, ok := part.limits[permit.Check]; ok {
-			return limit
-		}
-	}
-	return h.record.Limits[permit.Check]
+	_ = releaseStateFile(h.lock)
+	_ = h.root.Close()
 }
 
 // readHeavyCheckRecord reads the record, strictly where strict is true: what
@@ -662,65 +488,39 @@ func readHeavyCheckRecord(root *repowrite.PinnedRoot, strict bool) (HeavyCheckRe
 	return record, nil
 }
 
-// save writes every part of the record whole, each keeping only its last few
-// released permits.
+// save writes the record whole, keeping only the last few released permits.
 func (h *heavyCheckSession) save() error {
-	byProduct := map[string][]HeavyCheckPermit{}
+	var kept, released []HeavyCheckPermit
 	for _, permit := range h.record.Permits {
-		owner := h.ownerOf(permit)
-		byProduct[owner] = append(byProduct[owner], permit)
+		if permit.State == HeavyCheckReleased {
+			released = append(released, permit)
+			continue
+		}
+		kept = append(kept, permit)
 	}
-	var all []HeavyCheckPermit
-	for _, id := range h.order {
-		part := h.parts[id]
-		var kept, released []HeavyCheckPermit
-		for _, permit := range byProduct[id] {
-			if permit.State == HeavyCheckReleased {
-				released = append(released, permit)
-				continue
-			}
-			kept = append(kept, permit)
-		}
-		sort.SliceStable(released, func(first, second int) bool {
-			return released[first].ReleasedAt.Before(*released[second].ReleasedAt)
-		})
-		if len(released) > heavyCheckReleasedKept {
-			released = released[len(released)-heavyCheckReleasedKept:]
-		}
-		permits := append(kept, released...)
-		all = append(all, permits...)
-		if len(permits) == 0 && len(part.limits) == 0 {
-			if exists, _ := part.root.Exists(heavyCheckRecordName); !exists {
-				// A part with nothing in it is not written, so a product
-				// that never ran a heavy check keeps no record of one.
-				continue
-			}
-		}
-		record := HeavyCheckRecord{SchemaVersion: HeavyCheckSchemaVersion, Limits: part.limits, Permits: permits}
-		if len(record.Limits) == 0 {
-			record.Limits = nil
-		}
-		if err := record.validate(); err != nil {
-			return fmt.Errorf("the record of heavy check places of %s would be invalid: %w", id, err)
-		}
-		encoded, err := json.MarshalIndent(record, "", "  ")
-		if err != nil {
-			return err
-		}
-		encoded = append(encoded, '\n')
-		if len(encoded) > maxEncodedStateBytes {
-			return fmt.Errorf("the record of heavy check places of %s exceeds the state record size bound", id)
-		}
-		if err := part.root.WriteFile(heavyCheckRecordName, encoded, 0o600, false); err != nil {
-			return fmt.Errorf("write the record of heavy check places of %s: %w", id, err)
-		}
-		if err := part.root.Sync(); err != nil {
-			return err
-		}
+	sort.SliceStable(released, func(first, second int) bool {
+		return released[first].ReleasedAt.Before(*released[second].ReleasedAt)
+	})
+	if len(released) > heavyCheckReleasedKept {
+		released = released[len(released)-heavyCheckReleasedKept:]
 	}
-	h.record.Permits = all
+	h.record.Permits = append(kept, released...)
 	h.record.SchemaVersion = HeavyCheckSchemaVersion
-	return nil
+	if err := h.record.validate(); err != nil {
+		return fmt.Errorf("the record of heavy check places would be invalid: %w", err)
+	}
+	encoded, err := json.MarshalIndent(h.record, "", "  ")
+	if err != nil {
+		return err
+	}
+	encoded = append(encoded, '\n')
+	if len(encoded) > maxEncodedStateBytes {
+		return errors.New("the record of heavy check places exceeds the state record size bound")
+	}
+	if err := h.root.WriteFile(heavyCheckRecordName, encoded, 0o600, false); err != nil {
+		return fmt.Errorf("write the record of heavy check places: %w", err)
+	}
+	return h.root.Sync()
 }
 
 func (h *heavyCheckSession) find(id string) *HeavyCheckPermit {
@@ -739,7 +539,7 @@ func (h *heavyCheckSession) release(permit *HeavyCheckPermit, why string) {
 	permit.ReleasedAt = &now
 	permit.Released = boundedReason(why)
 	permit.Problem = ""
-	_ = h.rootOf(*permit).Remove(permit.Hold)
+	_ = h.root.Remove(permit.Hold)
 }
 
 // boundedReason is a reason on one line, cut on a character boundary to the
@@ -759,7 +559,7 @@ func (h *heavyCheckSession) settle() {
 		case HeavyCheckReleased:
 			continue
 		case HeavyCheckWaiting:
-			alive := h.store.held(h.rootOf(*permit), *permit)
+			alive := h.store.held(h.root, *permit)
 			h.alive[permit.ID] = alive
 			switch {
 			case alive:
@@ -775,12 +575,12 @@ func (h *heavyCheckSession) settle() {
 				// is still starting it while it holds the file, and nothing ran
 				// if it has let go, because nothing opens a check's gate before
 				// its process is written down here.
-				if !h.store.held(h.rootOf(*permit), *permit) {
+				if !h.store.held(h.root, *permit) {
 					h.release(permit, "it was given a place and its harness stopped before starting it, so nothing ran")
 				}
 				continue
 			}
-			state, reason := h.store.observe(h.rootOf(*permit), *permit)
+			state, reason := h.store.observe(h.root, *permit)
 			switch state {
 			case executionStopped:
 				why := "every process it started has gone"
@@ -805,7 +605,7 @@ func (h *heavyCheckSession) settle() {
 // has a free place, and no permit before it in the order is waiting on the
 // same check with somebody waiting on it.
 func (h *heavyCheckSession) grantable(permit HeavyCheckPermit) bool {
-	limit := h.limitOf(permit)
+	limit := h.record.Limits[permit.Check]
 	if limit < 1 {
 		limit = 1
 	}
@@ -889,7 +689,7 @@ func (s *HeavyCheckStore) Acquire(ctx context.Context, ask HeavyCheckAsk, waitin
 		// that ended is why it is being given up.
 		settleCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if session, err := s.open(settleCtx, ask.Product); err == nil {
+		if session, err := s.open(settleCtx); err == nil {
 			if permit := session.find(id); permit != nil && permit.State == HeavyCheckWaiting {
 				session.release(permit, fmt.Sprintf("its run stopped waiting: %v", cause))
 				_ = session.save()
@@ -903,7 +703,7 @@ func (s *HeavyCheckStore) Acquire(ctx context.Context, ask HeavyCheckAsk, waitin
 		if err := ctx.Err(); err != nil {
 			return nil, giveUp(err)
 		}
-		session, err := s.open(ctx, ask.Product)
+		session, err := s.open(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, giveUp(ctx.Err())
@@ -911,7 +711,9 @@ func (s *HeavyCheckStore) Acquire(ctx context.Context, ask HeavyCheckAsk, waitin
 			return nil, giveUp(err)
 		}
 		session.settle()
-		session.parts[ask.Product].limits[ask.Check] = ask.Limit
+		if session.record.Limits == nil {
+			session.record.Limits = map[string]int{}
+		}
 		session.record.Limits[ask.Check] = ask.Limit
 		if hold == nil {
 			// The first look: take up a permit this run is already waiting on
@@ -923,7 +725,7 @@ func (s *HeavyCheckStore) Acquire(ctx context.Context, ask HeavyCheckAsk, waitin
 				if permit.State != HeavyCheckWaiting || permit.Product != ask.Product || permit.RunID != ask.RunID || permit.Command != ask.Command {
 					continue
 				}
-				taken, err := s.takeHold(session.rootOf(*permit), *permit)
+				taken, err := s.takeHold(session.root, *permit)
 				if err != nil {
 					session.close()
 					return nil, err
@@ -1006,16 +808,15 @@ func (s *HeavyCheckStore) newPermit(session *heavyCheckSession, ask HeavyCheckAs
 		Check: ask.Check, Command: ask.Command, Priority: ask.Priority, State: HeavyCheckWaiting,
 		AskedAt: s.clock(), Hold: id + ".hold", HoldMark: hex.EncodeToString(markBytes), Asker: launcherGeneration(),
 	}
-	root := session.parts[ask.Product].root
-	if err := root.CreateFile(permit.Hold, []byte(permit.HoldMark), 0o600); err != nil {
+	if err := session.root.CreateFile(permit.Hold, []byte(permit.HoldMark), 0o600); err != nil {
 		return nil, HeavyCheckPermit{}, fmt.Errorf("create the file of permit %s: %w", id, err)
 	}
-	hold, err := s.takeHold(root, permit)
+	hold, err := s.takeHold(session.root, permit)
 	if err == nil && hold == nil {
 		err = fmt.Errorf("the file of permit %s was locked by somebody else as it was made", id)
 	}
 	if err != nil {
-		_ = root.Remove(permit.Hold)
+		_ = session.root.Remove(permit.Hold)
 		return nil, HeavyCheckPermit{}, err
 	}
 	return hold, permit, nil
@@ -1074,7 +875,7 @@ func (g *HeavyCheckGrant) Register(process execution.StartedProcess) error {
 	if g.read != nil {
 		reading = g.read()
 	}
-	session, err := g.store.open(context.Background(), g.Permit.Product)
+	session, err := g.store.open(context.Background())
 	if err != nil {
 		return err
 	}
@@ -1125,7 +926,7 @@ func (g *HeavyCheckGrant) Finish(result string) (HeavyCheckPermit, error) {
 	}
 	deadline := time.Now().Add(wait)
 	for first := true; ; first = false {
-		session, err := g.store.open(ctx, g.Permit.Product)
+		session, err := g.store.open(ctx)
 		if err != nil {
 			return g.Permit, err
 		}
@@ -1165,11 +966,11 @@ func (g *HeavyCheckGrant) Finish(result string) (HeavyCheckPermit, error) {
 		// somebody has to look at.
 		last := time.Now().After(deadline)
 		if !g.registered {
-			if !g.store.held(session.rootOf(*permit), *permit) {
+			if !g.store.held(session.root, *permit) {
 				session.release(permit, "its launch never started, so nothing ran")
 			}
 		} else {
-			state, reason := g.store.observe(session.rootOf(*permit), *permit)
+			state, reason := g.store.observe(session.root, *permit)
 			if state == executionStopped {
 				session.release(permit, "it exited and every process it started has gone")
 			} else if last {
@@ -1189,70 +990,23 @@ func (g *HeavyCheckGrant) Finish(result string) (HeavyCheckPermit, error) {
 	}
 }
 
-// Record is the record as it stands, every project's part of it together,
-// read without the locks, without settling anything, and without creating
-// anything: what a surface shows. Each part is replaced whole, so a reader
-// never sees half of one. A top-level record a build before this one left and
-// nothing has filed under its projects yet is shown with the rest.
+// Record is the record as it stands, read without its lock and without
+// settling anything: what a surface shows. The record is replaced whole, so
+// a reader never sees half of one.
 func (s *HeavyCheckStore) Record() (HeavyCheckRecord, error) {
-	whole := HeavyCheckRecord{SchemaVersion: HeavyCheckSchemaVersion}
-	err := s.eachPart(func(root *repowrite.PinnedRoot) error {
-		record, err := readHeavyCheckRecord(root, false)
-		if err != nil {
-			return err
-		}
-		for check, limit := range record.Limits {
-			if whole.Limits == nil {
-				whole.Limits = map[string]int{}
-			}
-			whole.Limits[check] = limit
-		}
-		for _, permit := range record.Permits {
-			if _, known := whole.Permit(permit.ID); !known {
-				whole.Permits = append(whole.Permits, permit)
-			}
-		}
-		return nil
-	})
+	root, err := s.pin()
 	if err != nil {
 		return HeavyCheckRecord{}, err
 	}
-	return whole, nil
-}
-
-// eachPart opens, without creating, the top-level record's directory and each
-// product's part where they are there, in that order, and hands each to read.
-func (s *HeavyCheckStore) eachPart(read func(*repowrite.PinnedRoot) error) error {
-	ids, err := home.ProductIDs(s.stateRoot)
-	if err != nil {
-		return err
-	}
-	directories := []string{s.topLevel()}
-	for _, id := range ids {
-		directories = append(directories, s.Directory(id))
-	}
-	for _, directory := range directories {
-		root, err := pinExisting(directory)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		err = read(root)
-		root.Close()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	defer root.Close()
+	return readHeavyCheckRecord(root, false)
 }
 
 // Settle reads the whole record against what is still alive and records what
 // it found, granting nothing: restart recovery on its own, for a process that
 // starts before any run asks for a place.
 func (s *HeavyCheckStore) Settle(ctx context.Context) (HeavyCheckRecord, error) {
-	session, err := s.open(ctx, "")
+	session, err := s.open(ctx)
 	if err != nil {
 		return HeavyCheckRecord{}, err
 	}
@@ -1272,7 +1026,7 @@ func (s *HeavyCheckStore) ReleaseByHand(ctx context.Context, id, by, reason stri
 	if strings.TrimSpace(by) == "" || strings.TrimSpace(reason) == "" {
 		return HeavyCheckPermit{}, errors.New("a place released by hand names who released it and why")
 	}
-	session, err := s.open(ctx, "")
+	session, err := s.open(ctx)
 	if err != nil {
 		return HeavyCheckPermit{}, err
 	}

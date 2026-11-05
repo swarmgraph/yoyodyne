@@ -111,19 +111,14 @@ func TestHomeMigrateRefusesWhileARunIsInFlightAndThenMovesTheHome(t *testing.T) 
 	if _, err := os.Stat(machineFile); !os.IsNotExist(err) {
 		t.Errorf("the earlier machine file is still there (%v)", err)
 	}
-	// The top of the machine home holds only what no project owns: the record
-	// of heavy check places is filed under the project it names.
-	for _, gone := range []string{filepath.Join(machineHome, runstate.HeavyCheckDirectory), filepath.Join(earlier, runstate.HeavyCheckDirectory)} {
-		if _, err := os.Stat(gone); !os.IsNotExist(err) {
-			t.Errorf("%s is still there after the migration (%v)", gone, err)
-		}
+	// The record of heavy check places is the machine's, kept at the top of the
+	// home under the architect's machine-home ruling, so it moves to the top of
+	// the machine home whole.
+	if moved, err := os.ReadFile(filepath.Join(machineHome, runstate.HeavyCheckDirectory, "permits.json")); err != nil || !strings.Contains(string(moved), "permit-0123456789abcdef") {
+		t.Errorf("the record of heavy check places at the top of the machine home = %q, %v; want the earlier record there", moved, err)
 	}
-	store, err := runstate.NewHeavyCheckStore(machineHome)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if filed, err := os.ReadFile(filepath.Join(store.Directory("yoyodyne"), "permits.json")); err != nil || !strings.Contains(string(filed), "permit-0123456789abcdef") {
-		t.Errorf("the record of heavy check places under the project = %q, %v; want the earlier permit there", filed, err)
+	if _, err := os.Stat(filepath.Join(earlier, runstate.HeavyCheckDirectory)); !os.IsNotExist(err) {
+		t.Errorf("the record of heavy check places is still in the earlier home (%v)", err)
 	}
 
 	// The marker names the machine home as soon as the migration ends, so a

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -251,12 +250,9 @@ func TestNoHeavyChecksDeclaredRunsChecksAtOnceAndOpensNoRecord(t *testing.T) {
 	if len(launched) != 2 || launched[1][0] >= launched[0][1] {
 		t.Fatalf("launches = %v, want both at once", launched)
 	}
-	_ = filepath.WalkDir(stateRoot, func(path string, entry fs.DirEntry, err error) error {
-		if err == nil && entry.IsDir() && entry.Name() == runstate.HeavyCheckDirectory {
-			t.Fatalf("the record of places was made at %s with no heavy check declared", path)
-		}
-		return nil
-	})
+	if _, err := os.Stat(filepath.Join(stateRoot, runstate.HeavyCheckDirectory)); !os.IsNotExist(err) {
+		t.Fatalf("the record of places was made with no heavy check declared: %v", err)
+	}
 }
 
 // A command no heavy check names is never asked for a place.

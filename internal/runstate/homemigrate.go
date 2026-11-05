@@ -6,7 +6,6 @@ package runstate
 // docs/designs/machine-home.md is the design.
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -303,31 +302,4 @@ func followMovedRoot(gitDirectory, from, to string) (string, bool, error) {
 		return marker, false, err
 	}
 	return marker, true, nil
-}
-
-// FileTopLevelHeavyChecks files the record of heavy check places a build before
-// this one kept at the top of to under each project it names, as the next
-// request for a place would, so the migration leaves the top of the home holding
-// only what no single project owns. It is called once nothing is in flight, so
-// nothing is waiting on the record's locks.
-func FileTopLevelHeavyChecks(ctx context.Context, to string) ([]home.Moved, []home.LeftBehind) {
-	top := filepath.Join(to, HeavyCheckDirectory)
-	if _, err := os.Lstat(top); err != nil {
-		return nil, nil
-	}
-	store, err := NewHeavyCheckStore(to)
-	if err == nil {
-		_, err = store.Settle(ctx)
-	}
-	if err == nil {
-		if _, statErr := os.Lstat(top); statErr == nil {
-			err = errors.New("part of it could not be filed under its projects, so it is left where it is")
-		}
-	}
-	if err != nil {
-		return nil, []home.LeftBehind{{What: "the record of heavy check places", Path: top,
-			Why: err.Error() + "; the next request for a heavy check's place files what is left", Failed: true}}
-	}
-	return []home.Moved{{What: "the record of heavy check places, filed under each project it names", From: top,
-		To: filepath.Join(home.ProjectDirectory(to, "<product id>"), home.StateDirectoryName, HeavyCheckDirectory)}}, nil
 }

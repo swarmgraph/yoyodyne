@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -111,10 +110,6 @@ func migrateHome(args []string, stdout, stderr io.Writer) int {
 		migration.LeftBehind = append(migration.LeftBehind, home.LeftBehind{What: "the recorded worktree paths", Path: plan.To,
 			Why: err.Error() + "; running the migration again rewrites what is left", Failed: true})
 	}
-	// The record of heavy check places goes under each project it names.
-	filed, left := runstate.FileTopLevelHeavyChecks(context.Background(), plan.To)
-	migration.Moved = append(migration.Moved, filed...)
-	migration.LeftBehind = append(migration.LeftBehind, left...)
 	// Each bound repository's state-root marker names the machine home from
 	// here on, so a build that resolves the emptied home is refused at once.
 	followed, unfollowed := runstate.FollowMovedRootMarkers(plan.From, plan.To)
@@ -249,9 +244,9 @@ file and external configurations — into the machine home, ~/.yoyodyne: each pr
 records into projects/<product id>/state/, its worktrees into
 projects/<product id>/worktrees/ with Git told where each now is, each external
 configuration into the project directory its product id names, and the
-operator's pause, the provider accounts, and the logs to the top. The record of
-heavy check places earlier builds kept at the top is filed under each project,
-and every bound repository's state-root marker is pointed at the machine home,
+operator's pause, the provider accounts, the logs, and the record of heavy check
+places to the top. Every bound repository's state-root marker is then pointed at
+the machine home,
 so a build that still resolves the earlier home is refused rather than started
 there. It then says what it moved and what it left behind.
 
