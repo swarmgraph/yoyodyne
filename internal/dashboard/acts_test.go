@@ -12,6 +12,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -175,7 +179,7 @@ func TestTheTokenAloneNeverAuthorizesAnAct(t *testing.T) {
 	}{
 		{"no token", nil, http.StatusUnauthorized, "requires the token"},
 		{"a token nobody bound", bearer(strings.Repeat("c3", tokenBytes)), http.StatusUnauthorized, "requires the token"},
-		{"the shared token", bearer(w.server.Token()), http.StatusForbidden, "bound to nobody"},
+		{"the shared token", bearer(w.server.Token()), http.StatusForbidden, "needs your own dashboard token"},
 	}
 	for _, each := range cases {
 		shapes := []func(*http.Request){}
@@ -195,7 +199,7 @@ func TestTheTokenAloneNeverAuthorizesAnAct(t *testing.T) {
 	// What the session is, said to the page before anything is pressed.
 	_, body := w.get(sessionPath, bearer(w.server.Token()))
 	var shared sessionAnswer
-	if err := json.Unmarshal([]byte(body), &shared); err != nil || shared.Acts || shared.Person != nil || !strings.Contains(shared.Says, "bound to nobody") {
+	if err := json.Unmarshal([]byte(body), &shared); err != nil || shared.Acts || shared.Person != nil || !strings.Contains(shared.Says, "needs your own dashboard token") {
 		t.Fatalf("the shared token's session: %s", body)
 	}
 	_, body = w.get(sessionPath, bearer(ownerToken))
@@ -206,6 +210,45 @@ func TestTheTokenAloneNeverAuthorizesAnAct(t *testing.T) {
 	// A person's own token reads what the shared one does.
 	if response, _ := w.get("/api/standing", bearer(ownerToken)); response.StatusCode != http.StatusOK {
 		t.Fatalf("a person's token reading the standing: %d", response.StatusCode)
+	}
+}
+
+// The refusal the shared token gets is read by the person at the page, so it
+// says what to do in words and names no configuration key: no dotted key path,
+// and no key's own name. The page's render fixture carries the same words, so
+// the render a reviewer is shown is the refusal the server sends.
+func TestTheSharedTokensRefusalSaysWhatToDoWithoutAConfigurationKey(t *testing.T) {
+	t.Parallel()
+	w, _ := acting(t)
+	response, body := w.act(decidePath, approveOf(architectDoc), bearer(w.server.Token()))
+	var refusal struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(body), &refusal); err != nil || response.StatusCode != http.StatusForbidden {
+		t.Fatalf("the shared token's act: %d %s", response.StatusCode, body)
+	}
+	_, body = w.get(sessionPath, bearer(w.server.Token()))
+	var shared sessionAnswer
+	if err := json.Unmarshal([]byte(body), &shared); err != nil {
+		t.Fatalf("the shared token's session: %s", body)
+	}
+	keyPath := regexp.MustCompile(`[A-Za-z_]+\.(<[^>]*>|[A-Za-z_]+)\.[A-Za-z_]+|[a-z]+_[a-z]+`)
+	for _, said := range []string{refusal.Error, shared.Says} {
+		if found := keyPath.FindString(said); found != "" {
+			t.Errorf("the refusal names the configuration key %q: %s", found, said)
+		}
+		for _, words := range []string{"your own dashboard token", "Use a different token", "deciding from the page"} {
+			if !strings.Contains(said, words) {
+				t.Errorf("the refusal does not say %q: %s", words, said)
+			}
+		}
+	}
+	render, err := os.ReadFile(filepath.Join("testdata", "render.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(render), strconv.Quote(unboundReason)) {
+		t.Errorf("testdata/render.js does not carry the shared token's refusal as the server words it: %s", unboundReason)
 	}
 }
 

@@ -235,7 +235,11 @@ type sessionAnswer struct {
 }
 
 // unboundReason is the refusal every act from a session bound to nobody gets.
-const unboundReason = "this session is bound to nobody: the dashboard's shared token reads and acts on nothing. To approve, decline, or ask from here, sign in with your own token, bound to you under operators.<your name>.dashboard_token in the configuration"
+// It is read by the person at the page, so it says what to do there — the
+// page offers a way to use a different token beside it — and names no
+// configuration key: the operations guide is where setting a token up is
+// described, and the reason points there by name.
+const unboundReason = "This page is using the dashboard's shared token, which can read everything but cannot approve, decline, or ask. To do any of those, this action needs your own dashboard token: choose Use a different token and paste yours. If you have no token of your own yet, the section on deciding from the page in the operations guide says how to set one up."
 
 // serveSession says who the session is.
 func (s *Server) serveSession(writer http.ResponseWriter, request *http.Request, person *Person) {

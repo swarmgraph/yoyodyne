@@ -248,14 +248,27 @@ function page(withLibrary) {
   return { byId, made, window, document };
 }
 
-function run(withLibrary) {
+// run opens the page with a token stored. stored, where given, is the store
+// the page keeps its token in, standing for the browser's, so a scenario can
+// read what the page left there; without it the page holds "token" and every
+// reading must carry it.
+function run(withLibrary, stored) {
   const built = page(withLibrary);
+  built.sent = [];
+  if (stored) {
+    const storage = { getItem: (key) => (stored.has(key) ? stored.get(key) : null), setItem: (key, value) => stored.set(key, String(value)), removeItem: (key) => stored.delete(key) };
+    built.window.sessionStorage = storage;
+    built.window.localStorage = storage;
+  }
   const served = Object.assign({ snapshot: { taken_at: reading.observed_at, age_seconds: 5, interval_seconds: 60, build_seconds: 2, stale: false } }, reading);
   const context = vm.createContext({
     window: built.window, document: built.document, deliveryFigures: figuresOf, Date, Math, Intl, String, Error, Promise, console,
     fetch: (address, options) => {
       assert.strictEqual(address, "/api/delivery");
-      assert.strictEqual(options.headers.Authorization, "Bearer token");
+      built.sent.push(options.headers.Authorization);
+      if (!stored) {
+        assert.strictEqual(options.headers.Authorization, "Bearer token");
+      }
       return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve(served) });
     }
   });
@@ -324,6 +337,29 @@ async function main() {
     assert.ok(!all(panel).some((each) => each.tag === "canvas"), "a canvas is drawn without the library");
     assert.ok(all(panel).find((each) => each.tag === "details").hasAttribute("open"), "a table is closed without the library");
   });
+
+  // Using a different token: the header offers it while the page holds one;
+  // pressing it clears the stored token and asks for another, and the one
+  // entered is stored in its place and carried by the next reading.
+  const key = "yoyo-dashboard-token";
+  const stored = new Map([[key, "first"]]);
+  const switching = run(false, stored);
+  await settle();
+  await settle();
+  const button = switching.byId("switch-token");
+  assert.strictEqual(button.getAttribute("hidden"), null, "a page holding a token offers no way to use a different one");
+  button.fire("click");
+  assert.ok(!stored.has(key), "using a different token left the old one stored");
+  assert.strictEqual(switching.byId("page").getAttribute("data-state"), "signin", "using a different token did not ask for one");
+  assert.ok(button.hasAttribute("hidden"), "the page asking for a token still offers a different one");
+  assert.ok(switching.byId("signin-note").textContent.indexOf("has been cleared") >= 0, "the page does not say the token was cleared");
+  switching.byId("token").value = "second";
+  switching.byId("signin").fire("submit");
+  await settle();
+  await settle();
+  assert.strictEqual(stored.get(key), "second", "the token entered was not stored in place of the old one");
+  assert.deepStrictEqual(switching.sent, ["Bearer first", "Bearer second"], "the reading after the switch did not carry the new token");
+  assert.strictEqual(switching.byId("switch-token").getAttribute("hidden"), null, "the page signed in again offers no way to use a different token");
 
   console.log("delivery page: " + daily.measures.length + " measures drawn with Chart.js " + Chart.version);
 }

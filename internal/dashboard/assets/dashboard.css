@@ -1103,6 +1103,25 @@ input:focus-visible {
   background: var(--attention-paper);
 }
 
+/* Using a different token: offered beside a refusal that the token caused,
+   and in the header of every page that holds one. Outlined like Decline, so
+   it reads as a way out rather than as the act itself. */
+.decide-switch {
+  margin-top: 0.75rem;
+}
+
+.decide-switch button,
+.switch-token-button {
+  background: var(--panel);
+  color: var(--accent-ink);
+  border-color: var(--rule-strong);
+}
+
+.switch-token-button {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.85rem;
+}
+
 /* The grouping: one entry per item, its title opening the item's card. */
 .grouping-items {
   list-style: none;

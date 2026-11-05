@@ -621,6 +621,46 @@
       "decide": "closed"
     }
   },
+  "switch-token": {
+    "page": "signin",
+    "sections": {
+      "summary": "ready",
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
+  "switch-token-signin": {
+    "page": "ready",
+    "sections": {
+      "summary": "ready",
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
   "attention-run-steps": {
     "page": "ready",
     "sections": {
@@ -1582,6 +1622,26 @@
     }
   },
   "decide-unbound": {
+    "page": "ready",
+    "sections": {
+      "summary": "ready",
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
+    }
+  },
+  "decide-switch": {
     "page": "ready",
     "sections": {
       "summary": "ready",

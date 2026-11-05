@@ -7671,8 +7671,15 @@ rather than holding the page for minutes.
 **Only a person acts, never a token.** The token the dashboard prints or reads
 from `services.dashboard.token` reads everything and resolves to nobody, so a
 tab holding it is told, when the pop-up opens, that it reads only, and every
-act from it is refused with that reason. To act, bind a token of your own in
-the configuration's [operators mapping](configuration.md#operators):
+act from it is refused with that reason, in words that say what to do rather
+than naming a configuration key. Beside that reason, and beside any refusal
+the token caused — a person without the grant included — the pop-up offers
+**Use a different token**, which clears the stored token and asks for
+another; the main page, `/backlog`, and `/delivery` carry the same button in
+their header whenever they hold a token, so switching never waits for a
+refusal. The token entered is stored in place of the old one, and every
+request from then on carries it. To act, bind a token of your own in the
+configuration's [operators mapping](configuration.md#operators):
 
 ```yaml
 operators:

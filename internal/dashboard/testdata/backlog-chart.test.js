@@ -265,8 +265,34 @@ async function main() {
   assert.ok(darker.canvas.calls.some((call) => call.name === "stroke" && call.state.strokeStyle === dark["--rule"]), "the grid is not drawn in the dark rule colour");
 
   await closedChart();
+  await switchingTokens();
 
   console.log("backlog chart: drawn with Chart.js " + Chart.version + ", " + counted.series.length + " series");
+}
+
+// switchingTokens presses the header's Use a different token on a page
+// holding one: the stored token is cleared and the page asks for another, and
+// the one entered is stored in its place and carried by the next reading.
+async function switchingTokens() {
+  const key = "yoyo-dashboard-token";
+  const stored = new Map([[key, "first"]]);
+  const built = run({}, null, stored);
+  await settle();
+  await settle();
+  const button = built.byId("switch-token");
+  assert.strictEqual(button.getAttribute("hidden"), null, "a page holding a token offers no way to use a different one");
+  button.fire("click");
+  assert.ok(!stored.has(key), "using a different token left the old one stored");
+  assert.strictEqual(built.byId("page").getAttribute("data-state"), "signin", "using a different token did not ask for one");
+  assert.ok(button.hasAttribute("hidden"), "the page asking for a token still offers a different one");
+  assert.ok(built.byId("signin-note").textContent.indexOf("has been cleared") >= 0, "the page does not say the token was cleared");
+  built.byId("token").value = "second";
+  built.byId("signin").fire("submit");
+  await settle();
+  await settle();
+  assert.strictEqual(stored.get(key), "second", "the token entered was not stored in place of the old one");
+  assert.deepStrictEqual(built.asked, ["Bearer first", "Bearer second"], "the reading after the switch did not carry the new token");
+  assert.strictEqual(built.byId("switch-token").getAttribute("hidden"), null, "the page signed in again offers no way to use a different token");
 }
 
 // closedAt is one item closed at a Los Angeles summer-time clock reading.

@@ -76,6 +76,7 @@ var standingWarningAgeSeconds = 5 * 60;
   var signin = document.getElementById("signin");
   var signinNote = document.getElementById("signin-note");
   var tokenField = document.getElementById("token");
+  var switchToken = document.getElementById("switch-token");
 
   // model is what the page has been told so far: each reading, or why it could
   // not be had. A reading once had is kept through a later failure, so a page
@@ -2608,13 +2609,16 @@ var standingWarningAgeSeconds = 5 * 60;
   // decideShown is the key of the decision on screen and decideDrawn the key
   // last drawn; decideForm is "" or the form open under it, "decline" or
   // "ask"; decideBusy is an act in flight; decideOutcome is what the last act
-  // came to, and decideRefused whether it was refused.
+  // came to, and decideRefused whether it was refused. decideByToken is a
+  // refusal the token caused — the shared token, or a person without the
+  // grant — which a different token can answer, so the pop-up offers one.
   var decideShown = "";
   var decideDrawn = "";
   var decideForm = "";
   var decideBusy = false;
   var decideOutcome = "";
   var decideRefused = false;
+  var decideByToken = false;
   // decidedHere is every decision this page decided, left out of the list
   // until the standing stops naming it: a snapshot taken before the act still
   // lists it, and offering it again would ask for a second decision.
@@ -2758,6 +2762,9 @@ var standingWarningAgeSeconds = 5 * 60;
     var note = document.getElementById("decide-note");
     document.getElementById("decide-session").textContent = session ? session.says : "Reading who this session is…";
     renderOutcome();
+    // A session that is nobody is offered a different token before it presses
+    // anything, and any session is offered one once its token is refused.
+    setHidden(document.getElementById("decide-switch"), !(decideByToken || (session && session.acts === false && !session.person)));
     // Nothing is offered until the page knows who would be acting, so a
     // session that reads only is told so before it presses anything.
     if (!standing || session === null) {
@@ -2825,6 +2832,7 @@ var standingWarningAgeSeconds = 5 * 60;
         decideShown = decisionKey(shown.waiting[(shown.index + step) % shown.waiting.length]);
         decideForm = "";
         decideOutcome = "";
+        decideByToken = false;
         renderDecide(true);
         return;
       case "decline":
@@ -2852,11 +2860,14 @@ var standingWarningAgeSeconds = 5 * 60;
   // it was carried out, and the refusal's reason where it was not. A decision
   // carried out leaves the list here at once, and the standing is asked for
   // again so the list catches up. A 401 is the token being refused, and sends
-  // the page back to asking for it, as every reading does.
+  // the page back to asking for it, as every reading does. A 403 is the
+  // token's refusal of this act: whoever it is may not do this, and a
+  // different token may.
   function send(path, body, decided) {
     var current = token();
     decideBusy = true;
     decideOutcome = "";
+    decideByToken = false;
     renderDecide(true);
     var finish = function (said, refusedAct) {
       decideBusy = false;
@@ -2886,6 +2897,7 @@ var standingWarningAgeSeconds = 5 * 60;
         }
         return response.json().then(function (answer) {
           if (!response.ok) {
+            decideByToken = response.status === 403;
             finish("Refused: " + ((answer && answer.error) || (response.status + " " + response.statusText)), true);
             return;
           }
@@ -2904,6 +2916,7 @@ var standingWarningAgeSeconds = 5 * 60;
     openers.decide = from || null;
     decideForm = "";
     decideOutcome = "";
+    decideByToken = false;
     decideDrawn = "";
     session = null;
     renderDecide(true);
@@ -2933,6 +2946,7 @@ var standingWarningAgeSeconds = 5 * 60;
   document.getElementById("report-backdrop").addEventListener("click", closeReport);
   document.getElementById("decide-close").addEventListener("click", closeDecide);
   document.getElementById("decide-backdrop").addEventListener("click", closeDecide);
+  document.getElementById("decide-switch-token").addEventListener("click", useAnotherToken);
   // Escape closes the pop-up on top: a lane report where one is open, else the
   // card where one is open, on an item or an entry, else the grouping.
   document.addEventListener("keydown", function (event) {
@@ -3132,13 +3146,52 @@ var standingWarningAgeSeconds = 5 * 60;
     timers = {};
   }
 
+  // closeEverything closes every pop-up and forgets what opened each, without
+  // giving focus back to it: it is for a page that is starting over or asking
+  // for a token, where the sign-in field or the page itself takes the focus.
+  function closeEverything() {
+    openGrouping = null;
+    openCard = null;
+    openEntry = null;
+    openReport = null;
+    openers = { grouping: null, card: null, report: null, decide: null };
+    openersByKey = {};
+    openDecide = false;
+    decideShown = "";
+    decideDrawn = "";
+    decideBusy = false;
+    decideOutcome = "";
+    decideRefused = false;
+    decideByToken = false;
+    setHidden(decidePopup, true);
+    setHidden(groupingPopup, true);
+    setHidden(cardPopup, true);
+    setHidden(reportPopup, true);
+  }
+
+  // askForToken closes whatever is open over the page first, so the sign-in
+  // form it shows is the only thing asking anything of the reader.
   function askForToken(note) {
     stopAsking();
+    closeEverything();
+    setHidden(switchToken, true);
     signinNote.textContent = note || "";
     tokenField.value = "";
     show("signin");
     tokenField.focus();
   }
+
+  // useAnotherToken is the way to sign in again with a different token,
+  // offered in the header of a page holding one and beside a refusal the token
+  // caused. It clears the stored token, so no reading goes on asking with it,
+  // and asks for the next; the token entered is stored in its place and every
+  // request from then on carries it.
+  function useAnotherToken() {
+    forget();
+    askForToken("The token this page held has been cleared. Paste the token to use instead: your own dashboard token approves, declines, and asks from here, and the shared one reads only.");
+  }
+
+  switchToken.addEventListener("click", useAnotherToken);
 
   // ---- fetching ---------------------------------------------------------------
 
@@ -3221,20 +3274,9 @@ var standingWarningAgeSeconds = 5 * 60;
     model = { standing: null, standingError: "", summary: null, summaryError: "", throughput: null, throughputError: "", spend: null, spendError: "", accomplishment: null, accomplishmentError: "" };
     summaryOpen = {};
     // A page starting over — a token just entered — opens with nothing over it.
-    openGrouping = null;
-    openCard = null;
-    openEntry = null;
-    openReport = null;
-    openers = { grouping: null, card: null, report: null, decide: null };
-    openersByKey = {};
-    openDecide = false;
-    decideShown = "";
-    decideDrawn = "";
+    closeEverything();
     decidedHere = {};
-    setHidden(decidePopup, true);
-    setHidden(groupingPopup, true);
-    setHidden(cardPopup, true);
-    setHidden(reportPopup, true);
+    setHidden(switchToken, false);
     stopAsking();
     delays = { standing: every.standing, summary: every.summary, throughput: every.throughput, spend: every.spend };
     render();
