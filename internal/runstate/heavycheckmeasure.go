@@ -12,11 +12,11 @@ package runstate
 // part of the machine's load the places do not limit, and a limit read without
 // it would be read as though the places were all there was.
 //
-// It is a file of its own beside the record of places, written under the same
-// lock, so the record of places keeps the shape every build running beside
+// It is a file of its own beside each project's part of the record of places,
+// holding that project's launches and written under the same lock, so the record of places keeps the shape every build running beside
 // this one reads, and a measurement that cannot be written never stops a
 // check: it is evidence about the check, not part of running it. It keeps the
-// last heavyCheckMeasurementsKept launches.
+// last heavyCheckMeasurementsKept launches of each project.
 
 import (
 	"encoding/json"
@@ -228,8 +228,9 @@ func readHeavyCheckMeasurements(root *repowrite.PinnedRoot, strict bool) (HeavyC
 // given none, and writes the file back keeping the last few. It is called under
 // the record of places' lock. A failure is returned for the caller to set
 // aside: no check waits on its own measurement.
-func (h *heavyCheckSession) measure(permit string, change func(*HeavyCheckMeasurement) bool) error {
-	record, err := readHeavyCheckMeasurements(h.root, true)
+func (h *heavyCheckSession) measure(owner HeavyCheckPermit, change func(*HeavyCheckMeasurement) bool) error {
+	root, permit := h.rootOf(owner), owner.ID
+	record, err := readHeavyCheckMeasurements(root, true)
 	if err != nil {
 		return err
 	}
@@ -246,6 +247,12 @@ func (h *heavyCheckSession) measure(permit string, change func(*HeavyCheckMeasur
 	if !change(found) {
 		return nil
 	}
+	return writeHeavyCheckMeasurements(root, record)
+}
+
+// writeHeavyCheckMeasurements writes one part's measurements whole, keeping the
+// last few.
+func writeHeavyCheckMeasurements(root *repowrite.PinnedRoot, record HeavyCheckMeasurements) error {
 	if len(record.Measurements) > heavyCheckMeasurementsKept {
 		record.Measurements = record.Measurements[len(record.Measurements)-heavyCheckMeasurementsKept:]
 	}
@@ -261,7 +268,7 @@ func (h *heavyCheckSession) measure(permit string, change func(*HeavyCheckMeasur
 	if len(encoded) > maxEncodedStateBytes {
 		return errors.New("the heavy check measurements exceed the state record size bound")
 	}
-	return h.root.WriteFile(heavyCheckMeasurementsName, encoded, 0o600, false)
+	return root.WriteFile(heavyCheckMeasurementsName, encoded, 0o600, false)
 }
 
 // measureLaunch writes a launch down as it starts: the permit as granted, the
@@ -290,11 +297,11 @@ func (h *heavyCheckSession) measureLaunch(permit HeavyCheckPermit, reading Heavy
 		outside = outside[:heavyCheckOutsideKept]
 	}
 	reading.Seen = nil
-	return h.measure(permit.ID, func(m *HeavyCheckMeasurement) bool {
+	return h.measure(permit, func(m *HeavyCheckMeasurement) bool {
 		*m = HeavyCheckMeasurement{
 			Permit: permit.ID, Product: permit.Product, RunID: permit.RunID, WorkItemID: permit.WorkItemID,
 			Check: permit.Check, Command: boundedReason(permit.Command), Priority: permit.Priority,
-			Limit: h.record.Limits[permit.Check], AskedAt: permit.AskedAt, GrantedAt: *permit.GrantedAt,
+			Limit: h.limitOf(permit), AskedAt: permit.AskedAt, GrantedAt: *permit.GrantedAt,
 			LaunchedAt: *permit.LaunchedAt, Running: running, Machine: reading,
 		}
 		if reading.Listed {
@@ -306,7 +313,7 @@ func (h *heavyCheckSession) measureLaunch(permit HeavyCheckPermit, reading Heavy
 
 // measureExit finishes a launch's measurement as its main process ends.
 func (h *heavyCheckSession) measureExit(permit HeavyCheckPermit, outcome HeavyCheckOutcome, budget time.Duration) error {
-	return h.measure(permit.ID, func(m *HeavyCheckMeasurement) bool {
+	return h.measure(permit, func(m *HeavyCheckMeasurement) bool {
 		if m.LaunchedAt.IsZero() || m.ExitedAt != nil {
 			// A launch never written down as started has nothing to finish,
 			// and one already finished keeps what it was finished with.
@@ -321,15 +328,34 @@ func (h *heavyCheckSession) measureExit(permit HeavyCheckPermit, outcome HeavyCh
 	})
 }
 
-// Measurements is the measurements as they stand, read without the lock: what
-// a surface shows. The file is replaced whole, so a reader never sees half.
+// Measurements is every project's measurements together, read without the
+// locks and without creating anything: what a surface shows. Each file is
+// replaced whole, so a reader never sees half of one.
 func (s *HeavyCheckStore) Measurements() (HeavyCheckMeasurements, error) {
-	root, err := s.pin()
+	whole := HeavyCheckMeasurements{SchemaVersion: HeavyCheckMeasurementSchemaVersion}
+	seen := map[string]bool{}
+	err := s.eachPart(func(root *repowrite.PinnedRoot) error {
+		measurements, err := readHeavyCheckMeasurements(root, false)
+		if err != nil {
+			return err
+		}
+		for _, measurement := range measurements.Measurements {
+			if !seen[measurement.Permit] {
+				seen[measurement.Permit] = true
+				whole.Measurements = append(whole.Measurements, measurement)
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return HeavyCheckMeasurements{}, err
 	}
-	defer root.Close()
-	return readHeavyCheckMeasurements(root, false)
+	// Each project's launches are in the order they launched; together they
+	// are put back in that order.
+	sort.SliceStable(whole.Measurements, func(first, second int) bool {
+		return whole.Measurements[first].LaunchedAt.Before(whole.Measurements[second].LaunchedAt)
+	})
+	return whole, nil
 }
 
 // Measure says how the launch this grant is for ended, before Finish writes

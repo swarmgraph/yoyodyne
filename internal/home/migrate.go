@@ -190,7 +190,8 @@ func (e *ConflictError) Error() string {
 // created, each product's records into its project directory, each external
 // configuration into the project directory its product id names, the worktrees
 // under their project with Git told where each now is, the machine-wide records
-// to the top, the machine file into the home, and a marker left in the emptied
+// to the top — with the record of heavy check places earlier builds kept there,
+// which run state files under each project once this returns — the machine file into the home, and a marker left in the emptied
 // home naming the new one. Writing each binding comes after the records it
 // binds. Run records naming a worktree path are run state's to rewrite, from
 // MigratedWorktreePath, once this returns.
@@ -263,7 +264,7 @@ func MoveHome(options MigrateOptions) (Migration, error) {
 	// The machine-wide records, which are already at the top of a home laid out
 	// in place.
 	if !inPlace {
-		for _, name := range []string{OperatorHoldFileName, AccountsDirectoryName, LogsDirectoryName} {
+		for _, name := range []string{OperatorHoldFileName, AccountsDirectoryName, LogsDirectoryName, HeavyChecksDirectoryName} {
 			if !exists(filepath.Join(from, name)) {
 				continue
 			}
@@ -576,6 +577,8 @@ func machineWideWhat(name string) string {
 		return "the operator's pause"
 	case AccountsDirectoryName:
 		return "the provider accounts"
+	case HeavyChecksDirectoryName:
+		return "the record of heavy check places, which run state then files under each project"
 	default:
 		return "the harness's logs"
 	}

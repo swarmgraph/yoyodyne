@@ -148,7 +148,7 @@ func TestHeavyCheckMeasurementsKeepTheLastLaunchesAndLeaveAnUnwrittenEndOpen(t *
 		t.Fatal("a launch with no end written down reads as ended")
 	}
 
-	session, err := store.open(t.Context())
+	session, err := store.open(t.Context(), "yoyodyne")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestHeavyCheckMeasurementsKeepTheLastLaunchesAndLeaveAnUnwrittenEndOpen(t *
 			t.Fatal(err)
 		}
 	}
-	measurements, err = readHeavyCheckMeasurements(session.root, true)
+	measurements, err = readHeavyCheckMeasurements(session.parts["yoyodyne"].root, true)
 	if err != nil {
 		t.Fatal(err)
 	}

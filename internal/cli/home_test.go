@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -51,6 +54,23 @@ func TestHomeMigrateRefusesWhileARunIsInFlightAndThenMovesTheHome(t *testing.T) 
 		t.Fatal(err)
 	}
 
+	// The record of heavy check places as earlier builds kept it, at the top.
+	now := time.Now().UTC()
+	topLevel, err := json.Marshal(runstate.HeavyCheckRecord{SchemaVersion: runstate.HeavyCheckSchemaVersion, Permits: []runstate.HeavyCheckPermit{{
+		ID: "permit-0123456789abcdef", Product: "yoyodyne", RunID: "run-earlier", Check: "make race", Command: "make race",
+		Priority: domain.HeavyCheckOrdinary, State: runstate.HeavyCheckReleased, AskedAt: now, ReleasedAt: &now,
+		Hold: "permit-0123456789abcdef.hold", HoldMark: "mark",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(earlier, runstate.HeavyCheckDirectory), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(earlier, runstate.HeavyCheckDirectory, "permits.json"), topLevel, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	runID := "run-" + strings.Repeat("0", 32)
 	lease, held, err := runstate.TryLeasePath(filepath.Join(home.ProductDirectory(earlier, "yoyodyne"), "runs", runID+".lease"), "a run the test holds")
 	if err != nil || !held {
@@ -91,13 +111,34 @@ func TestHomeMigrateRefusesWhileARunIsInFlightAndThenMovesTheHome(t *testing.T) 
 	if _, err := os.Stat(machineFile); !os.IsNotExist(err) {
 		t.Errorf("the earlier machine file is still there (%v)", err)
 	}
-
-	if _, stderr, code := runCLI(t, "reports", "--config", configPath); code != 0 {
-		t.Fatalf("reports after the migration code = %d, stderr = %q; want the marker to follow the state", code, stderr)
+	// The top of the machine home holds only what no project owns: the record
+	// of heavy check places is filed under the project it names.
+	for _, gone := range []string{filepath.Join(machineHome, runstate.HeavyCheckDirectory), filepath.Join(earlier, runstate.HeavyCheckDirectory)} {
+		if _, err := os.Stat(gone); !os.IsNotExist(err) {
+			t.Errorf("%s is still there after the migration (%v)", gone, err)
+		}
 	}
+	store, err := runstate.NewHeavyCheckStore(machineHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filed, err := os.ReadFile(filepath.Join(store.Directory("yoyodyne"), "permits.json")); err != nil || !strings.Contains(string(filed), "permit-0123456789abcdef") {
+		t.Errorf("the record of heavy check places under the project = %q, %v; want the earlier permit there", filed, err)
+	}
+
+	// The marker names the machine home as soon as the migration ends, so a
+	// process resolving the emptied home, as an older build does, is refused.
 	marker, err := runstate.ReadRootMarker(project)
 	if err != nil || !home.SameDirectory(marker.Recorded, machineHome) {
-		t.Fatalf("marker = %+v, %v; want it to name %s now", marker, err, machineHome)
+		t.Fatalf("marker = %+v, %v; want it to name %s once the migration ends", marker, err, machineHome)
+	}
+	t.Setenv(home.StateHomeVariable, earlier)
+	if _, stderr, code := runCLI(t, "reports", "--config", configPath); code == 0 || !strings.Contains(stderr, machineHome) {
+		t.Fatalf("reports on the emptied home code = %d, stderr = %q; want it refused naming %s", code, stderr, machineHome)
+	}
+	t.Setenv(home.StateHomeVariable, "")
+	if _, stderr, code := runCLI(t, "reports", "--config", configPath); code != 0 {
+		t.Fatalf("reports after the migration code = %d, stderr = %q; want the marker to agree", code, stderr)
 	}
 	if stdout, _, code := runCLI(t, "project", "list", "--home"); code != 0 || strings.TrimSpace(stdout) != machineHome {
 		t.Fatalf("project list --home = %q (%d), want %s", stdout, code, machineHome)

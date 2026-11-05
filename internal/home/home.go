@@ -271,6 +271,12 @@ const (
 	LogsDirectoryName     = "logs"
 )
 
+// HeavyChecksDirectoryName is where builds before the record of heavy check
+// places was kept per project kept it, at the top of a home. Nothing writes it
+// there any more: run state keeps each product's part of the record under that
+// product's records directory, and files one it finds at the top there.
+const HeavyChecksDirectoryName = "heavy-checks"
+
 // Names inside a project directory.
 const (
 	ConfigFileName         = "config.yaml"

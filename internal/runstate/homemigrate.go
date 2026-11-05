@@ -6,6 +6,7 @@ package runstate
 // docs/designs/machine-home.md is the design.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/home"
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
 // MaxHomeMigrationByBytes bounds the account of who ran a migration, which is a
@@ -239,4 +241,93 @@ func RewriteMigratedWorktrees(from, to string, products []string, now time.Time,
 		}
 	}
 	return rewritten, left, nil
+}
+
+// FollowMovedRootMarkers records to in the state-root marker of every
+// repository bound into to whose marker still names from, the home the
+// migration emptied. Until it does, a build that resolves from — every build
+// from before the machine home does by default — finds its own root in the
+// marker and starts there on an empty layout, so the guard against two homes
+// stops it only once it says where the state now is. A marker naming anything
+// else is left as it is: it is not this migration's to change. It returns each
+// rewrite as a move of the marker, and is as safe to repeat as the moves.
+func FollowMovedRootMarkers(from, to string) ([]home.Moved, []home.LeftBehind) {
+	var followed []home.Moved
+	var left []home.LeftBehind
+	if home.SameDirectory(from, to) {
+		return nil, nil
+	}
+	projects, err := home.Projects(to)
+	if err != nil {
+		return nil, []home.LeftBehind{{What: "the state-root markers of the bound repositories", Path: to, Why: err.Error(), Failed: true}}
+	}
+	for _, project := range projects {
+		if !project.Bound || !project.Binding.Present() {
+			continue
+		}
+		marker, moved, err := followMovedRoot(project.Binding.GitCommonDirectory, from, to)
+		if err != nil {
+			left = append(left, home.LeftBehind{What: "the state-root marker of " + project.ID, Path: marker,
+				Why: err.Error() + "; the next start of this build from that repository records the machine home in it", Failed: true})
+			continue
+		}
+		if moved {
+			followed = append(followed, home.Moved{What: "the state-root marker of " + project.ID + " (" + marker + ")", From: from, To: to})
+		}
+	}
+	return followed, left
+}
+
+// followMovedRoot replaces the marker in one repository's Git common directory
+// with to where it names from, and reports whether it did.
+func followMovedRoot(gitDirectory, from, to string) (string, bool, error) {
+	marker := filepath.Join(gitDirectory, filepath.FromSlash(RootMarkerName))
+	content, err := os.ReadFile(marker)
+	if errors.Is(err, os.ErrNotExist) {
+		return marker, false, nil
+	}
+	if err != nil {
+		return marker, false, fmt.Errorf("read the state-root marker %s: %w", marker, err)
+	}
+	if recorded := strings.TrimSpace(string(content)); recorded == "" || !sameRoot(recorded, from) {
+		return marker, false, nil
+	}
+	if err := refuseMarkerOutsideTemporary(gitDirectory); err != nil {
+		return marker, false, err
+	}
+	root, err := repowrite.NewRoot(gitDirectory)
+	if err != nil {
+		return marker, false, fmt.Errorf("record the machine home in %s: %w", marker, err)
+	}
+	if err := replaceRootMarker(root, marker, ResolvedRoot{Path: to}); err != nil {
+		return marker, false, err
+	}
+	return marker, true, nil
+}
+
+// FileTopLevelHeavyChecks files the record of heavy check places a build before
+// this one kept at the top of to under each project it names, as the next
+// request for a place would, so the migration leaves the top of the home holding
+// only what no single project owns. It is called once nothing is in flight, so
+// nothing is waiting on the record's locks.
+func FileTopLevelHeavyChecks(ctx context.Context, to string) ([]home.Moved, []home.LeftBehind) {
+	top := filepath.Join(to, HeavyCheckDirectory)
+	if _, err := os.Lstat(top); err != nil {
+		return nil, nil
+	}
+	store, err := NewHeavyCheckStore(to)
+	if err == nil {
+		_, err = store.Settle(ctx)
+	}
+	if err == nil {
+		if _, statErr := os.Lstat(top); statErr == nil {
+			err = errors.New("part of it could not be filed under its projects, so it is left where it is")
+		}
+	}
+	if err != nil {
+		return nil, []home.LeftBehind{{What: "the record of heavy check places", Path: top,
+			Why: err.Error() + "; the next request for a heavy check's place files what is left", Failed: true}}
+	}
+	return []home.Moved{{What: "the record of heavy check places, filed under each project it names", From: top,
+		To: filepath.Join(home.ProjectDirectory(to, "<product id>"), home.StateDirectoryName, HeavyCheckDirectory)}}, nil
 }

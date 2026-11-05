@@ -302,7 +302,7 @@ func TestARunningCheckKeepsItsPlaceAcrossARestartAndIsNotStartedTwice(t *testing
 	// The harness dies here: nothing it would have recorded is, and the check
 	// goes on without it. The restarted harness is a new store over the same
 	// record.
-	restarted := &HeavyCheckStore{root: store.root, poll: store.poll, cleanupWait: store.cleanupWait}
+	restarted := &HeavyCheckStore{stateRoot: store.stateRoot, poll: store.poll, cleanupWait: store.cleanupWait}
 	settled, err := restarted.Settle(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -367,7 +367,7 @@ func TestAWaitingRunThatDiedKeepsItsOrderWithoutHoldingAnybodyUp(t *testing.T) {
 	// The waiting run is stood in for by asking and then letting go of its
 	// file without a word, which is what dying does.
 	var dead HeavyCheckPermit
-	session, err := store.open(ctx)
+	session, err := store.open(ctx, "yoyodyne")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +501,7 @@ func TestASlowHolderOfTheRecordDelaysAStartingCheckWithoutFailingIt(t *testing.T
 	store := newHeavyCheckStoreForTest(t)
 
 	grant := acquireSoon(t, store, heavyAsk("run-a", "make race", 1, domain.HeavyCheckOrdinary))
-	holder, err := store.open(t.Context())
+	holder, err := store.open(t.Context(), "yoyodyne")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -110,6 +111,15 @@ func migrateHome(args []string, stdout, stderr io.Writer) int {
 		migration.LeftBehind = append(migration.LeftBehind, home.LeftBehind{What: "the recorded worktree paths", Path: plan.To,
 			Why: err.Error() + "; running the migration again rewrites what is left", Failed: true})
 	}
+	// The record of heavy check places goes under each project it names.
+	filed, left := runstate.FileTopLevelHeavyChecks(context.Background(), plan.To)
+	migration.Moved = append(migration.Moved, filed...)
+	migration.LeftBehind = append(migration.LeftBehind, left...)
+	// Each bound repository's state-root marker names the machine home from
+	// here on, so a build that resolves the emptied home is refused at once.
+	followed, unfollowed := runstate.FollowMovedRootMarkers(plan.From, plan.To)
+	migration.Moved = append(migration.Moved, followed...)
+	migration.LeftBehind = append(migration.LeftBehind, unfollowed...)
 	code := reportMigration(stdout, stderr, *jsonOutput, migration)
 	if code == 0 && migration.Failed() {
 		return 1
