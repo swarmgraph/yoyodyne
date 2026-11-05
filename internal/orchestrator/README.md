@@ -145,7 +145,8 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     `reportOutstandingCleanup`.
 17. **Review.** `reviewChange` (waits and relaunches around one review, and
     asks once more in the reviewer's own session after a reply
-    `unsettledReply` cannot settle a verdict from),
+    `unsettledReply` cannot settle a verdict from, or in a fresh one when the
+    provider refuses that resume — `review.ResumeRefusedError`),
     `attemptReview` (builds `review.Request`, calls `Reviewer.Review`,
     records the verdict), `recordReviewVerdict`, `reviewedContext`,
     `developerSummaryForReview`, `clearReviewEvidence`, `carryReviewEvidence`,

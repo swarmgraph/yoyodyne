@@ -199,7 +199,9 @@ type Request struct {
 // it gave, because a fresh invocation handed the same evidence and the same
 // contract is told nothing it was not told the first time, and tends to make the
 // same slip again. The session is the reviewer's own, never the developer's, so
-// asking in it costs the review none of its independence.
+// asking in it costs the review none of its independence. A session that cannot
+// be resumed is not a reason to go without the second asking: it is made in a
+// fresh session with the evidence given whole instead (freshSession).
 type Reask struct {
 	// SessionID is the reviewer session that gave the first reply. Empty is a
 	// first reply whose provider named no session; the evidence is then given
@@ -208,7 +210,52 @@ type Reask struct {
 	// Problem is what the harness could not accept about the first reply, in the
 	// words it refused it with.
 	Problem string
+	// Backend and AccountAlias are the provider and account the first reply was
+	// made on. A session lives with the provider and the account that hold it, so
+	// a second asking made on any other cannot resume it and is made in a fresh
+	// session instead. Empty is a first reply that recorded neither, which is
+	// taken as made where the second asking is.
+	Backend      domain.Backend
+	AccountAlias string
+	// FreshBecause says why a second asking that had a session to resume is made
+	// in a fresh one: the provider refused the resume, or answered from a session
+	// other than the one asked for (ResumeRefusedError). It is set by the caller
+	// that saw it, and the run's record carries it.
+	FreshBecause string
 }
+
+// freshSession reports why this second asking cannot be made in the session that
+// gave the first reply, and is empty where it can.
+func (r Reask) freshSession(backend domain.Backend, account string) string {
+	switch {
+	case r.SessionID == "":
+		return ""
+	case r.FreshBecause != "":
+		return r.FreshBecause
+	case r.Backend != "" && backend != "" && r.Backend != backend:
+		return fmt.Sprintf("the first reply was made on provider %s and this asking is made on %s, which cannot resume its session", r.Backend, backend)
+	case r.AccountAlias != account && (r.AccountAlias != "" || account != ""):
+		return fmt.Sprintf("the first reply was made under account %q and this asking is made under %q, which cannot resume its session", r.AccountAlias, account)
+	}
+	return ""
+}
+
+// ResumeRefusedError is a second asking that was to resume the reviewer's own
+// session and got no reply from it: the provider refused the resume or failed
+// it, or answered from another session, which does not hold the evidence the
+// first reply was given. Nothing about the change was decided by it, so the
+// caller asks again in a fresh session with the evidence given whole, as the
+// same second asking (Reask.FreshBecause).
+type ResumeRefusedError struct {
+	SessionID string
+	Cause     error
+}
+
+func (e ResumeRefusedError) Error() string {
+	return fmt.Sprintf("the provider did not resume the reviewer's session %s: %v", e.SessionID, e.Cause)
+}
+
+func (e ResumeRefusedError) Unwrap() error { return e.Cause }
 
 // reaskPrompt is what the reviewer is told on the second asking: what was wrong
 // with its reply, and that only the reply is being asked for again. Nothing about
@@ -320,12 +367,17 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	systemPrompt := reviewSystemPrompt(request.scope(), r.Persona)
 	redactor := execution.NewRedactor(request.RedactValues...)
 	// A second asking resumes the reviewer's own session with only what was wrong
-	// with its reply. Where the provider named no session to resume, the evidence
-	// is given again whole with that said after it, and the bound counts it.
-	reask, session, appended := "", "", ""
+	// with its reply. Where the provider named no session to resume, or the
+	// session cannot be resumed here (Reask.freshSession), the evidence is given
+	// again whole with that said after it, and the bound counts it.
+	reask, session, appended, fresh := "", "", "", ""
 	if request.Reask != nil {
 		reask = redactor.Redact(reaskPrompt(request.Reask.Problem))
-		if session = request.Reask.SessionID; session == "" {
+		session = request.Reask.SessionID
+		if fresh = request.Reask.freshSession(request.Spend.Backend, request.AccountAlias); fresh != "" {
+			session = ""
+		}
+		if session == "" {
 			appended = "\n\n" + reask
 		}
 	}
@@ -350,6 +402,9 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 		started["reask"] = true
 		if session != "" {
 			started["resumed_session"] = session
+		}
+		if fresh != "" {
+			started["fresh_session"] = redactor.Redact(fresh)
 		}
 	}
 	started["repository_commit"] = request.Repository.Listing.Commit
@@ -476,6 +531,14 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 		LaunchGate:       request.LaunchGate,
 	})
 	if err != nil {
+		err = fmt.Errorf("reviewer backend failed: %w", err)
+		// A resume that failed is said as one, so the caller can ask again in a
+		// fresh session rather than end the run on a reply nobody gave. Whatever the
+		// provider reported beside it — a limit, an overload, an outage — still
+		// travels with it and is answered first.
+		if session != "" {
+			err = ResumeRefusedError{SessionID: session, Cause: err}
+		}
 		return Result{
 			RequestedModel:    r.Model,
 			RequestedEffort:   r.invocationEffort(request.Spend.Backend),
@@ -489,7 +552,7 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 			TransientFailure:  providerResult.TransientFailure,
 			ProviderOutage:    providerResult.ProviderOutage,
 			ProcessStatus:     providerResult.Process.Status,
-		}, fmt.Errorf("reviewer backend failed: %w", err)
+		}, err
 	}
 	sequence = execution.NewSequence(lastSequence)
 
@@ -540,7 +603,18 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 		// A reviewer's death ends the run that asked for it, so its reason becomes
 		// that run's durable failure and is described the same way a developer's
 		// is: the provider's category is not a diagnosis on its own.
-		return evidence(), fmt.Errorf("reviewer reported failure: %s", providerResult.DescribeFailure())
+		failure := fmt.Errorf("reviewer reported failure: %s", providerResult.DescribeFailure())
+		if session != "" {
+			return evidence(), ResumeRefusedError{SessionID: session, Cause: failure}
+		}
+		return evidence(), failure
+	}
+	// A resume answered from a session other than the one asked for was not a
+	// resume: that session never saw the evidence, and a verdict given there was
+	// given on the request to repeat one alone. It is refused as a resume that
+	// failed rather than read.
+	if session != "" && providerResult.SessionID != "" && providerResult.SessionID != session {
+		return evidence(), ResumeRefusedError{SessionID: session, Cause: fmt.Errorf("it answered from session %s instead", providerResult.SessionID)}
 	}
 	// A reviewer whose every read came back empty judged from what it was handed
 	// alone, whatever it decided. That is not the independent judgement this

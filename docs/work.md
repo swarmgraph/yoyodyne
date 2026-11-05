@@ -422,9 +422,15 @@ verdict it encloses, because the fence decides nothing. A reply that still canno
 be read as a verdict — prose, a fence with other text around it, malformed JSON
 — is not a verdict on the change, so it is asked for once more on the same
 budget: in the reviewer's own session, never the developer's, telling it what
-was wrong with the reply, and costing no repair attempt. A second reply that
-cannot be accepted ends the run, and the run and the item both say that the
-reviewer was asked twice, beside the reason the second reply was refused.
+was wrong with the reply, and costing no repair attempt. Where that session
+cannot be resumed — the provider refuses or fails the resume, answers from a
+different session, or the reviewer's provider or account has changed since the
+first reply — the second ask is made in a fresh reviewer session instead, with
+the same change and the same instructions and the problem said after them, and
+it is still the one second ask. A second reply that cannot be accepted ends the
+run, and so does a fresh second ask that fails; the run and the item both say
+that the reviewer was asked twice, whether the second ask was made in a fresh
+session and why, and the reason the second ask failed.
 
 A verdict reached with every read of the repository coming back empty is
 treated the same way. The reviewer is asked to check callers, tests, and
