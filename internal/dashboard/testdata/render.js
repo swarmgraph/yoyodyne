@@ -634,6 +634,15 @@ async function run(scenario, shared) {
       button.dispatch("click", {});
       switchedAt = requests.length;
       await settle();
+      // A press that sends the page back to asking for a token leaves nothing
+      // open over the sign-in form.
+      if (page.getAttribute("data-state") === "signin") {
+        ["grouping", "card", "report", "decide"].forEach((id) => {
+          if (document.getElementById(id).getAttribute("hidden") === null) {
+            throw new Error(`${scenario.name}: the ${id} pop-up was left open over the sign-in form after ${step.press} was pressed`);
+          }
+        });
+      }
       continue;
     }
     // Signing in is the token typed into the sign-in form and the form sent,

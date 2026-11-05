@@ -3146,8 +3146,34 @@ var standingWarningAgeSeconds = 5 * 60;
     timers = {};
   }
 
+  // closeEverything closes every pop-up and forgets what opened each, without
+  // giving focus back to it: it is for a page that is starting over or asking
+  // for a token, where the sign-in field or the page itself takes the focus.
+  function closeEverything() {
+    openGrouping = null;
+    openCard = null;
+    openEntry = null;
+    openReport = null;
+    openers = { grouping: null, card: null, report: null, decide: null };
+    openersByKey = {};
+    openDecide = false;
+    decideShown = "";
+    decideDrawn = "";
+    decideBusy = false;
+    decideOutcome = "";
+    decideRefused = false;
+    decideByToken = false;
+    setHidden(decidePopup, true);
+    setHidden(groupingPopup, true);
+    setHidden(cardPopup, true);
+    setHidden(reportPopup, true);
+  }
+
+  // askForToken closes whatever is open over the page first, so the sign-in
+  // form it shows is the only thing asking anything of the reader.
   function askForToken(note) {
     stopAsking();
+    closeEverything();
     setHidden(switchToken, true);
     signinNote.textContent = note || "";
     tokenField.value = "";
@@ -3248,24 +3274,9 @@ var standingWarningAgeSeconds = 5 * 60;
     model = { standing: null, standingError: "", summary: null, summaryError: "", throughput: null, throughputError: "", spend: null, spendError: "", accomplishment: null, accomplishmentError: "" };
     summaryOpen = {};
     // A page starting over — a token just entered — opens with nothing over it.
-    openGrouping = null;
-    openCard = null;
-    openEntry = null;
-    openReport = null;
-    openers = { grouping: null, card: null, report: null, decide: null };
-    openersByKey = {};
-    openDecide = false;
-    decideShown = "";
-    decideDrawn = "";
-    decideOutcome = "";
-    decideRefused = false;
-    decideByToken = false;
+    closeEverything();
     decidedHere = {};
-    setHidden(decidePopup, true);
     setHidden(switchToken, false);
-    setHidden(groupingPopup, true);
-    setHidden(cardPopup, true);
-    setHidden(reportPopup, true);
     stopAsking();
     delays = { standing: every.standing, summary: every.summary, throughput: every.throughput, spend: every.spend };
     render();
