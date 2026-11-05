@@ -3321,8 +3321,14 @@ one that asked first starts first. A landing takes its turn on its target
 branch first and its place second, never the other way round. A confirmed
 document's landing takes a place only for a document check named here.
 
-The places are kept in one record under the state root, `heavy-checks/`,
-changed only under a file lock beside it. A place moves through four states,
+Each project keeps the places of its own runs under its records directory,
+`projects/<product id>/state/heavy-checks/`, changed only under a file lock
+beside it, and asking for a place takes every project's lock and reads every
+project's record first, so every run on the machine, of every project, counts
+against the same places. Nothing is kept at the top of the home: a
+`heavy-checks/` folder an earlier build left there is filed under the projects
+its permits name by the next request for a place, or by `yoyo home migrate`,
+and removed only once all of it has landed. A place moves through four states,
 each recorded before the step it names: waiting, running (given the place and
 started in a process group of its own), exited (its main process ended and its
 result is recorded), and released. **A place is given back only once every
@@ -3359,7 +3365,7 @@ what a limit of one did to wall time, CPU time, and waiting on a busy machine.
 #### Setting a heavy check's number from what it cost
 
 **Every launch of a heavy check is measured**, beside the record of places, in
-`heavy-checks/measurements.json`: how long it waited for its place, how long it
+each project's `heavy-checks/measurements.json`: how long it waited for its place, how long it
 ran against the time limit it launched with, and how it ended — passed, failed,
 stopped by its time limit, stopped for going silent, or stopped by its run. As
 it launches the harness also reads the machine: the one-minute load, the memory

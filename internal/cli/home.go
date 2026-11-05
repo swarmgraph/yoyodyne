@@ -249,8 +249,11 @@ file and external configurations — into the machine home, ~/.yoyodyne: each pr
 records into projects/<product id>/state/, its worktrees into
 projects/<product id>/worktrees/ with Git told where each now is, each external
 configuration into the project directory its product id names, and the
-operator's pause, the provider accounts, and the logs to the top. It then says
-what it moved and what it left behind.
+operator's pause, the provider accounts, and the logs to the top. The record of
+heavy check places earlier builds kept at the top is filed under each project,
+and every bound repository's state-root marker is pointed at the machine home,
+so a build that still resolves the earlier home is refused rather than started
+there. It then says what it moved and what it left behind.
 
 It moves nothing while any run, conversation turn, or recurring pass is in
 flight, and says which. Nothing else moves the state: a build that finds it in
