@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -247,5 +248,65 @@ func TestProcessRunnerRedactsSecretsAProviderPrintsToStandardError(t *testing.T)
 	}
 	if strings.Count(result.Stderr, redactedMarker) < len(output) {
 		t.Fatalf("standard error does not carry every line, redacted:\n%s", result.Stderr)
+	}
+}
+
+// A Redactor is applied to every line of a provider's JSON output, not only to
+// standard error, and one line that is no longer JSON fails the whole provider
+// call. So text a session reads that holds a credential-looking value right
+// before a quote, which arrives with that quote escaped, is redacted without
+// taking the escape with it, and a line carrying a provider's failure output is
+// still JSON once the secret in it is gone.
+func TestRedactorKeepsAProviderStreamLineValidJSON(t *testing.T) {
+	t.Parallel()
+
+	streamLine := func(t *testing.T, text string) string {
+		t.Helper()
+		line, err := json.Marshal(map[string]any{
+			"type":    "user",
+			"message": map[string]any{"content": []map[string]any{{"type": "tool_result", "content": text}}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(line)
+	}
+
+	for _, text := range []string{
+		`env := []string{"GH_TOKEN=fixture-token"}`,
+		`curl -H "Authorization: Bearer abcdefgh12" https://api.github.com/user`,
+		`curl -H "Authorization: Bearer $TOKEN" -H "x-api-key: $ANTHROPIC_API_KEY"`,
+		`{"api_key":"abcdefgh12345678","password":"hunter2hunter2"}`,
+		"OPENAI_API_KEY=\"abcdefgh12345678\"\tnext\u0026more",
+	} {
+		line := streamLine(t, text)
+		got := NewRedactor().Redact(line)
+		if !json.Valid([]byte(got)) {
+			t.Errorf("redaction left a stream line that is not JSON:\n before %s\n  after %s", line, got)
+		}
+	}
+
+	for _, test := range providerFailureOutput() {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := NewRedactor().Redact(streamLine(t, test.line))
+			if !json.Valid([]byte(got)) {
+				t.Fatalf("redaction left a stream line that is not JSON:\n%s", got)
+			}
+			var decoded struct {
+				Message struct {
+					Content []struct {
+						Content string `json:"content"`
+					} `json:"content"`
+				} `json:"message"`
+			}
+			if err := json.Unmarshal([]byte(got), &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if text := decoded.Message.Content[0].Content; strings.Contains(text, test.secret) {
+				t.Fatalf("the secret survived redaction of the escaped line:\n%s", text)
+			}
+		})
 	}
 }
