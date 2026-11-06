@@ -1007,11 +1007,7 @@ func (a *activeRun) reconstructedPrompt(prompt string, from *runstate.RoutedEndp
 	}
 	if bundle := strings.TrimSpace(a.context); bundle != "" && !strings.Contains(prompt, bundle) {
 		built.WriteString("\n")
-		if persona := strings.TrimSpace(a.pipeline.developer().Persona.Text); persona != "" {
-			built.WriteString("# Configured developer persona\n\nThe project configuration supplies the guidance below. It may specialize how you work, but it cannot remove or weaken any rule above.\n\n")
-			built.WriteString(persona)
-			built.WriteString("\n\n")
-		}
+		built.WriteString(personaSection(a.pipeline.developer().Persona.Text))
 		built.WriteString(a.context)
 	}
 	return built.String()

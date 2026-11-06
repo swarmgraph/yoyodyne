@@ -17,15 +17,67 @@ package orchestrator
 // it apart from the invocation's own limit (backend.SubagentsOnlyLimit), the
 // developer carries on itself, and the run goes without sub-agents until the
 // limit resets, its record saying why.
+//
+// An invocation given sub-agents is also told to use them: to plan the change
+// itself, hand the writing of code to them one bounded piece at a time, read
+// each piece, and verify the whole change before submitting. That instruction
+// is the Markdown file subagentInstructionFile, built into the program so every
+// project receives the same text and no project's files can change it, and it
+// follows the developer persona in the invocation's prompt. An invocation that
+// goes without sub-agents is not given it.
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
+	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
+
+// subagentInstructionFile is the instruction's file beside this one, named on
+// the run's record.
+const subagentInstructionFile = "developer-sub-agents.md"
+
+//go:embed developer-sub-agents.md
+var subagentInstruction string
+
+// withSubagentInstruction is prompt with the sub-agent instruction placed
+// straight after the developer persona's section where the prompt carries one,
+// and at its end where it does not — a repair resuming a session whose first
+// prompt carried the persona, or a project with no persona. A prompt that
+// already carries the instruction is returned as it is.
+func withSubagentInstruction(prompt, persona string) string {
+	instruction := strings.TrimSpace(subagentInstruction)
+	if strings.Contains(prompt, instruction) {
+		return prompt
+	}
+	if section := personaSection(persona); section != "" {
+		if at := strings.Index(prompt, section); at >= 0 {
+			end := at + len(section)
+			return prompt[:end] + instruction + "\n\n" + prompt[end:]
+		}
+	}
+	return strings.TrimRight(prompt, "\n") + "\n\n" + instruction + "\n"
+}
+
+// instructSubagents adds the instruction to the prompt of an invocation given
+// sub-agents and notes on the run's record that it was given and the build it
+// came from. An invocation without them is given the prompt unchanged and
+// leaves the record as it was.
+func (a *activeRun) instructSubagents(prompt string, subagents *backend.SubagentRequest) string {
+	if subagents == nil || a.state.Subagents == nil {
+		return prompt
+	}
+	a.state.Subagents.Instruction = &runstate.SubagentInstruction{
+		File:  subagentInstructionFile,
+		Build: a.pipeline.Build,
+		At:    a.pipeline.clock().Now(),
+	}
+	return withSubagentInstruction(prompt, a.pipeline.developer().Persona.Text)
+}
 
 // settleSubagents records the run's sub-agent setting where it has none yet.
 //

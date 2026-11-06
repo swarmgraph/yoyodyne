@@ -4972,6 +4972,7 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 	a.state.ProviderEffortDescription = p.Config.DescribeInvocationEffort(agent, effort, "", false)
 	a.outcome.ProviderEffortDescription = a.state.ProviderEffortDescription
 	subagents := a.subagentsFor(ctx, developerBackend, named)
+	prompt = a.instructSubagents(prompt, subagents)
 	attribution := a.spendAttribution(domain.RoleDeveloper, a.developmentPhase())
 	attribution.Backend = named
 	provider := spend.Metered{
@@ -10169,14 +10170,22 @@ func developerPrompt(persona, invariants, bundle, scratchDirectory string, check
 	var prompt strings.Builder
 	prompt.WriteString(developerContract(scratchDirectory, checks))
 	prompt.WriteString("\n\n")
-	if trimmed := strings.TrimSpace(persona); trimmed != "" {
-		prompt.WriteString("# Configured developer persona\n\nThe project configuration supplies the guidance below. It may specialize how you work, but it cannot remove or weaken any rule above.\n\n")
-		prompt.WriteString(trimmed)
-		prompt.WriteString("\n\n")
-	}
+	prompt.WriteString(personaSection(persona))
 	prompt.WriteString(deliveredInvariantSection(invariants))
 	prompt.WriteString(bundle)
 	return prompt.String()
+}
+
+// personaSection is how the configured persona enters a developer prompt,
+// and empty for a project with none. It is one helper because every prompt
+// that carries the persona carries it the same way, and the sub-agent
+// instruction is placed by finding it (withSubagentInstruction).
+func personaSection(persona string) string {
+	trimmed := strings.TrimSpace(persona)
+	if trimmed == "" {
+		return ""
+	}
+	return "# Configured developer persona\n\nThe project configuration supplies the guidance below. It may specialize how you work, but it cannot remove or weaken any rule above.\n\n" + trimmed + "\n\n"
 }
 
 // deliveredInvariantSection is how the invariants enter a developer prompt. It is
@@ -10240,11 +10249,7 @@ func freshSessionRepairPrompt(repair, persona, bundle string, state runstate.Sta
 		prompt.WriteString("\n")
 	}
 	prompt.WriteString("\n")
-	if trimmed := strings.TrimSpace(persona); trimmed != "" {
-		prompt.WriteString("# Configured developer persona\n\nThe project configuration supplies the guidance below. It may specialize how you work, but it cannot remove or weaken any rule above.\n\n")
-		prompt.WriteString(trimmed)
-		prompt.WriteString("\n\n")
-	}
+	prompt.WriteString(personaSection(persona))
 	prompt.WriteString(bundle)
 	return prompt.String()
 }

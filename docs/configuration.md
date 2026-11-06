@@ -6023,9 +6023,29 @@ A developer run can plan on its own model and hand bounded pieces of coding to
 sub-agents on a cheaper one, through the provider's own sub-agent tool. The
 developer session stays the one invocation the harness launched and stays
 accountable for the change: it reads what its sub-agents did and verifies it
-before handing the change over. Whether and when to hand work off is the
-session's own judgment; the harness does not split the work. The design is
+before handing the change over. The design is
 [developer sub-agents](designs/developer-sub-agents.md).
+
+**A run with sub-agents on is told to hand the coding over.** Every developer
+invocation given sub-agents is also given a built-in instruction, after the
+developer persona: plan the change itself, hand the writing of code to
+sub-agents one bounded piece at a time, saying which files to change, what the
+change must do, and how to check it, read what each one changed before handing
+out the next, and verify the whole change itself before submitting, since a
+sub-agent's word that checks passed is not the developer's verification. It
+writes code itself only where handing it over would cost more, such as a change
+of a few lines. How the change is divided into pieces is still the developer's
+decision; the harness does not split the work. The instruction is
+`internal/orchestrator/developer-sub-agents.md`, built into the program, so
+every project receives the same text and nothing in a project's own files,
+its persona included, changes it. An invocation that goes without sub-agents —
+the setting off, a provider that does not offer them, a check that did not
+confirm them, or a usage limit on their model — is not given it, and receives
+exactly what it received before the instruction existed. The run's record notes
+the instruction under its sub-agent setting, as `instruction`, with the file and
+the harness build it came from, and its line in `yoyo status` says so, for
+example `told to hand the coding to them by the built-in instruction
+developer-sub-agents.md from build 0123456789ab`.
 
 Sub-agents are off unless the configuration turns them on. Off is a developer
 invoked exactly as before the setting existed: the same tools, the same

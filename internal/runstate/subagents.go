@@ -39,6 +39,39 @@ type SubagentRecord struct {
 	// without sub-agents on its own endpoint; it lifts at the reset the
 	// provider named, and one that named none stands for the rest of the run.
 	Limit *SubagentLimit `json:"limit,omitempty"`
+	// Instruction is the built-in instruction to hand the coding to
+	// sub-agents, as the run's last developer invocation given it received it,
+	// and nil where no invocation of the run was given it.
+	Instruction *SubagentInstruction `json:"instruction,omitempty"`
+}
+
+// SubagentInstruction records that a developer invocation was given the
+// built-in instruction to hand the coding to its sub-agents, and which build
+// of the harness the text came from, so a trial and a reviewer can tell which
+// runs received which wording.
+type SubagentInstruction struct {
+	// File is the instruction's file in the harness's source.
+	File string `json:"file"`
+	// Build is the repository revision of the harness the text was built into,
+	// and empty for a binary that recorded none.
+	Build string    `json:"build,omitempty"`
+	At    time.Time `json:"at"`
+}
+
+// Says is the instruction in words a person reads.
+func (i SubagentInstruction) Says() string {
+	build := "a build that recorded no revision"
+	if i.Build != "" {
+		build = "build " + shortRevision(i.Build)
+	}
+	return "told to hand the coding to them by the built-in instruction " + i.File + " from " + build
+}
+
+func shortRevision(revision string) string {
+	if len(revision) > 12 {
+		return revision[:12]
+	}
+	return revision
 }
 
 // SubagentLimit is a usage limit on the sub-agents' model alone.
@@ -88,6 +121,9 @@ func (s State) SubagentsSays() string {
 				said += " at " + record.Effort + " effort"
 			}
 			parts = append(parts, said)
+			if record.Instruction != nil {
+				parts = append(parts, record.Instruction.Says())
+			}
 		}
 	}
 	switch {

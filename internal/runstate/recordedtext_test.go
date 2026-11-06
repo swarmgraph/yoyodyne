@@ -108,6 +108,7 @@ var structuredStrings = map[string]string{
 	"subagents.model":                             "a model selector, validated when the configuration loads",
 	"subagents.effort":                            "an effort level from the configuration, validated against the provider's sub-agent levels",
 	"subagents.origin":                            "the configuration key that decided the setting, which the harness words",
+	"subagents.instruction.build":                 "matched against the revision pattern",
 	"provider_model_usage[].model":                "the provider's model identifier",
 	"provider_resolved_model":                     "the provider's model identifier",
 	"provider_resolved_effort":                    "provider-reported effort, with absence recorded separately",

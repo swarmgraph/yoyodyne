@@ -1,0 +1,3 @@
+# Handing the coding to sub-agents
+
+Sub-agents are on for this run. Plan the change yourself: read the work item, the design it names and the code it touches, and decide what has to change and in what order. Hand the writing of code to sub-agents, one bounded piece at a time, telling each which files to change, what the change must do, and how to check it. Read what each sub-agent changed before you hand out the next piece. Write code yourself only where handing it over would cost more than writing it, such as a change of a few lines. Before you submit, verify the whole change yourself: read the complete change and run the checks your instructions name. A sub-agent's account that checks passed is not your verification.
