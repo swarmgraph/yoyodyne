@@ -34,6 +34,10 @@ revisions:
       by: architect
       at: 2026-11-06T06:32:39.13003Z
       reason: 'Answers a developer''s proposal (amendment-30c45e98, approved): the list of what sits at the top of the home now names machine-identity.json, this machine''s identity for the factory identity in the contributors design, made once and never made again while the file is there; step 6 of the move takes it to the new home with the operator''s pause, and the enforced list says it is never made again. Read at main a59d4581; no other sentence changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-06T07:14:36.868982Z
+      reason: Step 6 of the move did not name `heavy-checks/`, which the One home list puts at the top of the home, so the old home would not have been left holding only `moving.json` and the marker as this section says. Step 6 now moves the permits for heavy checks with the rest and says why that is safe. Read at main c3762c0a; no other sentence changes.
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -65,6 +69,11 @@ approvals:
       by: harness
       at: 2026-11-06T06:32:39.13003Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2331, for document-2331.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-11-06T07:14:36.868982Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2335, for document-2335.1 under the automatic approval policy
 ---
 # The machine home
 
@@ -330,9 +339,12 @@ again after any interruption changes nothing that is done.
 5. Rewrite the recorded worktree path on every run record that names one, as
    a migration note on the record with the old path kept beside it. This is
    the one write to a run record the harness makes outside a run.
-6. Move `operator-hold.json`, `machine-identity.json`, `accounts/`, and the
-   logs to the top. The machine's identity moves with the rest, so the machine
-   keeps the identity it had and is never made a new one by the move.
+6. Move `operator-hold.json`, `machine-identity.json`, `heavy-checks/`,
+   `accounts/`, and the logs to the top. The machine's identity moves with the
+   rest, so the machine keeps the identity it had and is never made a new one
+   by the move. The permits for heavy checks move too, so nothing of the
+   harness's is left in the old home; because the move happens only when
+   nothing is in flight, no permit is held while they move.
 7. Leave a marker in the old home naming the new one, so an older `yoyo`
    started there says where the state went rather than making an empty root,
    and the two-roots guard refuses it as it refuses any second home.
