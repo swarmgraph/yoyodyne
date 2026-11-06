@@ -64,7 +64,7 @@ const noted = (key, words) => {
 };
 
 assert.deepStrictEqual(daily.measures.map((each) => each.key),
-  ["merges", "lead_time", "stages", "change_failure", "recovery", "rework", "hand_steps", "first_pass", "tokens"]);
+  ["merges", "lead_time", "stages", "change_failure", "recovery", "rework", "hand_steps", "first_pass", "tokens", "check_times"]);
 assert.strictEqual(daily.zone, "America/Los_Angeles");
 const [unreadable, quiet, busy, today] = ["Fri 2 Oct", "Sat 3 Oct", "Sun 4 Oct", "Mon 5 Oct, so far"];
 assert.deepStrictEqual(daily.labels, [unreadable, quiet, busy, today], "the days are not named as the reading dates them");
@@ -140,6 +140,28 @@ assert.deepStrictEqual(values("tokens", "gpt-5-codex"), [null, null, 15, null]);
 assert.deepStrictEqual(row("tokens", busy), ["claude-opus-5-5: 60,000; gpt-5-codex: 15,000", "2", "0"]);
 assert.deepStrictEqual(row("tokens", today), [notRecorded, notRecorded, notRecorded]);
 noted("tokens", "Not recorded on 1 day (Mon 5 Oct, so far): the usage log could not be read: permission denied");
+
+// Check times: every run of a heavy check, merged or not, so a day nothing
+// merged in still has a row, which says no heavy check ran; the medians are
+// minutes on the chart, and a check none of whose runs passed has no median
+// to draw rather than a zero.
+assert.deepStrictEqual(measure("check_times").series.map((each) => each.name),
+  ["make race, passed", "make race, waiting", "make test, passed", "make test, waiting"]);
+assert.deepStrictEqual(values("check_times", "make race, passed"), [null, null, 21, 10]);
+assert.deepStrictEqual(values("check_times", "make race, waiting"), [null, null, 3.5, 0.5]);
+assert.deepStrictEqual(values("check_times", "make test, passed"), [null, null, null, null]);
+assert.deepStrictEqual(values("check_times", "make test, waiting"), [null, null, 0, null]);
+assert.deepStrictEqual(row("check_times", unreadable), [notRecorded, notRecorded, notRecorded, notRecorded]);
+assert.deepStrictEqual(row("check_times", quiet), ["no heavy check ran", "", "", ""]);
+assert.deepStrictEqual(row("check_times", busy), [
+  "make race: 3 (2); make test: 2 (0)",
+  "make race: 21 min; make test: none passed",
+  "make race: 3 min 30 s; make test: 0 s",
+  "make race: 2 (1 because the merge candidate is checked whole before it is promoted; 1 because go.mod changed, which every package depends on); make test: 0"
+]);
+noted("check_times", "Make test: what 1 run was told to run is not recorded");
+noted("check_times", "Make race: 1 run was told to run only the packages the change touches (2 days)");
+noted("check_times", "only its output says");
 
 // Nowhere is a period the table calls not recorded drawn as a figure.
 daily.measures.forEach((each) => {

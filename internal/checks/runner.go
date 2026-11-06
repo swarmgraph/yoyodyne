@@ -4,10 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+)
+
+// The keys a check's start event carries for what the check was told about
+// the Go packages the change touches, where the request named a Narrowing:
+// whether it was the whole module, and, where it was, why.
+const (
+	StartedWholeModule       = "whole_module"
+	StartedWholeModuleReason = "whole_module_reason"
 )
 
 // DefaultTimeout is what a runner built without a budget gives each check. The
@@ -90,6 +99,12 @@ type Request struct {
 	// in KEY=VALUE form. It is how the harness tells a check what it knows about
 	// the change — the Go packages it touches — without the check having to ask.
 	Env []string
+	// Narrowing, where set, is what every check is told about the Go packages
+	// the change touches: the runner adds its variable to Env, and writes on
+	// each check's start event whether it was told the whole module and why, so
+	// how often the whole module ran can be counted afterwards from the event
+	// log alone (readmodel's checktimes.go).
+	Narrowing *Narrowing
 	// Started is told each check as it begins, with what the stage has spent so
 	// far. It is optional, and it is what lets a run's durable record say which
 	// check the stage is on while it is still running rather than only once it
@@ -199,6 +214,14 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 	// check reads what the harness knows about the change from its environment.
 	environment := execution.WithGoBuildCache(execution.ExplicitEnvironment(nil), request.Directory)
 	environment = append(environment, request.Env...)
+	started := map[string]any{"kind": "check"}
+	if request.Narrowing != nil {
+		environment = append(environment, request.Narrowing.Env())
+		started[StartedWholeModule] = request.Narrowing.Whole
+		if request.Narrowing.Whole {
+			started[StartedWholeModuleReason] = request.Narrowing.Reason
+		}
+	}
 	withProviders := environment
 	environment, restore, err := withoutExecutables(environment, request.Directory, r.HiddenExecutables)
 	if err != nil {
@@ -229,7 +252,9 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		if request.Started != nil {
 			request.Started(safeCommand, stageElapsed)
 		}
-		if err := emit(request.RunID, sequence, clock, sink, execution.EventCommandStarted, map[string]any{"command": safeCommand, "kind": "check"}); err != nil {
+		payload := maps.Clone(started)
+		payload["command"] = safeCommand
+		if err := emit(request.RunID, sequence, clock, sink, execution.EventCommandStarted, payload); err != nil {
 			return results, lastAccepted, err
 		}
 		lastAccepted = sequence.Last()

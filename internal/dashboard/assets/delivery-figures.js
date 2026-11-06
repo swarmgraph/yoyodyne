@@ -79,6 +79,20 @@ var deliveryFigures = (function () {
     return days + " d" + (hours % 24 ? " " + (hours % 24) + " h" : "");
   }
 
+  // checkDuration is a check's time in words, to the second under an hour,
+  // because a change to a check is often a minute or less: "45 s", "3 min
+  // 30 s", "1 h 5 min".
+  function checkDuration(seconds) {
+    var whole = Math.max(0, Math.round(seconds));
+    if (whole < 60) {
+      return whole + " s";
+    }
+    if (whole < 3600) {
+      return Math.floor(whole / 60) + " min" + (whole % 60 ? " " + (whole % 60) + " s" : "");
+    }
+    return duration(whole);
+  }
+
   // hours is seconds as hours for the chart, to two decimal places.
   function hours(seconds) {
     return Math.round(seconds / 36) / 100;
@@ -437,6 +451,82 @@ var deliveryFigures = (function () {
       notes: function (period) {
         var measure = this.of(period);
         return measure.unrecorded ? [plural(measure.unrecorded, "change has", "changes have") + " no usage recorded and " + (measure.unrecorded === 1 ? "is" : "are") + " not counted in the figures per change"] : [];
+      }
+    },
+    {
+      // Every run of a heavy check, merged or not, in the period it launched
+      // in (readmodel/checktimes.go): a period with none ran nothing, which is
+      // a true zero, and its medians are gaps.
+      key: "check_times",
+      heading: "Check times",
+      question: "How long did each heavy check take when it passed, and how long did it wait for a free place to run?",
+      axis: "median minutes",
+      unit: "minutes",
+      of: function (period) { return period.check_times || {}; },
+      // Two series per check, every check any period names, in order of name.
+      names: function (periods) {
+        var seen = {};
+        periods.forEach(function (period) {
+          ((period.check_times || {}).checks || []).forEach(function (each) { seen[each.check] = true; });
+        });
+        var names = [];
+        Object.keys(seen).sort().forEach(function (check) {
+          names.push(check + ", passed");
+          names.push(check + ", waiting");
+        });
+        return names;
+      },
+      series: function (period, names) {
+        var measure = this.of(period);
+        return names.map(function (name) {
+          if (measure.not_recorded) {
+            return null;
+          }
+          var waiting = / waiting$/.test(name);
+          var check = name.replace(waiting ? /, waiting$/ : /, passed$/, "");
+          var found = (measure.checks || []).filter(function (each) { return each.check === check; })[0];
+          var summary = found && (waiting ? found.waited : found.passed_ran);
+          return summary ? Math.round(summary.median_seconds / 6) / 10 : null;
+        });
+      },
+      columns: ["ran, and passed", "median time when passed", "median wait for a free place", "told to run the whole module"],
+      cells: function (period) {
+        var measure = this.of(period);
+        if (measure.not_recorded) {
+          return [notRecorded, notRecorded, notRecorded, notRecorded];
+        }
+        var checks = measure.checks || [];
+        if (!checks.length) {
+          return ["no heavy check ran", "", "", ""];
+        }
+        function each(words) {
+          return checks.map(function (check) { return check.check + ": " + words(check); }).join("; ");
+        }
+        return [
+          each(function (check) { return check.launches + " (" + check.passed + ")"; }),
+          each(function (check) { return check.passed_ran ? checkDuration(check.passed_ran.median_seconds) : "none passed"; }),
+          each(function (check) { return check.waited ? checkDuration(check.waited.median_seconds) : ""; }),
+          each(function (check) {
+            var reasons = (check.whole_module_reasons || []).map(function (reason) { return reason.count + " because " + reason.reason; });
+            return check.whole_module + (reasons.length ? " (" + reasons.join("; ") + ")" : "");
+          })
+        ];
+      },
+      notes: function (period) {
+        var measure = this.of(period);
+        var lines = [];
+        (measure.checks || []).forEach(function (check) {
+          if (check.narrowed) {
+            lines.push(check.check + ": " + plural(check.narrowed, "run was", "runs were") + " told to run only the packages the change touches");
+          }
+          if (check.scope_not_recorded) {
+            lines.push(check.check + ": what " + plural(check.scope_not_recorded, "run was", "runs were") + " told to run is not recorded");
+          }
+        });
+        if ((measure.checks || []).length) {
+          lines.push("what a run was told is what the harness told it; a project's own check may still run the whole module for a reason of its own, which only its output says");
+        }
+        return lines;
       }
     }
   ];

@@ -2,6 +2,7 @@ package checks
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -502,6 +503,57 @@ func TestEveryCheckIsToldWhatTheRequestCarries(t *testing.T) {
 	}
 	if !slices.ContainsFunc(process.command.Env, func(entry string) bool { return strings.HasPrefix(entry, "PATH=") }) {
 		t.Fatal("the check's environment lost this process's own")
+	}
+}
+
+// A narrowing the request names reaches the check's environment, and its start
+// event says whether the check was told the whole module and why, so the event
+// log alone can count how often the whole module ran.
+func TestEveryCheckStartSaysWhetherItWasToldTheWholeModule(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		narrowing Narrowing
+		env       string
+		reason    any
+	}{
+		{name: "whole", narrowing: Narrowing{Whole: true, Reason: "go.mod changed, which every package depends on"}, env: ChangedGoPackagesVariable + "=./...", reason: "go.mod changed, which every package depends on"},
+		{name: "narrowed", narrowing: Narrowing{Packages: []string{"./internal/checks"}}, env: ChangedGoPackagesVariable + "=./internal/checks"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			process := &recordingRunner{}
+			var started []map[string]any
+			narrowing := test.narrowing
+			if _, _, err := (Runner{Process: process}).Run(
+				context.Background(),
+				Request{RunID: "run-0123456789abcdef0123456789abcdef", Directory: t.TempDir(), Commands: []string{"true", "make race"}, Narrowing: &narrowing},
+				func(event execution.Event) error {
+					if event.Type == execution.EventCommandStarted {
+						var payload map[string]any
+						if err := json.Unmarshal(event.Payload, &payload); err != nil {
+							return err
+						}
+						started = append(started, payload)
+					}
+					return nil
+				},
+			); err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if !slices.Contains(process.command.Env, test.env) {
+				t.Fatalf("the check's environment = %v, want %s", process.command.Env, test.env)
+			}
+			if len(started) != 2 || started[0]["command"] != "true" || started[1]["command"] != "make race" {
+				t.Fatalf("start events = %v, want one per check naming its own command", started)
+			}
+			for _, payload := range started {
+				if payload[StartedWholeModule] != test.narrowing.Whole || payload[StartedWholeModuleReason] != test.reason || payload["kind"] != "check" {
+					t.Fatalf("start event = %v, want whole module %v for %v", payload, test.narrowing.Whole, test.reason)
+				}
+			}
+		})
 	}
 }
 

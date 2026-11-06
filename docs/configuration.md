@@ -3112,7 +3112,10 @@ all. A check that never mentions it runs exactly as it always has; a check
 written to read it runs over that and nothing else. What the narrowing cannot
 see is a package that depends on a touched one, which is what the whole check
 of the merge candidate below is for. The run's record says what the gate was
-narrowed to, and so do the item's notes.
+narrowed to, and so do the item's notes; each check's start in the run's event
+log says whether it was told the whole module and why, which is what
+`yoyo status --checks` and the delivery page count
+([how long the heavy checks took](#how-long-the-heavy-checks-took-week-by-week)).
 
 **The merge candidate is checked whole.** Checks that were told less than the
 whole module never promote a change. Once the reviewer approves a change whose
@@ -3405,6 +3408,34 @@ every name were running. And it proposes a number for each check:
 The command proposes and changes nothing. The development manager applies a
 proposed number through the reviewed path a configuration change takes. Until
 then the numbers above stand.
+
+#### How long the heavy checks took, week by week
+
+The measurements keep only the last 512 launches, which is a few days on a busy
+machine, so the figures that show the effect of a change to the checks over
+weeks are read from every run's event log instead, which go back as far as the
+runs do. `yoyo status --checks` prints them week by week, Monday to Sunday in
+the machine's time zone, which it names, and the dashboard's
+[delivery page](operations.md#the-delivery-page) shows them day by day and week
+by week. For each heavy check and each period it gives:
+
+- how many times the check ran, and how many of those passed;
+- the median time of the runs that passed;
+- the median wait for a free place to run it, from the check asking for its
+  place to it launching;
+- how many runs were told to run the whole module, with each reason the harness
+  gave and how many runs gave it, and how many were told only the packages the
+  change touches.
+
+A run counts in the period it launched in; one stopped before it launched ran
+no time and is not counted. A check's start event has said what it was told
+since this reading was added. For an older event the run's record of its last
+check stage says it where the check ran inside that stage, which covers the
+merge candidate's checks, and any other older run is counted as not recorded
+rather than guessed. What is counted is what the harness told the check: a
+project's own check may still run the whole module for a reason of its own —
+this repository's `scripts/check-scope.sh` does for a change to the Makefile —
+and only the check's output says so. `--json` carries the same figures.
 
 What the measurements do not see: a suite run under a name `heavy_checks` does
 not give — `make check`, which runs the race suite among the others — is not in

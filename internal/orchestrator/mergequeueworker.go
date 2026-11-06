@@ -638,8 +638,8 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 		LastSequence: generation.LastSequence,
 		// The candidate is checked whole: it is what would land, and nothing
 		// narrows what a landing has to answer for.
-		Env:  []string{checks.Narrowing{Whole: true, Reason: "a merge queue candidate is checked whole"}.Env()},
-		Gate: launched.gate,
+		Narrowing: &checks.Narrowing{Whole: true, Reason: "a merge queue candidate is checked whole"},
+		Gate:      launched.gate,
 		// Which check the stage is on, and when it launched under what limit,
 		// are what a restart waits for the stage by.
 		Started: func(command string, _ time.Duration) { stages.started(key, command, w.now()) },

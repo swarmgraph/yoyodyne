@@ -88,7 +88,7 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 	// request. They are opened again on every request after that, because a
 	// dashboard left running for a week must not go on serving a state root
 	// that has since stopped being readable.
-	reader := dashboardReader{configPath: *configPath}
+	reader := dashboardReader{configPath: *configPath, checkLaunches: &readmodel.CheckLaunchMemo{}}
 	if err := reader.ready(); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -430,6 +430,10 @@ func dashboardServer(ctx context.Context, source config.DashboardTokenSource, pr
 // surface the read model exists to prevent.
 type dashboardReader struct {
 	configPath string
+	// checkLaunches keeps what each finished run's event log said about its
+	// heavy checks between the delivery readings, which are taken every
+	// minute (readmodel.CheckLaunchMemo). Nil reads every log every time.
+	checkLaunches *readmodel.CheckLaunchMemo
 }
 
 // ready opens what the reading needs and closes nothing else: the configuration,
@@ -621,7 +625,9 @@ func (r dashboardReader) Delivery(ctx context.Context) (readmodel.Delivery, erro
 	if err != nil {
 		return readmodel.Delivery{}, err
 	}
-	return readmodel.ReadDelivery(ctx, deliverySources(resolved)), nil
+	sources := deliverySources(resolved)
+	sources.CheckLaunches = r.checkLaunches
+	return readmodel.ReadDelivery(ctx, sources), nil
 }
 
 // deliverySources opens every record the delivery measures are read from. A
@@ -638,7 +644,7 @@ func (r dashboardReader) Delivery(ctx context.Context) (readmodel.Delivery, erro
 // which another status reading's client may have made without the zone.
 func deliverySources(resolved config.Resolved) readmodel.DeliverySources {
 	zone := readmodel.DeliveryZone()
-	sources := readmodel.DeliverySources{TrackerTimeout: chatTrackerTimeout, Zone: operatorZone()}
+	sources := readmodel.DeliverySources{TrackerTimeout: chatTrackerTimeout, Zone: operatorZone(), HeavyChecks: resolved.Config.Execution.HeavyChecks}
 	roots, err := resolveRoots(resolved)
 	if err != nil {
 		problem := fmt.Sprintf("the product's directories could not be resolved: %v", err)

@@ -25,7 +25,10 @@ package readmodel
 //   - hand steps, from the recorded hand steps, counted by CountInterventions;
 //   - first pass, from each change's event logs: its first check stage and its
 //     first review verdict;
-//   - tokens, from the usage the provider reported for each invocation.
+//   - tokens, from the usage the provider reported for each invocation;
+//   - check times, from every run's event log, merged or not: how long each
+//     heavy check took, waited for its place, and was told to run the whole
+//     module (checktimes.go).
 //
 // Every period is a calendar day or a week from Monday to Sunday in the zone
 // the sources name, and the reading names it: the dashboard names the
@@ -164,6 +167,11 @@ type DeliverySources struct {
 	FactoryStallsProblem string
 	Reverts              DeliveryReverts
 	RevertsProblem       string
+	// HeavyChecks is execution.heavy_checks as configured, which the check
+	// times are read for, and CheckLaunches what finished runs' logs said
+	// about them at an earlier reading (checktimes.go). Both are optional.
+	HeavyChecks   map[string]int
+	CheckLaunches *CheckLaunchMemo
 	// Zone is the zone the periods are counted in. Nil is DeliveryZoneName;
 	// the dashboard names the operator's.
 	Zone *time.Location
@@ -221,6 +229,7 @@ type DeliveryPeriod struct {
 	HandSteps     DeliveryHandStepCount `json:"hand_steps"`
 	FirstPass     DeliveryFirstPass     `json:"first_pass"`
 	Tokens        DeliveryTokens        `json:"tokens"`
+	CheckTimes    DeliveryCheckTimes    `json:"check_times"`
 }
 
 // DeliveryMeasure is what every measure says about where it came from. ReadFrom
@@ -484,10 +493,12 @@ func ReadDelivery(ctx context.Context, sources DeliverySources) Delivery {
 	read := readDeliverySources(ctx, sources, earliest)
 	work := deliveredChanges(&read, sources.Runs, earliest, now)
 	reading.Sources = deliverySourceHealth(read)
+	launches := readDeliveryCheckLaunches(sources, read, earliest)
 
 	for _, series := range []*[]DeliveryPeriod{&days, &weeks} {
 		for index := range *series {
 			fillDeliveryPeriod(&(*series)[index], work, read, now)
+			(*series)[index].CheckTimes = launches.of((*series)[index])
 		}
 	}
 	reading.Days, reading.Weeks = days, weeks
