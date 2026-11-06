@@ -136,7 +136,30 @@ type Claims struct {
 	// this machine's own is read from Store, never from a name another machine
 	// could share.
 	Factory string
-	Clock   execution.Clock
+	// Identity reads the factory identity a claim names: the product id, the
+	// machine identity kept in the home, and the forge account
+	// (factory.Reader.Name). Where it is set, Take names the identity it reads;
+	// where that cannot be read, Take names Factory instead, because a forge
+	// that will not say which account the harness acts as is no reason on its
+	// own to leave an item unclaimed. Like Factory, it decides nothing.
+	Identity FactoryIdentity
+	Clock    execution.Clock
+}
+
+// FactoryIdentity reads the name a claim gives the factory holding it.
+type FactoryIdentity interface {
+	Name(ctx context.Context) (string, error)
+}
+
+// factoryName is the name Take records: the factory identity where it can be
+// read, and Factory where it cannot.
+func (c Claims) factoryName(ctx context.Context) string {
+	if c.Identity != nil {
+		if name, err := c.Identity.Name(ctx); err == nil && strings.TrimSpace(name) != "" {
+			return name
+		}
+	}
+	return c.Factory
 }
 
 func (c Claims) now() time.Time {
@@ -186,7 +209,8 @@ func (c Claims) Take(ctx context.Context, workItemID, runID string) (runstate.Te
 		return runstate.TeamClaim{}, err
 	}
 	now := c.now()
-	record := Record{Factory: c.Factory, WorkItemID: workItemID, RunID: runID, TakenAt: now, RenewedAt: now}
+	name := c.factoryName(ctx)
+	record := Record{Factory: name, WorkItemID: workItemID, RunID: runID, TakenAt: now, RenewedAt: now}
 	expected := ""
 	if reading.Exists {
 		own, err := c.ownClaim(workItemID, reading.Commit)
@@ -219,7 +243,7 @@ func (c Claims) Take(ctx context.Context, workItemID, runID string) (runstate.Te
 	claim := runstate.TeamClaim{
 		WorkItemID:     workItemID,
 		RunID:          runID,
-		Factory:        c.Factory,
+		Factory:        name,
 		Commit:         commit,
 		TakenAt:        now,
 		RenewedAt:      now,

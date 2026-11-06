@@ -583,6 +583,40 @@ func TestGitHubRefusesArgumentsThatCouldReadAsOptions(t *testing.T) {
 	}
 }
 
+// The forge account is the login the forge CLI's credential belongs to on the
+// configured remote's host, asked of that repository's host rather than
+// whichever one the CLI would default to.
+func TestGitHubAccountReadsTheLoginOfTheConfiguredRemote(t *testing.T) {
+	t.Parallel()
+
+	runner := &scriptedRunner{}
+	runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://forge.example.invalid/acme/thing.git\n"})
+	runner.reply("api --method GET user", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "factory-bot\n"})
+	forge := GitHub{Runner: runner, Dir: t.TempDir()}
+	account, err := forge.Account(context.Background())
+	if err != nil || account != "factory-bot" {
+		t.Fatalf("Account() = %q, %v; want factory-bot", account, err)
+	}
+	if asked := runner.matching("api --method GET user"); len(asked) != 1 || !contains(asked[0], ".login") {
+		t.Fatalf("account requests = %v, want one selecting the login", asked)
+	}
+	if scope := apiRepositoryScope(runner); scope != "forge.example.invalid/acme/thing" {
+		t.Fatalf("GH_REPO = %q, want the configured remote's repository", scope)
+	}
+
+	for name, result := range map[string]execution.ProcessResult{
+		"refused": {Status: execution.ProcessFailed, ExitCode: 1, Stderr: "HTTP 401: Bad credentials\n"},
+		"empty":   {Status: execution.ProcessSucceeded, Stdout: "\n"},
+	} {
+		runner := &scriptedRunner{}
+		runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://forge.example.invalid/acme/thing\n"})
+		runner.reply("api --method GET user", result)
+		if account, err := (GitHub{Runner: runner}).Account(context.Background()); err == nil {
+			t.Errorf("%s: Account() = %q, want an error", name, account)
+		}
+	}
+}
+
 // scriptedRunner answers gh invocations by the first argument fragment they
 // contain, so a test states what the CLI reports rather than how it is invoked.
 type scriptedRunner struct {

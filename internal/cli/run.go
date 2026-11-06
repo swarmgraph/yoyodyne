@@ -648,6 +648,21 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 	// declares neither and runs exactly as it always has.
 	developerProvider := providerBackend(cfg, parts.stateRoot, agentForRole(cfg, domain.RoleDeveloper).Backend, processRunner)
 	reviewerProvider := providerBackend(cfg, parts.stateRoot, agentForRole(cfg, domain.RoleReviewer).Backend, processRunner)
+	// The publisher is the harness's own forge access, wired here so that no
+	// agent is ever asked to invoke it and nothing about it reaches a prompt or
+	// a context bundle. It is only consulted when the project opted in to
+	// publishing. The forge client speaks about the same remotes the Git side
+	// does, so a checkout with several remotes publishes to the configured one
+	// rather than to whichever the CLI would infer — and a project publishing
+	// from a fork opens its request across the same two repositories its
+	// branches are pushed between.
+	forge := publish.GitHub{
+		Runner:       processRunner,
+		Dir:          parts.repository,
+		Remote:       cfg.Execution.Remote,
+		PushRemote:   cfg.Execution.PushRemote,
+		RedactValues: redactValues,
+	}
 
 	return orchestrator.Pipeline{
 		Availability: machineAvailability(parts),
@@ -713,22 +728,10 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 			Spend:   parts.spend,
 			ToolUse: parts.toolUse(),
 		},
-		// The publisher is the harness's own forge access, wired here so that no
-		// agent is ever asked to invoke it and nothing about it reaches a prompt
-		// or a context bundle. It is only consulted when the project opted in to
-		// publishing.
-		Publisher: publish.GitHub{
-			Runner: processRunner,
-			Dir:    parts.repository,
-			// The forge client speaks about the same remotes the Git side does,
-			// so a checkout with several remotes publishes to the configured
-			// one rather than to whichever the CLI would infer — and a project
-			// publishing from a fork opens its request across the same two
-			// repositories its branches are pushed between.
-			Remote:       cfg.Execution.Remote,
-			PushRemote:   cfg.Execution.PushRemote,
-			RedactValues: redactValues,
-		},
+		Publisher: forge,
+		// The pull requests it opens name the factory: this product, the machine
+		// identity kept in the home, and the forge account the publisher acts as.
+		Factory: factoryIdentities(parts),
 		// Where an approved change goes with execution.merge_queue on. It is
 		// wired whatever the switch says and read only where it is on, so turning
 		// the switch off admits nothing new.

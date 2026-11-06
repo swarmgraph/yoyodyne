@@ -141,6 +141,57 @@ func TestTwoFactoriesRacingForOneItemExactlyOneClaims(t *testing.T) {
 	}
 }
 
+// A claim names the factory by its identity, the product, the machine identity
+// kept in the home and the forge account, and the other factory is told that
+// name. An identity that cannot be read still lets the item be claimed, under
+// the name the factory falls back to, and a renewal keeps the name it was
+// taken under.
+func TestAClaimNamesTheFactoryIdentity(t *testing.T) {
+	t.Parallel()
+	remote := sharedRemote(t)
+	clock := &testClock{now: time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)}
+	ctx := context.Background()
+	identity := "product example, machine machine-0123456789abcdef0123456789abcdef, forge account factory-bot"
+	alpha := factory(t, remote, "example on alpha", clock)
+	alpha.Identity = namedIdentity{name: identity}
+
+	taken, err := alpha.Take(ctx, "example-7", "run-a")
+	if err != nil {
+		t.Fatalf("Take() error = %v", err)
+	}
+	if taken.Factory != identity {
+		t.Fatalf("claim recorded as held by %q, want %q", taken.Factory, identity)
+	}
+	beta := factory(t, remote, "example on beta", clock)
+	var held HeldError
+	if _, err := beta.Take(ctx, "example-7", "run-b"); !errors.As(err, &held) || held.Holder != identity {
+		t.Fatalf("the other factory's Take() = %v, want the item held by %q", err, identity)
+	}
+
+	clock.advance(RenewEvery)
+	alpha.Identity = namedIdentity{err: errors.New("the forge could not be reached")}
+	if _, err := alpha.Tend(ctx, func(runstate.TeamClaim) (bool, error) { return true, nil }); err != nil {
+		t.Fatalf("Tend() error = %v", err)
+	}
+	if _, err := beta.Take(ctx, "example-7", "run-b"); !errors.As(err, &held) || held.Holder != identity {
+		t.Fatalf("after renewal the other factory's Take() = %v, want the item still held by %q", err, identity)
+	}
+
+	unread := factory(t, remote, "example on gamma", clock)
+	unread.Identity = namedIdentity{err: errors.New("the forge could not be reached")}
+	claimed, err := unread.Take(ctx, "example-8", "run-c")
+	if err != nil || claimed.Factory != "example on gamma" {
+		t.Fatalf("Take() with the identity unread = %+v, %v; want the item claimed under the fallback name", claimed, err)
+	}
+}
+
+type namedIdentity struct {
+	name string
+	err  error
+}
+
+func (n namedIdentity) Name(context.Context) (string, error) { return n.name, n.err }
+
 // A held claim is renewed every fifteen minutes with a lease naming the commit
 // last pushed, and released when its run no longer holds the item.
 func TestHeldClaimIsRenewedAndThenReleased(t *testing.T) {

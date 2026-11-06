@@ -97,6 +97,10 @@ func TestAnEarlierHomeMovesIntoTheMachineHome(t *testing.T) {
 	writeFile(t, filepath.Join(from, AccountsDirectoryName, "default", "settings.json"), "{}\n")
 	writeFile(t, filepath.Join(from, LogsDirectoryName, "harness.log"), "line\n")
 	writeFile(t, filepath.Join(from, "dashboard-restart.log"), "the operator's own\n")
+	machine, err := MachineIdentity(from)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	other := committedClone(t, "")
 	writeFile(t, filepath.Join(configurations, "projects", "other-0123456789ab", ConfigFileName),
@@ -136,9 +140,14 @@ func TestAnEarlierHomeMovesIntoTheMachineHome(t *testing.T) {
 	if !found {
 		t.Fatalf("the repository has the worktree registered at %v, want it at %s", registered, moved)
 	}
-	for _, name := range []string{OperatorHoldFileName, AccountsDirectoryName, LogsDirectoryName, MachineFileName} {
+	for _, name := range []string{OperatorHoldFileName, AccountsDirectoryName, LogsDirectoryName, MachineFileName, MachineIdentityFileName} {
 		mustExist(t, filepath.Join(to, name))
 		mustBeGone(t, filepath.Join(from, name))
+	}
+	// The machine is the same factory after the move: its identity moved with
+	// the home rather than being made again in the new one.
+	if moved, err := MachineIdentity(to); err != nil || moved != machine {
+		t.Fatalf("MachineIdentity() after the move = %q, %v; want %q", moved, err, machine)
 	}
 	mustBeGone(t, filepath.Join(configurations, MachineFileName))
 	mustExist(t, filepath.Join(ProjectDirectory(to, "other"), ConfigFileName))

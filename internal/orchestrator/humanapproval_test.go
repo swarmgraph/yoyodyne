@@ -180,14 +180,14 @@ func TestAPullRequestLeftForAPersonSaysTheHarnessDoesNotMergeIt(t *testing.T) {
 
 	outcome := Outcome{RunID: "run-1", WorkItemID: "yoyodyne-task", Branch: "run", BaseCommit: "1a2b3c4"}
 	item := beads.WorkItem{ID: "yoyodyne-task", Title: "Task"}
-	human := pullRequestBody(item, outcome, "main", false)
+	human := pullRequestBody(item, outcome, "main", false, "")
 	if strings.Contains(human, "The harness merges this request") ||
 		!strings.Contains(human, "- A person merges this request, not the harness") ||
 		!strings.Contains(human, "only once the configured checks passed and an independent reviewer approved it") {
 		t.Errorf("body under a person's approval says the wrong thing about who merges it:\n%s", human)
 	}
 	wantAutomatic := "- The harness merges this request with the `" + string(mergeMethod) + "` method once the configured checks pass and an independent reviewer approves it; `docs/designs/v1-harness-design.md` says what that involves."
-	if automatic := pullRequestBody(item, outcome, "main", true); !strings.HasSuffix(automatic, "\n"+wantAutomatic) || strings.Contains(automatic, "A person merges") {
+	if automatic := pullRequestBody(item, outcome, "main", true, ""); !strings.HasSuffix(automatic, "\n"+wantAutomatic) || strings.Contains(automatic, "A person merges") {
 		t.Errorf("body under automatic integration changed its merge line:\n%s", automatic)
 	}
 }

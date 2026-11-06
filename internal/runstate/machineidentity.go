@@ -157,16 +157,3 @@ func parseMachineRecord(source []byte) (machineRecord, error) {
 	}
 	return record, nil
 }
-
-// MachineID is the identifier this machine is named by in the run state
-// directory, made the first time it is asked for. It is what names this
-// machine where another machine reads the name, such as a team claim, because
-// the host name alone is shared by two homes on one machine and changes when a
-// Mac joins another network.
-func (s *Store) MachineID() (string, error) {
-	machine, err := s.machine()
-	if err != nil {
-		return "", err
-	}
-	return machine.Machine, nil
-}

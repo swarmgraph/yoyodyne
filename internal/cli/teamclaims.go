@@ -4,7 +4,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/mason-bryant/yoyodyne/internal/factory"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
+	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/teamclaim"
 )
@@ -18,30 +21,40 @@ func teamClaims(parts components) (teamclaim.Claims, bool) {
 	if !parts.config.Team.Enabled || parts.worktrees == nil {
 		return teamclaim.Claims{}, false
 	}
-	claims := teamclaim.Claims{Remote: parts.worktrees, Factory: factoryName(parts)}
+	claims := teamclaim.Claims{Remote: parts.worktrees, Factory: factoryName(parts), Identity: factoryIdentities(parts)}
 	if store, err := runstate.NewTeamClaimStore(parts.stateRoot, parts.config.Product.ID); err == nil {
 		claims.Store = store
 	}
 	return claims, true
 }
 
-// factoryName is how this machine names itself in a claim, for another factory
-// to say who holds an item: the product, the machine's host name, and the
-// machine identifier the run store keeps, which is what tells two homes on one
-// machine, or two machines that kept the same name, apart. Which claims are
-// this machine's own is never read from it (teamclaim.Claims.Factory).
+// factoryIdentities is the one reader of this factory's identity, the product
+// id, the machine identity kept in the home, and the forge account the
+// harness's forge access acts as, which pull request descriptions and claims
+// both name (internal/factory).
+func factoryIdentities(parts components) *factory.Reader {
+	return &factory.Reader{Home: parts.stateRoot, Product: parts.config.Product.ID, Forge: publish.GitHub{
+		Runner:       parts.runner,
+		Dir:          parts.repository,
+		Remote:       parts.config.Execution.Remote,
+		PushRemote:   parts.config.Execution.PushRemote,
+		RedactValues: parts.redactValues,
+	}}
+}
+
+// factoryName is what a claim names this factory as when its identity cannot
+// be read in full (teamclaim.Claims.Identity): the product and the machine
+// identity kept in the home, where that can be read, and the host name
+// otherwise, saying that the forge account was not read. Which claims are this
+// machine's own is never read from it (teamclaim.Claims.Factory).
 func factoryName(parts components) string {
-	host, err := os.Hostname()
-	if err != nil || strings.TrimSpace(host) == "" {
-		host = "an unnamed machine"
+	name := "product " + string(parts.config.Product.ID)
+	if machine, err := home.MachineIdentity(parts.stateRoot); err == nil {
+		name += ", machine " + machine
+	} else if host, err := os.Hostname(); err == nil && strings.TrimSpace(host) != "" {
+		name += ", on " + strings.TrimSpace(host)
 	}
-	name := string(parts.config.Product.ID) + " on " + host
-	if parts.store != nil {
-		if machine, err := parts.store.MachineID(); err == nil {
-			name += " (" + machine + ")"
-		}
-	}
-	return name
+	return name + ", forge account not read"
 }
 
 // pipelineTeamClaims is what a run starting in team mode takes its claim
