@@ -54,7 +54,7 @@ import (
 const (
 	// runIndexVersion is the index format this build reads and writes. An index
 	// in any other format is rebuilt from the records rather than trusted.
-	runIndexVersion = 1
+	runIndexVersion = 2
 	runIndexName    = ".run-index.json"
 	runIndexLock    = ".run-index.lock"
 	// maxEncodedRunIndexBytes bounds what reading the index will take in. An
@@ -79,6 +79,10 @@ type runIndexEntry struct {
 	// PersonMerge is a run waiting for a person to merge its pull request
 	// (State.WaitingForPersonMerge), kept as a flag for the same reason.
 	PersonMerge bool `json:"person_merge,omitempty"`
+	// Document is the id of the document a document run publishes, which never
+	// changes over the run's life. Format 1 did not hold it, which is why the
+	// format moved on: an index without it would name none of a document's runs.
+	Document string `json:"document,omitempty"`
 }
 
 func runIndexEntryOf(state State) runIndexEntry {
@@ -90,7 +94,15 @@ func runIndexEntryOf(state State) runIndexEntry {
 		Outstanding:  state.Outstanding(),
 		AccountAlias: state.AccountAlias,
 		PersonMerge:  state.WaitingForPersonMerge(),
+		Document:     documentOf(state),
 	}
+}
+
+func documentOf(state State) string {
+	if state.Document == nil {
+		return ""
+	}
+	return state.Document.Candidate.Artifact.ID
 }
 
 // covers reports an entry that already names its run for every question next
@@ -99,6 +111,7 @@ func (e runIndexEntry) covers(next runIndexEntry) bool {
 	return e.WorkItemID == next.WorkItemID &&
 		e.StartedAt.Equal(next.StartedAt) &&
 		e.AccountAlias == next.AccountAlias &&
+		e.Document == next.Document &&
 		(e.InFlight || !next.InFlight) &&
 		(e.Outstanding || !next.Outstanding) &&
 		(e.PersonMerge || !next.PersonMerge)

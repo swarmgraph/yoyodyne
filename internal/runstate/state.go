@@ -1600,7 +1600,9 @@ type PullRequest struct {
 	// integrated. A branch carries the run that published it, so an item run
 	// again publishes a fresh branch and a fresh request rather than reusing this
 	// one, and this request would otherwise sit open for work that is already on
-	// the target branch.
+	// the target branch. On a document run it can instead name the pull request
+	// of a later run of the same document, which replaced this one before
+	// either landed (orchestrator's documentsupersession.go).
 	//
 	// It is written when the harness retires the publication — the request
 	// closed with a comment naming that vehicle, the branch it carried deleted —

@@ -226,6 +226,9 @@ func (a *activeRun) publishAttempt(ctx context.Context) error {
 	if err := a.pipeline.Store.Save(a.state); err != nil {
 		return fmt.Errorf("record the published pull request: %w", err)
 	}
+	// A document run's request replaces the open request of every earlier run of
+	// the same document (documentsupersession.go).
+	a.closeEarlierDocumentCopies(ctx)
 	return nil
 }
 

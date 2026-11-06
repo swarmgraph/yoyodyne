@@ -208,3 +208,13 @@ func (d DocumentPublication) Validate() error {
 	}
 	return nil
 }
+
+// DocumentRuns lists every run that published a copy of the document with the
+// given id, chosen by the run index (runindex.go). A record that will not read
+// is left out rather than refusing the listing: what is asked of it is which
+// earlier copies' pull requests to close, and a copy missed is a request left
+// open for the next run of the document, not a run started twice.
+func (s *Store) DocumentRuns(id string) ([]State, error) {
+	return s.indexed("document "+id, func(entry runIndexEntry) bool { return entry.Document == id },
+		func(unreadableRun) bool { return false }, func(state State) bool { return documentOf(state) == id })
+}
