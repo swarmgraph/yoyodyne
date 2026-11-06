@@ -5034,7 +5034,7 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 		// The error says what refused the attempt; whatever the session wrote to
 		// standard error before it did is said beside it, for the reason
 		// developerFailure says it.
-		if last := sessionLastLines(providerResult.Process.Stderr, execution.NewRedactor(p.RedactValues...)); last != "" {
+		if last := sessionLastLines(providerResult.Process.Stderr, execution.NewRedactor(p.RedactValues...).WithSecretShapes()); last != "" {
 			err = fmt.Errorf("%w; the last lines the session wrote to standard error were:\n%s", err, last)
 		}
 		cause := stoppedBy(runstate.StopProvider, fmt.Errorf("developer backend failed: %w", err))
@@ -5200,7 +5200,7 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 	}
 	return stoppedBy(runstate.StopProvider, phaseError{
 		status: statusForProcess(providerResult.Process.Status),
-		cause:  errors.New("developer reported failure: " + developerFailure(providerResult, execution.NewRedactor(p.RedactValues...))),
+		cause:  errors.New("developer reported failure: " + developerFailure(providerResult, execution.NewRedactor(p.RedactValues...).WithSecretShapes())),
 	})
 }
 

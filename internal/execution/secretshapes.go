@@ -20,7 +20,9 @@ type secretShape struct {
 // request's authorization header that one of them prints when it fails is a
 // value no Redactor was given. The last lines a failed session wrote to
 // standard error go onto the item's tracker notes, which are published with the
-// repository, so these are removed by shape wherever a Redactor is applied.
+// repository, so these are removed by shape wherever a Redactor asks for it
+// (WithSecretShapes): the provider adapters' output, and the failure text the
+// pipeline writes onto those notes.
 //
 // Each shape is specific enough that ordinary output survives it: a session id,
 // a commit, or a token count is not one. The value class of each excludes

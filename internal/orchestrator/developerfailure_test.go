@@ -172,14 +172,14 @@ func TestSessionLastLinesKeepsTheEndOfTheStream(t *testing.T) {
 		stream.WriteString(strings.Repeat("x", 300) + "\n")
 	}
 	stream.WriteString("the line that ended it\n")
-	last := sessionLastLines(stream.String(), execution.NewRedactor())
+	last := sessionLastLines(stream.String(), execution.NewRedactor().WithSecretShapes())
 	if !strings.HasSuffix(last, "  the line that ended it") {
 		t.Fatalf("the last line is not kept: %q", last)
 	}
 	if len(last) > 2<<10 || strings.Count(last, "\n") >= 10 {
 		t.Fatalf("the end of the stream is %d bytes over %d lines", len(last), strings.Count(last, "\n")+1)
 	}
-	if sessionLastLines("\n \n", execution.NewRedactor()) != "" {
+	if sessionLastLines("\n \n", execution.NewRedactor().WithSecretShapes()) != "" {
 		t.Fatal("a stream of blank lines is reported as something written")
 	}
 }

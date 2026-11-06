@@ -176,7 +176,7 @@ func TestRedactorRemovesSecretsProvidersPrintWhenTheyFail(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := NewRedactor().Redact(test.line)
+			got := NewRedactor().WithSecretShapes().Redact(test.line)
 			if strings.Contains(got, test.secret) {
 				t.Fatalf("the secret survived redaction:\n%s", got)
 			}
@@ -206,7 +206,7 @@ func TestRedactorLeavesOrdinaryFailureOutputAlone(t *testing.T) {
 		`"api_key": null, "token": "short"`,
 		"merge commit 412243ec3f0a9b1c2d3e4f5a6b7c8d9e0f1a2b3c",
 	} {
-		if got := NewRedactor().Redact(line); got != line {
+		if got := NewRedactor().WithSecretShapes().Redact(line); got != line {
 			t.Errorf("Redact() changed output with no secret in it:\n got %s\nwant %s", got, line)
 		}
 	}
@@ -217,7 +217,7 @@ func TestRedactorLeavesOrdinaryFailureOutputAlone(t *testing.T) {
 func TestRedactorRemovesGivenValuesAndShapesTogether(t *testing.T) {
 	t.Parallel()
 
-	got := NewRedactor("given-secret-value").Redact("given-secret-value Authorization: Bearer given-secret-value " + anthropicAPIKey)
+	got := NewRedactor("given-secret-value").WithSecretShapes().Redact("given-secret-value Authorization: Bearer given-secret-value " + anthropicAPIKey)
 	want := "[REDACTED] Authorization: Bearer [REDACTED] [REDACTED]"
 	if got != want {
 		t.Fatalf("Redact() = %q, want %q", got, want)
@@ -236,7 +236,7 @@ func TestProcessRunnerRedactsSecretsAProviderPrintsToStandardError(t *testing.T)
 		lines = append(lines, test.line)
 	}
 	command := helperCommand("stderr-lines", strings.Join(lines, "\n"))
-	command.Redactor = NewRedactor()
+	command.Redactor = NewRedactor().WithSecretShapes()
 	result, err := (OSProcessRunner{}).Run(context.Background(), command, nil)
 	if err != nil || result.Status != ProcessFailed {
 		t.Fatalf("Run = %#v, %v", result, err)
@@ -280,7 +280,7 @@ func TestRedactorKeepsAProviderStreamLineValidJSON(t *testing.T) {
 		"OPENAI_API_KEY=\"abcdefgh12345678\"\tnext\u0026more",
 	} {
 		line := streamLine(t, text)
-		got := NewRedactor().Redact(line)
+		got := NewRedactor().WithSecretShapes().Redact(line)
 		if !json.Valid([]byte(got)) {
 			t.Errorf("redaction left a stream line that is not JSON:\n before %s\n  after %s", line, got)
 		}
@@ -290,7 +290,7 @@ func TestRedactorKeepsAProviderStreamLineValidJSON(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := NewRedactor().Redact(streamLine(t, test.line))
+			got := NewRedactor().WithSecretShapes().Redact(streamLine(t, test.line))
 			if !json.Valid([]byte(got)) {
 				t.Fatalf("redaction left a stream line that is not JSON:\n%s", got)
 			}
@@ -308,5 +308,37 @@ func TestRedactorKeepsAProviderStreamLineValidJSON(t *testing.T) {
 				t.Fatalf("the secret survived redaction of the escaped line:\n%s", text)
 			}
 		})
+	}
+}
+
+// A redactor that did not ask for the shapes, such as the empty one Git and the
+// tracker run with, leaves secret-shaped text exactly as it was: what they print
+// is data the harness reads back, and a rewritten file, diff, or note is no
+// longer what was stored.
+func TestRedactorWithoutShapesLeavesSecretShapedTextAlone(t *testing.T) {
+	t.Parallel()
+
+	output := providerFailureOutput()
+	for _, test := range output {
+		for _, redactor := range []Redactor{{}, NewRedactor(), NewRedactor("a-value-not-in-the-line")} {
+			if got := redactor.Redact(test.line); got != test.line {
+				t.Errorf("%s: a redactor without shapes changed the line:\n got %s\nwant %s", test.name, got, test.line)
+			}
+		}
+	}
+
+	var lines []string
+	for _, test := range output {
+		lines = append(lines, test.line)
+	}
+	want := strings.Join(lines, "\n") + "\n"
+	command := helperCommand("stderr-lines", strings.Join(lines, "\n"))
+	command.Redactor = NewRedactor()
+	result, err := (OSProcessRunner{}).Run(context.Background(), command, nil)
+	if err != nil || result.Status != ProcessFailed {
+		t.Fatalf("Run = %#v, %v", result, err)
+	}
+	if result.Stderr != want {
+		t.Fatalf("a process run with an empty redactor did not return its output byte for byte:\n got %q\nwant %q", result.Stderr, want)
 	}
 }

@@ -823,6 +823,9 @@ func lineTruncationMarker(bound int, dropped int) string {
 
 type Redactor struct {
 	values []string
+	// shapes is whether secrets are also recognized by their shape; see
+	// WithSecretShapes.
+	shapes bool
 }
 
 func NewRedactor(values ...string) Redactor {
@@ -916,12 +919,25 @@ func (r Redactor) longest() int {
 	return len(r.values[0])
 }
 
-// Redact replaces every value the redactor was given, and then every secret
-// recognized by its shape (secretShapes), so a credential the harness never held
-// is removed as well as one it did.
+// WithSecretShapes is the same redactor, also removing every secret recognized
+// by its shape (secretShapes), so a credential the harness never held is
+// removed as well as one it did. It is asked for only where an AI provider's
+// own text is read: Git, the tracker, and the other tools the harness reads as
+// data are left byte for byte, because a file, a diff, or a note that came back
+// rewritten would no longer be what was stored.
+func (r Redactor) WithSecretShapes() Redactor {
+	r.shapes = true
+	return r
+}
+
+// Redact replaces every value the redactor was given, and every secret
+// recognized by its shape where WithSecretShapes asked for that.
 func (r Redactor) Redact(value string) string {
 	for _, secret := range r.values {
 		value = strings.ReplaceAll(value, secret, redactedMarker)
 	}
-	return redactSecretShapes(value)
+	if r.shapes {
+		value = redactSecretShapes(value)
+	}
+	return value
 }
