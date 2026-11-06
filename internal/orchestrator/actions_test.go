@@ -991,6 +991,7 @@ var notAStep = map[string]string{
 	"recordStartingTarget":       "writes the commit the worktree was cut from onto the run's record and the item's notes",
 	"noteTeamTakeover":           "writes on the item that its claim on the shared remote was taken over from another factory; it never stops the run, so there is nothing for a definition to route",
 	"documentChecks":             "reads which check list a document landing runs; the check step it informs is verify",
+	"closeEarlierDocumentCopies": "closes the open pull request of an earlier stopped copy of the document a document run publishes, once that run's own request is recorded; it never stops the run, so there is nothing for a definition to route",
 	"stop":                       "turns a stopped step into the run's outcome, which for a pause or a hold leaves the run in flight",
 	"endPromotion":               "turns a failed promotion into the run's outcome, through stop where the hosting session cancelled the run for its redeploy and through fail otherwise",
 	"landingAt":                  "notes which step of the landing the run is taking, so a stopped landing's notes can name it",

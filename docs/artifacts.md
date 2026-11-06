@@ -522,14 +522,24 @@ not the conversation, and not the harness after a retry. The run's record names
 the document, the commit whose copy the text was written against, and the
 commit the target branch now has.
 
+**A newer copy of a document closes the pull request of the copy before it.**
+When a document run opens its pull request, the harness closes the open pull
+request of every earlier run of the same document onto the same target branch
+that stopped without landing it — an earlier revision, or an earlier attempt at
+the same text — with a comment naming the new pull request, and deletes the
+branch it carried. A pull request for another document, one that merged, one
+whose run is still going, and one whose run succeeded and waits for a person to
+merge it are left alone. Pull requests that earlier copies left open before this
+was built are closed the same way, the next time their document is published.
+
 **A stopped document publication is the development manager's to decide.** It
 has no work item behind it, so it is put on her list of stopped runs as a run
 that names the document, its pull request, and whether a newer stopped copy of
 the same document exists or one has landed since. That list takes the run whose
 attempts were all spent, as above, and also any document run that left its pull
-request open and that its conversation will not land: an older copy of a
-document written again since, or a copy of a document that has landed by
-another run. A conversation's latest copy joins the list once it has stood
+request open and that its conversation will not land: an older copy whose pull
+request a newer copy could not close, or a copy of a document that has landed
+by another run. A conversation's latest copy joins the list once it has stood
 stopped for `triage.stuck_merge_age`. She answers each with one of two
 decisions, naming the run and no work item. `retry` lands the same confirmed
 text again through a fresh run, which the harness starts as a document landing
