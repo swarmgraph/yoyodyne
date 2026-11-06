@@ -314,7 +314,7 @@ type CheckTimesReading struct {
 	// last.
 	Weeks []CheckTimesWeek `json:"weeks"`
 	// NotRecorded is why there is no figure at all, and NotRead each event log
-	// that could not be read, which makes every figure a floor.
+	// that could not be read, so that the true figures are at least the ones given.
 	NotRecorded string   `json:"not_recorded,omitempty"`
 	NotRead     []string `json:"not_read,omitempty"`
 }
@@ -464,7 +464,7 @@ func (r CheckTimesReading) Render() string {
 	fmt.Fprintln(&rendered)
 	fmt.Fprintln(&rendered, "A run counts in the week it launched in. What a run was told is what the harness told it; a project's own check may still run the whole module for a reason of its own, which only its output says.")
 	for _, problem := range r.NotRead {
-		fmt.Fprintf(&rendered, "Not read, so every figure is a floor: %s.\n", problem)
+		fmt.Fprintf(&rendered, "Not read, so the true figures are at least these: %s.\n", problem)
 	}
 	return rendered.String()
 }

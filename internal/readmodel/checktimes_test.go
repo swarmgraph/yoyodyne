@@ -287,10 +287,27 @@ func TestCheckTimesRenderEachWeekInWords(t *testing.T) {
 			t.Fatalf("the rendering does not say %q:\n%s", words, rendered)
 		}
 	}
+	if strings.Contains(rendered, "Not read") {
+		t.Fatalf("the rendering says a log was not read when every log was:\n%s", rendered)
+	}
 	if strings.Contains(rendered, "week of Mon 19 Oct") {
 		t.Fatalf("the rendering goes back past the first week any check ran in:\n%s", rendered)
 	}
 	if strings.Index(rendered, "week of Mon 2 Nov") > strings.Index(rendered, "week of Mon 26 Oct") {
 		t.Fatalf("the rendering is not newest first:\n%s", rendered)
+	}
+}
+
+// An event log that could not be read is said in ordinary words: the true
+// figures are at least the ones shown, never that a figure is a "floor".
+func TestCheckTimesSayAnUnreadLogLeavesTheFiguresShort(t *testing.T) {
+	t.Parallel()
+	reading := CheckTimesReading{Zone: "UTC", NotRead: []string{"run-old: permission denied"}}
+	rendered := reading.Render()
+	if want := "Not read, so the true figures are at least these: run-old: permission denied.\n"; !strings.Contains(rendered, want) {
+		t.Fatalf("the rendering does not say %q:\n%s", want, rendered)
+	}
+	if strings.Contains(rendered, "floor") {
+		t.Fatalf("the rendering calls a figure a floor:\n%s", rendered)
 	}
 }
