@@ -5034,7 +5034,7 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 		// The error says what refused the attempt; whatever the session wrote to
 		// standard error before it did is said beside it, for the reason
 		// developerFailure says it.
-		if last := sessionLastLines(providerResult.Process.Stderr); last != "" {
+		if last := sessionLastLines(providerResult.Process.Stderr, execution.NewRedactor(p.RedactValues...)); last != "" {
 			err = fmt.Errorf("%w; the last lines the session wrote to standard error were:\n%s", err, last)
 		}
 		cause := stoppedBy(runstate.StopProvider, fmt.Errorf("developer backend failed: %w", err))
@@ -5200,7 +5200,7 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 	}
 	return stoppedBy(runstate.StopProvider, phaseError{
 		status: statusForProcess(providerResult.Process.Status),
-		cause:  errors.New("developer reported failure: " + developerFailure(providerResult)),
+		cause:  errors.New("developer reported failure: " + developerFailure(providerResult, execution.NewRedactor(p.RedactValues...))),
 	})
 }
 
@@ -5211,21 +5211,25 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 // decide from, so the provider's own answer, the exit status, and the last lines
 // the session wrote to standard error are each said where there is one, and
 // their absence is said where there is none.
-func developerFailure(result backend.RunResult) string {
+//
+// Those words are published with the tracker, and the provider's answer and its
+// standard error are the provider's own text, so both are redacted here, given
+// values and secret shapes alike, whatever was redacted before they arrived.
+func developerFailure(result backend.RunResult, redactor execution.Redactor) string {
 	reason := strings.TrimSpace(result.StopReason)
 	if reason == fmt.Sprintf("process_exit_%d", result.Process.ExitCode) || reason == string(result.Process.Status) {
 		reason = ""
 	}
 	var parts []string
 	if reason != "" || strings.TrimSpace(result.FinalText) != "" {
-		parts = append(parts, "the provider answered: "+backend.DescribeFailure(reason, result.FinalText))
+		parts = append(parts, "the provider answered: "+redactor.Redact(backend.DescribeFailure(reason, result.FinalText)))
 	} else {
 		parts = append(parts, "the provider gave no answer of its own")
 	}
 	if result.Process.Status == execution.ProcessFailed {
 		parts = append(parts, fmt.Sprintf("the session exited with status %d", result.Process.ExitCode))
 	}
-	if last := sessionLastLines(result.Process.Stderr); last != "" {
+	if last := sessionLastLines(result.Process.Stderr, redactor); last != "" {
 		parts = append(parts, "the last lines it wrote to standard error were:\n"+last)
 	} else {
 		parts = append(parts, "it wrote nothing to standard error")
@@ -5235,14 +5239,16 @@ func developerFailure(result backend.RunResult) string {
 
 // sessionLastLines is the end of what a session wrote to one stream, bounded so
 // it fits beside everything else a failure record carries: the last ten
-// non-empty lines, each indented, and at most 2 KiB of them.
-func sessionLastLines(stream string) string {
+// non-empty lines, each indented, and at most 2 KiB of them. Each line is
+// redacted whole, before it is cut, so a cut never splits a secret the redactor
+// would otherwise have recognized.
+func sessionLastLines(stream string, redactor execution.Redactor) string {
 	const maxLines, maxBytes = 10, 2 << 10
 	var lines []string
 	size := 0
 	all := strings.Split(stream, "\n")
 	for index := len(all) - 1; index >= 0 && len(lines) < maxLines; index-- {
-		line := singleLine(all[index], maxBytes-2)
+		line := singleLine(redactor.Redact(all[index]), maxBytes-2)
 		if line == "" {
 			continue
 		}

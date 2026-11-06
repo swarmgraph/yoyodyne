@@ -802,6 +802,10 @@ func TestProcessHelper(t *testing.T) {
 	case "failure":
 		fmt.Fprintln(os.Stderr, "failed")
 		os.Exit(7)
+	case "stderr-lines":
+		// A provider that fails having written its account to standard error.
+		fmt.Fprintln(os.Stderr, secret)
+		os.Exit(1)
 	case "sleep":
 		// Long enough that no delay in a timer being served on a loaded machine
 		// lets this exit on its own first, and bounded, so a kill that regressed

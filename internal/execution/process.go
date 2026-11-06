@@ -916,9 +916,12 @@ func (r Redactor) longest() int {
 	return len(r.values[0])
 }
 
+// Redact replaces every value the redactor was given, and then every secret
+// recognized by its shape (secretShapes), so a credential the harness never held
+// is removed as well as one it did.
 func (r Redactor) Redact(value string) string {
 	for _, secret := range r.values {
-		value = strings.ReplaceAll(value, secret, "[REDACTED]")
+		value = strings.ReplaceAll(value, secret, redactedMarker)
 	}
-	return value
+	return redactSecretShapes(value)
 }
