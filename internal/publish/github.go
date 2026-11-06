@@ -1004,6 +1004,27 @@ func (g GitHub) Protection(ctx context.Context, branch string) (BranchProtection
 	return BranchProtection{}, nil
 }
 
+// Account is the forge account the harness acts as: the login the forge CLI's
+// credential belongs to on the configured remote's host. It is the third part of
+// the factory identity (internal/factory).
+func (g GitHub) Account(ctx context.Context) (string, error) {
+	if g.Runner == nil {
+		return "", errors.New("pull request process runner is required")
+	}
+	result, err := g.apiQuery(ctx, "GET", "user", "--jq", ".login")
+	if err != nil {
+		return "", fmt.Errorf("read the forge account: %w", err)
+	}
+	if result.Status != execution.ProcessSucceeded {
+		return "", fmt.Errorf("read the forge account: exit code %d: %s", result.ExitCode, g.redact(firstLine(strings.TrimSpace(result.Stderr))))
+	}
+	login := strings.TrimSpace(result.Stdout)
+	if login == "" || strings.ContainsAny(login, " \t\r\n") {
+		return "", fmt.Errorf("read the forge account: the forge answered %q, which is not an account name", g.redact(firstLine(login)))
+	}
+	return login, nil
+}
+
 // api runs one GET against the forge's REST API for the configured remote's
 // repository. The API verb takes no --repo flag, so the repository is named in
 // the environment, in the form Contains explains.

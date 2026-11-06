@@ -579,7 +579,7 @@ func (q *queuePromotion) openPullRequest(ctx context.Context) error {
 		Head:  attempt.CandidateBranch,
 		Base:  q.key.TargetBranch,
 		Title: fmt.Sprintf("%s: %s", q.entry.WorkItemID, q.entry.WorkItemTitle),
-		Body:  q.pullRequestBody(*attempt),
+		Body:  q.pullRequestBody(ctx, *attempt),
 	})
 	if err != nil {
 		return fmt.Errorf("open the pull request that carries %s: %w", attempt.CandidateBranch, err)
@@ -589,17 +589,23 @@ func (q *queuePromotion) openPullRequest(ctx context.Context) error {
 	return q.settle(runstate.MergeQueueMutationDone, "", false)
 }
 
-func (q *queuePromotion) pullRequestBody(attempt runstate.MergeQueuePromotionAttempt) string {
+// pullRequestBody describes the candidate's pull request, ending on the line
+// that names the factory that opened it (Pipeline.factoryLine).
+func (q *queuePromotion) pullRequestBody(ctx context.Context, attempt runstate.MergeQueuePromotionAttempt) string {
+	opener := q.p.Pipeline.factoryLine(ctx)
+	if opener != "" {
+		opener += "\n"
+	}
 	if attempt.Path == runstate.MergeQueueLandThroughForgeQueue {
 		return fmt.Sprintf("The change for %s, approved at %s and admitted to the forge's merge queue for %s.\n\nRun: %s\n",
-			q.entry.WorkItemID, q.entry.ApprovedHead, q.key.TargetBranch, q.entry.RunID)
+			q.entry.WorkItemID, q.entry.ApprovedHead, q.key.TargetBranch, q.entry.RunID) + opener
 	}
 	body := fmt.Sprintf("Merge queue candidate %s for %s: %s at %s with the approved head %s merged onto it. Its configured checks passed and an independent reviewer approved it, both bound to generation %d of entry %s.\n\nRun: %s\n",
 		attempt.Candidate, q.entry.WorkItemID, q.key.TargetBranch, attempt.TargetBase, q.entry.ApprovedHead, attempt.Generation, q.entry.EntryID, q.entry.RunID)
 	if q.entry.Publication != "" {
 		body += "Approved as: " + q.entry.Publication + "\n"
 	}
-	return body
+	return body + opener
 }
 
 // mutateTarget moves the local target or asks the forge to merge, under the

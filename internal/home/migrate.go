@@ -263,7 +263,7 @@ func MoveHome(options MigrateOptions) (Migration, error) {
 	// The machine-wide records, which are already at the top of a home laid out
 	// in place.
 	if !inPlace {
-		for _, name := range []string{OperatorHoldFileName, AccountsDirectoryName, LogsDirectoryName, HeavyChecksDirectoryName} {
+		for _, name := range []string{OperatorHoldFileName, AccountsDirectoryName, LogsDirectoryName, HeavyChecksDirectoryName, MachineIdentityFileName} {
 			if !exists(filepath.Join(from, name)) {
 				continue
 			}
@@ -578,6 +578,8 @@ func machineWideWhat(name string) string {
 		return "the provider accounts"
 	case HeavyChecksDirectoryName:
 		return "the record of heavy check places"
+	case MachineIdentityFileName:
+		return "this machine's identity"
 	default:
 		return "the harness's logs"
 	}

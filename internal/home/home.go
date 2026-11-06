@@ -11,6 +11,7 @@
 //	  operator-hold.json       the operator's hold, one for the whole machine
 //	  logs/                    the harness's own logs
 //	  heavy-checks/            the places for heavy checks, counted for the whole machine
+//	  machine-identity.json    this machine's identity, made once and kept (MachineIdentity)
 //	  projects/<product id>/
 //	    config.yaml            the configuration, where the repository does not carry it
 //	    repository.json        the binding: which repository this id is

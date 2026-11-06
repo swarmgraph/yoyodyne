@@ -168,6 +168,7 @@ and at the top only what no single project owns:
   machine.yaml           # this machine's settings: state_root, and nothing else
   accounts/              # provider accounts, which serve every project
   operator-hold.json     # the operator's pause, one for the whole machine
+  machine-identity.json  # this machine's identity, made once and never made again while it is there
   projects/<product id>/
     repository.json      # the binding: which repository this id is
     config.yaml          # the configuration, where the repository does not carry it
@@ -190,6 +191,14 @@ it; the harness never moves it on its own. Nothing of the harness's is kept
 anywhere else on the machine once that has run: the configurations home earlier
 builds kept at `~/.config/yoyodyne` is read only for a `machine.yaml` still left
 there, and the migration moves that and every external configuration out of it.
+
+`machine-identity.json` names this machine in the factory identity the harness
+puts in every pull request description it opens: the product id, this machine's
+identity, and the forge account it acts as. It is made the first time it is
+needed and moves with the home, so a home is one factory for as long as it
+exists; a second home on the same machine, such as one `YOYODYNE_STATE_HOME`
+names, is a second factory. Deleting the file makes this machine read as a new
+factory to everyone working the same repository.
 
 Committing it is the default rather than a requirement, and a contributor to a
 repository they do not own has two supported ways not to, both under

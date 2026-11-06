@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/factory"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -44,7 +46,7 @@ func TestPullRequestBodyCarriesGovernedTextAndComputedFacts(t *testing.T) {
 		},
 	}
 
-	body := pullRequestBody(item, outcome, "main", true)
+	body := pullRequestBody(item, outcome, "main", true, "")
 	for _, want := range []string{
 		item.Description,
 		item.AcceptanceCriteria,
@@ -77,6 +79,40 @@ func TestPullRequestBodyCarriesGovernedTextAndComputedFacts(t *testing.T) {
 	}
 }
 
+// The evidence names the factory that opened the request, so another
+// contributor reading it on the forge can tell whose work it is, and the line
+// is read through the pipeline's one reader of the identity.
+func TestPullRequestBodyNamesTheFactoryThatOpenedIt(t *testing.T) {
+	t.Parallel()
+
+	identity := factory.Identity{Product: "yoyodyne", Machine: "machine-0123456789abcdef0123456789abcdef", ForgeAccount: "factory-bot"}
+	pipeline := Pipeline{Factory: fixedFactory{identity: identity}}
+	opener := pipeline.factoryLine(context.Background())
+	body := pullRequestBody(beads.WorkItem{ID: "yoyodyne-task", Title: "Task"},
+		Outcome{RunID: "run-1", WorkItemID: "yoyodyne-task", Branch: "run", BaseCommit: "1a2b3c4"}, "main", false, opener)
+	want := "- Opened by: product `yoyodyne`, machine `machine-0123456789abcdef0123456789abcdef`, forge account `factory-bot`"
+	if !strings.Contains(body, "\n"+want+"\n") {
+		t.Fatalf("body does not name the factory as %q:\n%s", want, body)
+	}
+
+	// An identity that cannot be read does not stop the publication, and what
+	// went wrong, which names paths on this machine, is not put on the forge.
+	unread := Pipeline{Factory: fixedFactory{err: errors.New("read /Users/someone/.yoyodyne/machine-identity.json: broken")}}
+	if line := unread.factoryLine(context.Background()); !strings.Contains(line, "could not be read") || strings.Contains(line, "/Users/") {
+		t.Fatalf("factoryLine() with an unreadable identity = %q", line)
+	}
+	if line := (Pipeline{}).factoryLine(context.Background()); line != "" {
+		t.Fatalf("factoryLine() with no reader = %q, want none", line)
+	}
+}
+
+type fixedFactory struct {
+	identity factory.Identity
+	err      error
+}
+
+func (f fixedFactory) Read(context.Context) (factory.Identity, error) { return f.identity, f.err }
+
 // An item with no description, and a run whose change was never summarized,
 // leave their sections out entirely: an empty heading reads as a work item that
 // says nothing and a change that touched nothing.
@@ -84,7 +120,7 @@ func TestPullRequestBodyOmitsWhatItHasNothingToSay(t *testing.T) {
 	t.Parallel()
 
 	body := pullRequestBody(beads.WorkItem{ID: "yoyodyne-task", Title: "Task"},
-		Outcome{RunID: "run-1", WorkItemID: "yoyodyne-task", Branch: "run", BaseCommit: "1a2b3c4"}, "main", true)
+		Outcome{RunID: "run-1", WorkItemID: "yoyodyne-task", Branch: "run", BaseCommit: "1a2b3c4"}, "main", true, "")
 	for _, unwanted := range []string{"## What the work item asks for", "## Acceptance criteria", "## What changed"} {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("body carries an empty %q section:\n%s", unwanted, body)
@@ -108,7 +144,7 @@ func TestPullRequestBodyStaysInsideWhatAForgeAccepts(t *testing.T) {
 		Changes:    gitworktree.ChangeSummary{Status: long, DiffStat: long},
 	}
 
-	body := pullRequestBody(item, outcome, "main", true)
+	body := pullRequestBody(item, outcome, "main", true, "")
 	// GitHub refuses a body over 65536 bytes, and a body that fits is worth
 	// nothing if it does not say it was cut.
 	if len(body) > 64<<10 {

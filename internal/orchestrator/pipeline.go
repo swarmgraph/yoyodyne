@@ -414,6 +414,9 @@ type Pipeline struct {
 	// Publisher is required only when publishing is automatic, because a project
 	// that has not opted in never opens a pull request.
 	Publisher PullRequests
+	// Factory names the factory this pipeline is, for the pull request
+	// descriptions it opens (factory.go). Nil names none.
+	Factory FactoryIdentities
 	// MergeQueue is where an approved change is admitted when
 	// execution.merge_queue is on (mergequeueadmission.go). Nil admits nothing,
 	// and the run promotes its own change as it does with the switch off.
