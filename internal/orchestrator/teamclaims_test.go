@@ -185,7 +185,7 @@ func TestTheTeamPauseStartsNoWorkTheHarnessChose(t *testing.T) {
 		t.Fatalf("started = %#v, want the chosen item reported", schedule.Started)
 	}
 	started := schedule.Started[0]
-	if started.Failure != "" || !strings.Contains(started.Declined, "team pause is set on the shared remote, by mason on yoyodyne on alpha") {
+	if started.Failure != "" || !strings.Contains(started.Declined, "team pause is set on the shared remote, by mason (yoyodyne on alpha)") {
 		t.Fatalf("started = %#v, want a declined start naming who set the pause", started)
 	}
 }

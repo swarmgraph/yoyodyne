@@ -47,7 +47,7 @@ func TestTheTeamPauseIsSetReadByAnotherFactoryAndCleared(t *testing.T) {
 	if _, err := beta.Take(ctx, "example-p1", "run-b"); !errors.As(err, &paused) {
 		t.Fatalf("Take() under the pause error = %v, want PausedError", err)
 	}
-	if paused.Pause.Setter() != "mason on example on alpha" || !strings.Contains(paused.Error(), "mason on example on alpha") {
+	if paused.Pause.Setter() != "mason (example on alpha)" || !strings.Contains(paused.Error(), "mason (example on alpha)") {
 		t.Fatalf("paused = %#v (%v), want it to name mason on alpha", paused.Pause, paused)
 	}
 	if got := remoteClaim(t, remote, "example-p1"); got != "" {
@@ -56,7 +56,7 @@ func TestTheTeamPauseIsSetReadByAnotherFactoryAndCleared(t *testing.T) {
 	if _, found, _ := beta.Store.Load("example-p1"); found {
 		t.Fatalf("a claim was recorded under the team pause")
 	}
-	if !strings.Contains(paused.Pause.Says(), "mason on example on alpha set it at") {
+	if !strings.Contains(paused.Pause.Says(), "mason (example on alpha) set it at") {
 		t.Errorf("Says() = %q, want who set it", paused.Pause.Says())
 	}
 

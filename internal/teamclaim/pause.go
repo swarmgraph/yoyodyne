@@ -61,7 +61,7 @@ type Pause struct {
 func (p Pause) Setter() string {
 	switch {
 	case p.SetBy != "" && p.Factory != "":
-		return p.SetBy + " on " + p.Factory
+		return p.SetBy + " (" + p.Factory + ")"
 	case p.SetBy != "":
 		return p.SetBy
 	case p.Factory != "":

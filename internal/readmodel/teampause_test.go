@@ -37,7 +37,7 @@ func TestTheBannerSaysTheTeamPauseAndWhoSetIt(t *testing.T) {
 	if held.TeamPause == nil || held.TeamPause.SetBy != "mason" {
 		t.Fatalf("team pause = %#v, want the pause mason set", held.TeamPause)
 	}
-	for _, want := range []string{"The team pause is set", "no factory working this repository starts new work", "mason on yoyodyne on alpha set it at"} {
+	for _, want := range []string{"The team pause is set", "no factory working this repository starts new work", "mason (yoyodyne on alpha) set it at"} {
 		if !strings.Contains(held.RenderBanner(), want) || !strings.Contains(held.RenderBrief(), want) {
 			t.Fatalf("banner does not say %q:\n%s", want, held.RenderBanner())
 		}

@@ -121,7 +121,7 @@ func TestPauseTeamSetsAndClearsThePauseAndTheMachinePauseStaysLocal(t *testing.T
 	if err != nil || !set {
 		t.Fatalf("Fetched() = %t, %v, want the pause this machine set", set, err)
 	}
-	if says := pause.Says(); !strings.Contains(says, "The team pause is set") || !strings.Contains(says, "set it at") || !strings.Contains(says, " on yoyodyne on ") {
+	if says := pause.Says(); !strings.Contains(says, "The team pause is set") || !strings.Contains(says, "set it at") || !strings.Contains(says, " (product yoyodyne") {
 		t.Fatalf("Says() = %q, want who set it and when", says)
 	}
 
