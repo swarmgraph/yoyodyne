@@ -668,7 +668,9 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 		// A check stopped on time or cancelled judged nothing about the
 		// candidate, so the run of them is incomplete rather than failed.
 		switch result.Process.Status {
-		case execution.ProcessTimedOut, execution.ProcessCancelled, execution.ProcessStalled:
+		case execution.ProcessTimedOut:
+			evidence.Problem = boundedEvidence(checkStopSays(result, "execution.check_timeout", runstate.CheckStage{}) + ", and judged nothing")
+		case execution.ProcessCancelled, execution.ProcessStalled:
 			evidence.Problem = boundedEvidence(fmt.Sprintf("%s was %s and judged nothing", result.Command, result.Process.Status))
 		}
 	}

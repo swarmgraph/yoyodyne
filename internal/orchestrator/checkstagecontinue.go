@@ -417,8 +417,12 @@ func unfinishedCheckSays(prior runstate.State) string {
 	if revision == "" {
 		revision = "the uncommitted change"
 	}
-	said := fmt.Sprintf("%s on run %s reached its own %s execution.check_timeout limit%s on attempt %d at %s and is unfinished, neither passed nor failed",
-		nonEmpty(stage.Command, "a check"), prior.RunID, limit, checkLimitLoad(*stage, limit), prior.RepairAttempts, revision)
+	reached := fmt.Sprintf("reached its own %s execution.check_timeout limit%s", limit, checkLimitLoad(*stage, limit))
+	if !stage.CheckRanItsLimit() {
+		reached = fmt.Sprintf("was stopped on time after %s from when it started, before its own execution.check_timeout limit ran out,", time.Duration(stage.CheckElapsedSeconds)*time.Second)
+	}
+	said := fmt.Sprintf("%s on run %s %s on attempt %d at %s and is unfinished, neither passed nor failed",
+		nonEmpty(stage.Command, "a check"), prior.RunID, reached, prior.RepairAttempts, revision)
 	if stop, ok := prior.UnfinishedCheck(); ok && stop.AllowanceSeconds > 0 {
 		spent := time.Duration(0)
 		for _, rerun := range append(prior.CheckReruns(), stop) {

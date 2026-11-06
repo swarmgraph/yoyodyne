@@ -58,6 +58,14 @@ type Result struct {
 	// reaches it.
 	StageTimeout time.Duration `json:"stage_timeout"`
 	StageElapsed time.Duration `json:"stage_elapsed"`
+	// Limit is the time this check was given as it launched, measured from that
+	// moment, and LimitOf is whose limit that was: the check's own, what the
+	// stage's bound had left, or what the deadline of the work that started the
+	// run had left, whichever was smallest. Timeout alone cannot say which limit
+	// stopped a check, because the stage or the deadline can leave a check far
+	// less than its own (TimeLimit). Both are empty for a check never launched.
+	Limit   time.Duration `json:"limit,omitempty"`
+	LimitOf LimitOwner    `json:"limit_of,omitempty"`
 	// StoppedByStage reports a check stopped because the stage reached its bound
 	// rather than because the check reached its own. The two are the same
 	// process status and different facts: raising the per-check budget does
@@ -336,8 +344,18 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		}
 		budget := checkTimeout
 		boundByStage := stageTimeout > 0 && remaining < checkTimeout
+		limitOf := LimitOfCheck
 		if boundByStage {
-			budget = remaining
+			budget, limitOf = remaining, LimitOfStage
+		}
+		// The process is not given the deadline as its budget, because the
+		// context already ends it there; it is recorded so a check that deadline
+		// stopped is said to have been given what the deadline left it.
+		limit := budget
+		if deadline, ok := ctx.Deadline(); ok {
+			if left := time.Until(deadline); left < limit {
+				limit, limitOf = max(left, 0), LimitOfRun
+			}
 		}
 		var observerErrors []error
 		var failure failureCapture
@@ -445,6 +463,8 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			Timeout:      checkTimeout,
 			StageTimeout: stageTimeout,
 			StageElapsed: clock.Now().Sub(stageStarted) - waited,
+			Limit:        limit,
+			LimitOf:      limitOf,
 			// A check killed on time under a budget the stage cut short was
 			// stopped by the stage, whatever its own budget would have allowed.
 			StoppedByStage:  boundByStage && processResult.Status == execution.ProcessTimedOut && ctx.Err() == nil,
@@ -539,6 +559,8 @@ func emitCompleted(runID string, sequence *execution.Sequence, clock execution.C
 		"timeout":           result.Timeout.String(),
 		"stage_elapsed":     result.StageElapsed.String(),
 		"stage_timeout":     result.StageTimeout.String(),
+		"limit":             result.Limit.String(),
+		"limit_of":          result.LimitOf,
 		"stopped_by_stage":  result.StoppedByStage,
 		"stopped_by_caller": result.StoppedByCaller,
 		"could_not_run":     result.CouldNotRun,

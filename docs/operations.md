@@ -3436,7 +3436,7 @@ item and in the thread:
 green landing: 1 landing check passed over 3d3d367a1b2c in 18m
 green landing: 1 landing check passed over 3d3d367a1b2c in 18m, after waiting 12m behind another landing on main
 red landing: make race exited 1 over 3d3d367a1b2c; filed as yoyodyne-ifd.402
-unverified landing: the landing checks did not run to the end over 3d3d367a1b2c (make race was stopped at its 2h0m0s execution.landing_check_timeout budget after 2h0m0s and judged nothing)
+unverified landing: the landing checks did not run to the end over 3d3d367a1b2c (make race ran for 2h0m0s from when it started and was stopped at its own 2h0m0s execution.landing_check_timeout limit, and judged nothing)
 unverified landing: the landing checks did not run to the end over 3d3d367a1b2c (the landing checks never started: wait to land on main: another landing held the lease for the whole 2h15m0s wait)
 ```
 

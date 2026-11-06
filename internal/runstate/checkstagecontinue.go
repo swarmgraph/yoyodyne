@@ -283,9 +283,14 @@ func (s State) CheckStageStopSays() string {
 		return ""
 	}
 	stopped := "the check stage was stopped by load at its execution.check_stage_timeout bound, not by the change: nothing was judged and nothing was handed back to the developer"
-	if !s.CheckStage.StoppedAtBound {
+	switch {
+	case s.CheckStage.StoppedAtBound:
+	case s.CheckStage.CheckRanItsLimit():
 		stopped = fmt.Sprintf("%s reached its own execution.check_timeout limit of %s and is unfinished, neither passed nor failed: nothing was judged and nothing was handed back to the developer",
 			nonEmptyCommand(s.CheckStage.Command), describeSpan(time.Duration(s.CheckStage.CheckLimitSeconds)*time.Second))
+	default:
+		stopped = fmt.Sprintf("%s was stopped on time after %s, before its own execution.check_timeout limit ran out, and is unfinished, neither passed nor failed: nothing was judged and nothing was handed back to the developer",
+			nonEmptyCommand(s.CheckStage.Command), describeSpan(time.Duration(s.CheckStage.CheckElapsedSeconds)*time.Second))
 	}
 	if s.HarnessContinuesCheckStage() {
 		return fmt.Sprintf(

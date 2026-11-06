@@ -826,6 +826,15 @@ func (c CheckStage) SpentBy(now time.Time) time.Duration {
 	return 0
 }
 
+// CheckRanItsLimit reports that the check Command names ran for the whole of
+// its own limit, measured from when it launched. A check stopped on time short
+// of it was stopped by something else, so no surface may say it reached its
+// limit: a message naming a limit the check's own running time contradicts is
+// one nobody can act on. A second's slack covers the rounding to whole seconds.
+func (c CheckStage) CheckRanItsLimit() bool {
+	return c.CheckLimitSeconds > 0 && c.CheckElapsedSeconds+1 >= c.CheckLimitSeconds
+}
+
 // Describe says where the stage stands, in the words every surface uses for
 // it: what it has spent of its bound, and which check it is on.
 func (c CheckStage) Describe(now time.Time) string {
@@ -837,8 +846,10 @@ func (c CheckStage) Describe(now time.Time) string {
 		switch {
 		case c.StoppedAtBound:
 			said += ", stopped at the bound during " + c.Command
-		case c.CheckStoppedAtLimit:
+		case c.CheckStoppedAtLimit && c.CheckRanItsLimit():
 			said += fmt.Sprintf(", %s stopped unfinished at its own %s limit", c.Command, describeSpan(time.Duration(c.CheckLimitSeconds)*time.Second))
+		case c.CheckStoppedAtLimit:
+			said += fmt.Sprintf(", %s stopped unfinished after %s, before its own limit ran out", c.Command, describeSpan(time.Duration(c.CheckElapsedSeconds)*time.Second))
 		case c.Interrupted:
 			said += ", interrupted during " + c.Command
 		case c.Running():

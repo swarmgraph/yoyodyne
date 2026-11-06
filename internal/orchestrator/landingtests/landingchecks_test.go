@@ -306,7 +306,7 @@ func TestALandingRunsUnderItsOwnBudgetAndAStoppedCheckLeavesItUnverified(t *test
 	if len(landed.Checks) != 1 || !landed.Checks[0].StoppedAtBound || landed.Checks[0].Passed {
 		t.Fatalf("landing checks = %#v, want the first stopped at its budget and the second never run", landed.Checks)
 	}
-	if !strings.Contains(landed.Problem, "sleep 30 was stopped at its") || !strings.Contains(landed.Problem, "execution.landing_check_timeout budget") {
+	if !strings.Contains(landed.Problem, "sleep 30 ran for 1s from when it started and was stopped at its own 1s execution.landing_check_timeout limit") {
 		t.Fatalf("landing problem = %q, want the stopped check and the budget named", landed.Problem)
 	}
 	if len(filer.Filed) != 0 || landed.FiledWorkItem != "" {

@@ -167,7 +167,9 @@ func (w MergeQueueWorker) checkBase(ctx context.Context, lease *runstate.Lease, 
 		recorded.Problem = boundedEvidence(fmt.Sprintf("%s could not run on the base: %s", command, results[0].CouldNotRun))
 	default:
 		switch results[0].Process.Status {
-		case execution.ProcessTimedOut, execution.ProcessCancelled, execution.ProcessStalled:
+		case execution.ProcessTimedOut:
+			recorded.Problem = boundedEvidence(checkStopSays(results[0], "execution.check_timeout", runstate.CheckStage{}) + ", on the base, and judged nothing")
+		case execution.ProcessCancelled, execution.ProcessStalled:
 			recorded.Problem = boundedEvidence(fmt.Sprintf("%s was %s on the base and judged nothing", command, results[0].Process.Status))
 		default:
 			recorded.Passed, recorded.ExitCode = results[0].Passed, results[0].Process.ExitCode
