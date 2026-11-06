@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-11-05T18:08:29.095053Z
       reason: 'Two lines of this section were out of date: the decision record on Beads gained its consequence on October 15, and the invariant on one promotion per target branch gained the remote compare and swap on November 5, so neither still waits. The v1 design line now names the fix it waits on.'
+    - action: amended
+      by: architect
+      at: 2026-11-06T19:31:47.681685Z
+      reason: 'yoyodyne-ifd.429.124: feedback on the harness''s pull requests ignores only what a factory wrote, told apart by a hidden mark on everything the harness writes and the run''s list of the forge identifiers of what it wrote, never by the account, so the owner''s own feedback is read on a project that publishes under the owner''s account; a separate publishing account is optional and changes only what the forge lets the owner do. The build piece joins build item 2.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-11-05T18:08:29.095053Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2298, for document-2298.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-06T19:31:47.681685Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2367, for document-2367.1 under the automatic approval policy
 ---
 # Working alongside other contributors
 
@@ -68,11 +77,26 @@ A merge a person makes is therefore noticed by the next check, not by luck.
 
 ## 2. Feedback left on the pull request
 
-On each check the harness reads the reviews and comments on its open pull requests that came after the latest head it pushed. Anything written by the forge account the factory acts as is ignored.
+On each check the harness reads the reviews and comments on its open pull requests that came after the latest head it pushed. It ignores only what a factory wrote, and reads everything a person wrote, whichever forge account wrote it. The account cannot tell the two apart: on a project with one person, the harness publishes under that person's own forge account, and ignoring by account would throw away the owner's own feedback with the harness's own comments.
+
+So the harness marks what it writes, and keeps a list of it:
+
+- **A mark on everything it writes.** Every pull request description, comment and review the harness writes on the forge ends with a hidden line, `<!-- yoyodyne: <factory identity> -->`, naming the factory identity of section 5, which includes the product id. The forge does not show the line to a reader.
+- **A list of what it wrote.** When the forge answers a write, the harness records in the run's record the identifier the forge gave that comment or review.
+- **What is ignored.** A comment or review is ignored when its identifier is on the run's list, or when it carries a mark naming this product. The list catches a comment of the harness's whose mark a person removed while editing it. The mark catches a write whose answer was lost, such as one that timed out after the forge had taken it. Together they mean the harness never reads its own words back as a request to repair. Writing marked by another factory of this product is ignored too, because feedback is a person's: no factory reviews another factory's pull request on the forge, and the independent reviewer runs inside the factory that owns the run.
+- **Everything else is a person's.** It is read as below, whichever account wrote it, including the account the factory publishes under.
+
+A person's edit to a comment the harness wrote is not read as feedback, because the forge does not reliably say who made an edit; a person gives feedback by writing a comment or review of their own. A person who copies the hidden line into their own comment has that comment ignored. Collaborators are trusted peers, as the team-mode scope says, and the mark protects nothing except the harness from its own words.
+
+What a person wrote is handled this way:
 
 - **A review that requests changes, or a comment on a line of the change,** starts a repair round on the same run. It uses the run's existing worktree and repair budget. The developer is given the feedback as evidence, with its author and time. It is never an instruction that widens what the run may do. The repaired head goes through the configured checks and the independent reviewer again before it is pushed.
 - **An ordinary comment on the pull request** is put on the development manager's list. She decides whether it calls for a repair round, because a conversation comment is as often a question as a request.
 - **A person's approval on the forge** is recorded as information. It never stands in for the independent reviewer, and it never changes what the item's goal is.
+
+Where the harness publishes under the owner's own account, GitHub does not let that account approve its own pull request or request changes on it. The owner's feedback then arrives as comments: a comment on a line of the change starts a repair round, and any other comment goes to the development manager's list.
+
+A project may instead publish under an account of its own. That changes only what the forge lets the owner do: the owner can then approve and request changes on the forge, and readers of the pull request see the owner's words under the owner's name. It does not change what the harness ignores, which is still only what is marked or on the list, so a person signed in as the publishing account is still read. A separate account is never required. Where a project wants one, the account and its credential are the operator's to supply, and nothing in the harness asks for one.
 
 When the run's repair budget is spent, the run stops in the ordinary way and goes to the development manager, as [stopped-run recovery](fresh-factory-health-and-preserved-run-recovery.md) rules.
 
@@ -189,6 +213,9 @@ The scope records that an item's budgets are counted on the machine that counted
 - **Claims as files on the target branch.** Every claim would be a commit to main, through review and the promotion lease, for something that has to take seconds.
 - **A shared lock service.** It would be shared state outside Git and the forge, which the operator's direction rules out.
 - **Treating every pull request comment as a repair request.** It turns questions into repair rounds and spends budget on conversation.
+- **Ignoring feedback by the account that wrote it.** On a project with one person the harness publishes under the owner's own account, so the owner's feedback would be thrown away with the harness's own comments.
+- **The hidden mark alone, or the list alone.** With the mark alone, a person editing one of the harness's comments could remove the mark, and the comment would then be read as that person's feedback. With the list alone, a write that timed out after the forge had taken it would be read back as feedback.
+- **Requiring a separate publishing account.** It would cost every project with one person an extra account and a credential before the factory could take feedback, which the readme's first run and the aim of needing the owner only where a person is needed both argue against.
 - **Keeping reports on each machine.** It breaks the scope's promise that findings travel: a finding about shared work would reach only the operator whose run noticed it.
 - **Reports and spends as tracker items or notes.** A report, a directive and a spend are not work, and putting them in the tracker would put them in the queue of work to pull.
 - **A shared counter for budgets with a tie-break.** The claim already decides who may spend, so a second way of deciding would only be a place for the two to disagree.
@@ -201,6 +228,7 @@ The scope records that an item's budgets are counted on the machine that counted
 - With team mode on, a claim is taken only by a push that fails if the reference exists. It is renewed, taken over and released only by a lease naming the expected commit. No agent touches a claim reference.
 - The intake hold is read before every start. With team mode on, the team pause is read before every claim, from the fetch made for it.
 - The forge check runs on its own schedule, not inside the maintenance pass, and a change it read but could not finish acting on is read and acted on again at the next check.
+- Everything the harness writes on a pull request carries the hidden mark, and the forge identifier of each write is recorded in the run's record. Feedback is ignored only when its identifier is on that list or it carries a mark naming this product; the account that wrote it is never the test.
 - A rewrite of a published head happens only after its merge authority is confirmed withdrawn.
 - Nothing lands on the target except through the pinned pull request merge, or a push with a lease naming the candidate's base.
 - A person's approval on the forge never satisfies the independent review.
@@ -211,6 +239,7 @@ The scope records that an item's budgets are counted on the machine that counted
 
 - An item waiting for a person names its pull request wherever it is shown, closes when that pull request merges, and goes to the Lead Product Manager when it is closed unmerged.
 - Changes requested on the pull request start a repair round on the same run; an ordinary comment reaches the development manager's list.
+- On a project that publishes under the owner's own account, the owner's comment on a line of the change starts a repair round, while the harness's own comments start nothing, including one whose write timed out after the forge had taken it.
 - Every run's record names the target it started from and whether that target was fetched for the run.
 - A conflict while bringing a pull request up to date is a repair round counted against its own limit.
 - At the limit on waiting pull requests, no new developer work starts, and the status line names the pull requests being waited on.
@@ -229,7 +258,7 @@ The scope records that an item's budgets are counted on the machine that counted
 ## Build items, for the Lead Product Manager to admit under `team-development`
 
 1. The state of waiting for a person to merge: close the item on merge, and send a pull request closed without merging back to the Lead Product Manager with the work kept.
-2. Feedback on the pull request turned into repair rounds, and ordinary comments put on the development manager's list.
+2. Feedback on the pull request turned into repair rounds, and ordinary comments put on the development manager's list. It includes the hidden mark on everything the harness writes on a pull request, the run's list of the forge identifiers of what it wrote, and ignoring feedback by those rather than by account; the feedback build already admitted (yoyodyne-ifd.429.100) can be widened to carry it.
 3. Fetch before each run, with the starting target and its age recorded.
 4. Waiting pull requests brought up to date when the target moves, with conflicts as repair rounds under their own limit.
 5. The limit on waiting pull requests, and the pause it causes, said in plain words on every surface.
