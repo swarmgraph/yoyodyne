@@ -25,6 +25,7 @@ package readmodel
 // — and says so only in its own output, which the harness does not read.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -361,16 +362,16 @@ func ReadCheckTimes(sources CheckTimesSources) CheckTimesReading {
 		reading.NotRecorded = noHeavyChecks
 		return reading
 	}
-	if sources.Runs == nil {
-		reading.NotRecorded = absent(sourceRuns, sources.RunsProblem)
+	// The run records are read the way the delivery page reads them, with no
+	// other source named, so this is the delivery reading's one read of every
+	// record rather than a second one of its own; every source not named is
+	// left unread.
+	read := readDeliverySources(context.Background(), DeliverySources{Runs: sources.Runs, RunsProblem: sources.RunsProblem}, weeks[0].Start)
+	if read.runsErr != "" {
+		reading.NotRecorded = read.runsErr
 		return reading
 	}
-	states, err := sources.Runs.Recorded()
-	if err != nil {
-		reading.NotRecorded = fmt.Sprintf("%s could not be read: %v", sourceRuns, err)
-		return reading
-	}
-	launches, problems := heavyCheckLaunches(sources.Runs, states, sources.HeavyChecks, weeks[0].Start, sources.Memo)
+	launches, problems := heavyCheckLaunches(sources.Runs, read.runs, sources.HeavyChecks, weeks[0].Start, sources.Memo)
 	reading.NotRead = problems
 	for index := range reading.Weeks {
 		reading.Weeks[index].Checks = checkTimesOf(launches, reading.Weeks[index].Start, reading.Weeks[index].End)
