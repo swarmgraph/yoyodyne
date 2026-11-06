@@ -44,12 +44,19 @@ func pauseHarness(args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	configPath := flags.String("config", "", "configuration file path (default: the nearest project configuration)")
 	jsonOutput := flags.Bool("json", false, "emit machine-readable JSON")
+	team := flags.Bool("team", false, "set the team pause on the shared remote instead of pausing this machine (team mode only)")
+	clear := flags.Bool("clear", false, "with --team, clear the team pause")
 	positional, err := parseArguments(flags, args)
 	if err != nil {
 		return 2
 	}
 	if len(positional) != 0 {
 		fmt.Fprintln(stderr, "pause does not accept positional arguments: it holds everything, not one item")
+		printPauseUsage(stderr)
+		return 2
+	}
+	if *clear && !*team {
+		fmt.Fprintln(stderr, "--clear goes with --team and clears the team pause; `yoyo resume` lifts this machine's own pause")
 		printPauseUsage(stderr)
 		return 2
 	}
@@ -62,6 +69,9 @@ func pauseHarness(args []string, stdout, stderr io.Writer) int {
 	parts, err := buildComponents(*configPath)
 	if err != nil {
 		return reportHoldError(stdout, stderr, *jsonOutput, err)
+	}
+	if *team {
+		return pauseTeam(parts, *clear, *jsonOutput, stdout, stderr)
 	}
 	_, already, err := parts.holds.Held()
 	if err != nil {
@@ -143,10 +153,25 @@ A provider call already in flight is not interrupted. The hold is read before a
 call, so a generation already streaming finishes and is charged for; the pause
 takes effect at the next boundary.
 
+This pause is this machine's alone. It is never shared with another machine
+working the same repository, so one collaborator cannot stop another's machine.
+
+With --team, on a project whose configuration turns team mode on
+(team.enabled: true), it sets the team pause instead: the reference
+refs/yoyodyne/pause on the shared remote. While it is set, no factory working
+the repository starts new work the harness chose for itself; runs in progress
+finish, repair rounds and waiting pull requests carry on, and an item an
+operator names on their own machine is still started. Every factory in team mode
+reads it before it claims an item, and `+"`yoyo status`"+` says who set it.
+`+"`yoyo pause --team --clear`"+` clears it. On a project with team mode off
+there is no team pause, and --team is refused.
+
 This is a person's verb. A process the harness launched for a role -- an
 agent's shell, marked by YOYODYNE_AGENT_ROLE -- is refused it and told so.
 
 Options:
   --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)
+  --team            set the team pause on the shared remote (team mode only)
+  --clear           with --team, clear the team pause
   --json            emit machine-readable JSON`)
 }

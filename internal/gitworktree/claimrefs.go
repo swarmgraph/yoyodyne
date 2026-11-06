@@ -79,12 +79,15 @@ func ClaimRef(workItemID string) (string, error) {
 func (m *Manager) ClaimRemote() string { return m.remote }
 
 // FetchClaims copies every claim reference the remote holds into the local
-// repository, and drops the local copy of any the remote no longer holds.
+// repository, and drops the local copy of any the remote no longer holds. The
+// team pause comes in the same fetch (teampause.go), so a claim is never taken
+// on a reading of the pause older than the reading of the claims.
 func (m *Manager) FetchClaims(ctx context.Context) error {
 	result, err := m.runRemote(ctx, "-C", m.repositoryRoot,
 		"-c", "core.hooksPath="+os.DevNull,
 		"fetch", "--no-tags", "--prune", "--no-write-fetch-head", m.remote,
-		"+"+ClaimRefPrefix+"*:"+fetchedClaimRefPrefix+"*")
+		"+"+ClaimRefPrefix+"*:"+fetchedClaimRefPrefix+"*",
+		teamPauseRefspec)
 	if err != nil {
 		return err
 	}

@@ -21,6 +21,7 @@ type fakeTeamClaims struct {
 	takeErr  error
 	previous string
 	taken    []string
+	named    []string
 	released []string
 	// claimedInTrackerAtTake is whether the tracker had been claimed when the
 	// remote claim was taken, which must never be true.
@@ -39,6 +40,24 @@ func (f *fakeTeamClaims) Take(_ context.Context, workItemID, runID string) (runs
 	}
 	f.taken = append(f.taken, runID)
 	return runstate.TeamClaim{WorkItemID: workItemID, RunID: runID, PreviousHolder: f.previous}, nil
+}
+
+// TakeNamed is Take for an item the operator named, recorded apart so a test
+// can tell which the pipeline asked for. It is never refused for the team
+// pause, as the real one is not.
+func (f *fakeTeamClaims) TakeNamed(ctx context.Context, workItemID, runID string) (runstate.TeamClaim, error) {
+	f.mu.Lock()
+	f.named = append(f.named, runID)
+	takeErr := f.takeErr
+	f.mu.Unlock()
+	var paused teamclaim.PausedError
+	if errors.As(takeErr, &paused) {
+		f.mu.Lock()
+		f.takeErr = nil
+		f.mu.Unlock()
+		defer func() { f.mu.Lock(); f.takeErr = takeErr; f.mu.Unlock() }()
+	}
+	return f.Take(ctx, workItemID, runID)
 }
 
 func (f *fakeTeamClaims) Release(_ context.Context, _, runID string) error {
@@ -122,6 +141,74 @@ func TestAnItemHeldOnTheRemoteIsSkippedNamingTheHolder(t *testing.T) {
 	}
 	if because := excludedBecause(started); !strings.Contains(because, "did not start it") || strings.Contains(because, "another process") {
 		t.Fatalf("excluded because %q, want it to say the session did not start it", because)
+	}
+}
+
+// While the team pause is set, work the harness chose is not started: nothing
+// is reserved, the tracker is not claimed, and the scheduler records it as a
+// start it chose and did not make, naming who set the pause.
+func TestTheTeamPauseStartsNoWorkTheHarnessChose(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(backend.RunRequest) error { return nil }, approveVerdict)
+	pipeline, store := newPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	pause := teamclaim.Pause{SetBy: "mason", Factory: "yoyodyne on alpha"}
+	claims := &fakeTeamClaims{takeErr: teamclaim.PausedError{WorkItemID: "yoyodyne-task", Pause: pause}}
+	pipeline.TeamClaims = claims
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	var paused teamclaim.PausedError
+	if !errors.As(err, &paused) {
+		t.Fatalf("Run() error = %v, want the team pause", err)
+	}
+	if len(claims.named) != 0 {
+		t.Fatalf("a harness selection was claimed as one the operator named")
+	}
+	if outcome.RunID != "" || tracker.Claimed || len(provider.Requests) != 0 {
+		t.Fatalf("outcome = %#v, claimed = %v, requests = %d, want nothing reserved, claimed or asked", outcome, tracker.Claimed, len(provider.Requests))
+	}
+	if incomplete, err := store.Incomplete(); err != nil || len(incomplete) != 0 {
+		t.Fatalf("runs in flight = %v, %v, want none", incomplete, err)
+	}
+
+	harness := newScheduleHarness(readyItems("yoyodyne-one")...)
+	harness.run = func(_ *scheduleHarness, id string) (Outcome, error) {
+		return Outcome{}, teamclaim.PausedError{WorkItemID: id, Pause: pause}
+	}
+	schedule, err := Scheduler{Open: harness.open}.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if len(schedule.Started) != 1 {
+		t.Fatalf("started = %#v, want the chosen item reported", schedule.Started)
+	}
+	started := schedule.Started[0]
+	if started.Failure != "" || !strings.Contains(started.Declined, "team pause is set on the shared remote, by mason on yoyodyne on alpha") {
+		t.Fatalf("started = %#v, want a declined start naming who set the pause", started)
+	}
+}
+
+// An item the operator named is his exception to the team pause, as it is to
+// the intake hold: its claim is taken by the form that does not read the pause.
+func TestAnItemTheOperatorNamedIsClaimedThroughTheTeamPause(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(backend.RunRequest) error { return nil }, approveVerdict)
+	pipeline, _ := newPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	pipeline.Selection = runstate.OperatorSelection("named at a terminal", time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC))
+	claims := &fakeTeamClaims{tracker: tracker, takeErr: teamclaim.PausedError{WorkItemID: "yoyodyne-task", Pause: teamclaim.Pause{SetBy: "mason"}}}
+	pipeline.TeamClaims = claims
+
+	outcome, _ := pipeline.Run(context.Background(), tracker.Item.ID)
+	if len(claims.named) != 1 || claims.named[0] != outcome.RunID {
+		t.Fatalf("named claims = %v, want one for run %s", claims.named, outcome.RunID)
+	}
+	if !tracker.Claimed {
+		t.Fatalf("the operator's named item was not started under the team pause")
 	}
 }
 
