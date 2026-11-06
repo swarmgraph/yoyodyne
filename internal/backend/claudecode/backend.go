@@ -766,7 +766,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	if clock == nil {
 		clock = execution.RealClock{}
 	}
-	redactor := execution.NewRedactor(request.RedactValues...)
+	// A provider prints credentials of its own, which the harness never held,
+	// when it fails, so its output is also redacted by shape.
+	redactor := execution.NewRedactor(request.RedactValues...).WithSecretShapes()
 	parser := newStreamParser(request.RunID, request.Role, request.LastSequence, clock, redactor, request.EventSink, request.ReplySink, b.dialect())
 	parser.loaded = loaded
 	if subagent != "" {

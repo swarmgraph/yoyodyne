@@ -1327,3 +1327,31 @@ func TestRunStartsTheProviderBehindTheRequestsLaunchGate(t *testing.T) {
 		t.Fatalf("the provider command's gate = %p, want the request's %p", runner.commands[0].Gate, gate)
 	}
 }
+
+// Codex prints credentials of its own, which the harness never held, when it
+// fails, so the redactor it hands the process runner for its output removes a
+// secret by its shape as well as the values it was given. The sample key is put
+// together from pieces so no file carries one whole.
+func TestRunRedactsTheProviderOutputBySecretShape(t *testing.T) {
+	t.Parallel()
+
+	key := "sk-" + "proj-" + strings.Repeat("A", 48)
+	runner := &fakeRunner{results: []execution.ProcessResult{{
+		Status: execution.ProcessSucceeded,
+		Stdout: lines(`{"id":"1","msg":{"type":"task_complete","last_agent_message":"done"}}`),
+	}}}
+	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
+		RunID:            testRunID,
+		Role:             domain.RoleDeveloper,
+		WorkingDirectory: "/worktree",
+		Prompt:           "implement",
+	}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(runner.commands) == 0 {
+		t.Fatal("no process was run")
+	}
+	if got := runner.commands[0].Redactor.Redact("Incorrect API key provided: " + key); strings.Contains(got, key) {
+		t.Fatalf("the provider's output redactor kept a key it can recognize: %q", got)
+	}
+}

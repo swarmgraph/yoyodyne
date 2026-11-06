@@ -14,6 +14,17 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
+// Made-up credentials in the formats Claude Code and Codex issue, each put
+// together from pieces while the test runs, because a sample written out whole
+// is one the forge's secret scanner refuses a push over.
+var (
+	sampleAPIKey       = "sk-" + "ant-" + "api03-" + strings.Repeat("Q2xhdWRl", 6)
+	sampleAccessToken  = "sk-" + "ant-" + "oat01-" + strings.Repeat("T2F1dGhB", 6)
+	sampleRefreshToken = "rt" + "_" + strings.Repeat("UmVmcmVzaA", 3)
+	sampleJWT          = "ey" + "JhbGciOiJSUzI1NiJ9." + "ey" + "JzdWIiOiJ1c2VyIn0." + strings.Repeat("c2ln", 6)
+	sampleAccountID    = "6f1c0b3e-" + "9a2d-4e5f-8a7b-" + "1c2d3e4f5a6b"
+)
+
 // A developer session that dies before the run's first check says why on the
 // run's record, on the item's notes and on the docket entry, and the item's
 // notes end on that cause rather than on the diff stat. The session here is the
@@ -27,6 +38,8 @@ func TestADeveloperRunThatFailsBeforeItsFirstCheckRecordsWhatEndedIt(t *testing.
 		name   string
 		result backend.RunResult
 		want   []string
+		// secrets are what the session printed that must reach none of the records.
+		secrets []string
 	}{
 		{
 			name: "the session wrote its reason to standard error",
@@ -59,6 +72,32 @@ func TestADeveloperRunThatFailsBeforeItsFirstCheckRecordsWhatEndedIt(t *testing.
 				"the session exited with status 2",
 				"it wrote nothing to standard error",
 			},
+		},
+		{
+			// Neither provider's login is in the harness's environment, so these
+			// are values nobody gave a redactor: only their shapes remove them.
+			name: "the session failed to sign in and printed its credentials",
+			result: backend.RunResult{
+				IsError:    true,
+				StopReason: "authentication_failed",
+				FinalText:  "invalid x-api-key: " + sampleAPIKey,
+				Process: execution.ProcessResult{
+					Status:   execution.ProcessFailed,
+					ExitCode: 1,
+					Stderr: strings.Join([]string{
+						`[DEBUG] "Authorization": "Bearer ` + sampleAccessToken + `"`,
+						`OAuth token refresh failed: {"refresh_token":"` + sampleRefreshToken + `","error":"invalid_grant"}`,
+						`request headers: authorization: Bearer ` + sampleJWT + `, chatgpt-account-id: ` + sampleAccountID,
+						"Invalid API key · Please run /login",
+					}, "\n") + "\n",
+				},
+			},
+			want: []string{
+				"the provider answered: authentication_failed: invalid x-api-key: [REDACTED]",
+				"Invalid API key · Please run /login",
+				"Bearer [REDACTED]",
+			},
+			secrets: []string{sampleAPIKey, sampleAccessToken, sampleRefreshToken, sampleJWT, sampleAccountID},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -103,6 +142,11 @@ func TestADeveloperRunThatFailsBeforeItsFirstCheckRecordsWhatEndedIt(t *testing.
 						t.Errorf("%s does not say %q:\n%s", label, want, text)
 					}
 				}
+				for _, secret := range test.secrets {
+					if strings.Contains(text, secret) {
+						t.Errorf("%s carries a secret the session printed:\n%s", label, text)
+					}
+				}
 				if strings.Contains(text, "process_exit_") {
 					t.Errorf("%s carries the adapter's stand-in reason rather than plain words:\n%s", label, text)
 				}
@@ -128,14 +172,14 @@ func TestSessionLastLinesKeepsTheEndOfTheStream(t *testing.T) {
 		stream.WriteString(strings.Repeat("x", 300) + "\n")
 	}
 	stream.WriteString("the line that ended it\n")
-	last := sessionLastLines(stream.String())
+	last := sessionLastLines(stream.String(), execution.NewRedactor().WithSecretShapes())
 	if !strings.HasSuffix(last, "  the line that ended it") {
 		t.Fatalf("the last line is not kept: %q", last)
 	}
 	if len(last) > 2<<10 || strings.Count(last, "\n") >= 10 {
 		t.Fatalf("the end of the stream is %d bytes over %d lines", len(last), strings.Count(last, "\n")+1)
 	}
-	if sessionLastLines("\n \n") != "" {
+	if sessionLastLines("\n \n", execution.NewRedactor().WithSecretShapes()) != "" {
 		t.Fatal("a stream of blank lines is reported as something written")
 	}
 }

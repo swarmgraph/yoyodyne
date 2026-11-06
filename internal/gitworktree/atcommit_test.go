@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -62,5 +63,36 @@ func TestFileAtCommitReadsThePathAsTheCommitHoldsIt(t *testing.T) {
 		if _, err := manager.FileAtCommit(ctx, test.commit, test.path, 1<<20); !errors.Is(err, ErrNotAtCommit) {
 			t.Fatalf("FileAtCommit(%s, %s) error = %v, want ErrNotAtCommit", test.commit, test.path, err)
 		}
+	}
+}
+
+// Git output is data rather than an AI provider's text, so a file whose lines
+// look like credentials, such as a test of the secret scrubbing, is read back
+// byte for byte rather than rewritten and then refused for its size. The samples
+// are put together from pieces, as a whole one written in a file is one the
+// forge's secret scanner refuses a push over.
+func TestFileAtCommitReadsSecretShapedTextByteForByte(t *testing.T) {
+	t.Parallel()
+
+	content := strings.Join([]string{
+		`{"api_key":"abcdefgh12345678","password":"hunter2hunter2"}`,
+		`OPENAI_API_KEY=\"abcdefgh12345678\"`,
+		`curl -H "Authorization: Bearer $TOKEN" -H "x-api-key: abcdefgh12345678"`,
+		"key := \"sk-" + "proj-" + strings.Repeat("A", 48) + "\"",
+		"",
+	}, "\n")
+	repository := newRepository(t)
+	writeFile(t, repository, "internal/shapes_test.go", content)
+	runGit(t, repository, "add", ".")
+	runGit(t, repository, "commit", "-m", "secret-shaped text")
+	head := gitLine(t, repository, "rev-parse", "HEAD")
+	manager := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+
+	file, err := manager.FileAtCommit(context.Background(), head, "internal/shapes_test.go", 1<<20)
+	if err != nil {
+		t.Fatalf("FileAtCommit() error = %v", err)
+	}
+	if string(file.Content) != content {
+		t.Fatalf("FileAtCommit() = %q, want it byte for byte: %q", file.Content, content)
 	}
 }
