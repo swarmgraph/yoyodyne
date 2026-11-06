@@ -6745,7 +6745,7 @@ func (a *activeRun) verify(ctx context.Context) error {
 			Commands:     keeping.commands,
 			ProviderCLIs: keeping.providerCLIs,
 			LastSequence: a.state.LastSequence,
-			Env:          []string{narrowing.Env()},
+			Narrowing:    &narrowing,
 			// The bound is read again as each check begins, because the load a
 			// stage starts under is not the load three suites beside each other
 			// build up; it only ever grows, and the record carries it before the
@@ -7559,7 +7559,7 @@ func (a *activeRun) runLandingChecks(ctx context.Context) {
 				// to read the narrowing is told there is none — and it is given the
 				// landing's own budget with no stage bound, because the suite moved
 				// here is the one the gate's stage bound cannot hold.
-				Env:       []string{checks.Narrowing{Whole: true, Reason: "a landing runs the whole suite"}.Env()},
+				Narrowing: &checks.Narrowing{Whole: true, Reason: "a landing runs the whole suite"},
 				Timeout:   budget,
 				Unbounded: true,
 				// A landing's heavy checks are let start ahead of every run's gate

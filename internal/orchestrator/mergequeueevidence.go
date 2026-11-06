@@ -149,7 +149,7 @@ func (w MergeQueueWorker) checkBase(ctx context.Context, lease *runstate.Lease, 
 		Directory:    checkout,
 		Commands:     []string{command},
 		LastSequence: generation.LastSequence,
-		Env:          []string{checks.Narrowing{Whole: true, Reason: "the target is checked whole at a merge queue candidate's base"}.Env()},
+		Narrowing:    &checks.Narrowing{Whole: true, Reason: "the target is checked whole at a merge queue candidate's base"},
 		Gate:         launched.gate,
 	}, w.Events)
 	if lastSequence > generation.LastSequence {

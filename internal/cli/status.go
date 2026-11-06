@@ -146,6 +146,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	from := flags.String("from", "", "with --spend, report what the spend accomplished from this day, YYYY-MM-DD in Pacific time")
 	to := flags.String("to", "", "with --spend, report what the spend accomplished up to and including this day, YYYY-MM-DD in Pacific time")
 	shipped := flags.Bool("shipped", false, "list the most recently shipped work items with their price and wall clock")
+	checkTimes := flags.Bool("checks", false, "report how long the heavy checks took and waited, week by week")
 	latest := flags.Bool("latest", false, "with --follow, move to a later stream when one starts")
 	lines := flags.Int("lines", defaultStreamLines, "replay this many recorded events first (0 replays the whole log)")
 	kind := flags.String("kind", "", "narrow to one kind: runs, chats, reviews, sides, exchanges, or all (default all)")
@@ -181,7 +182,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	mode, err := selectedStatusMode(*follow, *events, *list, *spend, *shipped)
+	mode, err := selectedStatusMode(*follow, *events, *list, *spend, *shipped, *checkTimes)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		printStatusUsage(stderr)
@@ -230,6 +231,20 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 			return 2
 		}
 		return reportShipped(*configPath, count, *jsonOutput, stdout, stderr)
+	}
+	// The check times read the run records and their event logs for every week
+	// the delivery page covers, so they take no id and nothing that shapes a
+	// stream.
+	if mode == statusShowsCheckTimes {
+		if *raw || *includeAll || *kind != "" || *from != "" || *to != "" || flagGiven(flags, "since") || *detail {
+			fmt.Fprintln(stderr, "--checks reports every heavy check week by week, so it takes only --config and --json")
+			return 2
+		}
+		if named != "" {
+			fmt.Fprintln(stderr, "--checks reports every heavy check week by week, so it takes no id")
+			return 2
+		}
+		return reportCheckTimes(*configPath, *jsonOutput, stdout, stderr)
 	}
 	if !followableKinds(kinds) && mode != statusPricesStreams {
 		fmt.Fprintln(stderr, "an exchange has no event stream to follow or list; --kind exchanges needs --spend")
@@ -559,10 +574,10 @@ func statusStateRoots(configPath string) (statusRoots, error) {
 
 // statusMode is which question of the verb was asked. The record afterwards is
 // the default because it is the one that needs no argument and refuses nothing;
-// four are the live surface this verb absorbed, and the last is the shipped
-// ledger, which reads the run records the default reads and answers a
-// different question of them: not what became of each attempt, but what
-// shipped and what it took.
+// four are the live surface this verb absorbed, the shipped ledger reads the
+// run records the default reads and answers a different question of them: not
+// what became of each attempt, but what shipped and what it took. The last is
+// the check times, read from the same records' event logs.
 type statusMode int
 
 const (
@@ -572,13 +587,14 @@ const (
 	statusListsStreams
 	statusPricesStreams
 	statusListsShipped
+	statusShowsCheckTimes
 )
 
 // selectedStatusMode reads which mode the flags asked for. They are exclusive
 // because they are different answers rather than different amounts of one:
 // combining them would have to invent a precedence, and an operator who typed
 // two of them meant one of them.
-func selectedStatusMode(follow, events, list, spend, shipped bool) (statusMode, error) {
+func selectedStatusMode(follow, events, list, spend, shipped, checkTimes bool) (statusMode, error) {
 	selected := statusReadsRecords
 	named := 0
 	for _, mode := range []struct {
@@ -590,6 +606,7 @@ func selectedStatusMode(follow, events, list, spend, shipped bool) (statusMode, 
 		{list, statusListsStreams},
 		{spend, statusPricesStreams},
 		{shipped, statusListsShipped},
+		{checkTimes, statusShowsCheckTimes},
 	} {
 		if mode.asked {
 			selected = mode.mode
@@ -597,7 +614,7 @@ func selectedStatusMode(follow, events, list, spend, shipped bool) (statusMode, 
 		}
 	}
 	if named > 1 {
-		return statusReadsRecords, errors.New("--follow, --events, --list, --spend, and --shipped are different questions; ask one of them")
+		return statusReadsRecords, errors.New("--follow, --events, --list, --spend, --shipped, and --checks are different questions; ask one of them")
 	}
 	return selected, nil
 }
@@ -1719,6 +1736,7 @@ func printStatusUsage(writer io.Writer) {
        yoyo status --spend [options] [<id>|<days>]
        yoyo status --spend --from <day> [--to <day>] [options]
        yoyo status --shipped [options] [<n>]
+       yoyo status --checks [--json]
 
 Where the harness stands, then what became of the runs it made.
 
@@ -1846,6 +1864,14 @@ compute says unknown, and neither is ever reported as nothing. The join it price
 is `+"`yoyo cost`"+`'s: the ledger is that join read for the shipped items and
 sorted by when each shipped.
 
+--checks reports, week by week from Monday to Sunday in this machine's time
+zone, which it names, how long each heavy check (execution.heavy_checks) took:
+how many times it ran and how many of those passed, the median time of the
+runs that passed, the median wait for a free place to run it, and how many runs
+were told to run the whole module and why. It is read from every run's event
+log, so it goes back as far as the runs do; the delivery page on the dashboard
+shows the same figures day by day and week by week.
+
 Every live mode leads with a banner while activity is paused or intake is held:
 a machine somebody paused and a machine that died look identical otherwise. The
 recorded mode says the same on its "Needs a human" line.
@@ -1866,6 +1892,7 @@ Live options:
   --from <day>      with --spend, report what the spend accomplished from this day (YYYY-MM-DD, Pacific time)
   --to <day>        with --spend, report what the spend accomplished up to and including this day
   --shipped         list the most recently shipped items with cost, elapsed, and paused time
+  --checks          report how long the heavy checks took and waited, week by week
   --latest          with --follow, move to a later stream when one starts
   --lines <n>       replay this many recorded events first (default 50; 0 the whole log)
   --kind <kind>     runs, chats, reviews, sides, exchanges (--spend only), or all (default all)

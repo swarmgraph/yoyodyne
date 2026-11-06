@@ -7100,10 +7100,15 @@ under it, newest first: changes merged; lead time, from filing to merge, as the
 median and the 90th percentile; lead time by stage, as each stage's median;
 the change failure rate; recovery time; the rework rate, with the share of
 merges whose item records no kind beside it; hand steps per merged change, which
-is at least the recorded count; the first-pass rate; and tokens per merged
-change, one series per model. Durations are in hours on the charts and in words
-in the tables, and shares are percentages. Each panel names the records its
-measure was read from.
+is at least the recorded count; the first-pass rate; tokens per merged
+change, one series per model; and check times: for each heavy check, how many
+times it ran and passed, the median time of the runs that passed, the median
+wait for a free place to run it, and how many runs were told to run the whole
+module and why, read from every run's event log whether its change merged or
+not ([how long the heavy checks took](configuration.md#how-long-the-heavy-checks-took-week-by-week)).
+Durations are in hours on the charts and in words in the tables, except the
+check times, which are in minutes and to the second, and shares are
+percentages. Each panel names the records its measure was read from.
 
 A figure the reading does not carry is never drawn as zero. Where a measure's
 records could not be read for a day or week, its table says `not recorded`,
@@ -8028,6 +8033,7 @@ yoyo status --spend 40b68275     # report spend for one run, conversation, revie
 yoyo status --spend --from 2026-10-17 --to 2026-10-24   # what that spend accomplished, by role, week, review, and item
 yoyo status --shipped            # the 10 most recently shipped items: cost, elapsed, paused, runs
 yoyo status --shipped 25         # that many instead of 10; 0 lists every item that shipped
+yoyo status --checks             # how long each heavy check took and waited, week by week
 ```
 
 A conversation and a branch review each record the same kind of event stream a

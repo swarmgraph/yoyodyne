@@ -232,6 +232,7 @@ func deliveryFixture() readmodel.Delivery {
 		HandSteps:     readmodel.DeliveryHandStepCount{DeliveryMeasure: unread},
 		FirstPass:     readmodel.DeliveryFirstPass{DeliveryMeasure: unread},
 		Tokens:        readmodel.DeliveryTokens{DeliveryMeasure: unread},
+		CheckTimes:    readmodel.DeliveryCheckTimes{DeliveryMeasure: unread},
 	}
 
 	read := readmodel.DeliveryMeasure{ReadFrom: runs}
@@ -262,6 +263,7 @@ func deliveryFixture() readmodel.Delivery {
 		HandSteps:     readmodel.DeliveryHandStepCount{DeliveryMeasure: read, Count: &readmodel.InterventionCount{Changes: []readmodel.ChangeInterventions{}, Floor: readmodel.InterventionsFloor}},
 		FirstPass:     readmodel.DeliveryFirstPass{DeliveryMeasure: read},
 		Tokens:        readmodel.DeliveryTokens{DeliveryMeasure: read, ByModel: []readmodel.ModelTokens{}},
+		CheckTimes:    readmodel.DeliveryCheckTimes{DeliveryMeasure: read},
 	}
 
 	cleared := start1.Add(30 * time.Hour)
@@ -286,6 +288,12 @@ func deliveryFixture() readmodel.Delivery {
 			{Model: "claude-opus-5-5", Changes: 2, Tokens: runstate.TokenUsage{InputTokens: 100000, OutputTokens: 20000}, PerChange: readmodel.TokensPerChange{Input: 50000, Output: 10000, Total: 60000}},
 			{Model: "gpt-5-codex", Changes: 1, Tokens: runstate.TokenUsage{InputTokens: 30000}, PerChange: readmodel.TokensPerChange{Input: 15000, Total: 15000}},
 		}},
+		CheckTimes: readmodel.DeliveryCheckTimes{DeliveryMeasure: read, Checks: []readmodel.CheckTimes{
+			{Check: "make race", Launches: 3, Passed: 2, PassedRan: seconds(1260, 1500), Waited: seconds(210, 300), WholeModule: 2,
+				WholeModuleReasons: []readmodel.CountedReason{{Reason: "the merge candidate is checked whole before it is promoted", Count: 1}, {Reason: "go.mod changed, which every package depends on", Count: 1}},
+				Narrowed:           1},
+			{Check: "make test", Launches: 2, Passed: 0, Waited: seconds(0, 0), Narrowed: 1, ScopeNotRecorded: 1},
+		}},
 	}
 
 	start3, end3 := day("2026-10-05")
@@ -302,6 +310,9 @@ func deliveryFixture() readmodel.Delivery {
 		HandSteps: readmodel.DeliveryHandStepCount{DeliveryMeasure: read, Count: &readmodel.InterventionCount{Merged: 1, PerChange: 0, Floor: readmodel.InterventionsFloor}},
 		FirstPass: readmodel.DeliveryFirstPass{DeliveryMeasure: read, Merges: 1, Unknown: 1},
 		Tokens:    readmodel.DeliveryTokens{DeliveryMeasure: readmodel.DeliveryMeasure{ReadFrom: runs, NotRecorded: usageUnread}, Merges: 1},
+		CheckTimes: readmodel.DeliveryCheckTimes{DeliveryMeasure: read, Checks: []readmodel.CheckTimes{
+			{Check: "make race", Launches: 1, Passed: 1, PassedRan: seconds(600, 600), Waited: seconds(30, 30), Narrowed: 1},
+		}},
 	}
 
 	week := busy
