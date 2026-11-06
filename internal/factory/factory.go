@@ -82,6 +82,16 @@ func (r *Reader) Read(ctx context.Context) (Identity, error) {
 	return Identity{Product: string(r.Product), Machine: machine, ForgeAccount: account}, nil
 }
 
+// Name is the identity Read returns, in the words Identity.String gives it: the
+// name a claim records for the factory holding it (teamclaim.Claims.Identity).
+func (r *Reader) Name(ctx context.Context) (string, error) {
+	identity, err := r.Read(ctx)
+	if err != nil {
+		return "", err
+	}
+	return identity.String(), nil
+}
+
 func (r *Reader) forgeAccount(ctx context.Context) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

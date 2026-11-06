@@ -23,7 +23,6 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
-	"github.com/mason-bryant/yoyodyne/internal/factory"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/intervention"
@@ -732,7 +731,7 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		Publisher: forge,
 		// The pull requests it opens name the factory: this product, the machine
 		// identity kept in the home, and the forge account the publisher acts as.
-		Factory: &factory.Reader{Home: parts.stateRoot, Product: cfg.Product.ID, Forge: forge},
+		Factory: factoryIdentities(parts),
 		// Where an approved change goes with execution.merge_queue on. It is
 		// wired whatever the switch says and read only where it is on, so turning
 		// the switch off admits nothing new.

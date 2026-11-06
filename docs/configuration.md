@@ -193,8 +193,11 @@ builds kept at `~/.config/yoyodyne` is read only for a `machine.yaml` still left
 there, and the migration moves that and every external configuration out of it.
 
 `machine-identity.json` names this machine in the factory identity the harness
-puts in every pull request description it opens: the product id, this machine's
-identity, and the forge account it acts as. It is made the first time it is
+puts in every pull request description it opens and, with team mode on, in every
+claim it takes: the product id, this machine's identity, and the forge account
+it acts as. A claim taken while the forge will not say which account that is
+names the product and this machine's identity and says the account was not
+read, rather than leaving the item unclaimed. The identity is made the first time it is
 needed and moves with the home, so a home is one factory for as long as it
 exists; a second home on the same machine, such as one `YOYODYNE_STATE_HOME`
 names, is a second factory. Deleting the file makes this machine read as a new
@@ -5357,8 +5360,9 @@ it, so two factories never do the same work:
   said on the schedule.
 
 Each claim is a commit of the empty tree whose message records the factory
-holding it (the product, the machine's host name, and the machine identifier
-kept in the state directory's `machine.identity`), the item, the
+holding it (the factory identity: the product id, the machine identity kept in
+the home's `machine-identity.json`, and the forge account the harness acts as),
+the item, the
 run, and when it was taken and last renewed. What this machine holds is kept
 under its state directory in `team-claims/`. Only the harness pushes these
 references, as it pushes pull request branches; no agent is given anything that

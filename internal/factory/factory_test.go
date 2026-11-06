@@ -52,6 +52,9 @@ func TestReadNamesTheProductTheMachineAndTheForgeAccount(t *testing.T) {
 	if err != nil || other != first {
 		t.Fatalf("a second reader on the same home = %+v, %v; want %+v", other, err, first)
 	}
+	if name, err := reader.Name(context.Background()); err != nil || name != first.String() {
+		t.Fatalf("Name() = %q, %v; want %q", name, err, first.String())
+	}
 	if line := first.String(); !strings.Contains(line, "yoyodyne") || !strings.Contains(line, machine) || !strings.Contains(line, "factory-bot") {
 		t.Fatalf("String() = %q, want every part named", line)
 	}
