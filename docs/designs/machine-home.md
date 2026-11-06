@@ -30,6 +30,10 @@ revisions:
       by: architect
       at: 2026-11-05T04:05:48.441083Z
       reason: Answers a developer's proposal to split the heavy-check permit record into one part for each project (amendment-5f451235, declined). The permits count heavy checks across the whole machine, so no project owns them. This revision names their place at the top of the home as `heavy-checks/` and says why the record is not split. Read at main c7798eda; no other sentence changes.
+    - action: amended
+      by: architect
+      at: 2026-11-06T06:32:39.13003Z
+      reason: 'Answers a developer''s proposal (amendment-30c45e98, approved): the list of what sits at the top of the home now names machine-identity.json, this machine''s identity for the factory identity in the contributors design, made once and never made again while the file is there; step 6 of the move takes it to the new home with the operator''s pause, and the enforced list says it is never made again. Read at main a59d4581; no other sentence changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -56,6 +60,11 @@ approvals:
       by: harness
       at: 2026-11-05T04:05:48.441083Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2269, for document-2269.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-06T06:32:39.13003Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2331, for document-2331.1 under the automatic approval policy
 ---
 # The machine home
 
@@ -84,6 +93,14 @@ project owns:
 - `operator-hold.json` — the operator's pause, set by `yoyo pause`, which is
   machine-wide by decision: one pause stops every project on the machine, as it
   does today.
+- `machine-identity.json` — this machine's own identity, which the factory's
+  identity in
+  [working alongside other contributors](working-alongside-other-contributors.md)
+  is built from, beside the product id and the forge account. It is made once,
+  the first time the harness needs it, and never made again while the file is
+  there, so the machine keeps one identity across every project, rename, build,
+  and move. It sits at the top because the machine is the same whichever
+  project it runs; the product id is what tells projects apart.
 - `heavy-checks/` — the permits for heavy checks and the lock beside them.
   They count the heavy checks running across every project on the machine, so
   no project owns them; see
@@ -313,7 +330,9 @@ again after any interruption changes nothing that is done.
 5. Rewrite the recorded worktree path on every run record that names one, as
    a migration note on the record with the old path kept beside it. This is
    the one write to a run record the harness makes outside a run.
-6. Move `operator-hold.json`, `accounts/`, and the logs to the top.
+6. Move `operator-hold.json`, `machine-identity.json`, `accounts/`, and the
+   logs to the top. The machine's identity moves with the rest, so the machine
+   keeps the identity it had and is never made a new one by the move.
 7. Leave a marker in the old home naming the new one, so an older `yoyo`
    started there says where the state went rather than making an empty root,
    and the two-roots guard refuses it as it refuses any second home.
@@ -504,6 +523,8 @@ A measurement that was not taken is recorded as not taken, never as zero.
 - A `product.id` that is not one safe path segment is refused at load.
 - The binding refusals above: second clone, shared id, and missing repository,
   each with its remedy named; a first start binds and says so.
+- The machine's identity is made only when `machine-identity.json` is absent,
+  and never made again while the file is there.
 - State is never moved while anything is in flight: the supervisor moves it
   only once every product has stopped its children with nothing in flight, and
   `yoyo home migrate` refuses while anything is in flight.
