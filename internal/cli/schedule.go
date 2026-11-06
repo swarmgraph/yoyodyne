@@ -915,6 +915,10 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 			// says on the item, in the words the hold uses about the same run.
 			Remains: remainsOf(parts),
 		},
+		// In team mode, the renewal and release of the claims this machine holds
+		// on the shared remote, kept by the watch loop for the reason the audit
+		// is; nil with team mode off.
+		TeamClaims: scheduleTeamClaims(parts),
 		// The close of a conversation-carried item whose design has landed. It is
 		// wired into the pull for the reason the audit is: the landing is a
 		// revision in the primary checkout's artifact homes, which no run made and

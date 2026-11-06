@@ -180,6 +180,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/staleness"
+	"github.com/mason-bryant/yoyodyne/internal/teamclaim"
 )
 
 // scheduledStatuses are the tracker slices the backlog is assembled from: work
@@ -856,6 +857,9 @@ type Pull struct {
 	// Claims gives back the claims with nothing alive behind them. Optional; see
 	// ScheduleClaims.
 	Claims ScheduleClaims
+	// TeamClaims keeps the claims this machine holds on the shared remote. It is
+	// nil unless the project has team mode on; see ScheduleTeamClaims.
+	TeamClaims ScheduleTeamClaims
 	// Landings closes conversation-carried work whose landing is in the
 	// repository. Optional; see ScheduleLandings. It is re-read at every pull
 	// like everything else here, so an item whose design lands is closed at the
@@ -1102,7 +1106,10 @@ type Started struct {
 	// heldForDesign marks a Declined that is the needs-design label rather than
 	// another process, so the exclusion says which.
 	heldForDesign bool
-	Failure       string `json:"failure,omitempty"`
+	// heldOnRemote marks a Declined that is the item's claim on the shared
+	// remote, held by another factory or not reachable to take, in team mode.
+	heldOnRemote bool
+	Failure      string `json:"failure,omitempty"`
 	// NoteProblem is a run that paused and made its pause durable, and whose note
 	// saying so on its work item could not be written (PauseNoteError). It is not
 	// a Failure: the run is exactly as paused and resumable as one whose note was
@@ -1385,6 +1392,12 @@ type Schedule struct {
 	// is exactly what the audit exists to stop being invisible.
 	ReleasedClaims []runstate.ReleasedClaim `json:"released_claims,omitempty"`
 	ClaimProblem   string                   `json:"claim_problem,omitempty"`
+	// TeamClaims is what this pass did to the claims this machine holds on the
+	// shared remote, in team mode: which it renewed, released, or found had been
+	// taken over. TeamClaimProblem is what did not reach the remote; each is tried
+	// again on the next pass and stops nothing.
+	TeamClaims       *teamclaim.Upkeep `json:"team_claims,omitempty"`
+	TeamClaimProblem string            `json:"team_claim_problem,omitempty"`
 	// ReleasedSlots is the developer slots this pass let go because no live
 	// worker was behind the run counting in them (ScheduleSlotRelease), each as
 	// it was recorded on its run. SlotReleaseProblem is what could not be read or
@@ -2571,6 +2584,11 @@ pulling:
 		// pull wired without an audit spends nothing at all: the reading is the
 		// audit's, so that pull makes it where it always did, in the queue below.
 		claimed, claimedRead, died := s.audit(ctx, &schedule, pull)
+		// The claims this machine holds on the shared remote are kept here for the
+		// same reason the audit is: a waiting, held, or full session still holds
+		// runs whose claims lapse in two hours if nobody renews them
+		// (teamclaims.go).
+		s.tendTeamClaims(ctx, &schedule, pull)
 		// The runs this audit ended because the process carrying them died count
 		// toward the hold on new work, and count once however many there are: a
 		// machine restart ends every run it was carrying, and the first audit of
@@ -4213,7 +4231,7 @@ func excludedBecause(started Started) string {
 			started.Outcome.RunID, started.Outcome.Environmental.ResetSays())
 	}
 	switch {
-	case started.heldForDesign:
+	case started.heldForDesign, started.heldOnRemote:
 		return "this session chose it and did not start it: " + started.Declined
 	case started.Declined != "":
 		return "this session started it and the work went to another process: " + started.Declined
@@ -7657,6 +7675,9 @@ func (s *Started) record(done completed) {
 			capacity.Active, capacity.Limit)
 	case errors.As(done.err, &existing):
 		s.Declined = fmt.Sprintf("another process is already running %s as %s", existing.State.WorkItemID, existing.State.RunID)
+	case teamClaimDeclined(done.err):
+		s.Declined, _ = teamClaimHeld(done.err)
+		s.heldOnRemote = true
 	default:
 		s.Failure = done.err.Error()
 		var away ProviderOutageError
@@ -8145,6 +8166,21 @@ func (s Schedule) Render() string {
 	}
 	if s.ClaimProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.ClaimProblem)
+	}
+	// What the pass did to this machine's claims on the shared remote, in team
+	// mode. A renewal is routine and stays in the JSON; a release, a claim found
+	// taken over by another factory, and one that could not be renewed or
+	// released are what a reader is owed (teamclaims.go).
+	if team := s.TeamClaims; team != nil {
+		for _, item := range team.Released {
+			fmt.Fprintf(&rendered, "the claim on %s on the shared remote was released, because its run no longer holds the item\n", item)
+		}
+		for _, lost := range team.Lost {
+			fmt.Fprintf(&rendered, "%s\n", lost)
+		}
+	}
+	if s.TeamClaimProblem != "" {
+		fmt.Fprintf(&rendered, "%s\n", s.TeamClaimProblem)
 	}
 	for _, released := range s.ReleasedSlots {
 		fmt.Fprintf(&rendered, "run %s of %s: %s\n", released.RunID, released.WorkItemID, released.Release.Says)

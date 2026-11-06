@@ -5265,6 +5265,76 @@ on the work item.
   copy your local branch does not have. A protection rule requiring linear
   history has the same effect.
 
+## Working one repository from more than one machine: `team`
+
+Team mode is for a repository worked by more than one copy of the harness, each
+on its own machine, sharing one remote. It is off unless the committed
+configuration turns it on, so every factory working the repository reads the
+same value:
+
+```yaml
+team:
+  enabled: true
+```
+
+Turning it on is the Lead Product Manager's decision and the development
+manager applies it
+([working alongside other contributors](designs/working-alongside-other-contributors.md#5-two-factories-and-the-same-work)).
+With it off, the harness works the repository alone: it takes no claim on the
+remote and no start of new work waits on the remote.
+
+With it on, the harness claims each item on the shared remote before it starts
+it, so two factories never do the same work:
+
+- **Taking.** Before a fresh run claims an item in the tracker, the harness reads
+  the intake hold, fetches the claims from the remote (`execution.remote`), and
+  pushes `refs/yoyodyne/claims/<item id>` with a lease that fails if the
+  reference already exists. The tracker is claimed only after that push
+  succeeds. An item another factory holds is not started this turn, and the
+  schedule says who holds it; it is tried again at the next poll. A remote that
+  cannot be reached starts no new work in team mode, because a claim cannot be
+  taken without it.
+- **Renewing.** While the run holds the item — running, waiting for a person to
+  merge, or stopped and kept for a decision, which is any run in flight or any
+  item this machine's tracker still shows as claimed or blocked — the watch loop
+  renews the claim every 15 minutes, with a lease naming the commit it last
+  pushed. A renewal that cannot reach the remote is said on the schedule, tried
+  again at the next poll, and charges the run nothing.
+- **Taking over.** A claim nobody has renewed for two hours may be taken over,
+  with a lease naming the stale commit. The new claim names the earlier holder,
+  and so does a note on the item. A claim this machine left from an earlier run
+  of the same item is taken on by the next run without waiting. A claim counts
+  as this machine's own only when its record under `team-claims/` is still held
+  and names the very commit the remote has; a claim under the same name is
+  never enough, so a second home on the same machine is held to the same two
+  hours as anybody else.
+- **Releasing.** Once the run no longer holds the item, the watch loop deletes
+  the reference with a lease naming its own commit. A claim taken in the last
+  15 minutes is not released, because a run takes its claim a moment before
+  it records itself and claims the tracker, and the watch loop must not take
+  that moment for a run that has ended. A reference that is no
+  longer this machine's, because another factory took it over, is left alone and
+  said on the schedule.
+
+Each claim is a commit of the empty tree whose message records the factory
+holding it (the product, the machine's host name, and the machine identifier
+kept in the state directory's `machine.identity`), the item, the
+run, and when it was taken and last renewed. What this machine holds is kept
+under its state directory in `team-claims/`. Only the harness pushes these
+references, as it pushes pull request branches; no agent is given anything that
+writes one.
+
+Team mode needs three things of the project, and `yoyo doctor` refuses team
+mode in plain words where any is missing: the harness has to publish through
+pull requests (`approvals.publishing: automatic`), because the forge is where
+factories learn about each other; the scheduler service has to be on
+(`services.scheduler.enabled`), because the watch loop is what renews and
+releases claims, including those taken by `yoyo run`; and the remote has to
+accept references under `refs/yoyodyne/`, which doctor tests by pushing
+`refs/yoyodyne/probe/doctor` and deleting it again. A push that never reaches
+the remote is reported as a check that could not be made, not as the forge
+refusing the reference.
+
 ## Waiting out a provider that refuses
 
 When the provider reports that a usage limit is exhausted, the run pauses rather

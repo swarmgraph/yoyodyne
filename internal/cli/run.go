@@ -755,6 +755,9 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// the item. It stops nothing already under way, which is the whole reason
 		// it is a second switch rather than part of the first.
 		Intake: parts.intake,
+		// In team mode, the item's claim on the shared remote, taken before the
+		// tracker's claim; nil with team mode off.
+		TeamClaims: pipelineTeamClaims(parts),
 		// The product's record of the provider answering nobody, written by the run
 		// that meets it and cleared by the first the provider answers again. It is
 		// wired here so a run's wait is one every surface can name, and so the
