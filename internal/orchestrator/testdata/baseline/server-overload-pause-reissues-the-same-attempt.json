@@ -30,6 +30,8 @@
         "checks": [
           {
             "command": "test -f feature.txt",
+            "limit": "\u003celapsed\u003e",
+            "limit_of": "stage",
             "passed": true,
             "process": {
               "ExitCode": 0,
