@@ -8877,7 +8877,8 @@ func (p Pipeline) reportOutstandingCleanup(state runstate.State, outcome Outcome
 // invocation like the developer's, and a run stopped there loses just as much
 // work. A reply nothing could read as a verdict was not a review either, and it
 // is asked for once more for the same reason, in the reviewer's own session and
-// told what was wrong with the reply. Nothing else an unanswered review leaves
+// told what was wrong with the reply — or in a fresh session where that one
+// cannot be resumed. Nothing else an unanswered review leaves
 // behind is carried forward — the retry starts from the same cleared evidence
 // any review starts from.
 func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
@@ -9017,12 +9018,37 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 		// The second asking is made in the reviewer's own session and tells it what
 		// was wrong with the reply, because a fresh invocation told nothing new
 		// tends to make the same slip again.
+		//
+		// A second asking whose resume the provider refused or failed, or answered
+		// from another session, got no reply from the reviewer at all, which is the
+		// stop this second asking exists to prevent. So it is made again in a fresh
+		// reviewer session, with the same change and instructions and the problem
+		// said after them, and it is still the one second asking: what it answers
+		// is judged exactly as the resumed one would have been. A fresh session
+		// that fails as well ends the run, and so does a second unreadable reply.
+		var refused review.ResumeRefusedError
+		if reask != nil && reask.FreshBecause == "" && errors.As(err, &refused) {
+			reask = &review.Reask{Problem: reask.Problem, SessionID: reask.SessionID, Backend: reask.Backend, AccountAlias: reask.AccountAlias,
+				FreshBecause: refused.Error()}
+			continue
+		}
+		freshly := ""
+		if reask != nil {
+			if because := reask.FreshBecause; because != "" {
+				freshly = " (asked in a fresh reviewer session because " + because + ")"
+			} else if reask.SessionID != "" && (reask.Backend != reported.reviewBackend || reask.AccountAlias != reported.reviewAccount) {
+				freshly = " (asked in a fresh reviewer session because the provider or account changed between the two asks)"
+			}
+		}
 		if problem, unsettled := unsettledReply(err); unsettled {
 			if reask == nil {
-				reask = &review.Reask{SessionID: a.state.ReviewSessionID, Problem: problem}
+				reask = &review.Reask{SessionID: a.state.ReviewSessionID, Problem: problem, Backend: reported.reviewBackend, AccountAlias: reported.reviewAccount}
 				continue
 			}
-			return "", stoppedBy(runstate.StopReviewAccount, fmt.Errorf("the reviewer was asked twice and neither reply could be accepted as a verdict; the second: %w", err))
+			return "", stoppedBy(runstate.StopReviewAccount, fmt.Errorf("the reviewer was asked twice and neither reply could be accepted as a verdict; the second%s: %w", freshly, err))
+		}
+		if reask != nil && err != nil && freshly != "" {
+			return "", stoppedBy(runstate.StopProvider, fmt.Errorf("the reviewer's first reply could not be accepted as a verdict, and the second ask%s failed too: %w", freshly, err))
 		}
 		// A verdict that was actually reached is recorded against the work item
 		// before it is acted on, and what it costs depends on which way it went.
@@ -9163,6 +9189,11 @@ type providerEvidence struct {
 	// that is evidence a window on its model is open. It is set on the verdict's
 	// path alone; every other field here describes a review that was not made.
 	servedCleanly bool
+	// reviewBackend and reviewAccount are the provider and account a review that
+	// failed was made on, which a second asking needs to know whether it can
+	// resume the session the first reply came from (review.Reask).
+	reviewBackend domain.Backend
+	reviewAccount string
 }
 
 // reviewReachedProvider reports a review attempt the provider actually
@@ -9295,6 +9326,7 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		return "", providerEvidence{}, err
 	}
 	account := a.account()
+	attribution := a.spendAttribution(domain.RoleReviewer, runstate.SpendPhaseReview)
 	result, reviewErr := p.Reviewer.Review(ctx, review.Request{
 		RunID:      a.state.RunID,
 		WorkItemID: a.state.WorkItemID,
@@ -9342,7 +9374,7 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		// What the reviewer's invocation spends is this run's spend, charged to
 		// the review rather than to the change: an item that was reviewed four
 		// times is where that distinction is the whole answer.
-		Spend: a.spendAttribution(domain.RoleReviewer, runstate.SpendPhaseReview),
+		Spend: attribution,
 		// The review is made under the account the run is affined to, so what one
 		// piece of work cost is what one subscription was spent.
 		AccountAlias:     account.Alias,
@@ -9420,6 +9452,8 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 			transientFailure: result.TransientFailure,
 			providerOutage:   result.ProviderOutage,
 			processStatus:    result.ProcessStatus,
+			reviewBackend:    attribution.Backend,
+			reviewAccount:    account.Alias,
 		}, stoppedBy(runstate.StopProvider, fmt.Errorf("independent review failed: %w", reviewErr))
 	}
 	// The reviewer reports the selector it actually ran with. Auditing that

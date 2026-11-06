@@ -305,7 +305,7 @@ describes the pass that applies those rules.
 | `internal/orchestrator/pipeline.go` | `(*activeRun).recordDevelopment` | `phase-error` | 3 | Reports a refused probe, provider clock stop without resumable state, or developer failure. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).blockOnUsageLimit` | `classified-stop` | 2 | Blocks on an unusable provider wait, including a failed blocker write. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).endOnUsageWindow` | `call:fail` | 1 | Cancels and returns the claim for a later window without judging the change. |
-| `internal/orchestrator/pipeline.go` | `(*activeRun).reviewChange` | `classified-stop` | 2 | Records the invocation clock or a second reply the review contract cannot read. |
+| `internal/orchestrator/pipeline.go` | `(*activeRun).reviewChange` | `classified-stop` | 3 | Records the invocation clock, a second reply the review contract cannot read, or a second ask made in a fresh reviewer session (after the provider refused the resume) that failed too. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).verify` | `classified-stop` | 3 | Check infrastructure failure, failed check, stage bound, individual timeout, or cancellation. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).verify` | `phase-error` | 1 | Check infrastructure failure, failed check, stage bound, individual timeout, or cancellation. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).gateProtectedPaths` | `phase-error` | 1 | Creates a path refusal before checks; shared repairs decide handback or terminal stop. |
