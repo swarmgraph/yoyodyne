@@ -7048,6 +7048,67 @@ changes. A merge step that could not read the change, or found
 it moved since its checks, is tried again after a wait, and three such runs
 in a row stop the record.
 
+## MCP servers, and the tools each agent may ask for
+
+A project can declare MCP servers and list, for each agent, the exact tools that
+agent may ask the harness to call on its behalf
+([the design](designs/mcp-tools-through-the-harness.md)). No agent ever holds a
+server, a connection to one, or its credentials: the harness makes every call
+itself. **This build loads, checks and reports these settings, and makes no MCP
+call yet.** A project that says nothing has no servers and no lists, and runs
+exactly as it did before the keys existed.
+
+```yaml
+mcp:
+  servers:
+    mail:
+      command: [mail-mcp, --stdio]   # a program the harness starts on this machine
+      login: [mail-mcp, login]       # optional; `yoyo mcp login mail` runs it
+      tools:
+        search: read                 # changes nothing outside the harness
+        send: act                    # may change something
+    tickets:
+      url: https://mcp.example.com/  # a remote server, https only
+      credential: file               # or keychain; never a path
+      tools:
+        list_open: read
+
+agents:
+  product-manager:
+    mcp_tools: [mail.search, mail.send, tickets.list_open]
+```
+
+- **A server** has exactly one of `command` or `url`. A `url` is https, with no
+  user name or password in it. Its redirects are followed only on its own host,
+  at most five, so a credential is never sent anywhere else.
+- **`tools`** names every tool of the server the project will use, each marked
+  `read` or `act` by you, not by the server. A tool it does not name cannot be
+  called by anyone.
+- **`mcp_tools`** lists exact names, written as server and tool, with no
+  wildcards. Loading refuses a list that names a server or tool the `mcp`
+  section does not declare, and one naming a tool whose class the agent's role
+  may not hold, naming the agent, the tool and why. The Lead Product Manager,
+  the architect and the development manager may hold both classes; a program
+  manager and a developer hold `read` tools only; a reviewer holds none. That
+  table is in the harness's code, so no configuration widens it.
+- **A credential is named by its store, never by a path.** `keychain` is the
+  item `yoyo-mcp.<product id>.<server>` under the account `yoyo`; `file` is
+  `<server>.token` in the `mcp` folder of the product's state directory,
+  readable by your user alone. Nothing else is read: a link at that path, or a
+  file other users can read, is refused. A server the harness starts is handed
+  its credential in the environment variable its `credential_env` names, and
+  such a server that names a credential has to name that variable too.
+- **A local server's login** is kept in its own folder, `mcp/<server>/` in the
+  product's state directory. `yoyo mcp login <server>` runs the declared login
+  at your terminal with that folder as its working directory and its home. It
+  is refused to a process the harness started for a role. A server with no
+  login prints the command that stores its credential instead.
+- `yoyo config show` reports each agent's MCP tools beside its other tools, and
+  `yoyo doctor` reports each server whose credential is missing, naming the
+  server and the command to run. A missing credential stops nothing else.
+- Both keys are yours alone: a role's write to the configuration is refused for
+  `mcp` and for any agent's `mcp_tools`.
+
 ## Reading the repository from a conversation
 
 The three management roles — Lead Product Manager, architect, development manager —
