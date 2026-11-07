@@ -10,12 +10,21 @@ revisions:
       by: architect
       at: 2026-11-07T01:05:29.109979Z
       reason: 'yoyodyne-ifd.435.40: Mason''s direction of November 6 that agents ask the harness to use specific configured MCP tools and never hold a server themselves. Settles the configuration, the action a conversation role writes, how a developer run asks without opening its sandbox, what is recorded and bounded, how the reviewer stays independent, and how grants and the unexpected tool use check account for these calls. The call path also takes a scheduled caller, for the later design on message intake. Names nine build pieces. Written from reads at main 88bff330.'
+    - action: amended
+      by: architect
+      at: 2026-11-07T05:27:21.973046Z
+      reason: 'Makes this design agree with the landed scheduled message intake design (yoyodyne-ifd.435.41), read at main 52f8379d: the role table gains the message reader, holding neither class; a run of an item started from a message holds no MCP tools; section 4 gains two exceptions, that an intake query''s call record keeps no result and that a link and one line of at most 300 bytes may reach the operator by direct message; section 7 points to that design. Also corrects the configuration example: the credential line on main held a masking marker in place of a value, and it now shows the value `file`, with the other choice named in the comment and the bullet below. The refused document-2397.1 wrongly said the line would show the other choice; the harness''s masking of a value that long is why it did not.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-11-07T01:05:29.109979Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2376, for document-2376.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-07T05:27:21.973046Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2400, for document-2400.1 under the automatic approval policy
 ---
 # MCP tools through the harness
 
@@ -34,7 +43,7 @@ Mason's rule, kept whole:
 
 ## What it rests on, and what was not read
 
-Read at commit 88bff330: [the tool interface](tool-interface.md), [portable agent configuration](portable-agent-configuration.md), the invariant [configuration never grants authority](../decisions/invariants/configuration-never-grants-authority.md), the guides on operators and on writing a configuration, and `go.mod`. Read as delivered in this conversation's briefing: [developer sub-agents](developer-sub-agents.md), [pinned outside files](pinned-outside-files.md), [project dependencies in runs](project-dependencies-in-runs.md), and the provider guide's section on unexpected tool calls.
+Read at commit 88bff330: [the tool interface](tool-interface.md), [portable agent configuration](portable-agent-configuration.md), the invariant [configuration never grants authority](../decisions/invariants/configuration-never-grants-authority.md), the guides on operators and on writing a configuration, and `go.mod`. Read as delivered in this conversation's briefing: [developer sub-agents](developer-sub-agents.md), [pinned outside files](pinned-outside-files.md), [project dependencies in runs](project-dependencies-in-runs.md), and the provider guide's section on unexpected tool calls. Read at commit 52f8379d, for the changes it asks of this design: [scheduled message intake](scheduled-message-intake.md).
 
 No code was read: not the conversation loop, the code that resumes a developer session, the adapters, or the secret stores. The official Go SDK for MCP was not read either. A build piece reads the code it changes first. Where that code does something this design does not account for, the piece stops and asks the architect.
 
@@ -56,7 +65,7 @@ mcp:
         send: act
     tickets:
       url: https://mcp.example.com/  # a remote server
-      credential: [REDACTED]           # keychain or file; never a path
+      credential: file               # or keychain; never a path
       tools:
         list_open: read
 
@@ -83,10 +92,15 @@ agents:
 | program manager | `mcp.read` |
 | developer | `mcp.read` |
 | reviewer | neither |
+| message reader | neither |
+
+The message reader is the role with no tools of any kind that [scheduled message intake](scheduled-message-intake.md) defines.
 
 A list naming a tool whose class the agent's role does not hold is refused when the configuration loads, naming the agent, the tool, and why. So is a list naming a server or tool the `mcp` section does not declare.
 
 **A developer holds read tools only** in the first build. An act taken during a run happens before review, and it could not be undone if review then refuses the change. A later revision may widen this, for a reason somebody can state.
+
+**A run of an item started from a message holds no MCP tools,** whatever the agent's `mcp_tools` says. Its evidence holds text from outside, and that text must not be able to send anything out through the arguments of a tool. Section 3 of the intake design says why.
 
 ## 2. How a conversation role asks
 
@@ -153,6 +167,11 @@ Each caller brings its own list. The rest of the path is the same for all three.
 
 Up to 256 KiB of a result is kept in the record; 32 KiB reaches the agent. It stays on this machine and is never copied into the tracker, Slack, or the dashboard, which show names, outcomes and sizes. `yoyo mcp calls` reads it.
 
+**Two exceptions,** both from [scheduled message intake](scheduled-message-intake.md):
+
+- A recurring task that is an intake query records the call's size, digest and what was cut, and not the result. The result is held in memory only until the messages in it are written down, so `yoyo mcp calls` shows a query's calls with no content (section 4 of that design).
+- Where a query's questions are reserved for the operator with `questions: person`, what reaches him may carry a link to the source message and one line of at most 300 bytes with secrets removed, marked as written by the AI reader from the message and not checked. It goes only by direct message, or on the line listing what needs him where Slack is not in use, never to a channel, and it is delivered to no role's briefing (section 7 of that design).
+
 **Secrets.** Before a result is recorded or handed back, it is scrubbed of the values every path to a provider is scrubbed of, and of this project's MCP credentials. Credentials never enter a prompt, a record, or a session's environment. A server's error output is scrubbed the same way.
 
 **Bounds on content.** Text and JSON pass through. An image or other binary content is dropped, and the result says so with its type and size.
@@ -183,9 +202,9 @@ The reviewer holds no MCP tools. A call could change something, and a second cal
 
 ## 7. A call on a schedule
 
-A recurring task can be a caller, so the harness can make a configured call with no agent asking. Its list is declared with the task, in the same exact names, under the same operator rules. A scheduled caller may hold `read` tools only, until a design says otherwise. Limits, records, scrubbing and the operator's pause apply unchanged.
+A recurring task can be a caller, so the harness can make a configured call with no agent asking. Its list is declared with the task, in the same exact names, under the same operator rules. A scheduled caller may hold `read` tools only, until a design says otherwise. Limits, scrubbing and the operator's pause apply unchanged, and so do records, apart from the first exception in section 4.
 
-This design builds only that path and a test driving it. What is queried, how often, what counts as new, and who receives it belong to the later design on message intake.
+This design builds only that path and a test driving it. What is queried, how often, what counts as new, and who receives it are settled by [scheduled message intake](scheduled-message-intake.md).
 
 ## Risks accepted, stated plainly
 
@@ -223,13 +242,14 @@ This design builds only that path and a test driving it. What is queried, how of
 8. **Containment.** The test across every role and provider in section 6. Needs yoyodyne-ifd.435.39.
 9. **The first real server.** The development manager tries one read tool end to end from a conversation and from a developer run, and records what happened. The operator's only part is the login, once.
 
-Pieces 1 and 2 can start at once and side by side. Pieces 4, 5 and 7 can go side by side after 3.
+Pieces 1 and 2 can start at once and side by side. Pieces 4, 5 and 7 can go side by side after 3. The two exceptions in section 4, the message reader's row, and launching a run started from a message with no MCP tools are built under the intake design's own pieces.
 
 ## What is enforced in code
 
 - Only `internal/mcpcall` speaks MCP.
 - No adapter gives a session a server, a connector, or a credential.
 - Every call passes the caller's list, and no list names a tool whose class the caller may not hold.
+- A run of an item started from a message is launched with no MCP tools.
 - The class of a tool comes from the project's declaration, never from the server.
 - A role's write cannot change `mcp` or `mcp_tools`.
 - A record is written before each call and completed after it, and only ever added to.
@@ -246,7 +266,9 @@ Left to role instructions: what to ask for, and not copying a private result int
 - A configuration giving a developer or a reviewer an `act` tool is refused at load, naming both.
 - A credential stored as `file` cannot be read from any path but the one derived from the server's name.
 - A developer's ask spends no repair attempt, resumes the same session, and stops at its bounds.
+- A developer run of an item started from a message has no MCP tools, even where the agent's list names some.
 - A killed process leaves an `act` entry that reads as unknown, and calling again with that `id` calls nothing.
 - An MCP call in a provider's own stream files the critical report.
 - The reviewer's evidence holds the record of each call, and its cuts are declared.
 - A scheduled caller makes a read call and is refused an `act` call.
+- An intake query's call appears on `yoyo mcp calls` with its size and digest and no content.
