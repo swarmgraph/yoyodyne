@@ -73,6 +73,40 @@ func (c Client) RefreshExport(ctx context.Context) error {
 	return c.refreshExport(ctx, 0)
 }
 
+// ExportRows is the store's export as it stands now, published nowhere: what a
+// merge with the shared export compares against (exportmerge.go).
+func (c Client) ExportRows(ctx context.Context) ([]byte, error) {
+	return c.run(ctx, "export")
+}
+
+// ImportAnswer is what `bd import` did with the rows it was given. Kept names
+// the rows it passed over because this store's own row was newer or as new.
+type ImportAnswer struct {
+	Kept []string
+}
+
+// ImportRows writes rows into the store through `bd import`, which is an upsert.
+// It is not asked to overwrite newer rows, so a write landing on this machine
+// while it runs wins, and the answer says so. Writing the same rows again changes
+// nothing.
+func (c Client) ImportRows(ctx context.Context, rows [][]byte) (ImportAnswer, error) {
+	if len(rows) == 0 {
+		return ImportAnswer{}, nil
+	}
+	data, err := c.runWithInput(ctx, c.timeout(), bytes.NewReader(append(bytes.Join(rows, []byte{'\n'}), '\n')), "import", "--json", "-")
+	if err != nil {
+		return ImportAnswer{}, err
+	}
+	var answer struct {
+		Stale []string `json:"stale_skipped_ids"`
+		Tied  []string `json:"tie_kept_local_ids"`
+	}
+	if err := decodeJSON(data, &answer); err != nil {
+		return ImportAnswer{}, fmt.Errorf("decode what bd import did: %w", err)
+	}
+	return ImportAnswer{Kept: append(answer.Stale, answer.Tied...)}, nil
+}
+
 // ExportBeforeCommit takes the fresh export a commit that carries the export
 // is made with, so what is committed is never older than the store. It is
 // RefreshExport, refused rather than passed over where no store can be found:
