@@ -14,6 +14,10 @@ revisions:
       by: architect
       at: 2026-11-07T10:26:18.030099Z
       reason: Section 7 called the reader's line the one exception to the rule that nothing from a result reaches Slack, while the link it also sends comes from the result and section 2 says a source's link never leaves the record. The section now names both as exceptions and says how the link is sent. Written from a read of the whole design at main d81a4451; nothing else in the section changes.
+    - action: amended
+      by: architect
+      at: 2026-11-07T11:11:12.475231Z
+      reason: Section 2 said a source's link never leaves the record, while section 7, revised earlier today, sends that link to the operator by direct message when a query's questions are reserved for him. Section 2 now names that one exception and points to section 7. Written from a read of the whole design at main f6479b60; nothing else in the section changes.
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -25,6 +29,11 @@ approvals:
       by: harness
       at: 2026-11-07T10:26:18.030099Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2430, for document-2430.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-11-07T11:11:12.475231Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2432, for document-2432.1 under the automatic approval policy
 ---
 # Scheduled message intake
 
@@ -99,7 +108,7 @@ The reader's model is chosen in configuration for this one task, and its spend i
 
 A message's key is the server's name and the source's own identifier for it. The key does not name the query, so two queries on one server that return one message produce one record. The first query to write the record handles the message under its own rules, and the record lists any other query that returned it.
 
-Each record also has a short number the harness makes from a digest of the key. The number is what leaves the record: on a started item, in a question, in a report. The source's identifier and link do not, because a source's values may carry text a sender chose.
+Each record also has a short number the harness makes from a digest of the key. The number is what leaves the record: on a started item, in a question, in a report. The source's identifier and link do not, because a source's values may carry text a sender chose. The one exception is the link sent to the operator where a query's questions are reserved for him, by direct message only, as section 7 says.
 
 The record is written through the confined writer under the project's state directory, in `intake/`, and is only ever added to. It is written before any provider call.
 
