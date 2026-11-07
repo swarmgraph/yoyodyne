@@ -42,6 +42,10 @@ revisions:
       by: architect
       at: 2026-10-26T18:30:58.491794Z
       reason: 'yoyodyne-ifd.430.69: the section on who decides a proposed change gains what the record of a proposal keeps: the revision and commit it was written against, its withdrawal by the proposer or the operator, and the revision, runs and landed commit that carry an approved change, named by the owner''s typed write rather than found by matching document and time. Answers the developer''s reports e27a1e81, b3af2aa3 and 0b4dde7d. Written against main at 840ed8b3; nothing else in the design changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-07T07:27:34.871541Z
+      reason: 'The scheduled message intake design (yoyodyne-ifd.435.41) promises this in its list of documents it changes: the table and the list of kinds gain the intake question, owned as the query says, and the wording of the human-gate and protected-file reasons widens to cover a step a query reserved for a person and a section of the configuration that every role''s write refuses. No reason is added to the closed list. One enforced check and one build note go with it. Written against main at 45a44e76; nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -83,6 +87,11 @@ approvals:
       by: harness
       at: 2026-10-26T18:30:58.491794Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1807, for document-1807.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 9
+      by: harness
+      at: 2026-11-07T07:27:34.871541Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2422, for document-2422.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -112,9 +121,9 @@ A new package, `internal/ownership`, holds the registry. It is a table keyed by
 entry kind. The kinds are the ones the read model already names: amendment,
 waiting document, directive, report, owed step, publication, degraded service,
 failing task, hold, outage, stall, held work, human gate, conversation-carried
-item, operator action, stoppage, escalation, diverged target, follow-up, and
-the ages of the report pile and the amendment queue. Each kind has one rule.
-The rule reads the entry's record and returns:
+item, operator action, stoppage, escalation, diverged target, follow-up, intake
+question, and the ages of the report pile and the amendment queue. Each kind has
+one rule. The rule reads the entry's record and returns:
 
 - `owner`, from the existing mover vocabulary: the operator, a role, the
   harness, or nobody where the entry lifts on a clock no one controls;
@@ -169,6 +178,7 @@ her pass, and she files it against the registry.
 | conversation-carried item | the role its executor marker names |
 | diverged target | the operator, reason `diverged-history` |
 | follow-up | the owner the follow-up recorded when it was written, which the rule for what it is about resolved then; the operator only with a reason from the closed list; a follow-up the operator or his assistant records is never owned by the operator, and is the Lead Product Manager's unless it names another role |
+| intake question | as the query's `questions` setting says, in [scheduled message intake](scheduled-message-intake.md): the Lead Product Manager by default; the operator only under `questions: person`, which only he can set, reason `human-gate` |
 | pile or queue age | the role that works that pile or queue |
 
 ## Who decides a proposed change
@@ -274,8 +284,10 @@ names them:
 - `repository-setting`: a forge or repository setting the harness's token
   cannot change.
 - `protected-file`: a file beyond every grant, which today means Claude Code's
-  settings files and activating a role definition.
-- `human-gate`: a step an item reserved for a person with `human-gate:`.
+  settings files and activating a role definition, or a section of the
+  project's configuration that every role's write refuses, such as `intake`.
+- `human-gate`: a step an item reserved for a person with `human-gate:`, or a
+  step a query reserved for a person with `questions: person`.
 - `own-hold`: lifting a hold or pause the operator placed himself.
 - `diverged-history`: saying which history is right when a target branch
   diverged from the forge, which needs rights on the protected branch that no
@@ -283,8 +295,12 @@ names them:
 
 The earlier revision of this design called two of these `forge-setting` and
 `beyond-grant`; the reasons are the same and only the names changed to match
-the code. The list lives in `internal/ownership` as a closed set. Adding a
-reason is an amendment to the invariant
+the code. The wider wording of `protected-file` and `human-gate` came with
+[scheduled message intake](scheduled-message-intake.md), which adds no reason:
+whether a message might fall under a rule is a judgment about the rules, and
+the rules are the Lead Product Manager's. The list lives in
+`internal/ownership` as a closed set. Adding a reason is an amendment to the
+invariant
 [the-operator-owns-only-what-only-he-can-do](../decisions/invariants/the-operator-owns-only-what-only-he-can-do.md),
 never a code change on its own.
 
@@ -389,6 +405,9 @@ rather than by hand.
   fixture records of a hold, a report, a stopped run's wait and a parked item,
   each with its follow-up, and fails where any of them is shown twice or with
   two owners.
+- An intake question names the operator only under `questions: person`, with
+  the reason `human-gate`: a test drives a question under each setting through
+  the rule.
 
 The existing tests stay: the renders of every owner's label
 (yoyodyne-ifd.432.23), every persona and contract carrying the
@@ -425,4 +444,7 @@ Three bounded items, admitted by the Lead Product Manager:
 Owning roles deciding proposed changes to their own documents was built
 separately (yoyodyne-i92). The `follow-up` kind, its row, and the test that a
 wait is shown once are built with the follow-up store and the surfaces, pieces
-1 and 5 of [follow-ups](follow-ups.md#build).
+1 and 5 of [follow-ups](follow-ups.md#build). The intake question kind, its
+row, its test, and the wider wording of `human-gate` are built with piece 6 of
+[scheduled message intake](scheduled-message-intake.md), and the wider wording
+of `protected-file` with its piece 3, which files the report that uses it.
