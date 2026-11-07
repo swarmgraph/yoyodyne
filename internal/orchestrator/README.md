@@ -293,7 +293,8 @@ Landing checks after the run: `runLandingChecks`, `fileRedLanding`.
 
 ### What is the developer told?
 `developerPrompt` = `developerContract` + persona + invariants + context
-bundle. Repair rounds use the `…RepairPrompt` functions; a resumed run
+bundle; an invocation given sub-agents also gets the built-in instruction after
+the persona, added by `instructSubagents` in `attemptDevelopment`. Repair rounds use the `…RepairPrompt` functions; a resumed run
 rebuilds its prompt with `resumedDeveloperPrompt`. Relevant goals and the
 context bundle come from `internal/contextbundle`.
 

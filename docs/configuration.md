@@ -6045,7 +6045,11 @@ exactly what it received before the instruction existed. The run's record notes
 the instruction under its sub-agent setting, as `instruction`, with the file and
 the harness build it came from, and its line in `yoyo status` says so, for
 example `told to hand the coding to them by the built-in instruction
-developer-sub-agents.md from build 0123456789ab`.
+developer-sub-agents.md from build 0123456789ab`. A run that later goes without
+sub-agents, whether for one of those reasons or because it was moved to a
+developer slot that does not turn them on, keeps the note, and its line then
+reads `an earlier attempt was told to hand the coding to sub-agents by the
+built-in instruction ...`, so a trial can still tell which runs received it.
 
 Sub-agents are off unless the configuration turns them on. Off is a developer
 invoked exactly as before the setting existed: the same tools, the same

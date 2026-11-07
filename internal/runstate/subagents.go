@@ -41,7 +41,9 @@ type SubagentRecord struct {
 	Limit *SubagentLimit `json:"limit,omitempty"`
 	// Instruction is the built-in instruction to hand the coding to
 	// sub-agents, as the run's last developer invocation given it received it,
-	// and nil where no invocation of the run was given it.
+	// and nil where no invocation of the run was given it. It stays when the run
+	// later goes without them, a move to another developer slot included, so the
+	// record still says the run was told.
 	Instruction *SubagentInstruction `json:"instruction,omitempty"`
 }
 
@@ -58,13 +60,23 @@ type SubagentInstruction struct {
 	At    time.Time `json:"at"`
 }
 
-// Says is the instruction in words a person reads.
+// Says is the instruction in words a person reads, for a run with sub-agents on.
 func (i SubagentInstruction) Says() string {
+	return "told to hand the coding to them by " + i.source()
+}
+
+// SaysEarlier is the instruction in words a person reads, for a run going
+// without sub-agents now.
+func (i SubagentInstruction) SaysEarlier() string {
+	return "an earlier attempt was told to hand the coding to sub-agents by " + i.source()
+}
+
+func (i SubagentInstruction) source() string {
 	build := "a build that recorded no revision"
 	if i.Build != "" {
 		build = "build " + shortRevision(i.Build)
 	}
-	return "told to hand the coding to them by the built-in instruction " + i.File + " from " + build
+	return "the built-in instruction " + i.File + " from " + build
 }
 
 func shortRevision(revision string) string {
@@ -103,7 +115,7 @@ func (l SubagentLimit) Says() string {
 
 // SubagentsSays is what a run says about sub-agents and the models that did
 // its work, in one line a person reads, and empty for a run with sub-agents
-// off and nothing recorded per model.
+// off and nothing recorded per model or about the instruction.
 func (s State) SubagentsSays() string {
 	var parts []string
 	if record := s.Subagents; record != nil && record.Enabled {
@@ -125,6 +137,9 @@ func (s State) SubagentsSays() string {
 				parts = append(parts, record.Instruction.Says())
 			}
 		}
+	}
+	if record := s.Subagents; record != nil && record.Instruction != nil && (!record.Enabled || record.Limit != nil || record.Unavailable != "") {
+		parts = append(parts, record.Instruction.SaysEarlier())
 	}
 	switch {
 	case len(s.ProviderModelUsage) > 0:

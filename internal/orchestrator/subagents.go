@@ -88,10 +88,16 @@ func (a *activeRun) instructSubagents(prompt string, subagents *backend.Subagent
 // A run moved to another developer slot when it was taken up again (runstate's
 // RunRouting.MoveSlot) settles its setting afresh from the slot it now records,
 // whatever it settled before, because the setting is the slot's and the run is
-// no longer in the old one.
+// no longer in the old one. What it was told in the old slot stays on the record
+// whatever the new one says, because the move does not undo that it was told, so
+// a move to a slot stating nothing keeps a record holding that alone.
 func (a *activeRun) settleSubagents() {
 	if !a.movedSinceSubagentsSettled() && (a.state.Subagents != nil || a.state.LastSequence > 0 || a.state.ProviderSessionID != "") {
 		return
+	}
+	var given *runstate.SubagentInstruction
+	if a.state.Subagents != nil {
+		given = a.state.Subagents.Instruction
 	}
 	a.state.Subagents = nil
 	p := a.pipeline
@@ -101,14 +107,18 @@ func (a *activeRun) settleSubagents() {
 		stated = stated || p.Config.Execution.DeveloperSlots[slot-1].Subagents != nil
 	}
 	if !stated {
+		if given != nil {
+			a.state.Subagents = &runstate.SubagentRecord{Slot: a.state.RecordedSlot(), Instruction: given}
+		}
 		return
 	}
 	a.state.Subagents = &runstate.SubagentRecord{
-		Enabled: setting.Enabled,
-		Model:   setting.Model,
-		Effort:  setting.Effort,
-		Origin:  setting.Origin,
-		Slot:    a.state.RecordedSlot(),
+		Enabled:     setting.Enabled,
+		Model:       setting.Model,
+		Effort:      setting.Effort,
+		Origin:      setting.Origin,
+		Slot:        a.state.RecordedSlot(),
+		Instruction: given,
 	}
 }
 

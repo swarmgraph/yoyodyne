@@ -88,4 +88,18 @@ func TestARunSaysWhatItsSubagentsAndModelsDid(t *testing.T) {
 	if says := reported.SubagentsSays(); !strings.Contains(says, "sub-agents on sonnet") || !strings.Contains(says, "claude-sonnet-5-5 $0.25") {
 		t.Fatalf("says %q", says)
 	}
+	given := &SubagentInstruction{File: "developer-sub-agents.md", Build: "0123456789abcdef"}
+	on := State{Subagents: &SubagentRecord{Enabled: true, Model: "sonnet", Instruction: given}}
+	if want := "sub-agents on sonnet; told to hand the coding to them by the built-in instruction developer-sub-agents.md from build 0123456789ab"; on.SubagentsSays() != want {
+		t.Fatalf("a run told and still with sub-agents says %q, want %q", on.SubagentsSays(), want)
+	}
+	earlier := "an earlier attempt was told to hand the coding to sub-agents by the built-in instruction developer-sub-agents.md from build 0123456789ab"
+	moved := State{Subagents: &SubagentRecord{Slot: 2, Instruction: given}}
+	if moved.SubagentsSays() != earlier {
+		t.Fatalf("a run moved to a slot without sub-agents says %q, want %q", moved.SubagentsSays(), earlier)
+	}
+	unavailable := State{Subagents: &SubagentRecord{Enabled: true, Model: "sonnet", Unavailable: "Codex does not offer them", Instruction: given}}
+	if want := "sub-agents off for this run: Codex does not offer them; " + earlier; unavailable.SubagentsSays() != want {
+		t.Fatalf("a run told and now without sub-agents says %q, want %q", unavailable.SubagentsSays(), want)
+	}
 }

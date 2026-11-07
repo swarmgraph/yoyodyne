@@ -7,13 +7,20 @@ package orchestrator
 // nothing of the kind (docs/designs/developer-sub-agents.md).
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 const instructionTestPersona = "# Developer persona\n\nPrefer the smallest change that satisfies the criteria.\n"
@@ -240,5 +247,118 @@ func TestARunOnAProviderWithoutSubagentsIsNotGivenTheInstruction(t *testing.T) {
 	}
 	if state.Subagents == nil || state.Subagents.Instruction != nil {
 		t.Fatalf("recorded sub-agents %+v, want the setting with no instruction noted", state.Subagents)
+	}
+}
+
+// A run told to hand the coding over keeps the note when it is moved to another
+// developer slot, whatever that slot says about sub-agents, and its next
+// invocation is given the instruction only where the new slot turns them on.
+func TestARunMovedToAnotherSlotKeepsTheNoteOfTheInstruction(t *testing.T) {
+	t.Parallel()
+
+	instruction := instructionOf(t)
+	on, off := true, false
+	for _, test := range []struct {
+		name  string
+		slot  domain.DeveloperSlot
+		given bool
+		says  string
+	}{
+		{name: "a slot stating nothing", slot: domain.DeveloperSlot{}, says: "an earlier attempt was told to hand the coding to sub-agents by the built-in instruction developer-sub-agents.md from build 0123456789ab"},
+		{name: "a slot turning them off", slot: domain.DeveloperSlot{Subagents: &domain.SlotSubagents{Enabled: &off}}, says: "an earlier attempt was told to hand the coding to sub-agents by the built-in instruction developer-sub-agents.md from build 0123456789ab"},
+		{name: "a slot turning them on", slot: domain.DeveloperSlot{Subagents: &domain.SlotSubagents{Enabled: &on}}, given: true, says: "told to hand the coding to them by the built-in instruction developer-sub-agents.md from build fedcba987654"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			repository := pipelineRepository(t)
+			tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Work", Status: "open"}}
+			provider := orchestratortest.RoleBackend(func(backend.RunRequest) error { return nil }, approveVerdict)
+			built, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
+			pipeline := &built
+			pipeline.Backend = modelUsageReportingBackend{Backend: provider}
+			pipeline.Build = "fedcba9876543210fedcba9876543210fedcba98"
+			pipeline.Config.Execution.MaxConcurrentDevelopers = 3
+			pipeline.Config.Execution.DeveloperSlots = []domain.DeveloperSlot{{}, test.slot, {Subagents: &domain.SlotSubagents{Enabled: &on}}}
+			withDeveloper(pipeline.Config.Agents, func(agent *config.AgentConfig) {
+				agent.Persona = config.Persona{Version: "v1", Path: "personas/developer.md", Text: instructionTestPersona}
+			})
+
+			told := runstate.SubagentInstruction{File: subagentInstructionFile, Build: instructionTestBuild, At: time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)}
+			stopped := approvedStoppedState()
+			stopped.LastSequence = 4
+			stopped.Subagents = &runstate.SubagentRecord{Enabled: true, Model: config.DefaultSubagentModel, Slot: 3, Instruction: &told}
+			if err := store.Create(stopped); err != nil {
+				t.Fatalf("Create() error = %v", err)
+			}
+			stopped, err := store.ClaimSlot(ctx, stopped, 3, 3, time.Now())
+			if err != nil {
+				t.Fatalf("ClaimSlot() error = %v", err)
+			}
+			for index, number := range []int{1, 3} {
+				occupant := approvedStoppedState()
+				occupant.RunID, occupant.WorkItemID = "run-"+strings.Repeat(string(rune('a'+index)), 32), "yoyodyne-occupant-"+strconv.Itoa(index)
+				occupant.Status, occupant.Phase, occupant.CompletedAt = runstate.StatusRunning, runstate.PhaseDeveloping, nil
+				occupant.IntegrationStop, occupant.Environmental, occupant.Failure = nil, nil, ""
+				if err := store.Create(occupant); err != nil {
+					t.Fatalf("Create(occupant) error = %v", err)
+				}
+				if _, err := store.ClaimSlot(ctx, occupant, number, 3, time.Now()); err != nil {
+					t.Fatalf("ClaimSlot(occupant in %d) error = %v", number, err)
+				}
+			}
+			live := stopped
+			live.Status, live.Phase, live.CompletedAt = runstate.StatusRunning, runstate.PhaseDeveloping, nil
+			live.IntegrationStop, live.Environmental, live.Failure = nil, nil, ""
+			if err := store.ReserveLive(ctx, live, 3); err != nil {
+				t.Fatalf("ReserveLive() error = %v", err)
+			}
+			taken, err := store.Load(stopped.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if taken.RecordedSlot() != 2 {
+				t.Fatalf("taken up in slot %d, want slot 2", taken.RecordedSlot())
+			}
+
+			run := &activeRun{pipeline: *pipeline, state: taken}
+			run.worktree.Path = repository
+			if _, err := run.attemptDevelopment(ctx, developerPrompt(instructionTestPersona, "", "# Work item\n", "/scratch", nil), ""); err != nil {
+				t.Fatalf("attemptDevelopment() error = %v", err)
+			}
+			requests := provider.RequestsForRole(domain.RoleDeveloper)
+			if len(requests) != 1 {
+				t.Fatalf("%d developer invocation(s), want one", len(requests))
+			}
+			if got := strings.Contains(requests[0].Prompt, instruction); got != test.given {
+				t.Fatalf("the invocation carries the instruction: %t, want %t", got, test.given)
+			}
+			if got := requests[0].Subagents != nil; got != test.given {
+				t.Fatalf("the invocation has sub-agents: %t, want %t", got, test.given)
+			}
+			if err := store.Save(run.state); err != nil {
+				t.Fatalf("Save() error = %v", err)
+			}
+			saved, err := store.Load(stopped.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if saved.Subagents == nil || saved.Subagents.Instruction == nil || saved.Subagents.Instruction.File != subagentInstructionFile {
+				t.Fatalf("the record lost the note of the instruction: %+v", saved.Subagents)
+			}
+			wantBuild := instructionTestBuild
+			if test.given {
+				wantBuild = pipeline.Build
+			}
+			if saved.Subagents.Instruction.Build != wantBuild {
+				t.Fatalf("the record names build %q, want %q", saved.Subagents.Instruction.Build, wantBuild)
+			}
+			if saved.Subagents.Slot != 2 {
+				t.Fatalf("the record names slot %d, want the one the run is in", saved.Subagents.Slot)
+			}
+			if says := saved.SubagentsSays(); !strings.Contains(says, test.says) {
+				t.Fatalf("the run says %q, want %q", says, test.says)
+			}
+		})
 	}
 }
