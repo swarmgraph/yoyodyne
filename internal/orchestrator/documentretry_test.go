@@ -484,7 +484,7 @@ func TestACheckStopNeverClaimsABudgetItDidNotReach(t *testing.T) {
 		t.Fatalf("class = %s, want a time limit", class)
 	}
 	check.StoppedByCaller = false
-	if said := checkTimedOut(check, runstate.CheckStage{}, runstate.State{}).Error(); strings.Contains(said, "30m0s execution.check_timeout") || !strings.Contains(said, "before any limit it was given had run out") {
+	if said := checkTimedOut(check, runstate.CheckStage{}, runstate.State{}).Error(); strings.Contains(said, "30m0s execution.check_timeout") || !strings.Contains(said, "before it reached any limit it was given") {
 		t.Fatalf("a stop short of the budget said as %q", said)
 	}
 	check.Process.FinishedAt = started.Add(30 * time.Minute)

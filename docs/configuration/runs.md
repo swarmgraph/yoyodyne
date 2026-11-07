@@ -518,7 +518,7 @@ scaled bound. A check's limit is worked out as the check begins, and the run's
 record and notes carry the configured figure, the limit in force, and the load
 that scaled it.
 
-**A check stopped on time says how long it ran and which limit stopped it.**
+**A check that runs out of time says how long it ran and which limit stopped it.**
 Three limits can stop a check: its own, what the stage's bound had left when
 it started, and the deadline of the work that started the run. Whichever
 stopped it, the message gives the time the check ran, measured from when it

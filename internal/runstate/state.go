@@ -827,8 +827,8 @@ func (c CheckStage) SpentBy(now time.Time) time.Duration {
 }
 
 // CheckRanItsLimit reports that the check Command names ran for the whole of
-// its own limit, measured from when it launched. A check stopped on time short
-// of it was stopped by something else, so no surface may say it reached its
+// its own limit, measured from when it launched. A check reported out of time
+// short of it was stopped by something else, so no surface may say it reached its
 // limit: a message naming a limit the check's own running time contradicts is
 // one nobody can act on. A second's slack covers the rounding to whole seconds.
 func (c CheckStage) CheckRanItsLimit() bool {

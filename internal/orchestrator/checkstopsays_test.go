@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"cmp"
 	"context"
 	"os"
 	"path/filepath"
@@ -18,7 +19,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-// A case of a check stopped on time: how long each check takes, the configured
+// A case of a check that ran out of time: how long each check takes, the configured
 // limits, the machine's load, what the stop must say, and what it must never.
 type checkStopCase struct {
 	name  string
@@ -28,12 +29,15 @@ type checkStopCase struct {
 	check, stage time.Duration
 	load         float64
 	limitOf      checks.LimitOwner
-	limit        time.Duration
-	says         []string
-	never        []string
+	// slow is the check that takes its full time only on a document's first run,
+	// so the next run can finish; make race where it is left out.
+	slow  string
+	limit time.Duration
+	says  []string
+	never []string
 }
 
-// The three ways a check is stopped on time, each said the same way whichever
+// The ways a check is stopped for running out of time, each said the same way whichever
 // run it was: by its own limit, by the stage's bound when the check had run
 // only briefly, and by limits the machine's load had scaled. Every message says
 // how long the check ran from when it started and names the limit that stopped
@@ -76,6 +80,16 @@ var checkStopCases = []checkStopCase{
 		limitOf: checks.LimitOfStage, limit: 5 * time.Minute,
 		says:  []string{"the check stage reached its 1h30m0s execution.check_stage_timeout bound (the configured 30m0s scaled for a one-minute load average of 48.0 on 16 cores) during make race, which had run for 5m0s from when it started"},
 		never: []string{"execution.check_timeout limit", "its own 1h30m"},
+	},
+	{
+		// make test spent the stage's whole thirty minutes, so make race was never
+		// started, and it is not said to have run for anything.
+		name:  "the stage's bound before the check could start",
+		takes: map[string]time.Duration{"make test": 30 * time.Minute, "make race": time.Minute},
+		check: 30 * time.Minute, stage: 30 * time.Minute, load: 8,
+		slow:  "make test",
+		says:  []string{"make race never started: the check stage had already reached its 30m0s execution.check_stage_timeout bound", "the stage had spent 30m0s across 2 check(s)"},
+		never: []string{"which had run for", "ran for 0s", "from when it started", "execution.check_timeout limit"},
 	},
 }
 
@@ -121,7 +135,7 @@ func TestADeveloperRunsCheckStoppedOnTimeNamesTheLimitThatStoppedIt(t *testing.T
 
 			outcome, runErr := pipeline.Run(context.Background(), tracker.Item.ID)
 			if runErr == nil {
-				t.Fatal("Run() error = nil, want make race stopped on time")
+				t.Fatal("Run() error = nil, want make race stopped for running out of time")
 			}
 			race := outcome.Checks[len(outcome.Checks)-1]
 			if race.Command != "make race" || race.LimitOf != c.limitOf || race.Limit != c.limit {
@@ -171,7 +185,7 @@ func TestADocumentRunsCheckStoppedOnTimeNamesTheLimitThatStoppedIt(t *testing.T)
 			for command, took := range c.takes {
 				takes[command] = took
 			}
-			pipeline = checkStopPipeline(pipeline, c, &slowFirst{timedChecks: &timedChecks{clock: clock, takes: takes}, command: "make race"}, clock)
+			pipeline = checkStopPipeline(pipeline, c, &slowFirst{timedChecks: &timedChecks{clock: clock, takes: takes}, command: cmp.Or(c.slow, "make race")}, clock)
 			options, _ := publicationConversation(t, pipeline, provider)
 			session, err := chat.Open(options)
 			if err != nil {
@@ -189,7 +203,7 @@ func TestADocumentRunsCheckStoppedOnTimeNamesTheLimitThatStoppedIt(t *testing.T)
 			}
 			first := runByID(t, runs, recorded[0].Document.RunIDFor(0))
 			if first.Status == runstate.StatusSucceeded || first.DocumentJudged() {
-				t.Fatalf("first run = %s %q, want it stopped on time without judging the document", first.Status, first.Failure)
+				t.Fatalf("first run = %s %q, want it stopped for running out of time without judging the document", first.Status, first.Failure)
 			}
 			assertCheckStopSays(t, first.Failure, c)
 			second := runByID(t, runs, recorded[0].Document.RunIDFor(1))
@@ -210,7 +224,7 @@ func TestADocumentRunsCheckStoppedOnTimeNamesTheLimitThatStoppedIt(t *testing.T)
 	}
 }
 
-// Every way a check's result can read as stopped on time is said by one rule:
+// Every way a check's result can read as out of time is said by one rule:
 // the limit is named only where the time measured against it reached it.
 func TestACheckStopNamesOnlyALimitItsTimeReached(t *testing.T) {
 	t.Parallel()
@@ -250,13 +264,13 @@ func TestACheckStopNamesOnlyALimitItsTimeReached(t *testing.T) {
 		{
 			name:   "stopped short of every limit",
 			result: checks.Result{Command: "make race", Timeout: 30 * time.Minute, Limit: 30 * time.Minute, LimitOf: checks.LimitOfCheck, Process: ran(2*time.Minute + 20*time.Second)},
-			says:   "make race ran for 2m20s from when it started and was stopped on time before any limit it was given had run out",
+			says:   "make race ran for 2m20s from when it started and was reported out of time before it reached any limit it was given",
 			never:  "30m0s",
 		},
 		{
 			name:   "a stage said to have stopped it short of its bound",
 			result: checks.Result{Command: "make race", Timeout: 30 * time.Minute, Limit: 2*time.Minute + 20*time.Second, LimitOf: checks.LimitOfStage, StageTimeout: 30 * time.Minute, StageElapsed: 10 * time.Minute, StoppedByStage: true, Process: ran(2*time.Minute + 20*time.Second)},
-			says:   "before any limit it was given had run out",
+			says:   "before it reached any limit it was given",
 			never:  "30m0s",
 		},
 	} {
@@ -284,7 +298,7 @@ func TestTheStageRecordNeverSaysACheckReachedALimitItStoppedShortOf(t *testing.T
 		"rerun":       unfinishedCheckSays(state),
 		"notes":       strings.Join(renderCheckNotes(Outcome{CheckStage: &stage}), "\n"),
 	} {
-		if strings.Contains(said, "limit of 30m") || strings.Contains(said, "own 30m") || strings.Contains(said, "reached its own") {
+		if strings.Contains(said, "limit of 30m") || strings.Contains(said, "own 30m") || strings.Contains(said, "race reached its own") {
 			t.Fatalf("%s says %q, a limit make race stopped short of", name, said)
 		}
 		if !strings.Contains(said, "2m") {

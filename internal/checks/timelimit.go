@@ -21,7 +21,7 @@ const (
 	LimitOfRun LimitOwner = "run"
 )
 
-// limitSlack is how far short of a limit a check stopped on time may read and
+// limitSlack is how far short of a limit a check out of time may read and
 // still be said to have reached it: the process runner's timer starts a moment
 // after the check's start is read, and the figures are said in whole seconds.
 const limitSlack = time.Second
@@ -31,8 +31,8 @@ const limitSlack = time.Second
 // measured from when the check launched, and the stage's bound from when the
 // stage began, so each is named only where the time measured the same way
 // reached it. ok is false for a check that did not run out of time, for one the
-// runner never launched for want of the caller, and for one stopped on time
-// before any limit it was given had run out: what stopped that one is not a
+// runner never launched for want of the caller, and for one reported out of
+// time before any limit it was given had run out: what stopped that one is not a
 // limit this record holds, and naming one the check had not reached is a
 // message that contradicts itself.
 func (r Result) TimeLimit() (LimitOwner, time.Duration, bool) {

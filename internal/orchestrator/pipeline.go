@@ -6870,11 +6870,14 @@ func (a *activeRun) verify(ctx context.Context) error {
 			//
 			// The check's own time is said beside the stage's, because a check
 			// the stage stopped may have run for minutes of a limit of an hour,
-			// and the bound is named only where the stage did reach it.
+			// and the bound is named only where the stage did reach it. A check the
+			// stage left no time to start has run for nothing, and is said so.
 			said := fmt.Sprintf("the check stage reached its %s execution.check_stage_timeout bound%s during %s, which had run for %s from when it started",
 				stage.Bound(), stageBoundLoad(*stage), check.Command, check.Elapsed().Round(time.Second))
 			if of, _, ok := check.TimeLimit(); !ok || of != checks.LimitOfStage {
 				said = "verification timed out: " + checkStopSays(check, "execution.check_timeout", *stage)
+			} else if check.Limit <= 0 {
+				said = checkStopSays(check, "execution.check_timeout", *stage)
 			}
 			cause = fmt.Errorf(
 				"%s; the stage had spent %s across %d check(s) (gate narrowed to: %s); narrow the per-run gate to what the change touches with $%s, move the whole suite to landing_checks, or raise the bound",
@@ -7101,7 +7104,7 @@ func (p Pipeline) scaleCheckStage(stage *runstate.CheckStage) {
 	}
 }
 
-// checkStopSays is how every check stopped on time is said, whichever path ran
+// checkStopSays is how every check that ran out of time is said, whichever path ran
 // it: how long it ran, measured from when it started, and the limit that
 // stopped it — its own, the stage's bound, or the deadline of the work that
 // started the run — named only where that time reached it
@@ -7113,7 +7116,7 @@ func checkStopSays(check checks.Result, own string, stage runstate.CheckStage) s
 	of, limit, ok := check.TimeLimit()
 	switch {
 	case !ok:
-		return ran + " and was stopped on time before any limit it was given had run out, so what stopped it is not a limit this run records"
+		return ran + " and was reported out of time before it reached any limit it was given, so what stopped it is not a limit this run records"
 	case of == checks.LimitOfStage && check.Limit <= 0:
 		return fmt.Sprintf("%s never started: the check stage had already reached its %s execution.check_stage_timeout bound%s", check.Command, limit, stageBoundLoad(stage))
 	case of == checks.LimitOfStage:
@@ -11129,7 +11132,7 @@ func renderCheckNotes(outcome Outcome) []string {
 		} else if stage.CheckStoppedAtLimit && stage.CheckRanItsLimit() {
 			line += fmt.Sprintf(", %s stopped unfinished at its own %s execution.check_timeout limit%s", stage.Command, time.Duration(stage.CheckLimitSeconds)*time.Second, checkLimitLoad(*stage, time.Duration(stage.CheckLimitSeconds)*time.Second))
 		} else if stage.CheckStoppedAtLimit {
-			line += fmt.Sprintf(", %s stopped unfinished on time after %s from when it started, before its own execution.check_timeout limit ran out", stage.Command, time.Duration(stage.CheckElapsedSeconds)*time.Second)
+			line += fmt.Sprintf(", %s stopped unfinished after %s from when it started, before it reached its own execution.check_timeout limit", stage.Command, time.Duration(stage.CheckElapsedSeconds)*time.Second)
 		}
 		if stage.Narrowed != "" {
 			line += " (gate narrowed to: " + stage.Narrowed + ")"

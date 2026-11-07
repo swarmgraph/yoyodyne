@@ -289,7 +289,7 @@ func (s State) CheckStageStopSays() string {
 		stopped = fmt.Sprintf("%s reached its own execution.check_timeout limit of %s and is unfinished, neither passed nor failed: nothing was judged and nothing was handed back to the developer",
 			nonEmptyCommand(s.CheckStage.Command), describeSpan(time.Duration(s.CheckStage.CheckLimitSeconds)*time.Second))
 	default:
-		stopped = fmt.Sprintf("%s was stopped on time after %s, before its own execution.check_timeout limit ran out, and is unfinished, neither passed nor failed: nothing was judged and nothing was handed back to the developer",
+		stopped = fmt.Sprintf("%s was reported out of time after %s, before it reached its own execution.check_timeout limit, and is unfinished, neither passed nor failed: nothing was judged and nothing was handed back to the developer",
 			nonEmptyCommand(s.CheckStage.Command), describeSpan(time.Duration(s.CheckStage.CheckElapsedSeconds)*time.Second))
 	}
 	if s.HarnessContinuesCheckStage() {
