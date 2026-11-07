@@ -26,6 +26,10 @@ revisions:
       by: architect
       at: 2026-10-14T06:43:09.156035Z
       reason: 'yoyodyne-ifd.437.36: section 3 said the conversion commands land ''the way approved artifact writes already do'', meaning by the operator''s own commit; approved documents now land through a reviewed run, as the artifact contract states. The paragraph now says the conversion output stays in the operator''s working tree because the operator ran the command there, that runs still refuse to start over it uncommitted, and that a value a role applies lands through the reviewed run of section 6 instead. Nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-07T05:37:53.155919Z
+      reason: The MCP tools and scheduled message intake designs both ask this section's refused list to name their settings. It now names mcp, mcp_tools and intake, with the reason each stays the operator's. These keys were already refused, because every key not on the list is, so what a role may apply does not change. Written from a read at main 52f8379d.
 approvals:
     - policy: approvals.designs
       revision: 3
@@ -37,6 +41,11 @@ approvals:
       by: harness
       at: 2026-10-14T06:43:09.156035Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 903, for document-903.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-07T05:37:53.155919Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2402, for document-2402.1 under the automatic approval policy
 ---
 # Portable agent configuration
 
@@ -326,10 +335,14 @@ applies it by the same path.
 Every other key is refused before anything is prepared. The write is refused
 for any value that names an agent, a role, a persona, a remit, a role
 definition, an account, or an approval policy, and for `product` and `version`,
-because each of those decides who may act or what the project is. The refusal
-names the key and says the value stays the operator's. The list of applicable
-keys is held in Go beside the role contracts, so configuration can never widen
-it.
+because each of those decides who may act or what the project is. It is refused
+for `mcp` and `mcp_tools`, which decide what programs the harness runs on a
+role's behalf and which tools each agent may ask for, as
+[MCP tools through the harness](mcp-tools-through-the-harness.md) says, and for
+`intake`, which decides what messages from outside can start work, as
+[scheduled message intake](scheduled-message-intake.md) says. The refusal names
+the key and says the value stays the operator's. The list of applicable keys is
+held in Go beside the role contracts, so configuration can never widen it.
 
 ### The write a role makes
 
