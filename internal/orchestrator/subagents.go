@@ -47,13 +47,11 @@ var subagentInstruction string
 // withSubagentInstruction is prompt with the sub-agent instruction placed
 // straight after the developer persona's section where the prompt carries one,
 // and at its end where it does not — a repair resuming a session whose first
-// prompt carried the persona, or a project with no persona. A prompt that
-// already carries the instruction is returned as it is.
+// prompt carried the persona, or a project with no persona. It is added whatever
+// else the prompt holds: a work item that names this file has its text quoted in
+// the context bundle, and a quotation is not the instruction.
 func withSubagentInstruction(prompt, persona string) string {
 	instruction := strings.TrimSpace(subagentInstruction)
-	if strings.Contains(prompt, instruction) {
-		return prompt
-	}
 	if section := personaSection(persona); section != "" {
 		if at := strings.Index(prompt, section); at >= 0 {
 			end := at + len(section)

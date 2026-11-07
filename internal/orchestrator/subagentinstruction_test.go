@@ -84,8 +84,8 @@ func TestTheSubagentInstructionLivesOnlyInItsFile(t *testing.T) {
 	}
 }
 
-// The instruction follows the persona's section, the prompt is otherwise
-// unchanged, and a prompt already carrying it is not given it twice.
+// The instruction follows the persona's section and the prompt is otherwise
+// unchanged.
 func TestTheSubagentInstructionFollowsThePersona(t *testing.T) {
 	t.Parallel()
 
@@ -101,14 +101,33 @@ func TestTheSubagentInstructionFollowsThePersona(t *testing.T) {
 	if strings.Replace(instructed, instruction+"\n\n", "", 1) != prompt {
 		t.Fatalf("adding the instruction changed the rest of the prompt:\n%s", instructed)
 	}
-	if again := withSubagentInstruction(instructed, instructionTestPersona); again != instructed {
-		t.Fatalf("a prompt already carrying the instruction was given it again:\n%s", again)
-	}
 	// A prompt with no persona section, such as a repair resuming a session,
 	// carries it at its end.
 	repair := "the repair prompt"
 	if got := withSubagentInstruction(repair, instructionTestPersona); !strings.HasPrefix(got, repair) || !strings.HasSuffix(strings.TrimSpace(got), instruction) {
 		t.Fatalf("a prompt without the persona got:\n%s", got)
+	}
+}
+
+// A work item that names the instruction's file has its text quoted in the
+// context bundle. A quotation is not the instruction, so the invocation is still
+// given it straight after the persona.
+func TestAPromptQuotingTheSubagentInstructionIsStillGivenIt(t *testing.T) {
+	t.Parallel()
+
+	instruction := instructionOf(t)
+	bundle := "# Work item\n\n## Referenced file: internal/orchestrator/developer-sub-agents.md\n\n" + instruction + "\n"
+	prompt := developerPrompt(instructionTestPersona, "", bundle, "/scratch", []string{"make test"})
+	instructed := withSubagentInstruction(prompt, instructionTestPersona)
+	section := personaSection(instructionTestPersona)
+	if !strings.Contains(instructed, section+instruction+"\n\n") {
+		t.Fatalf("the instruction does not come straight after the persona:\n%s", instructed)
+	}
+	if got := strings.Count(instructed, instruction); got != 2 {
+		t.Fatalf("the prompt carries the text %d time(s), want the instruction and the quotation:\n%s", got, instructed)
+	}
+	if !strings.HasSuffix(instructed, bundle) {
+		t.Fatalf("the quotation in the work item changed:\n%s", instructed)
 	}
 }
 
