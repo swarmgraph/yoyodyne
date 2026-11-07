@@ -812,6 +812,32 @@ change and acts on it again without writing a second note. Neither stops a run
 or holds back other work. Run `yoyo forge-check` yourself to check the forge
 now; it is safe to run beside the supervisor's own checks.
 
+### The tracker between machines
+
+With `team.enabled` on, each forge check also reads the tracker's export,
+`.beads/issues.jsonl`, as the shared target branch has it, and merges it into
+this machine's tracker. Beads has no merge of its own for this file: `bd` 1.1.2
+sets up no merge driver, so Git merges it line by line and conflicts whenever
+two machines touch neighbouring items, and `bd import` keeps whichever row was
+written last. So the harness merges item by item against what it last read:
+
+- An item only one machine changed takes that machine's version.
+- Changes to different fields of one item are combined. So are notes both
+  machines appended, labels, comments, dependencies, and metadata keys.
+- Two different values for one field, or one machine editing an item the other
+  removed, cannot be merged. The harness edits neither version. It holds the item
+  so nothing it chooses starts it, and tells the development manager in a report
+  naming both versions. She records which stands with `keep_version`, and the
+  next check carries that out and ends the hold. A hold also ends by itself once
+  the two versions come to agree.
+
+The holds and what was last read are kept in this machine's state, under
+`tracker-share` in the product's directory, not on the item. The check only reads
+the shared export: it commits and pushes nothing, so another machine sees this
+machine's changes only once a commit that carries the export lands on the target
+branch. A check that cannot reach the remote or the tracker changes nothing and
+says so, and the next check tries again. With team mode off none of this runs.
+
 ## Setting up with `yoyo setup`
 
 `yoyo setup` walks a project to an installation that can run work, as

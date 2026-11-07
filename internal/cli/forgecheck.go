@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -79,6 +80,12 @@ func checkForge(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	if !*jsonOutput {
 		printPersonMerges(stdout, stderr, output.PersonMerges)
 		printFeedback(stdout, stderr, output.Feedback)
+		if output.Tracker != nil {
+			fmt.Fprintf(stdout, "tracker: %s\n", output.Tracker.Says())
+		}
+		if output.TrackerFailure != "" {
+			fmt.Fprintf(stderr, "tracker: %s; the next check tries again\n", output.TrackerFailure)
+		}
 		fmt.Fprintln(stdout, describeForgeCheck(output))
 	}
 	// Said once the reading is over and before anything is hosted: see
@@ -127,7 +134,29 @@ func forgeCheckerFrom(parts components, answers publish.ResponseCache) orchestra
 	reconciler.HostsRuns = true
 	reconciler.RetryAtNextCheck = true
 	reconciler.Forge = &orchestrator.ForgeQuestions{}
+	reconciler.TrackerShare = trackerShareFrom(parts)
 	return reconciler
+}
+
+// trackerShareFrom is what merges the tracker's shared export at each forge
+// check, and nil with team mode off, where this machine's tracker is the only
+// one there is. A record that cannot be opened in team mode is not dropped: each
+// check says so on its own failure line.
+func trackerShareFrom(parts components) *orchestrator.TrackerShare {
+	if !parts.config.Team.Enabled || parts.worktrees == nil {
+		return nil
+	}
+	store, err := runstate.NewTrackerMergeStore(parts.stateRoot, parts.config.Product.ID)
+	return &orchestrator.TrackerShare{
+		Remote:       parts.worktrees,
+		Tracker:      parts.tracker(),
+		Store:        store,
+		StoreProblem: err,
+		Reports:      reportsOf(parts),
+		ProductID:    parts.config.Product.ID,
+		RepositoryID: string(parts.config.Product.RepositoryID),
+		Build:        buildinfo.Commit(),
+	}
 }
 
 // describeForgeCheck is the check's last line: how many pull requests it read,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1751,5 +1752,61 @@ func TestReadyListingBeyondDefaultConformance(t *testing.T) {
 	}
 	if len(seen) != total {
 		t.Fatalf("Ready() returned %d items, want all %d past the default cap", len(seen), total)
+	}
+}
+
+// Beads itself, on what the merge relies on: an import keeps the row with the
+// later updated_at, so a row made later is taken and an older one is said to have
+// been passed over, and a file holding Git's conflict markers is refused
+// (exportmerge.go).
+func TestImportTakesOnlyALaterRowAndRefusesConflictMarkers(t *testing.T) {
+	t.Parallel()
+
+	project := newTracker(t)
+	ctx := context.Background()
+	client := Client{Runner: execution.OSProcessRunner{}, Dir: project, Timeout: conformanceTimeout}
+	created, err := client.Create(ctx, NewWorkItem{Title: "first title", Description: "A run carries it.", Type: "task"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	exported, err := client.ExportRows(ctx)
+	if err != nil {
+		t.Fatalf("ExportRows() error = %v", err)
+	}
+	row, err := parseExportRow(string(exported))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.id() != created.ID {
+		t.Fatalf("exported %s, want %s", row.id(), created.ID)
+	}
+	rewritten := func(title, updated string) []byte {
+		fields := maps.Clone(row.fields)
+		fields["title"], _ = json.Marshal(title)
+		fields["updated_at"], _ = json.Marshal(updated)
+		return []byte(newExportRow(fields).line)
+	}
+
+	answer, err := client.ImportRows(ctx, [][]byte{rewritten("older title", "2020-01-01T00:00:00Z")})
+	if err != nil {
+		t.Fatalf("ImportRows() error = %v", err)
+	}
+	if !slices.Equal(answer.Kept, []string{created.ID}) {
+		t.Errorf("an older row: kept = %v, want the item", answer.Kept)
+	}
+	if shown, err := client.Show(ctx, created.ID); err != nil || shown.Title != "first title" {
+		t.Errorf("after an older row: %q, %v", shown.Title, err)
+	}
+
+	answer, err = client.ImportRows(ctx, [][]byte{rewritten("later title", "2099-01-01T00:00:00Z")})
+	if err != nil {
+		t.Fatalf("ImportRows() error = %v", err)
+	}
+	if shown, err := client.Show(ctx, created.ID); err != nil || shown.Title != "later title" {
+		t.Errorf("after a later row: %q, %v, kept %v", shown.Title, err, answer.Kept)
+	}
+
+	if _, err := client.ImportRows(ctx, [][]byte{[]byte("<<<<<<< HEAD")}); err == nil {
+		t.Error("ImportRows() took a conflict marker")
 	}
 }

@@ -300,6 +300,9 @@ type Options struct {
 	// names. It is optional like the rest, and a conversation without one says it
 	// cannot hold intake rather than appearing to have held it.
 	Intake IntakeHolds
+	// TrackerMerge is where the development manager's decision about an item
+	// held because two machines' versions cannot be merged is recorded.
+	TrackerMerge TrackerMergeDecisions
 	// Triage is what one work item has already been given by triage and what it
 	// may still be given. It is here because the development manager's decisions
 	// about stopped work spend it: a repair grant, a re-run, and a re-arm each go
