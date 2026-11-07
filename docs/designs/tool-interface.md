@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-10-20T20:34:56.567705Z
       reason: 'Approved amendment-0b8a52db from the developer building the reading of pass records in parts (yoyodyne-bvr): the log reader''s bounds now say a record longer than one read returns comes back in successive parts, each naming where it starts, how much it returned and how much remains, and giving the next read; a pass record read may be narrowed to one recurring task; secrets are removed from every part. The first build applies parts to pass records, and other kinds keep the single declared cut until they gain it. Nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-07T06:37:58.112805Z
+      reason: The MCP tools design landed and is an operator-supplied tool source this list still deferred. The first line now excepts it beside research and links that design; the other three lines are unchanged.
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -29,6 +33,11 @@ approvals:
       by: harness
       at: 2026-10-20T20:34:56.567705Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1356, for document-1356.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-07T06:37:58.112805Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2412, for document-2412.1 under the automatic approval policy
 ---
 # Tools: one interface for what the harness does on a role's behalf
 
@@ -123,7 +132,7 @@ Its redaction, framing, and audit are every tool's.
 
 ## Deferred, deliberately
 
-- Operator-supplied tool implementations beyond research, which need the plugin contract's answer on where a command may come from.
+- Operator-supplied tool implementations beyond research and the calls to MCP servers that [MCP tools through the harness](mcp-tools-through-the-harness.md) designs, which need the plugin contract's answer on where a command may come from.
 - A tool marketplace or bundle sharing between projects: values travel, authority does not, per [portable-agent-configuration](portable-agent-configuration.md).
 - Per-tool cost accounting: a tool spends no provider money; what it spends is prompt size, which the bounds cap and the audit records.
 - Further kinds for `log.read`, each added by revising this design: the conversation records of other roles, where most hand steps arrive as messages; the reports and how each was handled; the triage and escalation records; and the supervisor's records.
