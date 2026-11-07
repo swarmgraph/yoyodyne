@@ -821,22 +821,38 @@ sets up no merge driver, so Git merges it line by line and conflicts whenever
 two machines touch neighbouring items, and `bd import` keeps whichever row was
 written last. So the harness merges item by item against what it last read:
 
-- An item only one machine changed takes that machine's version.
+- An item only one machine changed takes that machine's version. A shared row
+  this machine exported itself counts as its own earlier version, not as another
+  machine's edit, so an item that moved on after the commit is not held.
 - Changes to different fields of one item are combined. So are notes both
-  machines appended, labels, comments, dependencies, and metadata keys.
-- Two different values for one field, or one machine editing an item the other
-  removed, cannot be merged. The harness edits neither version. It holds the item
-  so nothing it chooses starts it, and tells the development manager in a report
-  naming both versions. She records which stands with `keep_version`, and the
-  next check carries that out and ends the hold. A hold also ends by itself once
-  the two versions come to agree.
+  machines appended, each note kept once, and labels, comments, dependencies, and
+  metadata keys. `bd import` cannot take a label or dependency away, so the harness
+  removes one the merged version no longer has as a separate write.
+- Two different values for one field, notes one machine rewrote, or one machine
+  editing an item the other removed, cannot be merged. The harness edits neither
+  version. It holds the item so nothing it chooses starts it, and tells the
+  development manager in a report naming both versions. She records which stands
+  with `keep_version`, and the next check carries that out and ends the hold. A
+  hold also ends by itself once the two versions come to agree. Where the shared
+  export removed the item, only this machine's version can be kept, because the
+  harness cannot remove an item from the tracker; a decision to keep the removal is
+  refused and the hold stands.
+
+The import takes each item's write lock, as every other tracker write does. A row
+whose item changed on this machine after the merge read it is passed over, and the
+next check reads it again.
 
 The holds and what was last read are kept in this machine's state, under
-`tracker-share` in the product's directory, not on the item. The check only reads
-the shared export: it commits and pushes nothing, so another machine sees this
-machine's changes only once a commit that carries the export lands on the target
-branch. A check that cannot reach the remote or the tracker changes nothing and
-says so, and the next check tries again. With team mode off none of this runs.
+`tracker-share` in the product's directory, not on the item. The versions this
+machine has exported are kept beside its tracker store, in
+`.beads/yoyodyne-exported-versions.lock`, up to 32 for each item. The check only
+reads the shared export: it commits and pushes nothing, so another machine sees
+this machine's changes only once a commit that carries the export lands on the
+target branch. A check that cannot reach the remote or the tracker changes nothing
+and says so, and the next check tries again.
+
+With team mode off none of this runs. A hold left from when team mode was on ends
+at the next forge check or `yoyo reconcile`, and `keep_version` is refused.
 
 ## Setting up with `yoyo setup`
 

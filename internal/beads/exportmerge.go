@@ -22,6 +22,11 @@ package beads
 // keys combine by their own rules. What is left, two different values for one
 // field, or one side editing an item the other removed, is reported as a
 // conflict and neither row is touched.
+//
+// A shared row this machine itself exported earlier is not another machine's
+// edit, whatever it differs by: an item keeps moving here between the commit that
+// carried the export and the next check. So such a row reads as already common
+// ground (ExportedVersions).
 
 import (
 	"bytes"
@@ -65,6 +70,9 @@ type ExportMergeInput struct {
 	// committed on the shared target branch.
 	ThisMachine []byte
 	Shared      []byte
+	// Exported is the versions this machine has itself exported. A shared row
+	// among them is this machine's own past, and is not compared as an edit.
+	Exported ExportedVersions
 	// Settled replaces an item's base row before the item is compared: the
 	// row of the version the development manager decided against, or empty where
 	// that version has no row. Only the kept version then reads as changed, so
@@ -96,8 +104,8 @@ type ExportConflict struct {
 type ExportMerge struct {
 	// Import is the rows to write into this machine's store, ordered by item:
 	// the shared version where only it changed, and the combined one where both
-	// did. Each is later than this machine's row, so `bd import` takes it and a
-	// write landing while it runs still wins.
+	// did. Each is later than the row this merge read, so `bd import` takes it;
+	// Client.ImportRows passes over any row a write has moved since.
 	Import [][]byte
 	// FromShared and Combined name the items in Import, by which way they got
 	// there.
@@ -191,18 +199,19 @@ func MergeExports(input ExportMergeInput) (ExportMerge, error) {
 		if !input.HasBase && b == nil && o != nil && t != nil {
 			b = olderOf(o, t)
 		}
-		merge.mergeItem(id, b, o, t)
+		merge.mergeItem(id, b, o, t, input.Exported)
 	}
 	return merge, nil
 }
 
-func (m *ExportMerge) mergeItem(id string, b, o, t *exportRow) {
+func (m *ExportMerge) mergeItem(id string, b, o, t *exportRow, exported ExportedVersions) {
 	switch {
 	case sameExportRow(o, t):
 		// Both sides hold the same version. Which of them moved does not matter.
-	case sameExportRow(t, b):
-		// Only this machine changed it, added it, or removed it, and its version
-		// stands. Nothing here pushes that version anywhere.
+	case sameExportRow(t, b), t != nil && exported.holds(t):
+		// Only this machine changed it, added it, or removed it, or the shared
+		// row is what this machine itself exported on the way to what it holds
+		// now. Its version stands. Nothing here pushes that version anywhere.
 	case sameExportRow(o, b):
 		// Only the shared version changed.
 		switch {
@@ -289,25 +298,64 @@ func combineExportField(name string, bv, ov, tv json.RawMessage) (json.RawMessag
 	return nil, []ExportFieldDifference{{Field: name, ThisMachine: readableExportValue(ov), Shared: readableExportValue(tv)}}
 }
 
-// combineNotes keeps both machines' appended notes. Notes are append-only by
-// rule, so a version that does not begin with the earlier notes rewrote them,
-// and that is not something to combine.
+// combineNotes keeps both machines' appended notes, and each note once. Notes are
+// append-only by rule, so a version missing an earlier line rewrote them, and that
+// is not something to combine. Lines are counted rather than compared by position:
+// each machine's own notes stay in the order it has them, so a machine that took
+// the other's note after its own, and the machine that took them the other way
+// round, still read as holding the same notes. A line this side lacks is added
+// after what it has.
 func combineNotes(bv, ov, tv json.RawMessage) (json.RawMessage, bool) {
-	base, ours, theirs := exportString(bv), exportString(ov), exportString(tv)
-	if !strings.HasPrefix(ours, base) || !strings.HasPrefix(theirs, base) {
+	base, ours, theirs := noteLines(exportString(bv)), noteLines(exportString(ov)), noteLines(exportString(tv))
+	if !holdsEveryLine(ours, base) || !holdsEveryLine(theirs, base) {
 		return nil, false
 	}
-	ourAddition := strings.TrimLeft(strings.TrimPrefix(ours, base), "\n")
-	theirAddition := strings.TrimLeft(strings.TrimPrefix(theirs, base), "\n")
-	combined := ours
-	if theirAddition != ourAddition {
-		combined = strings.TrimRight(ours, "\n") + "\n" + theirAddition
+	have := map[string]int{}
+	for _, line := range ours {
+		have[line]++
+	}
+	combined := strings.TrimRight(exportString(ov), "\n")
+	for _, line := range theirs {
+		if have[line] > 0 {
+			have[line]--
+			continue
+		}
+		if combined != "" {
+			combined += "\n"
+		}
+		combined += line
 	}
 	encoded, err := json.Marshal(combined)
 	if err != nil {
 		return nil, false
 	}
 	return encoded, true
+}
+
+// noteLines is the lines of a notes field that say something.
+func noteLines(notes string) []string {
+	var lines []string
+	for _, line := range strings.Split(notes, "\n") {
+		if strings.TrimSpace(line) != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+// holdsEveryLine reports lines carrying every one of required, as many times.
+func holdsEveryLine(lines, required []string) bool {
+	have := map[string]int{}
+	for _, line := range lines {
+		have[line]++
+	}
+	for _, line := range required {
+		if have[line] == 0 {
+			return false
+		}
+		have[line]--
+	}
+	return true
 }
 
 // combineSets applies each machine's additions and removals. Elements are

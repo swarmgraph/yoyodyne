@@ -171,7 +171,8 @@ type MergeHolds interface {
 // holdMergeConflicts adds those holds. An item a stopped run holds already keeps
 // that hold, which says why starting it over is wrong; the merge hold still stands
 // and comes into view when that one ends. A decided one is the harness's to carry
-// out, as any decided hold is.
+// out, as any decided hold is. Holds exist only while team mode is on: the first
+// forge check or sweep after it is turned off ends any left behind.
 func holdMergeConflicts(stoppages Stoppages, reasons map[string]backlog.Hold) error {
 	source, ok := stoppages.(MergeHolds)
 	if !ok {

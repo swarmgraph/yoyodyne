@@ -1787,7 +1787,7 @@ func TestImportTakesOnlyALaterRowAndRefusesConflictMarkers(t *testing.T) {
 		return []byte(newExportRow(fields).line)
 	}
 
-	answer, err := client.ImportRows(ctx, [][]byte{rewritten("older title", "2020-01-01T00:00:00Z")})
+	answer, err := client.ImportRows(ctx, [][]byte{rewritten("older title", "2020-01-01T00:00:00Z")}, exported)
 	if err != nil {
 		t.Fatalf("ImportRows() error = %v", err)
 	}
@@ -1798,7 +1798,7 @@ func TestImportTakesOnlyALaterRowAndRefusesConflictMarkers(t *testing.T) {
 		t.Errorf("after an older row: %q, %v", shown.Title, err)
 	}
 
-	answer, err = client.ImportRows(ctx, [][]byte{rewritten("later title", "2099-01-01T00:00:00Z")})
+	answer, err = client.ImportRows(ctx, [][]byte{rewritten("later title", "2099-01-01T00:00:00Z")}, exported)
 	if err != nil {
 		t.Fatalf("ImportRows() error = %v", err)
 	}
@@ -1806,7 +1806,115 @@ func TestImportTakesOnlyALaterRowAndRefusesConflictMarkers(t *testing.T) {
 		t.Errorf("after a later row: %q, %v, kept %v", shown.Title, err, answer.Kept)
 	}
 
-	if _, err := client.ImportRows(ctx, [][]byte{[]byte("<<<<<<< HEAD")}); err == nil {
+	if _, err := client.ImportRows(ctx, [][]byte{[]byte("<<<<<<< HEAD")}, exported); err == nil {
 		t.Error("ImportRows() took a conflict marker")
+	}
+
+	// A row without a label or dependency has them taken away, which bd's import
+	// alone does not do.
+	other, err := client.Create(ctx, NewWorkItem{Title: "the other item", Description: "A run carries it.", Type: "task"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if err := client.AddBlocker(ctx, created.ID, other.ID); err != nil {
+		t.Fatalf("AddBlocker() error = %v", err)
+	}
+	runCommand(t, project, "bd", "label", "add", created.ID, "keep")
+	runCommand(t, project, "bd", "label", "add", created.ID, "drop")
+	withLinks, err := client.ExportRows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := parseExportRows(withLinks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := maps.Clone(rows[created.ID].fields)
+	fields["labels"], _ = json.Marshal([]string{"keep", "added"})
+	delete(fields, "dependencies")
+	fields["updated_at"], _ = json.Marshal("2099-06-01T00:00:00Z")
+	if answer, err := client.ImportRows(ctx, [][]byte{[]byte(newExportRow(fields).line)}, withLinks); err != nil || len(answer.Kept) != 0 {
+		t.Fatalf("ImportRows() kept %v, error %v", answer.Kept, err)
+	}
+	after, err := client.ExportRows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err = parseExportRows(after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := canonicalExportValue(rows[created.ID].fields["labels"]); got != `["added","keep"]` {
+		t.Errorf("labels after the import = %s", got)
+	}
+	if !exportAbsent(rows[created.ID].fields["dependencies"]) {
+		t.Errorf("dependencies after the import = %s", rows[created.ID].fields["dependencies"])
+	}
+}
+
+// Two real trackers sharing one export: edits to different items are both kept in
+// each, and one item changed two ways is named as a conflict and written to neither.
+func TestTwoTrackersMergingOneSharedExport(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	here, there := newTracker(t), newTracker(t)
+	mine := Client{Runner: execution.OSProcessRunner{}, Dir: here, Timeout: conformanceTimeout}
+	theirs := Client{Runner: execution.OSProcessRunner{}, Dir: there, Timeout: conformanceTimeout}
+	var ids []string
+	for _, title := range []string{"first", "second", "third"} {
+		created, err := mine.Create(ctx, NewWorkItem{Title: title, Description: "A run carries it.", Type: "task"})
+		if err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+		ids = append(ids, created.ID)
+	}
+	base, err := mine.ExportRows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCommand(t, there, "sh", "-c", "bd import - <<'ROWS'\n"+string(base)+"ROWS\n")
+
+	// Each gets a later moment than the base, whichever second this runs in.
+	time.Sleep(1100 * time.Millisecond)
+	runCommand(t, here, "bd", "update", ids[0], "--title", "first edited here")
+	runCommand(t, there, "bd", "update", ids[1], "--title", "second edited there")
+	runCommand(t, here, "bd", "update", ids[2], "--status", "in_progress")
+	runCommand(t, there, "bd", "close", ids[2], "--reason", "done there")
+
+	ours, err := mine.ExportRows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared, err := theirs.ExportRows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merge, err := MergeExports(ExportMergeInput{Base: base, HasBase: true, ThisMachine: ours, Shared: shared})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(merge.FromShared, []string{ids[1]}) {
+		t.Errorf("taken from the shared export = %v, want %s", merge.FromShared, ids[1])
+	}
+	if len(merge.Conflicts) != 1 || merge.Conflicts[0].ID != ids[2] {
+		t.Fatalf("conflicts = %+v, want %s", merge.Conflicts, ids[2])
+	}
+	if !strings.Contains(merge.Conflicts[0].ThisMachine, "in_progress") || !strings.Contains(merge.Conflicts[0].Shared, "closed") {
+		t.Errorf("the conflict does not name both versions: %+v", merge.Conflicts[0])
+	}
+	if answer, err := mine.ImportRows(ctx, merge.Import, ours); err != nil || len(answer.Kept) != 0 {
+		t.Fatalf("ImportRows() kept %v, error %v", answer.Kept, err)
+	}
+	for id, want := range map[string]string{ids[0]: "first edited here", ids[1]: "second edited there"} {
+		if shown, err := mine.Show(ctx, id); err != nil || shown.Title != want {
+			t.Errorf("%s reads %q, %v; want %q", id, shown.Title, err, want)
+		}
+	}
+	if shown, err := mine.Show(ctx, ids[2]); err != nil || shown.Status != "in_progress" {
+		t.Errorf("the held item on this machine reads %q, %v; want it unchanged", shown.Status, err)
+	}
+	if shown, err := theirs.Show(ctx, ids[2]); err != nil || shown.Status != "closed" {
+		t.Errorf("the held item on the other machine reads %q, %v; want it unchanged", shown.Status, err)
 	}
 }
