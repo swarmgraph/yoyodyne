@@ -16,12 +16,21 @@ revisions:
       by: architect
       at: 2026-10-15T14:38:02.554689Z
       reason: 'Follows the landed design for working alongside other contributors, which names this record as gaining a consequence once it landed: who may work an item is decided across machines by the claim reference on the shared remote, while the tracker still records the holder; reports, their handling, directives and spends travel in the records reference beside the tracker, not in it; and neither reference is a repository file, so the record''s rule against workflow state in repository files still holds.'
+    - action: amended
+      by: architect
+      at: 2026-11-07T08:09:14.370655Z
+      reason: 'Follows the contributors design''s revision for tracker sharing, which landed on November 7 and names this record as gaining one line: the tracker''s export travels through the tracker reference on the shared remote rather than a commit on the target branch, and the harness merges it item by item while Beads stays the store. Two places that said the export is committed now say published, and the sentences naming the references now include this one. The decision itself is unchanged.'
 approvals:
     - policy: approvals.designs
       revision: 2
       by: harness
       at: 2026-10-15T14:38:02.554689Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1019, for document-1019.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-07T08:09:14.370655Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2424, for document-2424.1 under the automatic approval policy
 ---
 # Beads is the durable workflow store
 
@@ -30,7 +39,8 @@ it was stated in [the v1 goals](../product/goals/v1-goals.md) until it was
 moved here, because it is a decision about how Yoyodyne is built rather than
 an outcome the product is trying to reach. Revised on October 15, 2026, when
 [working alongside other contributors](../designs/working-alongside-other-contributors.md)
-landed, to say what that design keeps out of the tracker and why.
+landed, to say what that design keeps out of the tracker and why, and on
+November 7, 2026, to say how the tracker's export reaches other machines.
 
 ## Context
 
@@ -61,7 +71,7 @@ rules:
   across machines the claim reference, `refs/yoyodyne/claims/<item id>`, is what
   decides it. A push that fails if the reference already exists settles a race
   between two factories at once; the tracker reaches another machine only when
-  its export is committed and fetched, by which time both could have claimed
+  its export is published and fetched, by which time both could have claimed
   the item.
 - **Reports, their handling, directives, and the spends of each item's
   budgets.** They travel between machines in the records reference,
@@ -69,16 +79,24 @@ rules:
   stores. Where each machine keeps them is unchanged by this; the reference is
   how they reach the others.
 
-Neither reference is a repository file. No branch carries them, nothing is
-checked out to write them, and they never pass through review or the promotion
-lease, so the rule above against keeping workflow state in repository files
-still holds.
+The tracker's own export travels the same way, in the tracker reference,
+`refs/yoyodyne/tracker`, never as a commit on the target branch, so a protected
+target cannot stop it. Beads has no merge of its own for its export, so the
+harness merges what it fetches into this machine's tracker item by item, through
+the tracker's own import. Beads stays the store on every machine: the merge
+decides what goes into Beads, and holds no workflow state of its own beyond what
+it needs to compare versions of an item.
+
+None of these references is a repository file. No branch carries them, nothing
+is checked out to write them, and they never pass through review or the
+promotion lease, so the rule above against keeping workflow state in repository
+files still holds.
 
 ## Alternatives rejected
 
 - **Claims in the tracker alone.** Two factories could each claim an item before
   either saw the other's claim, because the tracker's export is shared only when
-  committed and fetched.
+  published and fetched.
 - **Reports, directives and spends as tracker items or notes.** None of them is
   work, and putting them in the tracker would put them in the queue of work to
   pull.
@@ -90,12 +108,12 @@ still holds.
 
 - Repository Markdown owns artifact *content*; Beads owns workflow *state*. The
   division is deliberate, and the two are not alternatives.
-- Replacing Beads is a non-goal for v1. The claim and records references sit
-  beside it and replace no part of it.
+- Replacing Beads is a non-goal for v1. The claim, records and tracker references
+  sit beside it and replace no part of it.
 - Agents act on the tracker through bounded, validated operations rather than by
   editing its storage, so every change to workflow state is attributable. The
-  same holds for the claim and records references: only the harness writes
-  them, and no agent touches one.
+  same holds for the claim, records and tracker references: only the harness
+  writes them, and no agent touches one.
 - Across machines, an item's claim reference and the tracker's record of its
   holder can briefly disagree. The claim reference decides who may run the
   item, and the tracker catches up when its export is next fetched.
