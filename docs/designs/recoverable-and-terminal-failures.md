@@ -30,6 +30,10 @@ revisions:
       by: architect
       at: 2026-10-27T03:46:36.765086Z
       reason: 'Says which code makes each decision this design describes, as the design that gives each guarantee one owner requires (yoyodyne-ifd.428.127): a retry in place and a further recovery act are decided by internal/budget, and the reruns of a check by the plan in internal/checks; the windows and bounds are unchanged. Corrects the two places that said the checks before promotion always run whole, which the race check ruling changed. Written from a read at main 0158d2ad.'
+    - action: amended
+      by: architect
+      at: 2026-11-07T22:48:07.62355Z
+      reason: 'Answers the reviewer''s report-7f05fc5c: the Double-promote bullet said a lost race replays under execution.integration_retries_before_reconciliation, which reads as if that setting limits lost races. Stopped run recovery, as revised on October 27 and October 30 (read at main be1ecd7d), says lost races have a fixed limit of five, a clean replay that passed its checks is not counted, and the setting counts only replays that stop on the change itself. The bullet now says the same; the other bullets are unchanged and nothing else in the design changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -56,6 +60,11 @@ approvals:
       by: harness
       at: 2026-10-27T03:46:36.765086Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1830, for document-1830.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-07T22:48:07.62355Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2457, for document-2457.1 under the automatic approval policy
 ---
 # Recoverable and terminal failures: the boundary per failure class, and what a retry may never do
 
@@ -154,7 +163,7 @@ Where the two designs differ, that design decides which code makes a decision, a
 
 ## What a retry may never do
 
-- **Double-promote.** Promotion is a compare-and-swap from the recorded base onto the exact commit the harness made, and a merge is pinned to that commit and confirmed by containment. A retried promotion or merge that finds the target moved is a lost race and replays under `execution.integration_retries_before_reconciliation`; it never forces, and it never asks twice for a merge the forge has already made. `one-promotion-per-target-branch` binds every retry as it binds the first attempt.
+- **Double-promote.** Promotion is a compare-and-swap from the recorded base onto the exact commit the harness made, and a merge is pinned to that commit and confirmed by containment. A retried promotion or merge that finds the target moved is a lost race. It is replayed onto the target branch as it stands then; it never forces, and it never asks twice for a merge the forge has already made. How many lost races an approved change may take before its run gives its developer slot back is the fixed limit of five that step 1 of [stopped run recovery](stopped-run-recovery.md) states, and a lost race whose replay applied cleanly onto the newer target branch and passed its checks is not counted toward it. `execution.integration_retries_before_reconciliation` is not that limit: it counts only replays that stop on the change itself, through a conflict, a failing check or a repair verdict, and a stop past it is about the work, as that step says. `one-promotion-per-target-branch` binds every retry as it binds the first attempt.
 - **Double-spend.** Every wait is recorded on the run before it is taken, every budget is committed before it is spent, and a process that dies mid-wait comes back to the window it had spent. A retry charges no repair attempt and no review round, because nothing about the change was judged.
 - **Trip the brake.** A run stopped by a boundary's window counts toward nothing the failure-storm brake counts: the brake counts verdicts on a change that was present, and a network that stayed down is a verdict on nothing. Three rules decide the rest, ruled on October 19 after the reviewer's reports on the hold on new work (report-c3429c9e and report-17c8bcbf):
   - Only the causes outside the work that step 1 of [stopped run recovery](stopped-run-recovery.md) lists, and a run cancelled by a person or by a recorded decision, are kept out of the brake's count. A failure of the harness itself around a run, and any stop cause the harness does not recognize, count as a verdict does: a harness that keeps failing is what the brake exists to stop, and nothing else would stop it. Code that sorts an unrecognized cause outside the count by default is a defect.
