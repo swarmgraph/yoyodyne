@@ -2173,6 +2173,9 @@ func (s *State) recordedTexts() []recordedText {
 		if s.Subagents.Limit != nil {
 			unstated("subagents.limit.kind", "subagents.limit.kind", &s.Subagents.Limit.Kind, MaxRecordedTextBytes)
 		}
+		if s.Subagents.Instruction != nil {
+			unstated("subagents.instruction.file", "subagents.instruction.file", &s.Subagents.Instruction.File, MaxRecordedTextBytes)
+		}
 	}
 	if s.SlotRelease != nil {
 		unstated("slot_release.says", "slot_release.says", &s.SlotRelease.Says, MaxRecordedTextBytes)
@@ -4301,6 +4304,9 @@ func (s State) Validate() error {
 	}
 	if s.Build != "" && !buildPattern.MatchString(s.Build) {
 		problems = append(problems, errors.New("build is not a revision"))
+	}
+	if s.Subagents != nil && s.Subagents.Instruction != nil && s.Subagents.Instruction.Build != "" && !buildPattern.MatchString(s.Subagents.Instruction.Build) {
+		problems = append(problems, errors.New("subagents.instruction.build is not a revision"))
 	}
 	// A worker identity is the store's own record of who took the run, so one
 	// naming another run, no process, or a build nothing could have produced is
