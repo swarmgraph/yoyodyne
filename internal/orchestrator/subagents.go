@@ -17,15 +17,65 @@ package orchestrator
 // it apart from the invocation's own limit (backend.SubagentsOnlyLimit), the
 // developer carries on itself, and the run goes without sub-agents until the
 // limit resets, its record saying why.
+//
+// An invocation given sub-agents is also told to use them: to plan the change
+// itself, hand the writing of code to them one bounded piece at a time, read
+// each piece, and verify the whole change before submitting. That instruction
+// is the Markdown file subagentInstructionFile, built into the program so every
+// project receives the same text and no project's files can change it, and it
+// follows the developer persona in the invocation's prompt. An invocation that
+// goes without sub-agents is not given it.
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
+	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
+
+// subagentInstructionFile is the instruction's file beside this one, named on
+// the run's record.
+const subagentInstructionFile = "developer-sub-agents.md"
+
+//go:embed developer-sub-agents.md
+var subagentInstruction string
+
+// withSubagentInstruction is prompt with the sub-agent instruction placed
+// straight after the developer persona's section where the prompt carries one,
+// and at its end where it does not — a repair resuming a session whose first
+// prompt carried the persona, or a project with no persona. It is added whatever
+// else the prompt holds: a work item that names this file has its text quoted in
+// the context bundle, and a quotation is not the instruction.
+func withSubagentInstruction(prompt, persona string) string {
+	instruction := strings.TrimSpace(subagentInstruction)
+	if section := personaSection(persona); section != "" {
+		if at := strings.Index(prompt, section); at >= 0 {
+			end := at + len(section)
+			return prompt[:end] + instruction + "\n\n" + prompt[end:]
+		}
+	}
+	return strings.TrimRight(prompt, "\n") + "\n\n" + instruction + "\n"
+}
+
+// instructSubagents adds the instruction to the prompt of an invocation given
+// sub-agents and notes on the run's record that it was given and the build it
+// came from. An invocation without them is given the prompt unchanged and
+// leaves the record as it was.
+func (a *activeRun) instructSubagents(prompt string, subagents *backend.SubagentRequest) string {
+	if subagents == nil || a.state.Subagents == nil {
+		return prompt
+	}
+	a.state.Subagents.Instruction = &runstate.SubagentInstruction{
+		File:  subagentInstructionFile,
+		Build: a.pipeline.Build,
+		At:    a.pipeline.clock().Now(),
+	}
+	return withSubagentInstruction(prompt, a.pipeline.developer().Persona.Text)
+}
 
 // settleSubagents records the run's sub-agent setting where it has none yet.
 //
@@ -38,10 +88,16 @@ import (
 // A run moved to another developer slot when it was taken up again (runstate's
 // RunRouting.MoveSlot) settles its setting afresh from the slot it now records,
 // whatever it settled before, because the setting is the slot's and the run is
-// no longer in the old one.
+// no longer in the old one. What it was told in the old slot stays on the record
+// whatever the new one says, because the move does not undo that it was told, so
+// a move to a slot stating nothing keeps a record holding that alone.
 func (a *activeRun) settleSubagents() {
 	if !a.movedSinceSubagentsSettled() && (a.state.Subagents != nil || a.state.LastSequence > 0 || a.state.ProviderSessionID != "") {
 		return
+	}
+	var given *runstate.SubagentInstruction
+	if a.state.Subagents != nil {
+		given = a.state.Subagents.Instruction
 	}
 	a.state.Subagents = nil
 	p := a.pipeline
@@ -51,14 +107,18 @@ func (a *activeRun) settleSubagents() {
 		stated = stated || p.Config.Execution.DeveloperSlots[slot-1].Subagents != nil
 	}
 	if !stated {
+		if given != nil {
+			a.state.Subagents = &runstate.SubagentRecord{Slot: a.state.RecordedSlot(), Instruction: given}
+		}
 		return
 	}
 	a.state.Subagents = &runstate.SubagentRecord{
-		Enabled: setting.Enabled,
-		Model:   setting.Model,
-		Effort:  setting.Effort,
-		Origin:  setting.Origin,
-		Slot:    a.state.RecordedSlot(),
+		Enabled:     setting.Enabled,
+		Model:       setting.Model,
+		Effort:      setting.Effort,
+		Origin:      setting.Origin,
+		Slot:        a.state.RecordedSlot(),
+		Instruction: given,
 	}
 }
 
