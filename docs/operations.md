@@ -1354,6 +1354,27 @@ a banner over every one of [its live modes](#following-a-run-a-conversation-or-a
 — and the conversation's `/status` all say when the pause was placed, because a
 system somebody paused and forgot looks exactly like a system that died.
 
+This pause is this machine's alone. It is never shared with another machine
+working the same repository, so one collaborator cannot stop another's machine.
+A project that turns [team mode](configuration.md#working-one-repository-from-more-than-one-machine-team)
+on has a shared switch as well, the team pause:
+
+```sh
+./bin/yoyo pause --team           # no factory working this repository starts new work
+./bin/yoyo pause --team --clear   # every factory starts new work again
+```
+
+It is the reference `refs/yoyodyne/pause` on the shared remote, and it is the
+shared form of the narrow hold below rather than of this pause: while it is set,
+no factory in team mode starts new work the harness chose, runs in progress
+finish, and repair rounds and waiting pull requests carry on. An item you name
+with `yoyo run` on your own machine is still started. Each factory reads it in
+the fetch it makes before claiming an item, so a factory that cannot reach the
+remote starts no new work either. `yoyo status` says, above its four lines,
+that the team pause is set and who set it, as this machine last read it from the
+remote. On a project with team mode off there is no team pause: `yoyo pause
+--team` is refused, and a pause reference left on the remote is never read.
+
 This is the broad switch, and there is a narrow one beside it. `yoyo pause` stops
 everything including the runs already under way, which park keeping everything
 they have; the conversation's [`/hold`](conversation.md#steering-the-work-from-the-conversation)
