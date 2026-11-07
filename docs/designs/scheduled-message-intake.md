@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-11-07T11:11:12.475231Z
       reason: Section 2 said a source's link never leaves the record, while section 7, revised earlier today, sends that link to the operator by direct message when a query's questions are reserved for him. Section 2 now names that one exception and points to section 7. Written from a read of the whole design at main f6479b60; nothing else in the section changes.
+    - action: amended
+      by: architect
+      at: 2026-11-07T11:58:28.947522Z
+      reason: The list of documents this design changes said the MCP design's Slack rule names only the reader's line as an exception, while section 7 here and the MCP design as landed both name the link to the source message as well. The MCP bullet now names both; the other bullets are unchanged. Written from a read of the whole design at main afa296f0.
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -34,6 +38,11 @@ approvals:
       by: harness
       at: 2026-11-07T11:11:12.475231Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2432, for document-2432.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-07T11:58:28.947522Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2434, for document-2434.1 under the automatic approval policy
 ---
 # Scheduled message intake
 
@@ -285,7 +294,7 @@ The rules that could be broken from outside this design are already held: no ses
 
 ## Documents this changes
 
-- [The MCP design](mcp-tools-through-the-harness.md): the table of role bundles gains the message reader, holding neither class. Section 4's record gains the one exception of this design's section 4, and section 7's sentence that records apply unchanged says so. Its rule on Slack names the one line of section 7 here as an exception.
+- [The MCP design](mcp-tools-through-the-harness.md): the table of role bundles gains the message reader, holding neither class. Section 4's record gains the one exception of this design's section 4, and section 7's sentence that records apply unchanged says so. Its rule on Slack names the two exceptions of section 7 here: the link to the source message and the reader's line, both sent only by direct message.
 - [Who owns what](ownership-and-the-operator.md): the table gains the kind for an intake question, owned as the query says. The wording of `human-gate` covers a step a query reserved for a person, and the wording of `protected-file` covers a section of the configuration that every role's write refuses.
 - [The artifact contract](artifact-contract.md): the rules kind gains one sentence for documents under `docs/product/intake`, which are read by the message reader and not delivered to every role.
 - [Portable agent configuration](portable-agent-configuration.md): section 6's refused list names `intake`.
