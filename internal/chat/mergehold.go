@@ -21,13 +21,14 @@ type TrackerMergeDecisions interface {
 // and ends the hold, for the reason a triage decision carries nothing out.
 func (s *Session) decideKeepVersion(ctx context.Context, outcome *TrackerOutcome) {
 	if s.options.TrackerMerge == nil {
-		outcome.fail(errors.New("nothing was recorded: merge holds apply only with team mode on, and with it off, or with their record unreadable, no forge check would carry a decision out"))
+		outcome.fail(errors.New("nothing was recorded: items are held for two machines' versions that cannot be merged only with team mode on, and with it off, or with that record unreadable, no forge check would carry a decision out"))
 		return
 	}
 	id := strings.TrimSpace(outcome.Action.ID)
 	keep := runstate.TrackerVersion(strings.TrimSpace(outcome.Action.Decision))
 	by := fmt.Sprintf("the %s in conversation %s, turn %d", RoleTitle(s.state.Role), s.state.ConversationID, s.state.Turns)
-	if _, err := s.options.TrackerMerge.DecideHold(ctx, id, keep, strings.TrimSpace(outcome.Action.Reason), by, s.options.clock().Now()); err != nil {
+	hold, err := s.options.TrackerMerge.DecideHold(ctx, id, keep, strings.TrimSpace(outcome.Action.Reason), by, s.options.clock().Now())
+	if err != nil {
 		if errors.Is(err, runstate.ErrNoTrackerMergeHold) {
 			outcome.fail(fmt.Errorf("nothing was recorded: %w", err))
 			return
@@ -35,5 +36,5 @@ func (s *Session) decideKeepVersion(ctx context.Context, outcome *TrackerOutcome
 		outcome.fail(err)
 		return
 	}
-	outcome.applied("recorded the decision to keep the %s for %s; the next forge check carries it out and ends the hold", keep.Says(), id)
+	outcome.applied("recorded the decision to keep the %s of %s; the next forge check carries it out and ends the hold", keep.Says(), hold.Names())
 }

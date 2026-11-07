@@ -29,8 +29,10 @@ const maxExportedVersions = 32
 
 // ExportedVersions is, for each item, the versions this machine's exports have
 // carried. Only an export can be committed, so a shared row among them came from
-// this machine, or is identical to one that did (MergeExports). Each version is a
-// digest of what the row says, leaving out what exportDerived leaves out.
+// this machine (MergeExports). Each version is a digest of the row as exported,
+// counts left out, and including the moment it last moved: an item another
+// machine brings back to a state this machine once exported carries that
+// machine's later moment, so it reads as that machine's edit and is taken.
 type ExportedVersions map[string][]string
 
 // ExportedVersionsOf is the record one export of rows leaves.
@@ -50,11 +52,12 @@ func (v ExportedVersions) holds(row *exportRow) bool {
 	return slices.Contains(v[row.id()], row.digest())
 }
 
-// digest identifies what a row says, whichever machine wrote it out.
+// digest identifies one exported version of a row: what it says and when it last
+// moved, leaving out only the counts bd works out from other rows.
 func (r *exportRow) digest() string {
 	said := map[string]string{}
 	for name, value := range r.fields {
-		if !exportDerived[name] && !exportAbsent(value) {
+		if (name == "updated_at" || !exportDerived[name]) && !exportAbsent(value) {
 			said[name] = canonicalExportValue(value)
 		}
 	}
