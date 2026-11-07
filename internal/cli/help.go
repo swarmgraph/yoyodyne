@@ -53,6 +53,7 @@ func commandHelp() string {
 		printHeavyChecksUsage,
 		printSlackUsage,
 		printDoctorUsage,
+		printMCPUsage,
 		printDashboardUsage,
 		printStateRootUsage,
 		printProjectUsage,

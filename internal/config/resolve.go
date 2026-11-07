@@ -592,6 +592,10 @@ func (r *resolution) apply(applied layer) error {
 		}
 		setValue(r.origins, "outside_files.max_bytes", outside.MaxBytes, &r.config.OutsideFiles.MaxBytes, applied.origin)
 	}
+	if document.MCP != nil {
+		r.config.MCP = copyMCP(*document.MCP)
+		r.origins["mcp"] = applied.origin
+	}
 	if intent := document.Intent; intent != nil {
 		setValue(r.origins, "intent.repository", intent.Repository, &r.config.Intent.Repository, applied.origin)
 	}
@@ -883,6 +887,13 @@ func (r *resolution) applyAgent(name string, document agentDocument, applied lay
 		}
 		agent.config.Subagents = subagents
 		agent.origins["subagents"] = applied.origin
+	}
+	if document.MCPTools != nil {
+		agent.config.MCPTools = nil
+		for _, name := range *document.MCPTools {
+			agent.config.MCPTools = append(agent.config.MCPTools, strings.TrimSpace(name))
+		}
+		agent.origins["mcp_tools"] = applied.origin
 	}
 	if document.Conversations != nil {
 		// Stated empty removes an inherited choice rather than leaving it in place,

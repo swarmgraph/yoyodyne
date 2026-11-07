@@ -78,6 +78,11 @@ type Config struct {
 	// large it may be. It is empty unless the project fills it, and with no
 	// host listed the harness fetches nothing.
 	OutsideFiles OutsideFiles `yaml:"outside_files,omitempty" json:"outside_files,omitempty"`
+	// MCP is the MCP servers the project declares and every tool of each it will
+	// use (mcp.go). It is the operator's, as an account is, and empty unless the
+	// project names one; omitted from the serialized form while empty, so a
+	// project that says nothing keeps the revision it had before the key existed.
+	MCP MCP `yaml:"mcp,omitempty" json:"mcp,omitzero"`
 	// Intent says which repository holds the governed documents. It is absent
 	// from a project whose own repository holds them, which is the default.
 	Intent Intent `yaml:"intent,omitempty" json:"intent,omitempty"`
@@ -1087,6 +1092,13 @@ type AgentConfig struct {
 	// a cadence and the events from a closed set. Reading them is the pass
 	// machinery's; the configuration loads, validates, and reports them.
 	Triggers Triggers `yaml:"triggers,omitempty" json:"triggers,omitempty"`
+	// MCPTools is the exact MCP tools this agent may ask the harness to call,
+	// each written as server and tool. It is empty unless the project names
+	// some, admits no wildcard, and is refused at load where it names a tool the
+	// mcp section does not declare or whose class the agent's role does not hold
+	// (mcp.go). Like the mcp section, it is the operator's: a role's write to it
+	// is refused (roleapply.go).
+	MCPTools []string `yaml:"mcp_tools,omitempty" json:"mcp_tools,omitempty"`
 	// Capabilities is everything the harness may do on this agent's behalf,
 	// stated in the closed vocabulary rather than implied by the role's name. It
 	// is read from `internal/rolecapability` as the configuration resolves, so
@@ -1402,6 +1414,7 @@ func (c Config) Validate() error {
 	}
 	problems = append(problems, c.Research.problems()...)
 	problems = append(problems, c.OutsideFiles.problems()...)
+	problems = append(problems, c.mcpProblems()...)
 
 	approvalValues := []struct {
 		name string

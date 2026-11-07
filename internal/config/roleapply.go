@@ -33,7 +33,9 @@ var roleApplicableKeys = []string{
 // operatorKeyReasons says why a key that is never a role's is the operator's,
 // for the keys whose refusal is worth explaining beyond the general one.
 var operatorKeyReasons = map[string]string{
-	"install": "an install step is a command the harness runs with network access, and what it fetches and runs decides what reaches this machine",
+	"install":            "an install step is a command the harness runs with network access, and what it fetches and runs decides what reaches this machine",
+	"mcp":                "an MCP server is a program the harness runs, or an address it reaches, on a role's behalf, and which tools of it may be called decides what can leave this machine",
+	"agents.*.mcp_tools": "which MCP tools an agent may ask the harness to call decides what that agent can reach outside the harness",
 }
 
 // RoleMayApply refuses a role's write to a configuration key that is not the
@@ -51,6 +53,9 @@ func RoleMayApply(key string) error {
 		}
 	}
 	said := strings.Join(segments, ".")
+	if len(segments) >= 3 && segments[0] == "agents" && segments[2] == "mcp_tools" {
+		return fmt.Errorf("%s is refused for a role's write: the value stays the operator's to set, because %s", said, operatorKeyReasons["agents.*.mcp_tools"])
+	}
 	if reason, named := operatorKeyReasons[segments[0]]; named {
 		return fmt.Errorf("%s is refused for a role's write: the value stays the operator's to set, because %s", said, reason)
 	}

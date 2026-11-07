@@ -122,6 +122,10 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 		return runSlack(ctx, args[1:], stdout, stderr, version)
 	case "doctor":
 		return runDoctor(ctx, args[1:], stdout, stderr, version)
+	case "mcp":
+		// A login is interactive at the operator's terminal, so it is bound to the
+		// process's own input the way a conversation is.
+		return runMCP(ctx, args[1:], os.Stdin, stdout, stderr)
 	case "dashboard":
 		return serveDashboard(ctx, args[1:], stdout, stderr)
 	case "state-root":
@@ -708,6 +712,11 @@ func runConfigShow(args []string, stdout, stderr io.Writer) int {
 				tools[name] = agentToolNames(agent)
 			}
 			payload["tools"] = tools
+			// Reported only where some agent names one, so a project with no MCP
+			// tools prints exactly what it printed before they existed.
+			if mcpTools := agentMCPToolNames(resolved.Config); len(mcpTools) > 0 {
+				payload["mcp_tools"] = mcpTools
+			}
 		}
 		if *origins {
 			payload["origins"] = resolved.Origins
@@ -738,6 +747,9 @@ func runConfigShow(args []string, stdout, stderr io.Writer) int {
 		sort.Strings(names)
 		for _, name := range names {
 			fmt.Fprintf(stdout, "# tools for %s: %s\n", name, strings.Join(agentToolNames(resolved.Config.Agents[name]), ", "))
+			if mcpTools := resolved.Config.MCPToolsFor(name); len(mcpTools) > 0 {
+				fmt.Fprintf(stdout, "# MCP tools for %s: %s\n", name, describeMCPTools(mcpTools))
+			}
 		}
 		encoded, err := yaml.Marshal(resolved.Config)
 		if err != nil {
@@ -933,6 +945,7 @@ Commands:
   heavy-checks      read the places among this machine's heavy checks and what each cost, and give a kept one back
   slack             report what the harness is doing into a Slack channel
   doctor            check this installation, and say what would fix what is wrong
+  mcp login         log a declared MCP server in on this machine, at your terminal
   dashboard         serve the read model to a browser on this machine, read-only
   state-root        rebind a state-root marker that names a root no longer on disk
   project           bind a repository to its project, rename a project, and list them

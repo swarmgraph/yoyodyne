@@ -34,10 +34,16 @@ type configDocument struct {
 	Conversation *conversationDocument `yaml:"conversation"`
 	Research     *researchDocument     `yaml:"research"`
 	OutsideFiles *outsideFilesDocument `yaml:"outside_files"`
-	Intent       *intentDocument       `yaml:"intent"`
-	Team         *teamDocument         `yaml:"team"`
-	Approvals    *approvalsDocument    `yaml:"approvals"`
-	Checks       *[]string             `yaml:"checks"`
+	// MCP replaces an inherited section entirely rather than merging into it, for
+	// the reason the accounts mapping does: which programs the harness runs and
+	// which addresses it reaches on a role's behalf is one statement, and a server
+	// assembled half from one layer and half from another is one nobody declared.
+	// It decodes straight into the effective type for the same reason.
+	MCP       *MCP               `yaml:"mcp"`
+	Intent    *intentDocument    `yaml:"intent"`
+	Team      *teamDocument      `yaml:"team"`
+	Approvals *approvalsDocument `yaml:"approvals"`
+	Checks    *[]string          `yaml:"checks"`
 	// LandingChecks replaces an inherited list entirely rather than merging into
 	// it, for the reason Checks does: what runs after a landing is one
 	// statement, and a list half from a bundle and half from a project is not the
@@ -331,6 +337,9 @@ type agentDocument struct {
 	Lane     *string          `yaml:"lane"`
 	Remit    *personaDocument `yaml:"remit"`
 	Triggers *Triggers        `yaml:"triggers"`
+	// MCPTools replaces an inherited list wholesale, for the reason the mcp
+	// section does: what an agent may ask for is one statement.
+	MCPTools *[]string `yaml:"mcp_tools"`
 	// Disabled removes an inherited agent. It is explicit so a project never
 	// loses an agent by accidentally omitting it.
 	Disabled *bool `yaml:"disabled"`
@@ -342,7 +351,7 @@ type agentDocument struct {
 func (d agentDocument) overridesFields() bool {
 	return d.Role != nil || d.Backend != nil || d.Model != nil || d.ModelVersion != nil || d.Effort != nil || d.Account != nil ||
 		d.Instances != nil || d.Persona != nil || d.Failover != nil || d.Subagents != nil || d.Conversations != nil ||
-		d.Lane != nil || d.Remit != nil || d.Triggers != nil
+		d.Lane != nil || d.Remit != nil || d.Triggers != nil || d.MCPTools != nil
 }
 
 type personaDocument struct {
