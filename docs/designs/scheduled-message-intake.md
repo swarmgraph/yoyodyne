@@ -10,12 +10,21 @@ revisions:
       by: architect
       at: 2026-11-07T04:12:12.7179Z
       reason: 'yoyodyne-ifd.435.41: Mason''s direction of November 6 that simple automations start from messages matching a scheduled query, under rules kept as a readable file. Answers the item''s nine points and the program manager''s request in report-4421ebadf0e6485477581844fb76e62b: a possible rule match is not a reason to name the operator, an unanswered question holds only its own message, and it ends as ignored after seven days. Names eight build pieces. Written from reads at main 52c181fa. Revised after the reviewer refused document-2390.1: no role with tools reads message text, a query''s calls keep no result body, a cut answer narrows the time window rather than stopping the query, and a shape only the operator can fix reaches him under an existing reason.'
+    - action: amended
+      by: architect
+      at: 2026-11-07T10:26:18.030099Z
+      reason: Section 7 called the reader's line the one exception to the rule that nothing from a result reaches Slack, while the link it also sends comes from the result and section 2 says a source's link never leaves the record. The section now names both as exceptions and says how the link is sent. Written from a read of the whole design at main d81a4451; nothing else in the section changes.
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-11-07T04:12:12.7179Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2392, for document-2392.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-07T10:26:18.030099Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2430, for document-2430.1 under the automatic approval policy
 ---
 # Scheduled message intake
 
@@ -198,7 +207,11 @@ She then answers with the typed action `intake.answer`, naming the number and ei
 
 **Mason asked to be messaged, and he can have that.** With `questions: person`, a query's questions are reserved for him. Only he can set this, since a role's write refuses all of `intake`. It uses the existing reason `human-gate`: a step reserved for a person, whose wording widens from an item to also cover a query. It is his own choice to spend his attention this way, made once, and he can undo it by changing that line. The harness never chooses it.
 
-**What he sees.** The harness writes the question, not the reader: the query, the sender, the rules that might apply, and a link to the source message. One further line of up to 300 bytes carries the reader's question, with secrets removed, marked as written by the AI reader from the message and not checked. This is the one exception to the MCP design's rule that nothing from a result reaches Slack. It goes only by direct message, or on the line listing what needs him where Slack is not in use, and never to a channel. The link and that line are shown on his surfaces only and are not delivered to any role's briefing. `yoyo intake show` gives the whole text at his terminal. The request passes the checks on requests to him in the item on checking requests to the operator (yoyodyne-r3xa).
+**What he sees.** The harness writes the question, not the reader: the query, the sender, the rules that might apply, and a link to the source message. One further line of up to 300 bytes carries the reader's question, with secrets removed, marked as written by the AI reader from the message and not checked.
+
+The link and that line are the two exceptions to the MCP design's rule that nothing from a result reaches Slack. The link is also the one exception to section 2's rule that a source's link does not leave the record. A link is a value the source gives, and a sender may have chosen words in it, so it is sent exactly as the source gave it, shown only as a link, and never placed inside a sentence the harness writes.
+
+Both go only by direct message, or on the line listing what needs him where Slack is not in use, and never to a channel. The link and that line are shown on his surfaces only and are not delivered to any role's briefing. `yoyo intake show` gives the whole text at his terminal. The request passes the checks on requests to him in the item on checking requests to the operator (yoyodyne-r3xa).
 
 **His answer.** He answers with `yoyo intake answer <number> ignore` or `yoyo intake answer <number> start <rule>`, for a question on either route, and for a message already ended as ignored. The piece that adds answering from Slack reads the Slack design first. An answer picks only from ignore and the rules the document holds now, so it cannot start work no rule allows. Starting then goes through section 5. Anything further he says about the rules goes to the Lead Product Manager as any direction does.
 
