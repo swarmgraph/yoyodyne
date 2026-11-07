@@ -1513,10 +1513,11 @@ Options:
 // is turned off.
 func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 	pipeline := pipelineFrom(parts)
-	// A run that brings a pinned outside file in is admitted like any approved
-	// change, under a bookkeeping item the tracker does not hold; the queue
-	// reads that item from the run and writes onto the item its record names.
-	pipeline.Tracker = orchestrator.OutsideFileItems{WorkTracker: pipeline.Tracker, Runs: parts.store}
+	// A run that brings a pinned outside file in, and a run that lands a
+	// confirmed document, is admitted like any approved change, under a
+	// bookkeeping item the tracker does not hold; the queue reads that item
+	// from the run and writes onto the item the run is for.
+	pipeline.Tracker = orchestrator.HarnessRunItems{WorkTracker: pipeline.Tracker, Runs: parts.store}
 	forge := publish.GitHub{
 		Runner: parts.runner, Dir: parts.repository,
 		Remote: parts.config.Execution.Remote, PushRemote: parts.config.Execution.PushRemote,
