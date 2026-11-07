@@ -51,14 +51,22 @@ func slowPublicationFixture(t *testing.T) (*orchestratortest.Backend, *runstate.
 const startWatchBound = 5 * time.Minute
 
 // whenStarted calls act once the slow check is running, then lets the check
-// finish, and gives up after a bound of its own so nothing it starts outlives
-// the test.
+// finish.
 func whenStarted(started string, act func()) {
+	onceStarted(started, func() {
+		act()
+		_ = os.WriteFile(released(started), nil, 0o600)
+	})
+}
+
+// onceStarted calls act once the slow check is running and leaves the check to
+// its own end, and gives up after a bound of its own so nothing it starts
+// outlives the test.
+func onceStarted(started string, act func()) {
 	go func() {
 		for end := time.Now().Add(startWatchBound); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
 			if _, err := os.Stat(started); err == nil {
 				act()
-				_ = os.WriteFile(released(started), nil, 0o600)
 				return
 			}
 		}
@@ -145,7 +153,10 @@ func TestCancellingTheMessageStillStopsItsDocumentRun(t *testing.T) {
 	// after it reaches nothing.
 	ctx, cancel := context.WithTimeout(context.Background(), startWatchBound+time.Minute)
 	defer cancel()
-	whenStarted(started, cancel)
+	// The check is not released: a cancellation reaches the run a moment after
+	// it is asked for (withoutDeadline), and a check released in that moment
+	// finishes first, so only the cancellation may end this one.
+	onceStarted(started, cancel)
 	_, _ = session.Send(ctx, "Write it.")
 	run := onlyDocumentRun(t, runs)
 	if run.Status == runstate.StatusSucceeded || run.Integration != nil {

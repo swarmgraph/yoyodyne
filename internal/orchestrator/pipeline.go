@@ -6867,9 +6867,21 @@ func (a *activeRun) verify(ctx context.Context) error {
 			// recorded as a stop from outside the work, naming the bound, the
 			// load, and the check, and it counts toward nothing — no brake, no
 			// review round, no repair grant, no re-run.
+			//
+			// The check's own time is said beside the stage's, because a check
+			// the stage stopped may have run for minutes of a limit of an hour,
+			// and the bound is named only where the stage did reach it. A check the
+			// stage left no time to start has run for nothing, and is said so.
+			said := fmt.Sprintf("the check stage reached its %s execution.check_stage_timeout bound%s during %s, which had run for %s from when it started",
+				stage.Bound(), stageBoundLoad(*stage), check.Command, check.Elapsed().Round(time.Second))
+			if of, _, ok := check.TimeLimit(); !ok || of != checks.LimitOfStage {
+				said = "verification timed out: " + checkStopSays(check, "execution.check_timeout", *stage)
+			} else if check.Limit <= 0 {
+				said = checkStopSays(check, "execution.check_timeout", *stage)
+			}
 			cause = fmt.Errorf(
-				"the check stage reached its %s execution.check_stage_timeout bound%s during %s, which had run for %s; the stage had spent %s across %d check(s) (gate narrowed to: %s); narrow the per-run gate to what the change touches with $%s, move the whole suite to landing_checks, or raise the bound",
-				stage.Bound(), stageBoundLoad(*stage), check.Command, check.Elapsed().Round(time.Second), stage.Elapsed().Round(time.Second), len(checkResults), stage.Narrowed, checks.ChangedGoPackagesVariable)
+				"%s; the stage had spent %s across %d check(s) (gate narrowed to: %s); narrow the per-run gate to what the change touches with $%s, move the whole suite to landing_checks, or raise the bound",
+				said, stage.Elapsed().Round(time.Second), len(checkResults), stage.Narrowed, checks.ChangedGoPackagesVariable)
 			a.recordEnvironmentalRefusal(runstate.CauseCheckStageBound, cause.Error(), ranAnyway)
 			a.state.ChecksPassed = nil
 		case check.Process.Status == execution.ProcessTimedOut:
@@ -7092,27 +7104,43 @@ func (p Pipeline) scaleCheckStage(stage *runstate.CheckStage) {
 	}
 }
 
-// checkTimedOut is the stop of a check the process runner reported as timed
-// out, in words that cannot contradict themselves: the limit is named as what
-// stopped the check only where the check ran for the whole of it. One stopped
-// short of it was stopped by a limit the record does not name, and saying it
-// reached a limit it did not is a reason nobody can act on. Either way it names
-// the configured and scaled limits, the load, the revision the check was
-// judging, and what the check has spent of its rerun allowance.
-func checkTimedOut(check checks.Result, stage runstate.CheckStage, state runstate.State) error {
-	ran := check.Elapsed().Round(time.Second)
-	stopped := fmt.Sprintf("stopped at its own %s execution.check_timeout limit%s", check.Timeout, checkLimitLoad(stage, check.Timeout))
-	if check.Timeout > 0 && check.Elapsed() < check.Timeout-time.Second {
-		stopped = fmt.Sprintf("stopped by a time limit before it reached its own %s execution.check_timeout limit%s; the limit that stopped it is not one this run records", check.Timeout, checkLimitLoad(stage, check.Timeout))
+// checkStopSays is how every check that ran out of time is said, whichever path ran
+// it: how long it ran, measured from when it started, and the limit that
+// stopped it — its own, the stage's bound, or the deadline of the work that
+// started the run — named only where that time reached it
+// (checks.Result.TimeLimit). own is the configuration key the check's own limit
+// is read from, and stage the record of the stage it ran in, whose load the
+// limits were scaled for, or the zero value where there is none.
+func checkStopSays(check checks.Result, own string, stage runstate.CheckStage) string {
+	ran := fmt.Sprintf("%s ran for %s from when it started", check.Command, check.Elapsed().Round(time.Second))
+	of, limit, ok := check.TimeLimit()
+	switch {
+	case !ok:
+		return ran + " and was reported out of time before it reached any limit it was given, so what stopped it is not a limit this run records"
+	case of == checks.LimitOfStage && check.Limit <= 0:
+		return fmt.Sprintf("%s never started: the check stage had already reached its %s execution.check_stage_timeout bound%s", check.Command, limit, stageBoundLoad(stage))
+	case of == checks.LimitOfStage:
+		return fmt.Sprintf("%s and was stopped when the check stage reached its %s execution.check_stage_timeout bound%s, which had left this check %s", ran, limit, stageBoundLoad(stage), check.Limit.Round(time.Second))
+	case of == checks.LimitOfRun:
+		return fmt.Sprintf("%s and was stopped when the deadline of the work that started this run passed, which had left this check %s", ran, limit.Round(time.Second))
+	default:
+		return fmt.Sprintf("%s and was stopped at its own %s %s limit%s", ran, limit, own, checkLimitLoad(stage, limit))
 	}
+}
+
+// checkTimedOut is the stop of a check the process runner reported as timed
+// out, neither the stage nor the run's own context having ended it, said by
+// checkStopSays. It also names the revision the check was judging and what the
+// check has spent of its rerun allowance.
+func checkTimedOut(check checks.Result, stage runstate.CheckStage, state runstate.State) error {
 	revision := state.HarnessCommit
 	if revision == "" {
 		revision = "the uncommitted change"
 	}
 	spent, allowance := state.CheckAllowance(check.Command, check.Elapsed(), check.Timeout)
 	return fmt.Errorf(
-		"verification timed out: %s ran for %s on attempt %d at %s and was %s; the check is unfinished, neither passed nor failed, so nothing was handed back to the developer; it has spent %s of its %s allowance on this candidate (%d times its limit), and its checks have been run again %d of %d times; if it stops again once that is spent, raise execution.check_timeout or lower execution.max_concurrent_developers, because concurrent runs multiply the wall clock of every suite",
-		check.Command, ran, state.RepairAttempts, revision, stopped, spent.Round(time.Second), allowance, runstate.CheckRerunAllowanceFactor,
+		"verification timed out: %s, on attempt %d at %s; the check is unfinished, neither passed nor failed, so nothing was handed back to the developer; it has spent %s of its %s allowance on this candidate (%d times its limit), and its checks have been run again %d of %d times; if it stops again once that is spent, raise execution.check_timeout or lower execution.max_concurrent_developers, because concurrent runs multiply the wall clock of every suite",
+		checkStopSays(check, "execution.check_timeout", stage), state.RepairAttempts, revision, spent.Round(time.Second), allowance, runstate.CheckRerunAllowanceFactor,
 		len(state.CheckReruns()), runstate.MaxCheckStageContinuations)
 }
 
@@ -7170,13 +7198,17 @@ func callerStoppedCheck(ctx context.Context, check checks.Result) error {
 	if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return fmt.Errorf("verification was stopped: %s was cancelled after %s because the run it belonged to was stopped, and judged nothing about the change", check.Command, ran)
 	}
-	at := ""
-	if deadline, ok := ctx.Deadline(); ok {
-		at = " at " + deadline.Local().Format("15:04:05 MST")
+	// The deadline passed under the check, so it is what stopped it, even where
+	// the result does not record what the deadline left it. The check's own
+	// limit is not named, because the check never reached it.
+	said := checkStopSays(check, "execution.check_timeout", runstate.CheckStage{})
+	if of, _, ok := check.TimeLimit(); !ok || of != checks.LimitOfRun {
+		said = fmt.Sprintf("%s ran for %s from when it started and was stopped when the deadline of the work that started this run passed", check.Command, ran)
 	}
-	return stoppedBy(runstate.StopCheckTimeout, fmt.Errorf(
-		"verification timed out: %s ran for %s and was stopped when the deadline of the work that started this run passed%s, before its own %s execution.check_timeout budget; the check judged nothing about the change",
-		check.Command, ran, at, check.Timeout))
+	if deadline, ok := ctx.Deadline(); ok {
+		said += "; that deadline was " + deadline.Local().Format("15:04:05 MST")
+	}
+	return stoppedBy(runstate.StopCheckTimeout, fmt.Errorf("verification timed out: %s; the check judged nothing about the change", said))
 }
 
 // stageBoundLoad is what a stoppage at the stage bound says about the load the
@@ -7605,7 +7637,7 @@ func (a *activeRun) runLandingChecks(ctx context.Context) {
 			// red, filing nothing.
 			atBudget := result.Process.Status == execution.ProcessTimedOut
 			if atBudget {
-				stopped = fmt.Sprintf("%s was stopped at its %s execution.landing_check_timeout budget after %s and judged nothing", result.Command, budget, result.Elapsed().Round(time.Second))
+				stopped = checkStopSays(result, "execution.landing_check_timeout", runstate.CheckStage{}) + ", and judged nothing"
 			} else if result.Process.Status == execution.ProcessCancelled || result.Process.Status == execution.ProcessStalled {
 				stopped = fmt.Sprintf("%s was %s after %s and judged nothing", result.Command, result.Process.Status, result.Elapsed().Round(time.Second))
 			}
@@ -11097,8 +11129,10 @@ func renderCheckNotes(outcome Outcome) []string {
 		line := fmt.Sprintf("Check stage: %s of the %s execution.check_stage_timeout bound%s", stage.Elapsed().Round(time.Second), stage.Bound(), stageBoundLoad(*stage))
 		if stage.StoppedAtBound {
 			line += ", stopped at the bound during " + stage.Command
-		} else if stage.CheckStoppedAtLimit {
+		} else if stage.CheckStoppedAtLimit && stage.CheckRanItsLimit() {
 			line += fmt.Sprintf(", %s stopped unfinished at its own %s execution.check_timeout limit%s", stage.Command, time.Duration(stage.CheckLimitSeconds)*time.Second, checkLimitLoad(*stage, time.Duration(stage.CheckLimitSeconds)*time.Second))
+		} else if stage.CheckStoppedAtLimit {
+			line += fmt.Sprintf(", %s stopped unfinished after %s from when it started, before it reached its own execution.check_timeout limit", stage.Command, time.Duration(stage.CheckElapsedSeconds)*time.Second)
 		}
 		if stage.Narrowed != "" {
 			line += " (gate narrowed to: " + stage.Narrowed + ")"

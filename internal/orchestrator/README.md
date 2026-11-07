@@ -115,7 +115,8 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     `ContentIdentity`), `closeCheckStage`, `scaleCheckStage`,
     `checkStageTimeout`, `checkLimit` and `checkTimeout` (each check's own
     limit, scaled and capped), `checkTimedOut` (a check unfinished at its own
-    limit), `landingCheckTimeout`, `gateProtectedPaths`,
+    limit), `checkStopSays` (how every check that ran out of time is said: what it
+    ran for and the limit that stopped it), `landingCheckTimeout`, `gateProtectedPaths`,
     `pathRefusal`, `checkFailure`. A stage every check of which could not run
     stops the run instead of earning evidence (`noCheckVerified`,
     `blockOnNoCheckRan` in `nocheckran.go`), and the scheduler then holds new

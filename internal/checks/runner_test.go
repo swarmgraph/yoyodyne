@@ -482,6 +482,109 @@ func TestACheckStoppedAtItsOwnBudgetIsNotStoppedByTheStage(t *testing.T) {
 	}
 }
 
+// Each check records the time it was given as it launched and whose limit that
+// was, so a check the stage left two minutes is said to have been stopped by
+// the stage after two minutes rather than at a thirty-minute limit of its own.
+func TestEachCheckRecordsTheLimitItWasGivenAndWhose(t *testing.T) {
+	t.Parallel()
+
+	clock := &steppingClock{now: time.Date(2026, 10, 9, 6, 0, 0, 0, time.UTC)}
+	process := &advancingRunner{clock: clock, runs: 28 * time.Minute}
+	results, _, err := (Runner{Process: process, Clock: clock, Timeout: 30 * time.Minute, StageTimeout: 30 * time.Minute}).Run(
+		context.Background(),
+		Request{RunID: "run-0123456789abcdef0123456789abcdef", Directory: t.TempDir(), Commands: []string{"make test", "make race"}},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results = %#v, want both checks", results)
+	}
+	if first := results[0]; first.LimitOf != LimitOfCheck || first.Limit != 30*time.Minute {
+		t.Fatalf("first = %#v, want its own 30m limit", first)
+	}
+	if of, _, ok := results[0].TimeLimit(); ok {
+		t.Fatalf("a check that passed reads as out of time by the %s's limit", of)
+	}
+	second := results[1]
+	if second.LimitOf != LimitOfStage || second.Limit != 2*time.Minute || !second.StoppedByStage || second.Elapsed() != 2*time.Minute {
+		t.Fatalf("second = %#v, want the 2m the stage had left, and stopped there", second)
+	}
+	if of, limit, ok := second.TimeLimit(); !ok || of != LimitOfStage || limit != 30*time.Minute {
+		t.Fatalf("TimeLimit() = %s, %s, %t; want the stage's 30m bound", of, limit, ok)
+	}
+	second.StageElapsed = 10 * time.Minute
+	if of, _, ok := second.TimeLimit(); ok {
+		t.Fatalf("a stage that had spent 10m of its 30m reads as having stopped the check by the %s's limit", of)
+	}
+}
+
+// A deadline that passes when the test says so, so it passes while the check
+// runs rather than wherever a wall-clock deadline happens to land on a loaded
+// machine.
+type passingDeadline struct {
+	context.Context
+	at time.Time
+}
+
+func (d passingDeadline) Deadline() (time.Time, bool) { return d.at, true }
+
+func (d passingDeadline) Err() error {
+	if d.Context.Err() != nil {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
+// deadlineRunner reports a check out of time after running for took, and passes
+// the deadline it was run under as it does.
+type deadlineRunner struct {
+	pass context.CancelFunc
+	took time.Duration
+}
+
+func (r deadlineRunner) Run(context.Context, execution.Command, execution.OutputObserver) (execution.ProcessResult, error) {
+	r.pass()
+	now := time.Now()
+	return execution.ProcessResult{Status: execution.ProcessTimedOut, ExitCode: -1, StartedAt: now, FinishedAt: now.Add(r.took)}, nil
+}
+
+// A check the deadline of the work that started its run stops is said to have
+// been given what that deadline left it, never its own limit, and that limit is
+// named only where the check's running time reached it.
+func TestACheckStoppedByTheRunsDeadlineRecordsWhatTheDeadlineLeftIt(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name    string
+		took    time.Duration
+		reached bool
+	}{
+		{name: "ran until the deadline", took: time.Hour, reached: true},
+		{name: "stopped well short of it", took: time.Second, reached: false},
+	} {
+		parent, pass := context.WithCancel(context.Background())
+		defer pass()
+		ctx := passingDeadline{Context: parent, at: time.Now().Add(time.Hour)}
+		results, _, err := (Runner{Process: deadlineRunner{pass: pass, took: test.took}, Timeout: 2 * time.Hour, StageTimeout: 3 * time.Hour}).Run(
+			ctx,
+			Request{RunID: "run-0123456789abcdef0123456789abcdef", Directory: t.TempDir(), Commands: []string{"make race"}},
+			nil,
+		)
+		if err != nil {
+			t.Fatalf("%s: Run() error = %v", test.name, err)
+		}
+		if len(results) != 1 || !results[0].StoppedByCaller || results[0].LimitOf != LimitOfRun || results[0].Limit > time.Hour {
+			t.Fatalf("%s: results = %#v, want the check given what the hour's deadline left it", test.name, results)
+		}
+		of, limit, ok := results[0].TimeLimit()
+		if ok != test.reached || (ok && (of != LimitOfRun || limit != results[0].Limit)) {
+			t.Fatalf("%s: TimeLimit() = %s, %s, %t; want reached = %t", test.name, of, limit, ok, test.reached)
+		}
+	}
+}
+
 // What the harness knows about the change reaches every check through its
 // environment, beside the build cache it is already given.
 func TestEveryCheckIsToldWhatTheRequestCarries(t *testing.T) {

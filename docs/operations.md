@@ -3278,7 +3278,7 @@ and how long it had run, what the stage had spent across how many checks, and
 what moves it — here on a machine at three times its cores:
 
 ```text
-the check stage reached its 1h30m0s execution.check_stage_timeout bound (the configured 30m0s scaled for a one-minute load average of 48.0 on 16 cores) during make race, which had run for 1h12m0s; the stage had spent 1h30m0s across 3 check(s) (gate narrowed to: the whole module (the repository root is not a Go module)); narrow the per-run gate to what the change touches with $YOYODYNE_CHANGED_GO_PACKAGES, move the whole suite to landing_checks, or raise the bound
+the check stage reached its 1h30m0s execution.check_stage_timeout bound (the configured 30m0s scaled for a one-minute load average of 48.0 on 16 cores) during make race, which had run for 1h12m0s from when it started; the stage had spent 1h30m0s across 3 check(s) (gate narrowed to: the whole module (the repository root is not a Go module)); narrow the per-run gate to what the change touches with $YOYODYNE_CHANGED_GO_PACKAGES, move the whole suite to landing_checks, or raise the bound
 ```
 
 It is a different stoppage from a check reaching its own limit, and it is
@@ -3436,7 +3436,7 @@ item and in the thread:
 green landing: 1 landing check passed over 3d3d367a1b2c in 18m
 green landing: 1 landing check passed over 3d3d367a1b2c in 18m, after waiting 12m behind another landing on main
 red landing: make race exited 1 over 3d3d367a1b2c; filed as yoyodyne-ifd.402
-unverified landing: the landing checks did not run to the end over 3d3d367a1b2c (make race was stopped at its 2h0m0s execution.landing_check_timeout budget after 2h0m0s and judged nothing)
+unverified landing: the landing checks did not run to the end over 3d3d367a1b2c (make race ran for 2h0m0s from when it started and was stopped at its own 2h0m0s execution.landing_check_timeout limit, and judged nothing)
 unverified landing: the landing checks did not run to the end over 3d3d367a1b2c (the landing checks never started: wait to land on main: another landing held the lease for the whole 2h15m0s wait)
 ```
 

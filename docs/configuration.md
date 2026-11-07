@@ -2998,6 +2998,18 @@ scaled bound. A check's limit is worked out as the check begins, and the run's
 record and notes carry the configured figure, the limit in force, and the load
 that scaled it.
 
+**A check that runs out of time says how long it ran and which limit stopped it.**
+Three limits can stop a check: its own, what the stage's bound had left when
+it started, and the deadline of the work that started the run. Whichever
+stopped it, the message gives the time the check ran, measured from when it
+started, and names that limit, such as `make race ran for 2m20s from when it
+started` beside `the check stage reached its 30m0s
+execution.check_stage_timeout bound`. A limit is named only where the time
+measured against it reached it, so a check the stage stopped after two minutes
+is never said to have reached its own thirty-minute limit. This holds for every
+check the harness runs: a developer run's or a document run's checks, a
+landing's, and the merge queue's.
+
 **A check stopped at its own limit is unfinished, not failed.** It neither
 passed nor failed, so it earns the change nothing at the gate and hands the
 developer nothing to repair; the run stops for a cause outside the work,

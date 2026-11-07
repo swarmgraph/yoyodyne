@@ -1378,9 +1378,12 @@ var (
 )
 
 // baselineElapsedKeys are the recorded numbers that measure how long something
-// ran rather than what it did: a stage's spend as each check ended, and a
-// stage's or a landing check's spend once it ended.
-var baselineElapsedKeys = map[string]struct{}{"stage_elapsed": {}, "elapsed_seconds": {}}
+// ran rather than what it did: a stage's spend as each check ended, a stage's
+// or a landing check's spend once it ended, and the time a check was given as
+// it launched, which is what the stage's bound had left after the checks
+// before it and so differs from run to run. Whose limit it was (limit_of) is
+// behavior, and is kept.
+var baselineElapsedKeys = map[string]struct{}{"stage_elapsed": {}, "elapsed_seconds": {}, "limit": {}}
 
 func (f *baselineFixture) normalizer(t *testing.T) *baselineNormalizer {
 	t.Helper()

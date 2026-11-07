@@ -477,14 +477,14 @@ func TestACheckStopNeverClaimsABudgetItDidNotReach(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
 	said := callerStoppedCheck(ctx, check).Error()
-	if !strings.Contains(said, "make race ran for 6m43s") || !strings.Contains(said, "deadline of the work that started this run") || strings.Contains(said, "stopped at its") {
+	if !strings.Contains(said, "make race ran for 6m43s") || !strings.Contains(said, "deadline of the work that started this run") || strings.Contains(said, "stopped at its") || strings.Contains(said, "30m") {
 		t.Fatalf("caller's deadline said as %q", said)
 	}
 	if class, _ := recordedStopIn(callerStoppedCheck(ctx, check)); class != runstate.StopCheckTimeout {
 		t.Fatalf("class = %s, want a time limit", class)
 	}
 	check.StoppedByCaller = false
-	if said := checkTimedOut(check, runstate.CheckStage{}, runstate.State{}).Error(); strings.Contains(said, "stopped at its own 30m0s") || !strings.Contains(said, "before it reached its own 30m0s") {
+	if said := checkTimedOut(check, runstate.CheckStage{}, runstate.State{}).Error(); strings.Contains(said, "30m0s execution.check_timeout") || !strings.Contains(said, "before it reached any limit it was given") {
 		t.Fatalf("a stop short of the budget said as %q", said)
 	}
 	check.Process.FinishedAt = started.Add(30 * time.Minute)

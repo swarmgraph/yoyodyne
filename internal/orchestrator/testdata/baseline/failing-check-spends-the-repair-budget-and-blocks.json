@@ -32,6 +32,8 @@
         "checks": [
           {
             "command": "exit 1",
+            "limit": "\u003celapsed\u003e",
+            "limit_of": "stage",
             "passed": false,
             "process": {
               "ExitCode": 1,
