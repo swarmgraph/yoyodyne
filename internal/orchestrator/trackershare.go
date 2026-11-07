@@ -114,7 +114,7 @@ func (s TrackerShare) Check(ctx context.Context) (TrackerShareResult, error) {
 	}
 	holds, err := s.Store.Holds()
 	if err != nil {
-		return TrackerShareResult{}, fmt.Errorf("read the merge holds: %w", err)
+		return TrackerShareResult{}, fmt.Errorf("read which items are held because two machines' versions cannot be merged: %w", err)
 	}
 	// With nothing new on the shared side and nothing held, a change on this
 	// machine has nothing to meet, so the store's whole export is not read.

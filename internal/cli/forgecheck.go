@@ -152,15 +152,15 @@ func endMergeHoldsLeftBehind(ctx context.Context, parts components, stderr io.Wr
 	}
 	store, err := runstate.NewTrackerMergeStore(parts.stateRoot, parts.config.Product.ID)
 	if err != nil {
-		fmt.Fprintf(stderr, "tracker: read the merge holds: %v\n", err)
+		fmt.Fprintf(stderr, "tracker: read which items are held because two machines' versions cannot be merged: %v\n", err)
 		return
 	}
 	ended, err := store.EndAllHolds(ctx)
 	if err != nil {
-		fmt.Fprintf(stderr, "tracker: end the merge holds left from when team mode was on: %v\n", err)
+		fmt.Fprintf(stderr, "tracker: end the holds left from when team mode was on, on items whose two machines' versions could not be merged: %v\n", err)
 	}
-	for _, id := range ended {
-		fmt.Fprintf(stderr, "tracker: team mode is off, so the merge hold on %s has ended and it can start again\n", id)
+	for _, hold := range ended {
+		fmt.Fprintf(stderr, "tracker: team mode is off, so %s is no longer held for two machines' versions that could not be merged, and it can start again\n", hold.Names())
 	}
 }
 

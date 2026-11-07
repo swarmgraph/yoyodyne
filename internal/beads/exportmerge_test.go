@@ -430,12 +430,45 @@ func TestAPublishedExportIsRememberedAsThisMachines(t *testing.T) {
 	if !client.ExportedVersions().holds(row) {
 		t.Errorf("the export's row is not remembered: %v", client.ExportedVersions())
 	}
-	// Only what the row says counts: the moment it last moved does not.
-	moved, err := parseExportRow(exportLine(t, item("t-a", "a", "open", mine)))
+	// The same state reached again later, as another machine bringing the item
+	// back, is not this machine's export.
+	returned, err := parseExportRow(exportLine(t, item("t-a", "a", "open", mine)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !client.ExportedVersions().holds(moved) {
-		t.Error("a row differing only in updated_at read as a different version")
+	if client.ExportedVersions().holds(returned) {
+		t.Error("a row back in an exported state at a later moment read as this machine's own export")
+	}
+}
+
+// This machine exported V, took the other machine's W, and the other machine then
+// brought the item back to V. That return is the other machine's edit and is taken.
+func TestAnItemBroughtBackToAStateThisMachineExportedIsTaken(t *testing.T) {
+	t.Parallel()
+
+	exportedV, err := parseExportRow(exportLine(t, item("t-a", "a", "open", earlier)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := exportLine(t, with(item("t-a", "a", "open", mine), "labels", []string{"added there"}))
+	backToV := exportLine(t, item("t-a", "a", "open", yours))
+	merge, err := MergeExports(ExportMergeInput{
+		Base: exportOf(w), HasBase: true,
+		ThisMachine: exportOf(w),
+		Shared:      exportOf(backToV),
+		Exported:    ExportedVersions{"t-a": {exportedV.digest()}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(merge.Conflicts) != 0 || !slices.Equal(merge.FromShared, []string{"t-a"}) {
+		t.Fatalf("taken %v, conflicts %+v; want the return to V taken", merge.FromShared, merge.Conflicts)
+	}
+	row, err := parseExportRow(string(merge.Import[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exportAbsent(row.fields["labels"]) {
+		t.Errorf("imported labels = %s, want none", row.fields["labels"])
 	}
 }

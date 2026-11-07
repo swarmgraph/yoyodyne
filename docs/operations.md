@@ -822,8 +822,11 @@ two machines touch neighbouring items, and `bd import` keeps whichever row was
 written last. So the harness merges item by item against what it last read:
 
 - An item only one machine changed takes that machine's version. A shared row
-  this machine exported itself counts as its own earlier version, not as another
-  machine's edit, so an item that moved on after the commit is not held.
+  exactly as this machine exported it, down to the moment it last moved, counts
+  as its own earlier version, not as another machine's edit, so an item that
+  moved on after the commit is not held. An item another machine brought back to
+  a state this machine once exported carries that machine's later moment, so it
+  is taken as that machine's edit.
 - Changes to different fields of one item are combined. So are notes both
   machines appended, each note kept once, and labels, comments, dependencies, and
   metadata keys. `bd import` cannot take a label or dependency away, so the harness

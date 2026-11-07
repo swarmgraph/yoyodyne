@@ -126,6 +126,15 @@ func (h TrackerMergeHold) DescribeVersions() string {
 		h.TargetBranch, changedAtWords(h.SharedChangedAt), strings.Join(shared, "; "))
 }
 
+// Names is the held item as a person reads it: its title, with its identifier
+// after it.
+func (h TrackerMergeHold) Names() string {
+	if strings.TrimSpace(h.Title) == "" {
+		return h.WorkItemID
+	}
+	return fmt.Sprintf("%q (%s)", oneline.Bound(h.Title, 200), h.WorkItemID)
+}
+
 // Says is a version in ordinary words.
 func (v TrackerVersion) Says() string {
 	if v == TrackerVersionShared {
@@ -167,7 +176,7 @@ func trackerMergeHoldName(workItemID string) error {
 }
 
 // ErrNoTrackerMergeHold is a decision about an item nothing holds.
-var ErrNoTrackerMergeHold = errors.New("no merge hold stands on this item")
+var ErrNoTrackerMergeHold = errors.New("this item is not held for two machines' versions that cannot be merged")
 
 // ErrCannotKeepRemoval is a decision to keep the shared version of an item the
 // shared export has removed. `bd import` cannot remove an item from the tracker,
@@ -348,12 +357,12 @@ func (s *TrackerMergeStore) DecideHold(ctx context.Context, workItemID string, k
 	return hold, nil
 }
 
-// EndAllHolds removes every hold and names the items, for a project that has
+// EndAllHolds removes every hold and returns them, for a project that has
 // turned team mode off: no check will ever read those two versions again, so a
 // hold left standing would keep its item from starting with nothing to end it.
 // What was last read stays, so turning team mode on again finds the same items
 // differ and holds them again.
-func (s *TrackerMergeStore) EndAllHolds(ctx context.Context) ([]string, error) {
+func (s *TrackerMergeStore) EndAllHolds(ctx context.Context) ([]TrackerMergeHold, error) {
 	holds, err := s.Holds()
 	if err != nil {
 		return nil, err
@@ -366,12 +375,12 @@ func (s *TrackerMergeStore) EndAllHolds(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	defer release()
-	var ended []string
+	var ended []TrackerMergeHold
 	for _, hold := range holds {
 		if err := s.EndHold(hold.WorkItemID); err != nil {
 			return ended, err
 		}
-		ended = append(ended, hold.WorkItemID)
+		ended = append(ended, hold)
 	}
 	return ended, nil
 }

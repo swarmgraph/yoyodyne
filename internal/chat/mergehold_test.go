@@ -22,7 +22,7 @@ func (f *fakeMergeHolds) DecideHold(_ context.Context, workItemID string, keep r
 	}
 	f.decided = append(f.decided, keep)
 	f.by = by
-	return runstate.TrackerMergeHold{WorkItemID: workItemID}, nil
+	return runstate.TrackerMergeHold{WorkItemID: workItemID, Title: "Held"}, nil
 }
 
 func TestTheDevelopmentManagerRecordsWhichVersionStands(t *testing.T) {
@@ -38,7 +38,7 @@ func TestTheDevelopmentManagerRecordsWhichVersionStands(t *testing.T) {
 	if len(reply.Actions) != 1 || !reply.Actions[0].Applied {
 		t.Fatalf("actions = %#v, want the decision applied", reply.Actions)
 	}
-	if !strings.Contains(reply.Actions[0].Summary, "next forge check carries it out") {
+	if !strings.Contains(reply.Actions[0].Summary, "next forge check carries it out") || !strings.Contains(reply.Actions[0].Summary, `"Held" (yoyodyne-ifd.311)`) {
 		t.Errorf("summary = %q, want it said as recorded rather than made", reply.Actions[0].Summary)
 	}
 	if len(holds.decided) != 1 || holds.decided[0] != runstate.TrackerVersionShared || !strings.Contains(holds.by, "turn") {
@@ -66,7 +66,7 @@ func TestADecisionAboutAnItemNothingHoldsIsSaid(t *testing.T) {
 	options.Reports = &fakeReports{}
 	options.TrackerMerge = &fakeMergeHolds{refuse: runstate.ErrNoTrackerMergeHold}
 	reply := triageSend(t, options)
-	if len(reply.Actions) != 1 || reply.Actions[0].Applied || !strings.Contains(reply.Actions[0].Failure, "no merge hold stands") {
+	if len(reply.Actions) != 1 || reply.Actions[0].Applied || !strings.Contains(reply.Actions[0].Failure, "is not held for two machines' versions") {
 		t.Fatalf("actions = %#v, want the decision refused in those words", reply.Actions)
 	}
 }
