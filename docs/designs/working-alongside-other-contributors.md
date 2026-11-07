@@ -26,6 +26,10 @@ revisions:
       by: architect
       at: 2026-11-06T19:31:47.681685Z
       reason: 'yoyodyne-ifd.429.124: feedback on the harness''s pull requests ignores only what a factory wrote, told apart by a hidden mark on everything the harness writes and the run''s list of the forge identifiers of what it wrote, never by the account, so the owner''s own feedback is read on a project that publishes under the owner''s account; a separate publishing account is optional and changes only what the forge lets the owner do. The build piece joins build item 2.'
+    - action: amended
+      by: architect
+      at: 2026-11-07T06:45:59.585889Z
+      reason: 'Approved amendment-c7613717 from the developer building tracker sharing: Beads has no merge of its own for its export, so the harness merges it item by item, and the export travels through a reference of the harness''s own on the shared remote rather than a commit on the target branch, so a protected target cannot stop it. Adds the rules for held items and for a machine''s own earlier versions, and build item 15. Written again from main at c54e563c because the first writing of this revision did not reach main.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -52,6 +56,11 @@ approvals:
       by: harness
       at: 2026-11-06T19:31:47.681685Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2367, for document-2367.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-07T06:45:59.585889Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2415, for document-2415.1 under the automatic approval policy
 ---
 # Working alongside other contributors
 
@@ -116,7 +125,7 @@ At the limit, the scheduler starts no new developer work. Repair rounds, reviews
 
 Everything in this section, and in sections 7 and 8, applies only when the project has turned team mode on. A project turns it on with `team.enabled: true` in its committed configuration, so every factory working the repository reads the same value. It is off by default. Turning it on is the Lead Product Manager's decision, because it changes how work is taken from the backlog, and the development manager applies it, as [portable agent configuration](portable-agent-configuration.md) rules for settings a role applies. Where the configuration already names team mode under another key, that key is the one, and build item 6 uses it.
 
-A factory with team mode off works the repository alone. It reads no team pause, takes no claim, fetches no records reference, and counts no spends across machines. It never stops or delays new work because the remote cannot be reached: its fetch before each run falls back as section 3 says, and its forge check waits out a forge it cannot reach. What it still does is sections 1 to 4, which serve any project whose pull requests can be merged, commented on, or overtaken by someone else.
+A factory with team mode off works the repository alone. It reads no team pause, takes no claim, fetches no records or tracker reference, and counts no spends across machines. It never stops or delays new work because the remote cannot be reached: its fetch before each run falls back as section 3 says, and its forge check waits out a forge it cannot reach. What it still does is sections 1 to 4, which serve any project whose pull requests can be merged, commented on, or overtaken by someone else.
 
 Team mode needs the harness to publish through pull requests on a forge, because the forge is where contributors learn about each other. `yoyo doctor` refuses team mode, in plain words, for a factory whose publishing is off.
 
@@ -149,7 +158,7 @@ The team pause exists only in team mode. A factory with team mode off never fetc
 
 ### The five gaps team mode named
 
-- **The tracker drifting apart between machines.** The factory shares the tracker as Beads shares it, through the export committed to the repository. The claim reference, not the tracker, is what stops two factories doing the same work, so a tracker that is briefly out of date costs a skipped item, not a duplicate run. When two machines' edits to one item cannot be merged, the harness holds that item for the development manager, naming both versions, and edits neither. How Beads merges its export has not been read for this design; the first build establishes it.
+- **The tracker drifting apart between machines.** Each factory publishes its tracker's export through a reference of the harness's own, and merges what the others published item by item, as section 7 describes. The claim reference, not the tracker, is what stops two factories doing the same work, so a tracker that is briefly out of date costs a skipped item, not a duplicate run. When two machines' edits to one item cannot be merged, the harness holds that item for the development manager, naming both versions, and edits neither.
 - **No claim that works across machines.** The claims above.
 - **The one-merge-at-a-time lock being per machine.** The lease stays per machine. Across machines, the guarantee is the remote's own compare and swap. A protected target lands only through its pull request with the reviewed head pinned. An unprotected target is pushed only with a lease naming the target the candidate was built on. Two factories racing to promote cannot both land: the loser's candidate is invalidated and rebuilt without charging a repair, as the merge queue design rules for target movement. The invariant on one promotion per target branch is amended to say this.
 - **Reports, run records and the pause switch being per machine.** Reports, their handling and directives travel between machines, as section 7 describes, and so does what each item has spent, as section 8 describes. The pause gains its team form above. Run records stay per machine, for the reason section 7 gives.
@@ -159,7 +168,7 @@ The team pause exists only in team mode. A factory with team mode off never fetc
 
 The harness checks the forge on a schedule of its own, every five minutes by default, apart from the maintenance pass. Maintenance does slow work that has nothing to do with the forge, such as clearing old checkouts and shrinking the tracker's store, and a forge check waiting behind it would notice a person's merge late, or not at all while a maintenance step kept failing. The interval is a numeric limit, and setting it is the development manager's decision.
 
-Each check covers the pull requests the factory is waiting on, the reviews and comments on its open pull requests, and the target branch. With team mode on, it also covers the claim references, the records reference and the team pause. It uses the forge's conditional requests, so an unchanged answer costs little.
+Each check covers the pull requests the factory is waiting on, the reviews and comments on its open pull requests, and the target branch. With team mode on, it also covers the claim references, the records reference, the tracker reference and the team pause. It uses the forge's conditional requests, so an unchanged answer costs little.
 
 A check that cannot reach the forge changes nothing, and the next check tries again. A check that reads a change but cannot make the tracker write that follows from it, such as closing an item whose pull request merged, records nothing as handled: the next check reads the same change and makes the write again. Every write a check makes can be made twice without harm, so a write repeated after a timeout in which it had in fact succeeded leaves the item as it was and adds no second note. Neither failure stops a run or holds back any other work.
 
@@ -167,11 +176,11 @@ Web hooks are rejected. A laptop has no address the forge can reach, and a relay
 
 ## 7. What travels between machines
 
-With team mode on, the backlog and attributions travel in the tracker, and reports and control travel through a second reference of the harness's own on the shared remote, `refs/yoyodyne/records`.
+With team mode on, the backlog and attributions travel in the tracker's export, through the reference `refs/yoyodyne/tracker` on the shared remote, as the last part of this section describes. Reports and control travel through another reference of the harness's own, `refs/yoyodyne/records`, which the next three parts describe.
 
 ### What it holds
 
-The reference points at a commit whose tree holds one file for each record, named by the record's own identifier:
+The records reference points at a commit whose tree holds one file for each record, named by the record's own identifier:
 
 - `reports/<id>.json`: a report, with the factory identity that filed it;
 - `report-handling/<id>.json`: what a role did with a report, naming the report;
@@ -192,6 +201,24 @@ A report, its handling, or a directive that cannot be pushed because the remote 
 
 On each check and in the fetch before each claim, the harness fetches the reference and copies every record it has not yet seen into the machine's own report and directive stores, marked with the factory that wrote it. Every surface keeps reading those stores through the one read model, as [the read model invariant](../decisions/invariants/surfaces-project-one-read-model.md) requires, so no surface reads Git and a report reads the same wherever it was filed. A role handling a report from another machine records its handling as a record that travels back.
 
+### The tracker's export
+
+Beads has no merge of its own for its export. The run building tracker sharing (yoyodyne-ifd.429.106) tested `bd` 1.1.2 and recorded this: Git merges the file line by line, so edits to neighbouring items conflict and so do two machines each adding an item; `bd import` refuses a file with a conflict in it; nothing brings a merged export into the tracker except `bd import`; and `bd import` keeps the later write without saying so, and adds labels and dependencies but never removes them. So the harness does the merge itself, and the export does not travel on the target branch.
+
+**How it reaches the other machines.** `refs/yoyodyne/tracker` points at a commit whose tree holds the export. The harness builds that commit as it builds a records commit, using Git's own object commands in the machine's state directory, and pushes it with a lease naming the commit it fetched. It is not a branch anyone merges, so it needs no pull request, no review and no promotion, and a protected target branch cannot stop it. Nothing a factory shares this way depends on a commit reaching the target branch. Nothing reads the reference's older commits.
+
+**Each check, in order.** The harness fetches the reference and merges what it holds into this machine's tracker. It then publishes this machine's export, where that differs from what the reference holds. A refused push means another factory published first: the next check merges that and publishes again. A remote or tracker that cannot answer changes nothing, and the next check tries again.
+
+**The merge.** It goes item by item, comparing each side with what this machine last read from the reference:
+
+- a change only one side made is taken;
+- changes to different fields are combined, as are appended notes, labels, comments, dependencies and metadata keys, each note appearing once;
+- two values for one field, a note rewritten rather than added to, or an edit meeting a removal, is a conflict.
+
+**A machine's own earlier versions.** Each machine keeps a record, in its own state, of the versions of each item it has published, up to a bound. A version in the reference that this machine published is this machine's own past and never a clash, so a machine's later edit to its own item causes no hold.
+
+**A held item.** A conflict holds the item for the development manager. The hold is kept in this machine's state, not on the item, and neither version is edited. Nothing the harness chooses starts a held item. She gets one report naming both versions, and another only if a version changes. She decides which version stands, and the next check carries that out; a decision that cannot be carried out is refused in plain words and the hold stands. A hold also ends once the two versions agree. While an item is held, what this machine publishes carries the reference's version of that item unchanged, so publishing never overwrites the other machine's edit. Holds apply only with team mode on: with it off, no hold stops any work, and no decision about one is taken.
+
 ### What stays on each machine
 
 Run records, worktrees, event logs, provider sessions, conversations, the spend ledger, and the operator's pause stay on the machine that holds them. They describe one operator's own runs, money and afternoon, and two machines holding different answers about them are both right. What another contributor needs to know about a run is what became of its item: its status, notes, reports, claim and pull request, all of which travel. The scope does not promise that cost travels, so each operator sees what their own factory spends; a total across machines is not designed here.
@@ -209,9 +236,12 @@ The scope records that an item's budgets are counted on the machine that counted
 
 ## Alternatives rejected
 
-- **Claims in the tracker alone.** The tracker reaches other machines only when its export is committed and fetched, so two factories could each claim an item before either saw the other's claim.
+- **Claims in the tracker alone.** The tracker reaches other machines only when its export is published and fetched, so two factories could each claim an item before either saw the other's claim.
 - **Claims as files on the target branch.** Every claim would be a commit to main, through review and the promotion lease, for something that has to take seconds.
 - **A shared lock service.** It would be shared state outside Git and the forge, which the operator's direction rules out.
+- **Sharing the export by committing it to the target branch.** On a protected target every tracker change would need a pull request, a review and a promotion, and the export would conflict on most merges because new items go at the top of the file.
+- **Leaving the merge to Git and `bd import`.** Git conflicts on neighbouring items that do not clash at all, and `bd import` keeps the later write without saying so, which loses one machine's edit with nothing reported.
+- **Beads' own Dolt remotes.** The help for `bd init` says cross-machine sync uses them rather than the export. That would add a place contributors learn about each other outside Git and the forge, which the operator's direction rules out. Whether a Dolt remote can sit on the same Git remote has not been read for this design; if it can, this choice is worth looking at again.
 - **Treating every pull request comment as a repair request.** It turns questions into repair rounds and spends budget on conversation.
 - **Ignoring feedback by the account that wrote it.** On a project with one person the harness publishes under the owner's own account, so the owner's feedback would be thrown away with the harness's own comments.
 - **The hidden mark alone, or the list alone.** With the mark alone, a person editing one of the harness's comments could remove the mark, and the comment would then be read as that person's feedback. With the list alone, a write that timed out after the forge had taken it would be read back as feedback.
@@ -224,7 +254,7 @@ The scope records that an item's budgets are counted on the machine that counted
 
 ## What is enforced in code
 
-- With team mode off, the harness reads no team pause, takes no claim, and fetches no records reference, and no start of new work waits on the remote.
+- With team mode off, the harness reads no team pause, takes no claim, and fetches no records or tracker reference, and no start of new work waits on the remote.
 - With team mode on, a claim is taken only by a push that fails if the reference exists. It is renewed, taken over and released only by a lease naming the expected commit. No agent touches a claim reference.
 - The intake hold is read before every start. With team mode on, the team pause is read before every claim, from the fetch made for it.
 - The forge check runs on its own schedule, not inside the maintenance pass, and a change it read but could not finish acting on is read and acted on again at the next check.
@@ -233,6 +263,7 @@ The scope records that an item's budgets are counted on the machine that counted
 - Nothing lands on the target except through the pinned pull request merge, or a push with a lease naming the candidate's base.
 - A person's approval on the forge never satisfies the independent review.
 - Records are written only through Git objects in the machine's state directory, pushed with a lease, and never rewritten or removed. No agent writes one directly.
+- The tracker reference is written only through Git objects in the machine's state directory, pushed with a lease. No agent writes it, and what a machine publishes carries the reference's own version of any item it holds.
 - Only the claim holder spends an item's budget, and a spend is acted on only after its record is pushed.
 
 ## What a reviewer can check
@@ -254,6 +285,11 @@ The scope records that an item's budgets are counted on the machine that counted
 - With a repair cap of one, two factories working one item in turn spend one repair between them.
 - A spend whose push fails is not acted on, and the run waits without being charged.
 - With the team pause set, no factory starts new work, and runs in progress finish.
+- Two factories editing different items, against a protected target, each hold both edits after their next checks, with no commit on the target.
+- One item changed two ways on two factories is held on the factory that finds it, naming both versions, with neither edited and the other factory's version still in the reference.
+- A machine that published a version of its own item and then edited it again is not held.
+- A decision on a hold is carried out by the next check, or refused in plain words with the hold still standing.
+- With team mode off, a hold left behind stops no work.
 
 ## Build items, for the Lead Product Manager to admit under `team-development`
 
@@ -265,18 +301,19 @@ The scope records that an item's budgets are counted on the machine that counted
 6. The team mode setting, off by default, and claim references: taking, renewing, expiry and takeover, and release, plus the `yoyo doctor` checks that the forge accepts them and that publishing is on.
 7. The factory identity, kept in the machine's home and named in claims, records and pull request descriptions.
 8. The team pause reference and `yoyo pause --team`, read in the fetch before every claim and only with team mode on, and refused on a project whose team mode is off.
-9. Tracker sharing between machines: establish how Beads merges its export, and hold an item whose versions cannot be merged.
-10. Checking the forge on a schedule of its own, apart from the maintenance pass, with conditional requests, acting again at the next check on a change whose tracker write did not go through; the claim, records and pause references are covered only with team mode on.
+9. Tracker sharing between machines: establish how Beads merges its export, merge it item by item, and hold an item whose versions cannot be merged. The run building this (yoyodyne-ifd.429.106) reads the export from the target branch; item 15 moves that reading.
+10. Checking the forge on a schedule of its own, apart from the maintenance pass, with conditional requests, acting again at the next check on a change whose tracker write did not go through; the claim, records, tracker and pause references are covered only with team mode on.
 11. The records reference: writing records through Git objects with a lease, fetching and copying them into the machine's stores, the count of records not yet shared, and Slack directives named by message id.
 12. Each item's budgets counted across factories through spend records, spent only by the claim holder, acted on only after the push, and the one-time push of earlier spends on joining.
 13. The earlier draft docs/team-mode-coordination.md replaced by a short note naming this design as its replacement. The file is outside the architect's folders, so a developer run changes it.
 14. A two-factory validation: two homes on one machine against one remote, covering every check under What a reviewer can check.
+15. Publishing the tracker's export through `refs/yoyodyne/tracker`: building and pushing the commit with a lease at each check, moving the merge's reading from the target branch to this reference, keeping each machine's record of its own published versions in its own state, and carrying the reference's version of any held item.
 
-No build that lets a second factory run can start before claims (6), because two factories without claims duplicate work. Budgets (12) also need the records reference (11). The others can be taken in any order.
+No build that lets a second factory run can start before claims (6), because two factories without claims duplicate work. Budgets (12) also need the records reference (11). Publishing the export (15) needs the merge (9). The others can be taken in any order.
 
 ## Documents this amends
 
-- [Beads is the durable workflow store](../decisions/beads-durable-workflow-store.md) gained its consequence on October 15, 2026. The claim reference is the cross-machine guarantee for who holds an item, while the tracker still records the holder; reports, directives and spends travel in the records reference beside it, not in the tracker.
+- [Beads is the durable workflow store](../decisions/beads-durable-workflow-store.md) gained its consequence on October 15, 2026. The claim reference is the cross-machine guarantee for who holds an item, while the tracker still records the holder; reports, directives and spends travel in the records reference beside it, not in the tracker. It is still to gain one line saying the export travels through the tracker reference.
 - [One promotion per target branch](../decisions/invariants/one-promotion-per-target-branch.md) gained the remote compare and swap as the guarantee across machines on November 5, 2026. The lock stays per machine and covers only the guarded change.
 - The v1 harness design's text on fetching only during reconcile is replaced by section 3. This waits on the fix that lets roles read and revise long files (yoyodyne-t2j).
 - The Lead Product Manager's team-mode scope document should say that working alongside other contributors is designed, name this design, and say that its question on a team-wide pause and its gap on budgets are answered here. That change is hers.
