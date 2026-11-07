@@ -39,7 +39,8 @@ type TrackerShareRemote interface {
 // TrackerShareClient is this machine's tracker. It is satisfied by beads.Client.
 type TrackerShareClient interface {
 	ExportRows(ctx context.Context) ([]byte, error)
-	ImportRows(ctx context.Context, rows [][]byte) (beads.ImportAnswer, error)
+	ExportedVersions() beads.ExportedVersions
+	ImportRows(ctx context.Context, rows [][]byte, seen []byte) (beads.ImportAnswer, error)
 }
 
 // TrackerShare merges the shared export into this machine's tracker. It is wired
@@ -142,7 +143,7 @@ func (s TrackerShare) Check(ctx context.Context) (TrackerShareResult, error) {
 			settled[hold.WorkItemID] = hold.Shared
 		}
 	}
-	merge, err := beads.MergeExports(beads.ExportMergeInput{Base: base, HasBase: hasBase, ThisMachine: ours, Shared: shared, Settled: settled})
+	merge, err := beads.MergeExports(beads.ExportMergeInput{Base: base, HasBase: hasBase, ThisMachine: ours, Shared: shared, Exported: s.Tracker.ExportedVersions(), Settled: settled})
 	if err != nil {
 		return TrackerShareResult{}, err
 	}
@@ -159,7 +160,7 @@ func (s TrackerShare) Check(ctx context.Context) (TrackerShareResult, error) {
 	for _, conflict := range merge.Conflicts {
 		result.Held = append(result.Held, conflict.ID)
 	}
-	answer, err := s.Tracker.ImportRows(ctx, merge.Import)
+	answer, err := s.Tracker.ImportRows(ctx, merge.Import, ours)
 	if err != nil {
 		return result, fmt.Errorf("write what was merged into this machine's tracker: %w", err)
 	}
@@ -255,8 +256,12 @@ func (s TrackerShare) tell(hold runstate.TrackerMergeHold, now time.Time) error 
 	if hold.Title != "" {
 		title = " (" + oneline.Bound(hold.Title, 200) + ")"
 	}
-	message := fmt.Sprintf("Two machines changed %s%s in ways that cannot be merged, so it is held and neither version has been changed. %s Which stands is yours to decide: record it with the keep_version action, with the decision here to keep this machine's version or shared to keep the other, and the next forge check carries it out.",
-		hold.WorkItemID, title, hold.DescribeVersions())
+	settle := "Which stands is yours to decide: record it with the keep_version action, with the decision here to keep this machine's version or shared to keep the other, and the next forge check carries it out."
+	if hold.Shared == "" {
+		settle = "The harness cannot remove an item from the tracker, so the only version it can keep is this machine's: record that with the keep_version action and the decision here, and the next forge check carries it out. If the item should not go on, ask the Lead Product Manager to retire it."
+	}
+	message := fmt.Sprintf("Two machines changed %s%s in ways that cannot be merged, so it is held and neither version has been changed. %s %s",
+		hold.WorkItemID, title, hold.DescribeVersions(), settle)
 	entry := report.Entry{Severity: report.SeverityWarning, Message: oneline.Fold(message, report.MaxMessageBytes), For: domain.RoleDevelopmentManager}
 	collected, err := report.Collect([]report.Entry{entry}, report.Attribution{
 		Role: report.HarnessReporter, RunID: "tracker-merge@" + hold.HeldAt.UTC().Format(time.RFC3339), WorkItemID: hold.WorkItemID, Build: s.Build, ProductID: s.ProductID, RepositoryID: s.RepositoryID,

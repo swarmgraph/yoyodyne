@@ -17,10 +17,11 @@ import (
 // shareMachine is one machine's tracker: rows by item, written as `bd import`
 // writes them, keeping its own row on anything not strictly later.
 type shareMachine struct {
-	rows   map[string]string
-	writes [][]byte
-	refuse error
-	beatBy map[string]bool
+	rows     map[string]string
+	writes   [][]byte
+	refuse   error
+	beatBy   map[string]bool
+	exported beads.ExportedVersions
 }
 
 func (m *shareMachine) ExportRows(context.Context) ([]byte, error) {
@@ -30,7 +31,9 @@ func (m *shareMachine) ExportRows(context.Context) ([]byte, error) {
 	return shareExport(m.rows), nil
 }
 
-func (m *shareMachine) ImportRows(_ context.Context, rows [][]byte) (beads.ImportAnswer, error) {
+func (m *shareMachine) ExportedVersions() beads.ExportedVersions { return m.exported }
+
+func (m *shareMachine) ImportRows(_ context.Context, rows [][]byte, _ []byte) (beads.ImportAnswer, error) {
 	m.writes = append(m.writes, rows...)
 	var answer beads.ImportAnswer
 	for _, row := range rows {
@@ -412,4 +415,126 @@ func TestAForgeCheckWithTeamModeOffDoesNotReadTheSharedExport(t *testing.T) {
 	if check.Tracker != nil {
 		t.Errorf("tracker = %+v, error %v; want nothing read", check.Tracker, err)
 	}
+}
+
+// With the real versions record behind it, a commit of this machine's own export
+// holds nothing when the item has moved on here since.
+func TestThisMachinesOwnExportOnTheBranchHoldsNothing(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	fixture := newShareFixture(t, map[string]string{"t-a": shareRow("t-a", "a", "open", shareEarlier)})
+	committed := shareRow("t-a", "a", "in_progress", shareHere)
+	fixture.branch.content = committed + "\n"
+	fixture.machine.rows["t-a"] = shareRow("t-a", "a", "closed", shareThere)
+	fixture.machine.exported = exportedVersionsOf(t, committed)
+
+	result, err := fixture.share.Check(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Held) != 0 || len(fixture.reports.reports) != 0 {
+		t.Errorf("held %v, reports %+v; want neither", result.Held, fixture.reports.reports)
+	}
+	if !strings.Contains(fixture.machine.rows["t-a"], `"status":"closed"`) {
+		t.Errorf("this machine's version changed: %s", fixture.machine.rows["t-a"])
+	}
+}
+
+// exportedVersionsOf is the record a real export of these rows leaves.
+func exportedVersionsOf(t *testing.T, rows ...string) beads.ExportedVersions {
+	t.Helper()
+	versions, err := beads.ExportedVersionsOf([]byte(strings.Join(rows, "\n") + "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return versions
+}
+
+// A removal cannot be carried into the tracker, so keeping it is refused and the
+// hold stands. Every other way of settling an edit against a removal is carried out.
+func TestARemovalMeetingAnEditIsSettledOnlyInWaysTheHarnessCanCarryOut(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	at := time.Date(2026, 11, 6, 13, 0, 0, 0, time.UTC)
+	removedThere := func(t *testing.T) shareFixture {
+		fixture := newShareFixture(t, map[string]string{"t-a": shareRow("t-a", "a", "open", shareEarlier)})
+		fixture.machine.rows["t-a"] = shareRow("t-a", "a edited here", "open", shareHere)
+		fixture.branch.content = ""
+		if _, err := fixture.share.Check(ctx); err != nil {
+			t.Fatal(err)
+		}
+		return fixture
+	}
+	removedHere := func(t *testing.T) shareFixture {
+		fixture := newShareFixture(t, map[string]string{"t-a": shareRow("t-a", "a", "open", shareEarlier)})
+		delete(fixture.machine.rows, "t-a")
+		fixture.branch.content = shareRow("t-a", "a edited there", "open", shareThere) + "\n"
+		if _, err := fixture.share.Check(ctx); err != nil {
+			t.Fatal(err)
+		}
+		return fixture
+	}
+
+	t.Run("keeping the shared removal is refused and the hold stands", func(t *testing.T) {
+		t.Parallel()
+		fixture := removedThere(t)
+		if !strings.Contains(fixture.reports.reports[0].Message, "the only version it can keep is this machine's") {
+			t.Errorf("report = %q, want the one decision open to her", fixture.reports.reports[0].Message)
+		}
+		_, err := fixture.store.DecideHold(ctx, "t-a", runstate.TrackerVersionShared, "why", "her", at)
+		if !errors.Is(err, runstate.ErrCannotKeepRemoval) {
+			t.Fatalf("error = %v", err)
+		}
+		result, err := fixture.share.Check(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Held) != 1 || len(result.Ended) != 0 {
+			t.Errorf("held %v, ended %v; want it still held", result.Held, result.Ended)
+		}
+	})
+	t.Run("keeping this machine's edit over the shared removal", func(t *testing.T) {
+		t.Parallel()
+		fixture := removedThere(t)
+		if _, err := fixture.store.DecideHold(ctx, "t-a", runstate.TrackerVersionThisMachine, "why", "her", at); err != nil {
+			t.Fatal(err)
+		}
+		result, err := fixture.share.Check(ctx)
+		if err != nil || len(result.Ended) != 1 || len(result.Held) != 0 {
+			t.Fatalf("result %+v, error %v", result, err)
+		}
+		if !strings.Contains(fixture.machine.rows["t-a"], "a edited here") {
+			t.Errorf("this machine has %s", fixture.machine.rows["t-a"])
+		}
+	})
+	t.Run("keeping the shared edit over this machine's removal brings it back", func(t *testing.T) {
+		t.Parallel()
+		fixture := removedHere(t)
+		if _, err := fixture.store.DecideHold(ctx, "t-a", runstate.TrackerVersionShared, "why", "her", at); err != nil {
+			t.Fatal(err)
+		}
+		result, err := fixture.share.Check(ctx)
+		if err != nil || len(result.Ended) != 1 {
+			t.Fatalf("result %+v, error %v", result, err)
+		}
+		if !strings.Contains(fixture.machine.rows["t-a"], "a edited there") {
+			t.Errorf("this machine has %q", fixture.machine.rows["t-a"])
+		}
+	})
+	t.Run("keeping this machine's removal leaves it removed", func(t *testing.T) {
+		t.Parallel()
+		fixture := removedHere(t)
+		if _, err := fixture.store.DecideHold(ctx, "t-a", runstate.TrackerVersionThisMachine, "why", "her", at); err != nil {
+			t.Fatal(err)
+		}
+		result, err := fixture.share.Check(ctx)
+		if err != nil || len(result.Ended) != 1 || len(fixture.machine.writes) != 0 {
+			t.Fatalf("result %+v, writes %s, error %v", result, fixture.machine.writes, err)
+		}
+		if _, present := fixture.machine.rows["t-a"]; present {
+			t.Error("the item came back")
+		}
+	})
 }

@@ -1,10 +1,12 @@
 package beads
 
 import (
+	"context"
 	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func exportLine(t *testing.T, fields map[string]any) string {
@@ -299,5 +301,141 @@ func TestAnExportHoldingConflictMarkersIsRefused(t *testing.T) {
 
 	if _, err := MergeExports(ExportMergeInput{ThisMachine: []byte("{\"id\":\"t-a\"}\n"), Shared: []byte("<<<<<<< HEAD\n{\"id\":\"t-a\"}\n")}); err == nil || !strings.Contains(err.Error(), "the shared export") {
 		t.Fatalf("error = %v, want the shared export refused", err)
+	}
+}
+
+// A person commits this machine's export, the item moves on here, and the next
+// check reads that commit: three different statuses, one machine.
+func TestAMachinesOwnEarlierExportIsNotAClash(t *testing.T) {
+	t.Parallel()
+
+	own, err := parseExportRow(exportLine(t, item("t-a", "a", "in_progress", mine)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	merge, err := MergeExports(ExportMergeInput{
+		Base: exportOf(exportLine(t, item("t-a", "a", "open", earlier))), HasBase: true,
+		ThisMachine: exportOf(exportLine(t, item("t-a", "a", "closed", yours))),
+		Shared:      exportOf(own.line),
+		Exported:    ExportedVersions{"t-a": {own.digest()}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(merge.Conflicts) != 0 || len(merge.Import) != 0 {
+		t.Fatalf("conflicts %+v, import %s; want this machine's version to stand", merge.Conflicts, merge.Import)
+	}
+	// The same shared row with this machine never having exported it is a clash.
+	if clash, err := MergeExports(ExportMergeInput{
+		Base: exportOf(exportLine(t, item("t-a", "a", "open", earlier))), HasBase: true,
+		ThisMachine: exportOf(exportLine(t, item("t-a", "a", "closed", yours))),
+		Shared:      exportOf(own.line),
+	}); err != nil || len(clash.Conflicts) != 1 {
+		t.Fatalf("conflicts %+v, error %v; want the clash", clash.Conflicts, err)
+	}
+}
+
+func TestNotesAreCombinedWithEachNoteOnce(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name, ours, theirs, want string
+	}{
+		{"this side already holds what the other added", "base\nn1\nn2", "base\nn1", "base\nn1\nn2"},
+		{"the other side holds more", "base\nn1", "base\nn1\nn2", "base\nn1\nn2"},
+		{"a note in common and one each", "base\na\nc", "base\na\nb", "base\na\nc\nb"},
+		{"the same notes taken in the other order", "base\nb\na", "base\na\nb", "base\nb\na"},
+		{"the same line said twice is two notes", "base\nx", "base\nx\nx", "base\nx\nx"},
+	} {
+		merge, err := MergeExports(ExportMergeInput{
+			Base: exportOf(exportLine(t, with(item("t-a", "a", "open", earlier), "notes", "base"))), HasBase: true,
+			ThisMachine: exportOf(exportLine(t, with(with(item("t-a", "a", "open", mine), "notes", tt.ours), "description", "here"))),
+			Shared:      exportOf(exportLine(t, with(item("t-a", "a", "open", yours), "notes", tt.theirs))),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(merge.Conflicts) != 0 {
+			t.Errorf("%s: conflicts %+v", tt.name, merge.Conflicts)
+			continue
+		}
+		if got := importedField(t, merge, "t-a", "notes"); got != tt.want {
+			t.Errorf("%s: notes = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
+// bd would lay a row with a later clock over a write made here, so the item's lock
+// is held from the check through the write, and a row whose item moved is not
+// written at all.
+func TestImportWaitsOnAnItemsWriteLockAndPassesOverARowThatMoved(t *testing.T) {
+	t.Parallel()
+
+	repository := exportRepository(t)
+	seen := exportOf(exportLine(t, item("t-a", "a", "open", earlier)))
+	row := []byte(exportLine(t, item("t-a", "a edited there", "open", yours)))
+	runner := &fakeRunner{responses: []string{string(seen), `{"created":1}`}}
+	client := Client{Dir: repository, Runner: runner, Timeout: time.Minute}
+	ctx := context.Background()
+	unlock, err := client.lockItem(ctx, "t-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.ImportRows(ctx, [][]byte{row}, seen)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("the import finished behind a held lock: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the import did not finish once the lock was released")
+	}
+	if len(runner.commands) != 2 || runner.commands[1].Args[0] != "import" {
+		t.Fatalf("commands = %+v, want the check and then the import", runner.commands)
+	}
+
+	moved := &fakeRunner{responses: []string{string(exportOf(exportLine(t, item("t-a", "a", "closed", mine))))}}
+	answer, err := Client{Dir: repository, Runner: moved, Timeout: time.Minute}.ImportRows(ctx, [][]byte{row}, seen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(answer.Kept, []string{"t-a"}) || len(moved.commands) != 1 {
+		t.Errorf("kept %v after commands %+v; want it passed over with nothing written", answer.Kept, moved.commands)
+	}
+}
+
+func TestAPublishedExportIsRememberedAsThisMachines(t *testing.T) {
+	t.Parallel()
+
+	repository := exportRepository(t)
+	line := exportLine(t, item("t-a", "a", "open", earlier))
+	client := Client{Dir: repository, Runner: &fakeRunner{responses: []string{line + "\n"}}, Timeout: time.Minute}
+	if err := client.RefreshExport(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	row, err := parseExportRow(line)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !client.ExportedVersions().holds(row) {
+		t.Errorf("the export's row is not remembered: %v", client.ExportedVersions())
+	}
+	// Only what the row says counts: the moment it last moved does not.
+	moved, err := parseExportRow(exportLine(t, item("t-a", "a", "open", mine)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !client.ExportedVersions().holds(moved) {
+		t.Error("a row differing only in updated_at read as a different version")
 	}
 }

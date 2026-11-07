@@ -169,6 +169,12 @@ func trackerMergeHoldName(workItemID string) error {
 // ErrNoTrackerMergeHold is a decision about an item nothing holds.
 var ErrNoTrackerMergeHold = errors.New("no merge hold stands on this item")
 
+// ErrCannotKeepRemoval is a decision to keep the shared version of an item the
+// shared export has removed. `bd import` cannot remove an item from the tracker,
+// so a decision the next check could not carry out is refused rather than
+// reported as made, and the hold stands.
+var ErrCannotKeepRemoval = errors.New("the shared export no longer has this item, and the harness cannot remove an item from the tracker, so the shared version cannot be kept; keep this machine's version with the decision here, and if the item should not go on, ask the Lead Product Manager to retire it")
+
 // TrackerMergeStore keeps one product's record of merging the shared export.
 type TrackerMergeStore struct {
 	stateRoot string
@@ -332,11 +338,42 @@ func (s *TrackerMergeStore) DecideHold(ctx context.Context, workItemID string, k
 	if !found {
 		return TrackerMergeHold{}, fmt.Errorf("%w: %s", ErrNoTrackerMergeHold, workItemID)
 	}
+	if keep == TrackerVersionShared && hold.Shared == "" {
+		return TrackerMergeHold{}, fmt.Errorf("%w: %s", ErrCannotKeepRemoval, workItemID)
+	}
 	hold.Decision = &TrackerMergeDecision{Keep: keep, Reason: strings.TrimSpace(reason), By: by, At: at.UTC()}
 	if err := s.SaveHold(hold); err != nil {
 		return TrackerMergeHold{}, err
 	}
 	return hold, nil
+}
+
+// EndAllHolds removes every hold and names the items, for a project that has
+// turned team mode off: no check will ever read those two versions again, so a
+// hold left standing would keep its item from starting with nothing to end it.
+// What was last read stays, so turning team mode on again finds the same items
+// differ and holds them again.
+func (s *TrackerMergeStore) EndAllHolds(ctx context.Context) ([]string, error) {
+	holds, err := s.Holds()
+	if err != nil {
+		return nil, err
+	}
+	if len(holds) == 0 {
+		return nil, nil
+	}
+	release, err := s.Lock(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	var ended []string
+	for _, hold := range holds {
+		if err := s.EndHold(hold.WorkItemID); err != nil {
+			return ended, err
+		}
+		ended = append(ended, hold.WorkItemID)
+	}
+	return ended, nil
 }
 
 // TrackerMergeHolds is every merge hold standing for this store's product, which

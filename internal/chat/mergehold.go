@@ -21,7 +21,7 @@ type TrackerMergeDecisions interface {
 // and ends the hold, for the reason a triage decision carries nothing out.
 func (s *Session) decideKeepVersion(ctx context.Context, outcome *TrackerOutcome) {
 	if s.options.TrackerMerge == nil {
-		outcome.fail(errors.New("no record of merge holds is wired to this conversation, so nothing was recorded"))
+		outcome.fail(errors.New("nothing was recorded: merge holds apply only with team mode on, and with it off, or with their record unreadable, no forge check would carry a decision out"))
 		return
 	}
 	id := strings.TrimSpace(outcome.Action.ID)

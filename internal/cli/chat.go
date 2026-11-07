@@ -2003,11 +2003,14 @@ func artifactHomes(repository string, cfg config.Config, stderr io.Writer) prote
 }
 
 // conversationTrackerMerge is the record of items held because two machines'
-// versions cannot be merged, and nil where it cannot be opened, which the
-// decision then says rather than appearing to have been made. An untyped nil is
-// what the conversation checks for, so a failed open is not returned as a typed
-// one.
+// versions cannot be merged, and nil with team mode off, where no check would
+// carry a decision out, or where it cannot be opened. The decision then says so
+// rather than appearing to have been made. An untyped nil is what the conversation
+// checks for, so a failed open is not returned as a typed one.
 func conversationTrackerMerge(parts components) chat.TrackerMergeDecisions {
+	if !parts.config.Team.Enabled {
+		return nil
+	}
 	store, err := runstate.NewTrackerMergeStore(parts.stateRoot, parts.config.Product.ID)
 	if err != nil {
 		return nil
