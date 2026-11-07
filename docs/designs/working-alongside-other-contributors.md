@@ -30,6 +30,10 @@ revisions:
       by: architect
       at: 2026-11-07T06:45:59.585889Z
       reason: 'Approved amendment-c7613717 from the developer building tracker sharing: Beads has no merge of its own for its export, so the harness merges it item by item, and the export travels through a reference of the harness''s own on the shared remote rather than a commit on the target branch, so a protected target cannot stop it. Adds the rules for held items and for a machine''s own earlier versions, and build item 15. Written again from main at c54e563c because the first writing of this revision did not reach main.'
+    - action: amended
+      by: architect
+      at: 2026-11-07T09:40:34.421244Z
+      reason: 'The Beads decision record landed on November 7, 2026 with the line this section said it was still to gain, so the section now says what the record holds: the export travels through the tracker reference, and the merge''s compared versions and holds are kept outside Beads. The other lines are unchanged.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -61,6 +65,11 @@ approvals:
       by: harness
       at: 2026-11-07T06:45:59.585889Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2415, for document-2415.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-07T09:40:34.421244Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2428, for document-2428.1 under the automatic approval policy
 ---
 # Working alongside other contributors
 
@@ -313,7 +322,7 @@ No build that lets a second factory run can start before claims (6), because two
 
 ## Documents this amends
 
-- [Beads is the durable workflow store](../decisions/beads-durable-workflow-store.md) gained its consequence on October 15, 2026. The claim reference is the cross-machine guarantee for who holds an item, while the tracker still records the holder; reports, directives and spends travel in the records reference beside it, not in the tracker. It is still to gain one line saying the export travels through the tracker reference.
+- [Beads is the durable workflow store](../decisions/beads-durable-workflow-store.md) gained its consequence on October 15, 2026. The claim reference is the cross-machine guarantee for who holds an item, while the tracker still records the holder; reports, directives and spends travel in the records reference beside it, not in the tracker. On November 7, 2026 it gained what section 7 rules for the tracker's export: the export travels through the tracker reference rather than a commit on the target branch, the harness merges it item by item, and the versions the merge compares and a hold on an item whose versions clash are kept in the machine's own state, outside Beads.
 - [One promotion per target branch](../decisions/invariants/one-promotion-per-target-branch.md) gained the remote compare and swap as the guarantee across machines on November 5, 2026. The lock stays per machine and covers only the guarded change.
 - The v1 harness design's text on fetching only during reconcile is replaced by section 3. This waits on the fix that lets roles read and revise long files (yoyodyne-t2j).
 - The Lead Product Manager's team-mode scope document should say that working alongside other contributors is designed, name this design, and say that its question on a team-wide pause and its gap on budgets are answered here. That change is hers.
