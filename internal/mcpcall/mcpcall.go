@@ -14,11 +14,13 @@
 // left running to supervise or move onto a new build. A command server runs in
 // a process group of its own, with an environment built from a list rather than
 // inherited, and with its own folder under the state directory as both its
-// working directory and its home; the group is ended afterwards however the
-// batch ended.
+// working directory and its home — mcpcredential.ServerDirectoryWithin, the
+// folder its login was kept in — and the group is ended afterwards however
+// the batch ended. A remote server's redirects are decided by
+// mcpcredential.CheckRedirect, so a credential never leaves its host.
 //
-// A credential is handed to the client by the caller, from the stores
-// internal/mcpcredential reads, and travels only where the server needs it: in
+// A credential is read by internal/mcpcredential's Stores.Read, from the store
+// the server's declaration names, and travels only where the server needs it: in
 // the environment variable a command server names, or in the Authorization
 // header of a request to a remote one. It is in no argument the client passes,
 // and it is removed from every error the client returns, including errors whose
@@ -39,7 +41,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mason-bryant/yoyodyne/internal/repowrite"
+	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/mcpcredential"
 )
 
 // ProtocolVersions are the MCP protocol versions this client accepts, newest
@@ -64,7 +67,10 @@ const maxToolPages = 64
 var (
 	// ErrRefused is a server the client will not start or speak to as declared:
 	// neither or both of a command and a url, a url that is not https, a
-	// credential with nowhere to go, or a protocol version not on the list.
+	// credential with nowhere to go, or a protocol version not on the list. A
+	// configuration that loaded refuses the first three already; the client
+	// refuses them again because it is the last thing between a declaration and
+	// a started program.
 	ErrRefused = errors.New("the MCP server is refused")
 	// ErrCredential is a credential the stores would not produce.
 	ErrCredential = errors.New("the MCP server's credential could not be read")
@@ -76,43 +82,22 @@ var (
 	ErrClosed = errors.New("the MCP batch has ended")
 )
 
-// Server is one declared server, as the client needs it.
+// Server is one declared server: its name and its declaration in the
+// project's mcp section, which a configuration that loaded has already checked.
 type Server struct {
-	// Name is the server's declared name, used in what the client says.
-	Name string
-	// Command is the program and its arguments, for a server the harness
-	// starts. Exactly one of Command and URL is set.
-	Command []string
-	// URL is the https address of a remote server.
-	URL string
-	// Folder is a command server's own folder under the state directory. It is
-	// made if it is not there, through the confined writer, and is the server's
-	// working directory and its home.
-	Folder Folder
-	// CredentialEnv is the environment variable a command server is handed its
-	// credential in.
-	CredentialEnv string
-}
-
-// Folder is a directory named relative to a confined root, so making it can
-// never land outside that root.
-type Folder struct {
-	Root     repowrite.Root
-	Relative string
+	Name     string
+	Declared config.MCPServer
 }
 
 // Options are what the caller supplies beside the server.
 type Options struct {
-	// Credential produces the server's credential, from the store its
-	// declaration names; internal/mcpcredential's Stores.Read is the one the
-	// harness has. Nil is a server that needs no credential.
-	Credential func(ctx context.Context) (string, error)
-	// CheckRedirect is the redirect rule for a remote server's requests;
-	// internal/mcpcredential's CheckRedirect is the one the harness has. Nil
-	// follows no redirect at all.
-	CheckRedirect func(request *http.Request, via []*http.Request) error
+	// Stores is where the server's credential is read from, under the name its
+	// own name derives, and whose state root holds a command server's own
+	// folder. A server declaring no credential store reads nothing.
+	Stores mcpcredential.Stores
 	// Transport carries a remote server's requests. Nil is Go's default; a test
-	// supplies the one that trusts its own server's certificate.
+	// supplies the one that trusts its own server's certificate. Redirects are
+	// always decided by mcpcredential.CheckRedirect, whatever carries them.
 	Transport http.RoundTripper
 	// ClientVersion is the harness's version, given in the opening exchange.
 	ClientVersion string
@@ -182,16 +167,17 @@ func Batch(ctx context.Context, server Server, options Options, calls func(*Sess
 }
 
 func open(ctx context.Context, server Server, options Options) (*Session, error) {
-	hasCommand, hasURL := len(server.Command) > 0, strings.TrimSpace(server.URL) != ""
+	declared := server.Declared
+	hasCommand, hasURL := len(declared.Command) > 0, strings.TrimSpace(declared.URL) != ""
 	if hasCommand == hasURL {
 		return nil, fmt.Errorf("%w: mcp server %q must have exactly one of a command and a url", ErrRefused, server.Name)
 	}
-	if hasCommand && options.Credential != nil && strings.TrimSpace(server.CredentialEnv) == "" {
+	if hasCommand && declared.Credential != config.MCPCredentialNone && strings.TrimSpace(declared.CredentialEnv) == "" {
 		return nil, fmt.Errorf("%w: mcp server %q has a credential and no variable to hand it to the program in", ErrRefused, server.Name)
 	}
 	credential := ""
-	if options.Credential != nil {
-		value, err := options.Credential(ctx)
+	if declared.Credential != config.MCPCredentialNone {
+		value, err := options.Stores.Read(ctx, server.Name, declared)
 		if err != nil {
 			// The stores' errors name the server and the store and never the
 			// value, and a failed read has no value to leak.
@@ -205,7 +191,7 @@ func open(ctx context.Context, server Server, options Options) (*Session, error)
 	session := &Session{server: server, credential: credential}
 	var err error
 	if hasCommand {
-		session.transport, err = startCommand(ctx, server, credential)
+		session.transport, err = startCommand(ctx, server, options.Stores, credential)
 	} else {
 		session.transport, err = openURL(ctx, server, options, credential)
 	}

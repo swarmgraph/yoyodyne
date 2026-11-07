@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/mason-bryant/yoyodyne/internal/mcpcredential"
 )
 
 // The remote transport is MCP's streamable HTTP: every message is a POST to
@@ -33,9 +35,6 @@ const (
 	maxErrorDetail = 512
 )
 
-// errNoRedirect stops a redirect when the caller supplied no rule for them.
-var errNoRedirect = errors.New("redirects are not followed")
-
 type remoteTransport struct {
 	name       string
 	address    string
@@ -49,21 +48,17 @@ type remoteTransport struct {
 // the opening exchange, which is what gives the session its identifier, so
 // every batch's session is new.
 func openURL(_ context.Context, server Server, options Options, credential string) (transport, error) {
-	address, err := url.Parse(strings.TrimSpace(server.URL))
+	address, err := url.Parse(strings.TrimSpace(server.Declared.URL))
 	if err != nil || address.Scheme != "https" || address.Host == "" {
 		return nil, fmt.Errorf("%w: mcp server %q has a url that is not an https address", ErrRefused, server.Name)
 	}
 	if address.User != nil {
 		return nil, fmt.Errorf("%w: mcp server %q has a url carrying a user or password, and a credential is read only from the stores", ErrRefused, server.Name)
 	}
-	redirect := options.CheckRedirect
-	if redirect == nil {
-		redirect = func(*http.Request, []*http.Request) error { return errNoRedirect }
-	}
 	return &remoteTransport{
 		name:       server.Name,
 		address:    address.String(),
-		client:     &http.Client{Transport: options.Transport, CheckRedirect: redirect},
+		client:     &http.Client{Transport: options.Transport, CheckRedirect: mcpcredential.CheckRedirect},
 		credential: credential,
 	}, nil
 }
@@ -126,8 +121,8 @@ func (t *remoteTransport) sendFailure(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return fmt.Errorf("mcp server %q did not answer in time: %w", t.name, ctx.Err())
 	}
-	if errors.Is(err, errNoRedirect) {
-		return fmt.Errorf("%w: mcp server %q redirected the request, and no redirect is followed", ErrFailed, t.name)
+	if errors.Is(err, mcpcredential.ErrRedirectRefused) {
+		return fmt.Errorf("%w: mcp server %q: %v", ErrFailed, t.name, errors.Unwrap(err))
 	}
 	return fmt.Errorf("%w: mcp server %q could not be reached: %v", ErrFailed, t.name, err)
 }

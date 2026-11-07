@@ -247,6 +247,8 @@ type fakeHTTP struct {
 	versions  []string
 	refusals  map[string]chan fakeMessage
 	redirects int
+	// elsewhere is where /elsewhere redirects to: another host.
+	elsewhere string
 }
 
 func newFakeHTTP() *fakeHTTP {
@@ -254,6 +256,10 @@ func newFakeHTTP() *fakeHTTP {
 }
 
 func (f *fakeHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/elsewhere" {
+		http.Redirect(w, r, f.elsewhere, http.StatusTemporaryRedirect)
+		return
+	}
 	if r.URL.Path == "/moved" {
 		f.mu.Lock()
 		f.redirects++

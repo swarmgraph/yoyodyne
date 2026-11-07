@@ -7,43 +7,67 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/mason-bryant/yoyodyne/internal/repowrite"
+	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/mcpcredential"
 )
 
-const testCredential = "s3cret-credential-value-0042"
+const (
+	testCredential                  = "s3cret-credential-value-0042"
+	testProduct    domain.ProductID = "example"
+)
 
-func commandServer(t *testing.T, mode ...string) (Server, string) {
+// testStores is a state root of the test's own with a file-stored credential
+// kept for each server named, where the stores read it from.
+func testStores(t *testing.T, servers ...string) mcpcredential.Stores {
 	t.Helper()
-	root, err := repowrite.NewRoot(t.TempDir())
+	stores := mcpcredential.Stores{StateRoot: t.TempDir(), Product: testProduct}
+	if err := os.MkdirAll(mcpcredential.Directory(stores.StateRoot, testProduct), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, server := range servers {
+		if err := os.WriteFile(mcpcredential.File(stores.StateRoot, testProduct, server), []byte(testCredential+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return stores
+}
+
+// commandServer is the fake declared as a command whose credential is kept in
+// the file store, with the stores holding it.
+func commandServer(t *testing.T, mode ...string) (Server, Options) {
+	t.Helper()
+	server := Server{Name: "fake", Declared: config.MCPServer{
+		Command:       fakeCommand(mode...),
+		Credential:    config.MCPCredentialFile,
+		CredentialEnv: fakeCredentialEnv,
+	}}
+	return server, Options{Stores: testStores(t, server.Name)}
+}
+
+// serverFolder is where a command server's own folder is, as the client made
+// it.
+func serverFolder(t *testing.T, options Options, server Server) string {
+	t.Helper()
+	folder, err := filepath.EvalSymlinks(mcpcredential.ServerDirectory(options.Stores.StateRoot, testProduct, server.Name))
 	if err != nil {
 		t.Fatal(err)
 	}
-	relative := "products/example/mcp/fake"
-	return Server{
-		Name:          "fake",
-		Command:       fakeCommand(mode...),
-		Folder:        Folder{Root: root, Relative: relative},
-		CredentialEnv: fakeCredentialEnv,
-	}, filepath.Join(root.Path(), filepath.FromSlash(relative))
-}
-
-func withCredential(Options) Options {
-	return Options{Credential: func(context.Context) (string, error) { return testCredential, nil }}
+	return folder
 }
 
 func remoteServer(t *testing.T, fake *fakeHTTP) (Server, Options) {
 	t.Helper()
 	server := httptest.NewTLSServer(fake)
 	t.Cleanup(server.Close)
-	options := withCredential(Options{})
-	options.Transport = server.Client().Transport
-	return Server{Name: "remote", URL: server.URL + "/mcp"}, options
+	declared := Server{Name: "remote", Declared: config.MCPServer{URL: server.URL + "/mcp", Credential: config.MCPCredentialFile}}
+	return declared, Options{Stores: testStores(t, declared.Name), Transport: server.Client().Transport}
 }
 
 func call(t *testing.T, session *Session, tool string, arguments string) Result {
@@ -66,8 +90,8 @@ func onlyText(t *testing.T, result Result) string {
 // transports runs one test over both transports.
 func transports(t *testing.T, run func(t *testing.T, server Server, options Options)) {
 	t.Run("standard input", func(t *testing.T) {
-		server, _ := commandServer(t)
-		run(t, server, withCredential(Options{}))
+		server, options := commandServer(t)
+		run(t, server, options)
 	})
 	t.Run("https", func(t *testing.T) {
 		server, options := remoteServer(t, newFakeHTTP())
@@ -152,8 +176,8 @@ func TestAProtocolVersionOffTheListIsRefused(t *testing.T) {
 		}
 	}
 	t.Run("standard input", func(t *testing.T) {
-		server, _ := commandServer(t, fakeVersionMode)
-		check(t, Batch(context.Background(), server, Options{}, func(*Session) error {
+		server, options := commandServer(t, fakeVersionMode)
+		check(t, Batch(context.Background(), server, options, func(*Session) error {
 			t.Fatal("the batch ran against a server speaking a version off the list")
 			return nil
 		}))
@@ -174,13 +198,13 @@ func TestAProtocolVersionOffTheListIsRefused(t *testing.T) {
 
 func TestACommandServerGetsAListedEnvironmentAndItsOwnFolder(t *testing.T) {
 	t.Setenv("YOYO_MCP_LEAK_PROBE", "should-not-arrive")
-	server, folder := commandServer(t)
+	server, options := commandServer(t)
 	var seen struct {
 		Env  []string `json:"env"`
 		Cwd  string   `json:"cwd"`
 		Args []string `json:"args"`
 	}
-	err := Batch(context.Background(), server, withCredential(Options{}), func(session *Session) error {
+	err := Batch(context.Background(), server, options, func(session *Session) error {
 		return json.Unmarshal([]byte(onlyText(t, call(t, session, "environment", `{}`))), &seen)
 	})
 	if err != nil {
@@ -198,13 +222,14 @@ func TestACommandServerGetsAListedEnvironmentAndItsOwnFolder(t *testing.T) {
 			t.Errorf("the server was handed %s, which is not on the list", name)
 		}
 	}
-	resolved, _ := filepath.EvalSymlinks(folder)
+	folder := serverFolder(t, options, server)
 	cwd, _ := filepath.EvalSymlinks(seen.Cwd)
-	if cwd != resolved || values["HOME"] != folder {
+	home, _ := filepath.EvalSymlinks(values["HOME"])
+	if cwd != folder || home != folder {
 		t.Errorf("working directory %q and home %q, want both %q", seen.Cwd, values["HOME"], folder)
 	}
 	if values[fakeCredentialEnv] != testCredential {
-		t.Errorf("the credential did not arrive in %s", fakeCredentialEnv)
+		t.Errorf("the credential read from the file store did not arrive in %s", fakeCredentialEnv)
 	}
 	if strings.Contains(strings.Join(seen.Args, " "), testCredential) {
 		t.Errorf("the credential is in the server's arguments: %v", seen.Args)
@@ -212,23 +237,23 @@ func TestACommandServerGetsAListedEnvironmentAndItsOwnFolder(t *testing.T) {
 }
 
 func TestACommandServersGroupEndsWithTheBatch(t *testing.T) {
-	server, folder := commandServer(t)
-	err := Batch(context.Background(), server, Options{}, func(session *Session) error {
+	server, options := commandServer(t)
+	err := Batch(context.Background(), server, options, func(session *Session) error {
 		call(t, session, "spawn", `{}`)
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sleeperGone(t, folder) {
+	if !sleeperGone(t, serverFolder(t, options, server)) {
 		t.Fatal("what the server started outlived the batch until its own deadline")
 	}
 }
 
 func TestACancelledBatchSaysSo(t *testing.T) {
-	server, _ := commandServer(t)
+	server, options := commandServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	err := Batch(ctx, server, Options{}, func(session *Session) error {
+	err := Batch(ctx, server, options, func(session *Session) error {
 		cancel()
 		_, err := session.CallTool(ctx, "echo", nil)
 		return err
@@ -290,30 +315,50 @@ func TestACredentialIsInNoReturnedError(t *testing.T) {
 
 func TestACredentialTheStoresWillNotProduceStopsTheBatch(t *testing.T) {
 	server, _ := commandServer(t)
-	options := Options{Credential: func(context.Context) (string, error) {
-		return "", errors.New("the keychain item for mcp server \"fake\" is not there")
-	}}
+	options := Options{Stores: testStores(t)}
 	err := Batch(context.Background(), server, options, func(*Session) error {
 		t.Fatal("the batch ran without its credential")
 		return nil
 	})
-	if !errors.Is(err, ErrCredential) || !strings.Contains(err.Error(), "keychain") {
-		t.Fatalf("err = %v", err)
+	if !errors.Is(err, ErrCredential) || !strings.Contains(err.Error(), "fake.token") {
+		t.Fatalf("err = %v, want the missing file named", err)
+	}
+}
+
+func TestAServerDeclaringNoCredentialReadsNone(t *testing.T) {
+	server, options := commandServer(t)
+	server.Declared.Credential, server.Declared.CredentialEnv = config.MCPCredentialNone, ""
+	options.Stores = testStores(t)
+	var seen struct {
+		Env []string `json:"env"`
+	}
+	if err := Batch(context.Background(), server, options, func(session *Session) error {
+		return json.Unmarshal([]byte(onlyText(t, call(t, session, "environment", `{}`))), &seen)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range seen.Env {
+		if strings.HasPrefix(entry, fakeCredentialEnv+"=") {
+			t.Errorf("a server declaring no credential was handed %s", entry)
+		}
 	}
 }
 
 func TestAServerDeclaredWrongIsRefusedBeforeAnythingStarts(t *testing.T) {
-	command, _ := commandServer(t)
+	command, options := commandServer(t)
+	noVariable := command.Declared
+	noVariable.CredentialEnv = ""
 	cases := map[string]struct {
 		server  Server
 		options Options
 	}{
-		"neither":         {Server{Name: "x"}, Options{}},
-		"both":            {Server{Name: "x", Command: []string{"x"}, URL: "https://example.invalid/"}, Options{}},
-		"plain http":      {Server{Name: "x", URL: "http://example.invalid/"}, Options{}},
-		"user in the url": {Server{Name: "x", URL: "https://user:pass@example.invalid/"}, Options{}},
-		"no variable":     {Server{Name: "x", Command: command.Command, Folder: command.Folder}, withCredential(Options{})},
-		"no folder":       {Server{Name: "x", Command: command.Command}, Options{}},
+		"neither":            {Server{Name: "x"}, options},
+		"both":               {Server{Name: "x", Declared: config.MCPServer{Command: []string{"x"}, URL: "https://example.invalid/"}}, options},
+		"plain http":         {Server{Name: "x", Declared: config.MCPServer{URL: "http://example.invalid/"}}, options},
+		"user in the url":    {Server{Name: "x", Declared: config.MCPServer{URL: "https://user:pass@example.invalid/"}}, options},
+		"no variable":        {Server{Name: "fake", Declared: noVariable}, options},
+		"no state directory": {Server{Name: "x", Declared: config.MCPServer{Command: command.Declared.Command}}, Options{}},
+		"a name that climbs": {Server{Name: "../x", Declared: config.MCPServer{Command: command.Declared.Command}}, options},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -328,28 +373,43 @@ func TestAServerDeclaredWrongIsRefusedBeforeAnythingStarts(t *testing.T) {
 	}
 }
 
-func TestARedirectIsFollowedOnlyByTheRuleTheCallerGives(t *testing.T) {
+func TestARedirectIsFollowedOnlyOnTheSameHost(t *testing.T) {
+	elsewhere := newFakeHTTP()
+	other := httptest.NewTLSServer(elsewhere)
+	t.Cleanup(other.Close)
 	fake := newFakeHTTP()
+	fake.elsewhere = other.URL + "/mcp"
 	server, options := remoteServer(t, fake)
-	server.URL = strings.TrimSuffix(server.URL, "/mcp") + "/moved"
+	base := strings.TrimSuffix(server.Declared.URL, "/mcp")
+
+	server.Declared.URL = base + "/moved"
+	if err := Batch(context.Background(), server, options, func(session *Session) error {
+		call(t, session, "echo", `{}`)
+		return nil
+	}); err != nil {
+		t.Fatalf("a redirect on the same host was not followed: %v", err)
+	}
+	if fake.redirects == 0 || len(fake.opened) != 1 {
+		t.Fatalf("redirects = %d, sessions = %v; want the redirect followed to the session", fake.redirects, fake.opened)
+	}
+
+	server.Declared.URL = base + "/elsewhere"
 	err := Batch(context.Background(), server, options, func(*Session) error { return nil })
-	if !errors.Is(err, ErrFailed) || !strings.Contains(err.Error(), "redirect") || len(fake.opened) != 0 {
-		t.Fatalf("err = %v, sessions = %v; want the redirect not followed", err, fake.opened)
+	if !errors.Is(err, ErrFailed) || !strings.Contains(err.Error(), "another host") {
+		t.Fatalf("err = %v, want the redirect to another host refused", err)
 	}
-	var asked int
-	options.CheckRedirect = func(*http.Request, []*http.Request) error { asked++; return nil }
-	if err := Batch(context.Background(), server, options, func(*Session) error { return nil }); err != nil {
-		t.Fatal(err)
+	if len(elsewhere.auth) != 0 {
+		t.Fatalf("the other host was sent %d requests, credential %v", len(elsewhere.auth), elsewhere.auth)
 	}
-	if asked == 0 {
-		t.Fatal("the caller's redirect rule was not asked")
+	if strings.Contains(err.Error(), testCredential) {
+		t.Fatalf("the credential is in the error: %v", err)
 	}
 }
 
 func TestACallAfterTheBatchHasEndedIsRefused(t *testing.T) {
-	server, _ := commandServer(t)
+	server, options := commandServer(t)
 	var kept *Session
-	if err := Batch(context.Background(), server, Options{}, func(session *Session) error {
+	if err := Batch(context.Background(), server, options, func(session *Session) error {
 		kept = session
 		return nil
 	}); err != nil {
@@ -361,8 +421,8 @@ func TestACallAfterTheBatchHasEndedIsRefused(t *testing.T) {
 }
 
 func TestArgumentsThatAreNotOneObjectAreRefused(t *testing.T) {
-	server, _ := commandServer(t)
-	_ = Batch(context.Background(), server, Options{}, func(session *Session) error {
+	server, options := commandServer(t)
+	_ = Batch(context.Background(), server, options, func(session *Session) error {
 		if _, err := session.CallTool(context.Background(), "echo", json.RawMessage(`[1]`)); !errors.Is(err, ErrRefused) {
 			t.Errorf("err = %v, want a refusal", err)
 		}

@@ -12,6 +12,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/mcpcredential"
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
 // inheritedVariables are the only variables a command server is handed from
@@ -64,20 +68,28 @@ type commandTransport struct {
 // own folder, with the environment above. Output and error output come through
 // pipes the client owns rather than through exec's copying, so a process the
 // server left behind holding them cannot keep Wait from returning.
-func startCommand(ctx context.Context, server Server, credential string) (transport, error) {
+func startCommand(ctx context.Context, server Server, stores mcpcredential.Stores, credential string) (transport, error) {
 	if !groupSupported {
 		return nil, fmt.Errorf("%w: mcp server %q is a command, and this platform cannot give it a process group of its own", ErrRefused, server.Name)
 	}
-	if server.Folder.Relative == "" {
-		return nil, fmt.Errorf("%w: mcp server %q has no folder of its own to run in", ErrRefused, server.Name)
+	if err := domain.ValidateIdentifier("mcp server name", server.Name); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrRefused, err)
 	}
-	folder, err := server.Folder.Root.MakeDirectory(server.Folder.Relative, 0o700)
+	if strings.TrimSpace(stores.StateRoot) == "" || stores.Product == "" {
+		return nil, fmt.Errorf("%w: mcp server %q has no state directory to keep its own folder in", ErrRefused, server.Name)
+	}
+	root, err := repowrite.NewRoot(stores.StateRoot)
+	if err != nil {
+		return nil, fmt.Errorf("%w: the state directory for mcp server %q: %v", ErrFailed, server.Name, err)
+	}
+	folder, err := root.MakeDirectory(mcpcredential.ServerDirectoryWithin(stores.StateRoot, stores.Product, server.Name), 0o700)
 	if err != nil {
 		return nil, fmt.Errorf("%w: the folder for mcp server %q could not be made: %v", ErrFailed, server.Name, err)
 	}
-	command := exec.CommandContext(ctx, server.Command[0], server.Command[1:]...)
+	declared := server.Declared
+	command := exec.CommandContext(ctx, declared.Command[0], declared.Command[1:]...)
 	command.Dir = folder
-	command.Env = commandEnvironment(folder, server.CredentialEnv, credential)
+	command.Env = commandEnvironment(folder, declared.CredentialEnv, credential)
 	configureGroup(command)
 
 	stdin, err := command.StdinPipe()
