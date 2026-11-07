@@ -14,6 +14,10 @@ revisions:
       by: architect
       at: 2026-10-09T13:55:08.84697Z
       reason: 'yoyodyne-jj8: with the merge queue switched on, the target branch must not require GitHub''s own merge queue; the harness refuses queue mode, holds waiting changes naming the setting, never falls back to replay, reports once and changes no settings. Also states how merging stays safe with the switch off. Sent again whole after the earlier run (document-633.1) was stopped during make race without a reviewer judging it.'
+    - action: amended
+      by: architect
+      at: 2026-11-07T20:28:01.619458Z
+      reason: 'Approved amendment-59a0a032 from the developer: the queue checks a confirmed document''s candidate with the declared document checks, as the document landing route''s rule 3 says, and every other candidate with the configured checks run whole; chosen by what the candidate changes, with the check set''s digest in the evidence. Read whole at a98c5e10 before revising.'
 approvals:
     - revision: 0
       by: operator
@@ -24,6 +28,11 @@ approvals:
       by: harness
       at: 2026-10-09T13:55:08.84697Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 645, for document-645.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-11-07T20:28:01.619458Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2450, for document-2450.1 under the automatic approval policy
 ---
 # Purpose
 
@@ -47,7 +56,16 @@ Queue waiting alone does not occupy a developer slot. Any developer or reviewer 
 
 Process entries in admission order. Construct a candidate in a harness-managed checkout from the current authoritative target and the admitted head. Keep the source branch and original approval evidence intact. Record a generation containing the exact target base, contributing heads in order, candidate commit, content fingerprint and check configuration.
 
-Run configured deterministic checks and obtain an independent reviewer verdict on that exact candidate. Original head approval authorizes admission; it does not authorize a different combined revision. Missing or incomplete checks and verdicts receive no credit.
+Run deterministic checks and obtain an independent reviewer verdict on that exact candidate. Which checks run follows what the candidate changes:
+
+- a confirmed document's entry, whose candidate changes nothing against its recorded base outside `docs/product`, `docs/designs` or `docs/decisions` and their directory indexes, runs the project's declared `document_checks`, as rule 3 of [the document landing route](document-landing-route.md) says, and so never the race check; a project that declares no `document_checks` runs its configured checks whole;
+- every other entry, including a run that brings in [pinned outside files](pinned-outside-files.md), runs the configured checks whole.
+
+An entry recorded as a document whose candidate changes any other path is checked whole, like every other entry: the recorded kind of an entry never chooses its checks. The evidence is bound to the exact candidate and to the digest of the check set that ran, so a pass of the document checks never counts for a candidate that changes code.
+
+Original head approval authorizes admission; it does not authorize a different combined revision. Missing or incomplete checks and verdicts receive no credit.
+
+Alternatives rejected: running the race check on every document candidate, because the landing route ruled it out and it would put document landings back behind code work; letting the entry's recorded kind choose the checks, because what a candidate changes is the fact and the kind is only a label.
 
 Before promotion, acquire the target promotion lease and reread the target and applicable holds, directives, dependencies and approval policy. Promote only if the target still equals the recorded base and the candidate gate is valid. Use compare-and-swap or an equivalent protected publication operation; never force the target. Target movement invalidates the generation and its gate. Construct and verify a new generation without charging a repair merely for drift.
 
