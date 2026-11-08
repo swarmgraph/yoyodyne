@@ -374,8 +374,22 @@ the next section says how.
 
 While a pull request waits for a person to merge it, under
 `approvals.integration: human`, each check of the forge reads the reviews and
-comments left on it since the harness last pushed its head. What the forge account the harness publishes under wrote is
-left out, and nothing is acted on twice.
+comments left on it since the harness last pushed its head, and nothing is
+acted on twice. What a person wrote is read, whichever forge account they wrote
+it under, so your own review is read even where the harness publishes under
+your account.
+
+Only the harness's own words are left out, and it tells them apart without
+looking at the account. Every pull request description and comment it writes
+ends with a hidden line, `<!-- yoyodyne: product <id>, machine <id>, forge
+account <name> -->`, which the forge does not show; and the run's record keeps
+the forge's number for each comment it wrote. A review or comment is left out
+when its number is on that record, or when it carries a hidden line naming your
+product. The record catches a harness comment you edited the line out of; the
+line catches a comment the forge took after the harness stopped waiting for its
+answer, and anything another copy of the harness working the same product
+wrote. If you copy the line into a comment of your own, that comment is left
+out too.
 
 - **A review that requests changes, or a comment on a line of the change,**
   starts a repair round on the same run, in its kept worktree, counted against

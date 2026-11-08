@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/factory"
 )
 
 const (
@@ -85,6 +86,11 @@ type Request struct {
 	Base  string
 	Title string
 	Body  string
+	// Mark is the hidden line naming the factory that writes the request
+	// (factory.Identity.Mark). It is required, and the description always ends
+	// with it, after the body is bounded, so reading feedback on the request can
+	// tell the harness's own words from a person's (feedback.go).
+	Mark string
 }
 
 // CloseRequest names a publication to retire and the comment that says why. The
@@ -98,6 +104,9 @@ type CloseRequest struct {
 	Head    string
 	Number  int
 	Comment string
+	// Mark is the hidden line the comment ends with, as it is on everything the
+	// harness writes on the forge (Request.Mark). It is required.
+	Mark string
 }
 
 // Closure is what closing a publication did. A request the forge already has
@@ -108,6 +117,12 @@ type Closure struct {
 	Closed bool
 	State  string
 	Merged bool
+	// CommentID is the forge's identifier for the comment the close left, which
+	// the caller keeps on the run's record of the request so reading feedback
+	// never reads the harness's own comment back as a person's, even after a
+	// person edits the mark out of it. Zero where no comment was written, or the
+	// forge's answer did not name one.
+	CommentID int64
 }
 
 // MergeMethod names how the forge brings a pull request onto its base branch.
@@ -364,7 +379,7 @@ func (g GitHub) Ensure(ctx context.Context, request Request) (PullRequest, error
 		"--base", request.Base,
 		"--head", head,
 		"--title", boundedTitle(request.Title),
-		"--body", boundedBody(request.Body))...)...)
+		"--body", markedBody(request.Body, request.Mark))...)...)
 	if err != nil {
 		return PullRequest{}, fmt.Errorf("open pull request for %s: %w", request.Head, err)
 	}
@@ -418,8 +433,24 @@ func (g GitHub) Close(ctx context.Context, request CloseRequest) (Closure, error
 	if err != nil {
 		return closure, err
 	}
-	closed, err := g.exec(ctx, append([]string{"pr", "close", strconv.Itoa(request.Number)}, append(scope,
-		"--comment", boundedBody(request.Comment))...)...)
+	// The comment is written first and through the API, rather than as the
+	// close's own comment, because the API's answer names the comment's
+	// identifier and the close's does not. A comment whose close then fails is
+	// one the next close finds the request still open beside, as closing with
+	// the forge CLI's own comment would leave it.
+	commented, err := g.apiQuery(ctx, "POST", fmt.Sprintf("repos/{owner}/{repo}/issues/%d/comments", request.Number),
+		"-f", "body="+markedBody(request.Comment, request.Mark), "--jq", ".id")
+	if err != nil {
+		return closure, fmt.Errorf("comment on pull request %d before closing it: %w", request.Number, err)
+	}
+	if commented.Status != execution.ProcessSucceeded {
+		return closure, fmt.Errorf("comment on pull request %d before closing it failed with exit code %d: %s",
+			request.Number, commented.ExitCode, g.redact(strings.TrimSpace(commented.Stderr)))
+	}
+	if id, err := strconv.ParseInt(strings.TrimSpace(commented.Stdout), 10, 64); err == nil && id > 0 {
+		closure.CommentID = id
+	}
+	closed, err := g.exec(ctx, append([]string{"pr", "close", strconv.Itoa(request.Number)}, scope...)...)
 	if err != nil {
 		return closure, fmt.Errorf("close pull request %d: %w", request.Number, err)
 	}
@@ -1363,6 +1394,9 @@ func (r Request) validate() error {
 	if strings.TrimSpace(r.Title) == "" {
 		return errors.New("pull request title is required")
 	}
+	if !factory.IsMark(r.Mark) {
+		return errors.New("a pull request description requires the hidden line naming the factory that opens it")
+	}
 	return nil
 }
 
@@ -1376,6 +1410,9 @@ func (r CloseRequest) validate() error {
 	}
 	if strings.TrimSpace(r.Comment) == "" {
 		problems = append(problems, errors.New("closing a pull request requires a comment naming where its work landed"))
+	}
+	if !factory.IsMark(r.Mark) {
+		problems = append(problems, errors.New("closing a pull request requires the hidden line naming the factory that writes its comment"))
 	}
 	return errors.Join(problems...)
 }
@@ -1515,8 +1552,11 @@ func boundedTitle(title string) string {
 	return bounded(folded, maxTitleBytes)
 }
 
-func boundedBody(body string) string {
-	return bounded(body, maxBodyBytes)
+// markedBody is a description or comment bounded and then ended with the mark,
+// so cutting a long body never cuts the mark off it.
+func markedBody(body, mark string) string {
+	mark = strings.TrimSpace(mark)
+	return strings.TrimRight(bounded(body, maxBodyBytes-len(mark)-2), "\n") + "\n\n" + mark
 }
 
 // bounded keeps the head of a value within a limit, cut on a rune boundary so

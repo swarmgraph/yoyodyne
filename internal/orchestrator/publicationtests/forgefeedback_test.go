@@ -11,6 +11,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/factory"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/testharness"
@@ -24,9 +25,19 @@ import (
 // repair round on the same run, whose repaired change is checked and reviewed
 // again before it is pushed; an ordinary comment goes on the development
 // manager's list; an approval is recorded as information and nothing more.
+// What a factory of the product wrote is told apart by its mark and the run's
+// list of what it wrote, never by the account (yoyodyne-ifd.429.125).
 
-// The forge account the fixture's harness acts as, which opened the request.
+// The forge account the fixture's harness publishes under. On a project with
+// one person it is that person's own account, so what it wrote is read unless
+// it is marked or listed as the harness's.
 const factoryAccount = "factory-bot"
+
+// marked is a body ending with the hidden line a factory of the run's product
+// writes, as the harness's own comments and reviews end.
+func (f *feedbackFixture) marked(body string) string {
+	return body + "\n\n" + factory.ProductMark(f.run.ProductID)
+}
 
 // feedbackFixture is a run under a merge setting that leaves the merge to a
 // person, driven to the end: its approved change is published and the run is
@@ -121,9 +132,6 @@ func (r *feedbackReader) Feedback(_ context.Context, number int) (publish.Feedba
 	if reading.State == "" {
 		reading.State = "OPEN"
 	}
-	if reading.Opener == "" {
-		reading.Opener = factoryAccount
-	}
 	return reading, r.err
 }
 
@@ -183,7 +191,7 @@ func TestARequestedChangeStartsARepairRoundOnTheSameRun(t *testing.T) {
 	reader := &feedbackReader{reading: publish.FeedbackReading{
 		Reviews: []publish.FeedbackReview{
 			{ID: 11, Author: "ada", State: publish.ReviewChangesRequested, Body: "Please rename the flag.", At: fixture.after(5), URL: "https://example.invalid/r/11"},
-			{ID: 12, Author: factoryAccount, State: publish.ReviewChangesRequested, Body: "the factory's own words", At: fixture.after(6)},
+			{ID: 12, Author: factoryAccount, State: publish.ReviewChangesRequested, Body: fixture.marked("the factory's own words"), At: fixture.after(6)},
 		},
 	}}
 	reports := &collectedReports{}
@@ -324,19 +332,84 @@ func TestAnApprovalOnTheForgeIsRecordedAsInformationOnly(t *testing.T) {
 	}
 }
 
-// Feedback left before the head was pushed, and anything the factory's own
-// forge account wrote, is not acted on.
-func TestFeedbackOlderThanTheHeadOrTheFactorysOwnIsIgnored(t *testing.T) {
+// The owner's comment on a line of the change, written under the very account
+// the harness publishes under, is the owner's feedback and starts a repair
+// round: the account that wrote it is never the test.
+func TestTheOwnersLineCommentUnderThePublishingAccountStartsARepairRound(t *testing.T) {
 	t.Parallel()
 	fixture := newFeedbackFixture(t)
 	reader := &feedbackReader{reading: publish.FeedbackReading{
-		Reviews:  []publish.FeedbackReview{{ID: 51, Author: "ada", State: publish.ReviewChangesRequested, Body: "about the old head", At: fixture.after(-10)}},
-		Comments: []publish.FeedbackComment{{ID: 52, Author: factoryAccount, Body: "the harness's own comment", At: fixture.after(2)}},
+		LineComments: []publish.FeedbackComment{{ID: 23, Author: factoryAccount, Body: "Rename this before it merges.", At: fixture.after(3), Path: "feature.txt", Line: 1}},
+	}}
+	settled := fixture.check(t, reader, &collectedReports{}, 1, 3)
+	if !settled.RepairStarted || settled.New != 1 {
+		t.Fatalf("settlement = %#v, want the owner's line comment to start a repair round", settled)
+	}
+	live := testharness.LoadRun(t, fixture.store, fixture.run.RunID)
+	if live.ForgeFeedback == nil || len(live.ForgeFeedback.Items) != 1 || live.ForgeFeedback.Items[0].Author != factoryAccount ||
+		live.ForgeFeedback.Items[0].Body != "Rename this before it merges." {
+		t.Fatalf("repair input = %#v, want the owner's line comment", live.ForgeFeedback)
+	}
+}
+
+// Feedback left before the head was pushed is not acted on, and neither is
+// anything a factory of this product wrote, however it reaches the reading: a
+// marked review and comment the run's record lists, a marked comment whose
+// write the forge took after the harness stopped waiting so the record never
+// listed it, a listed comment whose mark a person edited out, and a comment
+// marked by another factory of the same product on another machine.
+func TestFeedbackOlderThanTheHeadOrAFactorysOwnIsIgnored(t *testing.T) {
+	t.Parallel()
+	fixture := newFeedbackFixture(t)
+	// The harness wrote comment 52, review 53 and comment 54, and the forge
+	// answered each; comment 55 it wrote too, but that write's answer was lost.
+	recorded := testharness.LoadRun(t, fixture.store, fixture.run.RunID)
+	published := *recorded.PullRequest
+	for _, id := range []string{runstate.FeedbackID("comment", 52), runstate.FeedbackID("review", 53), runstate.FeedbackID("comment", 54)} {
+		published.RecordWrite(id)
+	}
+	recorded.PullRequest = &published
+	if err := fixture.store.Save(recorded); err != nil {
+		t.Fatal(err)
+	}
+	fixture.run = recorded
+	elsewhere := factory.Identity{Product: string(fixture.run.ProductID), Machine: "machine-00000000000000000000000000000002", ForgeAccount: "teammate-bot"}
+	reader := &feedbackReader{reading: publish.FeedbackReading{
+		Reviews: []publish.FeedbackReview{
+			{ID: 51, Author: "ada", State: publish.ReviewChangesRequested, Body: "about the old head", At: fixture.after(-10)},
+			{ID: 53, Author: factoryAccount, State: publish.ReviewChangesRequested, Body: fixture.marked("the harness's own review"), At: fixture.after(2)},
+		},
+		LineComments: []publish.FeedbackComment{
+			{ID: 56, Author: "teammate-bot", Body: "another factory's note\n\n" + elsewhere.Mark(), At: fixture.after(3), Path: "feature.txt", Line: 1},
+		},
+		Comments: []publish.FeedbackComment{
+			{ID: 52, Author: factoryAccount, Body: fixture.marked("the harness's own comment"), At: fixture.after(2)},
+			{ID: 54, Author: factoryAccount, Body: "the harness's own comment, its mark edited out by a person", At: fixture.after(2)},
+			{ID: 55, Author: factoryAccount, Body: fixture.marked("a comment whose write timed out after the forge took it"), At: fixture.after(2)},
+		},
 	}}
 	reports := &collectedReports{}
 	settled := fixture.check(t, reader, reports, 1, 3)
-	if settled.New != 0 || settled.RepairStarted || len(reports.reports) != 0 {
-		t.Fatalf("settlement = %#v, want nothing acted on", settled)
+	if settled.New != 0 || settled.RepairStarted || settled.Listed != 0 || len(reports.reports) != 0 {
+		t.Fatalf("settlement = %#v with %d report(s), want nothing acted on", settled, len(reports.reports))
+	}
+	run := testharness.LoadRun(t, fixture.store, fixture.run.RunID)
+	if !run.WaitingOnAPersonsMerge() || run.RepairAttempts != fixture.run.RepairAttempts || run.ForgeFeedback != nil {
+		t.Fatalf("run = %s %s attempts %d, want it still waiting and nothing spent", run.Status, run.Phase, run.RepairAttempts)
+	}
+}
+
+// A mark naming another product is not this product's factory, so what it is
+// on is read like anybody's.
+func TestAMarkNamingAnotherProductIsRead(t *testing.T) {
+	t.Parallel()
+	fixture := newFeedbackFixture(t)
+	reader := &feedbackReader{reading: publish.FeedbackReading{
+		Comments: []publish.FeedbackComment{{ID: 61, Author: "linus", Body: "Quoting another project's bot:\n\n" + factory.ProductMark("someone-else"), At: fixture.after(2)}},
+	}}
+	reports := &collectedReports{}
+	if settled := fixture.check(t, reader, reports, 1, 3); settled.Listed != 1 {
+		t.Fatalf("settlement = %#v, want the comment read and listed", settled)
 	}
 }
 

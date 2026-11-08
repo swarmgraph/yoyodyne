@@ -70,12 +70,12 @@ func (a *activeRun) closeEarlierDocumentCopies(ctx context.Context) {
 	if !listed || !closes {
 		return
 	}
-	closeEarlierDocumentCopies(ctx, runs, forge, a.pipeline.Worktrees, a.state, a.pipeline.clock().Now())
+	closeEarlierDocumentCopies(ctx, runs, forge, a.pipeline.Worktrees, a.pipeline.Factory, a.state, a.pipeline.clock().Now())
 }
 
 // closeEarlierDocumentCopies closes the open pull request of every earlier run
 // of the document current publishes, and reports what it did with each.
-func closeEarlierDocumentCopies(ctx context.Context, runs EarlierDocumentRuns, forge SupersededPublications, branches SupersededBranches, current runstate.State, now time.Time) []EarlierDocumentClosure {
+func closeEarlierDocumentCopies(ctx context.Context, runs EarlierDocumentRuns, forge SupersededPublications, branches SupersededBranches, identities FactoryIdentities, current runstate.State, now time.Time) []EarlierDocumentClosure {
 	listed, err := runs.DocumentRuns(current.Document.Candidate.Artifact.ID)
 	if err != nil {
 		return nil
@@ -88,7 +88,7 @@ func closeEarlierDocumentCopies(ctx context.Context, runs EarlierDocumentRuns, f
 		if ctx.Err() != nil {
 			return closed
 		}
-		if closure, acted := closeEarlierDocumentCopy(ctx, runs, forge, branches, current, other.RunID, now); acted {
+		if closure, acted := closeEarlierDocumentCopy(ctx, runs, forge, branches, identities, current, other.RunID, now); acted {
 			closed = append(closed, closure)
 		}
 	}
@@ -100,7 +100,7 @@ func closeEarlierDocumentCopies(ctx context.Context, runs EarlierDocumentRuns, f
 // second comment, and the close is recorded with the narrow update that
 // records a superseded request, which changes nothing a writer beside this one
 // changed meanwhile.
-func closeEarlierDocumentCopy(ctx context.Context, runs EarlierDocumentRuns, forge SupersededPublications, branches SupersededBranches, current runstate.State, runID string, now time.Time) (EarlierDocumentClosure, bool) {
+func closeEarlierDocumentCopy(ctx context.Context, runs EarlierDocumentRuns, forge SupersededPublications, branches SupersededBranches, identities FactoryIdentities, current runstate.State, runID string, now time.Time) (EarlierDocumentClosure, bool) {
 	state, err := runs.Load(runID)
 	if err != nil {
 		return EarlierDocumentClosure{RunID: runID, PublicationRetirement: PublicationRetirement{Failure: fmt.Errorf("read run %s to close its earlier copy of the document: %w", runID, err).Error()}}, true
@@ -110,7 +110,8 @@ func closeEarlierDocumentCopy(ctx context.Context, runs EarlierDocumentRuns, for
 	}
 	published := *state.PullRequest
 	closure := EarlierDocumentClosure{RunID: runID, PublicationRetirement: PublicationRetirement{Number: published.Number, URL: published.URL, Branch: published.Branch}}
-	closed, err := forge.Close(ctx, publish.CloseRequest{Head: published.Branch, Number: published.Number, Comment: replacedDocumentComment(state, current)})
+	closed, err := forge.Close(ctx, publish.CloseRequest{Head: published.Branch, Number: published.Number, Comment: replacedDocumentComment(state, current),
+		Mark: forgeMark(ctx, identities, state.ProductID, current.ProductID)})
 	if err != nil {
 		closure.Failure = fmt.Errorf("close pull request #%d of run %s: %w", published.Number, runID, err).Error()
 		return closure, true
@@ -123,7 +124,7 @@ func closeEarlierDocumentCopy(ctx context.Context, runs EarlierDocumentRuns, for
 		return closure, true
 	}
 	closure.Closed = closed.Closed
-	if _, err := runs.Update(ctx, runID, runstate.PullRequestSuperseded{Number: published.Number, Vehicle: replacedDocumentVehicle(state, current), State: "CLOSED", At: now}); err != nil {
+	if _, err := runs.Update(ctx, runID, runstate.PullRequestSuperseded{Number: published.Number, Vehicle: replacedDocumentVehicle(state, current), State: "CLOSED", At: now, Wrote: closeCommentID(closed)}); err != nil {
 		closure.Failure = fmt.Errorf("record that pull request #%d of run %s was closed: %w", published.Number, runID, err).Error()
 		return closure, true
 	}

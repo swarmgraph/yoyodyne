@@ -7,7 +7,7 @@ package orchestrator
 // kept, and nothing left to do until the forge says something. People say
 // things there: they review the change and comment on it. Each check of the
 // forge reads what was said after the latest head the harness pushed, leaves
-// out what the forge account the factory acts as wrote, and acts on the rest
+// out what a factory of this product wrote (ownWords), and acts on the rest
 // (runstate's forgefeedback.go sorts it):
 //
 //   - A review that requests changes, or a comment on a line of the change,
@@ -45,6 +45,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/factory"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -345,15 +346,15 @@ func trimNoteLines(text string) string {
 }
 
 // newFeedback is the feedback on a reading that a check has not acted on: what
-// somebody other than the factory's own forge account said after the latest
-// head the harness pushed, sorted oldest first.
+// a person said after the latest head the harness pushed, sorted oldest first.
+// What a factory of this product wrote is left out (ownWords), and the account
+// that wrote a piece is never looked at.
 func newFeedback(state runstate.State, reading publish.FeedbackReading) []runstate.ForgeFeedbackItem {
 	published := state.PullRequest
 	since := feedbackSince(state)
-	own := strings.TrimSpace(reading.Opener)
 	var items []runstate.ForgeFeedbackItem
 	keep := func(item runstate.ForgeFeedbackItem) {
-		if item.Author == "" || (own != "" && strings.EqualFold(item.Author, own)) {
+		if item.Author == "" || ownWords(state, item) {
 			return
 		}
 		if item.At.IsZero() || (!since.IsZero() && item.At.Before(since)) {
@@ -403,6 +404,34 @@ func newFeedback(state runstate.State, reading publish.FeedbackReading) []runsta
 		return items[i].ID < items[j].ID
 	})
 	return items
+}
+
+// ownWords reports a review or comment a factory of this product wrote: one the
+// run's record lists the harness writing (runstate.PullRequest.Wrote), or one
+// carrying a mark naming the run's product (factory.Identity.Mark). The list
+// catches a comment of the harness's whose mark a person edited out; the mark
+// catches a write whose answer was lost, such as one the forge took after the
+// harness stopped waiting, and the writing of another factory of the same
+// product, since feedback is a person's and no factory reviews another's pull
+// request on the forge.
+//
+// Which forge account wrote it is deliberately not the test. On a project with
+// one person the harness publishes under that person's own account, and
+// ignoring the account would throw the owner's feedback away with the
+// harness's own comments (docs/designs/working-alongside-other-contributors.md,
+// section 2).
+//
+// A record written before runs named their product carries none, and there any
+// mark is taken as this product's, since a pull request the harness opened is
+// read only by the factories that work it.
+func ownWords(state runstate.State, item runstate.ForgeFeedbackItem) bool {
+	if state.PullRequest.WroteIt(item.ID) {
+		return true
+	}
+	if state.ProductID == "" {
+		return len(factory.MarkedProducts(item.Body)) > 0
+	}
+	return factory.MarkedBy(item.Body, state.ProductID)
 }
 
 // feedbackSince is when the harness last pushed the request's head, or, for a

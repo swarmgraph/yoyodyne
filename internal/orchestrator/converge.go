@@ -325,11 +325,12 @@ func (r Reconciler) sweepPublication(ctx context.Context, superseded supersededP
 	if !retirablePublication(state) {
 		return PublicationSweep{}, false
 	}
-	sweep.PublicationRetirement = retirePublication(ctx, r.Publisher, r.Worktrees, state, superseded.by)
+	sweep.PublicationRetirement = retirePublication(ctx, r.Publisher, r.Worktrees, r.Factory, state, superseded.by)
 	if sweep.Failure != "" {
 		return sweep, true
 	}
 	published = *state.PullRequest
+	published.RecordWrite(sweep.Wrote)
 	published.Superseded = superseded.by.Vehicle()
 	// The forge's last word is recorded beside it, so a reader of the record is
 	// not told the request is open under the line saying what closed it.

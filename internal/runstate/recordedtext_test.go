@@ -270,6 +270,7 @@ var structuredStrings = map[string]string{
 	"pull_request.url":                                              "the forge's URL for the request",
 	"pull_request.head_commit":                                      "matched against the commit pattern",
 	"pull_request.feedback.through_ids[]":                           "matched against the feedback identifier pattern",
+	"pull_request.wrote.ids[]":                                      "matched against the feedback identifier pattern",
 	"pull_request.feedback.approvals[].id":                          "matched against the feedback identifier pattern",
 	"pull_request.feedback.approvals[].kind":                        "an enumeration",
 	"forge_feedback.head_commit":                                    "matched against the commit pattern",

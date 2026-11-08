@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mason-bryant/yoyodyne/internal/factory"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 )
 
@@ -106,6 +107,11 @@ func (f *Forge) Availability(context.Context) (publish.Availability, error) {
 }
 
 func (f *Forge) Ensure(_ context.Context, request publish.Request) (publish.PullRequest, error) {
+	// The adapter refuses a description without the factory's mark, so a caller
+	// that forgot it fails here as it would against the forge.
+	if !factory.IsMark(request.Mark) {
+		return publish.PullRequest{}, fmt.Errorf("pull request for %s carries no factory mark (%q)", request.Head, request.Mark)
+	}
 	if f.EnsureResets > 0 {
 		f.EnsureResets--
 		return publish.PullRequest{}, ConnectionReset("open pull request for " + request.Head)
@@ -262,6 +268,9 @@ func (f *Forge) Close(_ context.Context, request publish.CloseRequest) (publish.
 	if f.CloseErr != nil {
 		return publish.Closure{}, f.CloseErr
 	}
+	if !factory.IsMark(request.Mark) {
+		return publish.Closure{}, fmt.Errorf("the comment closing pull request %d carries no factory mark (%q)", request.Number, request.Mark)
+	}
 	existing, known := f.Closable[request.Head]
 	if !known {
 		return publish.Closure{}, fmt.Errorf("no pull request exists for branch %s", request.Head)
@@ -272,7 +281,8 @@ func (f *Forge) Close(_ context.Context, request publish.CloseRequest) (publish.
 	f.Closed = append(f.Closed, request)
 	existing.State = "CLOSED"
 	f.Closable[request.Head] = existing
-	return publish.Closure{Closed: true, State: "CLOSED"}, nil
+	// The forge numbers the comment the close left, as the adapter reports it.
+	return publish.Closure{Closed: true, State: "CLOSED", CommentID: int64(9000 + len(f.Closed))}, nil
 }
 
 // Hold gives the forge a request on a branch some earlier run published, which

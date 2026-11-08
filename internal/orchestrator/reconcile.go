@@ -163,6 +163,9 @@ type Reconciler struct {
 	// only to settle a run that has one, which is a run a publishing project
 	// produced; a purely local project never records one.
 	Publisher ReconcilePullRequests
+	// Factory names the factory in the hidden line its close comments end with
+	// (forgeMark). Nil names the run's product alone.
+	Factory FactoryIdentities
 	// Docket is where a run this sweep stops is put in front of the development
 	// manager. It is optional: a sweep wired without one settles runs exactly as
 	// it would have, and what it settled is still on the work item.
