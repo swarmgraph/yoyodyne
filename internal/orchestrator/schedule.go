@@ -1243,6 +1243,12 @@ type Schedule struct {
 	// said out loud, because a guard that silently stopped guarding is the failure
 	// the guard was written against, one level up.
 	ReadinessProblem string `json:"readiness_problem,omitempty"`
+	// ReadinessUnchecked names citations the readiness check passed through
+	// without checking, for the first item this pass found any in: a name in a
+	// language it cannot read, or a standard Go name on a machine where Go's
+	// standard library cannot be found. It is not a problem and holds nothing
+	// back; it is said so a clean reading is not taken for a complete one.
+	ReadinessUnchecked string `json:"readiness_unchecked,omitempty"`
 	// Watched reports a pass that stayed open rather than draining, and Polls
 	// counts the intervals it waited out. A session that started nothing and
 	// polled four hundred times is a session that was alive, which is the fact a
@@ -7951,21 +7957,30 @@ func (p Pull) queue(ctx context.Context, claimed []beads.WorkItem, read bool) (p
 	return pulled{queue: queue, items: items, coverage: backlog.Cover(queue, admitted, claimed)}, nil
 }
 
-// unready is the prerequisites this item states that the tree does not meet, and
-// the reading that failed where one did. A pull with no tree wired reads nothing
-// and refuses nothing, which is what every pass did before this existed.
-func (p Pull) unready(item beads.WorkItem) ([]readiness.Unmet, string) {
+// unready is the prerequisites this item states that the tree does not meet,
+// the reading that failed where one did, and a note naming the citations the
+// reading passed through unchecked — a name in a language the readiness check
+// cannot read, or a standard name on a machine where Go's standard library
+// cannot be found. Those hold nothing back and fail nothing; the note is said so
+// that an item let through is not taken to have had every citation read. A pull
+// with no tree wired reads nothing and refuses nothing, which is what every pass
+// did before this existed.
+func (p Pull) unready(item beads.WorkItem) ([]readiness.Unmet, string, string) {
 	if p.Tree == nil || strings.TrimSpace(item.ID) == "" {
-		return nil, ""
+		return nil, "", ""
 	}
-	unmet, err := readiness.Check(item, p.Tree)
+	reading, err := readiness.Read(item, p.Tree)
+	var unchecked string
+	if said := readiness.DescribeUnchecked(reading.Unchecked); said != "" {
+		unchecked = fmt.Sprintf("%s cites names the readiness check could not read, so they were %s", item.ID, said)
+	}
 	if err == nil {
-		return unmet, ""
+		return reading.Unmet, "", unchecked
 	}
 	// Whatever could be read is still acted on. A tree that answered two of an
 	// item's three citations answered two of them, and the one it could not is
 	// reported rather than turned into either a refusal or a clean bill.
-	return unmet, fmt.Sprintf("what %s asks of the tree could not be read in full, so it was judged on what could: %v", item.ID, err)
+	return reading.Unmet, fmt.Sprintf("what %s asks of the tree could not be read in full, so it was judged on what could: %v", item.ID, err), unchecked
 }
 
 // route puts an item the tree is not ready for on the development manager's
@@ -7995,7 +8010,7 @@ func (p Pull) settleUnready(read pulled) string {
 		if !present {
 			return UnreadyReading{}
 		}
-		unmet, problem := p.unready(item)
+		unmet, problem, _ := p.unready(item)
 		return UnreadyReading{Present: true, Unmet: unmet, Unreadable: problem != ""}
 	})
 	if err != nil {
@@ -8336,6 +8351,9 @@ func (s Schedule) Render() string {
 	}
 	if s.ReadinessProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.ReadinessProblem)
+	}
+	if s.ReadinessUnchecked != "" {
+		fmt.Fprintf(&rendered, "%s\n", s.ReadinessUnchecked)
 	}
 	if s.AttemptProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.AttemptProblem)

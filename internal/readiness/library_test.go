@@ -95,29 +95,59 @@ func TestANameAStandardPackageDoesNotHaveIsHeldAsOne(t *testing.T) {
 	}
 }
 
-// A library that cannot be read is a reading that failed, said once however
-// many symbols needed it, and the symbols the tree does not have are still held
-// as they were before the library was consulted, saying it went unchecked.
-func TestAStandardLibraryThatCannotBeReadStillHoldsAndSaysSo(t *testing.T) {
-	repository := tree(t, map[string]string{"internal/launch/launch.go": "package launch\n"})
-	repository.GoRoot = t.TempDir()
+// A library that cannot be read — a machine with no Go installed, or a binary
+// built with -trimpath that does not know where Go is — is not a reading that
+// failed, so a pull reports nothing as failing on its account. A citation only
+// the library could answer is passed through and noted as not checked, and one
+// qualified by a package of the tree is still held, because the tree alone says
+// it is missing.
+func TestAStandardLibraryThatCannotBeReadPassesStandardNamesThrough(t *testing.T) {
+	for name, goRoot := range map[string]string{
+		"an installation with no release lists": t.TempDir(),
+		"a nonexistent installation":            filepath.Join(t.TempDir(), "missing"),
+	} {
+		repository := tree(t, map[string]string{"internal/launch/launch.go": "package launch\n"})
+		repository.GoRoot = goRoot
 
-	unmet, err := Check(beads.WorkItem{ID: "item", Description: "os.Hostname and launch.Reconcile"}, repository)
+		reading, err := Read(beads.WorkItem{ID: "item", Description: "os.Hostname, rand.Hostname and launch.Reconcile"}, repository)
 
-	if err == nil {
-		t.Fatal("want the unread library reported as a reading that failed")
-	}
-	if strings.Count(err.Error(), "read the standard library") != 1 {
-		t.Errorf("want the failure said once, got %v", err)
-	}
-	if len(unmet) != 2 {
-		t.Fatalf("want both undeclared symbols held, got %+v", unmet)
-	}
-	for _, one := range unmet {
-		if !strings.Contains(one.Missing, "could not be checked") {
-			t.Errorf("want the refusal to say the library went unchecked, got %q", one.Missing)
+		if err != nil {
+			t.Fatalf("%s: want no failure for a standard library that cannot be read, got %v", name, err)
+		}
+		if len(reading.Unmet) != 1 || !strings.Contains(reading.Unmet[0].Missing, "launch.Reconcile") {
+			t.Fatalf("%s: want only the tree's own missing name held, got %+v", name, reading.Unmet)
+		}
+		if len(reading.Unchecked) != 2 || reading.Unchecked[0].Cited != "os.Hostname" || reading.Unchecked[1].Cited != "rand.Hostname" {
+			t.Fatalf("%s: want both standard names noted as not checked, got %+v", name, reading.Unchecked)
+		}
+		if !strings.Contains(reading.Unchecked[0].Why, "standard library could not be read") {
+			t.Errorf("%s: want the note to say why it was not checked, got %q", name, reading.Unchecked[0].Why)
 		}
 	}
+}
+
+// A binary built with -trimpath, which is how every release is built, carries no
+// Go installation path, so the library it is asked to read has no root. That is
+// a library that cannot be read, said as one, and not an empty library that
+// would answer every standard name as missing.
+func TestAStandardLibraryWithNoKnownInstallationCannotBeRead(t *testing.T) {
+	library, err := (&standardLibrary{}).lookup("os.Hostname")
+	if err == nil || !strings.Contains(err.Error(), "no Go installation is known") {
+		t.Fatalf("want a library with no root to be unreadable, got %+v, %v", library, err)
+	}
+
+	reading, err := Read(beads.WorkItem{ID: "item", Description: "Launch recovery reads os.Hostname."}, unreadLibrary{tree(t, map[string]string{"internal/launch/launch.go": "package launch\n"})})
+	if err != nil || len(reading.Unmet) != 0 || len(reading.Unchecked) != 1 {
+		t.Fatalf("want the standard name passed through unchecked and nothing failing, got %+v, %v", reading, err)
+	}
+}
+
+// unreadLibrary is a checkout whose standard library is the one a -trimpath
+// build is given: no installation at all.
+type unreadLibrary struct{ *Repository }
+
+func (unreadLibrary) Library(symbol string) (Library, error) {
+	return (&standardLibrary{}).lookup(symbol)
 }
 
 // The release lists of the Go installation running this test, which is the

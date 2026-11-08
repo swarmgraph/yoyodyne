@@ -222,29 +222,96 @@ type Tree interface {
 	// Declares reports the tree's own source naming this symbol — as it is
 	// written, as its type and member, or as a method declared on that type.
 	Declares(symbol string) (bool, error)
+	// Qualifier reports what the tree's own Go source says of the name a
+	// citation is qualified by: whether the tree has Go source at all, and
+	// whether a package of that name is declared in it. It is how a citation's
+	// language is told; see stalePinpoints.
+	Qualifier(name string) (Qualifier, error)
 	// Library reports what the language's standard library says of a symbol
 	// the tree does not declare. A citation of a standard name is correct
 	// whether or not the tree happens to call it.
 	Library(symbol string) (Library, error)
 }
 
+// Qualifier is what the tree's Go source says of the package name a citation
+// starts with.
+type Qualifier struct {
+	// GoSource is the tree having any Go source outside its tests. A tree with
+	// none is written in a language this cannot read, so nothing it cites by a
+	// qualified name can be told to be Go.
+	GoSource bool
+	// Package is a package of that name being declared in the tree's Go source.
+	Package bool
+}
+
+// Unchecked is a citation that was passed through without being checked,
+// because this cannot read the language it is in or cannot tell which language
+// that is. It holds nothing back; it is said so that a clean reading of an item
+// is not mistaken for every citation in it having been read.
+type Unchecked struct {
+	// Cited is the citation as the item wrote it.
+	Cited string `json:"cited"`
+	// Why is what stopped it being checked.
+	Why string `json:"why"`
+}
+
+// Reading is everything one check found about one item: the prerequisites the
+// tree does not meet, which hold the item, and the citations it could not
+// check, which do not.
+type Reading struct {
+	Unmet     []Unmet
+	Unchecked []Unchecked
+}
+
+// DescribeUnchecked names the citations a reading passed through unchecked, in
+// one line, bounded the way Describe is. It is empty when every citation was
+// read.
+func DescribeUnchecked(unchecked []Unchecked) string {
+	if len(unchecked) == 0 {
+		return ""
+	}
+	described := unchecked
+	if len(described) > maxUnmet {
+		described = described[:maxUnmet]
+	}
+	said := make([]string, 0, len(described))
+	for _, one := range described {
+		said = append(said, fmt.Sprintf("%s (%s)", one.Cited, one.Why))
+	}
+	line := "not checked, and not held for: " + strings.Join(said, "; ")
+	if remaining := len(unchecked) - len(described); remaining > 0 {
+		line += fmt.Sprintf("; and %d further citation(s) were not checked either", remaining)
+	}
+	return line
+}
+
 // Check reports the prerequisites one item states that the tree does not meet,
-// pinpoints first and then the sentences, each with the read that says so.
+// pinpoints first and then the sentences, each with the read that says so. It
+// is Read without the citations Read passes through unchecked.
+func Check(item beads.WorkItem, tree Tree) ([]Unmet, error) {
+	reading, err := Read(item, tree)
+	return reading.Unmet, err
+}
+
+// Read reports the prerequisites one item states that the tree does not meet,
+// and the citations it could not check and so passed through.
 //
 // The error is a reading that failed rather than a prerequisite that is unmet,
 // and the two are deliberately separate returns: a tree that could not be read
 // says nothing about the item, and a caller must not be able to mistake one for
-// the other. Whatever could be read is still returned beside it.
-func Check(item beads.WorkItem, tree Tree) ([]Unmet, error) {
+// the other. Whatever could be read is still returned beside it. A citation in a
+// language this cannot read is neither: it is Unchecked, and is not an error,
+// because nothing failed — the reading was never one this could make.
+func Read(item beads.WorkItem, tree Tree) (Reading, error) {
 	if tree == nil {
-		return nil, errors.New("checking an item's prerequisites requires the tree to check them against")
+		return Reading{}, errors.New("checking an item's prerequisites requires the tree to check them against")
 	}
-	unmet, problems := stalePinpoints(Statement(item), tree)
+	unmet, unchecked, problems := stalePinpoints(Statement(item), tree)
 	unmet = append(unmet, statedPreconditions(item)...)
 	if len(unmet) > maxUnmet {
 		unmet = unmet[:maxUnmet]
 	}
-	return unmet, errors.Join(problems...)
+	return Reading{Unmet: unmet, Unchecked: unchecked}, errors.Join(problems...)
 }
 
 // Statement is the item as somebody authored it: the four fields a person wrote,
@@ -295,14 +362,26 @@ var symbolPinpoint = regexp.MustCompile(`[a-z][a-z0-9]*(?:\.[A-Z][A-Za-z0-9_]*){
 // stalePinpoints reads every pinpoint the item makes against the tree. A path
 // the tree does not have is the item's subject being absent; a path it has whose
 // line is past the end, and a symbol nothing declares, are the citation having
-// gone stale under the item. A symbol the tree does not declare is then read
-// against the standard library, because a standard name is a correct citation
-// whether or not the tree calls it.
-func stalePinpoints(statement string, tree Tree) ([]Unmet, []error) {
+// gone stale under the item.
+//
+// A symbol is held only where it can be told to be Go, because Go is the only
+// language whose names this reads. A qualified name looks the same in Go,
+// Python, Java, and a dozen others, so its language is told from what qualifies
+// it: a package the tree's own Go source declares, or — in a tree that has Go
+// source — a package in Go's standard library. Anything else is passed through
+// unchecked rather than held, and so is every qualified name cited against a tree
+// with no Go source at all: holding those would hold every item in a project
+// written in another language. A standard name is read against the standard
+// library, because it is a correct citation whether or not the tree calls it;
+// where the library cannot be read — a machine with no Go installed, or a binary
+// built with -trimpath that does not know where Go is — a citation only the
+// library could answer is passed through unchecked too, and nothing is reported
+// as failing, because the library being absent says nothing about the item.
+func stalePinpoints(statement string, tree Tree) ([]Unmet, []Unchecked, []error) {
 	var (
-		unmet         []Unmet
-		problems      []error
-		libraryUnread bool
+		unmet     []Unmet
+		unchecked []Unchecked
+		problems  []error
 	)
 	for _, cited := range matches(statement, pathPinpoint) {
 		path, line, ok := splitPinpoint(cited)
@@ -340,31 +419,43 @@ func stalePinpoints(statement string, tree Tree) ([]Unmet, []error) {
 		if declared {
 			continue
 		}
+		pkg, _, _ := strings.Cut(symbol, ".")
+		qualifier, err := tree.Qualifier(pkg)
+		if err != nil {
+			problems = append(problems, fmt.Errorf("read the tree's packages for %s: %w", symbol, err))
+			continue
+		}
+		if !qualifier.GoSource {
+			unchecked = append(unchecked, Unchecked{Cited: symbol,
+				Why: "the tree has no Go source, and Go is the only language whose names this check reads"})
+			continue
+		}
 		library, err := tree.Library(symbol)
 		if err != nil {
-			// The tree was read and does not have the symbol, and that is still
-			// acted on, as it was before the library was consulted at all; the
-			// refusal says the library went unchecked, so nobody corrects a
-			// citation on its account without checking it. The failure is the
-			// same one for every symbol after it, so it is reported once.
-			if !libraryUnread {
-				problems = append(problems, fmt.Errorf("read the standard library for %s: %w", symbol, err))
-				libraryUnread = true
+			if qualifier.Package {
+				unmet = append(unmet, Unmet{
+					Kind:     KindStalePinpoint,
+					Missing:  fmt.Sprintf("it cites %s, a name in the tree's package %s that nothing in the tree declares", symbol, pkg),
+					Evidence: fmt.Sprintf("%s, and the tree's Go source declares a package called %s", treeEvidence, pkg),
+					Decides:  admitter,
+				})
+				continue
 			}
-			unmet = append(unmet, Unmet{
-				Kind:     KindStalePinpoint,
-				Missing:  fmt.Sprintf("it cites %s, which nothing in the tree declares; whether Go's standard library has it could not be checked", symbol),
-				Evidence: fmt.Sprintf("%s, and Go's standard library could not be read: %v", treeEvidence, err),
-				Decides:  admitter,
-			})
+			unchecked = append(unchecked, Unchecked{Cited: symbol,
+				Why: fmt.Sprintf("the tree has no package called %s, and Go's standard library could not be read to say whether it is a standard name: %v", pkg, err)})
 			continue
 		}
 		if library.Declared {
 			continue
 		}
+		if len(library.Packages) == 0 && !qualifier.Package {
+			unchecked = append(unchecked, Unchecked{Cited: symbol,
+				Why: fmt.Sprintf("neither the tree's Go source nor Go's standard library has a package called %s, so the language it is written in could not be told", pkg)})
+			continue
+		}
 		unmet = append(unmet, undeclared(symbol, library))
 	}
-	return unmet, problems
+	return unmet, unchecked, problems
 }
 
 // treeEvidence is the read that says the tree does not declare a symbol.
