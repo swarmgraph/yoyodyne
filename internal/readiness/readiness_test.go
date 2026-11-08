@@ -373,3 +373,84 @@ func TestDescriptionIsBoundedAndOneLine(t *testing.T) {
 		t.Errorf("want the clause bounded, got %q", described)
 	}
 }
+
+// A project written in another language has no Go source, so nothing it cites
+// by a qualified name can be told to be Go. Its citations are passed through
+// and noted as not checked rather than held, because holding them would hold
+// every item in the project. A path pinpoint is still read, because a file and
+// its lines are the same in every language.
+func TestCitationsInAProjectInAnotherLanguageAreNotHeld(t *testing.T) {
+	repository := tree(t, map[string]string{
+		"app/models.py":    "class User:\n    def save(self):\n        pass\n",
+		"docs/billing.md":  "# Billing\n\nInvoices are summed nightly.\n",
+		"src/Billing.java": "package billing;\n\npublic class Invoice {}\n",
+	})
+	item := beads.WorkItem{
+		ID: "item",
+		Description: "models.User.Save writes the row, billing.Invoice.Total sums it, and json.JSONDecodeError " +
+			"is raised on bad input; see docs/billing.md:3 and docs/billing.md:90.",
+	}
+
+	reading, err := Read(item, repository)
+	if err != nil {
+		t.Fatalf("read the item: %v", err)
+	}
+
+	if len(reading.Unmet) != 1 || !strings.Contains(reading.Unmet[0].Missing, "docs/billing.md:90") {
+		t.Fatalf("want only the line past the end of the file held, got %+v", reading.Unmet)
+	}
+	var cited []string
+	for _, one := range reading.Unchecked {
+		cited = append(cited, one.Cited)
+		if !strings.Contains(one.Why, "no Go source") {
+			t.Errorf("%s: want the note to say the tree has no Go source, got %q", one.Cited, one.Why)
+		}
+	}
+	if strings.Join(cited, ",") != "models.User.Save,billing.Invoice.Total,json.JSONDecodeError" {
+		t.Errorf("want every qualified name noted as not checked, got %v", cited)
+	}
+	if line := DescribeUnchecked(reading.Unchecked); !strings.HasPrefix(line, "not checked, and not held for: models.User.Save") {
+		t.Errorf("want the note to name what was not checked, got %q", line)
+	}
+}
+
+// In a tree with Go source, a qualified name whose qualifier is neither a
+// package of the tree nor a standard Go package is one whose language cannot be
+// told — a Python module named in a Go project's item, say — so it is passed
+// through too. A missing name in a package the tree has is still held.
+func TestACitationWhoseLanguageCannotBeToldIsNotHeld(t *testing.T) {
+	repository := tree(t, map[string]string{
+		"internal/launch/launch.go": "package launch\n\nfunc Recover() {}\n",
+		"internal/cli/start.go":     "package cli\n\nfunc start() { launch.Recover() }\n",
+	})
+	item := beads.WorkItem{ID: "item", Description: "launch.Recover calls pandas.DataFrame.Merge, and launch.Reconcile is gone."}
+
+	reading, err := Read(item, repository)
+	if err != nil {
+		t.Fatalf("read the item: %v", err)
+	}
+
+	if len(reading.Unmet) != 1 || !strings.Contains(reading.Unmet[0].Missing, "launch.Reconcile") {
+		t.Fatalf("want the tree's own missing name held, got %+v", reading.Unmet)
+	}
+	if len(reading.Unchecked) != 1 || reading.Unchecked[0].Cited != "pandas.DataFrame.Merge" ||
+		!strings.Contains(reading.Unchecked[0].Why, "could not be told") {
+		t.Fatalf("want the name in an unknown language noted as not checked, got %+v", reading.Unchecked)
+	}
+}
+
+// A package clause quoted in a comment is not a package the tree declares.
+func TestAPackageNamedOnlyInACommentIsNotTheTrees(t *testing.T) {
+	repository := tree(t, map[string]string{"internal/launch/launch.go": "/*\npackage ghost\n*/\npackage launch\n"})
+
+	qualifier, err := repository.Qualifier("ghost")
+	if err != nil {
+		t.Fatalf("read the tree's packages: %v", err)
+	}
+	if !qualifier.GoSource || qualifier.Package {
+		t.Fatalf("want Go source and no package called ghost, got %+v", qualifier)
+	}
+	if declared, _ := repository.Qualifier("launch"); !declared.Package {
+		t.Fatalf("want the package launch declared, got %+v", declared)
+	}
+}

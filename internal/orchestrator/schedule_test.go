@@ -5825,6 +5825,15 @@ func (t citingTree) Declares(symbol string) (bool, error) {
 	return t.declares[symbol], nil
 }
 
+// Qualifier answers that every name a test cites is qualified by a Go package
+// of the tree, so a symbol these tests leave undeclared is read as Go and held.
+func (t citingTree) Qualifier(string) (readiness.Qualifier, error) {
+	if t.failure != nil {
+		return readiness.Qualifier{}, t.failure
+	}
+	return readiness.Qualifier{GoSource: true, Package: true}, nil
+}
+
 // Library answers that the standard library has none of what the tree lacks,
 // so a symbol these tests leave undeclared stays a stale citation.
 func (t citingTree) Library(string) (readiness.Library, error) {
@@ -5940,6 +5949,79 @@ func TestSchedulerDispatchesAnItemTheTreeIsReadyFor(t *testing.T) {
 	}
 	if len(harness.docketed) != 0 || len(schedule.Deferred) != 0 {
 		t.Fatalf("docketed = %#v, deferred = %#v, want nothing said about a ready item", harness.docketed, schedule.Deferred)
+	}
+}
+
+// An item whose citations the readiness check cannot read is dispatched, never
+// held and never reported as a failed reading, and the pass says which
+// citations went unchecked. Two cases reach that, read against real checkouts:
+// a project written in another language, and a Go project on a machine where
+// Go's standard library cannot be found, as in every release, which is built
+// with -trimpath and does not know where Go is.
+func TestSchedulerDispatchesAnItemWhoseCitationsCannotBeRead(t *testing.T) {
+	t.Parallel()
+
+	write := func(t *testing.T, path, content string) string {
+		t.Helper()
+		root := t.TempDir()
+		full := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("make %s: %v", filepath.Dir(full), err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+		return root
+	}
+	for _, test := range []struct {
+		name  string
+		tree  func(t *testing.T) *readiness.Repository
+		cites string
+	}{
+		{
+			name: "a project in another language",
+			tree: func(t *testing.T) *readiness.Repository {
+				return &readiness.Repository{Root: write(t, "app/models.py", "class User:\n    pass\n")}
+			},
+			cites: "models.User.Save",
+		},
+		{
+			name: "no Go standard library on the machine",
+			tree: func(t *testing.T) *readiness.Repository {
+				return &readiness.Repository{
+					Root:   write(t, "internal/launch/launch.go", "package launch\n"),
+					GoRoot: filepath.Join(t.TempDir(), "no-go-here"),
+				}
+			},
+			cites: "os.Hostname",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			item := beads.WorkItem{
+				ID: "item-1", Title: "Save the user", Status: "open",
+				Description: "The work calls " + test.cites + " when it is done.",
+			}
+			harness := newScheduleHarness(item)
+			harness.tree = test.tree(t)
+
+			schedule, err := Scheduler{Open: harness.open}.Schedule(context.Background())
+			if err != nil {
+				t.Fatalf("Schedule() error = %v", err)
+			}
+			if len(schedule.Started) != 1 || schedule.Started[0].WorkItemID != item.ID {
+				t.Fatalf("started = %#v, want the item dispatched: %s", schedule.Started, schedule.Render())
+			}
+			if schedule.ReadinessProblem != "" || len(harness.docketed) != 0 || len(schedule.Deferred) != 0 {
+				t.Fatalf("problem = %q, docketed = %#v, deferred = %#v, want nothing failed or held",
+					schedule.ReadinessProblem, harness.docketed, schedule.Deferred)
+			}
+			if !strings.Contains(schedule.ReadinessUnchecked, test.cites) ||
+				!strings.Contains(schedule.Render(), "not checked, and not held for: "+test.cites) {
+				t.Fatalf("unchecked = %q, want the pass to name %s as not checked", schedule.ReadinessUnchecked, test.cites)
+			}
+		})
 	}
 }
 
