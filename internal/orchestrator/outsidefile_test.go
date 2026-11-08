@@ -433,7 +433,7 @@ func queuedOutsideFile(t *testing.T) (string, *orchestratortest.Tracker, *orches
 	pipeline.Config.Execution.MergeQueue = true
 	driver := func() MergeQueueDriver {
 		queued := pipeline
-		items := OutsideFileItems{WorkTracker: pipeline.Tracker, Runs: store}
+		items := HarnessRunItems{WorkTracker: pipeline.Tracker, Runs: store}
 		queued.Tracker = items
 		worktrees := queued.Worktrees.(*gitworktree.Manager)
 		return MergeQueueDriver{

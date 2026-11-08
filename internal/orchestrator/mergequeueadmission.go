@@ -53,15 +53,28 @@ type MergeQueueAdmissions interface {
 	ClearRefusal(ctx context.Context, key runstate.MergeQueueKey) error
 }
 
+// mergeQueueChecks is the checks the queue verifies an entry's candidate by:
+// the project's configured checks, run whole, for every change, and for a
+// confirmed document the document checks where the project declares any, as
+// the document's own landing runs (docs/designs/document-landing-route.md, rule
+// 3). A document entry is known by its item, which is its run's own identifier
+// (HarnessRunItems); no other entry's item is.
+func (p *Pipeline) mergeQueueChecks(entry runstate.MergeQueueEntry) runstate.MergeQueueCheckConfiguration {
+	if entry.WorkItemID == entry.RunID && runstate.ValidRunID(entry.RunID) && len(p.Config.DocumentChecks) > 0 {
+		return runstate.NewMergeQueueCheckConfiguration(p.Config.DocumentChecks)
+	}
+	return runstate.NewMergeQueueCheckConfiguration(p.Config.Checks)
+}
+
 // admitsToMergeQueue reports whether an approved change of this run goes to
 // the merge queue rather than being promoted by the run.
 func (a *activeRun) admitsToMergeQueue() bool {
 	p := a.pipeline
-	// A confirmed document lands by its own route. A run that brings a file in
-	// goes through the queue like any approved change: with the queue on,
-	// nothing replays a change onto a target that moved, so one kept out could
-	// land on a target its checks never saw (outsidefilequeue.go).
-	return p.Config.Execution.MergeQueue && p.MergeQueue != nil && a.state.Document == nil
+	// A confirmed document and a run that brings a file in go through the queue
+	// like any approved change: with the queue on, nothing replays a change
+	// onto a target that moved, so one kept out could land on a target its
+	// checks never saw (outsidefilequeue.go).
+	return p.Config.Execution.MergeQueue && p.MergeQueue != nil
 }
 
 // admitToMergeQueue admits the run's approved change to its target's queue and

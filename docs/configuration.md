@@ -3565,7 +3565,12 @@ with its goals, `product.designs`, `product.decisions`, and
 `product.invariants`, each home's `README.md` included — takes this route.
 Anything else is refused from it before any check runs. Independent review and
 the promotion through the pull request, and the merge queue where it is on,
-are the same as for any run. An entry with no command is refused when the
+are the same as for any run. With `execution.merge_queue` on, the document's
+run admits it to the queue and ends, and the queue checks its candidate with
+`document_checks` where you declare any, and with `checks` whole where you
+declare none; a candidate the queue refuses ends the run with nothing handed
+to a developer, and the document goes back to its owner as any document that
+did not land does. An entry with no command is refused when the
 configuration loads, and `document_landings` may not be negative.
 
 ### A check that could not run
@@ -6616,7 +6621,10 @@ merged onto it. That candidate is what would land, so it is what is judged:
   is recorded on the candidate: a candidate with no such answer, or one the gate
   refused, earns no landing whatever its checks and review say;
 - the configured checks run on it whole, told
-  `YOYODYNE_CHANGED_GO_PACKAGES=./...`;
+  `YOYODYNE_CHANGED_GO_PACKAGES=./...`, so a race check among them is the full
+  race check on the change combined with the target; a confirmed document's
+  candidate runs `document_checks` instead, where you declare any
+  ([the document checks](#the-document-checks));
 - an independent reviewer, under the run's account and charged to the run and
   its item as review spend, is asked whether the change combined with what the
   target now carries still does what the item asks.

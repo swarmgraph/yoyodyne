@@ -343,7 +343,7 @@ context bundle come from `internal/contextbundle`.
 | `provideroutage.go`, `usagelimit.go` | `requireBackendReady`, provider-away handling |
 | `launchsettings.go` | `requireLaunchSettings` (asked after `requireBackendReady` in `Pipeline.Run` and `resumeRun`): the developer's provider is asked whether its sandbox, notes guard and isolation settings took effect; `LaunchSettingsError`, the one report, and `Scheduler.launchSettingsHeld`, which passes over developer slots on the held provider while the product's `runstate.LaunchSettingsHold` stands |
 | `supervision.go` | the management loop's own pass over role exchanges |
-| `mergequeueadmission.go` | `(*activeRun).admitToMergeQueue` — with `execution.merge_queue` on, called from `promoteApproved` in place of `integrate`: the earned gate is read (`integrationEarned`), the approved change committed and admitted through `queuemode.Admitter`, and the run ended succeeded and waiting (`completeQueued`); a target that requires the forge's own merge queue, or whose protection cannot be read, holds the change instead (`holdFromMergeQueue`): the run stops at its promotion with cause `merge-queue-held` (`ErrMergeQueueHeld`), the item is blocked naming the setting, and one harness report is filed per condition (`reportMergeQueueHeld`) |
+| `mergequeueadmission.go` | `(*activeRun).admitToMergeQueue` — with `execution.merge_queue` on, called from `promoteApproved` in place of `integrate` for every run, a document's and a pinned file's included: the earned gate is read (`integrationEarned`), the approved change committed and admitted through `queuemode.Admitter`, and the run ended succeeded and waiting (`completeQueued`); a target that requires the forge's own merge queue, or whose protection cannot be read, holds the change instead (`holdFromMergeQueue`): the run stops at its promotion with cause `merge-queue-held` (`ErrMergeQueueHeld`), the item is blocked naming the setting, and one harness report is filed per condition (`reportMergeQueueHeld`) |
 | `mergequeuedriver.go` | `MergeQueueDriver` — what works the queues: `Pending` (queues with unfinished entries) and `Pass` (Recover, then Promote, then Work, until nothing more can move now; a forge merge dropped or held past `triage.stuck_merge_age` is withdrawn with `MergeQueuePromoter.Withdraw` and handed back to its run), and `TakeHeld` (`mergequeueheld.go`), recorded as `runstate.MergeQueuePass`. `ScheduleMergeQueues`, `startQueuePasses` and `collectQueuePasses` are how a `yoyo work` session runs one pass per queue beside its pulls |
 | `mergequeueheld.go` | `MergeQueueHeldChanges.Take` — takes up the changes the queue held: reads them off the docket, asks the forge again per target (`stands`), and once the requirement is gone or the switch is off clears the queue's refusal and resumes each held run at its promotion in the order they were held, through `IntegrationResumer` |
 | `mergequeueretire.go` | `MergeQueuePublicationRetirer.Retire` — after a landing, deletes the queue's candidate branch and closes the run's own pull request and deletes its branch (`retireRunRequest`), recording `superseded` on the run |
@@ -385,9 +385,13 @@ stop at the merge step names the build that made it
 another build is running. `pinnedfiles.go` is `gatePinnedFiles`, the comparison
 `verify` makes of every pinned file with its record before the checks.
 `runstate.State.HarnessAuthored` is what the places that treat a document
-landing specially ask, so they treat this run the same way — except the merge
-queue, which admits this run like any approved change: `outsidefilequeue.go`
-is `OutsideFileItems`, the tracker the queue is given, which answers for the
-run's bookkeeping item and writes onto the item its record names, and a
-hand-back ends the run for `queueRefusedOutsideFile` to count.
+landing specially ask, so they treat this run the same way. With
+`execution.merge_queue` on, the queue admits both kinds of run like any
+approved change: `outsidefilequeue.go` is `HarnessRunItems`, the tracker the
+queue is given, which answers for either run's bookkeeping item and writes onto
+the item the run is for; a hand-back ends the run with no developer asked, for
+`queueRefusedOutsideFile` to count or, for a document, to go back to its owner;
+and `mergeQueueChecks` (`mergequeueadmission.go`) checks a document's candidate
+with the declared document checks and every other candidate with the
+configured checks whole.
 

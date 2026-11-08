@@ -909,7 +909,9 @@ func documentDelivery(state runstate.State) runstate.DocumentDelivery {
 		return result
 	}
 	result.Judged = !result.Landed && state.DocumentJudged()
-	if state.PullRequest != nil && state.PullRequest.MergeQueued {
+	// A document waiting in a merge queue — the harness's, or the forge's — has
+	// not landed yet, and its conversation keeps it until it has.
+	if state.AwaitingMergeQueue() || (state.PullRequest != nil && state.PullRequest.MergeQueued) {
 		result.Settled = false
 		return result
 	}

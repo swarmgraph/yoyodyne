@@ -184,16 +184,22 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 		return outcome, fmt.Errorf("read run %s, which merge queue entry %d was admitted for: %w", entry.RunID, entry.Order, err)
 	}
 	author := strings.TrimSpace(run.ProviderSessionID)
-	if author == "" && run.OutsideFile != nil {
+	if author == "" && run.Document != nil {
+		// A document's author is the owning role's conversation session that
+		// wrote it, which the candidate's reviewer must not be.
+		author = strings.TrimSpace(run.Document.AuthorSession)
+	}
+	if author == "" && run.HarnessAuthored() {
 		// No provider session wrote the change of a run that brings a file in:
 		// the harness fetched and wrote it. Its author is named as the harness's
-		// own run, which no reviewer session can be.
+		// own run, which no reviewer session can be. A document recorded with no
+		// author session is named the same way.
 		author = "harness:" + run.RunID
 	}
 	if author == "" {
 		return outcome, fmt.Errorf("run %s records no developer session, so no reviewer can be shown to be independent of it", entry.RunID)
 	}
-	configured := runstate.NewMergeQueueCheckConfiguration(w.Pipeline.Config.Checks)
+	configured := w.Pipeline.mergeQueueChecks(entry)
 	for {
 		outcome, err = w.verify(ctx, lease, key, entry, run, author, configured, outcome)
 		var wait mergeQueueWait
