@@ -127,6 +127,22 @@ type TrackerStoreSquash struct {
 	Ended bool `json:"ended,omitempty"`
 	// Failed is why the squash did not finish.
 	Failed string `json:"failed,omitempty"`
+	// StillOver is how long the listings of open and ready items took on the
+	// measurement's copy after the same squash, on a squash that finished with
+	// them still past their limit: the figures its warning carries, and what a
+	// later squash's are compared with so the warning is not repeated until
+	// they change. StillOverReported is that warning, or the earlier one that
+	// carried the same figures where StillOverRepeat says so, and empty where
+	// none could be filed yet.
+	StillOver         string `json:"still_over,omitempty"`
+	StillOverReported string `json:"still_over_reported,omitempty"`
+	StillOverRepeat   bool   `json:"still_over_repeat,omitempty"`
+}
+
+// StillOverUnwarned reports a squash that finished with the listings still past
+// their limit whose warning has not been filed.
+func (s TrackerStoreSquash) StillOverUnwarned() bool {
+	return s.Ended && s.Failed == "" && s.StillOver != "" && s.StillOverReported == ""
 }
 
 // Refused reports a decision not to squash because the measurement showed an
@@ -182,7 +198,29 @@ func (s TrackerStoreSquash) Says() string {
 	default:
 		said += fmt.Sprintf("; bd %s held the store %s and took it from %s to %s", strings.Join(squash.Command, " "), sayTook(squash.Took), SayBytes(squash.SizeBefore), SayBytes(squash.SizeAfter))
 	}
+	if s.StillOver != "" {
+		said += "; on the measured copy the listings were STILL PAST their limit after the same squash (" + s.StillOver + ")"
+		switch {
+		case s.StillOverRepeat:
+			said += ", the same figures the development manager was already warned of in " + s.StillOverReported
+		case s.StillOverReported != "":
+			said += ", and the development manager was warned in " + s.StillOverReported
+		default:
+			said += ", and the development manager has not been warned yet"
+		}
+	}
 	return said
+}
+
+// LastSquashed is the latest squash that ran on the live store and finished,
+// where one has.
+func (s TrackerStoreSquashes) LastSquashed() (TrackerStoreSquash, bool) {
+	for index := len(s) - 1; index >= 0; index-- {
+		if squash := s[index]; squash.Ended && squash.Failed == "" && squash.Squash.SizeAfter > 0 {
+			return squash, true
+		}
+	}
+	return TrackerStoreSquash{}, false
 }
 
 // SquashedHistory is the history a squash of stage takes away, as a sentence
