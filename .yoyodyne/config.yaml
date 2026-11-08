@@ -140,6 +140,16 @@ execution:
   # conflicts is never resolved automatically: it stops the run and is left for
   # a person.
   integration_retries_before_reconciliation: 2
+  # Approved changes integrate through the harness's own merge queue, which
+  # checks and has reviewed the change combined with main as it stands and
+  # lands exactly that: docs/configuration.md, "Integrating through a merge
+  # queue". Turned on by yoyodyne-ifd.429.59.7 once GitHub's own merge-queue
+  # requirement was taken off main; were that requirement to come back, every
+  # approved change would be held, not merged, until it is removed again or
+  # this is set back to false. Setting it to false admits nothing new, lets
+  # what is already queued land in the mode it was admitted in, and integrates
+  # held changes the way changes integrate with the queue off.
+  merge_queue: true
   # A provider invocation that dies without judging the work -- an API error its
   # own retries did not outlast, or a response cut off mid-flight -- is reissued
   # in the same worktree and the same session, up to this many times, rather than
