@@ -65,7 +65,10 @@
 //     recorded, a week after the last that finished, or a day after the last
 //     that failed; it is recorded under the product's state, and its figures
 //     are said in full on the step. It holds the pass up while it runs, for as
-//     much as measureBound, which is why it is not taken more often.
+//     much as measureBound, which is why it is not taken more often. Each
+//     records whether the listings as the store was are within the design's
+//     ten second limit and for how many measurements in a row, the second in
+//     a row being when the tracker read wait may be revisited.
 //   - squash: the live tracker store's history squashed, under the three
 //     conditions of the design on keeping the store small
 //     (docs/designs/tracker-store-size.md), decided once on each measurement
@@ -73,8 +76,10 @@
 //     goroutine, so the pass's own tracker calls are over before it starts.
 //     It holds the store for as long as bd takes, and every other tracker call
 //     waits behind it meanwhile, which is why it runs only where the
-//     measurement shows a squash is what brings the listings within their
-//     limit, why the step says how long the store was held, and why, once one
+//     measurement shows the listings past their limit or the store doubled
+//     since its last squash, why one that leaves the listings past the limit
+//     warns the development manager once with the figures, why the step says
+//     how long the store was held, and why, once one
 //     is due, it holds new runs and starts only once no developer run is in
 //     flight, giving up if they have not finished within the watch session's
 //     redeploy drain bound. That wait holds the pass up for as long as the
@@ -760,6 +765,7 @@ func (p *Pass) measureTracker(ctx context.Context) runstate.SweepStep {
 			record.Grew = &runstate.StoreGrew{Since: last.StartedAt(), From: before.Size, To: now.Size}
 		}
 	}
+	record.Listings = listingLimit(record, earlier)
 	recordFailure := ""
 	if err := p.Measurements.Record(record); err != nil {
 		recordFailure = fmt.Sprintf("; it could not be recorded, so the next pass measures it again: %v", err)
@@ -771,6 +777,55 @@ func (p *Pass) measureTracker(ctx context.Context) runstate.SweepStep {
 		step.Outcome = runstate.StepFailed
 	}
 	return step
+}
+
+// listingLimit is how the measurement's listings of open and ready items, as
+// the store was, stood against squashListingLimit, counting the measurements
+// before it in a row that were within it too; nil where it did not time both.
+// The earlier ones are judged from their own stages, so a measurement recorded
+// before this was kept counts as well.
+func listingLimit(measured runstate.TrackerStoreMeasurement, earlier runstate.TrackerStoreMeasurements) *runstate.ListingLimit {
+	within, timed := listedAsItIsWithin(measured)
+	if !timed {
+		return nil
+	}
+	limit := &runstate.ListingLimit{Limit: squashListingLimit, Within: within}
+	if !within {
+		return limit
+	}
+	limit.InARow = 1
+	for index := len(earlier) - 1; index >= 0; index-- {
+		within, timed := listedAsItIsWithin(earlier[index])
+		if !timed {
+			continue
+		}
+		if !within {
+			break
+		}
+		limit.InARow++
+	}
+	return limit
+}
+
+// listedAsItIsWithin reports whether a measurement timed both listings as the
+// store was, and whether both finished within squashListingLimit. A listing
+// that failed, which is how one that ran out of time is recorded, is past it.
+func listedAsItIsWithin(measured runstate.TrackerStoreMeasurement) (within, timed bool) {
+	stage, found := measured.Measurement.Stage(beads.StageAsItIs)
+	if !found || stage.Failed != "" {
+		return false, false
+	}
+	within = true
+	for _, name := range []string{beads.ReadOpenListing, beads.ReadReadyListing} {
+		listing, found := stage.Read(name)
+		if !found {
+			return false, false
+		}
+		if listing.Failed != "" || listing.Took > squashListingLimit {
+			within = false
+		}
+	}
+	return within, true
 }
 
 // measurementDue is why no measurement of the tracker's store is due and when
