@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"github.com/mason-bryant/yoyodyne/internal/factory"
 	"slices"
 	"strings"
 	"testing"
@@ -94,7 +95,7 @@ func TestANewerRevisionClosesTheEarlierRevisionsPullRequest(t *testing.T) {
 	second := documentCopy("run-second", "plan", "# Second", 2, 1097, runstate.StatusRunning)
 	runs, forge, branches := runsOf(first, second), holdingForge(first), &deletedBranches{}
 
-	closed := closeEarlierDocumentCopies(context.Background(), runs, forge, branches, second, copiesWrittenAt)
+	closed := closeEarlierDocumentCopies(context.Background(), runs, forge, branches, documentFactory, second, copiesWrittenAt)
 	if len(closed) != 1 || !closed[0].Closed || !closed[0].BranchDeleted || closed[0].Failure != "" {
 		t.Fatalf("closed = %+v, want the first revision's request closed and its branch deleted", closed)
 	}
@@ -110,7 +111,7 @@ func TestANewerRevisionClosesTheEarlierRevisionsPullRequest(t *testing.T) {
 		t.Fatalf("deleted = %v, want the first run's branch", branches.deleted)
 	}
 	// Running again has nothing left to close, so nobody gets a second comment.
-	if again := closeEarlierDocumentCopies(context.Background(), runs, forge, branches, second, copiesWrittenAt); len(again) != 0 || len(forge.ClosedRequests()) != 1 {
+	if again := closeEarlierDocumentCopies(context.Background(), runs, forge, branches, documentFactory, second, copiesWrittenAt); len(again) != 0 || len(forge.ClosedRequests()) != 1 {
 		t.Fatalf("second pass closed %+v", again)
 	}
 }
@@ -125,7 +126,7 @@ func TestARepeatAttemptAtTheSameTextClosesTheEarlierAttemptsPullRequest(t *testi
 	again.StartedAt = first.StartedAt.Add(time.Hour)
 	runs, forge := runsOf(first, again), holdingForge(first)
 
-	closed := closeEarlierDocumentCopies(context.Background(), runs, forge, &deletedBranches{}, again, copiesWrittenAt)
+	closed := closeEarlierDocumentCopies(context.Background(), runs, forge, &deletedBranches{}, documentFactory, again, copiesWrittenAt)
 	requests := forge.ClosedRequests()
 	if len(closed) != 1 || len(requests) != 1 || requests[0].Number != 1150 || !strings.Contains(requests[0].Comment, "same text") || !strings.Contains(requests[0].Comment, "#1151") {
 		t.Fatalf("closed = %+v, requests %+v; want #1150 closed as an earlier attempt naming #1151", closed, requests)
@@ -152,7 +153,7 @@ func TestOnlyEarlierCopiesOfTheSameDocumentAreClosed(t *testing.T) {
 	all := []runstate.State{current, other, running, merged, closedAlready, newer, landed, waiting, elsewhere}
 	runs, forge := runsOf(all...), holdingForge(all...)
 
-	closed := closeEarlierDocumentCopies(context.Background(), runs, forge, &deletedBranches{}, current, copiesWrittenAt)
+	closed := closeEarlierDocumentCopies(context.Background(), runs, forge, &deletedBranches{}, documentFactory, current, copiesWrittenAt)
 	if len(closed) != 0 || len(forge.ClosedRequests()) != 0 {
 		t.Fatalf("closed = %+v, requests %+v; want nothing closed", closed, forge.ClosedRequests())
 	}
@@ -172,14 +173,14 @@ func TestTwoDocumentsPublishingSideBySideLeaveEachOthersPullRequestsOpen(t *test
 	stoppedGoals := documentCopy("run-goals-stopped", "goals", "# Goals, stopped", 1, 1302, runstate.StatusFailed)
 	runs, forge := runsOf(design, goals, stoppedGoals), holdingForge(design, goals, stoppedGoals)
 
-	if closed := closeEarlierDocumentCopies(context.Background(), runs, forge, &deletedBranches{}, design, copiesWrittenAt); len(closed) != 0 {
+	if closed := closeEarlierDocumentCopies(context.Background(), runs, forge, &deletedBranches{}, documentFactory, design, copiesWrittenAt); len(closed) != 0 {
 		t.Fatalf("the design's run closed %+v", closed)
 	}
 	// The goals' own earlier copy is still closed by the goals' newer run, and
 	// the design's request is not.
 	goals.StartedAt = stoppedGoals.StartedAt.Add(time.Hour)
 	goals.Document.Candidate.Artifact.Revisions[0].At = goals.StartedAt
-	closed := closeEarlierDocumentCopies(context.Background(), runs, forge, &deletedBranches{}, goals, copiesWrittenAt)
+	closed := closeEarlierDocumentCopies(context.Background(), runs, forge, &deletedBranches{}, documentFactory, goals, copiesWrittenAt)
 	if len(closed) != 1 || closed[0].Number != 1302 || runs.runs[design.RunID].PullRequest.State != "OPEN" {
 		t.Fatalf("closed = %+v, design %+v; want only the goals' stopped copy closed", closed, runs.runs[design.RunID].PullRequest)
 	}
@@ -197,7 +198,7 @@ func TestAnEarlierRevisionTheForgeMergedIsNotClosed(t *testing.T) {
 	forge.Hold(first.PullRequest.Branch, publish.PullRequest{Number: 1400, State: "MERGED", Merged: true})
 	runs, branches := runsOf(first, second), &deletedBranches{}
 
-	closed := closeEarlierDocumentCopies(context.Background(), runs, forge, branches, second, copiesWrittenAt)
+	closed := closeEarlierDocumentCopies(context.Background(), runs, forge, branches, documentFactory, second, copiesWrittenAt)
 	if len(closed) != 1 || closed[0].Closed || closed[0].BranchDeleted || !strings.Contains(closed[0].Failure, "merged at the forge") {
 		t.Fatalf("closed = %+v, want the merged request reported and left", closed)
 	}
@@ -271,4 +272,14 @@ func TestARevisedDocumentsRunClosesTheReturnedRevisionsPullRequest(t *testing.T)
 	if remote := publicationGit(t, fixture.remote, "branch", "--list", first.PullRequest.Branch); remote != "" {
 		t.Fatalf("branch %s is still on the remote: %s", first.PullRequest.Branch, remote)
 	}
+}
+
+// documentFactory is the factory these closes are written by, as the pipeline
+// names it to closeEarlierDocumentCopies.
+var documentFactory = staticFactory{Product: "yoyodyne", Machine: "machine-00000000000000000000000000000001", ForgeAccount: "factory-bot"}
+
+type staticFactory factory.Identity
+
+func (f staticFactory) Read(context.Context) (factory.Identity, error) {
+	return factory.Identity(f), nil
 }

@@ -13,7 +13,7 @@ func feedbackRunner() *scriptedRunner {
 	runner := &scriptedRunner{}
 	runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
 	runner.reply("pulls/7 --jq", execution.ProcessResult{Status: execution.ProcessSucceeded,
-		Stdout: `{"state":"open","merged":false,"opener":"factory-bot"}`})
+		Stdout: `{"state":"open","merged":false}`})
 	runner.reply("pulls/7/reviews", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: strings.Join([]string{
 		`{"id":11,"author":"ada","state":"CHANGES_REQUESTED","body":"Please rename the flag.","submitted_at":"2026-11-02T10:00:00Z","commit_id":"abc","html_url":"https://example.invalid/r/11"}`,
 		`{"id":12,"author":"grace","state":"APPROVED","body":"","submitted_at":"2026-11-02T11:00:00Z","commit_id":"abc","html_url":"https://example.invalid/r/12"}`,
@@ -26,8 +26,7 @@ func feedbackRunner() *scriptedRunner {
 }
 
 // Feedback reads all three kinds of feedback, every page of each, with who left
-// it, when, and where on the change, and names the account that opened the
-// request.
+// it, when, and where on the change.
 func TestFeedbackReadsReviewsLineCommentsAndCommentsWithTheirAuthors(t *testing.T) {
 	t.Parallel()
 	runner := feedbackRunner()
@@ -35,8 +34,8 @@ func TestFeedbackReadsReviewsLineCommentsAndCommentsWithTheirAuthors(t *testing.
 	if err != nil {
 		t.Fatalf("Feedback() error = %v", err)
 	}
-	if reading.State != "OPEN" || reading.Opener != "factory-bot" {
-		t.Fatalf("reading = state %q opener %q, want OPEN and factory-bot", reading.State, reading.Opener)
+	if reading.State != "OPEN" {
+		t.Fatalf("reading = state %q, want OPEN", reading.State)
 	}
 	if len(reading.Reviews) != 2 || reading.Reviews[0].State != ReviewChangesRequested || reading.Reviews[0].Author != "ada" ||
 		!reading.Reviews[0].At.Equal(time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)) || reading.Reviews[1].State != ReviewApproved {

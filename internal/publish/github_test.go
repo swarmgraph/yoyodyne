@@ -11,7 +11,50 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/factory"
 )
+
+// testMark is the hidden line a factory of product example ends its writes with.
+var testMark = factory.Identity{Product: "example", Machine: "machine-00000000000000000000000000000001", ForgeAccount: "factory-bot"}.Mark()
+
+func joinedCommands(commands [][]string) []string {
+	joined := make([]string, 0, len(commands))
+	for _, command := range commands {
+		joined = append(joined, strings.Join(command, " "))
+	}
+	return joined
+}
+
+// A description ends with the factory's mark however long the body is: the
+// body is cut to make room, never the mark.
+func TestGitHubEnsureEndsTheDescriptionWithTheMark(t *testing.T) {
+	t.Parallel()
+
+	runner := &scriptedRunner{}
+	runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	runner.reply("pr list", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "[]\n"})
+	runner.replyAfter("pr list", 1, execution.ProcessResult{Status: execution.ProcessSucceeded,
+		Stdout: `[{"number":7,"url":"https://example.invalid/pull/7","state":"OPEN","mergedAt":""}]`})
+	runner.reply("pr create", execution.ProcessResult{Status: execution.ProcessSucceeded})
+	forge := GitHub{Runner: runner, Dir: t.TempDir()}
+	long := strings.Repeat("x", maxBodyBytes+100)
+	if _, err := forge.Ensure(context.Background(), Request{Head: "yoyodyne/task/abcd1234", Base: "main", Title: "t", Body: long, Mark: testMark}); err != nil {
+		t.Fatalf("Ensure() error = %v", err)
+	}
+	created := runner.matching("pr create")
+	if len(created) != 1 {
+		t.Fatalf("pr create calls = %v", created)
+	}
+	body := ""
+	for index, arg := range created[0] {
+		if arg == "--body" && index+1 < len(created[0]) {
+			body = created[0][index+1]
+		}
+	}
+	if !strings.HasSuffix(body, "\n\n"+testMark) || len(body) > maxBodyBytes || !factory.MarkedBy(body, "example") {
+		t.Fatalf("description is %d bytes ending %q, want it within the bound and ending with the mark", len(body), body[max(len(body)-120, 0):])
+	}
+}
 
 // Ensure has to be idempotent, because it runs after every developer attempt.
 // The first attempt opens the pull request; each repair attempt finds the same
@@ -23,7 +66,7 @@ func TestGitHubEnsureOpensOncePerBranch(t *testing.T) {
 	runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
 	runner.reply("pr list", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "[]\n"})
 	forge := GitHub{Runner: runner, Dir: t.TempDir()}
-	request := Request{Head: "yoyodyne/task/abcd1234", Base: "main", Title: "task Do the thing", Body: "opened by the harness"}
+	request := Request{Head: "yoyodyne/task/abcd1234", Base: "main", Title: "task Do the thing", Body: "opened by the harness", Mark: testMark}
 
 	runner.replyAfter("pr list", 1, execution.ProcessResult{
 		Status: execution.ProcessSucceeded,
@@ -73,7 +116,7 @@ func TestGitHubEnsureRefusesAPullRequestThatIsNoLongerOpen(t *testing.T) {
 		Stdout: `[{"number":9,"url":"https://example.invalid/pull/9","state":"MERGED","mergedAt":"2026-08-16T00:00:00Z"}]`,
 	})
 	forge := GitHub{Runner: runner}
-	if _, err := forge.Ensure(context.Background(), Request{Head: "yoyodyne/task/abcd1234", Base: "main", Title: "task"}); err == nil || !strings.Contains(err.Error(), "cannot be republished into") {
+	if _, err := forge.Ensure(context.Background(), Request{Head: "yoyodyne/task/abcd1234", Base: "main", Title: "task", Mark: testMark}); err == nil || !strings.Contains(err.Error(), "cannot be republished into") {
 		t.Fatalf("Ensure() merged error = %v", err)
 	}
 	if creations := runner.matching("pr create"); len(creations) != 0 {
@@ -572,7 +615,10 @@ func TestGitHubRefusesArgumentsThatCouldReadAsOptions(t *testing.T) {
 		{Head: "--repo=elsewhere", Base: "main", Title: "task"},
 		{Head: "yoyodyne/task/abcd1234", Base: "-f", Title: "task"},
 		{Head: "yoyodyne/task/abcd1234", Base: "main"},
-		{Head: "with space", Base: "main", Title: "task"},
+		{Head: "with space", Base: "main", Title: "task", Mark: testMark},
+		// A description without the factory's mark is refused like a bad branch.
+		{Head: "yoyodyne/task/abcd1234", Base: "main", Title: "task"},
+		{Head: "yoyodyne/task/abcd1234", Base: "main", Title: "task", Mark: "not a mark"},
 	} {
 		if _, err := forge.Ensure(context.Background(), request); err == nil {
 			t.Errorf("Ensure(%#v) error = nil", request)
@@ -734,7 +780,7 @@ func TestGitHubScopesCommandsToTheConfiguredRemote(t *testing.T) {
 	runner.reply("pr create", execution.ProcessResult{Status: execution.ProcessSucceeded})
 
 	forge := GitHub{Runner: runner, Dir: t.TempDir(), Remote: "upstream"}
-	if _, err := forge.Ensure(context.Background(), Request{Head: "yoyodyne/task/abcd1234", Base: "main", Title: "t", Body: "b"}); err != nil {
+	if _, err := forge.Ensure(context.Background(), Request{Head: "yoyodyne/task/abcd1234", Base: "main", Title: "t", Body: "b", Mark: testMark}); err != nil {
 		t.Fatalf("Ensure() error = %v", err)
 	}
 
@@ -776,7 +822,7 @@ func TestGitHubOpensACrossRepositoryRequestFromTheFork(t *testing.T) {
 	runner.reply("pr create", execution.ProcessResult{Status: execution.ProcessSucceeded})
 
 	forge := GitHub{Runner: runner, Dir: t.TempDir(), Remote: "upstream", PushRemote: "fork"}
-	if _, err := forge.Ensure(context.Background(), Request{Head: "yoyodyne/task/abcd1234", Base: "main", Title: "t", Body: "b"}); err != nil {
+	if _, err := forge.Ensure(context.Background(), Request{Head: "yoyodyne/task/abcd1234", Base: "main", Title: "t", Body: "b", Mark: testMark}); err != nil {
 		t.Fatalf("Ensure() error = %v", err)
 	}
 
@@ -817,7 +863,7 @@ func TestGitHubLeavesTheHeadUnqualifiedWithoutAFork(t *testing.T) {
 	runner.reply("pr create", execution.ProcessResult{Status: execution.ProcessSucceeded})
 
 	forge := GitHub{Runner: runner, Dir: t.TempDir(), Remote: "origin"}
-	if _, err := forge.Ensure(context.Background(), Request{Head: "yoyodyne/task/abcd1234", Base: "main", Title: "t", Body: "b"}); err != nil {
+	if _, err := forge.Ensure(context.Background(), Request{Head: "yoyodyne/task/abcd1234", Base: "main", Title: "t", Body: "b", Mark: testMark}); err != nil {
 		t.Fatalf("Ensure() error = %v", err)
 	}
 	created := runner.matching("pr create")
@@ -1238,7 +1284,7 @@ func TestTheForgeCLICarriesTheForgeCredentialAndNothingElseTheHarnessHolds(t *te
 	runner.reply("pr create", execution.ProcessResult{Status: execution.ProcessSucceeded})
 
 	forge := GitHub{Runner: runner, Dir: t.TempDir()}
-	if _, err := forge.Ensure(context.Background(), Request{Head: "yoyodyne/task/abcd1234", Base: "main", Title: "t", Body: "b"}); err != nil {
+	if _, err := forge.Ensure(context.Background(), Request{Head: "yoyodyne/task/abcd1234", Base: "main", Title: "t", Body: "b", Mark: testMark}); err != nil {
 		t.Fatalf("Ensure() error = %v", err)
 	}
 
@@ -1684,25 +1730,35 @@ func TestGitHubCloseRetiresASupersededRequestWithItsComment(t *testing.T) {
 		Status: execution.ProcessSucceeded,
 		Stdout: `[{"number":44,"url":"https://example.invalid/pull/44","state":"OPEN","mergedAt":""}]`,
 	})
+	runner.reply("issues/44/comments", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "123456\n"})
 	runner.reply("pr close", execution.ProcessResult{Status: execution.ProcessSucceeded})
 	forge := GitHub{Runner: runner, Dir: t.TempDir()}
 
 	comment := "superseded by pull request #46"
-	closure, err := forge.Close(context.Background(), CloseRequest{Head: "yoyodyne/task/abcd1234", Number: 44, Comment: comment})
+	closure, err := forge.Close(context.Background(), CloseRequest{Head: "yoyodyne/task/abcd1234", Number: 44, Comment: comment, Mark: testMark})
 	if err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
-	if !closure.Closed || closure.State != "CLOSED" {
-		t.Fatalf("Close() = %#v, want the request closed", closure)
+	if !closure.Closed || closure.State != "CLOSED" || closure.CommentID != 123456 {
+		t.Fatalf("Close() = %#v, want the request closed and the forge's number for its comment", closure)
+	}
+	// The comment is written through the API, whose answer names it, ending
+	// with the factory's mark, and before the request is closed.
+	comments := runner.matching("issues/44/comments")
+	if len(comments) != 1 || !contains(comments[0], "POST") || !contains(comments[0], "body="+comment+"\n\n"+testMark) {
+		t.Fatalf("comment calls = %v, want one POST of the comment ending with the mark", comments)
 	}
 	closes := runner.matching("pr close")
 	if len(closes) != 1 {
 		t.Fatalf("pr close calls = %v, want exactly one", closes)
 	}
-	for _, expected := range []string{"44", "--comment", comment, "--repo", "https://example.invalid/acme/thing"} {
+	for _, expected := range []string{"44", "--repo", "https://example.invalid/acme/thing"} {
 		if !contains(closes[0], expected) {
 			t.Errorf("pr close args = %v, missing %q", closes[0], expected)
 		}
+	}
+	if order := strings.Join(joinedCommands(runner.commands), "\n"); strings.Index(order, "issues/44/comments") > strings.Index(order, "pr close") {
+		t.Errorf("commands ran in the order\n%s\nwant the comment before the close", order)
 	}
 	// The branch is the harness's own compare-and-swap deletion, not the forge's:
 	// asking the forge for it would delete a branch somebody else had moved.
@@ -1725,7 +1781,7 @@ func TestGitHubCloseLeavesAnAlreadyClosedRequestAlone(t *testing.T) {
 	})
 	forge := GitHub{Runner: runner, Dir: t.TempDir()}
 
-	closure, err := forge.Close(context.Background(), CloseRequest{Head: "yoyodyne/task/abcd1234", Number: 44, Comment: "superseded"})
+	closure, err := forge.Close(context.Background(), CloseRequest{Head: "yoyodyne/task/abcd1234", Number: 44, Comment: "superseded", Mark: testMark})
 	if err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
@@ -1752,7 +1808,7 @@ func TestGitHubCloseRefusesToRetireAMergedRequest(t *testing.T) {
 	})
 	forge := GitHub{Runner: runner, Dir: t.TempDir()}
 
-	closure, err := forge.Close(context.Background(), CloseRequest{Head: "yoyodyne/task/abcd1234", Number: 44, Comment: "superseded"})
+	closure, err := forge.Close(context.Background(), CloseRequest{Head: "yoyodyne/task/abcd1234", Number: 44, Comment: "superseded", Mark: testMark})
 	if err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
@@ -1778,7 +1834,7 @@ func TestGitHubCloseRefusesANumberThatIsNotTheBranchesRequest(t *testing.T) {
 	})
 	forge := GitHub{Runner: runner, Dir: t.TempDir()}
 
-	_, err := forge.Close(context.Background(), CloseRequest{Head: "yoyodyne/task/abcd1234", Number: 44, Comment: "superseded"})
+	_, err := forge.Close(context.Background(), CloseRequest{Head: "yoyodyne/task/abcd1234", Number: 44, Comment: "superseded", Mark: testMark})
 	if err == nil || !strings.Contains(err.Error(), "carries pull request 51") {
 		t.Fatalf("Close() drifted error = %v", err)
 	}
@@ -1795,8 +1851,11 @@ func TestGitHubCloseRequiresAComment(t *testing.T) {
 
 	runner := &scriptedRunner{}
 	forge := GitHub{Runner: runner, Dir: t.TempDir()}
-	if _, err := forge.Close(context.Background(), CloseRequest{Head: "yoyodyne/task/abcd1234", Number: 44}); err == nil || !strings.Contains(err.Error(), "comment naming where its work landed") {
+	if _, err := forge.Close(context.Background(), CloseRequest{Head: "yoyodyne/task/abcd1234", Number: 44, Mark: testMark}); err == nil || !strings.Contains(err.Error(), "comment naming where its work landed") {
 		t.Fatalf("Close() commentless error = %v", err)
+	}
+	if _, err := forge.Close(context.Background(), CloseRequest{Head: "yoyodyne/task/abcd1234", Number: 44, Comment: "superseded"}); err == nil || !strings.Contains(err.Error(), "hidden line naming the factory") {
+		t.Fatalf("Close() unmarked error = %v", err)
 	}
 	if len(runner.commands) != 0 {
 		t.Fatalf("a refused close still ran commands: %v", runner.commands)

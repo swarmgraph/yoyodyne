@@ -83,6 +83,10 @@ type PublicationRetirement struct {
 	Closed        bool   `json:"closed"`
 	BranchDeleted bool   `json:"branch_deleted"`
 	Failure       string `json:"failure,omitempty"`
+	// Wrote is the forge's identifier for the comment the close left, for the
+	// run's record of the request (runstate.PullRequest.Wrote); empty where the
+	// forge named none.
+	Wrote string `json:"wrote,omitempty"`
 }
 
 // supersessionOf reads the vehicle from a recorded run whose work landed, and
@@ -340,19 +344,21 @@ func openPublication(state runstate.State, reason string) OpenPublication {
 // already made, and the manager reports it as one; that is what lets the
 // supersession be recorded and the sweep settle rather than reporting the same
 // failure on every later pass.
-func retirePublication(ctx context.Context, forge SupersededPublications, branches SupersededBranches, superseded runstate.State, by Supersession) PublicationRetirement {
+func retirePublication(ctx context.Context, forge SupersededPublications, branches SupersededBranches, identities FactoryIdentities, superseded runstate.State, by Supersession) PublicationRetirement {
 	published := *superseded.PullRequest
 	retirement := PublicationRetirement{Number: published.Number, URL: published.URL, Branch: published.Branch}
 	closure, err := forge.Close(ctx, publish.CloseRequest{
 		Head:    published.Branch,
 		Number:  published.Number,
 		Comment: renderSupersededComment(superseded, by),
+		Mark:    forgeMark(ctx, identities, superseded.ProductID),
 	})
 	if err != nil {
 		retirement.Failure = fmt.Errorf("close the superseded pull request %d of run %s: %w", published.Number, superseded.RunID, err).Error()
 		return retirement
 	}
 	retirement.Closed = closure.Closed
+	retirement.Wrote = closeCommentID(closure)
 	// The record said unmerged and the forge says merged, so this publication's
 	// own work is on the remote after all. Nothing was closed — the forge is asked
 	// before anything is — and the branch stays, because deleting it would retire

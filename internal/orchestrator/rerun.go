@@ -276,10 +276,13 @@ type PreservedRetirer interface {
 // nothing about the work: what it does is check that a decision somebody else
 // made may be carried out, and then carry it out.
 type Rerunner struct {
-	Docket RerunDocket
-	Runs   RerunRuns
-	Intake IntakeHolds
-	Reruns RerunRecords
+	// Factory names the factory in the hidden line its close comments end with
+	// (forgeMark). Nil names the run's product alone.
+	Factory FactoryIdentities
+	Docket  RerunDocket
+	Runs    RerunRuns
+	Intake  IntakeHolds
+	Reruns  RerunRecords
 	// Decisions is the item's durable triage record, which is what says the
 	// development manager decided this at all. Required: a re-run carried out on
 	// nobody's decision would record the development manager as having chosen
@@ -1523,13 +1526,14 @@ func (r Rerunner) retirePublication(ctx context.Context, stopped *runstate.State
 		r.notePublicationLeftOpen(*stopped, by, "nothing is wired to close it", result)
 		return false
 	}
-	retirement := retirePublication(ctx, r.Publications, r.Preserved, *stopped, by)
+	retirement := retirePublication(ctx, r.Publications, r.Preserved, r.Factory, *stopped, by)
 	result.Publication = &retirement
 	if retirement.Failure != "" {
 		result.note(retirement.Failure)
 		return false
 	}
 	published := *stopped.PullRequest
+	published.RecordWrite(retirement.Wrote)
 	published.Superseded = by.Vehicle()
 	published.State = "CLOSED"
 	stopped.PullRequest = &published

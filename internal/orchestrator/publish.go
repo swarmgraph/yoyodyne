@@ -196,6 +196,7 @@ func (a *activeRun) publishAttempt(ctx context.Context) error {
 			Base:  a.worktree.TargetBranch,
 			Title: pullRequestTitle(a.item, a.outcome),
 			Body:  pullRequestBody(a.item, a.outcome, a.worktree.TargetBranch, a.pipeline.automatic(), a.pipeline.factoryLine(ctx)),
+			Mark:  forgeMark(ctx, a.pipeline.Factory, a.pipeline.Config.Product.ID),
 		})
 	})
 	if err != nil {

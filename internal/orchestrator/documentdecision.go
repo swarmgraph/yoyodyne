@@ -55,6 +55,9 @@ type DocumentDecider struct {
 	// revision. A decider without it does not ask.
 	Copies DocumentCopies
 	Clock  execution.Clock
+	// Factory names the factory in the hidden line its close comments end with
+	// (forgeMark). Nil names the run's product alone.
+	Factory FactoryIdentities
 }
 
 // DocumentCopies reads one file as a commit or branch holds it. It is
@@ -244,11 +247,13 @@ func (d DocumentDecider) closeDecided(ctx context.Context, state *runstate.State
 		decision.Problem = fmt.Sprintf("nothing is wired to close pull request #%d", published.Number)
 		return
 	}
-	closure, err := d.Publications.Close(ctx, publish.CloseRequest{Head: published.Branch, Number: published.Number, Comment: comment})
+	closure, err := d.Publications.Close(ctx, publish.CloseRequest{Head: published.Branch, Number: published.Number, Comment: comment,
+		Mark: forgeMark(ctx, d.Factory, state.ProductID)})
 	if err != nil {
 		decision.Problem = fmt.Sprintf("closing pull request #%d failed: %v", published.Number, err)
 		return
 	}
+	published.RecordWrite(closeCommentID(closure))
 	if closure.Merged {
 		decision.Problem = fmt.Sprintf("pull request #%d is merged at the forge, so it was not closed", published.Number)
 		published.Merged = true

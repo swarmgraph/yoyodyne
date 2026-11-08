@@ -580,6 +580,7 @@ func (q *queuePromotion) openPullRequest(ctx context.Context) error {
 		Base:  q.key.TargetBranch,
 		Title: fmt.Sprintf("%s: %s", q.entry.WorkItemID, q.entry.WorkItemTitle),
 		Body:  q.pullRequestBody(ctx, *attempt),
+		Mark:  forgeMark(ctx, q.p.Pipeline.Factory, q.entry.ProductID, q.p.Pipeline.Config.Product.ID),
 	})
 	if err != nil {
 		return fmt.Errorf("open the pull request that carries %s: %w", attempt.CandidateBranch, err)
