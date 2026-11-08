@@ -495,7 +495,7 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 			return result, nil
 		}
 	}
-	if state.Retirement != nil || updatingQueuedHead(state) {
+	if state.Retirement != nil || owedUpdateContinuation(state) {
 		retired, handled, err := (RunRetirer{Runs: r.Store, Tracker: r.Tracker, Now: r.clock().Now()}).Retire(ctx, state)
 		if handled {
 			result := reconciliationOf(retired, ActionRetired)
@@ -620,6 +620,17 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 			result.Detail = fmt.Sprintf("the run is paused for %s and can continue once it asks again, by %s at the latest",
 				waited, deadline)
 		}
+		return result, nil
+	}
+	// A run whose update onto its target lost the process hosting it part-way
+	// through the gate is owed the rest of that update, which ContinueUpdates
+	// hosts from the step it reached. It is read ahead of the repair loop
+	// because a run that had repair attempts before its update reads as one, and
+	// nothing continues a repair loop that nobody is hosting.
+	if updateLostItsHost(state) {
+		result := reconciliationOf(state, ActionResumable)
+		result.Detail = fmt.Sprintf("the run was being brought up to date onto %s and %s at its %s phase; the sweep's last step carries the update on from there",
+			state.TargetBranch, describeLostHost(state), state.Phase)
 		return result, nil
 	}
 	// A run its own pipeline can still continue is left alone. Ending it here
