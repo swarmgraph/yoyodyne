@@ -50,11 +50,12 @@ type Repository struct {
 	// or the one this binary was built with.
 	GoRoot string
 
-	once    sync.Once
-	source  []byte
-	loaded  error
-	library sync.Once
-	std     *standardLibrary
+	once     sync.Once
+	source   []byte
+	packages map[string]struct{}
+	loaded   error
+	library  sync.Once
+	std      *standardLibrary
 }
 
 // Library reports what Go's standard library says of a symbol. It is read only
@@ -70,6 +71,22 @@ func (r *Repository) Library(symbol string) (Library, error) {
 	})
 	return r.std.lookup(symbol)
 }
+
+// Qualifier reports whether the tree has Go source, and whether that source
+// declares a package of this name. It is read from the same corpus as Declares,
+// so a pull that asks both reads the tree once.
+func (r *Repository) Qualifier(name string) (Qualifier, error) {
+	if _, err := r.corpus(); err != nil {
+		return Qualifier{}, err
+	}
+	_, declared := r.packages[name]
+	return Qualifier{GoSource: len(r.packages) > 0, Package: declared}, nil
+}
+
+// packageClause is the clause every Go source file opens with. Comments are
+// blanked out of the corpus before it is read, so a clause quoted in a comment
+// is not one.
+var packageClause = regexp.MustCompile(`(?m)^[ \t]*package[ \t]+([A-Za-z_][A-Za-z0-9_]*)`)
 
 // File is how many lines the file at this repository-relative path has. A path
 // that is not under the root — absolute, or climbing out with `..` — is absent
@@ -239,6 +256,10 @@ func (r *Repository) corpus() ([]byte, error) {
 		})
 		if r.loaded == nil {
 			r.source = assembled.Bytes()
+			r.packages = make(map[string]struct{})
+			for _, clause := range packageClause.FindAllSubmatch(r.source, -1) {
+				r.packages[string(clause[1])] = struct{}{}
+			}
 		}
 	})
 	return r.source, r.loaded

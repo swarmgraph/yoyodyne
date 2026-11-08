@@ -1651,7 +1651,15 @@ Two readings, both cheap, and neither of them a judgement about the work:
   installation's `api` directory, because a citation such as `os.Hostname` is
   correct whether or not the tree calls it yet; the refusal for a symbol found
   in neither says whether it was cited as a repository name or as a name in a
-  standard package. A bare path is deliberately not read as a citation:
+  standard package. Go is the only language whose names are read, so a symbol
+  holds an item only where it can be told to be Go: its package is one the
+  tree's Go source declares, or — in a tree with Go source — one in Go's
+  standard library. A qualified name in a project with no Go source, one whose
+  package is neither, and a standard name on a machine where Go's standard
+  library cannot be found (no Go installed, or a released binary, which is
+  built with `-trimpath` and does not know where Go is) are passed through
+  rather than held. The pass names them as not checked, and nothing is
+  reported as failing on their account. A bare path is deliberately not read as a citation:
   an item that names `docs/configuration/agents.md` is as likely to be asking for
   the file as citing it. Neither are the notes, which are where the harness
   appends each run's record and where an implementation plan names the files the
