@@ -32,13 +32,23 @@ import (
 // store, hands the copy back to be recorded, and only then runs bd.
 //
 // Which squash, if any, the latest measurement chooses is the design's own
-// branching: none where the listings of open and ready items are within
-// squashListingLimit as the store is or after the cleanup; history older than
-// 30 days where squashing it brings them within the limit; all history only
-// where that alone does not and squashing all of it does; and none where
-// nothing does, which is the weekly check's to say. A measurement on which any
+// branching, with the limit it keeps: none where the listings of open and
+// ready items are within squashListingLimit as the store is or after the
+// cleanup; history older than 30 days where squashing it brings them within
+// the limit; all history only where that alone does not and squashing all of
+// it does; and history older than 30 days where nothing does, since the
+// listings are past the limit. A store that has doubled in size on disk since
+// the last squash that finished is due the squash of history older than 30
+// days even with its listings within the limit. A measurement on which any
 // stage changed an item or a note refuses both squashes, and the development
 // manager is warned once, naming the stage and the records.
+//
+// A squash that finished where, on the measurement's copy, the listings were
+// still past the limit after the same squash files one warning for the
+// development manager with the figures. Its figures are the listings' times in
+// whole seconds, and the warning is not filed again while the last squash
+// before it that finished carried the same ones; one that could not be filed is
+// filed by the next pass.
 //
 // A squash holds the store's exclusive lock for its whole length, so a run
 // in the middle of its work when it starts can have its tracker reads time out
@@ -176,13 +186,21 @@ func (p *Pass) decideSquash(ctx context.Context, step runstate.SweepStep, now ti
 		return step
 	}
 	if earlier, found := decided.OnMeasurement(latest.StartedAt()); found {
+		if earlier.StillOverUnwarned() {
+			step.Outcome, step.Detail = runstate.StepRan, "filing the warning an earlier pass could not, about the squash already decided on the latest measurement: "+earlier.Says()
+			return p.warnStillOver(step, latest, earlier, now)
+		}
 		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("already decided on the latest measurement: %s; the next squash is decided on the next measurement", earlier.Says())
 		return step
 	}
 	if changed := latest.ChangedRecords(); len(changed) > 0 {
 		return p.refuseSquash(step, latest, changed, now)
 	}
-	stage, reason, none := squashChoice(latest)
+	var last *runstate.TrackerStoreSquash
+	if squashed, found := decided.LastSquashed(); found {
+		last = &squashed
+	}
+	stage, reason, none := squashChoice(latest, last)
 	if none != "" {
 		step.Outcome, step.Detail = runstate.StepSkipped, none
 		return step
@@ -436,16 +454,28 @@ func (p *Pass) runSquash(ctx context.Context, step runstate.SweepStep, measured 
 	if err != nil {
 		record.Failed = err.Error()
 	}
+	figures, over := stillOver(measured, stage)
+	if over && record.Failed == "" {
+		record.StillOver = figures
+	}
 	recorded := "; recorded in " + p.Squashes.Path()
 	if err := p.Squashes.Record(record); err != nil {
 		recorded = fmt.Sprintf("; its end could not be recorded, so the record says it started and not how it ended: %v", err)
 	}
+	// The warning about listings still past their limit is said by
+	// warnStillOver, once it knows whether one was filed.
+	said := record
+	said.StillOver = ""
 	step.Outcome, step.Detail = runstate.StepRan, fmt.Sprintf("squashed the tracker store's %s; the copy is kept until %s, and every other tracker call waited behind bd while it held the store%s",
-		record.Says(), local(squashed.CopiedAt.Add(squashCopyKept)), recorded)
+		said.Says(), local(squashed.CopiedAt.Add(squashCopyKept)), recorded)
 	if record.Failed != "" || !strings.HasPrefix(recorded, "; recorded") {
 		step.Outcome = runstate.StepFailed
 		step.Detail = fmt.Sprintf("tried to squash the tracker store's %s; it did not finish, and the copy is kept until %s and is what the store is restored from if it was left damaged%s",
 			record.Says(), local(squashed.CopiedAt.Add(squashCopyKept)), recorded)
+		return step
+	}
+	if record.StillOver != "" {
+		return p.warnStillOver(step, measured, record, now)
 	}
 	return step
 }
@@ -453,36 +483,171 @@ func (p *Pass) runSquash(ctx context.Context, step runstate.SweepStep, measured 
 // squashChoice is the squash the measurement chooses and why, or, where it
 // chooses none, why not. It is decided only on a measurement no stage of which
 // changed a record.
-func squashChoice(measured runstate.TrackerStoreMeasurement) (stage, reason, none string) {
+//
+// last is the latest squash that ran on the live store and finished, where one
+// has: a store at least twice the size that squash left it is due the 30 day
+// squash even where its listings are within the limit.
+func squashChoice(measured runstate.TrackerStoreMeasurement, last *runstate.TrackerStoreSquash) (stage, reason, none string) {
 	at := measured.StartedAt().Local().Format("2006-01-02 15:04 MST")
 	if measured.Failed != "" || !measured.Measurement.Measured() {
 		return "", "", fmt.Sprintf("the latest measurement of the tracker's store, at %s, did not finish, so no squash is decided on it", at)
 	}
 	limit := sayLimit(squashListingLimit)
+	doubled := storeDoubled(measured, last)
+	cannotShow := func(name, why string) string {
+		return fmt.Sprintf("the latest measurement, at %s, cannot show every item and note unchanged %s, because %s, so the store is not squashed", at, name, why)
+	}
+	onTheCopy := func(name string) string {
+		squashed, _ := measured.Measurement.Stage(name)
+		return fmt.Sprintf("on the copy, bd %s held the store %s", strings.Join(squashed.Command, " "), roundTook(squashed.Took))
+	}
 	for _, name := range []string{beads.StageAsItIs, beads.StageCleanedUp} {
-		if within, said := listingsWithin(measured, name); within {
+		within, said := listingsWithin(measured, name)
+		if !within {
+			continue
+		}
+		if doubled == "" {
 			return "", "", fmt.Sprintf("the latest measurement, at %s, listed open and ready items within %s %s (%s), so no squash is needed", at, limit, name, said)
 		}
+		if earlier, why := exportsShownThrough(measured, beads.StageOldSquashed); earlier != "" {
+			return "", "", cannotShow(earlier, why) + " although it has doubled in size since its last squash"
+		}
+		return beads.StageOldSquashed, fmt.Sprintf("%s, although the latest measurement, at %s, listed open and ready items within %s %s (%s); every item and note was unchanged across the squash on the copy, and %s",
+			doubled, at, limit, name, said, onTheCopy(beads.StageOldSquashed)), ""
 	}
-	unchanged := []string{beads.StageCleanedUp}
 	cleaned := sayListings(measured, beads.StageCleanedUp)
+	also := ""
+	if doubled != "" {
+		also = "; besides, " + doubled
+	}
 	for _, name := range []string{beads.StageOldSquashed, beads.StageAllSquashed} {
-		unchanged = append(unchanged, name)
-		for _, earlier := range unchanged {
-			if shown, why := exportShown(measured, earlier); !shown {
-				return "", "", fmt.Sprintf("the latest measurement, at %s, cannot show every item and note unchanged %s, because %s, so the store is not squashed", at, earlier, why)
+		if earlier, why := exportsShownThrough(measured, name); earlier != "" {
+			if name == beads.StageOldSquashed {
+				return "", "", cannotShow(earlier, why)
 			}
+			// All history cannot be squashed safely, and the 30 day squash can.
+			break
 		}
 		within, said := listingsWithin(measured, name)
 		if !within {
 			continue
 		}
-		squashed, _ := measured.Measurement.Stage(name)
-		return name, fmt.Sprintf("the latest measurement, at %s, listed open and ready items %s after the cleanup and within %s only %s (%s), with every item and note unchanged; on the copy, bd %s held the store %s",
-			at, cleaned, limit, name, said, strings.Join(squashed.Command, " "), roundTook(squashed.Took)), ""
+		return name, fmt.Sprintf("the latest measurement, at %s, listed open and ready items %s after the cleanup and within %s only %s (%s), with every item and note unchanged; %s%s",
+			at, cleaned, limit, name, said, onTheCopy(name), also), ""
 	}
-	return "", "", fmt.Sprintf("the latest measurement, at %s, listed open and ready items within %s at no stage, not even after squashing all history (%s), so no squash brings them within it and the store is not squashed",
-		at, limit, sayListings(measured, beads.StageAllSquashed))
+	// Past the limit, and no squash on the copy that can be run safely brought
+	// the listings within it: the design runs the 30 day squash anyway, and the
+	// warning once it has run says the store is still past the limit.
+	return beads.StageOldSquashed, fmt.Sprintf("the latest measurement, at %s, listed open and ready items past %s after the cleanup (%s), and on the copy no squash that can be run brought them within it (%s %s, %s %s), so the store is squashed to keep it as small as it can be made, with every item and note unchanged across that squash on the copy; %s%s",
+		at, limit, cleaned, sayListings(measured, beads.StageOldSquashed), beads.StageOldSquashed, sayListings(measured, beads.StageAllSquashed), beads.StageAllSquashed, onTheCopy(beads.StageOldSquashed), also), ""
+}
+
+// storeDoubled says the store has doubled in size since the last squash that
+// finished, as the measurement's copy as it was measures it, and is empty where
+// it has not or no squash has finished.
+func storeDoubled(measured runstate.TrackerStoreMeasurement, last *runstate.TrackerStoreSquash) string {
+	if last == nil || last.Squash.SizeAfter <= 0 {
+		return ""
+	}
+	asItIs, found := measured.Measurement.Stage(beads.StageAsItIs)
+	if !found || asItIs.Failed != "" || asItIs.Size < 2*last.Squash.SizeAfter {
+		return ""
+	}
+	return fmt.Sprintf("the store has doubled in size since its last squash, at %s: that squash left it %s on disk, and the measurement at %s found it %s",
+		local(last.Squash.StartedAt), runstate.SayBytes(last.Squash.SizeAfter), local(measured.StartedAt()), runstate.SayBytes(asItIs.Size))
+}
+
+// exportsShownThrough is the first stage, from the cleanup up to and including
+// name, whose export was not taken and compared with the one before it, and
+// why, or empty where every one was.
+func exportsShownThrough(measured runstate.TrackerStoreMeasurement, name string) (string, string) {
+	for _, earlier := range []string{beads.StageCleanedUp, beads.StageOldSquashed, beads.StageAllSquashed} {
+		if shown, why := exportShown(measured, earlier); !shown {
+			return earlier, why
+		}
+		if earlier == name {
+			break
+		}
+	}
+	return "", ""
+}
+
+// stillOver is how long the listings of open and ready items took on the
+// measurement's copy after the squash of stage, in whole seconds, and whether
+// either was past squashListingLimit. Whole seconds are what the warning's
+// figures are compared in, so a few hundredths either way are not new figures.
+func stillOver(measured runstate.TrackerStoreMeasurement, stage string) (string, bool) {
+	squashed, found := measured.Measurement.Stage(stage)
+	if !found || squashed.Failed != "" {
+		return "", false
+	}
+	over, said := false, []string{}
+	for _, name := range []string{beads.ReadOpenListing, beads.ReadReadyListing} {
+		listing, found := squashed.Read(name)
+		if !found {
+			continue
+		}
+		part := fmt.Sprintf("%s %d seconds", name, int(listing.Took/time.Second))
+		if listing.Failed != "" {
+			part = fmt.Sprintf("%s failed after %d seconds", name, int(listing.Took/time.Second))
+		}
+		said = append(said, part)
+		over = over || listing.Failed != "" || listing.Took > squashListingLimit
+	}
+	return runstate.SquashedHistory(stage) + " squashed: " + strings.Join(said, ", "), over
+}
+
+// warnStillOver files the one warning for the development manager that the
+// store's listings are still past their limit after the squash recorded,
+// unless the last squash before it that finished carried the same figures and
+// its warning was filed, and records which. A warning that cannot be filed
+// leaves the record unwarned, and the next pass files it.
+func (p *Pass) warnStillOver(step runstate.SweepStep, measured runstate.TrackerStoreMeasurement, record runstate.TrackerStoreSquash, now time.Time) runstate.SweepStep {
+	if decided, err := p.Squashes.Read(); err == nil {
+		for index := len(decided) - 1; index >= 0; index-- {
+			earlier := decided[index]
+			if earlier.Name == record.Name || !earlier.Ended || earlier.Failed != "" {
+				continue
+			}
+			if earlier.StillOver == record.StillOver && earlier.StillOverReported != "" {
+				record.StillOverReported, record.StillOverRepeat = earlier.StillOverReported, true
+			}
+			break
+		}
+	}
+	if record.StillOverReported == "" {
+		if p.Reports == nil {
+			step.Outcome = runstate.StepFailed
+			step.Detail += "; the listings are still past their limit after the squash, and no report pile is wired, so the development manager could not be warned; the next pass tries again"
+			return step
+		}
+		squash := record.Squash
+		message := fmt.Sprintf("Maintenance squashed the tracker store's %s (the %s step), and its listings of open and ready work are still past their %d second limit. "+
+			"On the copy measured at %s: as the store was, %s; after the cleanup, %s; after the same squash, %s; after squashing all history, %s. On the live store the squash took the store from %s to %s on disk. "+
+			"The design on keeping the store small (docs/designs/tracker-store-size.md) says that when no squash brings the listings within the limit the current data is too large, and fewer writes to the store are the remedy. "+
+			"This warning is not filed again until these figures change: %s. The squash is recorded in %s.",
+			runstate.SquashedHistory(squash.Stage), StepTrackerSquash, int(squashListingLimit/time.Second),
+			local(record.MeasuredAt), sayListings(measured, beads.StageAsItIs), sayListings(measured, beads.StageCleanedUp), sayListings(measured, squash.Stage), sayListings(measured, beads.StageAllSquashed),
+			runstate.SayBytes(squash.SizeBefore), runstate.SayBytes(squash.SizeAfter), record.StillOver, p.Squashes.Path())
+		filed, err := p.warn(record, message, now)
+		if err != nil {
+			step.Outcome = runstate.StepFailed
+			step.Detail += fmt.Sprintf("; the listings are still past their limit after the squash, and the warning to the development manager could not be filed, and the next pass tries again: %v", err)
+			return step
+		}
+		record.StillOverReported = filed
+	}
+	if err := p.Squashes.Record(record); err != nil {
+		step.Outcome = runstate.StepFailed
+		step.Detail += fmt.Sprintf("; the listings are still past their limit after the squash, and which warning says so could not be recorded, so the next pass may warn again: %v", err)
+		return step
+	}
+	if record.StillOverRepeat {
+		step.Detail += "; the listings are STILL PAST their limit after the squash, with the same figures the development manager was already warned of in " + record.StillOverReported
+	} else {
+		step.Detail += "; the listings are STILL PAST their limit after the squash, and the development manager was warned in " + record.StillOverReported
+	}
+	return step
 }
 
 // listingsWithin reports a stage whose listings of open and ready items both

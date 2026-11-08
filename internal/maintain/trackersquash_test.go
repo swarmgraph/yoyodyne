@@ -329,8 +329,9 @@ func TestASquashOfOldHistoryRunsWhenItAloneBringsTheListingsWithinTheLimit(t *te
 
 // Each measurement chooses its branch of the design: no squash where the
 // listings are within the limit as the store is or after the cleanup, all
-// history only where squashing old history alone is not enough, and none where
-// nothing brings them within it.
+// history only where squashing old history alone is not enough, and history
+// older than 30 days where nothing brings them within it, because they are
+// past the limit.
 func TestTheMeasurementChoosesWhichSquashRuns(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
@@ -341,7 +342,7 @@ func TestTheMeasurementChoosesWhichSquashRuns(t *testing.T) {
 		"within as it is":           {slow: map[string]time.Duration{beads.StageAsItIs: 8 * time.Second}, say: "within 10 seconds as it is"},
 		"within after the cleanup":  {slow: map[string]time.Duration{beads.StageCleanedUp: 9 * time.Second}, say: "within 10 seconds after the cleanup"},
 		"only after all history":    {slow: map[string]time.Duration{beads.StageOldSquashed: 12 * time.Second}, want: beads.StageAllSquashed, say: "squashed the tracker store's all history"},
-		"not even after everything": {slow: map[string]time.Duration{beads.StageOldSquashed: 12 * time.Second, beads.StageAllSquashed: 11 * time.Second}, say: "no squash brings them within it"},
+		"not even after everything": {slow: map[string]time.Duration{beads.StageOldSquashed: 12 * time.Second, beads.StageAllSquashed: 11 * time.Second}, want: beads.StageOldSquashed, say: "no squash that can be run brought them within it"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

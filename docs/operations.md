@@ -494,7 +494,11 @@ Each pass takes eleven steps, in this order, and each is recorded:
   on a large store and is bounded at two hours, the pass waits for it.
   Each measurement is recorded under the product's state in
   `tracker-store-measurements/`, and its figures are said in full on the step
-  in `yoyo sweeps`. A store in use, or one written to while it was copied, is a
+  in `yoyo sweeps`. Each also records whether the listings of open and ready
+  items as the store was finished within ten seconds, and for how many
+  measurements in a row they have; a measurement that could not time them is
+  passed over. Once they have for two in a row, the step says the
+  120-second wait on every tracker read may be revisited. A store in use, or one written to while it was copied, is a
   skip, and the next pass tries again. A measurement whose export changed after
   a stage — an item or a note that is different, missing, or added — or one of
   whose commands failed, is a failure of the pass, naming what changed or what
@@ -506,8 +510,17 @@ Each pass takes eleven steps, in this order, and each is recorded:
   items within ten seconds as the store was or after the cleanup; it squashes
   the history older than thirty days (`bd compact --days 30 --force`) where
   that alone brought them within ten seconds; all history (`bd flatten
-  --force`) only where that did not and squashing all of it did; and nothing
-  where no stage did. A squash runs only when all three of the design's
+  --force`) only where that did not and squashing all of it did; and the
+  history older than thirty days where no stage did, because the listings are
+  past the limit. A store at least twice the size on disk that the last
+  finished squash left it is squashed the same way even where its listings are
+  within ten seconds. A squash that finishes where, on the measured copy, the
+  listings were still past ten seconds after the same squash files one
+  warning for the development manager with the figures: the listings' times at
+  each stage and the store's size either side of the squash. It is not filed
+  again while the last finished squash before it had the same listing times in
+  whole seconds, and one that could not be filed is filed by the next pass. A
+  squash runs only when all three of the design's
   conditions hold. The measurement must show every item and note unchanged at
   the cleanup and at each squash up to the one chosen. No other process may
   have the store open, before the copy below or after it, and a store whose

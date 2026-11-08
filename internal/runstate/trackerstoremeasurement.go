@@ -58,6 +58,40 @@ type TrackerStoreMeasurement struct {
 	// measurement, counted by caller, from the log every process keeps
 	// (trackercalllog.go), and nil where no log is wired.
 	Callers *TrackerCallCount `json:"callers,omitempty"`
+	// Listings is how the listings of open and ready items, timed on the copy as
+	// the store was, stood against the limit the design on keeping the store
+	// small holds them to, and nil on a measurement that did not time both.
+	Listings *ListingLimit `json:"listings,omitempty"`
+}
+
+// ListingLimit is how one measurement's listings of open and ready items, as
+// the store was, stood against Limit.
+type ListingLimit struct {
+	Limit time.Duration `json:"limit"`
+	// Within is both listings finishing within Limit.
+	Within bool `json:"within"`
+	// InARow is how many measurements in a row, this one included, had both
+	// listings within Limit, and zero where this one did not. A measurement
+	// that timed neither listing is passed over rather than counted either way.
+	InARow int `json:"in_a_row,omitempty"`
+}
+
+// HeldTwiceInARow reports a limit that has held for two measurements in a row
+// or more, which is when the tracker read wait raised to beads.DefaultTimeout
+// may be revisited.
+func (l ListingLimit) HeldTwiceInARow() bool { return l.InARow >= 2 }
+
+// Says is how the listings stood against the limit, in a sentence.
+func (l ListingLimit) Says() string {
+	limit := fmt.Sprintf("%d second limit", int(l.Limit/time.Second))
+	if !l.Within {
+		return "the listings of open and ready items as the store was were PAST their " + limit
+	}
+	said := fmt.Sprintf("the listings of open and ready items as the store was were within their %s, for %d measurement(s) in a row", limit, l.InARow)
+	if l.HeldTwiceInARow() {
+		said += fmt.Sprintf(", so the limit has held for two measurements in a row and the %d second wait on every tracker read may be revisited", int(beads.DefaultTimeout/time.Second))
+	}
+	return said
 }
 
 // StoreGrew is the store's size at an earlier measurement and at this one.
@@ -132,6 +166,9 @@ func (m TrackerStoreMeasurement) Says() string {
 	}
 	for _, stage := range measured.Stages {
 		said += "; " + sayStage(stage)
+	}
+	if m.Listings != nil {
+		said += "; " + m.Listings.Says()
 	}
 	if server := measured.Server; server != nil {
 		said += "; " + SayServer(*server)
