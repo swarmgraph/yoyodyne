@@ -1140,6 +1140,9 @@ type Started struct {
 	// make. The count is how a reader tells one such refusal from a run that
 	// keeps being refused.
 	Readoptions int `json:"readoptions,omitempty"`
+	// began is when this session made the start, which a decision passed over
+	// because of a start still before its reservation is told (occupiedWhy).
+	began time.Time
 	// awayCause is set when Failure is the provider turning the dispatch away —
 	// a login nobody has renewed, an API nothing reaches — which the settle reads
 	// to count the start toward nothing. It is not on the record because the
@@ -1603,6 +1606,13 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// reserves, which is several steps after it is started, and a pull that
 	// counted only the recorded runs would start the same slot twice.
 	mine := make(map[string]int)
+	// remember puts one start on mine and notes when it was made, so a decision
+	// passed over because of it can say which start it was and how long ago it
+	// began (occupiedWhy).
+	remember := func(id string, index int) {
+		mine[id] = index
+		schedule.Started[index].began = s.now()
+	}
 	// elsewhere is the runs another process had in flight at the last pull, by run
 	// identifier, and ended is the runs of this session collected since then. The
 	// next pull reads both to say which slots freed and whose runs had held them:
@@ -2035,6 +2045,24 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		}
 	}
 
+	// collectEnded takes every start of this session that has already handed its
+	// ending back, without waiting for one that has not. Each wait below collects
+	// at most one ending, and a wait that wakes on the poll interval, or on a
+	// store that would not answer, collects none, so a start that failed or came
+	// back without reserving could otherwise stay on mine through pull after
+	// pull. Every pull opens with this, so what it reads as this session's own
+	// starts in progress is only the ones still going.
+	collectEnded := func() {
+		for {
+			select {
+			case done := <-completions:
+				finish(done)
+			default:
+				return
+			}
+		}
+	}
+
 	// poll is the interval the last pull read, held outside the loop because
 	// collect below wakes on it before a pull is opened.
 	var poll time.Duration
@@ -2319,6 +2347,9 @@ pulling:
 			retries = readRetries{}
 		}
 		retries.failed = false
+		// Runs and starts of this session that have ended since the last pull are
+		// taken off the books first, before anything reads what it still hosts.
+		collectEnded()
 		// Firings whose turns ended since the last pull are taken into the schedule
 		// here, before anything reads what the session has spent or whether it
 		// still hosts anything.
@@ -2820,7 +2851,7 @@ pulling:
 					schedule.Started = append(schedule.Started, Started{WorkItemID: id, Reason: selection.Reason, Readopted: state.RunID, Readoptions: 1})
 					readopted[state.RunID] = index
 				}
-				mine[id] = index
+				remember(id, index)
 				running++
 				s.host(session.dispatching(ctx, id), pull, id, index, selection, hosted, landings, deliver)
 			}
@@ -2883,7 +2914,7 @@ pulling:
 				index := len(schedule.Started)
 				schedule.Started = append(schedule.Started, Started{WorkItemID: runID, Reason: documentReason(wait)})
 				landing[runID] = runstate.State{WorkItemID: runID}
-				mine[runID] = index
+				remember(runID, index)
 				myDocuments[runID] = true
 				running++
 				startedDocuments++
@@ -2917,7 +2948,7 @@ pulling:
 				id := next.WorkItemID()
 				index := len(schedule.Started)
 				schedule.Started = append(schedule.Started, Started{WorkItemID: id, Reason: outsideFileReason(next)})
-				mine[id] = index
+				remember(id, index)
 				myOutsideFile = id
 				running++
 				runCtx, cancel := hostedContext(session.dispatching(ctx, id), index, landings)
@@ -3115,7 +3146,7 @@ pulling:
 			// queue scan choosing the same item beside this, and mine is what stops the
 			// next pull counting the slot free before the run has reserved it.
 			occupied[task.WorkItemID] = runstate.State{WorkItemID: task.WorkItemID}
-			mine[task.WorkItemID] = index
+			remember(task.WorkItemID, index)
 			running++
 			// Only where there was one to take. An attempt made with no slot free is
 			// one the action's own capacity gate refuses before it reserves anything,
@@ -3248,7 +3279,7 @@ pulling:
 				selection := runstate.Selection{By: runstate.SelectedByScheduler, Reason: continuation.reason}
 				schedule.Started = append(schedule.Started, Started{WorkItemID: workItemID, Reason: selection.Reason})
 				occupied[workItemID] = continuation.state
-				mine[workItemID] = index
+				remember(workItemID, index)
 				running++
 				if !continuation.holdsOne {
 					free--
@@ -3588,7 +3619,7 @@ pulling:
 			}
 			schedule.Started = append(schedule.Started, Started{WorkItemID: entry.ID, Reason: selection.Reason, Probe: probing, Slot: slot.Number})
 			flight.take(read.items[entry.ID], "")
-			mine[entry.ID] = index
+			remember(entry.ID, index)
 			startedNow[entry.ID] = true
 			running++
 			started++
@@ -5776,9 +5807,13 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 		reusesSlot := task.Recover && state.RunID == task.RunID && state.RepairDispatchPending()
 		// A carry-out this session has already dispatched still owns the item,
 		// including the gap before the pipeline acquires the run lease.
-		_, ours := mine[task.WorkItemID]
+		index, ours := mine[task.WorkItemID]
 		if busy && (!reusesSlot || ours) {
-			pass(task, occupiedWhy(pull.Runs, state, s.now()))
+			var earlier *Started
+			if ours && index >= 0 && index < len(schedule.Started) {
+				earlier = &schedule.Started[index]
+			}
+			pass(task, occupiedWhy(pull.Runs, state, earlier, s.now()))
 			continue
 		}
 		if closed.keptForTheHold(task) {
@@ -7466,9 +7501,26 @@ type freedSlot struct {
 // is said as that; a reserved run is named, with whose it is by the worker
 // identity every reader applies, so a run an earlier program in this process
 // left in flight is never described as one this session started.
-func occupiedWhy(runs ScheduleRuns, state runstate.State, now time.Time) string {
+//
+// earlier is the start of this session's that stands over the item, where there
+// is one. A start before its reservation is said with when it began, how long
+// ago that was, and what it was started to do, so a reader can tell a start
+// still on its way to reserving from one left behind. A start that failed or
+// came back without reserving is not said this way: every pull first collects
+// the starts that have handed their ending back (collectEnded in Schedule), so
+// such a start no longer stands over its item.
+func occupiedWhy(runs ScheduleRuns, state runstate.State, earlier *Started, now time.Time) string {
 	if state.RunID == "" {
-		return "this session had already started a run of the item that had not yet reserved, and one item is never given two runs at once"
+		const why = "this session had already started a run of the item that had not yet reserved"
+		const rule = "one item is never given two runs at once"
+		if earlier == nil || earlier.began.IsZero() {
+			return why + ", and " + rule
+		}
+		said := fmt.Sprintf("%s: it was started at %s, %s ago, and has not come back yet", why, earlier.began.Local().Format("2006-01-02 15:04 MST"), waitedFor(now.Sub(earlier.began)))
+		if reason := strings.TrimSpace(earlier.Reason); reason != "" {
+			said += "; the reason recorded for that start is: " + singleLine(reason, runstate.MaxSelectionReasonBytes)
+		}
+		return said + "; " + rule
 	}
 	return fmt.Sprintf("run %s of the item is recorded as %s, and one item is never given two runs at once; %s", state.RunID, state.Status, inFlightWorker(runs, state, now))
 }
