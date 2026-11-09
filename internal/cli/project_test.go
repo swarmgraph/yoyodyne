@@ -378,13 +378,18 @@ func TestBindRepairsAKeptConfigurationNamingAnotherDirectory(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("YOYODYNE_STATE_HOME", root)
 	clone := externalClone(t, "git@github.com:example/external.git")
-	elsewhere, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	elsewhere := externalClone(t, "git@github.com:example/elsewhere.git")
 	kept := filepath.Join(root, "projects", "external", config.FileName)
 	if stdout, stderr, code := runCLI(t, "init", "--external", "--directory", clone, "--product", "external"); code != 0 {
 		t.Fatalf("init code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+	// The directory the file will name once edited holds a marker naming this
+	// home, as it would if commands had worked there.
+	if err := runstate.AgreeRoot(elsewhere, runstate.ResolvedRoot{Path: root}); err != nil {
+		t.Fatal(err)
+	}
+	if marker, err := runstate.ReadRootMarker(elsewhere); err != nil || marker.Recorded == "" {
+		t.Fatalf("marker = %+v, err = %v; want one recorded", marker, err)
 	}
 	content, err := os.ReadFile(kept)
 	if err != nil {
@@ -398,9 +403,20 @@ func TestBindRepairsAKeptConfigurationNamingAnotherDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The loader already follows the binding, before bind rewrites the file.
+	resolved, err := config.LoadResolved(kept)
+	if err != nil {
+		t.Fatalf("LoadResolved(%s) error = %v", kept, err)
+	}
+	sameDirectory(t, resolved.Config.Product.Repository, clone)
+	sameDirectory(t, resolved.ConfiguredRepository, elsewhere)
+
 	stdout, stderr, code := runCLI(t, "project", "bind", "--product", "external", "--directory", clone)
-	if code != 0 || !strings.Contains(stdout, "product.repository") || !strings.Contains(stdout, elsewhere) {
-		t.Fatalf("bind code = %d, stdout = %q, stderr = %q; want it to say it rewrote product.repository", code, stdout, stderr)
+	if code != 0 || !strings.Contains(stdout, "product.repository") || !strings.Contains(stdout, elsewhere) || !strings.Contains(stdout, "state-root marker") {
+		t.Fatalf("bind code = %d, stdout = %q, stderr = %q; want it to say it rewrote product.repository and removed the state-root marker", code, stdout, stderr)
+	}
+	if marker, err := runstate.ReadRootMarker(elsewhere); err != nil || marker.Recorded != "" {
+		t.Errorf("marker after bind = %+v, err = %v; want none recorded", marker, err)
 	}
 	sameDirectory(t, loadedRepository(t, kept), clone)
 

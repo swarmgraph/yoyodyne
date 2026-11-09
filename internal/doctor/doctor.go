@@ -619,59 +619,37 @@ func (d *diagnosis) checkStateRoot(repository string) Finding {
 	}
 }
 
-// checkKeptConfigurationBinding asks, of a configuration kept in the machine
-// home's project directory, whether its product.repository names the
-// repository the project's binding names. Discovery finds such a configuration
-// by the binding, and everything that works in a repository — worktrees, the
-// target branch, the checks, the tracker, the state-root marker — reads
-// product.repository, so the two disagreeing is a project found from one clone
-// and worked in another. `yoyo project bind` points the file at the clone it
-// binds; a disagreement left from a bind made before it did, or from an edit by
-// hand, is what this reports. A configuration committed in its repository says
-// nothing here: its product.repository is the clone it is read from.
+// checkKeptConfigurationBinding reports, of a configuration kept in the
+// machine home's project directory, whether its file's product.repository
+// names the repository the project's binding names. The binding decides which
+// repository the project is (the configuration loader holds every command to
+// it, config.Resolved.followBinding), so a file naming another repository —
+// edited by hand, or left by a bind made before bind rewrote it — sends no work
+// astray; it is out of date, and a person reading it would be misled. So it is
+// a warning, with the bind that rewrites the file as its remedy. A
+// configuration committed in its repository says nothing here: its
+// product.repository is the clone it is read from.
 func (d *diagnosis) checkKeptConfigurationBinding(resolved config.Resolved, repository string) []Finding {
-	root, err := d.stateRootPath()
-	if err != nil {
+	if resolved.BindingPath == "" {
 		return nil
 	}
 	productID := string(resolved.Config.Product.ID)
-	kept := filepath.Join(home.ProjectDirectory(root, productID), home.ConfigFileName)
-	if !home.SameDirectory(resolved.Path, kept) {
-		return nil
-	}
-	binding, found, err := home.ReadBinding(root, productID)
-	if err != nil {
-		return []Finding{{
-			Check:   "binding",
-			Status:  StatusProblem,
-			Summary: fmt.Sprintf("the binding of %s could not be read, so which repository its configuration describes cannot be checked", productID),
-			Detail:  err.Error(),
-			Remedy:  fmt.Sprintf("%s --product %s --directory %s", home.BindCommand, productID, shellQuote(repository)),
-		}}
-	}
-	if !found {
-		// A first start binds it to product.repository, so there is nothing
-		// for the two to disagree about yet.
-		return nil
-	}
-	common, err := home.CommonGitDirectory(repository)
-	if err == nil && common != "" && home.SameDirectory(common, binding.GitCommonDirectory) {
+	if resolved.ConfiguredRepository == "" {
 		return []Finding{{
 			Check:   "binding",
 			Status:  StatusOK,
-			Summary: fmt.Sprintf("the configuration kept at %s names %s, the repository %s is bound to", kept, repository, productID),
+			Summary: fmt.Sprintf("the configuration kept at %s names %s, the repository %s is bound to", resolved.Path, repository, productID),
 		}}
 	}
-	bound := home.RepositoryOf(binding.GitCommonDirectory)
 	return []Finding{{
 		Check:  "binding",
-		Status: StatusProblem,
-		Summary: fmt.Sprintf("the configuration kept at %s names %s as product.repository, but %s is bound to %s, so it is found from %s and works in %s",
-			kept, repository, productID, bound, bound, repository),
-		Detail: fmt.Sprintf("the binding is recorded in %s; worktrees, the target branch, the checks, the tracker, and the state-root marker are all read in product.repository. "+
-			"The command below points the configuration at %s; to keep %s instead, run `%s --product %s --replace` from %s",
-			home.BindingPath(root, productID), bound, repository, home.BindCommand, productID, repository),
-		Remedy: fmt.Sprintf("%s --product %s --directory %s", home.BindCommand, productID, shellQuote(bound)),
+		Status: StatusWarning,
+		Summary: fmt.Sprintf("the configuration kept at %s names %s as product.repository, but %s is bound to %s; every command uses %s, and the file is out of date",
+			resolved.Path, resolved.ConfiguredRepository, productID, repository, repository),
+		Detail: fmt.Sprintf("the binding is recorded in %s, and it decides which repository the project is: worktrees, the target branch, the checks, the tracker, and the state-root marker are all worked in %s. "+
+			"The command below rewrites product.repository in the file to match; to make %s the project's instead, run `%s --product %s --replace` from it",
+			resolved.BindingPath, repository, resolved.ConfiguredRepository, home.BindCommand, productID),
+		Remedy: fmt.Sprintf("%s --product %s --directory %s", home.BindCommand, productID, shellQuote(repository)),
 	}}
 }
 

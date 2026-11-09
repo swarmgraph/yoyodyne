@@ -727,11 +727,17 @@ Four things are worth knowing about it:
   `product.repository` at this clone in the same act, so worktrees, the target
   branch, the checks, and the tracker are all worked here from then on, and it
   removes the old clone's state-root marker where that clone is still there,
-  so nothing started in it reads it as current. Nothing is edited by hand. A
-  configuration whose `product.repository` and binding name different clones —
-  left by a bind made before bind did this, or by an edit — is a problem
-  `yoyo doctor` reports under `binding`, naming both paths, with the same
-  command, run against the bound clone, as the remedy.
+  so nothing started in it reads it as current. Nothing is edited by hand.
+  **The binding decides which clone is the project's.** Where the
+  configuration's `product.repository` names a different clone anyway — left by
+  a bind made before bind rewrote it, or by an edit — every command uses the
+  clone the binding names, for worktrees, the target branch, the checks, the
+  tracker, the state-root marker, and the artifact folders alike, and
+  `yoyo config show --origins` gives `product.repository` the origin
+  `binding:` and the binding's path. The file is then out of date, which
+  `yoyo doctor` reports as a warning under `binding`, naming both paths, with
+  `yoyo project bind --product <product id> --directory <bound clone>` as the
+  command that rewrites it.
 - **`product.repository` is written absolute.** An external configuration has no
   project directory above it for a relative path to resolve against. The
   artifact directories are unaffected: `specifications`, `invariants`,
@@ -944,9 +950,9 @@ yoyo project rename <old> <new>            # move a project directory, and every
   `product.repository` to the repository it binds, leaving every other line as
   it was; run against the repository already bound, it does the same for a file
   that names another, and otherwise says there is nothing to bind. Where the
-  clone it unbinds is still there, it removes that clone's
-  `.git/yoyodyne/state-root` marker, if the marker names this home. A
-  configuration committed in its repository is not touched.
+  clone it unbinds, or the clone an out-of-date file named, is still there, it
+  removes that clone's `.git/yoyodyne/state-root` marker, if the marker names
+  this home. A configuration committed in its repository is not touched.
 - **`rename`** moves `projects/<old>/` to `projects/<new>/`. A configuration kept
   in the project directory has its `product.id` rewritten; a committed one must
   already read `<new>`, so the id in the repository and the directory never

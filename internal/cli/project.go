@@ -166,12 +166,27 @@ func bindProject(args []string, stdout, stderr io.Writer) int {
 			if err := kept.write(root.Path, productID); err != nil {
 				return fail(err)
 			}
+			// The clone the file used to name may still hold a marker naming
+			// this home from when commands worked there; it is not the
+			// project's, so the marker goes, as it does on a rebind.
+			released := ""
+			if old := kept.previousDirectory(); old != "" && !home.SameDirectory(old, before.Repository) {
+				if _, err := os.Stat(old); err == nil {
+					released, err = runstate.ReleaseRoot(old, root.Path)
+					if err != nil {
+						return fail(fmt.Errorf("pointed the configuration of %s at %s, and removing the state-root marker from %s failed: %w", productID, before.Repository, old, err))
+					}
+				}
+			}
 			if err := recordProjectAct(root.Path, productID, projectAct{Act: "bind", From: kept.previous, To: before.Repository}); err != nil {
 				return fail(err)
 			}
-			return reportBinding(stdout, stderr, *jsonOutput, productID, before, true, kept, "",
-				fmt.Sprintf("project %s is already bound to %s; product.repository in %s named %s and now reads %s",
-					productID, before.Repository, kept.path, kept.previous, kept.repository))
+			said := fmt.Sprintf("project %s is already bound to %s; product.repository in %s named %s and now reads %s",
+				productID, before.Repository, kept.path, kept.previous, kept.repository)
+			if released != "" {
+				said += fmt.Sprintf("; removed the state-root marker %s, which no command reads now that %s is not the project's", released, kept.previousDirectory())
+			}
+			return reportBinding(stdout, stderr, *jsonOutput, productID, before, true, kept, released, said)
 		}
 		if before.Present() && !*replace {
 			return fail(fmt.Errorf("project %s is bound to %s, which is still there; binding %s instead would point the project's records at another tree, "+
@@ -275,15 +290,23 @@ func keptConfigurationFollowing(root, productID, repository string) (keptConfigu
 		return keptConfiguration{}, fmt.Errorf("point product.repository in %s at %s: %w", path, repository, err)
 	}
 	kept.previous = previous
-	named := previous
-	if !filepath.IsAbs(named) {
-		named = filepath.Join(filepath.Dir(path), named)
-	}
-	if home.SameDirectory(named, repository) {
+	if home.SameDirectory(kept.previousDirectory(), repository) {
 		return kept, nil
 	}
 	kept.rewrite, kept.content = true, rewritten
 	return kept, nil
+}
+
+// previousDirectory is the directory the file's product.repository names now,
+// made absolute against the file's own directory as the loader resolves it.
+func (k keptConfiguration) previousDirectory() string {
+	if k.previous == "" {
+		return ""
+	}
+	if filepath.IsAbs(k.previous) {
+		return filepath.Clean(k.previous)
+	}
+	return filepath.Join(filepath.Dir(k.path), k.previous)
 }
 
 // write publishes the rewritten configuration in the project directory.

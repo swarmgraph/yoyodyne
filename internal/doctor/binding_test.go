@@ -75,9 +75,9 @@ func (w *world) bindTo(checkout string) {
 }
 
 // A configuration kept in the machine home that names one clone while the
-// binding names another is a project found from one and worked in the other;
-// the finding names both and the bind that puts it right.
-func TestTheBindingFindingIsAProblemWhenTheKeptConfigurationNamesAnotherClone(t *testing.T) {
+// binding names another is out of date, because every command uses the bound
+// clone; the finding warns, names both and the bind that puts the file right.
+func TestTheBindingFindingIsAWarningWhenTheKeptConfigurationNamesAnotherClone(t *testing.T) {
 	t.Parallel()
 
 	world := newWorld(t)
@@ -86,13 +86,16 @@ func TestTheBindingFindingIsAProblemWhenTheKeptConfigurationNamesAnotherClone(t 
 	world.bindTo(bound)
 
 	finding, found := findingFor(world.diagnoseConfiguration(path), "binding")
-	if !found || finding.Status != StatusProblem {
-		t.Fatalf("binding = %+v (found %v), want a problem", finding, found)
+	if !found || finding.Status != StatusWarning {
+		t.Fatalf("binding = %+v (found %v), want a warning", finding, found)
 	}
 	for _, want := range []string{named, bound} {
 		if !strings.Contains(finding.Summary, want) {
 			t.Errorf("binding summary %q does not name %q", finding.Summary, want)
 		}
+	}
+	if !strings.Contains(finding.Summary, "out of date") {
+		t.Errorf("binding summary %q does not say the file is out of date", finding.Summary)
 	}
 	for _, want := range []string{"yoyo project bind --product yoyodyne", bound} {
 		if !strings.Contains(finding.Remedy, want) {
