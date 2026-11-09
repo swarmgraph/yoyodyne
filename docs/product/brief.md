@@ -12,6 +12,11 @@ revisions:
       by: product-manager
       at: 2026-08-20T20:00:52Z
       reason: added the operations goal, drafted by the product manager as post-v1 intent and approved by the operator as drafted, asked one decision at a time on 2026-08-20; it gates nothing in v1
+    - action: amended
+      by: product-manager
+      at: 2026-11-09T06:14:58.159694Z
+      reason: 'yoyodyne-v3cy: intent: consistent. One sentence changes: ''routine per-change gates'' becomes ''routine approval of each change'', replacing a term of art with plain words under the plain-language goal. No goal is added, removed or reworded, so the goals admit and refuse exactly the work they did before.'
+      intent: consistent
 approvals:
     - revision: 0
       by: operator
@@ -21,8 +26,11 @@ approvals:
       by: operator
       at: 2026-08-20T20:12:20.136706Z
       reason: 'Approved by the operator on 2026-08-20, asked as one decision with amend and hold as alternatives: the operations bullet joins the brief as post-v1 intent, gating nothing in v1.'
+    - revision: 2
+      by: product-manager
+      at: 2026-11-09T06:14:58.159694Z
+      reason: yoyodyne-v3cy - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
 ---
-
 # Product brief
 
 Yoyo — the yoyodyne project — turns product intent into shipped software. Someone with a repository
@@ -44,7 +52,7 @@ dark — work is designed, built, reviewed, and integrated without a person
 watching each step, and no agent can push or merge to reach the outside world.
 The office is not. A person sets what the line is for. They state intent, approve
 the brief and the goals it becomes, and answer what gets escalated to them.
-Autonomy here is the absence of routine per-change gates, not the absence of a
+Autonomy here is the absence of routine approval of each change, not the absence of a
 human, and a system that never needed to ask its owner anything would be a
 system that had stopped taking direction.
 
