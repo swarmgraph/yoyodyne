@@ -31,6 +31,16 @@ import (
 // started from is already on the target, or was never committed to the branch.
 var ErrNothingToLift = errors.New("the preserved branch carries nothing past the target branch")
 
+// ErrLiftBranchGone is what a lift of a branch the repository no longer has
+// reports. The worktree was not touched.
+var ErrLiftBranchGone = errors.New("the preserved branch is not there to lift from")
+
+// ErrLiftDoesNotApply is what a lift of a change that no longer merges cleanly
+// with the target reports, once the worktree has been put back as it was cut. A
+// lift that could not put the worktree back does not report it, because that
+// worktree is no longer one a run can start from.
+var ErrLiftDoesNotApply = errors.New("the preserved change does not apply cleanly to the target branch")
+
 // Lift is what one lift put into a fresh worktree: the branch it came from and
 // the commit that branch stood at.
 type Lift struct {
@@ -70,7 +80,7 @@ func (m *Manager) LiftChange(ctx context.Context, worktree Worktree, branch stri
 	}
 	commit, err := m.resolveBranchCommit(ctx, branch)
 	if err != nil {
-		return Lift{}, fmt.Errorf("the preserved branch %s is not there to lift from: %w", branch, err)
+		return Lift{}, fmt.Errorf("%w: %s: %w", ErrLiftBranchGone, branch, err)
 	}
 	ahead, err := m.run(ctx, "-C", m.repositoryRoot, "rev-list", "--count", worktree.BaseCommit+".."+commit)
 	if err != nil {
@@ -87,12 +97,12 @@ func (m *Manager) LiftChange(ctx context.Context, worktree Worktree, branch stri
 		return Lift{}, err
 	}
 	if merged.Status != execution.ProcessSucceeded {
-		cause := fmt.Errorf("the change on %s at %s does not apply cleanly to %s (exit code %d): %s",
+		detail := fmt.Sprintf("the change on %s at %s does not apply cleanly to %s (exit code %d): %s",
 			branch, commit, worktree.BaseCommit, merged.ExitCode, strings.TrimSpace(merged.Stdout+"\n"+merged.Stderr))
 		if restoreErr := m.restoreLift(ctx, path); restoreErr != nil {
-			return Lift{}, errors.Join(cause, fmt.Errorf("put the worktree back as it was cut: %w", restoreErr))
+			return Lift{}, errors.Join(errors.New(detail), fmt.Errorf("put the worktree back as it was cut: %w", restoreErr))
 		}
-		return Lift{}, cause
+		return Lift{}, fmt.Errorf("%w: %s", ErrLiftDoesNotApply, detail)
 	}
 	return Lift{Branch: branch, Commit: commit}, nil
 }

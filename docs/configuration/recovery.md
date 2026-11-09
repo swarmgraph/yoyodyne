@@ -639,7 +639,8 @@ which.
 
 Recording a decision and carrying it out are two steps, and three of the eight
 decisions have an action for the second. Two of them are the opposite answers to
-a run that stopped: `yoyo triage rerun` starts the item over, and `yoyo triage
+a run that stopped: `yoyo triage rerun` starts the item over in a fresh run,
+from the change the stopped run kept where its branch is still there, and `yoyo triage
 repair` continues the run that stopped on the change it already has. The third,
 `yoyo triage rearm`, is about a publication rather than a run: it repeats the
 merge request the forge dropped. A fourth action carries out no decision:

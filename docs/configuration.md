@@ -3883,7 +3883,8 @@ nothing about the backlog rather than reporting zeroes it never looked up.
 
 A decided repair or re-run is fired by the same pass. One that builds on a
 change a run already wrote and kept — a repair of a stopped run whose branch or
-worktree is still there, or a re-run of a raised run whose branch is still there,
+worktree is still there, or a re-run of a run whose branch is still there,
+whatever stopped it, which starts from that change,
 like the harness's own continuations and a finished merge — takes a freed
 developer slot ahead of fresh work of any priority, whatever label the slot
 prefers, the highest priority first among several, and its reason names the
@@ -7268,7 +7269,8 @@ which.
 
 Recording a decision and carrying it out are two steps, and three of the eight
 decisions have an action for the second. Two of them are the opposite answers to
-a run that stopped: `yoyo triage rerun` starts the item over, and `yoyo triage
+a run that stopped: `yoyo triage rerun` starts the item over in a fresh run,
+from the change the stopped run kept where its branch is still there, and `yoyo triage
 repair` continues the run that stopped on the change it already has. The third,
 `yoyo triage rearm`, is about a publication rather than a run: it repeats the
 merge request the forge dropped. A fourth action carries out no decision:

@@ -2713,7 +2713,8 @@ promise about when the entry appears.
 An entry decides nothing, and the development manager is the role that does. It
 records one decision per entry, on the work item, through a `triage` action that
 names the run the entry is about: `repair` hands the item another bounded go at
-the change it has, `rerun` runs it again from the start, `rescope` splits out
+the change it has, `rerun` runs it again as a fresh run, from the change the
+stopped run kept where its branch is still there, `rescope` splits out
 what was refused as out of scope, `rearm` repeats a merge the forge dropped —
 or arms one nothing ever asked the forge for, which is also answered by
 `rerun` — `wait` says nothing is to be done yet, `escalate` hands it up the
@@ -3000,10 +3001,19 @@ two commands.
 
 `yoyo triage rerun <run-id>` starts a fresh run of the item whose stopped run the
 docket entry names — the case where the ground moved under a change that was
-never wrong — or whose raise it names, once the item's owner has released it,
-starting from the raising run's preserved change. It also takes a run the docket
-never held, such as a re-run the harness cancelled on its way out, and starts that
-run's item again from the target branch. It takes the run and nothing else: why the run exists is read from
+never wrong — or whose raise it names, once the item's owner has released it. It
+also takes a run the docket never held, such as a re-run the harness cancelled on
+its way out. **Where that run's branch is still there, whatever stopped it, the
+fresh run starts from the change it kept**: the worktree is cut from the target
+branch as every worktree is, what the branch carries past the target is applied
+to it uncommitted before the developer is invoked, and the run records the
+commit it started from. So a change that was finished and stopped only on
+something outside the work, such as a refused push, is carried forward rather
+than written again. Where the branch is gone, the fresh run starts from the
+target branch. Where the kept change no longer applies cleanly to the target, a
+re-run of a stopped run starts from the target branch instead, as every re-run
+of one used to, and records no commit it started from; a re-run of a raise ends
+there, because carrying that change forward is what it was for. It takes the run and nothing else: why the run exists is read from
 the recorded decision and cites it, so the account is one you can check.
 **Your hold on intake applies to it**,
 because the harness is the one choosing here and the exemption for an item named

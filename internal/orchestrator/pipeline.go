@@ -8784,6 +8784,9 @@ type ChangeLifter interface {
 // the failure a fresh run over a preserved change always had. The one ending
 // that is not a failure is a branch carrying nothing past the target: there is
 // no change to start from, so the run starts from the target as any run does.
+// A lift that may fall back to the target (runstate.Lift.FallBackToTarget) does
+// the same where the change no longer applies cleanly or its branch has gone,
+// and the record shows it by naming no lifted commit.
 func (a *activeRun) liftPreserved(ctx context.Context) error {
 	selection := a.state.Selection
 	if selection == nil || selection.Lift == nil {
@@ -8796,6 +8799,9 @@ func (a *activeRun) liftPreserved(ctx context.Context) error {
 	}
 	lifted, err := lifter.LiftChange(ctx, a.worktree, lift.Branch)
 	if errors.Is(err, gitworktree.ErrNothingToLift) {
+		return nil
+	}
+	if lift.FallBackToTarget && (errors.Is(err, gitworktree.ErrLiftDoesNotApply) || errors.Is(err, gitworktree.ErrLiftBranchGone)) {
 		return nil
 	}
 	if err != nil {

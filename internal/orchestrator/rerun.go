@@ -714,8 +714,9 @@ func docketedRaise(docket RerunDocket, priorRunID string) (triage.Entry, bool, e
 // It asks less than stoppageIsOver, which the repair and the integration resume
 // still ask, and deliberately. Those two continue the run's own change, so a run
 // that left no blocker and no change has nothing for them to continue. A re-run
-// continues nothing: it starts the item again from the target branch. A run that
-// ended carrying no blocker and leaving no branch or worktree — a run that failed
+// continues no run: it starts the item again, from the change the run kept where
+// its branch is still there (liftOf) and from the target branch where it is
+// not. A run that ended carrying no blocker and leaving no branch or worktree — a run that failed
 // and cleaned up after itself, a raise, a run the docket never held — is
 // therefore one a recorded re-run can always be carried out on. Refusing it was
 // a decision the harness would never carry out and nobody could withdraw, which
@@ -747,16 +748,27 @@ func raiseReleased(item beads.WorkItem, prior runstate.State) error {
 		item.ID, singleLine(item.Parking.Reason(), 300), prior.RunID)
 }
 
-// liftOf is the preserved change a re-run of a raise starts from, where one
-// stands: the branch the raising run's record says is still there. A re-run of a
-// stopped run starts from the target as it always has — the ground moved under
-// that change, which is why it is being run again — and so does a raise whose
-// branch is gone.
+// liftOf is the preserved change a re-run starts from, where one stands: the
+// branch the earlier run's record names and the repository still has, whatever
+// ended that run. A run whose branch is gone leaves nothing to start from, and
+// its re-run starts from the target.
+//
+// The Lead Product Manager decided on October 27, 2026 that a re-run starting
+// from a change a run already wrote and kept is work on that change, and the
+// schedule takes such work ahead of fresh work (keptChange). Starting from the
+// kept change is what makes that true of a re-run: a run that finished its
+// change and stopped only on something outside the work, such as a refused
+// push, is not thrown away and written again.
+//
+// A re-run of a raise keeps to its change: it was started to carry that change
+// forward once its item was amended. A re-run of any other stopped run falls
+// back to the target where the change no longer applies cleanly or its branch
+// went in the meantime, which is where every such re-run used to start.
 func liftOf(prior runstate.State, preserved runstate.PreservedArtifacts) *runstate.Lift {
-	if !prior.Escalated() || strings.TrimSpace(preserved.Branch) == "" {
+	if strings.TrimSpace(preserved.Branch) == "" {
 		return nil
 	}
-	return &runstate.Lift{RunID: prior.RunID, Branch: preserved.Branch}
+	return &runstate.Lift{RunID: prior.RunID, Branch: preserved.Branch, FallBackToTarget: !prior.Escalated()}
 }
 
 // docketedStoppage finds the docketed stoppage of one run, for whichever action

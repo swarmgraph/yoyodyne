@@ -3137,7 +3137,7 @@ this: a failure was returned to it, so it is re-entered as a repair.
 
 Until 2026-09-23 the repair was refused for a stoppage like that, for want of a
 repair input, which left a re-run as the only decision that could be carried
-out — and a re-run starts the item over from the target branch, discarding the
+out — and a re-run then started the item over from the target branch, discarding the
 session and whatever the stalled attempt had left uncommitted in the preserved
 worktree. `yoyo triage rerun` is still the right verb where the ground has moved
 and the work is to be done again; it is no longer the only one available.
@@ -4263,8 +4263,8 @@ forge and no amount of time changes it, and she decides it one of two ways:
   gate and spending nothing, where the request's head is behind its target, a
   check on its head is failing, the forge's merge state names something only a
   person can supply, or the checks could not be read.
-- **A re-run**, which hands the change back for a fresh run from the target
-  branch. Once it is carried out, the prior run's record marks its publication
+- **A re-run**, which hands the change back for a fresh run, started from the
+  change on its branch where that branch is still there. Once it is carried out, the prior run's record marks its publication
   handed back (`handed_back` on the pull request), and from then on nothing
   names it: it is not docketed again, on its age or otherwise, `yoyo status`'s
   fourth line drops it from under `Waiting on the development manager`, and the heartbeat stops counting it as awaiting the

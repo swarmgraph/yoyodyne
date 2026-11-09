@@ -206,25 +206,23 @@ func TestAPriorityZeroItemPassedOverOnItsProseNamesTheSentenceItRead(t *testing.
 // change, and a decided recovery then wins only a tie. A ready item at a higher
 // priority than the recovery's item takes the free slot first; the recovery
 // waits, says on its item and on the pass's own account which work went first,
-// and takes the next slot. A re-run of a stopped run starts over from the target
-// whether or not the stopped run's branch is still there, so it is fresh work and
-// waits too. The reported case was a priority-0 fix (yoyodyne-94j) standing
-// behind re-runs at priorities 1 to 3; the priority-1 work beside a priority-2
-// recovery is the same rule below the top. A repair of a kept change is the
-// exception (keptchange_priority_test.go).
+// and takes the next slot. A re-run of a stopped run that kept no branch starts
+// over from the target, so it is fresh work and waits too. The reported case was
+// a priority-0 fix (yoyodyne-94j) standing behind re-runs at priorities 1 to 3;
+// the priority-1 work beside a priority-2 recovery is the same rule below the
+// top. A repair or re-run of a kept change is the exception
+// (keptchange_priority_test.go).
 func TestAReadyItemOfHigherPriorityStartsAheadOfADecidedRecovery(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
 		name            string
 		fresh, recovery int
-		preserved       bool
 		decision        string
 	}{
 		{name: "p0-fresh-p1-rerun", fresh: 0, recovery: 1, decision: runstate.TriageDecisionRerun},
 		{name: "p0-fresh-p1-repair-of-nothing-kept", fresh: 0, recovery: 1, decision: runstate.TriageDecisionRepair},
 		{name: "p1-fresh-p2-rerun", fresh: 1, recovery: 2, decision: runstate.TriageDecisionRerun},
-		{name: "p1-fresh-p2-preserved-rerun", fresh: 1, recovery: 2, preserved: true, decision: runstate.TriageDecisionRerun},
 	} {
 		for _, capacity := range []int{1, 2} {
 			t.Run(fmt.Sprintf("%s-%d-slots", test.name, capacity), func(t *testing.T) {
@@ -235,9 +233,6 @@ func TestAReadyItemOfHigherPriorityStartsAheadOfADecidedRecovery(t *testing.T) {
 				)
 				harness.capacity = capacity
 				harness.ReadyItems["yoyodyne-xdj"] = false
-				if test.preserved {
-					harness.stoppages = preservedStoppage("yoyodyne-xdj")
-				}
 				fired := map[string]bool{}
 				task := decidedTask("yoyodyne-xdj")
 				task.Decision = test.decision
