@@ -1642,6 +1642,15 @@ type PullRequest struct {
 	// Feedback is what the checks of the forge have read of the reviews and
 	// comments on this request (forgefeedback.go). Absent until one has read it.
 	Feedback *PullRequestFeedback `json:"feedback,omitempty"`
+	// Wrote is the forge's identifier for each comment and review the harness
+	// wrote on this request, in the form feedback is identified by
+	// (FeedbackID), kept as the forge answered each write. Reading feedback
+	// ignores what is listed here as well as what carries the factory's mark,
+	// so a comment of the harness's whose mark a person edited out is still
+	// never read back as that person's (PullRequest.RecordWrite). It is held
+	// behind a pointer, as Feedback is, so a publication record stays a value
+	// that can be compared whole.
+	Wrote *ForgeWrites `json:"wrote,omitempty"`
 }
 
 // PublicationHandBack records a publication handed back for a fresh run: when,
@@ -4453,6 +4462,11 @@ func (s State) Validate() error {
 	if s.PullRequest != nil && s.PullRequest.Feedback != nil {
 		if err := s.PullRequest.Feedback.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("pull_request.feedback: %w", err))
+		}
+	}
+	if s.PullRequest != nil {
+		if err := s.PullRequest.validateWrote(); err != nil {
+			problems = append(problems, fmt.Errorf("pull_request.wrote: %w", err))
 		}
 	}
 	if s.ChecksPassed != nil {

@@ -164,6 +164,9 @@ type PullRequestSuperseded struct {
 	Vehicle string
 	State   string
 	At      time.Time
+	// Wrote is the forge's identifier for the comment the close left, in the
+	// form PullRequest.Wrote keeps, where the forge named one.
+	Wrote string
 }
 
 func (u PullRequestSuperseded) apply(state *State) (bool, error) {
@@ -174,6 +177,9 @@ func (u PullRequestSuperseded) apply(state *State) (bool, error) {
 	superseded := *published
 	superseded.Superseded = u.Vehicle
 	superseded.State = u.State
+	if u.Wrote != "" {
+		superseded.RecordWrite(u.Wrote)
+	}
 	state.PullRequest = &superseded
 	state.UpdatedAt = u.At
 	return true, nil

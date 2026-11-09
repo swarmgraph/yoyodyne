@@ -13,7 +13,8 @@ import (
 // A change published for a person to merge sits open on the forge, where
 // anybody who can read it can review it or comment on it. Each check of the
 // forge reads what was said after the latest head the harness pushed, leaving
-// out what the factory's own forge account wrote, and sorts it by kind:
+// out what a factory of this product wrote (PullRequest.Wrote, and the mark
+// factory.Identity.Mark describes), and sorts it by kind:
 //
 //   - A review that requests changes, or a comment on a line of the change, is
 //     somebody asking for the change to be different. It starts a repair round
@@ -86,6 +87,10 @@ const (
 	// maxFeedbackCursorIDs bounds the identifiers kept for the one moment the
 	// cursor stands at.
 	maxFeedbackCursorIDs = 50
+	// MaxForgeWrites bounds the identifiers a request's record keeps of what the
+	// harness wrote on it; the oldest goes first. The harness writes a handful of
+	// comments on a request in its life, so the bound is never reached in use.
+	MaxForgeWrites = 50
 )
 
 // feedbackIDPattern is the shape of a piece of feedback's identifier: what
@@ -96,6 +101,61 @@ var feedbackIDPattern = regexp.MustCompile(`^(review|line-comment|comment)-[0-9]
 // on the request, from the forge's number for it.
 func FeedbackID(what string, number int64) string {
 	return fmt.Sprintf("%s-%d", what, number)
+}
+
+// ForgeWrites is the forge's identifier for each comment and review the
+// harness wrote on one pull request (PullRequest.Wrote).
+type ForgeWrites struct {
+	IDs []string `json:"ids"`
+}
+
+// RecordWrite keeps the forge's identifier for a comment or review the harness
+// wrote on the request, once, newest last, within MaxForgeWrites. An identifier
+// that is not one is not kept.
+func (p *PullRequest) RecordWrite(id string) {
+	if p == nil || !feedbackIDPattern.MatchString(id) || p.WroteIt(id) {
+		return
+	}
+	// A new list each time, so a copy of the record taken before this write
+	// keeps the list it had.
+	ids := []string{id}
+	if p.Wrote != nil {
+		ids = append(append([]string(nil), p.Wrote.IDs...), id)
+	}
+	if len(ids) > MaxForgeWrites {
+		ids = ids[len(ids)-MaxForgeWrites:]
+	}
+	p.Wrote = &ForgeWrites{IDs: ids}
+}
+
+// WroteIt reports a comment or review the harness recorded writing on the
+// request.
+func (p *PullRequest) WroteIt(id string) bool {
+	if p == nil || p.Wrote == nil {
+		return false
+	}
+	for _, wrote := range p.Wrote.IDs {
+		if wrote == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (p PullRequest) validateWrote() error {
+	if p.Wrote == nil {
+		return nil
+	}
+	var problems []error
+	if len(p.Wrote.IDs) > MaxForgeWrites {
+		problems = append(problems, fmt.Errorf("at most %d are kept", MaxForgeWrites))
+	}
+	for _, id := range p.Wrote.IDs {
+		if !feedbackIDPattern.MatchString(id) {
+			problems = append(problems, fmt.Errorf("%q is not a forge review or comment identifier", id))
+		}
+	}
+	return errors.Join(problems...)
 }
 
 // ForgeFeedbackItem is one piece of feedback as the forge recorded it: who

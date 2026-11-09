@@ -806,10 +806,11 @@ func buildRerunner(configPath string) (orchestrator.Rerunner, error) {
 // repairContinuerFrom for why the scheduling pass needs it that way round.
 func rerunnerFrom(parts components) orchestrator.Rerunner {
 	return orchestrator.Rerunner{
-		Docket: parts.docket,
-		Runs:   parts.store,
-		Intake: parts.intake,
-		Reruns: parts.store.Reruns(),
+		Factory: factoryIdentities(parts),
+		Docket:  parts.docket,
+		Runs:    parts.store,
+		Intake:  parts.intake,
+		Reruns:  parts.store.Reruns(),
 		// The same per-item counters the development manager's decision spends and
 		// `yoyo status` reports, so what proves the decision was made and what an
 		// operator reads about it can never be two different records.

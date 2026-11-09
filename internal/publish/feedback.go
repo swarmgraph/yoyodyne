@@ -52,15 +52,14 @@ type FeedbackComment struct {
 	URL    string
 }
 
-// FeedbackReading is everything said on one pull request, and the forge
-// account that opened it, which is the account the factory acts as: the
-// harness opens every request it publishes, under the access the forge CLI
-// holds.
+// FeedbackReading is everything said on one pull request. Which of it the
+// harness wrote is told by the mark on it and the run's record of what it
+// wrote, never by the account that wrote it, so the reading does not name the
+// account that opened the request (orchestrator's forgefeedback.go, ownWords).
 type FeedbackReading struct {
 	Number int
 	// State is the request's state as the forge names it, such as OPEN.
 	State        string
-	Opener       string
 	Reviews      []FeedbackReview
 	LineComments []FeedbackComment
 	Comments     []FeedbackComment
@@ -83,7 +82,7 @@ func (g GitHub) Feedback(ctx context.Context, number int) (FeedbackReading, erro
 	// reading is Unchanged where the forge said so of all four.
 	unchanged := g.Responses != nil
 	requestEndpoint := fmt.Sprintf("repos/{owner}/{repo}/pulls/%d", number)
-	requestSelection := "{state: .state, merged: .merged, opener: .user.login}"
+	requestSelection := "{state: .state, merged: .merged}"
 	var requestBody string
 	if g.Responses != nil {
 		answer, err := g.conditionalRead(ctx, requestEndpoint, requestSelection)
@@ -104,7 +103,6 @@ func (g GitHub) Feedback(ctx context.Context, number int) (FeedbackReading, erro
 	var head struct {
 		State  string `json:"state"`
 		Merged bool   `json:"merged"`
-		Opener string `json:"opener"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(requestBody)), &head); err != nil {
 		return FeedbackReading{}, fmt.Errorf("decode pull request %d: %w", number, err)
@@ -113,7 +111,6 @@ func (g GitHub) Feedback(ctx context.Context, number int) (FeedbackReading, erro
 	if head.Merged {
 		reading.State = "MERGED"
 	}
-	reading.Opener = strings.TrimSpace(head.Opener)
 
 	type entry struct {
 		ID        int64  `json:"id"`

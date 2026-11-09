@@ -494,7 +494,8 @@ func conversationPublications(parts components, role domain.AgentRole) chat.Stop
 		return nil
 	}
 	decider := orchestrator.DocumentDecider{
-		Runs: parts.store,
+		Runs:    parts.store,
+		Factory: factoryIdentities(parts),
 		Publications: publish.GitHub{
 			Runner:       parts.runner,
 			Dir:          parts.repository,

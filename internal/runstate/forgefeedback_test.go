@@ -53,3 +53,37 @@ func TestFeedbackAskingForARepairIsNeverReadPast(t *testing.T) {
 		t.Fatal("PutBackForFeedback changed the record it was given")
 	}
 }
+
+// The list of what the harness wrote on a request keeps each forge identifier
+// once, refuses what is not one, keeps the newest within its bound, and never
+// changes a copy of the record taken before a write.
+func TestARequestsListOfHarnessWritesKeepsEachIdentifierOnce(t *testing.T) {
+	t.Parallel()
+
+	var published PullRequest
+	before := published
+	published.RecordWrite(FeedbackID("comment", 7))
+	published.RecordWrite(FeedbackID("comment", 7))
+	published.RecordWrite("not an identifier")
+	if !published.WroteIt("comment-7") || published.WroteIt("review-7") || len(published.Wrote.IDs) != 1 || before.Wrote != nil {
+		t.Fatalf("Wrote = %+v (copy before: %+v), want comment-7 alone and the copy untouched", published.Wrote, before.Wrote)
+	}
+	kept := published
+	published.RecordWrite(FeedbackID("review", 8))
+	if len(kept.Wrote.IDs) != 1 || !published.WroteIt("review-8") {
+		t.Fatalf("a write changed a copy of the record taken before it: %+v", kept.Wrote)
+	}
+	for number := int64(100); number < 100+MaxForgeWrites+5; number++ {
+		published.RecordWrite(FeedbackID("comment", number))
+	}
+	if len(published.Wrote.IDs) != MaxForgeWrites || published.WroteIt("comment-7") || !published.WroteIt(FeedbackID("comment", 100+MaxForgeWrites+4)) {
+		t.Fatalf("Wrote holds %d, want the newest %d", len(published.Wrote.IDs), MaxForgeWrites)
+	}
+	if err := published.validateWrote(); err != nil {
+		t.Fatalf("validateWrote() = %v", err)
+	}
+	published.Wrote.IDs = append(published.Wrote.IDs[1:], "pull-7")
+	if err := published.validateWrote(); err == nil {
+		t.Fatal("validateWrote() accepted an identifier that is not a forge comment or review")
+	}
+}

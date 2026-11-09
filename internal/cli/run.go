@@ -921,6 +921,7 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		ConfigFiles:   parts.worktrees,
 		ConfigReaders: landingConfigReaders(parts.stateRoot, parts.config.Product.ID),
 		Publisher:     forge,
+		Factory:       factoryIdentities(parts),
 		// A merge the forge still holds is read with its checks, and a red one is
 		// withdrawn before it is handed back or brought up to date.
 		Checks: forge,
@@ -1556,7 +1557,7 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 		held.Forge = forge
 		// Once the queue lands a change, the run's own pull request and the
 		// queue's candidate branch are closed and deleted on the forge.
-		promoter.Retire = orchestrator.MergeQueuePublicationRetirer{Store: parts.store, Forge: forge, Branches: parts.worktrees}
+		promoter.Retire = orchestrator.MergeQueuePublicationRetirer{Store: parts.store, Forge: forge, Branches: parts.worktrees, Factory: factoryIdentities(parts)}
 	}
 	return orchestrator.MergeQueueDriver{
 		Held: held,

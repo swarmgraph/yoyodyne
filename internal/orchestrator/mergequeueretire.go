@@ -42,6 +42,9 @@ type MergeQueuePublicationRetirer struct {
 	Branches SupersededBranches
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+	// Factory names the factory in the hidden line its close comments end with
+	// (forgeMark). Nil names the run's product alone.
+	Factory FactoryIdentities
 }
 
 var _ MergeQueueRetirement = MergeQueuePublicationRetirer{}
@@ -95,6 +98,7 @@ func (r MergeQueuePublicationRetirer) retireRunRequest(ctx context.Context, entr
 			"",
 			"The queue built a candidate of the target with this change merged onto it, ran the project's checks on that candidate, and had an independent reviewer approve it; nothing here is pending review or waiting to merge, and the branch this request carries is being deleted with it.",
 		}, "\n"),
+		Mark: forgeMark(ctx, r.Factory, run.ProductID, entry.ProductID),
 	})
 	if err != nil {
 		return fmt.Errorf("close pull request %d of run %s: %w", published.Number, entry.RunID, err)
@@ -116,7 +120,7 @@ func (r MergeQueuePublicationRetirer) retireRunRequest(ctx context.Context, entr
 		return nil
 	}
 	if _, err := r.Store.Update(ctx, entry.RunID, runstate.PullRequestSuperseded{
-		Number: published.Number, Vehicle: vehicle, State: nonEmpty(closure.State, "CLOSED"), At: r.now(),
+		Number: published.Number, Vehicle: vehicle, State: nonEmpty(closure.State, "CLOSED"), At: r.now(), Wrote: closeCommentID(closure),
 	}); err != nil {
 		return fmt.Errorf("record on run %s that its pull request was closed: %w", entry.RunID, err)
 	}
