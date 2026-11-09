@@ -648,8 +648,11 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		// configuration is named rather than a conversation handed over, because a
 		// conversation is opened per message: see productManagerConversation.
 		Conversation: productManagerConversation{configPath: configPath, log: log},
-		Poll:         poll,
-		Log:          log,
+		// How long a turn taken from the channel may take, which is the Lead
+		// Product Manager's own time_limits.slack_turn or the harness's figure.
+		ConversationDeadline: slackTurnLimit(resolved.Config),
+		Poll:                 poll,
+		Log:                  log,
 	})
 	if err != nil {
 		return nil, "", err
@@ -1123,4 +1126,11 @@ func slackDocket(stateRoot string, productID domain.ProductID) readmodel.Docket 
 		return nil
 	}
 	return store
+}
+
+// slackTurnLimit is how long a turn taken from the channel may take: the Lead
+// Product Manager's own time_limits.slack_turn, since hers is the only
+// conversation the channel reaches, or the harness's figure.
+func slackTurnLimit(cfg config.Config) time.Duration {
+	return agentForRole(cfg, domain.RoleProductManager).TimeLimits.SlackTurnLimit()
 }

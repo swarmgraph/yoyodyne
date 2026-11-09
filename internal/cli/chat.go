@@ -1011,6 +1011,12 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// here, rather than through the operator or through a work item.
 		Exchanges:           conversationExchanges(parts, conversationAuthority(role, p.agent), provider, p.runner),
 		AskRoundsPerMessage: cfg.Exchange.MaxRounds,
+		// How long one turn and one message of this agent's may take, which is
+		// its own time_limits block or the harness's figures where it states
+		// none. The turn limit is each provider invocation's total time; the
+		// provider's own limit on a session that says nothing still applies.
+		Timeout:       agent.TimeLimits.TurnLimit(),
+		MessageBudget: agent.TimeLimits.MessageBudget(),
 		// The durable budget the development manager's triage decisions spend.
 		// It is wired for that role alone, like the docket those decisions are
 		// about, so a repair grant or a re-run is bounded by what the operator

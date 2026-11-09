@@ -69,7 +69,7 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 			return titles
 		},
 		Reports:            parts.store.Sweeps(),
-		Roles:              roleConversation{configPath: configPath, stderr: stderr},
+		Roles:              roleConversation{configPath: configPath, stderr: stderr, config: parts.config},
 		MissingReportLimit: parts.config.Execution.MissingReportLimit(),
 		ConversationWork: sweepConversationWork{
 			items: withTrackerRecords(chatTracker(parts.runner, parts.repository), parts.trackerListings, parts.trackerSlowCalls),
@@ -570,6 +570,9 @@ type roleConversation struct {
 	// timeout is a test's shorter bound; production shares the conversation's
 	// turn bound, including the time spent waiting for its hold.
 	timeout time.Duration
+	// config is the configuration the trigger was built from, read for the
+	// woken agent's turn limit.
+	config config.Config
 }
 
 // Wake puts one message into a role's conversation and reads the account it gave
@@ -597,7 +600,7 @@ type roleConversation struct {
 func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent, pass, model, message string, options orchestrator.RecurringTurnOptions) (orchestrator.Turn, error) {
 	bound := r.timeout
 	if bound <= 0 {
-		bound = chat.DefaultTurnTimeout
+		bound = r.turnLimit(role, agent)
 	}
 	ctx, cancel := context.WithTimeout(ctx, bound)
 	defer cancel()
@@ -797,6 +800,16 @@ func passNotOpened(err error) error {
 		return unreachable
 	}
 	return &orchestrator.NotStartedError{Cause: runstate.PreTurnConversationUnopened, Err: unreachable}
+}
+
+// turnLimit is the woken agent's configured turn limit, which is the harness's
+// figure for an agent that states none and for one the configuration does not
+// name, whose opening is refused on its own account.
+func (r roleConversation) turnLimit(role domain.AgentRole, agent string) time.Duration {
+	if _, configured, err := conversationAgent(r.config, role, agent); err == nil {
+		return configured.TimeLimits.TurnLimit()
+	}
+	return chat.DefaultTurnTimeout
 }
 
 func (r roleConversation) opener() func(context.Context, domain.AgentRole, string, string, orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {

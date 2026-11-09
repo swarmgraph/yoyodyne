@@ -28,6 +28,9 @@ var roleApplicableKeys = []string{
 	"execution.integration_retries_before_reconciliation",
 	"execution.transient_relaunches_before_blocking",
 	"execution.forge_check_interval",
+	// How long an agent's turns and calls may take changes how work is done and
+	// never what the agent may do; every value is held to its range on load.
+	"agents.*.time_limits",
 }
 
 // operatorKeyReasons says why a key that is never a role's is the operator's,
