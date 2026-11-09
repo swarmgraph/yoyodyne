@@ -19,16 +19,18 @@ const unreservedRefusal = "had already started a run of the item that had not ye
 // came back. Here the first attempt at a decided re-run is still going when the
 // session's wait wakes on its poll interval, the store then fails to answer for
 // one pull, and the attempt comes back refused while the session waits that
-// out. Neither wait collected it, so until every pull opened by collecting the
-// starts that had ended, the next pull still counted it as a start in progress
-// and passed the decided re-run over for it.
+// out. Neither wait collected it, so until a start's ending was noted as its
+// goroutine finished, the next pull still counted it as a start in progress and
+// passed the decided re-run over for it.
 func TestADecidedRerunIsNotRefusedForAnEarlierStartThatEndedWithoutReserving(t *testing.T) {
 	t.Parallel()
 
 	harness := newScheduleHarness()
 	harness.capacity = 1
-	// The session's wait on its own start wakes on this interval, in real time.
-	harness.poll = 10 * time.Millisecond
+	// The session's wait on its own start wakes on this interval, in real time:
+	// long enough that the second attempt, which returns at once, is collected
+	// before the pull after it rather than read there as still going.
+	harness.poll = 250 * time.Millisecond
 	fired := map[string]bool{}
 	harness.outstanding = outstandingUntilFired(fired, decidedTask("yoyodyne-ifd.346"))
 
@@ -89,17 +91,26 @@ func TestADecidedRerunIsNotRefusedForAnEarlierStartThatEndedWithoutReserving(t *
 	}
 	harness.mu.Lock()
 	defer harness.mu.Unlock()
-	for pull, passed := range harness.passedOver {
+	// The first pull fired the first attempt, the second could not be opened,
+	// and the third is the first that read the first attempt as come back. What
+	// those pulls passed over is the whole question: a pull after the second
+	// attempt was fired may rightly pass the decision over for that attempt,
+	// which may not have run yet.
+	for pull, passed := range harness.passedOver[:min(2, len(harness.passedOver))] {
 		for run, why := range passed {
 			if strings.Contains(why, unreservedRefusal) {
-				t.Fatalf("pull %d passed run %s's decided re-run over for a start that had already come back: %q", pull, run, why)
+				t.Fatalf("account %d passed run %s's decided re-run over for a start that had already come back: %q", pull, run, why)
 			}
 		}
 	}
-	if attempts != 2 || !fired["yoyodyne-ifd.346"] {
-		t.Fatalf("attempts = %d, fired = %v; want the refused attempt and then the decided re-run carried out", attempts, fired)
+	if len(harness.passedOver) < 2 || len(schedule.Started) != 2 || !fired["yoyodyne-ifd.346"] {
+		t.Fatalf("accounts = %d, fired = %v; want the refused attempt and then the decided re-run carried out, two starts in all: %s", len(harness.passedOver), fired, schedule.Render())
 	}
-	if len(schedule.CarriedOut) != 1 || !schedule.CarriedOut[0].Carried {
+	carried := false
+	for _, out := range schedule.CarriedOut {
+		carried = carried || out.Carried
+	}
+	if !carried {
 		t.Fatalf("carried out = %#v, want the decided re-run carried out once the first attempt came back", schedule.CarriedOut)
 	}
 }

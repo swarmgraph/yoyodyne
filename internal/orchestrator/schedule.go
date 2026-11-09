@@ -1595,7 +1595,17 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// left blocked on a channel nobody reads any more.
 	abandoned := make(chan struct{})
 	defer close(abandoned)
+	// handedBack is the starts whose goroutine has finished and is handing its
+	// ending back, noted before the hand-over, which waits until the session
+	// next collects an ending. Each wait collects one ending at most, and a
+	// wait that wakes on the poll interval or on a store that would not answer
+	// collects none, so a start that failed or came back without reserving can
+	// stay on mine for several pulls. A decided recovery of its item reads this
+	// so it is not passed over for a start that has already ended
+	// (nextCarryOutsExcept).
+	handedBack := &startsHandedBack{}
 	deliver := func(done completed) {
+		handedBack.note(done.index)
 		select {
 		case completions <- done:
 		case <-abandoned:
@@ -2036,30 +2046,13 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// can take a run back differently from the others.
 	finish := func(done completed) {
 		running--
-		delete(mine, schedule.Started[done.index].WorkItemID)
+		forgetStart(mine, schedule.Started[done.index].WorkItemID, done.index)
+		handedBack.forget(done.index)
 		settle(done)
 		// Only a start that became a run held a slot anybody could see; one that
 		// was declined before it reserved anything frees nothing worth naming.
 		if started := schedule.Started[done.index]; started.Outcome.RunID != "" {
 			ended = append(ended, freedSlot{runID: started.Outcome.RunID, workItemID: started.WorkItemID, ours: true})
-		}
-	}
-
-	// collectEnded takes every start of this session that has already handed its
-	// ending back, without waiting for one that has not. Each wait below collects
-	// at most one ending, and a wait that wakes on the poll interval, or on a
-	// store that would not answer, collects none, so a start that failed or came
-	// back without reserving could otherwise stay on mine through pull after
-	// pull. Every pull calls this before it reads mine, so what it reads as this
-	// session's own starts in progress is only the ones still going.
-	collectEnded := func() {
-		for {
-			select {
-			case done := <-completions:
-				finish(done)
-			default:
-				return
-			}
 		}
 	}
 
@@ -2790,12 +2783,6 @@ pulling:
 			}
 			continue
 		}
-		// The starts of this session that have already handed their ending back are
-		// taken off the books here, before anything below reads mine as the starts
-		// it still has going. It is done here rather than at the top of the loop
-		// so a draining session still decides whether to restart on what its waits
-		// collected, as it always has.
-		collectEnded()
 		// A run paused on work its item waits on holds no developer slot, so it is
 		// taken out of what counts against the capacity here and kept only for the
 		// race guard below: its change is still in its worktree, and work started
@@ -3124,7 +3111,7 @@ pulling:
 		attempted := map[string]bool{}
 		_, declining := drain.declinesStarts(pull.Poll, s.now())
 		if !declining {
-			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked, precedence, attempted)
+			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, handedBack, waitingOn, closed, free, remaining, outranked, precedence, attempted)
 		} else if pull.CarryOut != nil {
 			// Nothing is attempted, and nothing is written onto the items, but the
 			// log still names each decision this pass left standing and why.
@@ -3229,7 +3216,7 @@ pulling:
 					break
 				}
 			}
-			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked, precedence, attempted)
+			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, handedBack, waitingOn, closed, free, remaining, outranked, precedence, attempted)
 			for _, task := range tasks {
 				schedule.unwaitCarryOut(task)
 			}
@@ -3993,7 +3980,7 @@ collecting:
 		select {
 		case done := <-completions:
 			running--
-			delete(mine, schedule.Started[done.index].WorkItemID)
+			forgetStart(mine, schedule.Started[done.index].WorkItemID, done.index)
 			settle(done)
 		case <-grace:
 			for id := range mine {
@@ -5715,7 +5702,7 @@ func (s Scheduler) corrected(schedule *Schedule, sweep CorrectionSweep, err erro
 // item's priority puts it. outranked says which decisions those are; nil says
 // none are, which is every decision before yoyodyne-ifd.428.58.
 func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool)) ([]CarryOutTask, map[string]string, []outrankedCarryOut) {
-	chosen, passed, pending, _ := s.nextCarryOutsExcept(schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked, nil, nil)
+	chosen, passed, pending, _ := s.nextCarryOutsExcept(schedule, pull, occupied, mine, nil, waitingOn, closed, free, remaining, outranked, nil, nil)
 	return chosen, passed, pending
 }
 
@@ -5726,7 +5713,7 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 // back to. precedence, where given, says which decisions build on a kept change,
 // whether a free dedicated slot is kept for its item's label, and at what
 // priority, and those are offered the slots first.
-func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool), precedence func(CarryOutTask) (bool, bool, int), attempted map[string]bool) (chosen []CarryOutTask, passed map[string]string, pending []outrankedCarryOut, slotBound bool) {
+func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, handedBack *startsHandedBack, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool), precedence func(CarryOutTask) (bool, bool, int), attempted map[string]bool) (chosen []CarryOutTask, passed map[string]string, pending []outrankedCarryOut, slotBound bool) {
 	if pull.CarryOut == nil {
 		return nil, nil, nil, false
 	}
@@ -5811,7 +5798,12 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 		// A carry-out this session has already dispatched still owns the item,
 		// including the gap before the pipeline acquires the run lease.
 		index, ours := mine[task.WorkItemID]
-		if busy && (!reusesSlot || ours) {
+		// One that has already ended and is only waiting to be collected does not:
+		// it failed, or came back without reserving, and nothing more will come of
+		// it, so the decision goes ahead exactly as it would once the session has
+		// collected that ending.
+		leftover := ours && state.RunID == "" && handedBack.has(index)
+		if busy && !leftover && (!reusesSlot || ours) {
 			var earlier *Started
 			if ours && index >= 0 && index < len(schedule.Started) {
 				earlier = &schedule.Started[index]
@@ -7499,6 +7491,49 @@ type freedSlot struct {
 	ours       bool
 }
 
+// startsHandedBack is the starts of one session, by their index on its
+// schedule, whose goroutine has finished and is handing its ending back. It is
+// written from each start's own goroutine and read by the session, so it is
+// guarded. A nil one holds nothing.
+type startsHandedBack struct {
+	mu      sync.Mutex
+	indices map[int]bool
+}
+
+func (h *startsHandedBack) note(index int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.indices == nil {
+		h.indices = make(map[int]bool)
+	}
+	h.indices[index] = true
+}
+
+func (h *startsHandedBack) forget(index int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.indices, index)
+}
+
+func (h *startsHandedBack) has(index int) bool {
+	if h == nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.indices[index]
+}
+
+// forgetStart takes one collected start off mine, where it is still the start mine
+// holds for its item. A decided recovery started beside a start that had
+// already ended (startsHandedBack) holds the item by then, and collecting the
+// earlier start's ending must not take the later one off with it.
+func forgetStart(mine map[string]int, id string, index int) {
+	if held, ok := mine[id]; ok && held == index {
+		delete(mine, id)
+	}
+}
+
 // occupiedWhy says why a decision about an item that has a run is passed over.
 // A run this session started and that has not reserved has no record yet, and
 // is said as that; a reserved run is named, with whose it is by the worker
@@ -7509,9 +7544,9 @@ type freedSlot struct {
 // is one. A start before its reservation is said with when it began, how long
 // ago that was, and what it was started to do, so a reader can tell a start
 // still on its way to reserving from one left behind. A start that failed or
-// came back without reserving is not said this way: every pull first collects
-// the starts that have handed their ending back (collectEnded in Schedule), so
-// such a start no longer stands over its item.
+// came back without reserving is not said this way: one whose goroutine has
+// finished no longer stands over its item (startsHandedBack), even before the
+// session has collected its ending.
 func occupiedWhy(runs ScheduleRuns, state runstate.State, earlier *Started, now time.Time) string {
 	if state.RunID == "" {
 		const why = "this session had already started a run of the item that had not yet reserved"
