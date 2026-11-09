@@ -1150,8 +1150,23 @@ type ChecksPassed struct {
 	// empty where they were told the whole module. Evidence from narrowed checks
 	// does not promote a change: the merge candidate is checked whole first, and
 	// that check's evidence replaces this.
-	Narrowed string    `json:"narrowed,omitempty"`
-	At       time.Time `json:"at"`
+	Narrowed string `json:"narrowed,omitempty"`
+	// WholeLeftToQueue is this run not checking its approved change over the
+	// whole module itself, because the merge queue is switched on and the
+	// harness's own queue checks the candidate it lands that way. Narrowed
+	// evidence carrying it admits the change to that queue and promotes
+	// nothing; the queue lands it only where its own checks of the candidate
+	// passed every check this evidence names. Where the queue will not check it
+	// after all — the forge's own queue would land it, or the switch was turned
+	// off — the run's promotion checks it whole first and replaces this
+	// evidence.
+	WholeLeftToQueue bool `json:"whole_left_to_queue,omitempty"`
+	// WholeBy names the queue run that checked the change whole in this run's
+	// place — the entry, the generation, and the commit it checked, which is
+	// the commit that landed — written by the queue when it lands the change.
+	// Empty until then, and for a run that checked its change whole itself.
+	WholeBy string    `json:"whole_by,omitempty"`
+	At      time.Time `json:"at"`
 }
 
 // Validate rejects evidence that cannot describe checks that actually ran.
@@ -2359,6 +2374,7 @@ func (s *State) recordedTexts() []recordedText {
 		// The package list a gate was narrowed to grows with the change, so it is
 		// held to the bound the stage's own record of it is.
 		unstated("checks_passed.narrowed", "checks_passed.narrowed", &s.ChecksPassed.Narrowed, MaxRecordedTextBytes)
+		unstated("checks_passed.whole_by", "checks_passed.whole_by", &s.ChecksPassed.WholeBy, MaxRecordedTextBytes)
 	}
 	own("check_stage_continuation_refused", &s.CheckStageContinuationRefused, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))
 	own("check_stage_continuation_wait_noted", &s.CheckStageContinuationWaitNoted, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))

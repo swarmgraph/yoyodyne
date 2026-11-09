@@ -187,7 +187,17 @@ back to the developer through `repair` with the matching prompt; any other
 `reviewChange` runs. Approve goes to `checkCandidateWhole`, which, where the
 checks were narrowed to the packages the change touches, runs them again over
 the merge candidate told the whole module (`verifyCandidate`) and hands a
-`checkFailure` back like any other; then the loop returns to
+`checkFailure` back like any other — except with the merge queue on
+(`queueChecksCandidateWhole`), where it only marks the evidence
+`WholeLeftToQueue`. Admission takes such a change only into the harness's own
+queue (`queuemode.Admitter.Only`); where it would choose the forge's
+(`queueElsewhere`), or the switch was turned off since, `promoteApproved` has
+`checkCandidateWhole` run the pass first, saying why (`wholeCheckOwedHere`,
+`wholeHereBecause`), and admits again. The queue checks such a candidate with
+every check the run left to it as well as the configured ones
+(`Pipeline.mergeQueueChecks`, `leftToQueue` in `mergequeuewhole.go`) and
+names its check on the run as the change lands (`mergeQueueWholeBy`);
+then the loop returns to
 `verifyReviewAndFinish`. Escalate
 returns `escalationRaised`; anything else is handed back with `repairPrompt`
 until `repairBudget` is spent, then `blockOnUnresolvedFindings`. Without
@@ -347,6 +357,7 @@ context bundle come from `internal/contextbundle`.
 | `mergequeueadmission.go` | `(*activeRun).admitToMergeQueue` — with `execution.merge_queue` on, called from `promoteApproved` in place of `integrate` for every run, a document's and a pinned file's included: the earned gate is read (`integrationEarned`), the approved change committed and admitted through `queuemode.Admitter`, and the run ended succeeded and waiting (`completeQueued`); a target that requires the forge's own merge queue, or whose protection cannot be read, holds the change instead (`holdFromMergeQueue`): the run stops at its promotion with cause `merge-queue-held` (`ErrMergeQueueHeld`), the item is blocked naming the setting, and one harness report is filed per condition (`reportMergeQueueHeld`) |
 | `mergequeuedriver.go` | `MergeQueueDriver` — what works the queues: `Pending` (queues with unfinished entries) and `Pass` (Recover, then Promote, then Work, until nothing more can move now; a forge merge dropped or held past `triage.stuck_merge_age` is withdrawn with `MergeQueuePromoter.Withdraw` and handed back to its run), and `TakeHeld` (`mergequeueheld.go`), recorded as `runstate.MergeQueuePass`. `ScheduleMergeQueues`, `startQueuePasses` and `collectQueuePasses` are how a `yoyo work` session runs one pass per queue beside its pulls |
 | `mergequeueheld.go` | `MergeQueueHeldChanges.Take` — takes up the changes the queue held: reads them off the docket, asks the forge again per target (`stands`), and once the requirement is gone or the switch is off clears the queue's refusal and resumes each held run at its promotion in the order they were held, through `IntegrationResumer` |
+| `mergequeuewhole.go` | the queue standing in for a run's whole check of its merge candidate: `leftToQueue`, the checks a run that left that to the queue (`runstate.ChecksPassed.WholeLeftToQueue`) adds to the queue's checks of its candidate; `mergeQueueStandsIn`, the promotion's last reading of the same before it lands; `mergeQueueWholeBy`, what the landed run records as the check that stood in |
 | `mergequeueretire.go` | `MergeQueuePublicationRetirer.Retire` — after a landing, deletes the queue's candidate branch and closes the run's own pull request and deletes its branch (`retireRunRequest`), recording `superseded` on the run |
 | `mergequeueevidence.go` | The worker's protected-path check over the exact candidate (`checkPaths`) and the base check of a check that failed on it (`checkBase`, `knownGreen`, `fileRedBase`) |
 | `mergequeuetransfer.go` | `MergeQueuePromoter.Transfer` — the explicit move of an entry between the harness's queue and the forge's: confirmed withdrawal, a release naming the mode, and readmission in the same place (`runstate.MergeQueueStore.Transfer`) |
