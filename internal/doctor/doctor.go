@@ -248,6 +248,7 @@ func Diagnose(ctx context.Context, env Environment) Report {
 	report.Findings = append(report.Findings, diagnosis.checkConfigurationIgnored(ctx, repository, resolved.Path))
 	report.Findings = append(report.Findings, diagnosis.checkTracker(ctx, repository))
 	report.Findings = append(report.Findings, diagnosis.checkStateRoot(repository))
+	report.Findings = append(report.Findings, diagnosis.checkKeptConfigurationBinding(resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkChecks(resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkInstall(resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkNode(repository)...)
@@ -616,6 +617,62 @@ func (d *diagnosis) checkStateRoot(repository string) Finding {
 	default:
 		return Finding{Check: "state", Status: StatusOK, Summary: summary + "; the marker in " + marker.Path + " agrees"}
 	}
+}
+
+// checkKeptConfigurationBinding asks, of a configuration kept in the machine
+// home's project directory, whether its product.repository names the
+// repository the project's binding names. Discovery finds such a configuration
+// by the binding, and everything that works in a repository — worktrees, the
+// target branch, the checks, the tracker, the state-root marker — reads
+// product.repository, so the two disagreeing is a project found from one clone
+// and worked in another. `yoyo project bind` points the file at the clone it
+// binds; a disagreement left from a bind made before it did, or from an edit by
+// hand, is what this reports. A configuration committed in its repository says
+// nothing here: its product.repository is the clone it is read from.
+func (d *diagnosis) checkKeptConfigurationBinding(resolved config.Resolved, repository string) []Finding {
+	root, err := d.stateRootPath()
+	if err != nil {
+		return nil
+	}
+	productID := string(resolved.Config.Product.ID)
+	kept := filepath.Join(home.ProjectDirectory(root, productID), home.ConfigFileName)
+	if !home.SameDirectory(resolved.Path, kept) {
+		return nil
+	}
+	binding, found, err := home.ReadBinding(root, productID)
+	if err != nil {
+		return []Finding{{
+			Check:   "binding",
+			Status:  StatusProblem,
+			Summary: fmt.Sprintf("the binding of %s could not be read, so which repository its configuration describes cannot be checked", productID),
+			Detail:  err.Error(),
+			Remedy:  fmt.Sprintf("%s --product %s --directory %s", home.BindCommand, productID, shellQuote(repository)),
+		}}
+	}
+	if !found {
+		// A first start binds it to product.repository, so there is nothing
+		// for the two to disagree about yet.
+		return nil
+	}
+	common, err := home.CommonGitDirectory(repository)
+	if err == nil && common != "" && home.SameDirectory(common, binding.GitCommonDirectory) {
+		return []Finding{{
+			Check:   "binding",
+			Status:  StatusOK,
+			Summary: fmt.Sprintf("the configuration kept at %s names %s, the repository %s is bound to", kept, repository, productID),
+		}}
+	}
+	bound := home.RepositoryOf(binding.GitCommonDirectory)
+	return []Finding{{
+		Check:  "binding",
+		Status: StatusProblem,
+		Summary: fmt.Sprintf("the configuration kept at %s names %s as product.repository, but %s is bound to %s, so it is found from %s and works in %s",
+			kept, repository, productID, bound, bound, repository),
+		Detail: fmt.Sprintf("the binding is recorded in %s; worktrees, the target branch, the checks, the tracker, and the state-root marker are all read in product.repository. "+
+			"The command below points the configuration at %s; to keep %s instead, run `%s --product %s --replace` from %s",
+			home.BindingPath(root, productID), bound, repository, home.BindCommand, productID, repository),
+		Remedy: fmt.Sprintf("%s --product %s --directory %s", home.BindCommand, productID, shellQuote(bound)),
+	}}
 }
 
 // stateRootPath is the root the other checks look for what they need under,
