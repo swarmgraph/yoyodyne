@@ -38,6 +38,10 @@ revisions:
       by: architect
       at: 2026-11-06T07:14:36.868982Z
       reason: Step 6 of the move did not name `heavy-checks/`, which the One home list puts at the top of the home, so the old home would not have been left holding only `moving.json` and the marker as this section says. Step 6 now moves the permits for heavy checks with the rest and says why that is safe. Read at main c3762c0a; no other sentence changes.
+    - action: amended
+      by: architect
+      at: 2026-11-09T10:44:45.26264Z
+      reason: Resends the revision answering a developer's proposal (amendment-23f23731, approved), raised while fixing what rebinding a project with a configuration kept outside its repository leaves behind. The binding governs where the two disagree. Bind rewrites the kept copy and removes the unbound clone's state-root marker, and yoyo doctor reports any disagreement. The first run was withdrawn only because GitHub held its merge queued over two hours, not for any fault in the text. Read whole at main 156b3df1; no other section changes.
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -74,6 +78,11 @@ approvals:
       by: harness
       at: 2026-11-06T07:14:36.868982Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2335, for document-2335.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 8
+      by: harness
+      at: 2026-11-09T10:44:45.26264Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2523, for document-2523.1 under the automatic approval policy
 ---
 # The machine home
 
@@ -178,7 +187,8 @@ repository, or the companion intent repository below.
   its id. It refuses while the recorded repository still exists at its path,
   unless `--replace` is given, which unbinds the earlier one and says so; it
   refuses while any run is in flight for the project. It is the remedy for a
-  moved or re-cloned repository.
+  moved or re-cloned repository, and it is the whole remedy, as the paragraphs
+  after this list say.
 - `yoyo project rename <old> <new>` moves the project directory and everything
   under it, refusing while a run is in flight or the new name is taken. Where
   the configuration is under the project directory it rewrites `product.id`;
@@ -190,6 +200,34 @@ repository, or the companion intent repository below.
 
 Each is recorded in the project's state as an act with who ran it, because a
 re-binding is the one thing that can point a project's history at another tree.
+
+**The binding decides which repository a project is.** Where the project's
+configuration is kept under the project directory, `config.yaml` names the
+repository too, as `product.repository`, and that copy follows the binding:
+`yoyo project bind` rewrites it to the repository it binds, in the same act as
+writing the binding, and its output says it did. A committed
+`.yoyodyne/config.yaml` is never rewritten, because it lives in the repository
+the binding names and a change to it is a change to that repository. Where a
+kept configuration and the binding name different repositories anyway,
+because the file was edited by hand or written by an older build, every
+command uses the repository the binding names: worktrees, the target branch,
+where checks run, the tracker, and the artifact homes all resolve there.
+`yoyo doctor` reports the disagreement in plain words, naming both paths and
+the command that puts them back in agreement, which is
+`yoyo project bind --replace` run from the repository the binding should name.
+
+With `--replace`, binding also removes the state-root marker from the
+repository it unbinds, so no command started there later reads that marker as
+current. A command started in the unbound clone then meets the refusal for a
+second clone given under Identity above, naming the bound clone. Where the
+unbound repository is no longer at its recorded path there is no marker to
+remove, and binding says so rather than failing.
+
+Treating a kept configuration's `product.repository` as the authority was
+rejected. The binding is keyed on the git common directory, which every
+worktree of a clone shares, and is written and checked at every start. Two
+records of one fact that can disagree without anything noticing is how a
+rebind once left every command working in the old clone.
 
 ## The companion intent repository
 
