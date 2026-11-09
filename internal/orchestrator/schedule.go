@@ -2050,8 +2050,8 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// at most one ending, and a wait that wakes on the poll interval, or on a
 	// store that would not answer, collects none, so a start that failed or came
 	// back without reserving could otherwise stay on mine through pull after
-	// pull. Every pull opens with this, so what it reads as this session's own
-	// starts in progress is only the ones still going.
+	// pull. Every pull calls this before it reads mine, so what it reads as this
+	// session's own starts in progress is only the ones still going.
 	collectEnded := func() {
 		for {
 			select {
@@ -2347,9 +2347,6 @@ pulling:
 			retries = readRetries{}
 		}
 		retries.failed = false
-		// Runs and starts of this session that have ended since the last pull are
-		// taken off the books first, before anything reads what it still hosts.
-		collectEnded()
 		// Firings whose turns ended since the last pull are taken into the schedule
 		// here, before anything reads what the session has spent or whether it
 		// still hosts anything.
@@ -2793,6 +2790,12 @@ pulling:
 			}
 			continue
 		}
+		// The starts of this session that have already handed their ending back are
+		// taken off the books here, before anything below reads mine as the starts
+		// it still has going. It is done here rather than at the top of the loop
+		// so a draining session still decides whether to restart on what its waits
+		// collected, as it always has.
+		collectEnded()
 		// A run paused on work its item waits on holds no developer slot, so it is
 		// taken out of what counts against the capacity here and kept only for the
 		// race guard below: its change is still in its worktree, and work started
