@@ -619,6 +619,22 @@ var expresses = map[string]expression{
 		question: "none: holding a contract for a role is configuration of the conversation",
 		gap:      "whether the harness can address a role at all is upstream of what that role may do",
 	},
+	"mcp.caller-list": {
+		question: "none yet: does the agent's role hold the class of each tool its list names?",
+		gap:      "the classes a role may hold are the table in internal/config/mcp.go; the capabilities mcp.read and mcp.act and their bundle rows arrive with the conversation roles' MCP piece of docs/designs/mcp-tools-through-the-harness.md, and this site asks the table until then",
+	},
+	"mcp.developer-caller": {
+		question: "none yet: is the agent filling the developer role?",
+		gap:      "it names the developer role because a run's calls are held to read tools whatever the agent's list says; it becomes a question about mcp.read once that capability is declared with the conversation roles' MCP piece",
+	},
+	"mcp.scheduled-caller": {
+		question: "none: a recurring task is the harness's own caller and holds read tools only by the design",
+		gap:      "no role is asked about; the read-only rule for a recurring task is the design's, and a capability for the harness's own calls would say nothing a bundle could change",
+	},
+	"mcp.call-path": {
+		question: "none yet: is the tool on the list the caller was built with?",
+		gap:      "the list is resolved when the caller is built (mcp.caller-list), so the call path asks only whether a tool is on it; what holds the capability is that row's gap",
+	},
 	"separation.policies": {
 		question: "none: a policy is a rule over the vocabulary rather than a statement of who holds what",
 		gap:      "each policy names capabilities that must not meet in one place; no bundle says whether two of them meet, because a bundle is about one role and a separation rule is about two things",

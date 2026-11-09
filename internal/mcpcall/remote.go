@@ -110,6 +110,10 @@ func (t *remoteTransport) post(ctx context.Context, value any) (*http.Response, 
 		if response.StatusCode == http.StatusNotFound && t.session != "" {
 			return nil, fmt.Errorf("%w: mcp server %q ended the session before the batch did", ErrFailed, t.name)
 		}
+		switch response.StatusCode {
+		case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			return nil, fmt.Errorf("%w: %w: mcp server %q answered %s", ErrFailed, ErrUnreachable, t.name, response.Status)
+		}
 		return nil, fmt.Errorf("%w: mcp server %q answered %s", ErrFailed, t.name, response.Status)
 	}
 	return response, nil
@@ -124,7 +128,7 @@ func (t *remoteTransport) sendFailure(ctx context.Context, err error) error {
 	if errors.Is(err, mcpcredential.ErrRedirectRefused) {
 		return fmt.Errorf("%w: mcp server %q: %v", ErrFailed, t.name, errors.Unwrap(err))
 	}
-	return fmt.Errorf("%w: mcp server %q could not be reached: %v", ErrFailed, t.name, err)
+	return fmt.Errorf("%w: %w: mcp server %q could not be reached: %v", ErrFailed, ErrUnreachable, t.name, err)
 }
 
 func (t *remoteTransport) call(ctx context.Context, id int64, request map[string]any) (message, error) {

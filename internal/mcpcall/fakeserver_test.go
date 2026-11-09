@@ -37,6 +37,9 @@ const (
 	sleeperDeadline = 60 * time.Second
 	sleeperMarker   = "sleeper-reached-its-deadline"
 	sleeperLock     = "sleeper.lock"
+	// fakeHeldSecret is a value the call path's tests hold as secret, which
+	// the leak tools put in what they say.
+	fakeHeldSecret = "held-secret-value-0077"
 )
 
 func TestMain(m *testing.M) {
@@ -71,6 +74,22 @@ var fakeTools = []map[string]any{
 	{"name": "ask-back", "inputSchema": map[string]any{"type": "object"}},
 	{"name": "spawn", "inputSchema": map[string]any{"type": "object"}},
 	{"name": "fail-with-credential", "inputSchema": map[string]any{"type": "object"}},
+	// The tools below are the call path's (path_test.go): send leaves a line in
+	// the server's folder for each call it is given; hang and hang-act start a
+	// descendant and never answer; flaky and flaky-act stop without answering
+	// the first time each is called in a folder; mixed answers with binary
+	// content beside text; big answers with as many bytes as asked; leak
+	// answers with the credential and fakeHeldSecret, and leak-error says the
+	// same in an error.
+	{"name": "send", "inputSchema": map[string]any{"type": "object"}},
+	{"name": "hang", "inputSchema": map[string]any{"type": "object"}},
+	{"name": "hang-act", "inputSchema": map[string]any{"type": "object"}},
+	{"name": "flaky", "inputSchema": map[string]any{"type": "object"}},
+	{"name": "flaky-act", "inputSchema": map[string]any{"type": "object"}},
+	{"name": "mixed", "inputSchema": map[string]any{"type": "object"}},
+	{"name": "big", "inputSchema": map[string]any{"type": "object"}},
+	{"name": "leak", "inputSchema": map[string]any{"type": "object"}},
+	{"name": "leak-error", "inputSchema": map[string]any{"type": "object"}},
 }
 
 func text(value string) map[string]any {
@@ -122,6 +141,25 @@ func (s *fakeState) answer(method string, params json.RawMessage) (result any, r
 			return text(string(encoded)), nil
 		case "fail-with-credential":
 			return nil, map[string]any{"code": -32000, "message": "the token " + s.credential + " was not accepted"}
+		case "mixed":
+			return map[string]any{"content": []any{
+				map[string]any{"type": "text", "text": "a caption"},
+				map[string]any{"type": "image", "mimeType": "image/png", "data": strings.Repeat("A", 1000)},
+				map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///a.txt", "text": "resource text"}},
+				map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///a.bin", "blob": strings.Repeat("B", 500)}},
+			}}, nil
+		case "big":
+			var asked struct {
+				Bytes int `json:"bytes"`
+			}
+			_ = json.Unmarshal(call.Arguments, &asked)
+			return text(strings.Repeat("x", asked.Bytes)), nil
+		case "leak", "leak-error":
+			said := "credential " + s.credential + " and secret " + fakeHeldSecret
+			if call.Name == "leak-error" {
+				return nil, map[string]any{"code": -32000, "message": said}
+			}
+			return text(said), nil
 		}
 		return map[string]any{"content": []any{map[string]any{"type": "text", "text": "no such tool"}}, "isError": true}, nil
 	}
@@ -182,6 +220,26 @@ func runFakeServer(mode []string) int {
 				}
 			}
 			_ = out.Encode(rpcAnswer(m.ID, text(reply), nil))
+		case m.Method == "tools/call" && call.Name == "send":
+			appendLine("sent.log", string(m.Params))
+			_ = out.Encode(rpcAnswer(m.ID, text("sent"), nil))
+		case m.Method == "tools/call" && strings.HasPrefix(call.Name, "hang"):
+			// Never answers: it starts a descendant in its group, then waits out
+			// the sleeper's deadline whatever happens to its input, so only the
+			// group being killed ends either of them early.
+			_, _ = spawnSleeper()
+			end := time.Now().Add(sleeperDeadline)
+			for time.Now().Before(end) {
+				time.Sleep(100 * time.Millisecond)
+			}
+			return 0
+		case m.Method == "tools/call" && strings.HasPrefix(call.Name, "flaky"):
+			appendLine(call.Name+".log", "called")
+			if _, err := os.Stat(call.Name + ".seen"); err != nil {
+				_ = os.WriteFile(call.Name+".seen", []byte("seen"), 0o600)
+				return 1
+			}
+			_ = out.Encode(rpcAnswer(m.ID, text("answered the second time"), nil))
 		case m.Method == "tools/call" && call.Name == "spawn":
 			pid, err := spawnSleeper()
 			if err != nil {
@@ -195,6 +253,16 @@ func runFakeServer(mode []string) int {
 		}
 	}
 	return 0
+}
+
+// appendLine adds a line to a file in the server's folder.
+func appendLine(name, line string) {
+	file, err := os.OpenFile(name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	fmt.Fprintln(file, line)
 }
 
 // spawnSleeper starts a descendant in the server's own process group, holding

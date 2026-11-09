@@ -101,7 +101,7 @@ func transports(t *testing.T, run func(t *testing.T, server Server, options Opti
 
 func TestTheClientOpensListsAndCallsOverBothTransports(t *testing.T) {
 	transports(t, func(t *testing.T, server Server, options Options) {
-		err := Batch(context.Background(), server, options, func(session *Session) error {
+		err := batch(context.Background(), server, options, func(session *Session) error {
 			if session.Version() != ProtocolVersions[0] {
 				t.Errorf("settled version = %q, want %q", session.Version(), ProtocolVersions[0])
 			}
@@ -113,7 +113,7 @@ func TestTheClientOpensListsAndCallsOverBothTransports(t *testing.T) {
 			for _, tool := range tools {
 				names = append(names, tool.Name)
 			}
-			if got, want := strings.Join(names, ","), "echo,environment,opening,ask-back,spawn,fail-with-credential"; got != want {
+			if got, want := strings.Join(names, ","), "echo,environment,opening,ask-back,spawn,fail-with-credential,send,hang,hang-act,flaky,flaky-act,mixed,big,leak,leak-error"; got != want {
 				t.Errorf("tools across both pages = %s, want %s", got, want)
 			}
 			if got := onlyText(t, call(t, session, "echo", `{"query":"invoice"}`)); got != `{"query":"invoice"}` {
@@ -132,7 +132,7 @@ func TestTheClientOpensListsAndCallsOverBothTransports(t *testing.T) {
 
 func TestTheClientDeclaresNoAbilities(t *testing.T) {
 	transports(t, func(t *testing.T, server Server, options Options) {
-		_ = Batch(context.Background(), server, options, func(session *Session) error {
+		_ = batch(context.Background(), server, options, func(session *Session) error {
 			var opening struct {
 				ProtocolVersion string                     `json:"protocolVersion"`
 				Capabilities    map[string]json.RawMessage `json:"capabilities"`
@@ -156,7 +156,7 @@ func TestTheClientDeclaresNoAbilities(t *testing.T) {
 
 func TestEveryRequestAServerMakesBackIsRefused(t *testing.T) {
 	transports(t, func(t *testing.T, server Server, options Options) {
-		err := Batch(context.Background(), server, options, func(session *Session) error {
+		err := batch(context.Background(), server, options, func(session *Session) error {
 			got := onlyText(t, call(t, session, "ask-back", `{}`))
 			if want := fmt.Sprintf("refused with %d for \"server-1\"", refusalCode); got != want {
 				t.Errorf("the server heard %q, want %q", got, want)
@@ -177,7 +177,7 @@ func TestAProtocolVersionOffTheListIsRefused(t *testing.T) {
 	}
 	t.Run("standard input", func(t *testing.T) {
 		server, options := commandServer(t, fakeVersionMode)
-		check(t, Batch(context.Background(), server, options, func(*Session) error {
+		check(t, batch(context.Background(), server, options, func(*Session) error {
 			t.Fatal("the batch ran against a server speaking a version off the list")
 			return nil
 		}))
@@ -186,7 +186,7 @@ func TestAProtocolVersionOffTheListIsRefused(t *testing.T) {
 		fake := newFakeHTTP()
 		fake.mode = fakeVersionMode
 		server, options := remoteServer(t, fake)
-		check(t, Batch(context.Background(), server, options, func(*Session) error {
+		check(t, batch(context.Background(), server, options, func(*Session) error {
 			t.Fatal("the batch ran against a server speaking a version off the list")
 			return nil
 		}))
@@ -204,7 +204,7 @@ func TestACommandServerGetsAListedEnvironmentAndItsOwnFolder(t *testing.T) {
 		Cwd  string   `json:"cwd"`
 		Args []string `json:"args"`
 	}
-	err := Batch(context.Background(), server, options, func(session *Session) error {
+	err := batch(context.Background(), server, options, func(session *Session) error {
 		return json.Unmarshal([]byte(onlyText(t, call(t, session, "environment", `{}`))), &seen)
 	})
 	if err != nil {
@@ -236,9 +236,9 @@ func TestACommandServerGetsAListedEnvironmentAndItsOwnFolder(t *testing.T) {
 	}
 }
 
-func TestACommandServersGroupEndsWithTheBatch(t *testing.T) {
+func TestACommandServersGroupEndsWithThebatch(t *testing.T) {
 	server, options := commandServer(t)
-	err := Batch(context.Background(), server, options, func(session *Session) error {
+	err := batch(context.Background(), server, options, func(session *Session) error {
 		call(t, session, "spawn", `{}`)
 		return nil
 	})
@@ -253,7 +253,7 @@ func TestACommandServersGroupEndsWithTheBatch(t *testing.T) {
 func TestACancelledBatchSaysSo(t *testing.T) {
 	server, options := commandServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	err := Batch(ctx, server, options, func(session *Session) error {
+	err := batch(ctx, server, options, func(session *Session) error {
 		cancel()
 		_, err := session.CallTool(ctx, "echo", nil)
 		return err
@@ -263,11 +263,11 @@ func TestACancelledBatchSaysSo(t *testing.T) {
 	}
 }
 
-func TestAURLServerGetsAFreshSessionForEachBatch(t *testing.T) {
+func TestAURLServerGetsAFreshSessionForEachbatch(t *testing.T) {
 	fake := newFakeHTTP()
 	server, options := remoteServer(t, fake)
 	for range 2 {
-		if err := Batch(context.Background(), server, options, func(session *Session) error {
+		if err := batch(context.Background(), server, options, func(session *Session) error {
 			call(t, session, "echo", `{}`)
 			return nil
 		}); err != nil {
@@ -292,7 +292,7 @@ func TestAURLServerGetsAFreshSessionForEachBatch(t *testing.T) {
 
 func TestACredentialIsInNoReturnedError(t *testing.T) {
 	transports(t, func(t *testing.T, server Server, options Options) {
-		err := Batch(context.Background(), server, options, func(session *Session) error {
+		err := batch(context.Background(), server, options, func(session *Session) error {
 			_, err := session.CallTool(context.Background(), "fail-with-credential", nil)
 			return err
 		})
@@ -313,10 +313,10 @@ func TestACredentialIsInNoReturnedError(t *testing.T) {
 	})
 }
 
-func TestACredentialTheStoresWillNotProduceStopsTheBatch(t *testing.T) {
+func TestACredentialTheStoresWillNotProduceStopsThebatch(t *testing.T) {
 	server, _ := commandServer(t)
 	options := Options{Stores: testStores(t)}
-	err := Batch(context.Background(), server, options, func(*Session) error {
+	err := batch(context.Background(), server, options, func(*Session) error {
 		t.Fatal("the batch ran without its credential")
 		return nil
 	})
@@ -332,7 +332,7 @@ func TestAServerDeclaringNoCredentialReadsNone(t *testing.T) {
 	var seen struct {
 		Env []string `json:"env"`
 	}
-	if err := Batch(context.Background(), server, options, func(session *Session) error {
+	if err := batch(context.Background(), server, options, func(session *Session) error {
 		return json.Unmarshal([]byte(onlyText(t, call(t, session, "environment", `{}`))), &seen)
 	}); err != nil {
 		t.Fatal(err)
@@ -362,7 +362,7 @@ func TestAServerDeclaredWrongIsRefusedBeforeAnythingStarts(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			err := Batch(context.Background(), c.server, c.options, func(*Session) error {
+			err := batch(context.Background(), c.server, c.options, func(*Session) error {
 				t.Fatal("the batch ran")
 				return nil
 			})
@@ -383,7 +383,7 @@ func TestARedirectIsFollowedOnlyOnTheSameHost(t *testing.T) {
 	base := strings.TrimSuffix(server.Declared.URL, "/mcp")
 
 	server.Declared.URL = base + "/moved"
-	if err := Batch(context.Background(), server, options, func(session *Session) error {
+	if err := batch(context.Background(), server, options, func(session *Session) error {
 		call(t, session, "echo", `{}`)
 		return nil
 	}); err != nil {
@@ -394,7 +394,7 @@ func TestARedirectIsFollowedOnlyOnTheSameHost(t *testing.T) {
 	}
 
 	server.Declared.URL = base + "/elsewhere"
-	err := Batch(context.Background(), server, options, func(*Session) error { return nil })
+	err := batch(context.Background(), server, options, func(*Session) error { return nil })
 	if !errors.Is(err, ErrFailed) || !strings.Contains(err.Error(), "another host") {
 		t.Fatalf("err = %v, want the redirect to another host refused", err)
 	}
@@ -409,7 +409,7 @@ func TestARedirectIsFollowedOnlyOnTheSameHost(t *testing.T) {
 func TestACallAfterTheBatchHasEndedIsRefused(t *testing.T) {
 	server, options := commandServer(t)
 	var kept *Session
-	if err := Batch(context.Background(), server, options, func(session *Session) error {
+	if err := batch(context.Background(), server, options, func(session *Session) error {
 		kept = session
 		return nil
 	}); err != nil {
@@ -422,7 +422,7 @@ func TestACallAfterTheBatchHasEndedIsRefused(t *testing.T) {
 
 func TestArgumentsThatAreNotOneObjectAreRefused(t *testing.T) {
 	server, options := commandServer(t)
-	_ = Batch(context.Background(), server, options, func(session *Session) error {
+	_ = batch(context.Background(), server, options, func(session *Session) error {
 		if _, err := session.CallTool(context.Background(), "echo", json.RawMessage(`[1]`)); !errors.Is(err, ErrRefused) {
 			t.Errorf("err = %v, want a refusal", err)
 		}

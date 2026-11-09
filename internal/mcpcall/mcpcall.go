@@ -9,7 +9,7 @@
 // asking a person, listing roots, even a ping — is answered with a refusal, so
 // nothing a server asks reaches an agent or the operator.
 //
-// A server lives for one batch: Batch starts it, or opens a fresh session with
+// A server lives for one batch: batch starts it, or opens a fresh session with
 // it, runs the calls it is given, and ends it before returning, so nothing is
 // left running to supervise or move onto a new build. A command server runs in
 // a process group of its own, with an environment built from a list rather than
@@ -26,10 +26,11 @@
 // and it is removed from every error the client returns, including errors whose
 // text a server wrote.
 //
-// What this package does not do yet is decide who may call what, record the
-// call, or scrub and bound a result for an agent; that is the one call path
-// built on top of this client (build piece 3), and a result here is still the
-// server's untrusted data.
+// The client is reached only through the one call path in path.go, Path.Do,
+// which decides who may call what, records each call, and scrubs and bounds
+// what comes back; batch is unexported so nothing outside this package can
+// reach a server any other way. A result the client returns is still the
+// server's untrusted data until that path has handled it.
 package mcpcall
 
 import (
@@ -80,6 +81,15 @@ var (
 	ErrFailed = errors.New("the MCP server's answer failed")
 	// ErrClosed is a call made on a session whose batch has ended.
 	ErrClosed = errors.New("the MCP batch has ended")
+	// ErrUnreachable is a server the message never reached or whose answer
+	// never came back because the connection or the program went away: a
+	// remote server that could not be reached or answered that it is
+	// unavailable, or a command server that stopped before answering. It is
+	// always also ErrFailed. The call path tries a read once more on it.
+	ErrUnreachable = errors.New("the MCP server could not be reached")
+	// errAnswered is a request the server answered with an error, so it is
+	// known to have been heard and refused. It is always also ErrFailed.
+	errAnswered = errors.New("the MCP server answered with an error")
 )
 
 // Server is one declared server: its name and its declaration in the
@@ -136,7 +146,7 @@ type Result struct {
 }
 
 // Session is one batch's conversation with a server. It exists only inside
-// the function Batch is given, and is ended when that function returns.
+// the function batch is given, and is ended when that function returns.
 type Session struct {
 	server     Server
 	transport  transport
@@ -149,11 +159,11 @@ type Session struct {
 // Version is the protocol version the opening exchange settled on.
 func (s *Session) Version() string { return s.version }
 
-// Batch starts the server, or opens a fresh session with a remote one, does
+// batch starts the server, or opens a fresh session with a remote one, does
 // the opening exchange, runs calls, and ends the server before it returns,
 // whichever way calls ended. The context bounds the whole batch: when it ends,
 // a command server's group is killed and a remote request is abandoned.
-func Batch(ctx context.Context, server Server, options Options, calls func(*Session) error) error {
+func batch(ctx context.Context, server Server, options Options, calls func(*Session) error) error {
 	session, err := open(ctx, server, options)
 	if err != nil {
 		return err
@@ -326,7 +336,7 @@ func (s *Session) request(ctx context.Context, method string, params any) (json.
 		return nil, s.scrub(err)
 	}
 	if answer.Error != nil {
-		return nil, s.scrub(fmt.Errorf("%w: mcp server %q answered %s with error %d: %s", ErrFailed, s.server.Name, method, answer.Error.Code, oneLine(answer.Error.Message)))
+		return nil, s.scrub(fmt.Errorf("%w: %w: mcp server %q answered %s with error %d: %s", ErrFailed, errAnswered, s.server.Name, method, answer.Error.Code, oneLine(answer.Error.Message)))
 	}
 	return answer.Result, nil
 }
@@ -350,21 +360,32 @@ func (s *Session) scrub(err error) error {
 	if s.credential != "" {
 		text = strings.ReplaceAll(text, s.credential, "[credential removed]")
 	}
-	for _, sentinel := range []error{ErrRefused, ErrCredential, ErrClosed, ErrFailed, context.DeadlineExceeded, context.Canceled} {
+	var kinds []error
+	for _, sentinel := range []error{ErrRefused, ErrCredential, ErrClosed, ErrUnreachable, errAnswered, ErrFailed, context.DeadlineExceeded, context.Canceled} {
 		if errors.Is(err, sentinel) {
-			return &scrubbed{text: text, kind: sentinel}
+			kinds = append(kinds, sentinel)
 		}
 	}
-	return &scrubbed{text: text, kind: ErrFailed}
+	if len(kinds) == 0 {
+		kinds = []error{ErrFailed}
+	}
+	return &scrubbed{text: text, kinds: kinds}
 }
 
 type scrubbed struct {
-	text string
-	kind error
+	text  string
+	kinds []error
 }
 
-func (e *scrubbed) Error() string        { return e.text }
-func (e *scrubbed) Is(target error) bool { return target == e.kind }
+func (e *scrubbed) Error() string { return e.text }
+func (e *scrubbed) Is(target error) bool {
+	for _, kind := range e.kinds {
+		if target == kind {
+			return true
+		}
+	}
+	return false
+}
 
 // message is one JSON-RPC message from a server: an answer to a request of
 // ours, a request of its own, or a notification.

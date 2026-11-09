@@ -305,6 +305,7 @@ DOCUMENT_TESTS = $(DOCCHECK_TESTS) \
 	./internal/governeddoc='^(TestNoTestOfThisRepositorysOwnDocumentsFailsOnTheirReferences|TestTheMakefilePrintsWhatEveryEscalatingGateEscalates)$$' \
 	./internal/home='^(TestOnlyThisPackageNamesTheEarlierProductsDirectory)$$' \
 	./internal/landing='^(TestEveryRouteThatClosesAWorkItemIsAudited)$$' \
+	./internal/mcpcall='^(TestNoOtherPackageSpeaksMCP)$$' \
 	./internal/oneline='^(TestEveryCutAgainstAValidatedByteBoundFallsOnARuneBoundary|TestNoPackageTheConversationReadsThroughCutsASingleLineOfItsOwn)$$' \
 	./internal/orchestrator='^(TestAPassRecordsItsLanguageFindingsAndTellsTheNextPass|TestBaselineDocumentDisclosesEveryFieldNoTraceHolds|TestMeasureHeavyCheckPermits|TestPermanentCarryOutCausesAreNamedInTheRunStopInventory|TestRunEndingSitesAreInventoried|TestRunStopBoundValuesMatchInventory|TestTheModelARunStartsOnIsChosenByTheItemsLabels|TestThisRepositorysDeliveryDefinitionMatchesTheBuiltIn|TestThisRepositorysDeliveryDefinitionSaysWhereTheBuiltInIs|TestThisRepositorysOwnDeliveryDefinitionIsWhatItsRunsExecute)$$' \
 	./internal/protectedpath='^(TestNoGrantOpensTheWholeRepository)$$' \
