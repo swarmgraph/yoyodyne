@@ -10,11 +10,20 @@ revisions:
       by: product-manager
       at: 2026-10-25T15:16:34.273648Z
       reason: 'yoyodyne-ifd.437.59: resend of the milestone goals document after pull request #1461 was closed, with the text unchanged and a Supports line under each goal naming the brief goal it serves, as the reviewer asked (report cce46f79). A new goals document, so it waits for Mason''s approval.'
+    - action: amended
+      by: product-manager
+      at: 2026-11-09T01:16:57.776114Z
+      reason: 'yoyodyne-utbi: removes the blank line above each goal''s Supports line, so the goals list reads what each milestone goal supports. No goal''s wording changes, none is added or removed, and the goals admit and refuse exactly the work they did before.'
+      intent: consistent
 approvals:
     - revision: 0
       by: operator
       at: 2026-10-25T15:16:34.273648Z
       reason: approved by the operator in conversation chat-91253e0e070c17b0663651cc48602122, turn 3599, for the document the product-manager wrote there (document-3599.1)
+    - revision: 1
+      by: operator
+      at: 2026-11-09T01:16:57.776114Z
+      reason: approved by the operator in conversation chat-91253e0e070c17b0663651cc48602122, turn 4803, for the document the product-manager wrote there (document-4803.1)
 ---
 # Milestone goals: useful delivery for little of the owner's attention
 
@@ -23,15 +32,12 @@ These goals set the next milestone for Yoyodyne and how it is measured. They add
 ## Goals
 
 - [owner-attention-measure] Yoyodyne is measured by useful software delivered per hour of the owner's attention. Useful software is a completed change whose observable behaviour does what its work item asked; the owner's attention is the time the owner spends answering, approving, or fixing things by hand.
-
   *Supports: the human's attention goes only where it is needed.*
 
 - [internal-week-bar] Before any outside trial, Yoyodyne runs one week on its own repository in which no hour passes with ready work waiting and a developer slot idle, nothing is asked of the owner that the harness or a role could have done, and the management roles' spend is at most 40% of all known spend for the week.
-
   *Supports: the human's attention goes only where it is needed.*
 
 - [outside-trial-week] After the internal week, Yoyodyne delivers a week of useful work on a few outside repositories written in different languages, doing ordinary product work, with little operational intervention from the owner. It is judged on the observable behaviour of what it delivered, not only on whether the work traced to a goal.
-
   *Supports: the human's attention goes only where it is needed.*
 
 ## What is tracked
