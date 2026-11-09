@@ -20,6 +20,11 @@ revisions:
       at: 2026-10-29T04:29:16.511619Z
       reason: 'yoyodyne-ifd.428.130: records the Lead Product Manager''s ordering decision of October 28, 2026, made on the operator''s direction that day that one developer slot be dedicated to work on how teams share one repository: a slot dedicated to one kind of work takes that work ahead of reliability work elsewhere, because reliability has its own seat, and falls back to the ordinary order when its own work has nothing ready. Ordering is the Lead Product Manager''s; no goal changes, so the goals admit and refuse exactly the work they did before.'
       intent: consistent
+    - action: amended
+      by: product-manager
+      at: 2026-11-09T03:20:33.70077Z
+      reason: 'yoyodyne-ifd.437.19: records Mason''s direction of November 8, 2026 that the word ''gate'' stop being used, for both its meanings, so every role reads it as a standing rule now rather than after the printed strings are changed. It is a rule he gave; no goal changes, so the goals admit and refuse exactly the work they did before.'
+      intent: consistent
 approvals:
     - revision: 1
       by: product-manager
@@ -29,6 +34,10 @@ approvals:
       by: product-manager
       at: 2026-10-29T04:29:16.511619Z
       reason: yoyodyne-ifd.428.130 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
+    - revision: 3
+      by: product-manager
+      at: 2026-11-09T03:20:33.70077Z
+      reason: yoyodyne-ifd.437.19 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
 ---
 
 # Operating rules
@@ -51,3 +60,4 @@ Lead Product Manager.
 - Work on a change a run has already written and kept, such as a decided repair or continuation, or a merge being tried again, is taken first by any freed developer seat, the reliability seat and any dedicated seat included, ahead of fresh work of any priority. (the operator, 2026-10-25, recorded on yoyodyne-ifd.428.126.2.1)
 - When the intake brake trips, it summons the development manager to decide, never the operator; the operator is told and may release it. (789c052c)
 - A developer run never runs the tracker's command directly; the harness reads and writes the tracker on its behalf. (from CLAUDE.md, moved here by the item beside this one)
+- No role writes the word "gate" in anything a person reads. For a check a change must pass, name the check; for a step only a person can take, say so in those words, such as "a step only you can take" or "waiting on you". (the operator, 2026-11-08, recorded on yoyodyne-ifd.437.19)
