@@ -59,11 +59,28 @@ type MergeQueueAdmissions interface {
 // the document's own landing runs (docs/designs/document-landing-route.md, rule
 // 3). A document entry is known by its item, which is its run's own identifier
 // (HarnessRunItems); no other entry's item is.
+//
+// A change whose run left its whole check to the queue
+// (runstate.ChecksPassed.WholeLeftToQueue) is checked by every check that run
+// narrowed as well, those that could not run before review among them, where
+// the configured checks no longer name one — because they changed after the
+// change was admitted. So the queue's check of the candidate always covers the
+// whole check the run did not make, and the gate it lands on requires each of
+// them to pass on that exact candidate (mergequeuewhole.go). A path check is
+// left out: the queue never runs one, and its result before review is already
+// its whole one. A run record that cannot be read adds nothing here; the
+// promotion reads it again and refuses on what it cannot read.
 func (p *Pipeline) mergeQueueChecks(entry runstate.MergeQueueEntry) runstate.MergeQueueCheckConfiguration {
 	if entry.WorkItemID == entry.RunID && runstate.ValidRunID(entry.RunID) && len(p.Config.DocumentChecks) > 0 {
 		return runstate.NewMergeQueueCheckConfiguration(p.Config.DocumentChecks)
 	}
-	return runstate.NewMergeQueueCheckConfiguration(p.Config.Checks)
+	commands := append([]string(nil), p.Config.Checks...)
+	if p.Store != nil {
+		if run, err := p.Store.Load(entry.RunID); err == nil {
+			commands = append(commands, leftToQueue(run, commands, p.Config.PathChecks)...)
+		}
+	}
+	return runstate.NewMergeQueueCheckConfiguration(commands)
 }
 
 // admitsToMergeQueue reports whether an approved change of this run goes to
@@ -107,31 +124,28 @@ func (a *activeRun) admitToMergeQueue(ctx context.Context) (Outcome, bool, error
 			return end(fmt.Errorf("record the commit admitted to the merge queue: %w", err))
 		}
 	}
-	publishing, _, err := p.resolvePublishing(ctx)
+	admitter, err := a.queueAdmitter(ctx)
 	if err != nil {
-		return end(fmt.Errorf("resolve whether the project publishes: %w", err))
+		return end(err)
 	}
-	var forge publish.QueueCapabilityReader
-	if publishing {
-		forge, _ = p.Publisher.(publish.QueueCapabilityReader)
+	admission := a.queueAdmission()
+	key := admission.Key
+	admission.ApprovedHead = head
+	// A change whose run left its whole check to the harness's queue is
+	// admitted to that queue or not at all: where the forge's own queue is
+	// chosen instead, nothing is admitted, and the promotion has the run check
+	// the change whole first and asks again (promoteApproved).
+	a.queueElsewhere = ""
+	if passed := a.state.ChecksPassed; passed != nil && passed.WholeLeftToQueue {
+		admitter.Only = runstate.MergeQueueHarness
 	}
-	key := runstate.MergeQueueKey{Repository: nonEmpty(a.state.RepositoryID, string(p.Config.Product.ID)), TargetBranch: a.worktree.TargetBranch}
-	publication := ""
-	if a.state.PullRequest != nil {
-		publication = a.state.PullRequest.URL
-	}
-	admitted, err := queuemode.Admitter{
-		Queue: p.MergeQueue, Forge: forge, Now: p.clock().Now,
-		Harness: queuemode.Harness{PullRequests: publishing, CheckConfiguration: runstate.NewMergeQueueCheckConfiguration(p.Config.Checks).Digest},
-	}.Admit(ctx, runstate.MergeQueueAdmission{
-		Key: key, WorkItemID: a.state.WorkItemID, RunID: a.state.RunID,
-		WorkItemTitle:     oneline.Fold(strings.TrimSpace(nonEmpty(a.item.Title, a.state.WorkItemID)), runstate.MaxMergeQueueTextBytes),
-		Publication:       publication,
-		ApprovedHead:      head,
-		IntegrationPolicy: string(p.Config.Approvals.Integration),
-	})
+	admitted, err := admitter.Admit(ctx, admission)
 	if err != nil {
 		return end(fmt.Errorf("admit the approved change to the merge queue for %s: %w", key.TargetBranch, err))
+	}
+	if admitted.Elsewhere != "" {
+		a.queueElsewhere = admitted.Elsewhere
+		return Outcome{}, false, nil
 	}
 	if admitted.Hold != nil {
 		return a.holdFromMergeQueue(ctx, key, *admitted.Hold)
@@ -139,6 +153,64 @@ func (a *activeRun) admitToMergeQueue(ctx context.Context) (Outcome, bool, error
 	_ = p.MergeQueue.ClearRefusal(ctx, key)
 	outcome, err := a.completeQueued(ctx, admitted.Entry)
 	return outcome, true, err
+}
+
+// queueAdmitter is the admitter this run's approved change is admitted with:
+// the queue, and the forge asked what its own merge queue establishes where
+// the project publishes.
+func (a *activeRun) queueAdmitter(ctx context.Context) (queuemode.Admitter, error) {
+	p := a.pipeline
+	publishing, _, err := p.resolvePublishing(ctx)
+	if err != nil {
+		return queuemode.Admitter{}, fmt.Errorf("resolve whether the project publishes: %w", err)
+	}
+	var forge publish.QueueCapabilityReader
+	if publishing {
+		forge, _ = p.Publisher.(publish.QueueCapabilityReader)
+	}
+	return queuemode.Admitter{
+		Queue: p.MergeQueue, Forge: forge, Now: p.clock().Now,
+		Harness: queuemode.Harness{PullRequests: publishing, CheckConfiguration: runstate.NewMergeQueueCheckConfiguration(p.Config.Checks).Digest},
+	}, nil
+}
+
+// queueAdmission is this run's admission to its target's queue, short of the
+// approved head, which is the commit made at admission.
+func (a *activeRun) queueAdmission() runstate.MergeQueueAdmission {
+	p := a.pipeline
+	publication := ""
+	if a.state.PullRequest != nil {
+		publication = a.state.PullRequest.URL
+	}
+	return runstate.MergeQueueAdmission{
+		Key:        runstate.MergeQueueKey{Repository: nonEmpty(a.state.RepositoryID, string(p.Config.Product.ID)), TargetBranch: a.worktree.TargetBranch},
+		WorkItemID: a.state.WorkItemID, RunID: a.state.RunID,
+		WorkItemTitle:     oneline.Fold(strings.TrimSpace(nonEmpty(a.item.Title, a.state.WorkItemID)), runstate.MaxMergeQueueTextBytes),
+		Publication:       publication,
+		IntegrationPolicy: string(p.Config.Approvals.Integration),
+	}
+}
+
+// wholeCheckOwedHere is why a change whose run left its whole check to the
+// harness's merge queue (checkCandidateWhole) is to be checked whole here
+// after all, and empty where the queue will check it:
+//
+//   - the switch has been turned off since, so the run promotes the change
+//     itself;
+//   - admission chose the forge's own merge queue for it (queueElsewhere),
+//     which lands a commit this harness never checks.
+//
+// A change the queue holds, or whose target's protection cannot be read to
+// say, is not admitted at all, so nothing is owed yet: it is asked again when
+// the hold is lifted and the change taken up.
+func (a *activeRun) wholeCheckOwedHere() string {
+	switch {
+	case !a.queueChecksCandidateWhole():
+		return "the merge queue was switched off after the change was left to it, so this run promotes the change itself"
+	case a.queueElsewhere == runstate.MergeQueueForge:
+		return "the change was to be admitted to the forge's own merge queue, which lands a commit this harness does not check"
+	}
+	return ""
 }
 
 // ErrMergeQueueHeld is what a run stopped because its approved change could
@@ -232,6 +304,13 @@ func (a *activeRun) completeQueued(ctx context.Context, entry runstate.MergeQueu
 	a.narrowRetries = true
 	notes := fmt.Sprintf("Approved and admitted to the merge queue for %s as entry %d (%s queue), at %s. %s The queue builds a candidate from %s as it then stands with this change merged onto it, runs the configured checks on it, has an independent reviewer approve it, and lands exactly that candidate; this item is settled when it lands, or the change is handed back to this run if the candidate fails on the change.",
 		entry.TargetBranch, entry.Order, modeName(entry.Mode), shortCommit(entry.ApprovedHead), entry.ModeEvidence.Explanation, entry.TargetBranch)
+	// The checks before review were narrowed and this run did not run them again
+	// over the whole module, because the queue does that on the candidate it
+	// lands (checkCandidateWhole); the item says so, and the run's record names
+	// the queue's run once it lands.
+	if passed := a.state.ChecksPassed; passed != nil && passed.Narrowed != "" && passed.WholeLeftToQueue {
+		notes += fmt.Sprintf(" The checks before review ran over %s only, and this run did not run the configured checks again over the whole module: the queue does that on the candidate it lands, and lands it only if every one of them passed there. The run's record names that check of the candidate once the change lands.", passed.Narrowed)
+	}
 	if err := a.recovering(ctx, runstate.RetryTrackerWrite, func(ctx context.Context) error {
 		_, err := p.Tracker.RecordOutcome(ctx, a.state.WorkItemID, notes)
 		return err

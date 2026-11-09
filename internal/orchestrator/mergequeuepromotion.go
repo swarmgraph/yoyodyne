@@ -158,6 +158,11 @@ type MergeQueuePromotion struct {
 	// withdraws an entry for.
 	ForgeHeldSince *time.Time
 	Dropped        bool
+	// Uncovered is set beside Refusal where the refusal is the candidate's own
+	// checks not covering the whole check its run left to them
+	// (mergequeuewhole.go). Verifying the candidate again does not change that,
+	// so the driver stops its pass on it rather than going round.
+	Uncovered bool
 }
 
 func (o MergeQueuePromotion) stopped() bool {
@@ -362,6 +367,10 @@ func (q *queuePromotion) begin(ctx context.Context) error {
 			q.outcome.Refusal = fmt.Sprintf("run %s records no branch for the forge's queue to take the change from", q.entry.RunID)
 			return nil
 		}
+		if refusal := mergeQueueStandsIn(run, q.entry.Mode, runstate.MergeQueueGeneration{}, q.p.Pipeline.Config.PathChecks); refusal != "" {
+			q.outcome.Refusal, q.outcome.Uncovered = refusal, true
+			return nil
+		}
 		attempt.Path, attempt.Candidate, attempt.CandidateBranch = runstate.MergeQueueLandThroughForgeQueue, q.entry.ApprovedHead, run.Branch
 	} else {
 		generation, refusal, err := q.verified(target)
@@ -374,6 +383,17 @@ func (q *queuePromotion) begin(ctx context.Context) error {
 		}
 		if waiting := q.forgeQueueRequired(ctx); waiting != "" {
 			q.outcome.Waiting = waiting
+			return nil
+		}
+		// A change whose run left checking it whole to this queue lands only
+		// where the queue's own check of the candidate covered it
+		// (mergequeuewhole.go).
+		run, err := q.p.Pipeline.Store.Load(q.entry.RunID)
+		if err != nil {
+			return fmt.Errorf("read run %s, whose checks the candidate's checks may stand in for: %w", q.entry.RunID, err)
+		}
+		if refusal := mergeQueueStandsIn(run, q.entry.Mode, generation, q.p.Pipeline.Config.PathChecks); refusal != "" {
+			q.outcome.Refusal, q.outcome.Uncovered = refusal, true
 			return nil
 		}
 		path, err := q.path(ctx)
@@ -1185,7 +1205,8 @@ func (c MergeQueueRunCompletion) RecordRun(ctx context.Context, entry runstate.M
 	if err != nil {
 		return err
 	}
-	if state.Integration != nil && state.Integration.TargetCommit == completion.Landed {
+	if state.Integration != nil && state.Integration.TargetCommit == completion.Landed &&
+		(state.ChecksPassed == nil || !state.ChecksPassed.WholeLeftToQueue || state.ChecksPassed.WholeBy != "" || mergeQueueWholeBy(entry, completion) == "") {
 		return nil
 	}
 	// The landing is confirmed on the target by the time this is recorded, and
@@ -1193,6 +1214,10 @@ func (c MergeQueueRunCompletion) RecordRun(ctx context.Context, entry runstate.M
 	// waits on a forge: it is recorded as settled, which is what leaves the
 	// run's branch and worktree to the cleanup a landed run is owed. It is a
 	// narrow update, so it keeps whatever else is on the run as stored.
+	//
+	// A run that left checking its change whole to the queue is told which of
+	// the queue's checks stood in for it (mergequeuewhole.go); the update writes
+	// it only onto such a run.
 	_, err = c.Store.Update(ctx, entry.RunID, runstate.IntegrationRecorded{
 		Integration: runstate.Integration{
 			TargetBranch:         entry.TargetBranch,
@@ -1200,7 +1225,8 @@ func (c MergeQueueRunCompletion) RecordRun(ctx context.Context, entry runstate.M
 			TargetCommit:         completion.Landed,
 			PreviousTargetCommit: completion.TargetBase,
 		},
-		At: c.now(),
+		WholeBy: mergeQueueWholeBy(entry, completion),
+		At:      c.now(),
 	})
 	return err
 }

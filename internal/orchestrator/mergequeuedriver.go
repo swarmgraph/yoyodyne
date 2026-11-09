@@ -231,6 +231,11 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			return done(runstate.MergeQueuePassStopped, promoted.Entry, promoted.Unresolved)
 		case underWay && promoted.Refusal != "":
 			return done(runstate.MergeQueuePassStopped, promoted.Entry, promoted.Refusal)
+		case promoted.Uncovered:
+			// The candidate's checks do not cover what its run left to them, and
+			// verifying it again changes nothing, so the pass stops and records
+			// why rather than going round (mergequeuewhole.go).
+			return done(runstate.MergeQueuePassStopped, promoted.Entry, promoted.Refusal)
 		}
 		verified, err := d.Worker.Work(ctx, key)
 		if err != nil {

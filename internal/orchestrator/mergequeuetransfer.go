@@ -5,6 +5,8 @@ package orchestrator
 // "Crash recovery and disabling". Nothing moves an entry between modes on its
 // own — not the switch being turned off, not the forge answering differently
 // later — so a transfer is something a person asks for (`yoyo queue transfer`).
+// A change whose run left its whole check to the harness's queue is never moved
+// to the forge's (mergequeuewhole.go).
 //
 // It is three steps, each recorded before the next, so a transfer interrupted
 // anywhere is finished by asking again rather than repeated. First whatever
@@ -47,6 +49,16 @@ func (p MergeQueuePromoter) Transfer(ctx context.Context, key runstate.MergeQueu
 	}
 	if mode != runstate.MergeQueueHarness && mode != runstate.MergeQueueForge {
 		return refuse("%q is neither the harness's queue nor the forge's", mode)
+	}
+	// A change whose run left its whole check to the harness's queue stays
+	// there: the forge's queue lands a commit this harness never checks, so
+	// nothing would check the change whole (mergequeuewhole.go).
+	if mode == runstate.MergeQueueForge {
+		if entry, _, err := p.entry(key, entryID); err == nil {
+			if run, err := p.Pipeline.Store.Load(entry.RunID); err == nil && run.ChecksPassed != nil && run.ChecksPassed.WholeLeftToQueue {
+				return refuse("run %s left checking its change over the whole module to the harness's queue, and the forge's queue lands a commit this harness never checks, so it stays in the harness's queue", entry.RunID)
+			}
+		}
 	}
 	evidence, refusal, err := p.transferEvidence(ctx, key.TargetBranch, mode)
 	if err != nil {

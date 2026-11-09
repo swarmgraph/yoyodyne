@@ -3230,6 +3230,49 @@ narrowed to, so the two passes are never read as one. Every configured check
 runs again, not only the ones that read the variable, because the harness
 cannot tell which checks read it.
 
+With [integration through a merge queue](#integrating-through-a-merge-queue)
+switched on (`execution.merge_queue: true`), the run leaves that whole pass to
+the queue where its change goes to the harness's own queue. The queue builds
+the merge candidate from the target as it then stands, runs every configured
+check over it told the whole module, and lands exactly that candidate, so a
+pass here would repeat it over a candidate that is not the one that lands. So
+a run with the switch on marks its narrowed evidence as leaving the whole pass
+to the queue (`checks_passed.whole_left_to_queue` on the run's record), and
+that evidence admits the change to the harness's own queue and promotes
+nothing. Nothing about it can stop the queue:
+
+- **The queue runs every check the run left to it.** It checks the candidate
+  with the configured checks and, where they no longer name one of the checks
+  the run narrowed, because they changed after the change was admitted, with
+  that check too, told the whole module like the rest. The candidate lands
+  only once every one of them ran on that exact candidate and passed, rather
+  than failing or saying it could not run; a candidate that fails one is
+  handed back to its run like any failing candidate. A
+  [path check](#checks-a-change-runs-only-when-it-touches-what-they-vouch-for)
+  is the exception, because it joins the run's checks for what the change
+  touches, is told nothing narrower than it always runs over, and the queue
+  does not run it. The item's admission note says the whole pass was left to
+  the queue, and once the change lands the run's record names the queue's
+  check that stood in, in `checks_passed.whole_by`: the queue entry, the
+  generation, and the commit that landed.
+- **Such a change goes to the harness's queue or is checked here first.**
+  Where admission would choose the forge's own merge queue, which lands a
+  commit this harness never checks, nothing is admitted: the run checks the
+  change whole here, as with the switch off, and is then admitted in whichever
+  queue admission chooses. The stage's record says why: `checked here rather
+  than left to the merge queue, because` and the reason. An explicit transfer
+  of such a change to the forge's queue (`yoyo queue transfer`) is refused for
+  the same reason.
+- **A hold checks nothing.** A change the queue would hold, or whose target's
+  protection cannot be read to say, is not admitted, so nothing checks it
+  whole while it waits.
+
+A change left to the queue that is promoted the old way because the switch was
+turned off since, a held one among them, is checked whole on this machine
+first, as above, and its stage's record says so. A run whose integration a
+person approves is checked whole here whatever the switch says, because its
+change does not go through the queue.
+
 **Landing checks.** `landing_checks` is a second list beside `checks`, run
 once per landing on the target branch — after a run has integrated, closed its
 item, and removed its worktree — in a detached checkout of the integrated commit
@@ -6667,7 +6710,9 @@ the sections above describe.
 target branch and ends.** Its gate is the same — the protected-path gate, the
 configured checks, and an independent review of the change — and is read off
 the run's record before anything is admitted. What the run no longer does is
-promote the change or replay it: the change is committed as it was approved,
+check its approved change whole a second time where the change goes to the
+harness's own queue ([where the whole suite runs](#where-the-whole-suite-runs)),
+promote the change, or replay it: the change is committed as it was approved,
 admitted as the queue's next entry, and the run ends succeeded with its item
 still claimed and its branch and worktree kept, because the queue may hand the
 change back to it. A run waiting in the queue holds no developer slot, so the
