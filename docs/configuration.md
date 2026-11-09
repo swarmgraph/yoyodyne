@@ -2574,6 +2574,7 @@ release](developing-yoyo.md#cutting-a-release) gates on.
 yoyo conformance          # what a release is tagged behind
 yoyo conformance --json   # machine-readable
 yoyo conformance --notes  # the Markdown section a release's notes carry
+yoyo conformance --notes --from-export  # the same, read from the tracker's export, inside a developer run
 ```
 
 The order the checks run in is not code. It is a **workflow definition**: a
