@@ -1387,7 +1387,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// nothing else is, because GitHub not answering stops every landing, and a
 	// surface that lists only the running runs would otherwise not show it.
 	if standing.Paused == "" {
-		standing.Paused = SayWaitingForGitHub(standing.PausedRuns)
+		standing.Paused = SayWaitingForGitHub(standing.PausedRuns, standing.Titles)
 	}
 	standing.WorkItemNames = standing.Titles.Names(standing.namedItems()...)
 	standing.wording = ReadTextTerms(sources.Repository)

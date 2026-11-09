@@ -6,30 +6,44 @@ package orchestrator
 // dropped connection is waited out. A boundary's own recovery window
 // (recovery.go) ends after two hours and is waited under the promotion lease,
 // so at the merge step neither is enough for an outage. Where a step at the
-// merge step cannot reach GitHub, the run waits for it instead:
+// merge step cannot reach GitHub, the run waits for it instead, in one of two
+// ways depending on whether anything has landed yet.
 //
-//   - reading where the target branch stands on GitHub before landing
-//     (settleRemoteTarget), and bringing the local target onto it;
-//   - checking the target again and asking GitHub to merge the pull request,
-//     for a change that lands through its pull request (publishIntegration).
+// Before anything is promoted — reading where the target branch stands on
+// GitHub and bringing the local target onto it (settleRemoteTarget) — the step
+// returns forgeAwayError, which gives up the promotion lease as integrate
+// returns, and promoteApproved waits and then makes the whole landing again
+// from the top: the lease, the read, the promotion, the merge.
 //
-// The step gives up the promotion lease as it returns — a long wait on the
-// remote is never made holding it — and the run records the wait on its record
-// (runstate.ForgeWait), which gives back its developer slot and lets every
-// surface say what it is waiting for and when it next tries. It sleeps on the
-// recovery package's paced intervals, which start at a second and grow to half
-// an hour, and then makes the whole landing again from the top: the lease, the
-// read of the target, the merge. Nothing ends the wait but GitHub answering, the
-// operator asking the run to stop, or the process hosting it ending. Nothing is
-// charged for it — no repair attempt, no review round — and nothing is put to
-// the development manager.
+// Once the promotion is made — the local target moved, or the landing through
+// the pull request prepared — the landing cannot be made again from the top, so
+// the step that could not reach GitHub is asked again in place
+// (untilGitHubAnswers): the check of the target and the merge request, the
+// question whether the pull request merged, and the read that the target
+// carries it (publishIntegration). The lease is given back for the wait and
+// taken again before the step is asked again, so the fresh read of the target
+// and the change to it are still made under the lease and no long wait is made
+// holding it. Asking a merge again is safe however its connection failed,
+// because the request names the head commit, so a merge GitHub already made is
+// not made twice; and the check of the target is made again inside each try, so
+// a target that moved during the wait is found as it always is.
+//
+// Either way the run records the wait (runstate.ForgeWait), which gives back its
+// developer slot and lets every surface say what it is waiting for and when it
+// next tries, and sleeps on the recovery package's paced intervals, which start
+// at a second and grow to half an hour. Nothing ends the wait but GitHub
+// answering, the operator asking the run to stop, or the process hosting it
+// ending. Nothing is charged for it — no repair attempt, no review round — and
+// nothing is put to the development manager.
 //
 // A refusal from GitHub about the change itself — a failing check, a conflict,
 // a protected branch — is not a network failure, is not waited out here, and is
-// handled as it always was. So is a merge request whose connection dropped after
-// it was sent: GitHub may have received it, and that is settled by the existing
-// short retry and, past it, by the dropped-merge handling, rather than by
-// making the landing again from the top.
+// handled as it always was.
+//
+// With execution.merge_queue on, the run never reaches any of this: it ends
+// once its change is admitted to the queue and never contacts GitHub at its
+// merge step. The queue's own passes land the change (mergequeuepromotion.go,
+// mergequeuerecovery.go), and how they treat GitHub being away is theirs.
 
 import (
 	"context"
@@ -110,12 +124,11 @@ func (a *activeRun) awaitForge(ctx context.Context, away forgeAwayError) error {
 	a.outcome.ForgeWaited = &recorded
 	a.landingAt("waiting for GitHub to be reachable again, after it could not be reached while "+away.step, landingReadsRemote)
 	// The wait is written as the store's narrow update rather than as this
-	// copy of the record, together with the landing taken back off it where
-	// unprepareLanding took one back, and the record as written is the run's
-	// from here on.
+	// copy of the record, together with the landing as this process holds it,
+	// and the record as written is the run's from here on.
 	written, err := p.Store.Update(context.Background(), a.state.RunID, runstate.ForgeWaitRecorded{
 		Wait:          wait,
-		Unprepared:    a.state.Integration == nil,
+		Integration:   a.state.Integration,
 		HarnessCommit: a.state.HarnessCommit,
 		At:            now,
 	})
@@ -123,7 +136,26 @@ func (a *activeRun) awaitForge(ctx context.Context, away forgeAwayError) error {
 		a.state.ForgeWait = nil
 		return withFailedRecord(away, fmt.Errorf("record that the run is waiting for GitHub: %w", err))
 	}
-	a.state = written
+	// This process holds the run, so its copy is the run's account of the
+	// promotion under way, including what it has not saved yet — the pull
+	// request's merge as it stands among it. Where nothing else wrote to the
+	// record since that copy was read, the copy stays the run's with the wait and
+	// the new revision on it. Where something did, the record as written is
+	// taken, with this process's account of the promotion carried onto it.
+	if written.Revision == a.state.Revision+1 {
+		a.state.ForgeWait = written.ForgeWait
+		a.state.Integration = written.Integration
+		a.state.ReplayUnjudged = written.ReplayUnjudged
+		a.state.HarnessCommit = written.HarnessCommit
+		a.state.UpdatedAt = written.UpdatedAt
+		a.state.Revision = written.Revision
+	} else {
+		held := a.state
+		a.state = written
+		a.state.PullRequest = held.PullRequest
+		a.state.PublishFailure = held.PublishFailure
+		a.state.StopClass = held.StopClass
+	}
 	if err := p.sleep(ctx, delay); err != nil {
 		a.state.ForgeWait = nil
 		return away
@@ -142,18 +174,67 @@ func (a *activeRun) endForgeWait() {
 	a.state.ForgeWait = nil
 }
 
-// unprepareLanding takes a landing through the pull request back off the
-// record, for a run that is going to make the landing again from the top: the
-// landing moved no branch, and a run waiting with a promotion on its record
-// would read as one whose change had landed. A commit the preparation made is
-// kept on the record, as a refused promotion keeps its own, so the next
-// preparation recognises it as the harness's.
-func (a *activeRun) unprepareLanding() {
-	if integration := a.outcome.Integration; integration != nil && integration.SourceCommit != "" && integration.SourceCommit != a.state.HarnessCommit {
-		a.recordHarnessCommit(integration.SourceCommit)
+// untilGitHubAnswers asks one step of a promotion already made, and asks it
+// again in place for as long as it fails in a way waits says is GitHub not
+// being reachable. Each wait gives the promotion lease back and takes it again
+// before the step is asked again (waitWithoutLease). What it returns is the
+// step's own answer once GitHub gives one, which the caller handles as it always
+// did. Where the wait itself ends — the process hosting the run is ending, or
+// the wait could not be recorded or the lease taken again — the step's last
+// failure is returned for the same handling; the operator asking the run to stop
+// is returned as their stop, so the run is stopped rather than carrying on.
+func (a *activeRun) untilGitHubAnswers(ctx context.Context, step string, waits func(error) bool, ask func(context.Context) error) error {
+	// The landing step the caller noted is noted again after each wait, so a
+	// stop after it names the step rather than the wait.
+	noted := a.outcome.LandingStep
+	for {
+		a.outcome.LandingStep = noted
+		err := ask(ctx)
+		if err == nil || !waits(err) {
+			a.endForgeWait()
+			return err
+		}
+		if waitErr := a.waitWithoutLease(ctx, forgeAwayError{step: step, cause: err}); waitErr != nil {
+			a.endForgeWait()
+			var stopped operatorStop
+			if errors.As(waitErr, &stopped) {
+				return waitErr
+			}
+			return err
+		}
 	}
-	a.outcome.Integration = nil
-	a.state.Integration = nil
+}
+
+// stoppedWhileWaiting reports the operator's stop of a run that was waiting for
+// GitHub in place (untilGitHubAnswers), which ends the promotion as their stop
+// rather than being recorded as the step's failure.
+func stoppedWhileWaiting(err error) bool {
+	var stopped operatorStop
+	return errors.As(err, &stopped)
+}
+
+// waitWithoutLease is awaitForge with the promotion lease given back for the
+// wait and taken again once it is over. A run asked from outside integrate
+// holds no lease here, and waits all the same.
+func (a *activeRun) waitWithoutLease(ctx context.Context, away forgeAwayError) error {
+	held := a.promotionLease != nil
+	if held {
+		_ = a.promotionLease.Release()
+		a.promotionLease = nil
+	}
+	if err := a.awaitForge(ctx, away); err != nil {
+		return err
+	}
+	if !held {
+		return nil
+	}
+	a.landingAt("waiting for this run's turn to land on "+a.worktree.TargetBranch+" again, now that the wait for GitHub is over", landingAsksNothing)
+	lease, err := a.pipeline.Store.LeasePromotion(ctx, a.worktree.TargetBranch)
+	if err != nil {
+		return fmt.Errorf("take this run's turn to land again after waiting for GitHub: %w", err)
+	}
+	a.promotionLease = lease
+	return nil
 }
 
 // renderForgeWaitNote is the line the item's notes carry about a wait for

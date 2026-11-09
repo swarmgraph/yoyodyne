@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -291,6 +292,7 @@ func TestARunWaitingForGitHubIsSaidAsPausedWithItsNextTry(t *testing.T) {
 	sources.Slots = []domain.DeveloperSlot{{Prefer: []string{"dashboard"}}}
 	since := moment.Add(-14 * time.Minute)
 	next := moment.Add(3 * time.Minute)
+	sources.Tracker = statusTracker{fakeTracker{byStatus: map[string][]beads.WorkItem{"": {{ID: "yoyodyne-ifd.435.43", Title: "Second MCP piece", Status: "in_progress"}}}}}
 	sources.Runs = fakeRuns{
 		incomplete: []runstate.State{{
 			RunID: "run-merge", WorkItemID: "yoyodyne-ifd.435.43", Status: runstate.StatusRunning, Phase: runstate.PhaseIntegrating,
@@ -319,14 +321,16 @@ func TestARunWaitingForGitHubIsSaidAsPausedWithItsNextTry(t *testing.T) {
 	rendered := standing.Render()
 	for _, want := range []string{
 		"Paused, holding no developer slot (1 developer run):\n",
-		"yoyodyne-ifd.435.43 (not in the tracker) — approved and waiting for GitHub to be reachable again: GitHub could not be reached while reading where origin's main stands before landing, 4 tries since ",
+		"Second MCP piece (yoyodyne-ifd.435.43) — approved and waiting for GitHub to be reachable again: GitHub could not be reached while reading where origin's main stands before landing, 4 tries since ",
 		nextSaid + ", waiting 14m\n",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("rendered:\n%s\nmissing: %q", rendered, want)
 		}
 	}
-	if !strings.HasPrefix(standing.Paused, "Waiting for GitHub: the approved change for yoyodyne-ifd.435.43 is waiting for GitHub to be reachable again") ||
+	// The banner names the work item by its title, with its number after it.
+	if !strings.HasPrefix(standing.Paused, "Waiting for GitHub: the approved change for ") ||
+		!strings.Contains(standing.Paused, "Second MCP piece (yoyodyne-ifd.435.43) is waiting for GitHub to be reachable again") ||
 		!strings.Contains(standing.Paused, nextSaid) {
 		t.Fatalf("banner = %q, want it to say the run is waiting for GitHub and when it next tries", standing.Paused)
 	}

@@ -296,8 +296,9 @@ func (s Standing) renderPaused() string {
 
 // SayWaitingForGitHub is the banner for the runs waiting at their merge step for
 // GitHub to be reachable again, and nothing where there are none: the first such
-// run as its record says it, and how many more there are.
-func SayWaitingForGitHub(paused []RunningRun) string {
+// run as its record says it, its work item named by its title where the tracker
+// gives one, and how many more there are.
+func SayWaitingForGitHub(paused []RunningRun, titles *WorkItemTitles) string {
 	var waiting []RunningRun
 	for _, run := range paused {
 		if run.WaitingForGitHub != "" {
@@ -307,7 +308,7 @@ func SayWaitingForGitHub(paused []RunningRun) string {
 	if len(waiting) == 0 {
 		return ""
 	}
-	said := fmt.Sprintf("Waiting for GitHub: the approved change for %s is %s", waiting[0].WorkItemID, waiting[0].WaitingForGitHub)
+	said := fmt.Sprintf("Waiting for GitHub: the approved change for %s is %s", titles.Name(waiting[0].WorkItemID), waiting[0].WaitingForGitHub)
 	if more := len(waiting) - 1; more > 0 {
 		said += fmt.Sprintf("; %s more %s waiting for it too", count(more, "run"), plural(more, "is", "are"))
 	}

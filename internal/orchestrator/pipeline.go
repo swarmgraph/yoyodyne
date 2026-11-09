@@ -2605,6 +2605,10 @@ type activeRun struct {
 	// is recorded as a narrow update on the record as stored rather than a save
 	// of a copy that may be out of date (recovery.go, recordRetry).
 	narrowRetries bool
+	// promotionLease is the target branch's promotion lease while integrate
+	// holds it, and nil otherwise. A wait for GitHub part-way through a
+	// promotion gives it back and takes it again (forgewait.go).
+	promotionLease *runstate.Lease
 	// scratch is the directory this run's developer is told to write its scratch
 	// files to, cut for this run alone and outside the worktree. It is derived
 	// from the worktree rather than recorded with the run, because it is a fact
@@ -7423,7 +7427,14 @@ func (a *activeRun) integrate(ctx context.Context) error {
 	// Releasing is this process letting the next promotion in, and the operating
 	// system does it anyway when the process exits. A close that failed therefore
 	// says nothing about the promotion below, which either happened or did not.
-	defer func() { _ = lease.Release() }()
+	// The lease is held on the run rather than here, so a wait for GitHub later
+	// in this promotion can give it back and take it again (forgewait.go); what
+	// is released at the end is whichever lease the run then holds.
+	a.promotionLease = lease
+	defer func() {
+		_ = a.promotionLease.Release()
+		a.promotionLease = nil
+	}()
 	// Where the remote target stands is settled before the promotion rather than
 	// only after it. A promotion made onto a target the remote has moved away from
 	// can be neither published nor taken back, so finding out afterwards closes the

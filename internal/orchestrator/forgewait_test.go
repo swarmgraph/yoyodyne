@@ -57,6 +57,38 @@ func (f *unreachableMerges) Merge(ctx context.Context, request publish.MergeRequ
 	return f.Forge.Merge(ctx, request)
 }
 
+// unreachableMergeStates cannot reach GitHub for the first questions whether the
+// pull request merged, after GitHub has accepted the merge.
+type unreachableMergeStates struct {
+	*orchestratortest.Forge
+	failures int
+	asked    int
+}
+
+func (f *unreachableMergeStates) State(ctx context.Context, branch string) (publish.PullRequest, error) {
+	f.asked++
+	if f.asked <= f.failures {
+		return publish.PullRequest{}, gitHubUnreachable("gh pr view " + branch)
+	}
+	return f.Forge.State(ctx, branch)
+}
+
+// unreachableConfirmations cannot reach GitHub for the first reads that the
+// target carries the merge.
+type unreachableConfirmations struct {
+	WorktreeManager
+	failures int
+	reads    int
+}
+
+func (w *unreachableConfirmations) ConfirmRemoteTarget(ctx context.Context, integration gitworktree.Integration, mergeCommit string) (string, error) {
+	w.reads++
+	if w.reads <= w.failures {
+		return "", gitHubUnreachable("fetch " + integration.TargetBranch + " from origin")
+	}
+	return w.WorktreeManager.ConfirmRemoteTarget(ctx, integration, mergeCommit)
+}
+
 // forgeWaitFixture is an approved change landing through its pull request onto
 // a protected target, on a hand-driven clock that records, at every wait,
 // what the run's record said while it waited.
@@ -66,15 +98,20 @@ type forgeWaitFixture struct {
 	tracker  *orchestratortest.Tracker
 	forge    *orchestratortest.Forge
 	clock    *pausingClock
-	// during is the run's record as it stood at each wait.
-	during []runstate.State
+	// during is the run's record as it stood at each wait, and leaseFree whether
+	// the target's promotion lease could be taken by another run then.
+	during    []runstate.State
+	leaseFree []bool
 }
 
-func newForgeWaitFixture(t *testing.T, publisher func(*orchestratortest.Forge) PullRequests) *forgeWaitFixture {
+func newForgeWaitFixture(t *testing.T, protected bool, publisher func(*orchestratortest.Forge) PullRequests) *forgeWaitFixture {
 	t.Helper()
 	repository, remote := publishedRepository(t)
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
-	forge := &orchestratortest.Forge{Remote: remote, TargetProtection: publish.BranchProtection{Protected: true, By: "branch protection"}}
+	forge := &orchestratortest.Forge{Remote: remote}
+	if protected {
+		forge.TargetProtection = publish.BranchProtection{Protected: true, By: "branch protection"}
+	}
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, approveVerdict)
@@ -89,6 +126,15 @@ func newForgeWaitFixture(t *testing.T, publisher func(*orchestratortest.Forge) P
 		for _, state := range incomplete {
 			if state.ForgeWait != nil {
 				fixture.during = append(fixture.during, state)
+				// No long wait on GitHub is made holding the promotion lease: another
+				// run can take it while this one waits.
+				leaseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				lease, err := store.LeasePromotion(leaseCtx, "main")
+				cancel()
+				fixture.leaseFree = append(fixture.leaseFree, err == nil)
+				if err == nil {
+					_ = lease.Release()
+				}
 			}
 		}
 	}
@@ -100,7 +146,7 @@ func newForgeWaitFixture(t *testing.T, publisher func(*orchestratortest.Forge) P
 // merge step to what the operator's rule asks: it waited, longer than the
 // two-hour window any one boundary is given, holding no developer slot and
 // saying so, then carried on and landed, charged nothing and put to nobody.
-func (f *forgeWaitFixture) assertWaitedOutAndLanded(t *testing.T, outcome Outcome, err error, failures int, step string) {
+func (f *forgeWaitFixture) assertWaitedOutAndLanded(t *testing.T, outcome Outcome, err error, failures int, step string, promoted bool) {
 	t.Helper()
 	if err != nil {
 		t.Fatalf("Run() error = %v, want GitHub waited out and the change landed", err)
@@ -141,8 +187,13 @@ func (f *forgeWaitFixture) assertWaitedOutAndLanded(t *testing.T, outcome Outcom
 		if state.HoldsDeveloperSlot() {
 			t.Fatalf("wait %d: the run holds a developer slot while it waits for GitHub", index+1)
 		}
-		if state.Integration != nil {
-			t.Fatalf("wait %d: the run records a promotion %#v while nothing has landed", index+1, state.Integration)
+		// A wait before the promotion records none; a wait after it keeps the
+		// promotion on the record, because it cannot be made again.
+		if (state.Integration != nil) != promoted {
+			t.Fatalf("wait %d: the run records promotion %#v, want one recorded = %t", index+1, state.Integration, promoted)
+		}
+		if !f.leaseFree[index] {
+			t.Fatalf("wait %d: the promotion lease was held while the run waited for GitHub", index+1)
 		}
 		says := wait.Says()
 		if !strings.HasPrefix(says, "waiting for GitHub to be reachable again") || !strings.Contains(says, "next try at ") {
@@ -172,35 +223,81 @@ func TestAnUnreachableGitHubAtTheTargetReadIsWaitedOutAndTheRunLands(t *testing.
 
 	const failures = 20
 	var reads *unreachableTargetReads
-	fixture := newForgeWaitFixture(t, func(forge *orchestratortest.Forge) PullRequests { return forge })
+	fixture := newForgeWaitFixture(t, true, func(forge *orchestratortest.Forge) PullRequests { return forge })
 	reads = &unreachableTargetReads{WorktreeManager: fixture.pipeline.Worktrees, failures: failures}
 	fixture.pipeline.Worktrees = reads
 
 	outcome, err := fixture.pipeline.Run(context.Background(), "yoyodyne-task")
-	fixture.assertWaitedOutAndLanded(t, outcome, err, failures, "reading where origin's main stands before landing")
+	fixture.assertWaitedOutAndLanded(t, outcome, err, failures, "reading where origin's main stands before landing", false)
 	// The read was asked again after every wait, and once more before the merge.
 	if reads.reads != failures+2 {
 		t.Fatalf("target reads = %d, want %d", reads.reads, failures+2)
 	}
 }
 
-// The merge request itself: GitHub could not be reached, so nothing was asked of
-// it, and the run asked again once it could.
+// The merge request itself, on a target landed through its pull request and on
+// one promoted locally first: GitHub could not be reached, so the run waited
+// with the promotion lease given back and asked again in place once it could.
 func TestAnUnreachableGitHubAtTheMergeRequestIsWaitedOutAndTheRunLands(t *testing.T) {
 	t.Parallel()
 
-	const failures = 20
-	var merges *unreachableMerges
-	fixture := newForgeWaitFixture(t, func(forge *orchestratortest.Forge) PullRequests {
-		merges = &unreachableMerges{Forge: forge, failures: failures}
-		return merges
-	})
+	for _, landing := range []struct {
+		name      string
+		protected bool
+	}{
+		{name: "through the pull request", protected: true},
+		{name: "after a local promotion", protected: false},
+	} {
+		t.Run(landing.name, func(t *testing.T) {
+			t.Parallel()
+			const failures = 20
+			var merges *unreachableMerges
+			fixture := newForgeWaitFixture(t, landing.protected, func(forge *orchestratortest.Forge) PullRequests {
+				merges = &unreachableMerges{Forge: forge, failures: failures}
+				return merges
+			})
 
-	outcome, err := fixture.pipeline.Run(context.Background(), "yoyodyne-task")
-	fixture.assertWaitedOutAndLanded(t, outcome, err, failures, "asking GitHub to merge pull request #1 into main")
-	if merges.asked != failures+1 {
-		t.Fatalf("merge requests = %d, want %d", merges.asked, failures+1)
+			outcome, err := fixture.pipeline.Run(context.Background(), "yoyodyne-task")
+			fixture.assertWaitedOutAndLanded(t, outcome, err, failures, "asking GitHub to merge pull request #1 into main", true)
+			if merges.asked != failures+1 {
+				t.Fatalf("merge requests = %d, want %d", merges.asked, failures+1)
+			}
+		})
 	}
+}
+
+// After GitHub accepted the merge, the question whether the pull request merged
+// and the read that the target carries it: GitHub could not be reached, so the
+// run waited and asked that question again, never the merge.
+func TestAnUnreachableGitHubAfterTheMergeIsWaitedOutAndTheRunLands(t *testing.T) {
+	t.Parallel()
+
+	t.Run("asking whether the pull request merged", func(t *testing.T) {
+		t.Parallel()
+		const failures = 20
+		var states *unreachableMergeStates
+		fixture := newForgeWaitFixture(t, true, func(forge *orchestratortest.Forge) PullRequests {
+			states = &unreachableMergeStates{Forge: forge, failures: failures}
+			return states
+		})
+		outcome, err := fixture.pipeline.Run(context.Background(), "yoyodyne-task")
+		fixture.assertWaitedOutAndLanded(t, outcome, err, failures, "asking GitHub whether pull request #1 merged", true)
+		if states.asked <= failures {
+			t.Fatalf("questions asked = %d, want more than the %d that failed", states.asked, failures)
+		}
+	})
+	t.Run("reading that the target carries it", func(t *testing.T) {
+		t.Parallel()
+		const failures = 20
+		fixture := newForgeWaitFixture(t, true, func(forge *orchestratortest.Forge) PullRequests { return forge })
+		confirmations := &unreachableConfirmations{WorktreeManager: fixture.pipeline.Worktrees, failures: failures}
+		fixture.pipeline.Worktrees = confirmations
+		outcome, err := fixture.pipeline.Run(context.Background(), "yoyodyne-task")
+		fixture.assertWaitedOutAndLanded(t, outcome, err, failures, "checking that origin's main carries pull request #1", true)
+		if confirmations.reads != failures+1 {
+			t.Fatalf("confirmation reads = %d, want %d", confirmations.reads, failures+1)
+		}
+	})
 }
 
 // A refusal from GitHub about the change itself is an answer, not GitHub being
@@ -208,7 +305,7 @@ func TestAnUnreachableGitHubAtTheMergeRequestIsWaitedOutAndTheRunLands(t *testin
 func TestARefusalAboutTheChangeIsNotWaitedOut(t *testing.T) {
 	t.Parallel()
 
-	fixture := newForgeWaitFixture(t, func(forge *orchestratortest.Forge) PullRequests {
+	fixture := newForgeWaitFixture(t, true, func(forge *orchestratortest.Forge) PullRequests {
 		forge.MergeErr = errors.New("GraphQL: Pull request is not mergeable: the merge commit cannot be cleanly created (mergePullRequest)")
 		return forge
 	})
