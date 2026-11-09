@@ -3473,7 +3473,12 @@ type State struct {
 	// created. It is durable so a resumed run promotes the work into the branch
 	// it was written against rather than whatever happens to be checked out
 	// when the run is picked up again.
-	TargetBranch        string `json:"target_branch,omitempty"`
+	TargetBranch string `json:"target_branch,omitempty"`
+	// UpstreamBranch is the team's branch fixed when the run started, from
+	// execution.upstream_branch. A run that records one does not close its item
+	// when its change lands on the target branch; it waits for the team's merge
+	// (TeamMerge).
+	UpstreamBranch      string `json:"upstream_branch,omitempty"`
 	ReviewSessionID     string `json:"review_session_id,omitempty"`
 	ReviewModel         string `json:"review_model,omitempty"`
 	ReviewResolvedModel string `json:"review_resolved_model,omitempty"`
@@ -4023,6 +4028,11 @@ type State struct {
 	// person to merge, under a merge setting that leaves the merge to a person
 	// (personmerge.go).
 	PersonMerge *PersonMerge `json:"person_merge,omitempty"`
+	// TeamMerge is the wait of a run whose change landed on the target branch
+	// while the project names a team branch to merge it into
+	// (execution.upstream_branch), until a fetch finds the landing commit there
+	// (teammerge.go).
+	TeamMerge *TeamMerge `json:"team_merge,omitempty"`
 	// PublishFailure explains why publishing a promotion did not finish. The
 	// local target branch is the authoritative one, so a promotion that could not
 	// be pushed is an outstanding publication rather than a failed run — the same
@@ -4803,6 +4813,17 @@ func (s State) Validate() error {
 		if s.PullRequest == nil || s.PullRequest.Number != s.PersonMerge.Number {
 			problems = append(problems, errors.New("a recorded person_merge requires the pull request it waits on"))
 		}
+	}
+	if s.TeamMerge != nil {
+		if err := s.TeamMerge.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+		if s.TargetBranch != "" && s.TeamMerge.TargetBranch != s.TargetBranch {
+			problems = append(problems, fmt.Errorf("team_merge.target_branch %q does not match the recorded target_branch %q", s.TeamMerge.TargetBranch, s.TargetBranch))
+		}
+	}
+	if s.UpstreamBranch != "" && !validLocalBranch(s.UpstreamBranch) {
+		problems = append(problems, errors.New("upstream_branch must be a local branch name"))
 	}
 	if s.MergeDrop != nil {
 		if err := s.MergeDrop.Validate(); err != nil {

@@ -154,6 +154,12 @@ func DeadClaims(claims []Claim, runs []runstate.State, now time.Time, threshold,
 		if latest.WaitingForPersonMerge() {
 			continue
 		}
+		// Nor is one whose change landed on the target branch and waits for the
+		// team to merge it into theirs: it holds its claim until the fetch finds
+		// the landing commit there.
+		if latest.WaitingForTeamMerge() {
+			continue
+		}
 		// And an item whose latest run ended holding its change is not work to be
 		// started again either. The claim is the one thing saying so, and the pull's
 		// hold reads the same endings: see stillHeld.

@@ -738,6 +738,16 @@ type Standing struct {
 	// WaitingPullRequestsProblem is why the waits could not be read.
 	WaitingPullRequests        *runstate.WaitingPullRequests `json:"waiting_pull_requests,omitempty"`
 	WaitingPullRequestsProblem string                        `json:"waiting_pull_requests_problem,omitempty"`
+	// WaitingForTeamMerge is the items whose change landed on the target branch
+	// and waits for the team to merge it into execution.upstream_branch, each
+	// holding its claim meanwhile. Each says which branch it landed on and which
+	// it waits to be merged into (WaitingForTeamMergeItem.Says).
+	// WaitingForTeamMergeProblem is why they could not be read.
+	// WaitingForTeamMergeSays is each of them as one sentence, for the surfaces
+	// that print what the model says rather than compose it.
+	WaitingForTeamMerge        []runstate.WaitingForTeamMergeItem `json:"waiting_for_team_merge,omitempty"`
+	WaitingForTeamMergeSays    []string                           `json:"waiting_for_team_merge_says,omitempty"`
+	WaitingForTeamMergeProblem string                             `json:"waiting_for_team_merge_problem,omitempty"`
 
 	Running        []RunningRun `json:"running"`
 	RunningProblem string       `json:"running_problem,omitempty"`
@@ -1375,6 +1385,12 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 			standing.Paused = SayWaitingPullRequests(waiting, standing.Titles)
 		}
 	}
+	teamWaits, teamProblem := WaitingForTeamMerge(sources)
+	standing.WaitingForTeamMerge = withTrackerTitles(teamWaits, standing.Titles)
+	standing.WaitingForTeamMergeProblem = teamProblem
+	for _, item := range standing.WaitingForTeamMerge {
+		standing.WaitingForTeamMergeSays = append(standing.WaitingForTeamMergeSays, "Waiting for the team's merge: "+item.Says())
+	}
 	standing.WorkItemNames = standing.Titles.Names(standing.namedItems()...)
 	standing.wording = ReadTextTerms(sources.Repository)
 	for index := range standing.NeedsHuman {
@@ -1413,6 +1429,9 @@ func (s Standing) namedItems() []string {
 		for _, request := range s.WaitingPullRequests.Waiting {
 			ids = append(ids, request.WorkItemID)
 		}
+	}
+	for _, item := range s.WaitingForTeamMerge {
+		ids = append(ids, item.WorkItemID)
 	}
 	for _, instance := range s.ProgramManagers {
 		for _, entries := range [][]LaneEntry{instance.Completed, instance.HandedOff} {

@@ -53,8 +53,10 @@ import (
 
 const (
 	// runIndexVersion is the index format this build reads and writes. An index
-	// in any other format is rebuilt from the records rather than trusted.
-	runIndexVersion = 2
+	// in any other format is rebuilt from the records rather than trusted. Format
+	// 3 added the TeamMerge flag: an older index never flagged the runs waiting
+	// for the team's merge, so it would name none of them.
+	runIndexVersion = 3
 	runIndexName    = ".run-index.json"
 	runIndexLock    = ".run-index.lock"
 	// maxEncodedRunIndexBytes bounds what reading the index will take in. An
@@ -79,6 +81,9 @@ type runIndexEntry struct {
 	// PersonMerge is a run waiting for a person to merge its pull request
 	// (State.WaitingForPersonMerge), kept as a flag for the same reason.
 	PersonMerge bool `json:"person_merge,omitempty"`
+	// TeamMerge is a run waiting for the team to merge its landed change
+	// (State.WaitingForTeamMerge), kept as a flag for the same reason.
+	TeamMerge bool `json:"team_merge,omitempty"`
 	// Document is the id of the document a document run publishes, which never
 	// changes over the run's life. Format 1 did not hold it, which is why the
 	// format moved on: an index without it would name none of a document's runs.
@@ -94,6 +99,7 @@ func runIndexEntryOf(state State) runIndexEntry {
 		Outstanding:  state.Outstanding(),
 		AccountAlias: state.AccountAlias,
 		PersonMerge:  state.WaitingForPersonMerge(),
+		TeamMerge:    state.WaitingForTeamMerge(),
 		Document:     documentOf(state),
 	}
 }
@@ -114,7 +120,8 @@ func (e runIndexEntry) covers(next runIndexEntry) bool {
 		e.Document == next.Document &&
 		(e.InFlight || !next.InFlight) &&
 		(e.Outstanding || !next.Outstanding) &&
-		(e.PersonMerge || !next.PersonMerge)
+		(e.PersonMerge || !next.PersonMerge) &&
+		(e.TeamMerge || !next.TeamMerge)
 }
 
 // widened is next, still naming the run for every question e did.
@@ -122,6 +129,7 @@ func (e runIndexEntry) widened(next runIndexEntry) runIndexEntry {
 	next.InFlight = next.InFlight || e.InFlight
 	next.Outstanding = next.Outstanding || e.Outstanding
 	next.PersonMerge = next.PersonMerge || e.PersonMerge
+	next.TeamMerge = next.TeamMerge || e.TeamMerge
 	return next
 }
 

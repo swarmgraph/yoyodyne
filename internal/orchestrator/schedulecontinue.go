@@ -141,7 +141,11 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 		if err != nil {
 			return continuing, fmt.Errorf("read what %s waits on: %w", state.WorkItemID, err)
 		}
-		if blockers := blockingDependencies(item); len(blockers) > 0 {
+		met, err := pull.teamMergeMet(ctx)
+		if err != nil {
+			return continuing, err
+		}
+		if blockers := blockingDependencies(withoutMetDependencies(item, met)); len(blockers) > 0 {
 			passOver(state.WorkItemID, fmt.Sprintf("run %s is paused because %s waits on unfinished work: %s; it is continued at the first pull after that closes",
 				state.RunID, state.WorkItemID, strings.Join(blockers, ", ")))
 			continue

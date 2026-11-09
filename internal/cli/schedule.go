@@ -787,7 +787,7 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 	if trigger, scheduled := recurring.(*orchestrator.Trigger); scheduled {
 		summons = trigger
 	}
-	return orchestrator.Pull{
+	pull := orchestrator.Pull{
 		Tracker:   tracker,
 		Runs:      parts.store,
 		Stoppages: parts.store,
@@ -956,7 +956,15 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 			pipeline.Selection = selection
 			return pipeline.Run(ctx, workItemID)
 		},
-	}, nil
+	}
+	// With execution.upstream_branch set, an item that depends on work waiting
+	// for the team's merge on the branch this pull lands on is offered
+	// (orchestrator.Pull.TeamMerges).
+	if strings.TrimSpace(parts.config.Execution.UpstreamBranch) != "" {
+		pull.TeamMerges = parts.store
+		pull.TargetBranch = parts.worktrees.CurrentBranch
+	}
+	return pull, nil
 }
 
 // pausedRunContinuations is what a pull continues a run paused on work its item

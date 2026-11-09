@@ -798,10 +798,12 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 // forgeCheck is the check of the forge the supervisor runs on a schedule of its
 // own, apart from the maintenance pass and whether or not that pass is enabled
 // (internal/forgecheck). A product that publishes nothing has no pull request
-// to wait on, so it has no check.
+// to wait on, so it has no check, unless it sets execution.upstream_branch: the
+// check is also what finds a landed change on the team's branch and closes its
+// item.
 func (p *product) forgeCheck(repository string, log func(format string, args ...any)) (*forgecheck.Check, bool) {
 	cfg := p.resolved.Config
-	if p.runner == nil || cfg.Approvals.Publishing != domain.ApprovalAutomatic {
+	if p.runner == nil || (cfg.Approvals.Publishing != domain.ApprovalAutomatic && strings.TrimSpace(cfg.Execution.UpstreamBranch) == "") {
 		return nil, false
 	}
 	return &forgecheck.Check{

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1121,5 +1122,32 @@ func TestAutomaticWorkItemsRequiresTheOperatorToBeApprovingGoals(t *testing.T) {
 	inheriting := loadProject(t, minimalProjectConfig+"approvals:\n  goals: automatic\n", nil)
 	if inheriting.Config.Approvals.WorkItems != domain.ApprovalHuman {
 		t.Fatalf("inherited work_items = %q, want the bundle's %q", inheriting.Config.Approvals.WorkItems, domain.ApprovalHuman)
+	}
+}
+
+// The team's branch is unset unless a project names one, and unset keeps the
+// behavior a project had before the key existed.
+func TestUpstreamBranchIsOptionalAndMustBeAGitBranchName(t *testing.T) {
+	t.Parallel()
+
+	inherited := loadProject(t, minimalProjectConfig, nil)
+	if got := inherited.Config.Execution.UpstreamBranch; got != "" {
+		t.Fatalf("default upstream_branch = %q, want it unset", got)
+	}
+
+	named := loadProject(t, minimalProjectConfig+"execution:\n  upstream_branch: release/1.x\n", nil)
+	if got := named.Config.Execution.UpstreamBranch; got != "release/1.x" {
+		t.Fatalf("upstream_branch = %q, want the branch the project named", got)
+	}
+	if origin := named.Origins["execution.upstream_branch"]; origin == OriginDefault || origin == "" {
+		t.Errorf("execution.upstream_branch origin = %q, want the project's", origin)
+	}
+
+	for _, branch := range []string{"x y", "a..b", "-main", "main/", "main.lock", "a~b", "a^b", "a:b", "a?b", "a*b", "a[b", `a\b`, "a@{b", "/main", "a//b", ".hidden"} {
+		_, err := loadProjectError(t, minimalProjectConfig+"execution:\n  upstream_branch: "+strconv.Quote(branch)+"\n", nil)
+		want := "execution.upstream_branch " + strconv.Quote(branch) + " is not a Git branch name"
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("LoadResolved() upstream_branch %q error = %v, want %q", branch, err, want)
+		}
 	}
 }

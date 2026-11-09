@@ -359,6 +359,13 @@ type Execution struct {
 	// publishes into. A repository that has no remote by this name publishes
 	// nothing rather than failing, exactly as an absent Remote does.
 	PushRemote string `yaml:"push_remote,omitempty" json:"push_remote,omitempty"`
+	// UpstreamBranch names the team's branch, such as main, on the same remote as
+	// the target branch. Empty means unset, and unset keeps the behavior a project
+	// had before the key existed: an item whose change lands on the target branch
+	// is closed. With it set, such an item is not closed; it waits until a fetch
+	// of this branch finds its landing commit there. Setting it is the
+	// development manager's decision.
+	UpstreamBranch string `yaml:"upstream_branch,omitempty" json:"upstream_branch,omitempty"`
 	// UsageLimitMaxPause bounds how long a run may wait for an exhausted
 	// provider usage limit to reset. A reset further away than this is treated
 	// as no usable reset time at all: the run stops and records a blocker
@@ -1286,6 +1293,11 @@ func (c Config) Validate() error {
 	if pushRemote := strings.TrimSpace(c.Execution.PushRemote); pushRemote != "" && !remoteNamePattern.MatchString(pushRemote) {
 		problems = append(problems, fmt.Sprintf("push_remote %q must be a plain Git remote name", c.Execution.PushRemote))
 	}
+	// An unset upstream branch is the ordinary arrangement. A set one is checked
+	// as a name only; whether the remote has it is learned by fetching it.
+	if upstream := strings.TrimSpace(c.Execution.UpstreamBranch); upstream != "" && !validUpstreamBranchName(upstream) {
+		problems = append(problems, fmt.Sprintf("execution.upstream_branch %q is not a Git branch name", c.Execution.UpstreamBranch))
+	}
 	// Zero is a deliberate choice — never wait, block on every exhausted limit —
 	// so only a negative bound, which describes no wait anybody could take, is
 	// refused.
@@ -1899,6 +1911,30 @@ func validateShippedDocument(documentPath string) error {
 		return fmt.Errorf("%s %q must be a Markdown file", setting, documentPath)
 	}
 	return nil
+}
+
+// validUpstreamBranchName reports whether name can be a Git branch name. It
+// refuses what git check-ref-format refuses for a branch: whitespace and control
+// characters, the characters ~ ^ : ? * [ and backslash, "..", "@{", a leading
+// "-" or "/", a trailing "/", "." or ".lock", an empty path component, a
+// component that begins with ".", and the name "@".
+func validUpstreamBranchName(name string) bool {
+	if name == "@" || strings.HasPrefix(name, "-") || strings.HasPrefix(name, "/") ||
+		strings.HasSuffix(name, "/") || strings.HasSuffix(name, ".") ||
+		strings.Contains(name, "..") || strings.Contains(name, "@{") || strings.Contains(name, "//") {
+		return false
+	}
+	for _, r := range name {
+		if r <= ' ' || r == 0x7f || strings.ContainsRune("~^:?*[\\", r) {
+			return false
+		}
+	}
+	for _, component := range strings.Split(name, "/") {
+		if strings.HasPrefix(component, ".") || strings.HasSuffix(component, ".lock") {
+			return false
+		}
+	}
+	return true
 }
 
 // remoteNamePattern keeps a configured remote a plain remote name. The harness

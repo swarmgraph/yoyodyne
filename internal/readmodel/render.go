@@ -79,6 +79,7 @@ func (s Standing) RenderLines() string {
 	var rendered strings.Builder
 	rendered.WriteString(s.renderRunning())
 	rendered.WriteString(s.renderPaused())
+	rendered.WriteString(s.renderWaitingForTeamMerge())
 	rendered.WriteString(s.renderWorking())
 	rendered.WriteString(s.renderNotStartable())
 	rendered.WriteString(s.renderNeedsHuman())

@@ -301,6 +301,11 @@ execution:
   # the two, which is how a contributor without push access publishes at all.
   # Leaving it out pushes run branches to the remote above.
   # push_remote: fork
+  # Set upstream_branch to the team's branch, such as main, on the same remote
+  # as the target branch, when changes land on a branch of your own first. A
+  # landed item then stays open until a fetch of that branch finds its landing
+  # commit. Leaving it out closes an item once its change lands on the target.
+  # upstream_branch: main
   # A provider usage limit that is exhausted pauses a run rather than failing
   # it. The maximum covers the five-hour limit and deliberately stops short of
   # the seven-day one, so a capacity problem that needs a person reaches one

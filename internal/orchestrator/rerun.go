@@ -950,7 +950,7 @@ func (r Rerunner) itemCanBeRun(ctx context.Context, workItemID string) (beads.Wo
 	if item.Status == claimedItemStatus {
 		statuses = []string{claimedItemStatus}
 	}
-	if err := validateWorkItem(item, workItemID, statuses...); err != nil {
+	if err := validateWorkItem(releaseTeamMergedFrom(r.Runs, item, ""), workItemID, statuses...); err != nil {
 		return beads.WorkItem{}, fmt.Errorf("%w: %w, which is what a fresh run of it would start from; nothing was claimed, so the stoppage keeps its re-run — put the item back in a state a run may start on and ask again to carry out the same decision",
 			ErrItemNotStartable, err)
 	}
