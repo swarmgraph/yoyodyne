@@ -53,9 +53,9 @@ const commandHelp = `Commands the harness carries out for you:
                               settle a directive and let the work it paused carry on
   /withdraw <directive-id> <why you no longer mean it>
                               take a directive out of force, keeping what it said
-  /landed <document-id> <commit>
+  /landed <document> <commit>
                               record a document you landed by hand as that commit, and give its place back
-  /drop <document-id> <reason>
+  /drop <document> <reason>
                               stop offering a document, whatever it waits for, and tell its author why
   /terminal-setup             set this terminal up so shift-return adds a new line rather than sending
   /help                       this list
