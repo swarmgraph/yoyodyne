@@ -2031,6 +2031,11 @@ func (c Client) run(ctx context.Context, args ...string) ([]byte, error) {
 // runWithin is one bd invocation under limit rather than the client's own
 // bound, which is what the store's cleanup is run under (cleanup.go).
 func (c Client) runWithin(ctx context.Context, limit time.Duration, args ...string) ([]byte, error) {
+	return c.runWithInput(ctx, limit, nil, args...)
+}
+
+// runWithInput is one bd invocation reading input on its standard input.
+func (c Client) runWithInput(ctx context.Context, limit time.Duration, input io.Reader, args ...string) ([]byte, error) {
 	runner := c.Runner
 	if runner == nil {
 		return nil, errors.New("bd process runner is required")
@@ -2044,6 +2049,7 @@ func (c Client) runWithin(ctx context.Context, limit time.Duration, args ...stri
 		Args:           args,
 		Dir:            c.Dir,
 		Env:            inUTC(withoutAutoExport(c.environment())),
+		Stdin:          input,
 		Timeout:        limit,
 		MaxOutputBytes: maxBDOutputBytes,
 	}

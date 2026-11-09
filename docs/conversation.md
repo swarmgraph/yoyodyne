@@ -3275,7 +3275,8 @@ development manager judged it had to.
 
 ### Deciding the brake's hold on intake
 
-One decision of hers is about no run at all. When the failure-storm brake holds
+Two decisions of hers are about no run at all: this one, and which of two
+machines' versions of an item stands, described next. When the failure-storm brake holds
 intake — that many runs blocked in a row, with nothing landing between them —
 the poll that trips it summons her sweep out of its cadence with the runs that
 blocked and the reason each blocked in the message that wakes her, and what it
@@ -3302,6 +3303,24 @@ kind of decision decides the other. Where she records no brake decision by
 `execution.brake_cooldown`, the session probes by itself; the whole of that is
 in [operations](operations.md#pausing-everything-and-resuming-it).
 
+
+### Deciding which of two machines' versions stands
+
+With team mode on, each forge check merges the tracker's export from the shared
+branch into this machine's tracker. Where two machines changed one item in ways
+that cannot be merged, the harness changes neither version, holds the item so
+nothing it chooses starts it, and puts a report on the development manager's
+list naming both versions ([the tracker between
+machines](operations.md#the-tracker-between-machines)). She settles it with a
+`keep_version` action naming the item and one of two decisions: `here`, to keep
+this machine's version, or `shared`, to keep the version in the shared export.
+The decision is recorded on the hold, naming her conversation and turn, and the
+conversation changes nothing else: the next forge check carries it out and ends
+the hold. Where the shared export removed the item, `shared` is refused, because
+the harness cannot remove an item from the tracker, and the hold stands; she keeps
+`here`, and asks the Lead Product Manager to retire the item if it should not go
+on. With team mode off, `keep_version` is refused, because no check would carry it
+out.
 ### Resuming an approved change the environment stopped
 
 `yoyo triage resume <run-id>` is the one action here that carries out no
