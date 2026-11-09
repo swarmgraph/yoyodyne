@@ -13,6 +13,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/recovery"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -312,21 +313,30 @@ func (a *activeRun) settleRemoteTarget(ctx context.Context) error {
 	// a reset one here would stop a run whose change is built, checked, and
 	// approved. The drift this is actually looking for is not a recoverable class,
 	// so it is reported as promptly as it always was.
-	err := a.recovering(ctx, runstate.RetryRemoteTarget, func(ctx context.Context) error {
+	//
+	// A GitHub that cannot be reached at all is not waited out here, under the
+	// promotion lease, but by the run with the lease given back (forgewait.go):
+	// the read is made again, from the top of the landing, until GitHub answers.
+	remote, target := a.pipeline.Config.Execution.Remote, a.worktree.TargetBranch
+	err := a.recoveringReachable(ctx, runstate.RetryRemoteTarget, func(ctx context.Context) error {
 		return a.pipeline.Worktrees.VerifyRemoteTarget(ctx, standing)
 	})
 	if err == nil {
 		return nil
 	}
 	if !errors.Is(err, gitworktree.ErrRemoteTargetDrift) {
-		return fmt.Errorf("check the remote target branch before promoting: %w", err)
+		return awayFromForge("reading where "+remote+"'s "+target+" stands before landing",
+			fmt.Errorf("check the remote target branch before promoting: %w", err))
 	}
-	catchup, catchupErr := recoveringValue(ctx, a, runstate.RetryCatchUpTarget, func(ctx context.Context) (gitworktree.Catchup, error) {
-		return a.pipeline.Worktrees.CatchUpTarget(ctx, a.worktree.TargetBranch)
+	var catchup gitworktree.Catchup
+	catchupErr := a.recoveringReachable(ctx, runstate.RetryCatchUpTarget, func(ctx context.Context) error {
+		var attemptErr error
+		catchup, attemptErr = a.pipeline.Worktrees.CatchUpTarget(ctx, target)
+		return attemptErr
 	})
 	if catchupErr != nil {
-		return fmt.Errorf("bring %s onto what %s has before promoting: %w",
-			a.worktree.TargetBranch, a.pipeline.Config.Execution.Remote, catchupErr)
+		return awayFromForge("bringing the local "+target+" onto "+remote+"'s before landing",
+			fmt.Errorf("bring %s onto what %s has before promoting: %w", target, remote, catchupErr))
 	}
 	// A remote with no such branch is not a divergence but a repository whose
 	// target has never been published, and the publication that follows the
@@ -463,19 +473,32 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 	// does not read a recoverable class in it and buy a second window for a
 	// question already answered.
 	a.landingAt(fmt.Sprintf("asking the forge to merge pull request #%d into %s", published.Number, integration.TargetBranch), landingAsksForge)
+	// A landing through the pull request has moved no branch yet, so a GitHub
+	// that cannot be reached here is waited out with the promotion lease given
+	// back and the landing made again from the top (forgewait.go); each boundary
+	// below returns that failure at once rather than waiting it out under the
+	// lease. A local promotion has already moved the target, so it cannot be made
+	// again, and its merge waits on the boundary's own window as it always did.
+	recover := a.recovering
+	if integration.ThroughPullRequest {
+		recover = a.recoveringReachable
+	}
 	var verifyFailure error
-	result, err := recoveringValue(ctx, a, runstate.RetryMerge, func(ctx context.Context) (publish.MergeResult, error) {
-		verifyFailure = a.recovering(ctx, runstate.RetryRemoteTarget, func(ctx context.Context) error {
+	var result publish.MergeResult
+	err := recover(ctx, runstate.RetryMerge, func(ctx context.Context) error {
+		verifyFailure = recover(ctx, runstate.RetryRemoteTarget, func(ctx context.Context) error {
 			return a.pipeline.Worktrees.VerifyRemoteTarget(ctx, integration)
 		})
 		if verifyFailure != nil {
-			return publish.MergeResult{}, errPreMergeVerification
+			return errPreMergeVerification
 		}
-		return a.pipeline.Publisher.Merge(ctx, publish.MergeRequest{
+		var mergeErr error
+		result, mergeErr = a.pipeline.Publisher.Merge(ctx, publish.MergeRequest{
 			Number:     published.Number,
 			HeadCommit: published.HeadCommit,
 			Method:     mergeMethod,
 		})
+		return mergeErr
 	})
 	if verifyFailure != nil {
 		a.landingAt(fmt.Sprintf("checking where %s's %s stands before asking the forge to merge pull request #%d", a.pipeline.Config.Execution.Remote, integration.TargetBranch, published.Number), landingReadsRemote)
@@ -486,6 +509,16 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 		// is, and the merge is asked for again with the gate re-earned.
 		if integration.ThroughPullRequest && errors.Is(verifyFailure, gitworktree.ErrRemoteTargetDrift) {
 			return a.replayUnlandedChange(ctx, cause)
+		}
+		// GitHub could not be reached for the read, and nothing has been asked of
+		// it, so the run waits for it rather than ending.
+		if integration.ThroughPullRequest && recovery.Recoverable(verifyFailure) {
+			a.unprepareLanding()
+			return forgeAwayError{
+				step: fmt.Sprintf("checking where %s's %s stands before asking GitHub to merge pull request #%d",
+					a.pipeline.Config.Execution.Remote, integration.TargetBranch, published.Number),
+				cause: cause,
+			}
 		}
 		// The merge was never asked for, and nothing here will ask again: this is
 		// the origin-moved refusal that four promotions once waited hours on with
@@ -499,6 +532,17 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 			return a.settlePromotedDivergence(ctx, integration, cause)
 		}
 		return nil
+	}
+	// A merge request that never reached GitHub asked nothing of it, so the run
+	// waits for GitHub and asks again rather than leaving the change unlanded. A
+	// request whose connection dropped after it was sent is not this: GitHub may
+	// have it, and it is the dropped merge it always was.
+	if err != nil && integration.ThroughPullRequest && recovery.Unreachable(err) {
+		a.unprepareLanding()
+		return forgeAwayError{
+			step:  fmt.Sprintf("asking GitHub to merge pull request #%d into %s", published.Number, integration.TargetBranch),
+			cause: err,
+		}
 	}
 	if err != nil {
 		a.recordMergeMethod(&published)

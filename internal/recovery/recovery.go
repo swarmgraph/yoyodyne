@@ -145,6 +145,11 @@ var recoverablePhrases = []string{
 	"could not resolve hostname",
 	"temporary failure in name resolution",
 	"name or service not known",
+	// SSH failing to open the connection at all. What follows the colon is the
+	// operating system's reason and varies with it — macOS can say "Undefined
+	// error: 0" for a network that is down — so the words ssh writes in front of
+	// it are what is matched. Nothing has been asked of the remote by then.
+	"ssh: connect to host",
 	// A transport that refused or timed out before anything read the request.
 	"connection refused",
 	"connection timed out",
@@ -175,6 +180,51 @@ var recoverablePhrases = []string{
 	// read as a process that was.
 	"failed with status cancelled",
 	"exit code -1:",
+}
+
+// Unreachable reports a recoverable failure in which the remote was never
+// reached: the connection could not be opened, the name did not resolve, or
+// there was no network to carry it. It is the part of Recoverable that says
+// nothing was asked of the remote, so asking again cannot repeat anything the
+// remote has already done. A connection that reset or closed mid-flight is
+// recoverable but not this: the request may have arrived before the reply was
+// lost.
+func Unreachable(err error) bool {
+	if err == nil {
+		return false
+	}
+	for _, transport := range []error{
+		syscall.ECONNREFUSED, syscall.EHOSTUNREACH, syscall.ENETUNREACH, syscall.ENETDOWN,
+	} {
+		if errors.Is(err, transport) {
+			return true
+		}
+	}
+	detail := err.Error()
+	if AuthenticationRefusedDetail(detail) {
+		return false
+	}
+	normalized := strings.ToLower(detail)
+	for _, phrase := range unreachablePhrases {
+		if strings.Contains(normalized, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// unreachablePhrases are the recoverablePhrases that say the connection was
+// never made.
+var unreachablePhrases = []string{
+	"ssh: connect to host",
+	"network is unreachable",
+	"network is down",
+	"no route to host",
+	"could not resolve host",
+	"could not resolve hostname",
+	"temporary failure in name resolution",
+	"name or service not known",
+	"connection refused",
 }
 
 // AuthenticationRefusedDetail reports text in which a remote refused the

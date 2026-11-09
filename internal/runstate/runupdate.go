@@ -290,6 +290,37 @@ func (u InstallWaitRecorded) apply(state *State) (bool, error) {
 	return true, nil
 }
 
+// ForgeWaitRecorded puts a wait at the merge step for GitHub to be reachable
+// again on the run (ForgeWait). A landing through the pull request that was
+// prepared before GitHub could not be reached moved no branch, so it is taken
+// off the record with it (Unprepared), keeping the commit the preparation made
+// as the harness's (HarnessCommit, where it names one).
+type ForgeWaitRecorded struct {
+	Wait          ForgeWait
+	Unprepared    bool
+	HarnessCommit string
+	At            time.Time
+}
+
+func (u ForgeWaitRecorded) apply(state *State) (bool, error) {
+	if err := u.Wait.Validate(); err != nil {
+		return false, fmt.Errorf("forge wait: %w", err)
+	}
+	if !state.Status.InFlight() {
+		return false, fmt.Errorf("a wait for GitHub requires a run in flight, and run %s is %s", state.RunID, state.Status)
+	}
+	wait := u.Wait
+	state.ForgeWait = &wait
+	if u.Unprepared {
+		state.Integration = nil
+	}
+	if strings.TrimSpace(u.HarnessCommit) != "" {
+		state.HarnessCommit = u.HarnessCommit
+	}
+	state.UpdatedAt = u.At
+	return true, nil
+}
+
 // IntegrationRecorded records the run's integration: the merge queue's landing
 // of its change, which the queue records as a run's own promotion would be. It
 // changes nothing where the run already records the same landing.

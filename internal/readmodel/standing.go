@@ -567,6 +567,12 @@ type RunningRun struct {
 	// on Standing.PausedRuns.
 	WaitingOn   string    `json:"waiting_on,omitempty"`
 	PausedSince time.Time `json:"paused_since,omitempty"`
+	// WaitingForGitHub is a run whose approved change is waiting at its merge
+	// step for GitHub to be reachable again, said as its record says it
+	// (runstate.ForgeWait.Says): what it was doing and when it next tries. Such
+	// a run holds no developer slot, so it is carried on Standing.PausedRuns,
+	// with PausedSince when its first try failed.
+	WaitingForGitHub string `json:"waiting_for_github,omitempty"`
 }
 
 // DeveloperSlotStanding is one configured developer slot as the standing status
@@ -741,8 +747,10 @@ type Standing struct {
 
 	Running        []RunningRun `json:"running"`
 	RunningProblem string       `json:"running_problem,omitempty"`
-	// PausedRuns is the runs in flight paused on work their items wait on. Such a
-	// run has no process, spends nothing, and holds no developer slot
+	// PausedRuns is the runs in flight paused on work their items wait on, and
+	// the runs waiting at their merge step for GitHub to be reachable again
+	// (WaitingForGitHub). A run paused on work its item waits on
+	// has no process, spends nothing, and holds no developer slot
 	// (runstate.State.HoldsDeveloperSlot), so it is said here rather than on the
 	// running line, and the slot it gave up is counted free wherever capacity is
 	// said. It keeps its claim, branch, worktree, and session, and continuing it
@@ -1375,6 +1383,12 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 			standing.Paused = SayWaitingPullRequests(waiting, standing.Titles)
 		}
 	}
+	// A run waiting for GitHub at its merge step is said in the banner where
+	// nothing else is, because GitHub not answering stops every landing, and a
+	// surface that lists only the running runs would otherwise not show it.
+	if standing.Paused == "" {
+		standing.Paused = SayWaitingForGitHub(standing.PausedRuns)
+	}
 	standing.WorkItemNames = standing.Titles.Names(standing.namedItems()...)
 	standing.wording = ReadTextTerms(sources.Repository)
 	for index := range standing.NeedsHuman {
@@ -1516,10 +1530,14 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 		// of the developer slots (readSlots).
 		run.documentLanding = state.HoldsDocumentLanding()
 		if !state.HoldsDeveloperSlot() && !run.documentLanding {
+			run.PausedSince = state.UpdatedAt
 			if state.DependencyPause != nil {
 				run.WaitingOn = state.DependencyPause.Summary()
 			}
-			run.PausedSince = state.UpdatedAt
+			if state.ForgeWait != nil {
+				run.WaitingForGitHub = state.ForgeWait.Says()
+				run.PausedSince = state.ForgeWait.Since
+			}
 			paused = append(paused, run)
 			continue
 		}
