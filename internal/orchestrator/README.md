@@ -187,7 +187,11 @@ back to the developer through `repair` with the matching prompt; any other
 `reviewChange` runs. Approve goes to `checkCandidateWhole`, which, where the
 checks were narrowed to the packages the change touches, runs them again over
 the merge candidate told the whole module (`verifyCandidate`) and hands a
-`checkFailure` back like any other; then the loop returns to
+`checkFailure` back like any other — except with the merge queue on
+(`queueChecksCandidateWhole`), where it only marks the evidence with
+`mergeQueueChecksWhole`, because the queue checks its candidate whole, and
+`promoteApproved` checks a held change whole before promoting it the old way;
+then the loop returns to
 `verifyReviewAndFinish`. Escalate
 returns `escalationRaised`; anything else is handed back with `repairPrompt`
 until `repairBudget` is spent, then `blockOnUnresolvedFindings`. Without

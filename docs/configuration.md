@@ -3167,6 +3167,21 @@ narrowed to, so the two passes are never read as one. Every configured check
 runs again, not only the ones that read the variable, because the harness
 cannot tell which checks read it.
 
+With [integration through a merge queue](#integrating-through-a-merge-queue)
+switched on (`execution.merge_queue: true`), the run does not make that whole
+pass itself. The approved change is admitted to the queue rather than
+promoted, and the queue builds the merge candidate from the target as it then
+stands, runs every configured check over it told the whole module, and lands
+exactly that candidate; a pass here would repeat it over a candidate that is
+not the one that lands. The run's evidence keeps what its checks were narrowed
+to and names the queue's checks as standing in for the whole pass
+(`checks_passed.whole_by` on the run's record), the item's admission note says
+the same, and that evidence admits the change to the queue and promotes
+nothing. A change the queue holds, and that is then promoted the old way
+because the switch was turned off, is checked whole on this machine first, as
+above. A run whose integration a person approves is checked whole here
+whatever the switch says, because its change does not go through the queue.
+
 **Landing checks.** `landing_checks` is a second list beside `checks`, run
 once per landing on the target branch — after a run has integrated, closed its
 item, and removed its worktree — in a detached checkout of the integrated commit
@@ -6604,7 +6619,9 @@ the sections above describe.
 target branch and ends.** Its gate is the same — the protected-path gate, the
 configured checks, and an independent review of the change — and is read off
 the run's record before anything is admitted. What the run no longer does is
-promote the change or replay it: the change is committed as it was approved,
+check its approved change whole a second time
+([where the whole suite runs](#where-the-whole-suite-runs)), promote the
+change, or replay it: the change is committed as it was approved,
 admitted as the queue's next entry, and the run ends succeeded with its item
 still claimed and its branch and worktree kept, because the queue may hand the
 change back to it. A run waiting in the queue holds no developer slot, so the

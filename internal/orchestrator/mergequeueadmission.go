@@ -232,6 +232,12 @@ func (a *activeRun) completeQueued(ctx context.Context, entry runstate.MergeQueu
 	a.narrowRetries = true
 	notes := fmt.Sprintf("Approved and admitted to the merge queue for %s as entry %d (%s queue), at %s. %s The queue builds a candidate from %s as it then stands with this change merged onto it, runs the configured checks on it, has an independent reviewer approve it, and lands exactly that candidate; this item is settled when it lands, or the change is handed back to this run if the candidate fails on the change.",
 		entry.TargetBranch, entry.Order, modeName(entry.Mode), shortCommit(entry.ApprovedHead), entry.ModeEvidence.Explanation, entry.TargetBranch)
+	// The checks before review were narrowed and this run did not run them again
+	// over the whole module, because the queue does that on the candidate it
+	// lands (checkCandidateWhole); the item says which check stood in.
+	if passed := a.state.ChecksPassed; passed != nil && passed.Narrowed != "" && passed.WholeBy != "" {
+		notes += fmt.Sprintf(" The checks before review ran over %s only, and this run did not run the configured checks again over the whole module on this machine: standing in for that is %s.", passed.Narrowed, passed.WholeBy)
+	}
 	if err := a.recovering(ctx, runstate.RetryTrackerWrite, func(ctx context.Context) error {
 		_, err := p.Tracker.RecordOutcome(ctx, a.state.WorkItemID, notes)
 		return err

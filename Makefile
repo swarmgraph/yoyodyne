@@ -183,9 +183,10 @@ test: cachecheck
 #     - make race CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
 #
 # The harness runs the checks narrowed before review, and once more told
-# "./..." over the approved merge candidate before it is promoted, so nothing
-# reaches the forge on narrowed checks alone (docs/configuration.md, "Where the
-# whole suite runs").
+# "./..." over the approved merge candidate before it is promoted -- by the run
+# itself, or with the merge queue switched on by the queue over the candidate
+# it lands -- so nothing reaches the forge on narrowed checks alone
+# (docs/configuration.md, "Where the whole suite runs").
 #
 # The shell's unset-only default is the point of that line. The variable is set
 # only by the harness's check runner, so the same line run anywhere else -- a
