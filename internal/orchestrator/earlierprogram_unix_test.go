@@ -134,7 +134,7 @@ func TestTheSchedulerNeverCallsAnEarlierProgramsRunItsOwn(t *testing.T) {
 	worker := earlierProgramWorker(t, left.RunID)
 	left.Worker = &worker
 	leaveStamp(t, harness.runs, worker)
-	why := occupiedWhy(harness.runs, left, time.Now())
+	why := occupiedWhy(harness.runs, left, nil, time.Now())
 	for _, want := range []string{left.RunID, "not started by this session", "its worker is gone"} {
 		if !strings.Contains(why, want) {
 			t.Fatalf("occupiedWhy() = %q, want it to say %q", why, want)
@@ -143,11 +143,29 @@ func TestTheSchedulerNeverCallsAnEarlierProgramsRunItsOwn(t *testing.T) {
 	current := worker
 	current.ProgramStartedAt = runstate.ProgramStartedAt()
 	left.Worker = &current
-	if why := occupiedWhy(harness.runs, left, time.Now()); !strings.Contains(why, "this session's own") {
+	if why := occupiedWhy(harness.runs, left, nil, time.Now()); !strings.Contains(why, "this session's own") {
 		t.Fatalf("occupiedWhy() for this program's run = %q, want it named as this session's", why)
 	}
-	if why := occupiedWhy(harness.runs, runstate.State{WorkItemID: left.WorkItemID}, time.Now()); !strings.Contains(why, "had already started a run of the item that had not yet reserved") {
+	if why := occupiedWhy(harness.runs, runstate.State{WorkItemID: left.WorkItemID}, nil, time.Now()); !strings.Contains(why, "had already started a run of the item that had not yet reserved") {
 		t.Fatalf("occupiedWhy() before the run reserved = %q", why)
+	}
+	// A start of this session's still before its reservation is said with when
+	// it began, how long ago that was, and what it was started to do, so a
+	// reader can tell a start on its way to reserving from one left behind.
+	began := time.Date(2026, 11, 8, 23, 19, 0, 0, time.UTC)
+	earlier := Started{WorkItemID: left.WorkItemID, Reason: "the development manager recorded a \"repair\" about the stoppage of run " + left.RunID, began: began}
+	why = occupiedWhy(harness.runs, runstate.State{WorkItemID: left.WorkItemID}, &earlier, began.Add(4*time.Minute+10*time.Second))
+	for _, want := range []string{
+		"had already started a run of the item that had not yet reserved",
+		began.Local().Format("2006-01-02 15:04 MST"),
+		"4 minutes ago",
+		"has not come back yet",
+		earlier.Reason,
+		"one item is never given two runs at once",
+	} {
+		if !strings.Contains(why, want) {
+			t.Fatalf("occupiedWhy() for a start before its reservation = %q, want it to say %q", why, want)
+		}
 	}
 }
 
