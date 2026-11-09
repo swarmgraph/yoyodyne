@@ -140,11 +140,12 @@ func RemoteURL(checkout, remote string) string {
 	return strings.TrimSpace(string(output))
 }
 
-// sameRemote compares two remote URLs as the place they name, so the SSH and
+// SameRemote compares two remote URLs as the place they name, so the SSH and
 // HTTPS spellings of one repository are one remote. Either being empty is not a
 // match: an unknown remote says nothing about whether two clones are one
-// project.
-func sameRemote(left, right string) bool {
+// project. A local path and the same path spelled as a git+file URL are one
+// remote, as are the git+ssh and git+https spellings Beads keeps.
+func SameRemote(left, right string) bool {
 	left, right = normalizeRemote(left), normalizeRemote(right)
 	return left != "" && left == right
 }
@@ -325,7 +326,7 @@ func Agree(options AgreeOptions) (Agreement, error) {
 		return Agreement{}, refusal
 	}
 	refusal.RemoteURL = RemoteURL(options.Checkout, options.Remote)
-	if sameRemote(binding.RemoteURL, refusal.RemoteURL) {
+	if SameRemote(binding.RemoteURL, refusal.RemoteURL) {
 		refusal.Problem = SecondClone
 	} else {
 		refusal.Problem = SharedID

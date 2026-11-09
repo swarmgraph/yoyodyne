@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -458,6 +459,10 @@ type trackerRunner struct {
 func (r *trackerRunner) Run(_ context.Context, command execution.Command, _ execution.OutputObserver) (execution.ProcessResult, error) {
 	r.args = append(r.args, append([]string{command.Name}, command.Args...))
 	if command.Name == "git" {
+		if slices.Contains(command.Args, "-v") && r.gitRemoteURL != "" {
+			return execution.ProcessResult{Status: execution.ProcessSucceeded,
+				Stdout: "origin\t" + r.gitRemoteURL + " (fetch)\norigin\t" + r.gitRemoteURL + " (push)\n"}, nil
+		}
 		if r.gitRemoteURL == "" {
 			return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 2, Stderr: "error: No such remote 'origin'"}, nil
 		}
@@ -761,5 +766,254 @@ func TestExtendingTheBundleStillWorks(t *testing.T) {
 	}
 	if strings.TrimSpace(resolved.Config.Agents["reviewer"].Persona.Text) == "" {
 		t.Error("an inherited persona no longer resolves")
+	}
+}
+
+// notAdded fails a test if a runner was ever asked to add a sync remote.
+func notAdded(t *testing.T, runner *trackerRunner) {
+	t.Helper()
+	for _, args := range runner.args {
+		if strings.Contains(strings.Join(args, " "), "dolt remote add") {
+			t.Errorf("a tracker that stays local was still given a remote: %v", args)
+		}
+	}
+}
+
+func TestSettleTrackerRemoteExternalKeepsTheTrackerLocal(t *testing.T) {
+	t.Parallel()
+
+	runner := &trackerRunner{
+		gitRemoteURL: "git@github.com:acme/thing.git",
+		beads:        map[string]string{"dolt remote list": `[]`},
+	}
+	tracker := settleTrackerRemote(context.Background(), t.TempDir(), "", false, true, runner)
+	if tracker.Status != trackerRemoteLocal || !tracker.Local {
+		t.Fatalf("tracker = %#v, want a local tracker", tracker)
+	}
+	notAdded(t, runner)
+	report := describeTrackerRemote(tracker)
+	for _, want := range []string{"--tracker-remote", "stays on this machine"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report = %q, want it to contain %q", report, want)
+		}
+	}
+}
+
+func TestSettleTrackerRemoteExternalReportsARemoteOnTheProject(t *testing.T) {
+	t.Parallel()
+
+	runner := &trackerRunner{
+		gitRemoteURL: "git@github.com:acme/thing.git",
+		beads:        map[string]string{"dolt remote list": `[{"name":"origin","url":"git+ssh://git@github.com/acme/thing.git"}]`},
+	}
+	tracker := settleTrackerRemote(context.Background(), t.TempDir(), "", false, true, runner)
+	if tracker.Status != trackerRemoteUnchanged || !tracker.ProjectRemote || !tracker.Local {
+		t.Fatalf("tracker = %#v, want the project's own remote reported", tracker)
+	}
+	notAdded(t, runner)
+	if report := describeTrackerRemote(tracker); !strings.Contains(report, "bd dolt remote remove origin") {
+		t.Errorf("report = %q, want the command that keeps it local", report)
+	}
+}
+
+func TestSettleTrackerRemoteReportsARemoteThatIsNotTheProjects(t *testing.T) {
+	t.Parallel()
+
+	runner := &trackerRunner{
+		gitRemoteURL: "git@github.com:acme/thing.git",
+		beads:        map[string]string{"dolt remote list": `[{"name":"origin","url":"git+https://example.invalid/acme/tracker.git"}]`},
+	}
+	tracker := settleTrackerRemote(context.Background(), t.TempDir(), "", true, false, runner)
+	if tracker.Status != trackerRemoteUnchanged || tracker.ProjectRemote || !tracker.Local {
+		t.Fatalf("tracker = %#v, want a remote of its own left alone", tracker)
+	}
+	if report := describeTrackerRemote(tracker); !strings.Contains(report, "a repository other than this project's") {
+		t.Errorf("report = %q", report)
+	}
+}
+
+func TestSettleTrackerRemoteExternalAppliesAUrlOfItsOwn(t *testing.T) {
+	t.Parallel()
+
+	runner := &trackerRunner{
+		gitRemoteURL: "git@github.com:acme/thing.git",
+		beads: map[string]string{
+			"dolt remote list": `[]`,
+			"dolt remote add origin https://example.invalid/acme/tracker.git": "added",
+		},
+		beadsAfterAdd: `[{"name":"origin","url":"git+https://example.invalid/acme/tracker.git"}]`,
+	}
+	tracker := settleTrackerRemote(context.Background(), t.TempDir(), "https://example.invalid/acme/tracker.git", false, true, runner)
+	if tracker.Status != trackerRemoteConfigured || tracker.URL != "git+https://example.invalid/acme/tracker.git" {
+		t.Fatalf("tracker = %#v, want the named URL configured", tracker)
+	}
+}
+
+func TestSettleTrackerRemoteExternalDeclinesTheProjectsOwnRemote(t *testing.T) {
+	t.Parallel()
+
+	runner := &trackerRunner{gitRemoteURL: "git@github.com:acme/thing.git", beads: map[string]string{}}
+	tracker := settleTrackerRemote(context.Background(), t.TempDir(), "https://github.com/acme/thing", false, true, runner)
+	if tracker.Status != trackerRemoteLocal || !strings.Contains(tracker.Reason, "this project's own Git remote origin") {
+		t.Fatalf("tracker = %#v, want it declined as the project's own remote", tracker)
+	}
+	notAdded(t, runner)
+}
+
+func TestSettleTrackerRemoteLocalWithoutExternal(t *testing.T) {
+	t.Parallel()
+
+	runner := &trackerRunner{
+		gitRemoteURL: "git@github.com:acme/thing.git",
+		beads:        map[string]string{"dolt remote list": `[]`},
+	}
+	tracker := settleTrackerRemote(context.Background(), t.TempDir(), "", true, false, runner)
+	if tracker.Status != trackerRemoteLocal || !strings.Contains(tracker.Reason, "--tracker-local") {
+		t.Fatalf("tracker = %#v, want a local tracker that says why", tracker)
+	}
+	notAdded(t, runner)
+}
+
+func TestRunInitRefusesALocalTrackerWithARemoteForIt(t *testing.T) {
+	t.Parallel()
+
+	project := filepath.Join(t.TempDir(), "example-project")
+	if err := os.Mkdir(project, 0o755); err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+	git(t, project, "init", "-b", "main")
+	var stdout, stderr bytes.Buffer
+	args := []string{"init", "--directory", project, "--tracker-local", "--tracker-remote", "https://example.invalid/x.git"}
+	if code := Run(args, &stdout, &stderr, "test"); code != 2 {
+		t.Fatalf("Run() code = %d, want 2", code)
+	}
+	if strings.Count(strings.TrimSpace(stderr.String()), "\n") != 0 || stderr.Len() == 0 {
+		t.Errorf("stderr = %q, want one line", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(project, config.DirectoryName)); !os.IsNotExist(err) {
+		t.Error("a refused init wrote a configuration")
+	}
+}
+
+func realRepository(t *testing.T) string {
+	t.Helper()
+
+	project := filepath.Join(t.TempDir(), "example-project")
+	if err := os.Mkdir(project, 0o755); err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+	git(t, project, "init", "-b", "main")
+	return project
+}
+
+func TestExcludeTrackerFilesAddsOnceAndLeavesGitignoreAlone(t *testing.T) {
+	t.Parallel()
+
+	project := realRepository(t)
+	exclude := filepath.Join(project, ".git", "info", "exclude")
+	if err := os.MkdirAll(filepath.Dir(exclude), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exclude, []byte("*.log"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	first := excludeTrackerFiles(context.Background(), execution.OSProcessRunner{}, project)
+	if first.Reason != "" || !reflect.DeepEqual(first.Added, trackerFiles) {
+		t.Fatalf("first = %#v, want every entry added", first)
+	}
+	content, err := os.ReadFile(exclude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "*.log\n" + trackerExclusionHeading + "\n" + strings.Join(trackerFiles, "\n") + "\n"
+	if string(content) != want {
+		t.Errorf("exclude = %q, want %q", content, want)
+	}
+	if _, err := os.Stat(filepath.Join(project, ".gitignore")); !os.IsNotExist(err) {
+		t.Error(".gitignore was created")
+	}
+
+	second := excludeTrackerFiles(context.Background(), execution.OSProcessRunner{}, project)
+	if len(second.Added) != 0 || len(second.Present) != len(trackerFiles) {
+		t.Fatalf("second = %#v, want nothing added", second)
+	}
+	if lines := describeTrackerExclusion(second); !strings.Contains(lines[0], "already kept out") {
+		t.Errorf("lines = %q", lines)
+	}
+}
+
+func TestExcludeTrackerFilesSkipsWhatTheProjectTracks(t *testing.T) {
+	t.Parallel()
+
+	project := realRepository(t)
+	if err := os.WriteFile(filepath.Join(project, "AGENTS.md"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, project, "add", "AGENTS.md")
+
+	result := excludeTrackerFiles(context.Background(), execution.OSProcessRunner{}, project)
+	if !reflect.DeepEqual(result.Tracked, []string{"AGENTS.md"}) || slices.Contains(result.Added, "/AGENTS.md") {
+		t.Fatalf("result = %#v, want AGENTS.md reported as tracked and not added", result)
+	}
+	content, err := os.ReadFile(result.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), "AGENTS.md") {
+		t.Errorf("exclude = %q, want no AGENTS.md", content)
+	}
+	if lines := describeTrackerExclusion(result); len(lines) != 2 || !strings.Contains(lines[1], "AGENTS.md") {
+		t.Errorf("lines = %q", lines)
+	}
+}
+
+func TestRunInitExternalKeepsTheTrackerLocalAndOutOfTheCheckout(t *testing.T) {
+	t.Setenv("YOYODYNE_STATE_HOME", t.TempDir())
+	project := realRepository(t)
+	git(t, project, "remote", "add", "origin", "git@github.com:acme/thing.git")
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"init", "--directory", project, "--external", "--json"}, &stdout, &stderr, "test"); code != 0 {
+		t.Fatalf("Run() code = %d, stderr = %q", code, stderr.String())
+	}
+	var result struct {
+		Tracker  trackerRemote    `json:"tracker"`
+		Excluded trackerExclusion `json:"excluded"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if !result.Tracker.Local || result.Tracker.Status == trackerRemoteConfigured {
+		t.Errorf("tracker = %#v, want a local tracker", result.Tracker)
+	}
+	if !slices.Contains(result.Excluded.Added, "/.beads/") {
+		t.Errorf("excluded = %#v, want /.beads/ added", result.Excluded)
+	}
+	content, err := os.ReadFile(filepath.Join(project, ".git", "info", "exclude"))
+	if err != nil || !strings.Contains(string(content), "/.beads/\n") {
+		t.Errorf("exclude = %q, err = %v", content, err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"init", "--directory", project, "--external", "--force"}, &stdout, &stderr, "test"); code != 0 {
+		t.Fatalf("Run() code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "already kept out of the checkout") {
+		t.Errorf("stdout = %q, want the entries reported as already there", stdout.String())
+	}
+}
+
+func TestRunInitExternalTextNamesWhatItExcluded(t *testing.T) {
+	t.Setenv("YOYODYNE_STATE_HOME", t.TempDir())
+	project := realRepository(t)
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"init", "--directory", project, "--external"}, &stdout, &stderr, "test"); code != 0 {
+		t.Fatalf("Run() code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "added to ") || !strings.Contains(stdout.String(), "so the tracker's files stay out of the checkout: /.beads/") {
+		t.Errorf("stdout = %q, want the exclusion reported", stdout.String())
 	}
 }
