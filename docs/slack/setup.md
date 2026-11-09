@@ -1366,7 +1366,9 @@ conversation is a turn, and a turn ends on its own.
 **One at a time.** A second message that arrives while a turn is running is told
 so in its own thread rather than queued or dropped.
 
-**The wait is bounded.** A turn gets ten minutes and then the thread is told what
+**The wait is bounded.** A turn gets ten minutes, or what the Lead Product
+Manager's agent sets as `time_limits.slack_turn`
+([configuration](../configuration.md#how-long-an-agents-turns-and-calls-may-take)), and then the thread is told what
 happened — the wait running out, the conversation mid-turn elsewhere, or the
 provider's own reason, which for an exhausted usage limit is that limit in its
 own words. Nothing hangs silently; a run steered from a conversation can wait on

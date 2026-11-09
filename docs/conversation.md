@@ -1840,9 +1840,10 @@ part of a conversation and is not offered inside a run.
 
 **One message has one budget, whichever tools it uses.** Each tool below has its
 own limit on rounds a message, and every further provider turn a message takes
-is decided in one place against what the whole message has spent: at most 16
-turns and 45 minutes, not counting time spent waiting out a provider that
-refused. Once any tool reaches its own limit, the role gets one closing turn,
+is decided in one place against what the whole message has spent: by default
+at most 16 turns and 45 minutes, not counting time spent waiting out a provider
+that refused, and each agent may set its own in its
+[`time_limits`](configuration.md#how-long-an-agents-turns-and-calls-may-take). Once any tool reaches its own limit, the role gets one closing turn,
 told that it is the last, to finish its answer, and no more, whichever tool it
 asks for next. A request made after a limit is refused, shown with the reply,
 and not answered with another paid turn; results the role has not yet seen wait
@@ -3425,7 +3426,8 @@ holds nothing against the channel at all. Where the Lead Product Manager is mid-
 with another client when your message arrives — your terminal answering, or the
 harness delivering something to it — the thread says so rather than failing
 quietly, and rather than queueing behind it: nothing was said, and you say it
-again once that turn lands. And the channel's wait is bounded at ten minutes,
+again once that turn lands. And the channel's wait is bounded, at ten minutes
+unless the Lead Product Manager's `time_limits.slack_turn` says otherwise,
 after which the thread is told what happened: the wait running out, the
 conversation mid-turn elsewhere, or the provider's own reason, which for an
 exhausted usage limit is that limit in its own words. A turn that steers work

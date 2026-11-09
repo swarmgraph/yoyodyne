@@ -141,6 +141,8 @@ func branchReviewerFrom(parts components, model string) orchestrator.BranchRevie
 			Model:   reviewerModel,
 			Effort:  cfg.InvocationEffort(reviewer, reviewerModel),
 			Persona: reviewer.Persona.Text,
+			// The reviewer's own time_limits.review, or the harness's figure.
+			Timeout: reviewer.TimeLimits.ReviewLimit(),
 			// A branch review spends like every other provider invocation and lands
 			// in the same log, which is also what makes a shadow review's price
 			// comparable to the review it was measured against.

@@ -1079,6 +1079,10 @@ type AgentConfig struct {
 	// this agent works rather than about what it may do — see sidethreads.go for
 	// why no value of it reaches a side thread's authority.
 	Conversations ConversationMode `yaml:"conversations,omitempty" json:"conversations,omitempty"`
+	// TimeLimits is how long this agent's turns, messages, and provider calls
+	// may take. Every limit it does not state keeps the harness's figure; see
+	// timelimits.go for the keys, their defaults, and their ranges.
+	TimeLimits TimeLimits `yaml:"time_limits,omitempty" json:"time_limits,omitzero"`
 	// Lane is the tracker label a program manager instance owns, and empty for
 	// every agent of any other role, which is refused a lane when the file loads.
 	// Two instances naming one lane are refused too: a lane has one owner. See
@@ -1542,6 +1546,7 @@ func (c Config) Validate() error {
 		problems = append(problems, agent.Failover.problems(name, agent)...)
 		problems = append(problems, c.failoverEndpointProblems(providers, name, agent)...)
 		problems = append(problems, conversationModeProblems(name, agent.Conversations)...)
+		problems = append(problems, timeLimitProblems(name, agent)...)
 		problems = append(problems, instanceProblems(name, agent)...)
 		if agent.Role == domain.RoleDeveloper {
 			developers += agent.Instances

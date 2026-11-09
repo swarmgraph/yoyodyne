@@ -328,6 +328,11 @@ type agentDocument struct {
 	// rather than an answer in two halves. Stating it empty removes an inherited
 	// choice and puts the agent back to queueing.
 	Conversations *ConversationMode `yaml:"conversations"`
+	// TimeLimits replaces an inherited block whole, for the reason the failover
+	// block does: a turn limit and the message limit it has to be shorter than
+	// are one answer, and a layer raising one over a limit some layer underneath
+	// set would be checked against a figure it never wrote.
+	TimeLimits *TimeLimits `yaml:"time_limits"`
 	// Lane, Remit, and Triggers are a program manager instance's, and are refused
 	// on an agent of any other role when the effective configuration is validated.
 	// The lane overrides on its own, as one value; the remit replaces an inherited
@@ -351,7 +356,7 @@ type agentDocument struct {
 func (d agentDocument) overridesFields() bool {
 	return d.Role != nil || d.Backend != nil || d.Model != nil || d.ModelVersion != nil || d.Effort != nil || d.Account != nil ||
 		d.Instances != nil || d.Persona != nil || d.Failover != nil || d.Subagents != nil || d.Conversations != nil ||
-		d.Lane != nil || d.Remit != nil || d.Triggers != nil || d.MCPTools != nil
+		d.TimeLimits != nil || d.Lane != nil || d.Remit != nil || d.Triggers != nil || d.MCPTools != nil
 }
 
 type personaDocument struct {

@@ -4987,13 +4987,17 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 		Role:  domain.RoleDeveloper,
 		// The developer agent's tool access, which is the role's own unless the
 		// agent fills a role definition that removed the worktree write.
-		Posture:           p.developer().Posture(),
-		WorkingDirectory:  a.worktree.Path,
-		RepositoryRoot:    p.Repository,
-		Prompt:            prompt,
-		SessionID:         sessionID,
-		Model:             model,
-		Effort:            effort,
+		Posture:          p.developer().Posture(),
+		WorkingDirectory: a.worktree.Path,
+		RepositoryRoot:   p.Repository,
+		Prompt:           prompt,
+		SessionID:        sessionID,
+		Model:            model,
+		Effort:           effort,
+		// The developer's own time_limits.provider_call, or the adapters'
+		// four hours. The adapter's limit on a session that says nothing for
+		// five minutes applies whatever this is.
+		Timeout:           p.developer().TimeLimits.ProviderCallLimit(),
 		Subagents:         subagents,
 		LastSequence:      a.state.LastSequence,
 		RedactValues:      p.RedactValues,

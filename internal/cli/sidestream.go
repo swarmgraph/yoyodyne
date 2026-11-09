@@ -38,11 +38,12 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/spend"
 )
 
-// sideTurnTimeout bounds one side turn. It is the exchange round's bound rather
-// than a conversation turn's: a side thread answers a question in prose with
-// optional read-only inspection. A turn still running past this leaves the asker
-// waiting for no reason they can see.
-const sideTurnTimeout = 5 * time.Minute
+// sideTurnTimeout bounds one side turn of an agent that states no
+// time_limits.side_thread_turn. It is the exchange round's bound rather than a
+// conversation turn's: a side thread answers a question in prose with optional
+// read-only inspection. A turn still running past this leaves the asker waiting
+// for no reason they can see.
+const sideTurnTimeout = config.DefaultSideThreadTurnTimeLimit
 
 // sideVoice answers a side thread's turns under the agent configured for the
 // role, which is the same resolution `yoyo agent chat` makes — so the architect
@@ -181,7 +182,7 @@ func (v sideVoice) Answer(ctx context.Context, question sidestream.Question) (si
 		// The adapter enforces the role's read-only access. A side reply
 		// carries advice rather than validation results or authority to act.
 		AllowedTools:     []string{},
-		Timeout:          sideTurnTimeout,
+		Timeout:          agent.TimeLimits.SideThreadTurnLimit(),
 		LastSequence:     question.LastSequence,
 		RedactValues:     v.redactValues,
 		EventSink:        question.Events,

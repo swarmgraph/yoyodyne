@@ -6926,6 +6926,68 @@ and it is served by the agent's [permitted alternate](#serving-a-turn-from-a-per
 and [pinned version](#pinning-an-agent-to-a-model-version) exactly as a main turn
 is.
 
+## How long an agent's turns and calls may take
+
+Each agent's turns, messages, and provider calls are bounded in time. The
+figures below are the harness's, and an agent may state its own in its block,
+under `time_limits`:
+
+```yaml
+agents:
+  technical-health-pm:
+    role: program-manager
+    time_limits:
+      turn: 45m              # one provider turn in its conversation
+      message: 1h30m         # one message, however many turns it takes
+  reviewer:
+    role: reviewer
+    time_limits:
+      review: 30m            # one review
+  developer:
+    role: developer
+    time_limits:
+      provider_call: 6h      # one developer provider call
+```
+
+| Key | Who it is for | What it bounds | Default | Range |
+| --- | --- | --- | --- | --- |
+| `turn` | an agent that holds a conversation | One provider turn in the agent's conversation; it is the provider call's own total time. A recurring pass that wakes the agent waits for the conversation and takes its turn within it too. | 15 minutes | 1 minute to 4 hours |
+| `message` | an agent that holds a conversation | The elapsed time of one message, however many turns answering it takes, not counting time spent waiting out a provider that refused. | 45 minutes | 2 minutes to 8 hours |
+| `message_turns` | an agent that holds a conversation | How many provider turns one message may take. | 16 | 1 to 100 |
+| `message_spend_usd` | an agent that holds a conversation | What one message's turns may cost, where the provider reports a cost. | none | above 0 to 1000 |
+| `slack_turn` | an agent that holds a conversation | One turn taken from the Slack channel, from the message arriving to the answer being posted. The channel talks only to the Lead Product Manager, so hers is the one that applies. | 10 minutes | 1 minute to 4 hours |
+| `exchange_answer` | an agent that holds a conversation | The agent's answer to a question [another role asked it](#how-long-one-role-may-ask-another). | 5 minutes | 1 minute to 1 hour |
+| `side_thread_turn` | an agent that holds a conversation | One turn on a [side thread](#queueing-a-question-or-holding-it-on-a-side-thread). | 5 minutes | 1 minute to 1 hour |
+| `review` | the reviewer | One review. | 15 minutes | 1 minute to 4 hours |
+| `provider_call` | the developer | One developer provider call, its tool work included; another call starts another clock. | 4 hours | 10 minutes to 24 hours |
+
+The agents that hold a conversation are the Lead Product Manager, the
+architect, the development manager, and every program manager instance; each
+instance has its own block. A limit an agent does not state keeps the figure
+above, which is what it was before these keys existed. A block in a later layer
+replaces an inherited one whole, as the failover block does.
+
+Each value is checked when the configuration is read, and the file is refused,
+naming the agent, the key, and the value, when a value is outside its range or
+is set on an agent whose role nothing applies it to: a `review` on the
+architect, say, or a `turn` on the developer. A `turn` that is not shorter than
+the same agent's `message` is refused too, defaults included, because a turn as
+long as its message would be stopped by both limits at once. So raising `turn`
+to 45 minutes needs `message` raised past 45 minutes as well.
+
+Two limits stay the harness's whatever is set here. A provider session that
+produces no output for five minutes is stopped, however long its turn or call
+may take, and the harness carries on a run whose session went silent only
+once. A longer limit lets a session that is working run longer; it never lets
+a silent one sit. [What stops a run](run-stops.md) lists both.
+
+A role may apply `agents.<name>.time_limits` to the configuration, as it may
+the check time limits: it changes how long work may take and never what an
+agent may do. `time_limits` is a key a build from before it cannot read, so a
+file carrying it is refused by any part of the product still running an older
+build until that part restarts on one that can; `yoyo config validate` names
+which.
+
 ## Research sources
 
 The Lead Product Manager can have the harness find something out for it, so an idea
