@@ -23,6 +23,11 @@ revisions:
       at: 2026-10-12T04:26:37Z
       reason: 'yoyodyne-ifd.432.8: Mason decided on October 11 that the dashboard may take actions, for now only his own, starting with approving or declining what waits on his decision, and eventually everything the command line does, feature by feature. The first non-goal and the August 22 note said the dashboard can direct nothing; this revision lets it take the operator''s own decisions, recorded as his acts, while it stays local, unhosted, and no separate store of work state.'
       intent: fundamental
+    - action: amended
+      by: product-manager
+      at: 2026-11-09T11:46:07.866144Z
+      reason: 'yoyodyne-v3cy: replaces ''routine per-change gates'' with ''routine approval of each change'' in the last non-goal, under the operator''s November 8 rule against the word ''gate''. Same meaning in plain words; no non-goal is added, removed or re-scoped, so the goals and non-goals admit and refuse exactly the work they did before.'
+      intent: consistent
 approvals:
     - revision: 1
       by: operator
@@ -36,6 +41,10 @@ approvals:
       by: operator
       at: 2026-10-12T04:26:37Z
       reason: approved by the operator in conversation chat-91253e0e070c17b0663651cc48602122, turn 2328, for the document the product-manager wrote there (document-2328.1)
+    - revision: 4
+      by: product-manager
+      at: 2026-11-09T11:46:07.866144Z
+      reason: yoyodyne-v3cy - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
 ---
 
 # V1 non-goals
@@ -91,4 +100,4 @@ local, is not hosted, and never becomes a separate store of work state.
 - A general-purpose chat application independent of software delivery.
 - Replacing Git, Beads, or the coding agents' native tool execution.
 - Native integration with any language's build system, test runner, or package manager. Language support means running the commands a project declares, not understanding its toolchain.
-- Fully unattended operation. The human still approves the brief and goals and answers what the product manager escalates; autonomy is the absence of routine per-change gates, not the absence of a human.
+- Fully unattended operation. The human still approves the brief and goals and answers what the product manager escalates; autonomy is the absence of routine approval of each change, not the absence of a human.
