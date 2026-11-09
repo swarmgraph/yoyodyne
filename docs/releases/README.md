@@ -47,8 +47,8 @@ make release-notes VERSION=v0.3.1               # draft docs/releases/v0.3.1.md
 bash scripts/release-notes.sh v0.3.1 --print    # see it without writing it
 ```
 
-Every entry has one shape: the title and the id on the first line, the goal
-the item serves under it, then — only for an item that did not originate with
+Every entry the draft writes has one shape: the title and the id on the first
+line, the goal the item serves under it, then — only for an item that did not originate with
 a person — one line saying which persona asked for it and why, and then the
 item's description as its own paragraphs.
 

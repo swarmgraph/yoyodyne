@@ -1091,7 +1091,7 @@ no tracker on the machine and can be made from any checkout carrying the
 export. `make release-notes VERSION=<tag>` drafts one on its own, and
 `bash scripts/release-notes.sh <tag> --print` shows one without writing it.
 
-Every entry has one shape, which is the operator's:
+Every entry the draft writes has one shape, which is the operator's:
 
 ```markdown
 - **The title** (`yoyodyne-ifd.404`)
@@ -1117,14 +1117,23 @@ quietly dropping the line.
 
 The releases cut before this shape existed — [`v0.3.0`](releases/v0.3.0.md),
 [`v0.4.0`](releases/v0.4.0.md), and [`v0.5.0`](releases/v0.5.0.md) — carry
-titles and goals only; the next draft is the first written this way.
-Redrafting one of them is `bash scripts/release-notes.sh <tag> --force`, and
+titles and goals only. Redrafting one of them is `bash scripts/release-notes.sh <tag> --force`, and
 it is a person's commit rather than a run's: with every description in it,
 v0.5.0 redrafts to some 300 KB, which is more than the review gate's patch
 bound will show a reviewer and more than [the forge accepts as a release
 page's body](#what-a-release-page-carries), and the draft writes over the
 intro and the placement the Lead Product Manager made by hand, so both have to be
 carried back into it.
+
+The drafted shape is where curation starts, not the shape the published file
+has to keep. A release covering a long stretch can draft far past what a
+release page accepts: `v0.6.0`'s draft, from 632 closed items, ran to about
+1.3 million characters against the forge's 125,000. Its notes,
+[`v0.6.0.md`](releases/v0.6.0.md), therefore group the items into entries by
+what they changed, each with a short account, the goals its items served, and
+every item's identifier, so nothing that shipped goes unnamed and the tracker
+still holds each item's own text. [The release notes' own
+index](releases/README.md) says the same.
 
 Only what the tracker calls **closed** reaches the notes. An id in a commit
 message says work touched that item, not that the item is done — a parent epic
