@@ -6,28 +6,37 @@ package orchestrator
 // over the whole module before it is promoted (checkCandidateWhole), except
 // where the change goes to the harness's own merge queue: the queue checks the
 // candidate it lands over the whole module, so the run leaves that pass to it
-// (runstate.ChecksPassed.WholeLeftToQueue). That is safe only where the queue's
-// check is shown to be the whole pass the run did not make, so the queue lands
-// such a change only where it is shown, and says on the run which of its
-// checks it was once the change lands:
+// (runstate.ChecksPassed.WholeLeftToQueue). Three things keep that safe, and
+// none of them stops the queue:
 //
-//   - the queue's own checks ran on the candidate it lands, which the forge's
-//     own queue does not do, so a change in that queue is not landed;
-//   - every check the run's narrowed evidence names, those that could not run
-//     before review included, ran there to its own end and passed, rather than
-//     being missing from the queue's checks, failing, or saying it could not
-//     run. A path check is the exception: it joins a run's checks for what the
-//     change touches, is told nothing narrower than it always runs over, and
-//     the queue does not run it, so its result before review is already its
-//     whole one;
-//   - the commit those checks ran on is the commit that lands, which is the
-//     candidate on every path but the forge's queue.
+//   - The queue runs every check the run left to it. Its check set for the
+//     entry is the configured checks and, where they no longer name one of the
+//     run's narrowed checks because they changed after admission, that check
+//     too (leftToQueue, Pipeline.mergeQueueChecks). The gate a candidate lands
+//     on (runstate's MergeQueueGeneration.Gate) requires every check in that
+//     set to have run on that exact candidate and passed, rather than failed,
+//     stopped, or said it could not run; a candidate that fails is handed back
+//     the way any failing candidate is. A path check is the exception: it joins
+//     a run's checks for what the change touches, is told nothing narrower than
+//     it always runs over, and the queue never runs one, so its result before
+//     review is already its whole one.
+//   - Such a change is admitted to the harness's queue or not at all. Where
+//     admission would choose the forge's own queue, which lands a commit this
+//     harness never checks, nothing is admitted: the run checks the change
+//     whole on this machine first and is then admitted as any change is
+//     (promoteApproved). An explicit transfer to the forge's queue is refused
+//     for the same reason (MergeQueuePromoter.Transfer).
+//   - Once the change lands, the run's record names the queue's check that
+//     stood in: the entry, the generation, and the commit checked, which is
+//     the commit that landed (mergeQueueWholeBy).
 //
-// Where any of it is not shown, nothing lands and the refusal names what was
-// not shown: the change is not landed on a check that did not cover it. The
-// queue's own gate (runstate's MergeQueueGeneration.Gate) already refuses a
-// candidate any configured check failed, did not finish, or could not run on;
-// what this adds is the run's own list of checks, and the record.
+// mergeQueueStandsIn reads the same conditions at the promotion, once more,
+// from the run's record and the generation the promotion intends to land. With
+// the two above holding, nothing reaches it uncovered; it is there so that a
+// record nothing current writes — an entry moved to the forge's queue before
+// transfers refused it, or a run record that could not be read when the
+// candidate's checks were chosen — lands nothing on a check that did not cover
+// it, and the queue's pass stops naming what was not shown.
 
 import (
 	"fmt"
@@ -57,19 +66,9 @@ func mergeQueueStandsIn(run runstate.State, mode runstate.MergeQueueMode, genera
 	for _, result := range checked.Results {
 		results[result.Command] = result
 	}
-	wanted := append([]string(nil), passed.Commands...)
-	for _, skipped := range passed.CouldNotRun {
-		wanted = append(wanted, skipped.Command)
-	}
-	pathCheck := make(map[string]bool, len(pathChecks))
-	for _, check := range pathChecks {
-		pathCheck[check.Command] = true
-	}
+	wanted := leftToQueue(run, nil, pathChecks)
 	var unmet []string
 	for _, command := range wanted {
-		if pathCheck[command] {
-			continue
-		}
 		result, ran := results[command]
 		switch {
 		case !ran:
@@ -96,6 +95,37 @@ func mergeQueueWholeBy(entry runstate.MergeQueueEntry, completion runstate.Merge
 	if completion.Path == runstate.MergeQueueLandThroughForgeQueue || completion.Generation == 0 || completion.Landed == "" {
 		return ""
 	}
-	return fmt.Sprintf("the merge queue's checks of entry %d (%s), generation %d: every configured check, told the whole module, passed on candidate %s, the commit that landed on %s",
+	return fmt.Sprintf("the merge queue's checks of entry %d (%s), generation %d: every check the queue ran, the ones this run narrowed among them, passed told the whole module on candidate %s, the commit that landed on %s",
 		entry.Order, entry.EntryID, completion.Generation, completion.Landed, entry.TargetBranch)
+}
+
+// leftToQueue is the checks a run left to the merge queue's whole check of its
+// candidate that are not among have: every check its narrowed evidence names,
+// those that could not run before review included, in the order it ran them,
+// with its path checks left out. A run that checked its change whole itself
+// left nothing.
+func leftToQueue(run runstate.State, have []string, pathChecks []config.PathCheck) []string {
+	passed := run.ChecksPassed
+	if passed == nil || !passed.WholeLeftToQueue {
+		return nil
+	}
+	skip := make(map[string]bool, len(have)+len(pathChecks))
+	for _, command := range have {
+		skip[command] = true
+	}
+	for _, check := range pathChecks {
+		skip[check.Command] = true
+	}
+	commands := append([]string(nil), passed.Commands...)
+	for _, unrun := range passed.CouldNotRun {
+		commands = append(commands, unrun.Command)
+	}
+	var left []string
+	for _, command := range commands {
+		if !skip[command] {
+			skip[command] = true
+			left = append(left, command)
+		}
+	}
+	return left
 }

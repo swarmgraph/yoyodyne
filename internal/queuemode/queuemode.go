@@ -230,6 +230,12 @@ type Admitter struct {
 	// a project with no forge that can say.
 	Forge   publish.QueueCapabilityReader
 	Harness Harness
+	// Only, where set, is the one mode a new entry may be admitted in. A change
+	// the selector would put in the other mode is not admitted, and Admitted
+	// names that mode in Elsewhere, so the caller can do first what the other
+	// mode needs. A hold is a hold either way, and an entry already in the queue
+	// is answered as recorded.
+	Only runstate.MergeQueueMode
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
 }
@@ -242,8 +248,11 @@ type Admitted struct {
 	Entry runstate.MergeQueueEntry
 	New   bool
 	Hold  *Hold
-	// Evidence is what a hold was decided on.
+	// Evidence is what a hold, or a mode Only refused, was decided on.
 	Evidence runstate.MergeQueueModeEvidence
+	// Elsewhere is the mode the selector chose where Only refused it, and empty
+	// otherwise. Nothing was admitted.
+	Elsewhere runstate.MergeQueueMode
 }
 
 // Admit admits one approved change. The caller's Mode and ModeEvidence are
@@ -273,6 +282,9 @@ func (a Admitter) Admit(ctx context.Context, admission runstate.MergeQueueAdmiss
 	if selection.Hold != nil {
 		return Admitted{Hold: selection.Hold, Evidence: selection.Evidence}, nil
 	}
+	if a.Only != "" && selection.Mode != a.Only {
+		return Admitted{Elsewhere: selection.Mode, Evidence: selection.Evidence}, nil
+	}
 	admission.Mode, admission.ModeEvidence = selection.Mode, selection.Evidence
 	entry, admitted, err := a.Queue.Admit(ctx, admission)
 	var conflict runstate.MergeQueueConflictError
@@ -286,29 +298,6 @@ func (a Admitter) Admit(ctx context.Context, admission runstate.MergeQueueAdmiss
 		return Admitted{}, err
 	}
 	return Admitted{Entry: entry, New: admitted}, nil
-}
-
-// Mode is the mode Admit would admit this change in, read the way Admit reads
-// it and admitting nothing: the mode of the run's entry where the queue still
-// holds one, and otherwise the mode the forge's answer selects now. It is
-// empty where Admit would hold the change rather than admit it, or the forge's
-// answer could not be read to say.
-func (a Admitter) Mode(ctx context.Context, admission runstate.MergeQueueAdmission) (runstate.MergeQueueMode, error) {
-	if a.Queue == nil {
-		return "", errors.New("merge queue admission needs a queue")
-	}
-	existing, found, err := a.existing(admission)
-	if err != nil {
-		return "", err
-	}
-	if found {
-		return existing.Mode, nil
-	}
-	selection, err := a.selectFor(ctx, admission.Key.TargetBranch)
-	if err != nil {
-		return "", err
-	}
-	return selection.Mode, nil
 }
 
 // selectFor reads what the forge establishes for branch and selects from it.

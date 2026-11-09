@@ -59,11 +59,28 @@ type MergeQueueAdmissions interface {
 // the document's own landing runs (docs/designs/document-landing-route.md, rule
 // 3). A document entry is known by its item, which is its run's own identifier
 // (HarnessRunItems); no other entry's item is.
+//
+// A change whose run left its whole check to the queue
+// (runstate.ChecksPassed.WholeLeftToQueue) is checked by every check that run
+// narrowed as well, those that could not run before review among them, where
+// the configured checks no longer name one — because they changed after the
+// change was admitted. So the queue's check of the candidate always covers the
+// whole check the run did not make, and the gate it lands on requires each of
+// them to pass on that exact candidate (mergequeuewhole.go). A path check is
+// left out: the queue never runs one, and its result before review is already
+// its whole one. A run record that cannot be read adds nothing here; the
+// promotion reads it again and refuses on what it cannot read.
 func (p *Pipeline) mergeQueueChecks(entry runstate.MergeQueueEntry) runstate.MergeQueueCheckConfiguration {
 	if entry.WorkItemID == entry.RunID && runstate.ValidRunID(entry.RunID) && len(p.Config.DocumentChecks) > 0 {
 		return runstate.NewMergeQueueCheckConfiguration(p.Config.DocumentChecks)
 	}
-	return runstate.NewMergeQueueCheckConfiguration(p.Config.Checks)
+	commands := append([]string(nil), p.Config.Checks...)
+	if p.Store != nil {
+		if run, err := p.Store.Load(entry.RunID); err == nil {
+			commands = append(commands, leftToQueue(run, commands, p.Config.PathChecks)...)
+		}
+	}
+	return runstate.NewMergeQueueCheckConfiguration(commands)
 }
 
 // admitsToMergeQueue reports whether an approved change of this run goes to
@@ -114,9 +131,21 @@ func (a *activeRun) admitToMergeQueue(ctx context.Context) (Outcome, bool, error
 	admission := a.queueAdmission()
 	key := admission.Key
 	admission.ApprovedHead = head
+	// A change whose run left its whole check to the harness's queue is
+	// admitted to that queue or not at all: where the forge's own queue is
+	// chosen instead, nothing is admitted, and the promotion has the run check
+	// the change whole first and asks again (promoteApproved).
+	a.queueElsewhere = ""
+	if passed := a.state.ChecksPassed; passed != nil && passed.WholeLeftToQueue {
+		admitter.Only = runstate.MergeQueueHarness
+	}
 	admitted, err := admitter.Admit(ctx, admission)
 	if err != nil {
 		return end(fmt.Errorf("admit the approved change to the merge queue for %s: %w", key.TargetBranch, err))
+	}
+	if admitted.Elsewhere != "" {
+		a.queueElsewhere = admitted.Elsewhere
+		return Outcome{}, false, nil
 	}
 	if admitted.Hold != nil {
 		return a.holdFromMergeQueue(ctx, key, *admitted.Hold)
@@ -164,28 +193,22 @@ func (a *activeRun) queueAdmission() runstate.MergeQueueAdmission {
 
 // wholeCheckOwedHere is why a change whose run left its whole check to the
 // harness's merge queue (checkCandidateWhole) is to be checked whole here
-// after all, and empty where the queue will check it or nothing is admitted.
-// It is asked at the promotion, just before admission, the way admission asks
-// and admitting nothing:
+// after all, and empty where the queue will check it:
 //
 //   - the switch has been turned off since, so the run promotes the change
 //     itself;
-//   - the forge's own merge queue would land the change, and it lands a commit
-//     this harness never checks.
+//   - admission chose the forge's own merge queue for it (queueElsewhere),
+//     which lands a commit this harness never checks.
 //
-// A change the queue would hold, or whose target's protection cannot be read
-// to say, is not admitted at all, so nothing is owed yet: it is asked again
-// when the hold is lifted and the change taken up.
-func (a *activeRun) wholeCheckOwedHere(ctx context.Context) string {
-	if !a.queueChecksCandidateWhole() {
+// A change the queue holds, or whose target's protection cannot be read to
+// say, is not admitted at all, so nothing is owed yet: it is asked again when
+// the hold is lifted and the change taken up.
+func (a *activeRun) wholeCheckOwedHere() string {
+	switch {
+	case !a.queueChecksCandidateWhole():
 		return "the merge queue was switched off after the change was left to it, so this run promotes the change itself"
-	}
-	admitter, err := a.queueAdmitter(ctx)
-	if err != nil {
-		return ""
-	}
-	if mode, err := admitter.Mode(ctx, a.queueAdmission()); err == nil && mode == runstate.MergeQueueForge {
-		return "the change would be admitted to the forge's own merge queue, which lands a commit this harness does not check"
+	case a.queueElsewhere == runstate.MergeQueueForge:
+		return "the change was to be admitted to the forge's own merge queue, which lands a commit this harness does not check"
 	}
 	return ""
 }

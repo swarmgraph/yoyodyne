@@ -2655,6 +2655,10 @@ type activeRun struct {
 	// checkCandidateWhole run the pass rather than leave it to the queue again.
 	// Empty otherwise.
 	wholeHereBecause string
+	// queueElsewhere is the queue admission chose for a change left to the
+	// harness's queue's whole check, where that was the forge's and nothing was
+	// admitted (admitToMergeQueue). Empty otherwise.
+	queueElsewhere runstate.MergeQueueMode
 	// resumedAtPromotion is a run a repair put back at its promotion after it
 	// gave back its slot for losing races (resumedAfterLostRace): whatever the
 	// target branch did while it was stopped happened before this process tried
@@ -2912,30 +2916,45 @@ func (a *activeRun) promoteApproved(ctx context.Context) (Outcome, bool, error) 
 		return outcome, false, err
 	}
 	// A change whose run left its whole check to the harness's queue is checked
-	// whole here first where the queue will not do it after all: the forge's
-	// own queue would land it, or the switch has been turned off since
-	// (wholeCheckOwedHere). A failure there is handed back to the developer, and
-	// the repaired change re-earns the gate through the loop as a replay's does.
-	if passed := a.state.ChecksPassed; passed != nil && passed.Narrowed != "" && passed.WholeLeftToQueue {
-		if why := a.wholeCheckOwedHere(ctx); why != "" {
-			a.wholeHereBecause = why
-			handedBack, err := a.checkCandidateWhole(ctx, a.repairBudget())
-			a.wholeHereBecause = ""
-			if err != nil {
-				outcome, err := a.stop(ctx, err)
-				return outcome, false, err
-			}
-			if handedBack {
-				return Outcome{}, true, nil
+	// whole here first where the queue will not do it after all: the switch has
+	// been turned off since, or admission chose the forge's own queue for it
+	// and admitted nothing (wholeCheckOwedHere). Checked whole, it is admitted
+	// as any change is, in whichever queue admission chooses. A failure there is
+	// handed back to the developer, and the repaired change re-earns the gate
+	// through the loop as a replay's does.
+	a.queueElsewhere = ""
+	for round := 0; ; round++ {
+		if passed := a.state.ChecksPassed; passed != nil && passed.Narrowed != "" && passed.WholeLeftToQueue {
+			if why := a.wholeCheckOwedHere(); why != "" {
+				a.wholeHereBecause = why
+				handedBack, err := a.checkCandidateWhole(ctx, a.repairBudget())
+				a.wholeHereBecause = ""
+				if err != nil {
+					outcome, err := a.stop(ctx, err)
+					return outcome, false, err
+				}
+				if handedBack {
+					return Outcome{}, true, nil
+				}
 			}
 		}
-	}
-	// With execution.merge_queue on, the change is admitted to its target's
-	// queue rather than promoted here, and the run ends; a queue that cannot
-	// land into the target holds the change here rather than promoting it as
-	// below (mergequeueadmission.go).
-	if outcome, ended, err := a.admitToMergeQueue(ctx); ended {
-		return outcome, false, err
+		// With execution.merge_queue on, the change is admitted to its target's
+		// queue rather than promoted here, and the run ends; a queue that cannot
+		// land into the target holds the change here rather than promoting it as
+		// below (mergequeueadmission.go).
+		if outcome, ended, err := a.admitToMergeQueue(ctx); ended {
+			return outcome, false, err
+		}
+		if a.queueElsewhere == "" {
+			break
+		}
+		// The whole check above replaced the evidence that limited admission to
+		// the harness's queue, so a second refusal is nothing this run can answer.
+		if round > 0 {
+			outcome, err := a.endPromotion(ctx, stoppedBy(runstate.StopIntegration,
+				fmt.Errorf("the merge queue would admit the change only to the %s queue after it was checked whole", modeName(a.queueElsewhere))))
+			return outcome, false, err
+		}
 	}
 	err := a.integrate(ctx)
 	if err == nil {
