@@ -117,6 +117,9 @@ type writeRecord struct {
 	// overruledTold is the owning role told in this process why the document,
 	// marked consistent with intent, waits for the operator all the same.
 	overruledTold bool
+	// landingFailure is the last failure to read the repository for this
+	// document the owning role was told about in this process.
+	landingFailure string
 }
 
 // WriteOutcome is what became of one document the operator decided. It is what
@@ -694,7 +697,7 @@ func (s *Session) awaitingWriteDecision(writeID string) (*writeRecord, error) {
 			return nil, fmt.Errorf("document %s has already been decided", trimmed)
 		}
 		if record.pending.Publication != nil {
-			return nil, fmt.Errorf("document %s was already confirmed, under policy or as a change the Lead Product Manager approved, and is waiting for its reviewed run", trimmed)
+			return nil, fmt.Errorf("document %s was already confirmed, under policy or as a change the Lead Product Manager approved, and is waiting for its reviewed run; if it has landed by another route, record that with /landed %s <commit>, and to stop offering it use /drop %s <reason>", trimmed, trimmed, trimmed)
 		}
 		return record, nil
 	}

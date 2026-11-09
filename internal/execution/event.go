@@ -108,6 +108,12 @@ const (
 	EventDocumentApproved EventType = "document.approved"
 	EventDocumentDeclined EventType = "document.declined"
 	EventDocumentWritten  EventType = "document.written"
+	// A confirmed or waiting document found in the repository documents are kept
+	// in, by the harness or on the operator's word, and one the operator stopped
+	// offering. A drop is not a decline: it settles a document that may already
+	// be confirmed, which a decline cannot.
+	EventDocumentLanded  EventType = "document.landed"
+	EventDocumentDropped EventType = "document.dropped"
 	// A concern is work the product manager judged against the goals and put to
 	// the operator as a question instead of proposing. What it raised and what
 	// it was told are separate events for the same reason a proposal and its

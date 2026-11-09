@@ -864,6 +864,8 @@ everything else is said to the Lead Product Manager:
 /directive artifact <artifact> <what is unresolved> | <what changes>
 /resolve <directive-id> <how it was settled>
 /withdraw <directive-id> <why you no longer mean it>
+/landed <document-id> <commit>  record a document you landed by hand as that commit, after the harness finds it there
+/drop <document-id> <reason>    stop offering a document, whatever it waits for, and tell its author why
 /terminal-setup          set this terminal up so shift-return adds a new line
 /help                    the list
 /exit                    end the conversation, stopping anything it is running

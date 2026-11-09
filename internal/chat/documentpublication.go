@@ -56,6 +56,9 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 	if err := s.releaseCopies(); err != nil {
 		return err
 	}
+	if err := s.settleLandedDocuments(ctx); err != nil {
+		return err
+	}
 	publisher := s.options.DocumentPublisher
 	if publisher == nil {
 		return nil

@@ -613,6 +613,17 @@ func (m *Manager) resolveCommit(ctx context.Context, revision string) (string, e
 	return resolved, nil
 }
 
+// ResolveCommitish resolves a revision a person typed (an abbreviated id, a
+// branch, a tag) to the full id of the commit it names in this repository. A
+// revision the repository does not have, or one that names something other than
+// a commit, is an error.
+func (m *Manager) ResolveCommitish(ctx context.Context, revision string) (string, error) {
+	if revision == "" || strings.HasPrefix(revision, "-") || strings.ContainsAny(revision, " \t\r\n\x00") {
+		return "", fmt.Errorf("%q is not a revision", revision)
+	}
+	return m.resolveCommit(ctx, revision+"^{commit}")
+}
+
 // DeleteRemoteBranch removes a merged run branch from the remote it was pushed
 // to, which under a fork arrangement is the contributor's fork rather than the
 // repository the work was merged into. It is a compare-and-swap on the exact
