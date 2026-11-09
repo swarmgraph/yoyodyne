@@ -18,6 +18,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"go.yaml.in/yaml/v3"
 )
 
 // projectActsFileName is where a project's state records the acts that point
@@ -138,12 +139,54 @@ func bindProject(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
+	// A configuration kept in the project directory names the repository
+	// outright, so it is pointed at the clone being bound in the same act;
+	// otherwise everything that reads product.repository would go on working in
+	// the clone the project was just taken off. It is read and rewritten in
+	// memory before anything is written, so a file that cannot be rewritten
+	// refuses the bind with nothing changed.
+	kept, err := keptConfigurationFollowing(root.Path, productID, home.RepositoryOf(common))
+	if err != nil {
+		return fail(err)
+	}
 	from := ""
 	if found {
 		from = before.Repository
 		if home.SameDirectory(before.GitCommonDirectory, common) {
-			return reportBinding(stdout, stderr, *jsonOutput, productID, before, false,
-				fmt.Sprintf("project %s is already bound to %s; nothing to bind", productID, before.Repository))
+			if !kept.rewrite {
+				return reportBinding(stdout, stderr, *jsonOutput, productID, before, false, kept, "",
+					fmt.Sprintf("project %s is already bound to %s; nothing to bind", productID, before.Repository))
+			}
+			// The binding is right and the configuration is not: a bind made
+			// before bind rewrote it, or an edit by hand. Putting the
+			// configuration right is the whole of the act.
+			if err := refuseRunsInFlight(root.Path, productID, "bind"); err != nil {
+				return fail(err)
+			}
+			if err := kept.write(root.Path, productID); err != nil {
+				return fail(err)
+			}
+			// The clone the file used to name may still hold a marker naming
+			// this home from when commands worked there; it is not the
+			// project's, so the marker goes, as it does on a rebind.
+			released := ""
+			if old := kept.previousDirectory(); old != "" && !home.SameDirectory(old, before.Repository) {
+				if _, err := os.Stat(old); err == nil {
+					released, err = runstate.ReleaseRoot(old, root.Path)
+					if err != nil {
+						return fail(fmt.Errorf("pointed the configuration of %s at %s, and removing the state-root marker from %s failed: %w", productID, before.Repository, old, err))
+					}
+				}
+			}
+			if err := recordProjectAct(root.Path, productID, projectAct{Act: "bind", From: kept.previous, To: before.Repository}); err != nil {
+				return fail(err)
+			}
+			said := fmt.Sprintf("project %s is already bound to %s; product.repository in %s named %s and now reads %s",
+				productID, before.Repository, kept.path, kept.previous, kept.repository)
+			if released != "" {
+				said += fmt.Sprintf("; removed the state-root marker %s, which no command reads now that %s is not the project's", released, kept.previousDirectory())
+			}
+			return reportBinding(stdout, stderr, *jsonOutput, productID, before, true, kept, released, said)
 		}
 		if before.Present() && !*replace {
 			return fail(fmt.Errorf("project %s is bound to %s, which is still there; binding %s instead would point the project's records at another tree, "+
@@ -158,6 +201,22 @@ func bindProject(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
+	if kept.rewrite {
+		if err := kept.write(root.Path, productID); err != nil {
+			return fail(fmt.Errorf("bound project %s to %s, and pointing its configuration at it failed, so product.repository still names %s; "+
+				"run `%s --product %s` from %s again: %w", productID, binding.Repository, kept.previous, home.BindCommand, productID, binding.Repository, err))
+		}
+	}
+	// The clone the project was taken off keeps a state-root marker naming this
+	// home, and a marker there would be read as current by anything that started
+	// in it; the clone is no longer the project's, so the marker goes.
+	released := ""
+	if found && before.Present() {
+		released, err = runstate.ReleaseRoot(home.RepositoryOf(before.GitCommonDirectory), root.Path)
+		if err != nil {
+			return fail(fmt.Errorf("bound project %s to %s, and removing the state-root marker from %s failed: %w", productID, binding.Repository, before.Repository, err))
+		}
+	}
 	if err := recordProjectAct(root.Path, productID, projectAct{Act: "bind", From: from, To: binding.Repository}); err != nil {
 		return fail(err)
 	}
@@ -165,21 +224,166 @@ func bindProject(args []string, stdout, stderr io.Writer) int {
 	if from != "" {
 		said = fmt.Sprintf("bound project %s to %s in place of %s, recorded in %s", productID, binding.Repository, from, home.BindingPath(root.Path, productID))
 	}
-	return reportBinding(stdout, stderr, *jsonOutput, productID, binding, true, said)
+	if kept.rewrite {
+		said += fmt.Sprintf("; product.repository in %s named %s and now reads %s", kept.path, kept.previous, kept.repository)
+	}
+	if released != "" {
+		said += fmt.Sprintf("; removed the state-root marker %s, which no command reads now that %s is not the project's", released, before.Repository)
+	}
+	return reportBinding(stdout, stderr, *jsonOutput, productID, binding, true, kept, released, said)
 }
 
-func reportBinding(stdout, stderr io.Writer, jsonOutput bool, productID string, binding home.Binding, changed bool, said string) int {
+func reportBinding(stdout, stderr io.Writer, jsonOutput bool, productID string, binding home.Binding, changed bool, kept keptConfiguration, released, said string) int {
 	if jsonOutput {
-		return writeJSON(stdout, stderr, map[string]any{
+		report := map[string]any{
 			"product":    productID,
 			"repository": binding.Repository,
 			"binding":    binding,
 			"changed":    changed,
 			"says":       said,
-		})
+		}
+		if kept.path != "" {
+			report["configuration"] = kept.path
+			report["configuration_rewritten"] = kept.rewrite && changed
+		}
+		if released != "" {
+			report["released_marker"] = released
+		}
+		return writeJSON(stdout, stderr, report)
 	}
 	fmt.Fprintln(stdout, said)
 	return 0
+}
+
+// keptConfiguration is the configuration a project keeps in its directory in
+// the machine home, where it keeps one, and what binding a repository does to
+// it.
+type keptConfiguration struct {
+	// path is the file, empty where the project keeps no configuration there.
+	path string
+	// previous is the product.repository the file names now.
+	previous string
+	// repository is the checkout the file is to name.
+	repository string
+	// rewrite is whether the file names another repository and is to be
+	// rewritten, and content the rewritten file.
+	rewrite bool
+	content []byte
+}
+
+// keptConfigurationFollowing reads the configuration a project keeps in its
+// directory, where it keeps one, and works out the file that names repository
+// as product.repository. A file already naming that repository, through any
+// spelling of the same directory, is left as it is.
+func keptConfigurationFollowing(root, productID, repository string) (keptConfiguration, error) {
+	path := filepath.Join(home.ProjectDirectory(root, productID), home.ConfigFileName)
+	content, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return keptConfiguration{}, nil
+	}
+	if err != nil {
+		return keptConfiguration{}, fmt.Errorf("read %s: %w", path, err)
+	}
+	kept := keptConfiguration{path: path, repository: repository}
+	rewritten, previous, err := rewriteProductRepository(content, repository)
+	if err != nil {
+		return keptConfiguration{}, fmt.Errorf("point product.repository in %s at %s: %w", path, repository, err)
+	}
+	kept.previous = previous
+	if home.SameDirectory(kept.previousDirectory(), repository) {
+		return kept, nil
+	}
+	kept.rewrite, kept.content = true, rewritten
+	return kept, nil
+}
+
+// previousDirectory is the directory the file's product.repository names now,
+// made absolute against the file's own directory as the loader resolves it.
+func (k keptConfiguration) previousDirectory() string {
+	if k.previous == "" {
+		return ""
+	}
+	if filepath.IsAbs(k.previous) {
+		return filepath.Clean(k.previous)
+	}
+	return filepath.Join(filepath.Dir(k.path), k.previous)
+}
+
+// write publishes the rewritten configuration in the project directory.
+func (k keptConfiguration) write(root, productID string) error {
+	writer, err := repowrite.NewRoot(root)
+	if err != nil {
+		return err
+	}
+	if _, err := writer.WriteFile(path.Join(home.ProjectsDirectoryName, productID, home.ConfigFileName), k.content); err != nil {
+		return fmt.Errorf("rewrite product.repository in %s: %w", k.path, err)
+	}
+	return nil
+}
+
+// rewriteProductRepository rewrites the value of `repository` under `product`
+// in a configuration to name repository, leaving every other byte of the file,
+// comments included, exactly as it was. It returns the rewritten file and the
+// value it replaced. The value is found by parsing the file rather than by
+// reading its lines, so a quoted path, or one with a `#` in it, is replaced
+// whole; and it is written as YAML quotes it, so a path with spaces in it reads
+// back as the same path.
+func rewriteProductRepository(content []byte, repository string) ([]byte, string, error) {
+	var document yaml.Node
+	if err := yaml.Unmarshal(content, &document); err != nil {
+		return nil, "", err
+	}
+	if document.Kind != yaml.DocumentNode || len(document.Content) == 0 || document.Content[0].Kind != yaml.MappingNode {
+		return nil, "", errors.New("it is not a mapping")
+	}
+	product := mappingValue(document.Content[0], "product")
+	if product == nil || product.Kind != yaml.MappingNode {
+		return nil, "", errors.New("it has no product section")
+	}
+	value := mappingValue(product, "repository")
+	if value == nil || value.Kind != yaml.ScalarNode {
+		return nil, "", errors.New("it has no product.repository to rewrite")
+	}
+	if strings.Contains(value.Value, "\n") || value.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
+		return nil, "", errors.New("product.repository is written across more than one line")
+	}
+	lines := strings.SplitAfter(string(content), "\n")
+	if value.Line < 1 || value.Line > len(lines) {
+		return nil, "", errors.New("product.repository could not be found in the file")
+	}
+	line := lines[value.Line-1]
+	body := strings.TrimRight(line, "\r\n")
+	ending := line[len(body):]
+	start := value.Column - 1
+	if start < 0 || start > len(body) {
+		return nil, "", errors.New("product.repository could not be found in the file")
+	}
+	// What follows the value on its line is a comment or nothing; the comment is
+	// kept, spaced from the value as it was.
+	rest := body[start:]
+	trailing := ""
+	if comment := value.LineComment; comment != "" {
+		if at := strings.LastIndex(rest, comment); at >= 0 {
+			gap := strings.TrimRight(rest[:at], " \t")
+			trailing = rest[len(gap):]
+		}
+	}
+	encoded, err := yaml.Marshal(repository)
+	if err != nil {
+		return nil, "", err
+	}
+	lines[value.Line-1] = body[:start] + strings.TrimRight(string(encoded), "\n") + trailing + ending
+	return []byte(strings.Join(lines, "")), value.Value, nil
+}
+
+// mappingValue is the value a YAML mapping holds under key, or nil.
+func mappingValue(mapping *yaml.Node, key string) *yaml.Node {
+	for index := 0; index+1 < len(mapping.Content); index += 2 {
+		if mapping.Content[index].Value == key {
+			return mapping.Content[index+1]
+		}
+	}
+	return nil
 }
 
 // refuseRunsInFlight refuses an act on a project while any of its runs is in
@@ -567,7 +771,10 @@ list options:
   --home            print the machine home's path and nothing else
   --json            emit machine-readable JSON
 
-bind refuses while a run is in flight for the project. rename refuses while a
+bind refuses while a run is in flight for the project. A configuration kept in
+the project directory has its product.repository pointed at the repository
+bound, and a clone unbound while still there has its state-root marker removed.
+rename refuses while a
 run is in flight, while the project holds worktrees, or where the new id is
 taken; a configuration kept in the project directory has its product.id
 rewritten, and a committed one must already read the new id.`))

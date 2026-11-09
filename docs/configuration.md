@@ -741,9 +741,28 @@ Five things are worth knowing about it:
   passing `--config` on everything thereafter.
 - **The binding is to one clone.** A second clone of the project on the same
   machine is refused rather than given a second configuration. Moving the
-  checkout leaves the binding naming where it was; run
-  `yoyo project bind --product <product id>` from where it now is, which is
-  how the configuration is found again.
+  checkout leaves the binding naming where it was. From where it now is, run
+
+  ```sh
+  yoyo project bind --product <product id>             # the old checkout is gone
+  yoyo project bind --product <product id> --replace   # the old clone is still there
+  ```
+
+  and that is the whole of it. The bind points the configuration's
+  `product.repository` at this clone in the same act, so worktrees, the target
+  branch, the checks, and the tracker are all worked here from then on, and it
+  removes the old clone's state-root marker where that clone is still there,
+  so nothing started in it reads it as current. Nothing is edited by hand.
+  **The binding decides which clone is the project's.** Where the
+  configuration's `product.repository` names a different clone anyway — left by
+  a bind made before bind rewrote it, or by an edit — every command uses the
+  clone the binding names, for worktrees, the target branch, the checks, the
+  tracker, the state-root marker, and the artifact folders alike, and
+  `yoyo config show --origins` gives `product.repository` the origin
+  `binding:` and the binding's path. The file is then out of date, which
+  `yoyo doctor` reports as a warning under `binding`, naming both paths, with
+  `yoyo project bind --product <product id> --directory <bound clone>` as the
+  command that rewrites it.
 - **`product.repository` is written absolute.** An external configuration has no
   project directory above it for a relative path to resolve against. The
   artifact directories are unaffected: `specifications`, `invariants`,
@@ -963,7 +982,14 @@ yoyo project rename <old> <new>            # move a project directory, and every
   to a repository still at its path it refuses unless `--replace` is given, and
   says what it unbound; where the bound repository is gone it binds without
   being asked twice, which is the remedy for a moved or re-cloned repository.
-  It refuses while any run of the project is in flight.
+  It refuses while any run of the project is in flight. Where the project keeps
+  its configuration in the project directory, the bind rewrites that file's
+  `product.repository` to the repository it binds, leaving every other line as
+  it was; run against the repository already bound, it does the same for a file
+  that names another, and otherwise says there is nothing to bind. Where the
+  clone it unbinds, or the clone an out-of-date file named, is still there, it
+  removes that clone's `.git/yoyodyne/state-root` marker, if the marker names
+  this home. A configuration committed in its repository is not touched.
 - **`rename`** moves `projects/<old>/` to `projects/<new>/`. A configuration kept
   in the project directory has its `product.id` rewritten; a committed one must
   already read `<new>`, so the id in the repository and the directory never

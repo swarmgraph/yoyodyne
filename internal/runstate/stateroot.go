@@ -351,6 +351,39 @@ func RebindRoot(checkout string, resolved ResolvedRoot) (Rebinding, error) {
 	return Rebinding{Before: before, Root: resolved, Replaced: true}, nil
 }
 
+// ReleaseRoot takes a checkout's marker out where it names root, and with it
+// the account of who wrote it. It is for a clone a project has just been
+// rebound away from: that clone's state is no longer kept at root, so a marker
+// still saying it is would be read as current by anything that started there.
+// A marker naming another root is someone else's record and is left alone, as
+// is a checkout with none. It reports the marker it removed, or nothing.
+func ReleaseRoot(checkout, root string) (string, error) {
+	read, err := ReadRootMarker(checkout)
+	if err != nil || read.Path == "" || read.Recorded == "" || !sameRoot(read.Recorded, root) {
+		return "", err
+	}
+	_, gitDirectory, err := RootMarkerPath(checkout)
+	if err != nil {
+		return "", err
+	}
+	if err := refuseMarkerOutsideTemporary(gitDirectory); err != nil {
+		return "", err
+	}
+	writer, err := repowrite.NewRoot(gitDirectory)
+	if err != nil {
+		return "", fmt.Errorf("release the state-root marker in %s: %w", gitDirectory, err)
+	}
+	// The marker goes first, so an interruption leaves at most an account of a
+	// writer beside no marker, which nothing reads as a root.
+	if _, err := writer.RemoveFile(RootMarkerName); err != nil {
+		return "", fmt.Errorf("release the state-root marker %s: %w", read.Path, err)
+	}
+	if _, err := writer.RemoveFile(RootWriterName); err != nil {
+		return "", fmt.Errorf("remove the account beside the state-root marker %s: %w", read.Path, err)
+	}
+	return read.Path, nil
+}
+
 // writerAccount is what is kept beside the marker about the process that
 // recorded it: its process id and command line, and the moment.
 func writerAccount(now time.Time) []byte {
