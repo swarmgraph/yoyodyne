@@ -14,7 +14,9 @@ import (
 
 // mcpReaders is every file outside tests that reads the mcp section, an agent's
 // MCP tools, or where a credential is kept: the configuration that loads them,
-// `yoyo config show`, `yoyo mcp login`, and `yoyo doctor`. None of them builds a
+// `yoyo config show`, `yoyo mcp login`, `yoyo doctor`, and the client in
+// internal/mcpcall that starts a declared server in the harness's own process
+// and reads its credential from the stores. None of them builds a
 // role's launch or its instructions, so a project that declares nothing —
 // whose revision is unchanged too (TestAProjectWithNoMCPSectionIsUnchanged) —
 // launches and instructs every role exactly as it did before the keys existed.
@@ -28,6 +30,9 @@ var mcpReaders = map[string]bool{
 	"internal/cli/cli.go":         true,
 	"internal/cli/mcp.go":         true,
 	"internal/doctor/mcp.go":      true,
+	"internal/mcpcall/command.go": true,
+	"internal/mcpcall/mcpcall.go": true,
+	"internal/mcpcall/remote.go":  true,
 }
 
 func TestNothingOnTheLaunchOrInstructionPathReadsTheMCPConfiguration(t *testing.T) {
