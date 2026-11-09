@@ -14,15 +14,17 @@ package orchestrator
 //
 // The mode is chosen at admission (internal/queuemode). Where neither mode can
 // land into the target as it is protected — the target lands changes only
-// through the forge's own merge queue — or the protection cannot be read to
-// say, nothing is admitted and nothing is merged the old way either: the
+// through the forge's own merge queue — or GitHub answered the read of the
+// protection with a refusal, nothing is admitted and nothing is merged the old way either: the
 // operator chose the queue by the switch, and replaying the change would land
 // it through the path they turned off. The change waits at its promotion with
 // its approval standing, held with the setting named (CauseMergeQueueHeld),
 // and the queue files one report for the condition however many changes it
 // holds. The design is "GitHub's own merge queue" in the document above;
 // mergequeueheld.go is what takes the held changes up again once the
-// condition clears or the switch is turned off.
+// condition clears or the switch is turned off. A read of the protection that
+// cannot reach GitHub at all is not a hold: the run waits for GitHub and asks
+// again (gitHubWaitingQueueReader in forgewait.go).
 //
 // A run whose change is admitted ends succeeded with its item still claimed and
 // its branch and worktree kept, because the queue may hand the change back to
@@ -112,8 +114,15 @@ func (a *activeRun) admitToMergeQueue(ctx context.Context) (Outcome, bool, error
 		return end(fmt.Errorf("resolve whether the project publishes: %w", err))
 	}
 	var forge publish.QueueCapabilityReader
+	var waiting *gitHubWaitingQueueReader
 	if publishing {
-		forge, _ = p.Publisher.(publish.QueueCapabilityReader)
+		if reader, ok := p.Publisher.(publish.QueueCapabilityReader); ok {
+			// A protection read that cannot reach GitHub is waited out here rather
+			// than turned into a hold (forgewait.go): a hold blocks the item and
+			// reports it, which is the run ended for a network outage.
+			waiting = &gitHubWaitingQueueReader{run: a, inner: reader}
+			forge = waiting
+		}
 	}
 	key := runstate.MergeQueueKey{Repository: nonEmpty(a.state.RepositoryID, string(p.Config.Product.ID)), TargetBranch: a.worktree.TargetBranch}
 	publication := ""
@@ -130,6 +139,11 @@ func (a *activeRun) admitToMergeQueue(ctx context.Context) (Outcome, bool, error
 		ApprovedHead:      head,
 		IntegrationPolicy: string(p.Config.Approvals.Integration),
 	})
+	if waiting != nil && waiting.stopped != nil {
+		// The operator stopped the run while it waited for GitHub; the read's
+		// failure the admitter saw is not what ended it.
+		return end(waiting.stopped)
+	}
 	if err != nil {
 		return end(fmt.Errorf("admit the approved change to the merge queue for %s: %w", key.TargetBranch, err))
 	}

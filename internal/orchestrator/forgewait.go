@@ -40,16 +40,22 @@ package orchestrator
 // a protected branch — is not a network failure, is not waited out here, and is
 // handled as it always was.
 //
-// With execution.merge_queue on, the run never reaches any of this: it ends
-// once its change is admitted to the queue and never contacts GitHub at its
-// merge step. The queue's own passes land the change (mergequeuepromotion.go,
-// mergequeuerecovery.go), and how they treat GitHub being away is theirs.
+// With execution.merge_queue on, the run does not land its own change: it is
+// admitted to the queue and ends. Admission asks GitHub how the target branch
+// is protected, and a GitHub that cannot be reached for that read is waited out
+// the same way, in place and with no lease to give back
+// (gitHubWaitingQueueReader), rather than holding the change from the queue. A
+// read GitHub answered with a refusal is still a hold. The queue's own passes
+// land the change afterwards; how they treat GitHub being away is theirs
+// (mergequeuedriver.go, mergequeuerecovery.go), and the run, which has ended by
+// then, is not what waits.
 
 import (
 	"context"
 	"errors"
 	"fmt"
 
+	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/recovery"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -255,4 +261,30 @@ func triesFor(tries int) string {
 		return "1 failed try"
 	}
 	return fmt.Sprintf("%d failed tries", tries)
+}
+
+// gitHubWaitingQueueReader is the forge's protection read as merge queue
+// admission asks it, for a run being admitted: a read that cannot reach GitHub
+// is waited for on the paced intervals, recorded as the run's wait, and asked
+// again until GitHub answers, rather than being returned for the admitter to
+// turn into a hold. Admission holds no promotion lease, so there is none to
+// give back. The operator stopping the run while it waits is kept in stopped,
+// because the admitter turns any failed read into a hold and would hide it.
+type gitHubWaitingQueueReader struct {
+	run     *activeRun
+	inner   publish.QueueCapabilityReader
+	stopped error
+}
+
+func (r *gitHubWaitingQueueReader) QueueCapabilities(ctx context.Context, branch string) (publish.QueueCapabilities, error) {
+	var observed publish.QueueCapabilities
+	err := r.run.untilGitHubAnswers(ctx, "asking GitHub how "+branch+" is protected, to admit the change to the merge queue", recovery.Recoverable, func(ctx context.Context) error {
+		var readErr error
+		observed, readErr = r.inner.QueueCapabilities(ctx, branch)
+		return readErr
+	})
+	if stoppedWhileWaiting(err) {
+		r.stopped = err
+	}
+	return observed, err
 }

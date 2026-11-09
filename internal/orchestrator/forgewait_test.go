@@ -329,3 +329,88 @@ func TestARefusalAboutTheChangeIsNotWaitedOut(t *testing.T) {
 		t.Fatalf("run recorded a wait for GitHub over a refusal: %#v", state.ForgeWait)
 	}
 }
+
+// unreachableQueueReads cannot reach GitHub for the first reads of how the
+// target is protected, as merge queue admission asks them.
+type unreachableQueueReads struct {
+	switchableForgeQueue
+	failures int
+	reads    int
+	// clock stamps the answer, as GitHub's answer is stamped by the clock the
+	// harness reads it with.
+	clock *pausingClock
+}
+
+func (f *unreachableQueueReads) QueueCapabilities(ctx context.Context, branch string) (publish.QueueCapabilities, error) {
+	f.reads++
+	if f.reads <= f.failures {
+		return publish.QueueCapabilities{}, gitHubUnreachable("gh api repos/o/r/rules/branches/" + branch)
+	}
+	observed, err := f.switchableForgeQueue.QueueCapabilities(ctx, branch)
+	observed.ObservedAt = f.clock.Now()
+	return observed, err
+}
+
+// With the merge queue switched on, admission reads how the target is
+// protected from GitHub. A GitHub that cannot be reached for that read is
+// waited for, past the two-hour window, and the change is then admitted:
+// nothing is held, blocked, or reported, and the run holds no slot meanwhile.
+func TestAnUnreachableGitHubAtMergeQueueAdmissionIsWaitedOutAndTheChangeAdmitted(t *testing.T) {
+	t.Parallel()
+
+	queue, err := runstate.NewMergeQueueStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reports := &fakeReports{}
+	r := newHeldQueueRun(t, queue, reports)
+	r.required = false
+	const failures = 20
+	reads := &unreachableQueueReads{switchableForgeQueue: switchableForgeQueue{Forge: r.forge, required: &r.required, unread: &r.unread}, failures: failures}
+	r.pipeline.Publisher = reads
+	clock := &pausingClock{now: time.Now()}
+	reads.clock = clock
+	var during []runstate.State
+	clock.onSleep = func() {
+		incomplete, err := r.runs.Incomplete()
+		if err != nil {
+			t.Errorf("Incomplete() error = %v", err)
+			return
+		}
+		for _, state := range incomplete {
+			if state.ForgeWait != nil {
+				during = append(during, state)
+			}
+		}
+	}
+	r.pipeline = waiting(r.pipeline, clock, 6*time.Hour, 6*time.Hour)
+
+	outcome, err := r.pipeline.Run(context.Background(), "yoyodyne-task")
+	if err != nil {
+		t.Fatalf("Run() error = %v, want GitHub waited out and the change admitted", err)
+	}
+	if outcome.MergeQueue == nil || r.tracker.Blocked || len(reports.appended) != 0 || outcome.IntegrationStop != nil {
+		t.Fatalf("queue entry = %#v, blocked = %t, reports = %#v, stop = %#v; want the change admitted with nothing held or reported",
+			outcome.MergeQueue, r.tracker.Blocked, reports.appended, outcome.IntegrationStop)
+	}
+	if reads.reads != failures+1 {
+		t.Fatalf("protection reads = %d, want %d", reads.reads, failures+1)
+	}
+	if got := clock.waited(); got <= recovery.Window {
+		t.Fatalf("waited %s, want the wait to outlast the %s window", got, recovery.Window)
+	}
+	if len(during) != failures {
+		t.Fatalf("records seen waiting = %d, want %d", len(during), failures)
+	}
+	for index, state := range during {
+		if state.HoldsDeveloperSlot() || !strings.Contains(state.ForgeWait.Step, "admit the change to the merge queue") {
+			t.Fatalf("wait %d: %#v, holds slot %t; want a wait at admission holding no slot", index+1, state.ForgeWait, state.HoldsDeveloperSlot())
+		}
+	}
+	if entries, err := queue.Entries(mainQueueKey); err != nil || len(entries) != 1 {
+		t.Fatalf("entries = %#v, %v; want the change admitted", entries, err)
+	}
+	if _, found, err := queue.Refusal(mainQueueKey); err != nil || found {
+		t.Fatalf("Refusal() found = %t, %v; want no condition recorded", found, err)
+	}
+}
