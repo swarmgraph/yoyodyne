@@ -1140,6 +1140,9 @@ type Started struct {
 	// make. The count is how a reader tells one such refusal from a run that
 	// keeps being refused.
 	Readoptions int `json:"readoptions,omitempty"`
+	// began is when this session made the start, which a decision passed over
+	// because of a start still before its reservation is told (occupiedWhy).
+	began time.Time
 	// awayCause is set when Failure is the provider turning the dispatch away —
 	// a login nobody has renewed, an API nothing reaches — which the settle reads
 	// to count the start toward nothing. It is not on the record because the
@@ -1592,7 +1595,17 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// left blocked on a channel nobody reads any more.
 	abandoned := make(chan struct{})
 	defer close(abandoned)
+	// handedBack is the starts whose goroutine has finished and is handing its
+	// ending back, noted before the hand-over, which waits until the session
+	// next collects an ending. Each wait collects one ending at most, and a
+	// wait that wakes on the poll interval or on a store that would not answer
+	// collects none, so a start that failed or came back without reserving can
+	// stay on mine for several pulls. A decided recovery of its item reads this
+	// so it is not passed over for a start that has already ended
+	// (nextCarryOutsExcept).
+	handedBack := &startsHandedBack{}
 	deliver := func(done completed) {
+		handedBack.note(done.index)
 		select {
 		case completions <- done:
 		case <-abandoned:
@@ -1603,6 +1616,13 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// reserves, which is several steps after it is started, and a pull that
 	// counted only the recorded runs would start the same slot twice.
 	mine := make(map[string]int)
+	// remember puts one start on mine and notes when it was made, so a decision
+	// passed over because of it can say which start it was and how long ago it
+	// began (occupiedWhy).
+	remember := func(id string, index int) {
+		mine[id] = index
+		schedule.Started[index].began = s.now()
+	}
 	// elsewhere is the runs another process had in flight at the last pull, by run
 	// identifier, and ended is the runs of this session collected since then. The
 	// next pull reads both to say which slots freed and whose runs had held them:
@@ -2026,7 +2046,8 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// can take a run back differently from the others.
 	finish := func(done completed) {
 		running--
-		delete(mine, schedule.Started[done.index].WorkItemID)
+		forgetStart(mine, schedule.Started[done.index].WorkItemID, done.index)
+		handedBack.forget(done.index)
 		settle(done)
 		// Only a start that became a run held a slot anybody could see; one that
 		// was declined before it reserved anything frees nothing worth naming.
@@ -2820,7 +2841,7 @@ pulling:
 					schedule.Started = append(schedule.Started, Started{WorkItemID: id, Reason: selection.Reason, Readopted: state.RunID, Readoptions: 1})
 					readopted[state.RunID] = index
 				}
-				mine[id] = index
+				remember(id, index)
 				running++
 				s.host(session.dispatching(ctx, id), pull, id, index, selection, hosted, landings, deliver)
 			}
@@ -2883,7 +2904,7 @@ pulling:
 				index := len(schedule.Started)
 				schedule.Started = append(schedule.Started, Started{WorkItemID: runID, Reason: documentReason(wait)})
 				landing[runID] = runstate.State{WorkItemID: runID}
-				mine[runID] = index
+				remember(runID, index)
 				myDocuments[runID] = true
 				running++
 				startedDocuments++
@@ -2917,7 +2938,7 @@ pulling:
 				id := next.WorkItemID()
 				index := len(schedule.Started)
 				schedule.Started = append(schedule.Started, Started{WorkItemID: id, Reason: outsideFileReason(next)})
-				mine[id] = index
+				remember(id, index)
 				myOutsideFile = id
 				running++
 				runCtx, cancel := hostedContext(session.dispatching(ctx, id), index, landings)
@@ -3090,7 +3111,7 @@ pulling:
 		attempted := map[string]bool{}
 		_, declining := drain.declinesStarts(pull.Poll, s.now())
 		if !declining {
-			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked, precedence, attempted)
+			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, handedBack, waitingOn, closed, free, remaining, outranked, precedence, attempted)
 		} else if pull.CarryOut != nil {
 			// Nothing is attempted, and nothing is written onto the items, but the
 			// log still names each decision this pass left standing and why.
@@ -3115,7 +3136,7 @@ pulling:
 			// queue scan choosing the same item beside this, and mine is what stops the
 			// next pull counting the slot free before the run has reserved it.
 			occupied[task.WorkItemID] = runstate.State{WorkItemID: task.WorkItemID}
-			mine[task.WorkItemID] = index
+			remember(task.WorkItemID, index)
 			running++
 			// Only where there was one to take. An attempt made with no slot free is
 			// one the action's own capacity gate refuses before it reserves anything,
@@ -3195,7 +3216,7 @@ pulling:
 					break
 				}
 			}
-			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked, precedence, attempted)
+			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, handedBack, waitingOn, closed, free, remaining, outranked, precedence, attempted)
 			for _, task := range tasks {
 				schedule.unwaitCarryOut(task)
 			}
@@ -3248,7 +3269,7 @@ pulling:
 				selection := runstate.Selection{By: runstate.SelectedByScheduler, Reason: continuation.reason}
 				schedule.Started = append(schedule.Started, Started{WorkItemID: workItemID, Reason: selection.Reason})
 				occupied[workItemID] = continuation.state
-				mine[workItemID] = index
+				remember(workItemID, index)
 				running++
 				if !continuation.holdsOne {
 					free--
@@ -3588,7 +3609,7 @@ pulling:
 			}
 			schedule.Started = append(schedule.Started, Started{WorkItemID: entry.ID, Reason: selection.Reason, Probe: probing, Slot: slot.Number})
 			flight.take(read.items[entry.ID], "")
-			mine[entry.ID] = index
+			remember(entry.ID, index)
 			startedNow[entry.ID] = true
 			running++
 			started++
@@ -3959,7 +3980,7 @@ collecting:
 		select {
 		case done := <-completions:
 			running--
-			delete(mine, schedule.Started[done.index].WorkItemID)
+			forgetStart(mine, schedule.Started[done.index].WorkItemID, done.index)
 			settle(done)
 		case <-grace:
 			for id := range mine {
@@ -5681,7 +5702,7 @@ func (s Scheduler) corrected(schedule *Schedule, sweep CorrectionSweep, err erro
 // item's priority puts it. outranked says which decisions those are; nil says
 // none are, which is every decision before yoyodyne-ifd.428.58.
 func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool)) ([]CarryOutTask, map[string]string, []outrankedCarryOut) {
-	chosen, passed, pending, _ := s.nextCarryOutsExcept(schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked, nil, nil)
+	chosen, passed, pending, _ := s.nextCarryOutsExcept(schedule, pull, occupied, mine, nil, waitingOn, closed, free, remaining, outranked, nil, nil)
 	return chosen, passed, pending
 }
 
@@ -5692,7 +5713,7 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 // back to. precedence, where given, says which decisions build on a kept change,
 // whether a free dedicated slot is kept for its item's label, and at what
 // priority, and those are offered the slots first.
-func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool), precedence func(CarryOutTask) (bool, bool, int), attempted map[string]bool) (chosen []CarryOutTask, passed map[string]string, pending []outrankedCarryOut, slotBound bool) {
+func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, handedBack *startsHandedBack, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool), precedence func(CarryOutTask) (bool, bool, int), attempted map[string]bool) (chosen []CarryOutTask, passed map[string]string, pending []outrankedCarryOut, slotBound bool) {
 	if pull.CarryOut == nil {
 		return nil, nil, nil, false
 	}
@@ -5776,9 +5797,18 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 		reusesSlot := task.Recover && state.RunID == task.RunID && state.RepairDispatchPending()
 		// A carry-out this session has already dispatched still owns the item,
 		// including the gap before the pipeline acquires the run lease.
-		_, ours := mine[task.WorkItemID]
-		if busy && (!reusesSlot || ours) {
-			pass(task, occupiedWhy(pull.Runs, state, s.now()))
+		index, ours := mine[task.WorkItemID]
+		// One that has already ended and is only waiting to be collected does not:
+		// it failed, or came back without reserving, and nothing more will come of
+		// it, so the decision goes ahead exactly as it would once the session has
+		// collected that ending.
+		leftover := ours && state.RunID == "" && handedBack.has(index)
+		if busy && !leftover && (!reusesSlot || ours) {
+			var earlier *Started
+			if ours && index >= 0 && index < len(schedule.Started) {
+				earlier = &schedule.Started[index]
+			}
+			pass(task, occupiedWhy(pull.Runs, state, earlier, s.now()))
 			continue
 		}
 		if closed.keptForTheHold(task) {
@@ -7461,14 +7491,74 @@ type freedSlot struct {
 	ours       bool
 }
 
+// startsHandedBack is the starts of one session, by their index on its
+// schedule, whose goroutine has finished and is handing its ending back. It is
+// written from each start's own goroutine and read by the session, so it is
+// guarded. A nil one holds nothing.
+type startsHandedBack struct {
+	mu      sync.Mutex
+	indices map[int]bool
+}
+
+func (h *startsHandedBack) note(index int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.indices == nil {
+		h.indices = make(map[int]bool)
+	}
+	h.indices[index] = true
+}
+
+func (h *startsHandedBack) forget(index int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.indices, index)
+}
+
+func (h *startsHandedBack) has(index int) bool {
+	if h == nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.indices[index]
+}
+
+// forgetStart takes one collected start off mine, where it is still the start mine
+// holds for its item. A decided recovery started beside a start that had
+// already ended (startsHandedBack) holds the item by then, and collecting the
+// earlier start's ending must not take the later one off with it.
+func forgetStart(mine map[string]int, id string, index int) {
+	if held, ok := mine[id]; ok && held == index {
+		delete(mine, id)
+	}
+}
+
 // occupiedWhy says why a decision about an item that has a run is passed over.
 // A run this session started and that has not reserved has no record yet, and
 // is said as that; a reserved run is named, with whose it is by the worker
 // identity every reader applies, so a run an earlier program in this process
 // left in flight is never described as one this session started.
-func occupiedWhy(runs ScheduleRuns, state runstate.State, now time.Time) string {
+//
+// earlier is the start of this session's that stands over the item, where there
+// is one. A start before its reservation is said with when it began, how long
+// ago that was, and what it was started to do, so a reader can tell a start
+// still on its way to reserving from one left behind. A start that failed or
+// came back without reserving is not said this way: one whose goroutine has
+// finished no longer stands over its item (startsHandedBack), even before the
+// session has collected its ending.
+func occupiedWhy(runs ScheduleRuns, state runstate.State, earlier *Started, now time.Time) string {
 	if state.RunID == "" {
-		return "this session had already started a run of the item that had not yet reserved, and one item is never given two runs at once"
+		const why = "this session had already started a run of the item that had not yet reserved"
+		const rule = "one item is never given two runs at once"
+		if earlier == nil || earlier.began.IsZero() {
+			return why + ", and " + rule
+		}
+		said := fmt.Sprintf("%s: it was started at %s, %s ago, and has not come back yet", why, earlier.began.Local().Format("2006-01-02 15:04 MST"), waitedFor(now.Sub(earlier.began)))
+		if reason := strings.TrimSpace(earlier.Reason); reason != "" {
+			said += "; the reason recorded for that start is: " + singleLine(reason, runstate.MaxSelectionReasonBytes)
+		}
+		return said + "; " + rule
 	}
 	return fmt.Sprintf("run %s of the item is recorded as %s, and one item is never given two runs at once; %s", state.RunID, state.Status, inFlightWorker(runs, state, now))
 }
