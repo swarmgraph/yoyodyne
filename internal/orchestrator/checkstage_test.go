@@ -201,8 +201,8 @@ func TestTheCheckStageBoundScalesWithLoadAndAStopUnderItCountsTowardNothing(t *t
 }
 
 // A stage the bound stopped judged nothing, so what the run is owed is its
-// checks again on the change it already has — not a re-run from the target
-// branch that redoes the development. The stopped run dockets itself saying load
+// checks again on the change it already has — not a re-run that starts a new
+// run and redoes the development. The stopped run dockets itself saying load
 // stopped it and the harness continues it; the carry-out takes it up with nobody
 // deciding anything once a slot is free, even if load stays high; the continued
 // run re-runs the checks on the preserved change with no developer invoked,

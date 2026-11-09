@@ -924,7 +924,8 @@ notices; what makes it visible is the stopped run's own record — terminal, its
 blocker standing, a failure returned to its developer, and a branch that still
 carries the change. So `yoyo run` reads that record before it reserves anything,
 and refuses, naming both the repair that would continue the change and the re-run
-that would deliberately start over. The one fresh run of such an item that is
+that would deliberately start a fresh run, carrying the kept change forward or
+starting from the target branch where that change no longer applies cleanly. The one fresh run of such an item that is
 right is the re-run, and it says so in the record before it starts: triage claims
 it against the stoppage, and a claim naming that run is what lets the fresh run
 through. Nothing is reserved, claimed, or created by the refusal, so carrying out

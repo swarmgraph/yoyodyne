@@ -2963,8 +2963,9 @@ told.
 Recording a decision is not carrying it out, and three of the eight now have an
 action that does; a fourth, `retire-raise`, needs none, because it is carried
 out as it is recorded. Two are the opposite answers to a run that stopped: `yoyo
-triage rerun` starts the item over, and `yoyo triage repair` continues the run
-that stopped on the change it already has. The third, `yoyo triage rearm`, is
+triage rerun` starts the item over in a fresh run, from the change the stopped
+run kept where its branch is still there, and `yoyo triage repair` continues the
+run that stopped on the change it already has. The third, `yoyo triage rearm`, is
 about a publication rather than a run: it repeats the merge request the forge
 dropped. A fourth action, `yoyo triage resume`, carries out no decision at all,
 and [the paragraph on it below](#resuming-an-approved-change-the-environment-stopped)
@@ -3206,8 +3207,10 @@ exempt. And a **fresh run is refused where a repair is owed**: an item whose las
 run stopped with its change preserved on a branch does not get started over from
 nothing, because a clean worktree off the target branch looks perfectly valid and
 is caught by nothing downstream. The refusal names the branch and both ways out,
-and `yoyo triage rerun` is the one that starts over deliberately — a claimed
-re-run is exactly what lets a fresh run through.
+and `yoyo triage rerun` is the one that starts a fresh run deliberately: it
+carries the kept change forward into the fresh run, falling back to the target
+branch only where that change no longer applies cleanly, and a claimed re-run is
+exactly what lets a fresh run through.
 
 The repair is also dispatched to the run it is about rather than to the item:
 carrying it out re-enters that run or refuses, and creates no worktree either

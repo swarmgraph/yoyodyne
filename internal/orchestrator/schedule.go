@@ -3025,8 +3025,8 @@ pulling:
 		// Among several, the Lead Product Manager's order decides (precedence).
 		// What keeps one change from holding slots for ever is the per-item bound
 		// on each kind of recovery, which every kind getting this precedence has
-		// (see keptChange). A re-run that starts over from the target is fresh
-		// work and is ordered by priority like any other.
+		// (see keptChange). A re-run whose earlier change is gone starts over from
+		// the target, so it is fresh work and is ordered by priority like any other.
 		var early *pulled
 		earlyAsked := false
 		readEarly := func() *pulled {

@@ -1398,7 +1398,7 @@ func carryOutGate(err error) (gate, clears string) {
 		// mechanism exists to end, so an ending nobody accounted for is said out loud.
 		return runstate.TriageGateHarness, "somebody looking at the harness: it neither started the run nor said why"
 	case carryOutCause(err) == triage.CarryOutWorktreeGone, carryOutCause(err) == triage.CarryOutBranchGone:
-		return runstate.TriageGatePreservedWork, "the development manager recording a re-run from the target branch or escalating what became of the preserved change"
+		return runstate.TriageGatePreservedWork, "the development manager recording a re-run, which starts a fresh run from whatever is left of the preserved change and from the target branch where nothing is, or escalating what became of the preserved change"
 	case errors.Is(err, ErrRecordedBackendUnavailable):
 		return runstate.TriageGateHarness,
 			"the development manager recording a re-run, which starts the item again on the backend the developer is configured for now; a repair has to carry on the developer's session, and only the backend that opened it can. The refused repair spent nothing"
@@ -1416,7 +1416,7 @@ func carryOutGate(err error) (gate, clears string) {
 			"`yoyo triage override` crossing the budget that refused, which is the operator's and nobody else's"
 	case errors.Is(err, runstate.ErrRerunTaken):
 		return runstate.TriageGateBudget,
-			"the decision being recorded against the stoppage of the item's latest run instead — a run the docket never held, such as a re-run cancelled on its way out, is re-run from the target branch like any other: triage re-runs one stoppage once, so this one's re-run is spent, and a further attempt at it is an escalation rather than a larger budget"
+			"the decision being recorded against the stoppage of the item's latest run instead — a run the docket never held, such as a re-run cancelled on its way out, is re-run like any other, from the change it kept where its branch is still there: triage re-runs one stoppage once, so this one's re-run is spent, and a further attempt at it is an escalation rather than a larger budget"
 	default:
 		return runstate.TriageGateHarness, "what the refusal itself names"
 	}

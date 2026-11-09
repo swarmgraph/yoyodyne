@@ -514,7 +514,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 		result.LostRace = lostRace
 	} else if err := continuableRepair(prior, found); err != nil {
 		if prior.CheckFailure != nil && prior.CheckFailure.ForgeHeadCommit != "" && !found.Unknown {
-			return result, fmt.Errorf("%w; the supported alternative is a re-run decided by the development manager and carried out with `yoyo triage rerun %s`, which starts fresh from the target branch", err, prior.RunID)
+			return result, fmt.Errorf("%w; the supported alternative is a re-run decided by the development manager and carried out with `yoyo triage rerun %s`, which starts a fresh run from the change the stopped run kept where its branch is still there, and from the target branch where it is not", err, prior.RunID)
 		}
 		return result, err
 	}
@@ -1169,7 +1169,7 @@ func continuableRepair(prior runstate.State, found triage.Found) error {
 	// A check a time limit left unfinished is run again only within the bounds
 	// every path shares, so a decided repair cannot reset them.
 	if spent := prior.CheckRerunSpent(); spent != "" {
-		return permanentCarryOut(triage.CarryOutCheckRerunsSpent, fmt.Errorf("run %s's checks will not be run again on this candidate: %s; a re-run of the item, which starts a new candidate from the target branch, is what remains", prior.RunID, spent))
+		return permanentCarryOut(triage.CarryOutCheckRerunsSpent, fmt.Errorf("run %s's checks will not be run again on this candidate: %s; a re-run of the item, which starts a new candidate from the change the stopped run kept where it still applies cleanly to the target branch and from the target branch where it does not, is what remains", prior.RunID, spent))
 	}
 	// A stall or a check-stage timeout owes the run the step the harness stopped,
 	// rather than a repair of a change nobody complained about.
@@ -1252,7 +1252,7 @@ func budgetStopped(state runstate.State) bool {
 // repair input, but must name the recovery the existing record supports.
 func oldForgeRepairAlternative(prior runstate.State) error {
 	if prior.CheckFailure == nil && prior.MergeDrop != nil && prior.PullRequest != nil && prior.PullRequest.Checks != nil && prior.PullRequest.Checks.Red() {
-		return fmt.Errorf("run %s's merge was withdrawn with failing forge checks, but this older record kept no failing check as repair input; the supported alternative is a re-run decided by the development manager and carried out with `yoyo triage rerun %s`, which starts fresh from the target branch",
+		return fmt.Errorf("run %s's merge was withdrawn with failing forge checks, but this older record kept no failing check as repair input; the supported alternative is a re-run decided by the development manager and carried out with `yoyo triage rerun %s`, which starts a fresh run from the change the stopped run kept where its branch is still there, and from the target branch where it is not",
 			prior.RunID, prior.RunID)
 	}
 	return nil

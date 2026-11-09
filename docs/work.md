@@ -467,8 +467,9 @@ run <beads-id>`, which is you naming an item rather than carrying out a decision
 somebody recorded about a run that stopped. `yoyo run` enforces that difference
 rather than relying on it being understood: an item whose last run stopped with
 its change preserved on a branch is refused a fresh clean run, naming both the
-repair that would continue the change and the re-run that would start over
-deliberately, because a fresh worktree off the target branch looks perfectly
+repair that would continue the change and the re-run that would start a fresh
+run deliberately, carrying the kept change forward (or starting from the target
+branch where that change no longer applies cleanly), because a fresh worktree off the target branch looks perfectly
 valid and a developer given one delivers an empty change or reinvents the work.
 The repair goes the other way about it: it names the run it re-enters, and what
 carries it out can re-enter that run or refuse and nothing else — no reservation,
