@@ -293,19 +293,32 @@ func (u InstallWaitRecorded) apply(state *State) (bool, error) {
 // IntegrationRecorded records the run's integration: the merge queue's landing
 // of its change, which the queue records as a run's own promotion would be. It
 // changes nothing where the run already records the same landing.
+//
+// WholeBy, where set, is the queue run that checked the change over the whole
+// module in place of a run that left that to the queue
+// (ChecksPassed.WholeLeftToQueue), and is written onto that run's evidence. A
+// run that checked its change whole itself is given none.
 type IntegrationRecorded struct {
 	Integration Integration
+	WholeBy     string
 	At          time.Time
 }
 
 func (u IntegrationRecorded) apply(state *State) (bool, error) {
-	if state.Integration != nil && *state.Integration == u.Integration {
-		return false, nil
+	changed := false
+	if passed := state.ChecksPassed; u.WholeBy != "" && passed != nil && passed.WholeLeftToQueue && passed.WholeBy != u.WholeBy {
+		passed.WholeBy = u.WholeBy
+		changed = true
 	}
-	integration := u.Integration
-	state.Integration = &integration
-	state.UpdatedAt = u.At
-	return true, nil
+	if state.Integration == nil || *state.Integration != u.Integration {
+		integration := u.Integration
+		state.Integration = &integration
+		changed = true
+	}
+	if changed {
+		state.UpdatedAt = u.At
+	}
+	return changed, nil
 }
 
 // CleanupRecorded records how far cleaning up an integrated run got: which of

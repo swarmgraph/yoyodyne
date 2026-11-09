@@ -2649,6 +2649,12 @@ type activeRun struct {
 	// checkingCandidate is set while verify runs over the approved merge
 	// candidate, whose checks are told the whole module (verifyCandidate).
 	checkingCandidate bool
+	// wholeHereBecause is why a change left to the merge queue's whole check is
+	// checked whole on this machine after all (wholeCheckOwedHere), said on the
+	// stage's record beside what the gate was narrowed to, and what has
+	// checkCandidateWhole run the pass rather than leave it to the queue again.
+	// Empty otherwise.
+	wholeHereBecause string
 	// resumedAtPromotion is a run a repair put back at its promotion after it
 	// gave back its slot for losing races (resumedAfterLostRace): whatever the
 	// target branch did while it was stopped happened before this process tried
@@ -2905,27 +2911,31 @@ func (a *activeRun) promoteApproved(ctx context.Context) (Outcome, bool, error) 
 		outcome, err := a.stop(ctx, err)
 		return outcome, false, err
 	}
+	// A change whose run left its whole check to the harness's queue is checked
+	// whole here first where the queue will not do it after all: the forge's
+	// own queue would land it, or the switch has been turned off since
+	// (wholeCheckOwedHere). A failure there is handed back to the developer, and
+	// the repaired change re-earns the gate through the loop as a replay's does.
+	if passed := a.state.ChecksPassed; passed != nil && passed.Narrowed != "" && passed.WholeLeftToQueue {
+		if why := a.wholeCheckOwedHere(ctx); why != "" {
+			a.wholeHereBecause = why
+			handedBack, err := a.checkCandidateWhole(ctx, a.repairBudget())
+			a.wholeHereBecause = ""
+			if err != nil {
+				outcome, err := a.stop(ctx, err)
+				return outcome, false, err
+			}
+			if handedBack {
+				return Outcome{}, true, nil
+			}
+		}
+	}
 	// With execution.merge_queue on, the change is admitted to its target's
 	// queue rather than promoted here, and the run ends; a queue that cannot
 	// land into the target holds the change here rather than promoting it as
 	// below (mergequeueadmission.go).
 	if outcome, ended, err := a.admitToMergeQueue(ctx); ended {
 		return outcome, false, err
-	}
-	// A change approved while the queue was on was not checked whole here,
-	// because the queue was to do it (checkCandidateWhole). The switch has been
-	// turned off since, so this run promotes it itself, and it is checked whole
-	// first; a failure there is handed back to the developer, and the repaired
-	// change re-earns the gate through the loop as a replay's does.
-	if a.state.ChecksPassed != nil && a.state.ChecksPassed.WholeBy != "" {
-		handedBack, err := a.checkCandidateWhole(ctx, a.repairBudget())
-		if err != nil {
-			outcome, err := a.stop(ctx, err)
-			return outcome, false, err
-		}
-		if handedBack {
-			return Outcome{}, true, nil
-		}
 	}
 	err := a.integrate(ctx)
 	if err == nil {
@@ -3832,25 +3842,33 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 // superseded — back to the check, as a replay's is — and the check as having
 // ended the way it did here.
 //
-// With the merge queue switched on, nothing runs here either: the change is
-// admitted to the queue rather than promoted, and the queue builds the merge
-// candidate from the target as it then stands, runs every configured check over
-// it told the whole module, and lands exactly that candidate. Checking the
-// change whole here would repeat that run, the full race check with it, over a
-// candidate that is not the one that lands. The narrowed evidence is kept and
-// marked with the check that stands in for the whole one (mergeQueueChecksWhole),
-// which is what lets it admit the change and nothing more: a run that comes to
-// promote the change itself, because the switch was turned off while it was
-// held, checks it whole first (promoteApproved).
+// Where the change goes to the harness's own merge queue, nothing runs here
+// either: the queue builds the merge candidate from the target as it then
+// stands, runs every configured check over it told the whole module, and lands
+// exactly that candidate, so a whole pass here would repeat that run, this
+// project's full race check with it, over a candidate that is not the one that
+// lands. The narrowed evidence is kept and marked as leaving the whole pass to
+// the queue (runstate.ChecksPassed.WholeLeftToQueue), which lets it admit the
+// change to that queue and nothing more. The queue lands it only where its own
+// checks of the candidate passed every check the evidence names
+// (mergeQueueStandsIn), and names that check of the candidate on the run when
+// it lands. A run that comes to promote the change itself, because the switch
+// was turned off while it was held, checks it whole first (promoteApproved).
+//
+// Which queue the change reaches is asked at its promotion, just before it is
+// admitted, because that is when admission decides it: where the forge's own
+// queue would land it, or the switch has been turned off since, the promotion
+// has this run the whole pass here after all, as with the switch off, and the
+// stage's record says why (wholeCheckOwedHere, wholeHereBecause).
 func (a *activeRun) checkCandidateWhole(ctx context.Context, limit int) (bool, error) {
 	if a.state.ChecksPassed == nil || a.state.ChecksPassed.Narrowed == "" {
 		return false, nil
 	}
-	if a.queueChecksCandidateWhole() {
+	if a.wholeHereBecause == "" && a.queueChecksCandidateWhole() {
 		// Marked on the run as it is held here: the admission that follows saves
 		// it with the entry it admits, and a change held from the queue saves it
 		// with the hold (admitToMergeQueue).
-		a.state.ChecksPassed.WholeBy = mergeQueueChecksWhole
+		a.state.ChecksPassed.WholeLeftToQueue = true
 		return false, nil
 	}
 	err := a.verifyCandidate(ctx)
@@ -3881,17 +3899,11 @@ func (a *activeRun) checkCandidateWhole(ctx context.Context, limit int) (bool, e
 	return true, nil
 }
 
-// mergeQueueChecksWhole is the check that stands in for checking the merge
-// candidate whole on this machine while the merge queue is switched on, as the
-// run's evidence records it (runstate.ChecksPassed.WholeBy) and the item's
-// admission note says it.
-const mergeQueueChecksWhole = "the merge queue's checks over the candidate it lands: every configured check, told the whole module, on the change merged onto the target as it then stands"
-
-// queueChecksCandidateWhole reports whether this run's approved change goes to
-// the merge queue, whose own checks over the candidate it lands are the whole
-// pass (checkCandidateWhole). Only an integration the harness performs admits
-// to the queue; a change handed to a person is published for them to merge, so
-// it is checked whole here as it always was.
+// queueChecksCandidateWhole reports whether this run's approved change is
+// admitted to the merge queue at all: the switch is on, and the integration is
+// one the harness performs. A change handed to a person is published for them
+// to merge, so it is checked whole here as it always was. Which queue it would
+// reach is queueChecksThisChangeWhole's question.
 func (a *activeRun) queueChecksCandidateWhole() bool {
 	return a.pipeline.automatic() && a.admitsToMergeQueue()
 }
@@ -6729,6 +6741,9 @@ func (a *activeRun) verify(ctx context.Context) error {
 	if whole && before != nil && before.Narrowed != "" {
 		narrowed += "; before review: " + before.Narrowed
 	}
+	if a.checkingCandidate && a.wholeHereBecause != "" {
+		narrowed += "; checked here rather than left to the merge queue, because " + a.wholeHereBecause
+	}
 	narrowed += describePathChecks(p.Config.PathChecks, added)
 	// What the evidence records as narrowed: empty where every check was told the
 	// whole module, which the promotion reads as checks a candidate may land on.
@@ -7078,10 +7093,12 @@ func (a *activeRun) integrationEarned(ctx context.Context) error {
 	case state.ChecksPassed.Commit != state.HarnessCommit:
 		return fmt.Errorf("%w: the checks passed at commit %q and the change being promoted is at %q",
 			ErrIntegrationUnearned, state.ChecksPassed.Commit, state.HarnessCommit)
-	// Narrowed evidence admits a change to the merge queue where the queue's own
-	// checks over the candidate are recorded as standing in for the whole pass
-	// (checkCandidateWhole), and promotes nothing anywhere else.
-	case state.ChecksPassed.Narrowed != "" && !(state.ChecksPassed.WholeBy != "" && a.queueChecksCandidateWhole()):
+	// Narrowed evidence admits a change to the merge queue where the run left
+	// the whole pass to the queue's own checks of the candidate
+	// (checkCandidateWhole), and promotes nothing anywhere else. The queue lands
+	// it only once those checks passed every check this evidence names
+	// (mergeQueueStandsIn).
+	case state.ChecksPassed.Narrowed != "" && !(state.ChecksPassed.WholeLeftToQueue && a.queueChecksCandidateWhole()):
 		return lasting(fmt.Errorf("%w: the checks passed only over %s, and the full checks were never run over the change as it would be merged",
 			ErrIntegrationUnearned, state.ChecksPassed.Narrowed))
 	case state.ReviewDecision != runstate.ReviewApprove:

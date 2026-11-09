@@ -3,11 +3,13 @@ package orchestrator
 // Who checks the merge candidate whole. With the merge queue switched off, a
 // run whose checks before review were narrowed runs them once more over the
 // approved change told the whole module before it promotes it. With the queue
-// on, the run does not: the queue runs every configured check, told the whole
-// module, over the candidate it builds from the target as it then stands and
-// lands, so a second whole pass here would repeat it. The run's record and the
-// item's notes say which check stood in, and a change held from the queue that
-// is promoted the old way after the switch is turned off is checked whole first.
+// on and the change going to the harness's own queue, the run leaves that to
+// the queue, which checks the candidate it lands over the whole module; the
+// queue lands the change only where that check passed every check the run
+// narrowed, and names it on the run once the change lands. Where the change
+// would go to the forge's own queue, the run checks it whole itself before
+// admission and says why; a change the queue holds is checked whole only when
+// it is promoted the old way after the switch is turned off.
 
 import (
 	"context"
@@ -16,13 +18,17 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/checks"
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/queuemode"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -71,11 +77,12 @@ func newGoQueueRun(t *testing.T) (*queueRun, string) {
 	return &queueRun{repository: repository, tracker: tracker, pipeline: pipeline, runs: runs, queue: queue}, told
 }
 
-// With the queue on, the run's checks run narrowed and nothing more on this
-// machine before admission; the record and the item name the queue's checks as
-// what stands in, and the queue's own checks over the candidate are told the
-// whole module before it lands.
-func TestWithTheMergeQueueOnTheRunDoesNotCheckTheCandidateWholeItself(t *testing.T) {
+// With the change going to the harness's own queue, the run's checks run
+// narrowed and nothing more on this machine before admission. The queue's own
+// checks over the candidate are told the whole module, and once it lands the
+// run's record names that check: the entry, the generation, and the commit it
+// checked, which is the commit that landed.
+func TestWithTheHarnessQueueTheRunLeavesTheWholeCheckToItAndRecordsWhichRanIt(t *testing.T) {
 	t.Parallel()
 
 	r, told := newGoQueueRun(t)
@@ -91,12 +98,12 @@ func TestWithTheMergeQueueOnTheRunDoesNotCheckTheCandidateWholeItself(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.ChecksPassed == nil || state.ChecksPassed.Narrowed == "" || state.ChecksPassed.WholeBy != mergeQueueChecksWhole {
-		t.Fatalf("evidence = %#v, want the narrowed checks kept with the queue's checks named as standing in", state.ChecksPassed)
+	if state.ChecksPassed == nil || state.ChecksPassed.Narrowed == "" || !state.ChecksPassed.WholeLeftToQueue || state.ChecksPassed.WholeBy != "" {
+		t.Fatalf("evidence = %#v, want the narrowed checks kept, left to the queue, and no queue run named before one ran", state.ChecksPassed)
 	}
 	notes := strings.Join(r.tracker.NoteRecords, "\n")
-	if !strings.Contains(notes, "standing in for that is "+mergeQueueChecksWhole) {
-		t.Fatalf("item notes do not say which check stood in for the whole run:\n%s", notes)
+	if !strings.Contains(notes, "the queue does that on the candidate it lands") {
+		t.Fatalf("item notes do not say the whole check was left to the queue:\n%s", notes)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -107,8 +114,100 @@ func TestWithTheMergeQueueOnTheRunDoesNotCheckTheCandidateWholeItself(t *testing
 	if got := readTold(t, told); !slices.Equal(got, []string{"./internal/checks", "./..."}) {
 		t.Fatalf("the check was told %q, want the queue's run over the candidate told the whole module", got)
 	}
+	landed := gitLine(t, r.repository, "rev-parse", "main")
+	settled, err := r.runs.Load(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole := settled.ChecksPassed.WholeBy
+	if !strings.Contains(whole, "generation 1") || !strings.Contains(whole, outcome.MergeQueue.EntryID) || !strings.Contains(whole, landed) {
+		t.Fatalf("whole_by = %q, want it to name the queue's entry %s, its generation, and the commit that landed (%s)", whole, outcome.MergeQueue.EntryID, landed)
+	}
 	if !r.tracker.Closed {
 		t.Fatal("the item was not settled on the queue's landing")
+	}
+}
+
+// A queue whose own checks no longer include a check the run narrowed — here
+// because the project's checks changed after the change was admitted — does
+// not stand in for the run's whole check, so the change is not landed on it.
+func TestAQueueCheckMissingACheckTheRunNarrowedLandsNothing(t *testing.T) {
+	t.Parallel()
+
+	r, _ := newGoQueueRun(t)
+	r.pipeline.Config.Execution.MergeQueue = true
+	outcome := r.run(t)
+	if outcome.MergeQueue == nil {
+		t.Fatalf("Run() = %#v, want the approved change admitted to the queue", outcome)
+	}
+	base := gitLine(t, r.repository, "rev-parse", "main")
+	r.pipeline.Config.Checks = []string{"true"}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	pass := r.driver().Pass(ctx, outcome.MergeQueue.Key())
+	if pass.Outcome == runstate.MergeQueuePassLanded || gitLine(t, r.repository, "rev-parse", "main") != base {
+		t.Fatalf("Pass() = %#v, main %s; want nothing landed on a queue check that does not cover the run's checks", pass, gitLine(t, r.repository, "rev-parse", "main"))
+	}
+	if !strings.Contains(pass.Says, "is not among the queue's checks") {
+		t.Fatalf("Pass().Says = %q, want it to name the check the queue's run did not cover", pass.Says)
+	}
+	if r.tracker.Closed {
+		t.Fatal("the item was closed though nothing landed")
+	}
+}
+
+// What the queue's check of a candidate has to show to stand in for a run's
+// whole check, case by case.
+func TestTheQueueStandsInOnlyForAWholeCheckItsOwnChecksCovered(t *testing.T) {
+	t.Parallel()
+
+	finished := time.Now()
+	generation := func(results ...runstate.MergeQueueCheckResult) runstate.MergeQueueGeneration {
+		g := runstate.MergeQueueGeneration{Number: 2, EntryID: "entry", TargetBranch: "main", TargetBase: "base", Candidate: "candidate"}
+		g.CheckRun = &runstate.MergeQueueCheckEvidence{Binding: g.Binding(), FinishedAt: &finished, Results: results}
+		return g
+	}
+	run := func(left bool) runstate.State {
+		return runstate.State{RunID: "run-1", ChecksPassed: &runstate.ChecksPassed{
+			Commands: []string{"make test", "make race", "make adoption"}, Narrowed: "./internal/checks", WholeLeftToQueue: left,
+			CouldNotRun: []runstate.CheckCouldNotRun{{Command: "make vet", Reason: "no toolchain"}},
+		}}
+	}
+	pass := func(command string) runstate.MergeQueueCheckResult {
+		return runstate.MergeQueueCheckResult{Command: command, Passed: true}
+	}
+	paths := []config.PathCheck{{Command: "make adoption"}}
+	all := generation(pass("make test"), pass("make race"), pass("make vet"))
+
+	for _, test := range []struct {
+		name       string
+		run        runstate.State
+		mode       runstate.MergeQueueMode
+		generation runstate.MergeQueueGeneration
+		want       string
+	}{
+		{name: "every check passed, the path check aside", run: run(true), mode: runstate.MergeQueueHarness, generation: all},
+		{name: "a run that checked its change whole itself", run: run(false), mode: runstate.MergeQueueForge, generation: runstate.MergeQueueGeneration{}},
+		{name: "the race check missing", run: run(true), mode: runstate.MergeQueueHarness, generation: generation(pass("make test"), pass("make vet")), want: "make race is not among the queue's checks"},
+		{name: "the race check could not run", run: run(true), mode: runstate.MergeQueueHarness,
+			generation: generation(pass("make test"), runstate.MergeQueueCheckResult{Command: "make race", CouldNotRun: "no space"}, pass("make vet")), want: "make race could not run: no space"},
+		{name: "the race check failed", run: run(true), mode: runstate.MergeQueueHarness,
+			generation: generation(pass("make test"), runstate.MergeQueueCheckResult{Command: "make race"}, pass("make vet")), want: "make race did not pass"},
+		{name: "a check the run could not run is not passed by the queue either", run: run(true), mode: runstate.MergeQueueHarness,
+			generation: generation(pass("make test"), pass("make race")), want: "make vet is not among the queue's checks"},
+		{name: "the forge's own queue lands a commit this harness never checked", run: run(true), mode: runstate.MergeQueueForge, generation: all, want: "forge's own merge queue"},
+		{name: "a check run recorded against another candidate", run: run(true), mode: runstate.MergeQueueHarness,
+			generation: func() runstate.MergeQueueGeneration { g := all; g.Candidate = "another"; return g }(), want: "no finished check of its own candidate"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := mergeQueueStandsIn(test.run, test.mode, test.generation, paths)
+			if test.want == "" && got != "" {
+				t.Fatalf("mergeQueueStandsIn() = %q, want it to stand in", got)
+			}
+			if test.want != "" && !strings.Contains(got, test.want) {
+				t.Fatalf("mergeQueueStandsIn() = %q, want it refused naming %q", got, test.want)
+			}
+		})
 	}
 }
 
@@ -130,15 +229,85 @@ func TestWithTheMergeQueueOffTheRunStillChecksTheCandidateWhole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.ChecksPassed == nil || state.ChecksPassed.Narrowed != "" || state.ChecksPassed.WholeBy != "" {
+	if state.ChecksPassed == nil || state.ChecksPassed.Narrowed != "" || state.ChecksPassed.WholeLeftToQueue || state.ChecksPassed.WholeBy != "" {
 		t.Fatalf("promoted on evidence %#v, want the whole pass this run made", state.ChecksPassed)
 	}
 }
 
-// A change approved while the queue was on and held from it, which is then
-// promoted the old way because the switch was turned off, is checked whole on
-// this machine before it is merged: nothing else ran the whole pass on it.
-func TestAHeldChangePromotedAfterTheSwitchIsTurnedOffIsCheckedWholeFirst(t *testing.T) {
+// forgeQueueAnswers is a forge whose answers about its own merge queue are
+// given by answer, call by call.
+type forgeQueueAnswers struct {
+	*orchestratortest.Forge
+	mu     sync.Mutex
+	calls  int
+	answer func(call int, branch string) publish.QueueCapabilities
+}
+
+func (f *forgeQueueAnswers) QueueCapabilities(_ context.Context, branch string) (publish.QueueCapabilities, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	return f.answer(f.calls, branch), nil
+}
+
+func newGoPublishedQueueRun(t *testing.T, answer func(call int, branch string) publish.QueueCapabilities) (Pipeline, *runstate.Store, *forgeQueueAnswers, *orchestratortest.Tracker, string) {
+	t.Helper()
+	repository := pipelineRepository(t)
+	develop := goModuleChange(t, repository)
+	remote := addBareRemote(t, repository)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	forge := &forgeQueueAnswers{Forge: &orchestratortest.Forge{Remote: remote}, answer: answer}
+	provider := orchestratortest.RoleBackend(develop, approveVerdict, approveVerdict)
+	check, told := toldCheck(t)
+	pipeline, runs := newPublishingPipeline(t, repository, tracker, provider, forge, []string{check})
+	queue, err := runstate.NewMergeQueueStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipeline.MergeQueue = queue
+	pipeline.Reports = &fakeReports{}
+	pipeline.Config.Execution.MergeQueue = true
+	return pipeline, runs, forge, tracker, told
+}
+
+// The forge's own merge queue running the project's checks is not the
+// harness's queue checking the commit that lands, so a change that would go
+// there is checked whole by its run at its promotion, before it is admitted,
+// and the stage's record says why.
+func TestAChangeBoundForTheForgesOwnQueueIsCheckedWholeByItsRun(t *testing.T) {
+	t.Parallel()
+
+	var digest string
+	pipeline, runs, _, _, told := newGoPublishedQueueRun(t, func(_ int, branch string) publish.QueueCapabilities {
+		return qualifyingQueue(queuemode.Harness{PullRequests: true, CheckConfiguration: digest})(branch)
+	})
+	digest = runstate.NewMergeQueueCheckConfiguration(pipeline.Config.Checks).Digest
+	outcome, err := pipeline.Run(context.Background(), "yoyodyne-task")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.MergeQueue == nil || outcome.MergeQueue.Mode != runstate.MergeQueueForge {
+		t.Fatalf("Run() = %#v, want the change admitted to the forge's own queue", outcome.MergeQueue)
+	}
+	if got := readTold(t, told); !slices.Equal(got, []string{"./internal/checks", "./..."}) {
+		t.Fatalf("the check was told %q, want the run to check the candidate whole itself", got)
+	}
+	state, err := runs.Load(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ChecksPassed == nil || state.ChecksPassed.Narrowed != "" || state.ChecksPassed.WholeLeftToQueue {
+		t.Fatalf("admitted on evidence %#v, want the whole pass this run made", state.ChecksPassed)
+	}
+	if state.CheckStage == nil || !strings.Contains(state.CheckStage.Narrowed, "forge's own merge queue") {
+		t.Fatalf("stage record = %#v, want it to say the run checked whole because the forge's queue would land the change", state.CheckStage)
+	}
+}
+
+// A change the queue would hold is not admitted, so nothing checks it whole
+// while it waits; promoting it the old way after the switch is turned off
+// checks it whole on this machine before it is merged.
+func TestAChangeTheQueueHoldsIsCheckedWholeOnlyWhenItIsPromotedTheOldWay(t *testing.T) {
 	t.Parallel()
 
 	queue, err := runstate.NewMergeQueueStore(t.TempDir(), "yoyodyne")
@@ -181,7 +350,53 @@ func TestAHeldChangePromotedAfterTheSwitchIsTurnedOffIsCheckedWholeFirst(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.ChecksPassed == nil || state.ChecksPassed.Narrowed != "" || state.ChecksPassed.WholeBy != "" {
+	if state.CheckStage == nil || !strings.Contains(state.CheckStage.Narrowed, "switched off after the change was left to it") {
+		t.Fatalf("stage record = %#v, want it to say why the change was checked whole here", state.CheckStage)
+	}
+}
+
+// A change its run left to the harness's queue that the queue then holds —
+// the forge came to require its own queue between the promotion asking which
+// queue the change would reach and the admission — and that is promoted the old way
+// after the switch is turned off, is checked whole on this machine before it
+// is merged: nothing else ran the whole pass on it.
+func TestAChangeLeftToTheQueueAndPromotedAfterTheSwitchIsTurnedOffIsCheckedWholeFirst(t *testing.T) {
+	t.Parallel()
+
+	pipeline, runs, forge, tracker, told := newGoPublishedQueueRun(t, func(call int, branch string) publish.QueueCapabilities {
+		observed := publish.QueueCapabilities{Forge: "github", TargetBranch: branch, ObservedAt: time.Now(), Protected: true, ProtectedBy: "a ruleset"}
+		if call > 1 {
+			observed.QueueAvailable, observed.QueueRequired = true, true
+		}
+		return observed
+	})
+	outcome, err := pipeline.Run(context.Background(), "yoyodyne-task")
+	if !errors.Is(err, ErrMergeQueueHeld) {
+		t.Fatalf("Run() error = %v, want the change held", err)
+	}
+	if got := readTold(t, told); !slices.Equal(got, []string{"./internal/checks"}) {
+		t.Fatalf("while held, the check was told %q, want only the narrowed run", got)
+	}
+	held, err := runs.Load(outcome.RunID)
+	if err != nil || held.ChecksPassed == nil || !held.ChecksPassed.WholeLeftToQueue {
+		t.Fatalf("held run evidence = %#v, %v; want it recorded as left to the queue", held.ChecksPassed, err)
+	}
+	pipeline.Config.Execution.MergeQueue = false
+	r := &heldQueueRun{repository: pipeline.Repository, tracker: tracker, forge: forge.Forge, pipeline: pipeline, runs: runs, queue: pipeline.MergeQueue.(*runstate.MergeQueueStore)}
+	if pass := r.held(t, outcome); pass.Resumed != 1 {
+		t.Fatalf("held pass = %#v, want the change taken up", pass)
+	}
+	if got := readTold(t, told); !slices.Equal(got, []string{"./internal/checks", "./..."}) {
+		t.Fatalf("the check was told %q, want the candidate checked whole before it was merged", got)
+	}
+	if len(forge.Merges) != 1 {
+		t.Fatalf("merges = %d, want the change merged through its pull request as with the switch off", len(forge.Merges))
+	}
+	state, err := runs.Load(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ChecksPassed == nil || state.ChecksPassed.Narrowed != "" || state.ChecksPassed.WholeLeftToQueue {
 		t.Fatalf("merged on evidence %#v, want the whole pass this run made", state.ChecksPassed)
 	}
 }

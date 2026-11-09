@@ -1151,14 +1151,20 @@ type ChecksPassed struct {
 	// does not promote a change: the merge candidate is checked whole first, and
 	// that check's evidence replaces this.
 	Narrowed string `json:"narrowed,omitempty"`
-	// WholeBy names the check that stands in for checking the merge candidate
-	// whole on this machine, where something other than this run does it: with
-	// the merge queue switched on, the queue's own checks over the candidate it
-	// lands. Narrowed evidence carrying it admits a change to the queue and
-	// promotes nothing; a run that comes to promote it itself instead, because
-	// the switch was turned off, checks the candidate whole first. Empty where
-	// this run checked the candidate whole, or its gate was told the whole
-	// module.
+	// WholeLeftToQueue is this run not checking its approved change over the
+	// whole module itself, because the merge queue is switched on and the
+	// harness's own queue checks the candidate it lands that way. Narrowed
+	// evidence carrying it admits the change to that queue and promotes
+	// nothing; the queue lands it only where its own checks of the candidate
+	// passed every check this evidence names. Where the queue will not check it
+	// after all — the forge's own queue would land it, or the switch was turned
+	// off — the run's promotion checks it whole first and replaces this
+	// evidence.
+	WholeLeftToQueue bool `json:"whole_left_to_queue,omitempty"`
+	// WholeBy names the queue run that checked the change whole in this run's
+	// place — the entry, the generation, and the commit it checked, which is
+	// the commit that landed — written by the queue when it lands the change.
+	// Empty until then, and for a run that checked its change whole itself.
 	WholeBy string    `json:"whole_by,omitempty"`
 	At      time.Time `json:"at"`
 }

@@ -1125,6 +1125,7 @@ var notAStep = map[string]string{
 	"closeCheckStage":            "records how the check stage ended, inside candidate.check",
 	"checkCandidateWhole":        "decides, after an approval, whether candidate.check runs again over the merge candidate told the whole module or the merge queue's checks stand in for it, and hands its failure back as candidate.check's own would be",
 	"keepChecks":                 "chooses, inside candidate.check, which checks a stage picked up after a restart onto a new build still runs",
+	"wholeCheckOwedHere":         "decides, at the promotion, whether a change left to the merge queue's whole check is checked whole by candidate.check after all",
 	"checkLimit":                 "works out one check's own time limit as it begins, inside candidate.check",
 
 	// The declarative path. These step the workflow instance a run is observed

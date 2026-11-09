@@ -265,20 +265,8 @@ func (a Admitter) Admit(ctx context.Context, admission runstate.MergeQueueAdmiss
 	if found {
 		return a.admitAsRecorded(ctx, admission, existing)
 	}
-	now := time.Now
-	if a.Now != nil {
-		now = a.Now
-	}
 	branch := admission.Key.TargetBranch
-	observed := publish.QueueCapabilities{TargetBranch: branch, ObservedAt: now()}
-	if a.Forge != nil {
-		var err error
-		observed, err = a.Forge.QueueCapabilities(ctx, branch)
-		if err != nil {
-			return Admitted{Hold: unreadTargetHold(branch, err)}, nil
-		}
-	}
-	selection, err := Select(branch, observed, a.Harness, now())
+	selection, err := a.selectFor(ctx, branch)
 	if err != nil {
 		return Admitted{}, fmt.Errorf("choose the merge queue mode for %s; nothing was admitted: %w", branch, err)
 	}
@@ -298,6 +286,47 @@ func (a Admitter) Admit(ctx context.Context, admission runstate.MergeQueueAdmiss
 		return Admitted{}, err
 	}
 	return Admitted{Entry: entry, New: admitted}, nil
+}
+
+// Mode is the mode Admit would admit this change in, read the way Admit reads
+// it and admitting nothing: the mode of the run's entry where the queue still
+// holds one, and otherwise the mode the forge's answer selects now. It is
+// empty where Admit would hold the change rather than admit it, or the forge's
+// answer could not be read to say.
+func (a Admitter) Mode(ctx context.Context, admission runstate.MergeQueueAdmission) (runstate.MergeQueueMode, error) {
+	if a.Queue == nil {
+		return "", errors.New("merge queue admission needs a queue")
+	}
+	existing, found, err := a.existing(admission)
+	if err != nil {
+		return "", err
+	}
+	if found {
+		return existing.Mode, nil
+	}
+	selection, err := a.selectFor(ctx, admission.Key.TargetBranch)
+	if err != nil {
+		return "", err
+	}
+	return selection.Mode, nil
+}
+
+// selectFor reads what the forge establishes for branch and selects from it.
+// A forge whose answer cannot be read selects a hold naming the read.
+func (a Admitter) selectFor(ctx context.Context, branch string) (Selection, error) {
+	now := time.Now
+	if a.Now != nil {
+		now = a.Now
+	}
+	observed := publish.QueueCapabilities{TargetBranch: branch, ObservedAt: now()}
+	if a.Forge != nil {
+		var err error
+		observed, err = a.Forge.QueueCapabilities(ctx, branch)
+		if err != nil {
+			return Selection{Hold: unreadTargetHold(branch, err)}, nil
+		}
+	}
+	return Select(branch, observed, a.Harness, now())
 }
 
 // admitAsRecorded asks the queue for the admission in the mode the run's

@@ -188,9 +188,15 @@ back to the developer through `repair` with the matching prompt; any other
 checks were narrowed to the packages the change touches, runs them again over
 the merge candidate told the whole module (`verifyCandidate`) and hands a
 `checkFailure` back like any other — except with the merge queue on
-(`queueChecksCandidateWhole`), where it only marks the evidence with
-`mergeQueueChecksWhole`, because the queue checks its candidate whole, and
-`promoteApproved` checks a held change whole before promoting it the old way;
+(`queueChecksCandidateWhole`), where it only marks the evidence
+`WholeLeftToQueue`. `promoteApproved` asks, just before admission, whether the
+queue will check the change after all (`wholeCheckOwedHere` in
+`mergequeueadmission.go`: not where the forge's own queue would land it, or
+the switch was turned off since) and has `checkCandidateWhole` run the pass
+then, saying why (`wholeHereBecause`). The queue's promotion lands a change
+left to it only where its own checks covered the run's (`mergeQueueStandsIn`
+in `mergequeuewhole.go`) and names them on the run as it lands
+(`mergeQueueWholeBy`);
 then the loop returns to
 `verifyReviewAndFinish`. Escalate
 returns `escalationRaised`; anything else is handed back with `repairPrompt`
@@ -350,6 +356,7 @@ context bundle come from `internal/contextbundle`.
 | `mergequeueadmission.go` | `(*activeRun).admitToMergeQueue` — with `execution.merge_queue` on, called from `promoteApproved` in place of `integrate` for every run, a document's and a pinned file's included: the earned gate is read (`integrationEarned`), the approved change committed and admitted through `queuemode.Admitter`, and the run ended succeeded and waiting (`completeQueued`); a target that requires the forge's own merge queue, or whose protection cannot be read, holds the change instead (`holdFromMergeQueue`): the run stops at its promotion with cause `merge-queue-held` (`ErrMergeQueueHeld`), the item is blocked naming the setting, and one harness report is filed per condition (`reportMergeQueueHeld`) |
 | `mergequeuedriver.go` | `MergeQueueDriver` — what works the queues: `Pending` (queues with unfinished entries) and `Pass` (Recover, then Promote, then Work, until nothing more can move now; a forge merge dropped or held past `triage.stuck_merge_age` is withdrawn with `MergeQueuePromoter.Withdraw` and handed back to its run), and `TakeHeld` (`mergequeueheld.go`), recorded as `runstate.MergeQueuePass`. `ScheduleMergeQueues`, `startQueuePasses` and `collectQueuePasses` are how a `yoyo work` session runs one pass per queue beside its pulls |
 | `mergequeueheld.go` | `MergeQueueHeldChanges.Take` — takes up the changes the queue held: reads them off the docket, asks the forge again per target (`stands`), and once the requirement is gone or the switch is off clears the queue's refusal and resumes each held run at its promotion in the order they were held, through `IntegrationResumer` |
+| `mergequeuewhole.go` | `mergeQueueStandsIn` — the queue standing in for a run's whole check of its merge candidate: a change whose run left that to the queue (`runstate.ChecksPassed.WholeLeftToQueue`) is landed only where the queue's own checks of the candidate passed every check the run narrowed, and never through the forge's own queue; `mergeQueueWholeBy` is what the landed run records as the check that stood in |
 | `mergequeueretire.go` | `MergeQueuePublicationRetirer.Retire` — after a landing, deletes the queue's candidate branch and closes the run's own pull request and deletes its branch (`retireRunRequest`), recording `superseded` on the run |
 | `mergequeueevidence.go` | The worker's protected-path check over the exact candidate (`checkPaths`) and the base check of a check that failed on it (`checkBase`, `knownGreen`, `fileRedBase`) |
 | `mergequeuetransfer.go` | `MergeQueuePromoter.Transfer` — the explicit move of an entry between the harness's queue and the forge's: confirmed withdrawal, a release naming the mode, and readmission in the same place (`runstate.MergeQueueStore.Transfer`) |
