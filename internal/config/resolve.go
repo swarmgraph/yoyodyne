@@ -902,6 +902,10 @@ func (r *resolution) applyAgent(name string, document agentDocument, applied lay
 		agent.config.Conversations = ConversationMode(strings.TrimSpace(string(*document.Conversations)))
 		agent.origins["conversations"] = applied.origin
 	}
+	if document.TimeLimits != nil {
+		agent.config.TimeLimits = *document.TimeLimits
+		agent.origins["time_limits"] = applied.origin
+	}
 	return nil
 }
 

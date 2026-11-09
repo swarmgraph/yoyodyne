@@ -68,8 +68,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/notify"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -122,7 +122,10 @@ type Answer struct {
 // nothing. What must never happen is the unbounded case: a turn that steers work
 // can wait on an exhausted usage limit for as long as the configuration allows a
 // run to, which is hours.
-const DefaultConversationDeadline = 10 * time.Minute
+//
+// It is the figure for a Lead Product Manager who states no
+// time_limits.slack_turn; the sink is given hers as Options.ConversationDeadline.
+const DefaultConversationDeadline = config.DefaultSlackTurnTimeLimit
 
 // What the thread is told when a turn does not produce an answer. Each names
 // where the conversation actually is, because the whole point of it being one

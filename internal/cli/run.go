@@ -723,6 +723,8 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 			Model:   agentModel(cfg, domain.RoleReviewer),
 			Effort:  cfg.InvocationEffort(agentForRole(cfg, domain.RoleReviewer), agentModel(cfg, domain.RoleReviewer)),
 			Persona: agentForRole(cfg, domain.RoleReviewer).Persona.Text,
+			// The reviewer's own time_limits.review, or the harness's figure.
+			Timeout: agentForRole(cfg, domain.RoleReviewer).TimeLimits.ReviewLimit(),
 			// The reviewer's invocation is its own spend and lands in the same log
 			// the developer's does, charged to the review rather than to the change.
 			Spend:   parts.spend,

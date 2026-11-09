@@ -2110,7 +2110,9 @@ talking to the Lead Product Manager admits work and spends money, while asking w
 things stand tells a reader nothing the channel was not already telling them.
 
 The wait for it is bounded and the failures are said rather than swallowed: a
-turn gets ten minutes, and the Lead Product Manager being mid-turn with another
+turn gets ten minutes unless the Lead Product Manager's `time_limits.slack_turn`
+says otherwise ([configuration](configuration.md#how-long-an-agents-turns-and-calls-may-take)),
+and the Lead Product Manager being mid-turn with another
 client, the wait running out, and a provider out of capacity are each answered
 in the thread with what happened. A turn the channel stopped waiting for holds
 the conversation until it lands, and the thread says so: `yoyo chat` queues

@@ -30,11 +30,12 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/spend"
 )
 
-// exchangeAnswerTimeout bounds one answering invocation. It is shorter than a
-// conversation turn's because an exchange round is one question answered in
-// prose with optional read-only inspection. A round still running past this leaves
-// the asking conversation waiting for no reason it can see.
-const exchangeAnswerTimeout = 5 * time.Minute
+// exchangeAnswerTimeout bounds one answering invocation of an agent that states
+// no time_limits.exchange_answer. It is shorter than a conversation turn's
+// because an exchange round is one question answered in prose with optional
+// read-only inspection. A round still running past this leaves the asking
+// conversation waiting for no reason it can see.
+const exchangeAnswerTimeout = config.DefaultExchangeAnswerTimeLimit
 
 func runExchange(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
@@ -298,7 +299,7 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 		// The adapter enforces the role's read-only access, as on its main
 		// conversation. The answering reply carries no authority to act.
 		AllowedTools:     []string{},
-		Timeout:          exchangeAnswerTimeout,
+		Timeout:          agent.TimeLimits.ExchangeAnswerLimit(),
 		RedactValues:     v.redactValues,
 		AccountAlias:     account.Alias,
 		AccountConfigDir: account.Directory,
