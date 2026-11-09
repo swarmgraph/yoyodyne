@@ -190,18 +190,22 @@ func (a *activeRun) noteKeptChecks(ctx context.Context, keeping checkKeeping, wh
 	for _, command := range keeping.commands {
 		again = append(again, redactor.Redact(command))
 	}
-	_, _ = a.pipeline.Tracker.RecordOutcome(ctx, a.state.WorkItemID, renderKeptChecksNotes(a.state.RunID, keeping.keptCommands(), again, why, a.stoppedChecks()))
+	opening := "Yoyodyne picked this run back up at its checks after the watch session restarted onto a new build."
+	if a.keptChecksAfterLostHost {
+		opening = "Yoyodyne picked this run back up at its checks after the process hosting its update onto the target ended."
+	}
+	_, _ = a.pipeline.Tracker.RecordOutcome(ctx, a.state.WorkItemID, renderKeptChecksNotes(a.state.RunID, opening, keeping.keptCommands(), again, why, a.stoppedChecks()))
 }
 
 // renderKeptChecksNotes is the note a run picked back up at its checks after a
-// restart onto a new build leaves on its item. Where the stop recorded what it
+// restart onto a new build leaves on its item, opening on what put it down. Where the stop recorded what it
 // did to the checks, the note says which check the restart waited for and
 // sorts the checks still to run into one cut short, any that said they could
 // not run, and those that had not started, because a reader told only that
 // checks "run again" reads a check the restart never started as one it threw
 // away.
-func renderKeptChecksNotes(runID string, kept, again []string, why string, stopped *runstate.RedeployStopChecks) string {
-	lines := []string{"Yoyodyne picked this run back up at its checks after the watch session restarted onto a new build."}
+func renderKeptChecksNotes(runID, opening string, kept, again []string, why string, stopped *runstate.RedeployStopChecks) string {
+	lines := []string{opening}
 	if len(kept) > 0 {
 		lines = append(lines, "Kept their results, because they had already passed on this same change before the restart: "+strings.Join(kept, ", ")+".")
 	}
