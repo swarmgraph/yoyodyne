@@ -3172,43 +3172,43 @@ switched on (`execution.merge_queue: true`), the run leaves that whole pass to
 the queue where its change goes to the harness's own queue. The queue builds
 the merge candidate from the target as it then stands, runs every configured
 check over it told the whole module, and lands exactly that candidate, so a
-pass here would repeat it over a candidate that is not the one that lands. At
-its promotion, just before admission, the run asks which queue its change
-would be admitted to, the way admission asks and admitting nothing:
+pass here would repeat it over a candidate that is not the one that lands. So
+a run with the switch on marks its narrowed evidence as leaving the whole pass
+to the queue (`checks_passed.whole_left_to_queue` on the run's record), and
+that evidence admits the change to the harness's own queue and promotes
+nothing. Nothing about it can stop the queue:
 
-- **The harness's own queue.** The run's evidence keeps what its checks were
-  narrowed to and is marked as leaving the whole pass to the queue
-  (`checks_passed.whole_left_to_queue` on the run's record), and the item's
-  admission note says so. That evidence admits the change to the queue and
-  promotes nothing. The queue lands the change only where its own checks of
-  the candidate passed every check the run's evidence names — each ran to its
-  own end and passed, rather than being missing from the queue's checks,
-  failing, or saying it could not run — and the commit they checked is the
-  commit that lands. A [path check](#checks-a-change-runs-only-when-it-touches-what-they-vouch-for)
+- **The queue runs every check the run left to it.** It checks the candidate
+  with the configured checks and, where they no longer name one of the checks
+  the run narrowed, because they changed after the change was admitted, with
+  that check too, told the whole module like the rest. The candidate lands
+  only once every one of them ran on that exact candidate and passed, rather
+  than failing or saying it could not run; a candidate that fails one is
+  handed back to its run like any failing candidate. A
+  [path check](#checks-a-change-runs-only-when-it-touches-what-they-vouch-for)
   is the exception, because it joins the run's checks for what the change
   touches, is told nothing narrower than it always runs over, and the queue
-  does not run it. Once the change lands, the run's record names the queue's
+  does not run it. The item's admission note says the whole pass was left to
+  the queue, and once the change lands the run's record names the queue's
   check that stood in, in `checks_passed.whole_by`: the queue entry, the
-  generation, and the commit that landed. Where the queue's checks do not
-  cover the run's, nothing lands, and the queue's pass stops saying which
-  check was not covered and why. An entry moved to the forge's own queue is
-  not landed either, because that queue lands a commit this harness never
-  checked.
-- **The forge's own queue.** The forge's merge queue running the project's
-  checks is not the harness checking the commit that lands, so the run checks
-  the change whole here before it is admitted, as with the switch off, and the
-  stage's record says why: `checked here rather than left to the merge queue,
-  because` and the reason.
-- **A hold.** A change the queue would hold, or whose target's protection
-  cannot be read to say, is not admitted, so nothing checks it whole while it
-  waits. The question is asked again when the hold lifts and the change is
-  taken up.
+  generation, and the commit that landed.
+- **Such a change goes to the harness's queue or is checked here first.**
+  Where admission would choose the forge's own merge queue, which lands a
+  commit this harness never checks, nothing is admitted: the run checks the
+  change whole here, as with the switch off, and is then admitted in whichever
+  queue admission chooses. The stage's record says why: `checked here rather
+  than left to the merge queue, because` and the reason. An explicit transfer
+  of such a change to the forge's queue (`yoyo queue transfer`) is refused for
+  the same reason.
+- **A hold checks nothing.** A change the queue would hold, or whose target's
+  protection cannot be read to say, is not admitted, so nothing checks it
+  whole while it waits.
 
 A change left to the queue that is promoted the old way because the switch was
 turned off since, a held one among them, is checked whole on this machine
-first, as above, and its stage's record says so. A run whose integration a person approves is checked whole
-here whatever the switch says, because its change does not go through the
-queue.
+first, as above, and its stage's record says so. A run whose integration a
+person approves is checked whole here whatever the switch says, because its
+change does not go through the queue.
 
 **Landing checks.** `landing_checks` is a second list beside `checks`, run
 once per landing on the target branch — after a run has integrated, closed its

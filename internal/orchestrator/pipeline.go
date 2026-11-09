@@ -3868,17 +3868,15 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 // project's full race check with it, over a candidate that is not the one that
 // lands. The narrowed evidence is kept and marked as leaving the whole pass to
 // the queue (runstate.ChecksPassed.WholeLeftToQueue), which lets it admit the
-// change to that queue and nothing more. The queue lands it only where its own
-// checks of the candidate passed every check the evidence names
-// (mergeQueueStandsIn), and names that check of the candidate on the run when
-// it lands. A run that comes to promote the change itself, because the switch
-// was turned off while it was held, checks it whole first (promoteApproved).
+// change to the harness's queue and nothing more. The queue checks the
+// candidate with every check the evidence names as well as the configured ones,
+// lands it only once all of them passed on it, and names that check on the run
+// when it lands (mergequeuewhole.go).
 //
-// Which queue the change reaches is asked at its promotion, just before it is
-// admitted, because that is when admission decides it: where the forge's own
-// queue would land it, or the switch has been turned off since, the promotion
-// has this run the whole pass here after all, as with the switch off, and the
-// stage's record says why (wholeCheckOwedHere, wholeHereBecause).
+// Where admission would choose the forge's own queue instead, or the switch
+// has been turned off since, the promotion has this run the whole pass here
+// after all, as with the switch off, and the stage's record says why
+// (promoteApproved, wholeCheckOwedHere, wholeHereBecause).
 func (a *activeRun) checkCandidateWhole(ctx context.Context, limit int) (bool, error) {
 	if a.state.ChecksPassed == nil || a.state.ChecksPassed.Narrowed == "" {
 		return false, nil
@@ -7114,9 +7112,9 @@ func (a *activeRun) integrationEarned(ctx context.Context) error {
 			ErrIntegrationUnearned, state.ChecksPassed.Commit, state.HarnessCommit)
 	// Narrowed evidence admits a change to the merge queue where the run left
 	// the whole pass to the queue's own checks of the candidate
-	// (checkCandidateWhole), and promotes nothing anywhere else. The queue lands
-	// it only once those checks passed every check this evidence names
-	// (mergeQueueStandsIn).
+	// (checkCandidateWhole), and promotes nothing anywhere else. The queue checks
+	// the candidate with every check this evidence names and lands it only once
+	// they all passed there (mergequeuewhole.go).
 	case state.ChecksPassed.Narrowed != "" && !(state.ChecksPassed.WholeLeftToQueue && a.queueChecksCandidateWhole()):
 		return lasting(fmt.Errorf("%w: the checks passed only over %s, and the full checks were never run over the change as it would be merged",
 			ErrIntegrationUnearned, state.ChecksPassed.Narrowed))

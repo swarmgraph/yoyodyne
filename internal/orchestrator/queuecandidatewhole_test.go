@@ -3,13 +3,13 @@ package orchestrator
 // Who checks the merge candidate whole. With the merge queue switched off, a
 // run whose checks before review were narrowed runs them once more over the
 // approved change told the whole module before it promotes it. With the queue
-// on and the change going to the harness's own queue, the run leaves that to
-// the queue, which checks the candidate it lands over the whole module; the
-// queue lands the change only where that check passed every check the run
-// narrowed, and names it on the run once the change lands. Where the change
-// would go to the forge's own queue, the run checks it whole itself before
-// admission and says why; a change the queue holds is checked whole only when
-// it is promoted the old way after the switch is turned off.
+// on, the run leaves that to the harness's own queue, which checks the
+// candidate it lands over the whole module with every check the run narrowed
+// as well as the configured ones, lands it once they all pass, and names that
+// check on the run. Where admission would choose the forge's own queue, the run
+// checks the change whole itself first and says why, and no transfer moves it
+// there; a change the queue holds is checked whole only when it is promoted the
+// old way after the switch is turned off.
 
 import (
 	"context"
@@ -128,31 +128,45 @@ func TestWithTheHarnessQueueTheRunLeavesTheWholeCheckToItAndRecordsWhichRanIt(t 
 	}
 }
 
-// A queue whose own checks no longer include a check the run narrowed — here
-// because the project's checks changed after the change was admitted — does
-// not stand in for the run's whole check, so the change is not landed on it.
-func TestAQueueCheckMissingACheckTheRunNarrowedLandsNothing(t *testing.T) {
+// The project's checks changing after a change was admitted does not leave
+// the change uncovered, and does not stop the queue: the queue runs the check
+// the run narrowed beside the configured ones, told the whole module, over the
+// candidate it lands, lands it once both pass, and names that check on the run.
+func TestAQueueWhoseChecksChangedStillRunsTheChecksTheRunLeftToItAndLands(t *testing.T) {
 	t.Parallel()
 
-	r, _ := newGoQueueRun(t)
+	r, told := newGoQueueRun(t)
 	r.pipeline.Config.Execution.MergeQueue = true
 	outcome := r.run(t)
 	if outcome.MergeQueue == nil {
 		t.Fatalf("Run() = %#v, want the approved change admitted to the queue", outcome)
 	}
-	base := gitLine(t, r.repository, "rev-parse", "main")
-	r.pipeline.Config.Checks = []string{"true"}
+	narrowed := r.pipeline.Config.Checks[0]
+	ranNew := filepath.Join(t.TempDir(), "new-check-ran")
+	r.pipeline.Config.Checks = []string{"touch " + ranNew}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	pass := r.driver().Pass(ctx, outcome.MergeQueue.Key())
-	if pass.Outcome == runstate.MergeQueuePassLanded || gitLine(t, r.repository, "rev-parse", "main") != base {
-		t.Fatalf("Pass() = %#v, main %s; want nothing landed on a queue check that does not cover the run's checks", pass, gitLine(t, r.repository, "rev-parse", "main"))
+	if pass.Outcome != runstate.MergeQueuePassLanded {
+		t.Fatalf("Pass() = %#v, want the change landed", pass)
 	}
-	if !strings.Contains(pass.Says, "is not among the queue's checks") {
-		t.Fatalf("Pass().Says = %q, want it to name the check the queue's run did not cover", pass.Says)
+	if got := readTold(t, told); !slices.Equal(got, []string{"./internal/checks", "./..."}) {
+		t.Fatalf("the run's own check was told %q, want the queue to have run it over the candidate told the whole module", got)
 	}
-	if r.tracker.Closed {
-		t.Fatal("the item was closed though nothing landed")
+	if _, err := os.Stat(ranNew); err != nil {
+		t.Fatalf("the newly configured check did not run on the candidate: %v", err)
+	}
+	generations, err := r.queue.Generations(outcome.MergeQueue.Key(), outcome.MergeQueue.EntryID)
+	if err != nil || len(generations) == 0 {
+		t.Fatalf("generations = %#v, %v", generations, err)
+	}
+	landed := generations[len(generations)-1]
+	if !slices.Equal(landed.Checks.Commands, []string{"touch " + ranNew, narrowed}) {
+		t.Fatalf("the queue checked the candidate with %q, want the configured check and the one the run left to it", landed.Checks.Commands)
+	}
+	settled, err := r.runs.Load(outcome.RunID)
+	if err != nil || settled.ChecksPassed == nil || !strings.Contains(settled.ChecksPassed.WholeBy, gitLine(t, r.repository, "rev-parse", "main")) {
+		t.Fatalf("run evidence = %#v, %v; want the queue's check of the landed commit named", settled.ChecksPassed, err)
 	}
 }
 
@@ -355,48 +369,26 @@ func TestAChangeTheQueueHoldsIsCheckedWholeOnlyWhenItIsPromotedTheOldWay(t *test
 	}
 }
 
-// A change its run left to the harness's queue that the queue then holds —
-// the forge came to require its own queue between the promotion asking which
-// queue the change would reach and the admission — and that is promoted the old way
-// after the switch is turned off, is checked whole on this machine before it
-// is merged: nothing else ran the whole pass on it.
-func TestAChangeLeftToTheQueueAndPromotedAfterTheSwitchIsTurnedOffIsCheckedWholeFirst(t *testing.T) {
+// A change whose run left its whole check to the harness's queue is not moved
+// to the forge's own queue, which lands a commit this harness never checks:
+// the transfer is refused saying why, and the entry stays where it can land.
+func TestAChangeLeftToTheHarnessQueueIsNotMovedToTheForgesQueue(t *testing.T) {
 	t.Parallel()
 
-	pipeline, runs, forge, tracker, told := newGoPublishedQueueRun(t, func(call int, branch string) publish.QueueCapabilities {
-		observed := publish.QueueCapabilities{Forge: "github", TargetBranch: branch, ObservedAt: time.Now(), Protected: true, ProtectedBy: "a ruleset"}
-		if call > 1 {
-			observed.QueueAvailable, observed.QueueRequired = true, true
-		}
-		return observed
-	})
-	outcome, err := pipeline.Run(context.Background(), "yoyodyne-task")
-	if !errors.Is(err, ErrMergeQueueHeld) {
-		t.Fatalf("Run() error = %v, want the change held", err)
+	r, _ := newGoQueueRun(t)
+	r.pipeline.Config.Execution.MergeQueue = true
+	outcome := r.run(t)
+	if outcome.MergeQueue == nil {
+		t.Fatalf("Run() = %#v, want the approved change admitted to the queue", outcome)
 	}
-	if got := readTold(t, told); !slices.Equal(got, []string{"./internal/checks"}) {
-		t.Fatalf("while held, the check was told %q, want only the narrowed run", got)
+	_, err := r.driver().Promoter.Transfer(context.Background(), outcome.MergeQueue.Key(), outcome.MergeQueue.EntryID, runstate.MergeQueueForge)
+	var refused MergeQueueTransferRefusal
+	if !errors.As(err, &refused) || !strings.Contains(refused.Reason, "left checking its change over the whole module") {
+		t.Fatalf("Transfer() error = %v, want it refused because the run left its whole check to the harness's queue", err)
 	}
-	held, err := runs.Load(outcome.RunID)
-	if err != nil || held.ChecksPassed == nil || !held.ChecksPassed.WholeLeftToQueue {
-		t.Fatalf("held run evidence = %#v, %v; want it recorded as left to the queue", held.ChecksPassed, err)
-	}
-	pipeline.Config.Execution.MergeQueue = false
-	r := &heldQueueRun{repository: pipeline.Repository, tracker: tracker, forge: forge.Forge, pipeline: pipeline, runs: runs, queue: pipeline.MergeQueue.(*runstate.MergeQueueStore)}
-	if pass := r.held(t, outcome); pass.Resumed != 1 {
-		t.Fatalf("held pass = %#v, want the change taken up", pass)
-	}
-	if got := readTold(t, told); !slices.Equal(got, []string{"./internal/checks", "./..."}) {
-		t.Fatalf("the check was told %q, want the candidate checked whole before it was merged", got)
-	}
-	if len(forge.Merges) != 1 {
-		t.Fatalf("merges = %d, want the change merged through its pull request as with the switch off", len(forge.Merges))
-	}
-	state, err := runs.Load(outcome.RunID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state.ChecksPassed == nil || state.ChecksPassed.Narrowed != "" || state.ChecksPassed.WholeLeftToQueue {
-		t.Fatalf("merged on evidence %#v, want the whole pass this run made", state.ChecksPassed)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	if pass := r.driver().Pass(ctx, outcome.MergeQueue.Key()); pass.Outcome != runstate.MergeQueuePassLanded {
+		t.Fatalf("Pass() = %#v, want the change landed from the harness's queue", pass)
 	}
 }
