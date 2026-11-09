@@ -115,6 +115,14 @@ func repositoryReadPayload(result repositoryread.Result) map[string]any {
 	if result.Why != "" {
 		payload["why"] = result.Why
 	}
+	// A read of the companion intent repository says so, and which branch's
+	// commit answered; a read of the project's own repository adds nothing.
+	if result.Repository != "" {
+		payload["repository"] = result.Repository
+		if result.Branch != "" {
+			payload["branch"] = result.Branch
+		}
+	}
 	// A search is recorded by what it looked for, beside the commit and the
 	// path prefix, so the record says what was searched as well as where.
 	if result.Action == repositoryread.ActionSearch {

@@ -213,3 +213,20 @@ func TestDescribeCutsAProblemOnACharacterBoundary(t *testing.T) {
 		t.Fatalf("Describe() = %q, want it to end %q", line, want)
 	}
 }
+
+// A request names the project's repository or the companion intent repository,
+// or neither; any other name is refused with the two that are allowed.
+func TestDecodeTakesTheRepositoryAField(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{RepositoryIntent, RepositoryProject} {
+		requests, err := Decode(fmt.Sprintf(`{"requests":[{"action":"read","path":"a","repository":%q}]}`, name))
+		if err != nil || len(requests) != 1 || requests[0].Repository != name {
+			t.Fatalf("Decode(repository %q) = %#v, %v", name, requests, err)
+		}
+	}
+	_, err := Decode(`{"requests":[{"action":"read","path":"a","repository":"elsewhere"}]}`)
+	if err == nil || !strings.Contains(err.Error(), `"intent"`) || !strings.Contains(err.Error(), `"project"`) {
+		t.Fatalf("Decode(repository elsewhere) error = %v, want a refusal naming the two repositories", err)
+	}
+}

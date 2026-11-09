@@ -1397,11 +1397,15 @@ func conversationResearch(parts components) research.Runner {
 // the tree of one recorded commit in the primary checkout, so the working tree —
 // which may hold an operator's uncommitted edit — is never what a role is shown,
 // and the redact values are the same ones every other provider-facing path uses.
+// A read that names the intent repository is resolved in the project's companion
+// intent repository, where it keeps one, against the commit its target branch
+// names and never its working tree.
 func conversationRepositoryReader(parts components) repositoryread.Reader {
 	return repositoryread.Reader{
-		Process:      parts.runner,
-		Directory:    parts.repository,
-		RedactValues: parts.redactValues,
+		Process:         parts.runner,
+		Directory:       parts.repository,
+		IntentDirectory: parts.config.Product.IntentRepository,
+		RedactValues:    parts.redactValues,
 	}
 }
 
