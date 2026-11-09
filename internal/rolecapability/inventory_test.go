@@ -535,6 +535,10 @@ var expresses = map[string]expression{
 		asks:     []capability.Capability{capability.WorktreeMutate},
 		gap:      "the same gap the row above it has, and for the same reason: the sandbox a role gets is decided from its tool posture, and posture is the second axis the design settles as a typed scope on a capability. A bundle that happened to line up with the mapping would prove nothing about it",
 	},
+	"backend.codex-developer-mcp-servers": {
+		question: "none: turning off the MCP servers the account's or the worktree's configuration lists withholds from the developer and grants nothing",
+		gap:      "it is decided from the developer's tool posture rather than from any capability, because only that posture reads the account's configuration; the read-only roles ignore it, so a bundle has nothing to say about it",
+	},
 	"backend.claude-code-settings-sources": {
 		question: "none: which settings files the provider reads is keeping the account's own configuration out of every role, and grants no role anything",
 		gap:      "it withholds from every role alike and is decided from the developer's tool posture rather than from any capability, so a bundle has nothing to say about it",

@@ -318,6 +318,30 @@ A provider that declares only `read-only` is refused for a developer agent, and
 one that declares only `worktree-write` is refused for a reviewer. A declaration
 cannot change the launch policy enforced by its compiled adapter.
 
+No role, the developer included, is given the MCP servers the account's own
+configuration lists, on either provider. Claude Code starts none from anywhere
+([below](#claude-code-settings-memory-skills-connectors-and-instruction-files)).
+A Codex read-only role ignores the account's `config.toml` and launches from an
+empty directory, so it reads no server list. A Codex developer does read the
+account's `config.toml`, and a trusted worktree's `.codex/config.toml` too, and
+Codex starts every server those files list as the session opens. So before
+every developer turn, fresh and resumed, the adapter asks the installed CLI
+which servers it would start, with `codex mcp list --json` under the same
+provider home, directory, and settings as the turn, and turns each one off by
+name in a single `--config mcp_servers={…={enabled=false}}` table on `exec`.
+Nothing shorter works on the CLI: an empty `mcp_servers` table is merged with
+the files rather than replacing them, and a name no file defines is a server
+with no transport, which the CLI refuses the whole configuration for. A turn
+whose servers cannot be listed is not made. The developer's permission profile,
+cache, and scratch grants are unchanged. Plugins, apps, and
+servers a skill would install are kept out separately
+([below](#codex-skills-plugins-and-instruction-files)). This was established
+against codex-cli 0.166.0-alpha.5.1 without a provider call: under the
+adapter's developer arguments, `codex debug prompt-input` started a server the
+account's file listed and one a trusted worktree's file listed, and with the
+table it started neither. A test asks the installed CLI the same thing, fresh
+and resumed, and skips where Codex is not installed.
+
 An agent filling a [role definition](configuration.md#protected-role-definitions)
 is checked against the access its definition holds it to. That is its shipped
 role's, except that a developer whose definition removed `worktree.mutate` is
@@ -491,7 +515,8 @@ The repository's own `AGENTS.md` in a developer's worktree is not personal and
 is still read. Hooks, browser and computer use, and the other integrations the
 read-only roles disable are unchanged by this; so is the effort rule above, and
 a developer's turn still reads the account's `config.toml` apart from the
-instruction settings above.
+instruction settings above and the MCP servers it lists, which are turned off
+([capability validation](#capability-validation)).
 
 A relative path a project names is read from the harness's own checkout, for
 every role. A reviewer is never given a named file from the worktree it is
