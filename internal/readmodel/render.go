@@ -269,7 +269,8 @@ func withNoProcess(running []RunningRun) string {
 	return said
 }
 
-// renderPaused is the runs paused on work their items wait on, and nothing
+// renderPaused is the runs paused on work their items wait on, and the runs
+// waiting at their merge step for GitHub to be reachable again, and nothing
 // where there are none. They are said on a line of their own rather than on the
 // running line because they hold no developer slot: a run counted there would be
 // a slot said to be taken that the next pull fills.
@@ -281,11 +282,37 @@ func (s Standing) renderPaused() string {
 	fmt.Fprintf(&rendered, "Paused, holding no developer slot (%s):\n", count(len(s.PausedRuns), "developer run"))
 	listed, further := bound(len(s.PausedRuns))
 	for _, run := range s.PausedRuns[:listed] {
+		if run.WaitingForGitHub != "" {
+			fmt.Fprintf(&rendered, "  %s — approved and %s, waiting %s\n",
+				s.named(run.WorkItemID, ""), run.WaitingForGitHub, strings.TrimSuffix(pausedAgo(s.ObservedAt, run.PausedSince), " ago"))
+			continue
+		}
 		fmt.Fprintf(&rendered, "  %s — waiting on unfinished work it depends on: %s, paused %s\n",
 			s.named(run.WorkItemID, ""), run.WaitingOn, pausedAgo(s.ObservedAt, run.PausedSince))
 	}
 	rendered.WriteString(remainder(further, "developer run"))
 	return rendered.String()
+}
+
+// SayWaitingForGitHub is the banner for the runs waiting at their merge step for
+// GitHub to be reachable again, and nothing where there are none: the first such
+// run as its record says it, its work item named by its title where the tracker
+// gives one, and how many more there are.
+func SayWaitingForGitHub(paused []RunningRun, titles *WorkItemTitles) string {
+	var waiting []RunningRun
+	for _, run := range paused {
+		if run.WaitingForGitHub != "" {
+			waiting = append(waiting, run)
+		}
+	}
+	if len(waiting) == 0 {
+		return ""
+	}
+	said := fmt.Sprintf("Waiting for GitHub: the approved change for %s is %s", titles.Name(waiting[0].WorkItemID), waiting[0].WaitingForGitHub)
+	if more := len(waiting) - 1; more > 0 {
+		said += fmt.Sprintf("; %s more %s waiting for it too", count(more, "run"), plural(more, "is", "are"))
+	}
+	return said + ". Nothing has been charged to the work, and the merge carries on by itself once GitHub answers."
 }
 
 // pausedAgo is how long a paused run has been waiting, said as an age, or that
