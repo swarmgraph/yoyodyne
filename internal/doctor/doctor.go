@@ -247,6 +247,7 @@ func Diagnose(ctx context.Context, env Environment) Report {
 	report.Findings = append(report.Findings, diagnosis.checkRepository(ctx, repository))
 	report.Findings = append(report.Findings, diagnosis.checkConfigurationIgnored(ctx, repository, resolved.Path))
 	report.Findings = append(report.Findings, diagnosis.checkTracker(ctx, repository))
+	report.Findings = append(report.Findings, diagnosis.checkTrackerRemote(ctx, resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkStateRoot(repository))
 	report.Findings = append(report.Findings, diagnosis.checkChecks(resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkInstall(resolved, repository)...)

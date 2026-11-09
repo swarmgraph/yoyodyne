@@ -9,6 +9,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/artifacthome"
@@ -29,7 +31,8 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	directory := flags.String("directory", ".", "project directory to configure")
 	product := flags.String("product", "", "product id (default: the project directory name)")
-	trackerRemote := flags.String("tracker-remote", "", "URL the tracker syncs through (default: this project's Git remote)")
+	trackerRemote := flags.String("tracker-remote", "", "URL the tracker syncs through (default: this project's Git remote, except with --external or --tracker-local, which keep the tracker on this machine)")
+	trackerLocal := flags.Bool("tracker-local", false, "keep the tracker on this machine: configure no sync remote for it")
 	force := flags.Bool("force", false, "overwrite files that already exist")
 	external := flags.Bool("external", false, "write the configuration outside the repository, where only this machine reads it")
 	intent := flags.Bool("intent", false, "with --external, keep the specifications, designs, decision records, and invariants in a companion intent repository in the project's directory in the machine home, so nothing of Yoyodyne's is committed to the project")
@@ -41,6 +44,12 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	if len(positional) != 0 {
 		fmt.Fprintln(stderr, "init does not accept positional arguments")
+		return 2
+	}
+	// A tracker kept on this machine and a URL for it to sync through are opposite
+	// requests, so they are refused together before anything is written.
+	if *trackerLocal && strings.TrimSpace(*trackerRemote) != "" {
+		fmt.Fprintln(stderr, "--tracker-local keeps the tracker on this machine and --tracker-remote names where it syncs; give only one of them")
 		return 2
 	}
 
@@ -74,7 +83,14 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		intentOutcome = &established
 	}
 
-	tracker := configureTrackerRemote(ctx, initialization.repository, *trackerRemote, execution.OSProcessRunner{})
+	tracker := settleTrackerRemote(ctx, initialization.repository, *trackerRemote, *trackerLocal, initialization.external, execution.OSProcessRunner{})
+	// The tracker writes its own files into the checkout, and an external
+	// configuration exists so that the checkout is left as it was found.
+	var excluded *trackerExclusion
+	if initialization.external {
+		exclusion := excludeTrackerFiles(ctx, execution.OSProcessRunner{}, initialization.repository)
+		excluded = &exclusion
+	}
 	// A configuration the repository ignores is one this machine has and no
 	// other will, and the moment it was written is the moment somebody can still
 	// decide about it cheaply. An external configuration is not in the repository
@@ -99,6 +115,7 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			"checks":   initialization.detection.Commands(),
 			"detected": initialization.detection,
 			"tracker":  tracker,
+			"excluded": excluded,
 			"ignored":  ignored,
 			"intent":   intentOutcome,
 		})
@@ -122,10 +139,22 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	// never changes the exit code. The configuration is written and valid either
 	// way, and an init that failed after writing it would be describing a
 	// project it had already changed as one it had not.
-	if tracker.Status == trackerRemoteFailed {
+	// A tracker that already syncs through the project's own Git remote is
+	// reported there too: the next push publishes the backlog, which is something
+	// to act on rather than a note.
+	if tracker.Status == trackerRemoteFailed || (tracker.Status == trackerRemoteUnchanged && tracker.Local && tracker.ProjectRemote) {
 		fmt.Fprintln(stderr, describeTrackerRemote(tracker))
 	} else {
 		fmt.Fprintln(stdout, describeTrackerRemote(tracker))
+	}
+	if excluded != nil {
+		stream := stdout
+		if excluded.Reason != "" {
+			stream = stderr
+		}
+		for _, line := range describeTrackerExclusion(*excluded) {
+			fmt.Fprintln(stream, line)
+		}
 	}
 	// Reported like the tracker's failures and for the same reason: the files are
 	// written and valid, so an ignored configuration is something to know about
@@ -150,14 +179,16 @@ const (
 	trackerCommandTimeout = beads.DefaultTimeout
 )
 
-// What init did about the tracker's sync remote. The four outcomes are kept
+// What init did about the tracker's sync remote. The outcomes are kept
 // apart because they ask the operator for different things: a configured
-// tracker and one left as it was ask nothing, a skipped one asks for a Git
-// remote, and a failed one asks for a look at why bd refused.
+// tracker and one left as it was ask nothing, a local one was asked for and
+// asks nothing unless the operator wants to share it, a skipped one asks for a
+// Git remote, and a failed one asks for a look at why bd refused.
 const (
 	trackerRemoteConfigured = "configured"
 	trackerRemoteUnchanged  = "unchanged"
 	trackerRemoteSkipped    = "skipped"
+	trackerRemoteLocal      = "local"
 	trackerRemoteFailed     = "failed"
 )
 
@@ -173,6 +204,79 @@ type trackerRemote struct {
 	// was configured. It carries Git's or bd's own words rather than a summary
 	// of them, because the remedy is a command to one of those two tools.
 	Reason string `json:"reason,omitempty"`
+	// Local says a tracker kept on this machine was asked for, by --tracker-local
+	// or by --external, which keeps the tracker off the project's own Git remote
+	// unless a URL of its own is named.
+	Local bool `json:"local,omitempty"`
+	// ProjectRemote says the remote reported is one of the project's own Git
+	// remotes, so a push through it publishes the backlog into the project.
+	ProjectRemote bool `json:"project_remote,omitempty"`
+	// Remedy is the command that keeps a tracker off the project's own Git
+	// remote, set when ProjectRemote is.
+	Remedy string `json:"remedy,omitempty"`
+}
+
+// settleTrackerRemote decides what the tracker's sync remote should be for the
+// flags init was given. Without --tracker-local and --external it is
+// configureTrackerRemote exactly as it always was.
+//
+// An external configuration is kept by someone who cannot publish into the
+// project, and a tracker syncing through the project's own Git remote publishes
+// the backlog on its first push, so --external never points the tracker there:
+// with no URL it configures nothing, and a URL that is one of the project's own
+// Git remotes is declined with the reason. A URL of its own is the operator's
+// decision and is applied. --tracker-local configures nothing either way.
+//
+// Where nothing is configured, a remote the tracker already holds is reported
+// rather than removed, because it was somebody's decision and removing it is not
+// init's to make.
+func settleTrackerRemote(ctx context.Context, root, requested string, local, external bool, runner execution.ProcessRunner) trackerRemote {
+	if !local && !external {
+		return configureTrackerRemote(ctx, root, requested, runner)
+	}
+	url := strings.TrimSpace(requested)
+	if url != "" && !local {
+		remotes, err := doctor.ProjectGitRemotes(ctx, runner, root)
+		if err == nil {
+			names := make([]string, 0, len(remotes))
+			for name := range remotes {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				if slices.ContainsFunc(remotes[name], func(own string) bool { return home.SameRemote(own, url) }) {
+					return trackerRemote{Status: trackerRemoteLocal, Local: true,
+						Reason: fmt.Sprintf("%s is this project's own Git remote %s, and a configuration kept outside the repository keeps the tracker off it", url, name)}
+				}
+			}
+		}
+		return configureTrackerRemote(ctx, root, requested, runner)
+	}
+
+	why := "a configuration kept outside the repository keeps the tracker off this project's own Git remote"
+	if local {
+		why = "--tracker-local asked for it"
+	}
+	shared, all, err := doctor.TrackerRemotesOnProject(ctx, runner, root)
+	if err != nil || len(all) == 0 {
+		return trackerRemote{Status: trackerRemoteLocal, Local: true, Reason: why}
+	}
+	if len(shared) > 0 {
+		names := make([]string, 0, len(shared))
+		for _, remote := range shared {
+			names = append(names, remote.Name)
+		}
+		return trackerRemote{Status: trackerRemoteUnchanged, Local: true, ProjectRemote: true, Name: shared[0].Name, URL: shared[0].URL,
+			Remedy: doctor.RemoveTrackerRemotesCommand(names, root)}
+	}
+	chosen := all[0]
+	for _, remote := range all {
+		if remote.Name == trackerRemoteName {
+			chosen = remote
+			break
+		}
+	}
+	return trackerRemote{Status: trackerRemoteUnchanged, Local: true, Name: chosen.Name, URL: chosen.URL}
 }
 
 // configureTrackerRemote points the tracker at the URL it should sync through.
@@ -250,7 +354,19 @@ func describeTrackerRemote(tracker trackerRemote) string {
 	switch tracker.Status {
 	case trackerRemoteConfigured:
 		return fmt.Sprintf("the tracker syncs through %s: %s", tracker.Name, tracker.URL)
+	case trackerRemoteLocal:
+		return fmt.Sprintf("the tracker stays on this machine and syncs nowhere -- %s; name a URL of its own with --tracker-remote to share it",
+			singleLine(tracker.Reason))
 	case trackerRemoteUnchanged:
+		if tracker.Local && tracker.ProjectRemote {
+			return fmt.Sprintf("the tracker already syncs through %s: %s, which is this project's own Git remote, so a push publishes the backlog there; "+
+				"keep it on this machine with `%s` or give it a repository of its own with --tracker-remote <url>",
+				tracker.Name, tracker.URL, tracker.Remedy)
+		}
+		if tracker.Local {
+			return fmt.Sprintf("the tracker already syncs through %s: %s, a repository other than this project's; init leaves it as it is, and `bd dolt remote remove %s` keeps the tracker on this machine instead",
+				tracker.Name, tracker.URL, tracker.Name)
+		}
 		return fmt.Sprintf("the tracker already syncs through %s: %s; name a URL with --tracker-remote to point it elsewhere",
 			tracker.Name, tracker.URL)
 	case trackerRemoteSkipped:
@@ -528,7 +644,7 @@ func scaffoldDestination(project repowrite.Root, named, repository, productID st
 // finds it, because the one thing an operator cannot see from the paths that
 // were just printed is that nothing has to be passed to use them.
 func describeExternalConfiguration(initialization initialized) string {
-	return fmt.Sprintf("this configuration is on this machine only and nothing was written into %s; yoyo finds it from anywhere in that repository, "+
+	return fmt.Sprintf("this configuration is on this machine only and none of %s's files were written or changed beyond its own .git/info/exclude; yoyo finds it from anywhere in that repository, "+
 		"and its worktrees, without --config", initialization.repository)
 }
 

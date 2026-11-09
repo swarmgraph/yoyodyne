@@ -27,6 +27,7 @@ yoyo init                              # configure the current directory
 yoyo init --directory path/to/project  # configure another one
 yoyo init --product example            # name the product explicitly
 yoyo init --tracker-remote <url>       # sync the tracker somewhere else
+yoyo init --tracker-local              # keep the tracker on this machine
 yoyo init --force                      # overwrite what is already there
 ```
 
@@ -113,10 +114,31 @@ tracks — one repository, one permission model, and nothing to stand up.
 - `--tracker-remote <url>` names the remote instead, and replaces whatever
   `origin` currently holds — which is what a tracker kept in a repository of its
   own needs. Beads accepts any Git URL.
+- `--tracker-local` keeps the tracker on this machine, with or without
+  `--external`: `init` configures no sync remote and says so. A remote the
+  tracker already holds is reported rather than removed, because somebody chose
+  it; `bd dolt remote remove <name>` removes it. `--tracker-local` and
+  `--tracker-remote` ask for opposite things, so `init` refuses the two together
+  before writing anything.
+- `init --external` never points the tracker at the project's own Git remote,
+  because a configuration kept outside the repository is for a repository you
+  cannot or should not publish into. With no `--tracker-remote` it configures
+  nothing and names `--tracker-remote` as the way to share the tracker; a
+  `--tracker-remote` URL that is one of the project's own Git remotes is
+  declined; any other URL is applied. A tracker that already syncs through the
+  project's own remote — `bd init` can set that up by itself when the project
+  has an `origin` — is reported on standard error with the
+  `bd dolt remote remove` command that keeps it on this machine, and
+  `yoyo doctor` keeps reporting it as its `tracker-remote` warning until it is
+  removed.
 - A project with no Git remote, or one whose `bd` is not initialized yet, is
   told what to run rather than failing: the configuration is written and valid
   either way, so `init` still exits 0 and `init --json` reports the outcome
-  under `tracker` — `configured`, `unchanged`, `skipped`, or `failed`.
+  under `tracker` — `configured`, `unchanged`, `skipped`, `local`, or
+  `failed`. `tracker.local` is true wherever a tracker kept on this machine was
+  asked for, by `--tracker-local` or by `--external`, and
+  `tracker.project_remote` is true where the remote reported is one of the
+  project's own Git remotes.
 
 A synced tracker is one operator's backlog surviving their machine, and not yet a
 team sharing one: two people each running their own harness against one
@@ -686,11 +708,14 @@ printf '%s\n' docs/product/README.md docs/product/goals/README.md \
 
 `bd init` writes `.beads/` and a set of agent instruction files, each another
 untracked path a run would refuse over, so a fully local adoption excludes those
-as well.
+as well: `.beads/`, `.agents/skills/beads/`, `.claude/settings.json`,
+`.codex/config.toml`, `.codex/hooks.json`, `AGENTS.md`, `CLAUDE.md`, and the
+`.gitignore` it creates or adds to. `init --external`, below, adds them for you.
 
 **Or keep it outside the repository entirely.** `yoyo init --external` writes
-the configuration this machine keeps for that repository, and nothing at all
-into the repository:
+the configuration this machine keeps for that repository, and none of the
+repository's files: the one thing it changes there is the checkout's own
+`.git/info/exclude`, which is never committed:
 
 ```sh
 cd ~/src/theirproject
@@ -704,7 +729,7 @@ first, and puts everything `init` ordinarily writes into `.yoyodyne/` there
 instead, personas included. A product id already bound to another repository
 refuses before anything is written.
 
-Four things are worth knowing about it:
+Five things are worth knowing about it:
 
 - **Nothing is passed on later commands.** The configuration is found by the
   binding, which names the repository by its Git common directory, so `yoyo`
@@ -731,6 +756,18 @@ Four things are worth knowing about it:
   `yoyo doctor` reports each home without an index as a warning rather than a
   problem, so an installation configured this way runs work exactly as one with
   them does.
+- **It keeps the tracker to this machine and out of the checkout.** It never
+  points the tracker at the project's own Git remote, and it reports a tracker
+  that already syncs there, so the backlog is not published into the project
+  unnoticed ([Where the tracker syncs](#where-the-tracker-syncs) says what it
+  does instead). And it adds `.beads/` and every file `bd init` writes into the
+  checkout to `.git/info/exclude`, anchored to the checkout's root, and prints
+  the entries it added; `init --json` reports them under `excluded`, as
+  `added`, `present` (already there), and `tracked`. A file the project already
+  tracks, such as its own `AGENTS.md`, is not excluded, because an exclude line
+  does not reach a tracked file, and `init` names it so you can put back
+  whatever `bd init` changed in it. Nothing is written to the project's
+  `.gitignore`.
 
 Either way, the project stops describing itself, which in this scenario is the
 intent: another clone, another machine, and anybody else working on it get no

@@ -242,13 +242,18 @@ func TestRemotesAreComparedAsThePlaceTheyName(t *testing.T) {
 	for _, pair := range [][2]string{
 		{"git@github.com:example/thing.git", "https://github.com/example/thing"},
 		{"ssh://git@github.com/example/thing.git", "https://github.com/Example/thing/"},
+		// Beads spells a remote with the transport it will use, so one repository
+		// reaches it as git+ssh, git+https, or git+file.
+		{"git@github.com:example/thing.git", "git+ssh://git@github.com/example/thing.git"},
+		{"https://github.com/example/thing", "git+https://github.com/example/thing.git"},
+		{"/srv/git/thing.git", "git+file:///srv/git/thing.git"},
 	} {
-		if !sameRemote(pair[0], pair[1]) {
-			t.Errorf("sameRemote(%q, %q) = false", pair[0], pair[1])
+		if !SameRemote(pair[0], pair[1]) {
+			t.Errorf("SameRemote(%q, %q) = false", pair[0], pair[1])
 		}
 	}
-	if sameRemote("", "") || sameRemote("git@github.com:a/b.git", "git@github.com:a/c.git") {
-		t.Error("sameRemote matched remotes that name nothing, or two places")
+	if SameRemote("", "") || SameRemote("git@github.com:a/b.git", "git@github.com:a/c.git") {
+		t.Error("SameRemote matched remotes that name nothing, or two places")
 	}
 }
 
