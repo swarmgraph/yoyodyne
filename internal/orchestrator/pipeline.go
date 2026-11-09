@@ -1365,7 +1365,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		// A run the development manager asked to have continued through
 		// run.recover is resumable on the same terms that request was accepted on
 		// (recoveryrequest.go).
-		if !pausedForUsageLimit(inFlight) && !pausedForDirective(inFlight) && !pausedForDependency(inFlight) && !pausedForTracker(inFlight) && !pausedForOperatorHold(inFlight) && !stoppedProviderIsResumable(inFlight) && !stoppedForRedeployIsResumable(inFlight) && !continuedAtCheckStage(inFlight) && !resumableRepair(inFlight) && !recoveryContinuationDue(inFlight) {
+		if !pausedForUsageLimit(inFlight) && !pausedForDirective(inFlight) && !pausedForDependency(inFlight) && !pausedForTracker(inFlight) && !pausedForOperatorHold(inFlight) && !stoppedProviderIsResumable(inFlight) && !stoppedForRedeployIsResumable(inFlight) && !continuedAtCheckStage(inFlight) && !resumableRepair(inFlight) && !recoveryContinuationDue(inFlight) && !updateLostItsHost(inFlight) {
 			return Outcome{}, ExistingRunError{State: inFlight}
 		}
 		inFlight, err = p.reclaimSlot(ctx, inFlight)
@@ -1878,7 +1878,11 @@ func (p Pipeline) Continue(ctx context.Context, workItemID, runID string) (Outco
 	// the harness, automatically or by a decided repair: it is re-entered at
 	// that step on the change it already has, which is what the continuation
 	// recorded on it says it is owed.
-	if !resumableRepair(inFlight) && !resumableIntegration(inFlight) && !pausedForUsageLimit(inFlight) && !continuedAtCheckStage(inFlight) {
+	//
+	// A fifth is a run whose update onto its target lost the process hosting it
+	// part-way through the gate (updateLostItsHost): it is re-entered at the step
+	// it had reached, which is what ContinueUpdates asks for.
+	if !resumableRepair(inFlight) && !resumableIntegration(inFlight) && !pausedForUsageLimit(inFlight) && !continuedAtCheckStage(inFlight) && !updateLostItsHost(inFlight) {
 		return Outcome{}, ContinuationMismatchError{
 			WorkItemID: workItemID,
 			RunID:      runID,
@@ -2048,6 +2052,11 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	// A run the restart stopped at its checks is owed only the checks that had
 	// not finished (keptchecks.go).
 	pickedUpAtChecks := state.RedeployStop != nil && state.RedeployStop.Phase == runstate.PhaseChecking
+	// So is an update onto the target whose hosting process ended at its checks:
+	// that process is stopped with the old build or at its own time limit, and a
+	// stage that started over each time would never finish (updateLostItsHost).
+	hostLostAtChecks := !pickedUpAtChecks && state.Phase == runstate.PhaseChecking && updateLostItsHost(state)
+	pickedUpAtChecks = pickedUpAtChecks || hostLostAtChecks
 	state.RedeployStop = nil
 	// A development manager's run.recover request to continue this run is
 	// answered by this process taking it up, whoever fired it; and a recovery
@@ -2161,6 +2170,7 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		},
 	}
 	run.keptChecksOwed = pickedUpAtChecks
+	run.keptChecksAfterLostHost = hostLostAtChecks
 	run.clearAcceptedSchedulingWait(ctx)
 	run.recordSlotMove()
 	// A run resumed at its promotion carries the verdict that authorized it into
@@ -2646,6 +2656,10 @@ type activeRun struct {
 	// state.KeptChecks holds for the same candidate (keptchecks.go). It is
 	// spent by that stage, whichever way it goes.
 	keptChecksOwed bool
+	// keptChecksAfterLostHost says the pick-up keptChecksOwed asks for is of an
+	// update whose hosting process ended rather than of a watch session's
+	// restart, which is what the note the stage leaves says.
+	keptChecksAfterLostHost bool
 	// checkingCandidate is set while verify runs over the approved merge
 	// candidate, whose checks are told the whole module (verifyCandidate).
 	checkingCandidate bool

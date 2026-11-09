@@ -58,6 +58,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -661,6 +662,80 @@ func updatingQueuedHead(state runstate.State) bool {
 	return resumableIntegration(state) && state.UpdatingQueuedHead()
 }
 
+// updateLostItsHost reports a run a sweep or a forge check put back at its
+// promotion to bring its head up to date, which went on past the promotion —
+// replayed onto the target and at its checks, at its review, or at a developer
+// attempt the gate handed back — and which is still in flight with nothing of
+// its own on its record saying who carries it on.
+//
+// Such a run is hosted by the process that put it back (ContinueUpdates), not
+// by a watching session, so a restart onto a new build never asks it to stop:
+// the process is ended with the rest of the old build, or by its own time limit
+// (forgecheck.CheckTimeout, maintain.ReconcileTimeout), and the run is left at
+// whatever step it had reached with no stop recorded. updatingQueuedHead no
+// longer matches it, because it is no longer at its promotion, and before this
+// nothing else did either: it sat in flight with no process until the claim
+// audit gave its item back as abandoned an hour later. ContinueUpdates now
+// takes it up again from that step, under its lease — the lease being free is
+// the evidence that the process hosting it is gone.
+//
+// A run carrying a park, a stop, or a request for the development manager is
+// left to whatever that says continues it.
+func updateLostItsHost(state runstate.State) bool {
+	if state.Status != runstate.StatusRunning || state.Integration != nil || len(state.IntegrationResumptions) == 0 {
+		return false
+	}
+	switch state.IntegrationResumptions[len(state.IntegrationResumptions)-1].Cause {
+	case runstate.CauseQueuedHeadBehind, runstate.CausePersonMergeBehind:
+	default:
+		return false
+	}
+	if state.WorktreePath == "" || state.Branch == "" || state.BaseCommit == "" || state.TargetBranch == "" || state.ProviderSessionID == "" {
+		return false
+	}
+	if state.RedeployStop != nil || state.ProviderStop != "" || state.Environmental != nil || state.RecoveryHold != nil || recoveryContinuationDue(state) ||
+		pausedForUsageLimit(state) || pausedForDirective(state) || pausedForDependency(state) || pausedForTracker(state) || pausedForOperatorHold(state) {
+		return false
+	}
+	switch state.Phase {
+	case runstate.PhaseChecking, runstate.PhaseReviewing:
+		return true
+	case runstate.PhaseDeveloping:
+		return handedBackRepair(state)
+	default:
+		return false
+	}
+}
+
+// owedUpdateContinuation reports a run ContinueUpdates hosts: one put back at
+// its promotion and not yet taken up, or one whose update lost the process
+// hosting it part-way through the gate.
+func owedUpdateContinuation(state runstate.State) bool {
+	return updatingQueuedHead(state) || updateLostItsHost(state)
+}
+
+// describeLostHost says what became of the process that was hosting a run's
+// update. The worker the run recorded names the build it ran on, so where that
+// is not this build the restart onto a new build is named as the cause; where
+// it cannot be told, the ending is named without one.
+func describeLostHost(state runstate.State) string {
+	ran := "the process hosting it"
+	if worker := state.Worker; worker != nil && worker.Build != "" && worker.Build != buildinfo.Commit() {
+		return fmt.Sprintf("%s ended when the product restarted onto a new build (it ran build %s, and this is %s)", ran, worker.Build, nonEmpty(buildinfo.Commit(), "an unstamped build"))
+	}
+	return ran + " ended, either for a restart onto a new build or at its own time limit, with nothing recorded about the stop"
+}
+
+// renderLostHostNotes tells the item that its update is being carried on after
+// the process hosting it ended.
+func renderLostHostNotes(state runstate.State) string {
+	return strings.Join([]string{
+		fmt.Sprintf("Yoyodyne is carrying on bringing this run's change up to date onto %s: %s while the run was at its %s phase.", state.TargetBranch, describeLostHost(state), state.Phase),
+		"It goes on from that step in the same worktree and developer session, and checks that had already passed on the same change keep their results. Nothing here says the change is wrong, and no repair attempt is charged for it.",
+		"Run: " + state.RunID,
+	}, "\n")
+}
+
 // UpdateContinuation is what the sweep did about one run it put back at its
 // promotion to bring a queued head up to date.
 type UpdateContinuation struct {
@@ -678,7 +753,9 @@ type UpdateContinuation struct {
 }
 
 // ContinueUpdates hosts every run the sweep put back at its promotion to bring a
-// queued head up to date and that no process holds. It is the same hosting
+// queued head up to date and that no process holds, and every such run whose
+// update went on past its promotion and then lost the process hosting it
+// (updateLostItsHost), from the step it had reached. It is the same hosting
 // ContinueWaits gives a wait: the run's own pipeline re-enters the run named,
 // through Pipeline.Continue, in its own worktree — where the promotion finds the
 // target moved, replays the change onto it, and re-earns the gate. A sweep wired
@@ -702,7 +779,7 @@ func (r Reconciler) ContinueUpdates(ctx context.Context) ([]UpdateContinuation, 
 	var results []UpdateContinuation
 	var launched []int
 	for _, recorded := range outstanding {
-		if !updatingQueuedHead(recorded) {
+		if !owedUpdateContinuation(recorded) {
 			continue
 		}
 		result := UpdateContinuation{RunID: recorded.RunID, WorkItemID: recorded.WorkItemID}
@@ -712,9 +789,28 @@ func (r Reconciler) ContinueUpdates(ctx context.Context) ([]UpdateContinuation, 
 			result.Detail = "a live process holds this run, so it is updating it itself"
 		case err != nil:
 			result.Failure = fmt.Errorf("adopt run %s: %w", recorded.RunID, err).Error()
-		case !updatingQueuedHead(state):
+		case !owedUpdateContinuation(state):
 			lease.Release()
 			result.Detail = "the run is no longer waiting at its promotion, so it is left as it stands"
+		case updateLostItsHost(state):
+			retired, handled, retirementErr := (RunRetirer{Runs: r.Store, Tracker: r.Tracker, Now: r.clock().Now()}).Retire(ctx, state)
+			lease.Release()
+			switch {
+			case retirementErr != nil:
+				result.Failure = retirementErr.Error()
+			case handled:
+				result.Retired = retired.Retirement != nil
+				result.Detail = retirementReason(retired)
+			default:
+				result.Continued = true
+				result.Detail = fmt.Sprintf("%s while the run was at its %s phase, so this sweep carries the update on from that step", describeLostHost(state), state.Phase)
+				// The note is best effort: the continuation's own record and the
+				// finding below say the same, so a tracker that refuses it costs the
+				// run nothing.
+				noteCtx, cancel := trackerCallContext(ctx)
+				_, _ = r.Tracker.RecordOutcome(noteCtx, state.WorkItemID, renderLostHostNotes(state))
+				cancel()
+			}
 		default:
 			retired, handled, retirementErr := (RunRetirer{Runs: r.Store, Tracker: r.Tracker, Now: r.clock().Now()}).Retire(ctx, state)
 			lease.Release()
