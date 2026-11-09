@@ -249,6 +249,7 @@ func Diagnose(ctx context.Context, env Environment) Report {
 	report.Findings = append(report.Findings, diagnosis.checkTracker(ctx, repository))
 	report.Findings = append(report.Findings, diagnosis.checkTrackerRemote(ctx, resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkStateRoot(repository))
+	report.Findings = append(report.Findings, diagnosis.checkKeptConfigurationBinding(resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkChecks(resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkInstall(resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkNode(repository)...)
@@ -617,6 +618,40 @@ func (d *diagnosis) checkStateRoot(repository string) Finding {
 	default:
 		return Finding{Check: "state", Status: StatusOK, Summary: summary + "; the marker in " + marker.Path + " agrees"}
 	}
+}
+
+// checkKeptConfigurationBinding reports, of a configuration kept in the
+// machine home's project directory, whether its file's product.repository
+// names the repository the project's binding names. The binding decides which
+// repository the project is (the configuration loader holds every command to
+// it, config.Resolved.followBinding), so a file naming another repository —
+// edited by hand, or left by a bind made before bind rewrote it — sends no work
+// astray; it is out of date, and a person reading it would be misled. So it is
+// a warning, with the bind that rewrites the file as its remedy. A
+// configuration committed in its repository says nothing here: its
+// product.repository is the clone it is read from.
+func (d *diagnosis) checkKeptConfigurationBinding(resolved config.Resolved, repository string) []Finding {
+	if resolved.BindingPath == "" {
+		return nil
+	}
+	productID := string(resolved.Config.Product.ID)
+	if resolved.ConfiguredRepository == "" {
+		return []Finding{{
+			Check:   "binding",
+			Status:  StatusOK,
+			Summary: fmt.Sprintf("the configuration kept at %s names %s, the repository %s is bound to", resolved.Path, repository, productID),
+		}}
+	}
+	return []Finding{{
+		Check:  "binding",
+		Status: StatusWarning,
+		Summary: fmt.Sprintf("the configuration kept at %s names %s as product.repository, but %s is bound to %s; every command uses %s, and the file is out of date",
+			resolved.Path, resolved.ConfiguredRepository, productID, repository, repository),
+		Detail: fmt.Sprintf("the binding is recorded in %s, and it decides which repository the project is: worktrees, the target branch, the checks, the tracker, and the state-root marker are all worked in %s. "+
+			"The command below rewrites product.repository in the file to match; to make %s the project's instead, run `%s --product %s --replace` from it",
+			resolved.BindingPath, repository, resolved.ConfiguredRepository, home.BindCommand, productID),
+		Remedy: fmt.Sprintf("%s --product %s --directory %s", home.BindCommand, productID, shellQuote(repository)),
+	}}
 }
 
 // stateRootPath is the root the other checks look for what they need under,

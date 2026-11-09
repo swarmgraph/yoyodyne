@@ -55,6 +55,15 @@ type Resolved struct {
 	// bound to it (see bindRoleDefinitions), and the binding is effective only
 	// once a person's activation of the file as it stands is on record.
 	RoleDefinitions map[string]RoleDefinition `json:"role_definitions,omitempty"`
+	// BindingPath is the binding of a configuration kept in the machine home's
+	// project directory, where it has one; empty for a configuration committed
+	// in its repository.
+	BindingPath string `json:"binding,omitempty"`
+	// ConfiguredRepository is the product.repository such a configuration's file
+	// names where it is not the repository the binding names. Config holds the
+	// bound repository instead, which is what every command uses; this keeps
+	// what the out-of-date file said, for the surfaces that report it.
+	ConfiguredRepository string `json:"configured_repository,omitempty"`
 }
 
 // OriginKeys lists every recorded key in a stable order.
@@ -178,6 +187,9 @@ func loadResolved(path string, mode loadMode, activations RoleActivationReader) 
 		return Resolved{}, err
 	}
 	resolved.Path = absolute
+	if err := resolved.followBinding(absolute); err != nil {
+		return Resolved{}, err
+	}
 	if mode == loadServicesOnly {
 		problems := resolved.Config.productProblems()
 		problems = append(problems, resolved.Config.Services.problems(resolved.Config.Slack)...)

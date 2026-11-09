@@ -12,6 +12,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"go.yaml.in/yaml/v3"
 )
 
 // boundProject is a checkout of the yoyodyne product configured in its own
@@ -285,4 +286,202 @@ func TestRewriteProductIDTouchesOnlyTheProductsID(t *testing.T) {
 	if _, err := rewriteProductID([]byte("product:\n  id: other\n"), "old", "new"); err == nil {
 		t.Fatal("rewriteProductID() rewrote an id that was not the one named")
 	}
+}
+
+// externalClone is a Git repository with the remote given and no committed
+// configuration, which is a clone of a project whose configuration is kept in
+// the machine home.
+func externalClone(t *testing.T, remote string) string {
+	t.Helper()
+	clone, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	git(t, clone, "init", "-b", "main")
+	git(t, clone, "remote", "add", "origin", remote)
+	return clone
+}
+
+func loadedRepository(t *testing.T, path string) string {
+	t.Helper()
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load(%s) error = %v", path, err)
+	}
+	return loaded.Product.Repository
+}
+
+func sameDirectory(t *testing.T, got, want string) {
+	t.Helper()
+	if !home.SameDirectory(got, want) {
+		t.Errorf("directory = %q, want %q", got, want)
+	}
+}
+
+// Rebinding a project whose configuration is kept in the machine home moves
+// the configuration's product.repository with the binding, starts from the new
+// clone, and takes the state-root marker off the old one.
+func TestBindReplaceFollowsAKeptConfigurationAndReleasesTheOldClone(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", root)
+	const remote = "git@github.com:example/external.git"
+	cloneA, cloneB := externalClone(t, remote), externalClone(t, remote)
+	kept := filepath.Join(root, "projects", "external", config.FileName)
+
+	if stdout, stderr, code := runCLI(t, "init", "--external", "--directory", cloneA, "--product", "external"); code != 0 {
+		t.Fatalf("init code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+	sameDirectory(t, loadedRepository(t, kept), cloneA)
+	if _, stderr, code := runCLI(t, "reports", "--config", kept); code != 0 {
+		t.Fatalf("start from A code = %d, stderr = %q", code, stderr)
+	}
+	marker, err := runstate.ReadRootMarker(cloneA)
+	if err != nil || marker.Recorded == "" {
+		t.Fatalf("A's marker = %+v, %v; want it recorded", marker, err)
+	}
+
+	stdout, stderr, code := runCLI(t, "project", "bind", "--product", "external", "--replace", "--directory", cloneB)
+	if code != 0 {
+		t.Fatalf("bind --replace code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+	for _, want := range []string{"product.repository", "now reads " + cloneB, "state-root marker"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout = %q, want it to say %q", stdout, want)
+		}
+	}
+	sameDirectory(t, loadedRepository(t, kept), cloneB)
+	discovered, err := config.Discover(cloneB)
+	if err != nil || !home.SameDirectory(discovered, kept) {
+		t.Errorf("Discover(B) = %q, %v; want the kept configuration %q", discovered, err, kept)
+	}
+
+	if _, stderr, code := runCLI(t, "reports", "--config", kept); code != 0 {
+		t.Fatalf("start from B code = %d, stderr = %q", code, stderr)
+	}
+	marker, err = runstate.ReadRootMarker(cloneB)
+	if err != nil || marker.Recorded == "" || !home.SameDirectory(marker.Recorded, root) {
+		t.Errorf("B's marker = %+v, %v; want it recording %s", marker, err, root)
+	}
+	marker, err = runstate.ReadRootMarker(cloneA)
+	if err != nil || marker.Recorded != "" {
+		t.Errorf("A's marker = %+v, %v; want it released", marker, err)
+	}
+	if _, err := os.Stat(filepath.Join(cloneA, ".git", "yoyodyne", "state-root.writer")); !os.IsNotExist(err) {
+		t.Errorf("A's writer account still exists: %v", err)
+	}
+}
+
+// A bind made before bind rewrote the configuration, or an edit by hand, leaves
+// the binding right and product.repository naming another directory; binding
+// the bound clone again puts the file right.
+func TestBindRepairsAKeptConfigurationNamingAnotherDirectory(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", root)
+	clone := externalClone(t, "git@github.com:example/external.git")
+	elsewhere := externalClone(t, "git@github.com:example/elsewhere.git")
+	kept := filepath.Join(root, "projects", "external", config.FileName)
+	if stdout, stderr, code := runCLI(t, "init", "--external", "--directory", clone, "--product", "external"); code != 0 {
+		t.Fatalf("init code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+	// The directory the file will name once edited holds a marker naming this
+	// home, as it would if commands had worked there.
+	if err := runstate.AgreeRoot(elsewhere, runstate.ResolvedRoot{Path: root}); err != nil {
+		t.Fatal(err)
+	}
+	if marker, err := runstate.ReadRootMarker(elsewhere); err != nil || marker.Recorded == "" {
+		t.Fatalf("marker = %+v, err = %v; want one recorded", marker, err)
+	}
+	content, err := os.ReadFile(kept)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(string(content), clone, elsewhere, 1)
+	if edited == string(content) {
+		t.Fatalf("the kept configuration does not contain %q:\n%s", clone, content)
+	}
+	if err := os.WriteFile(kept, []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// The loader already follows the binding, before bind rewrites the file.
+	resolved, err := config.LoadResolved(kept)
+	if err != nil {
+		t.Fatalf("LoadResolved(%s) error = %v", kept, err)
+	}
+	sameDirectory(t, resolved.Config.Product.Repository, clone)
+	sameDirectory(t, resolved.ConfiguredRepository, elsewhere)
+
+	stdout, stderr, code := runCLI(t, "project", "bind", "--product", "external", "--directory", clone)
+	if code != 0 || !strings.Contains(stdout, "product.repository") || !strings.Contains(stdout, elsewhere) || !strings.Contains(stdout, "state-root marker") {
+		t.Fatalf("bind code = %d, stdout = %q, stderr = %q; want it to say it rewrote product.repository and removed the state-root marker", code, stdout, stderr)
+	}
+	if marker, err := runstate.ReadRootMarker(elsewhere); err != nil || marker.Recorded != "" {
+		t.Errorf("marker after bind = %+v, err = %v; want none recorded", marker, err)
+	}
+	sameDirectory(t, loadedRepository(t, kept), clone)
+
+	// Run again, there is nothing left to put right.
+	stdout, _, code = runCLI(t, "project", "bind", "--product", "external", "--directory", clone)
+	if code != 0 || !strings.Contains(stdout, "nothing to bind") {
+		t.Errorf("second bind code = %d, stdout = %q; want nothing to bind", code, stdout)
+	}
+}
+
+func TestRewriteProductRepository(t *testing.T) {
+	t.Parallel()
+
+	t.Run("keeps comments and every other line byte for byte", func(t *testing.T) {
+		t.Parallel()
+		in := "# kept on this machine\nversion: 1\nproduct:\n  id: external # the id\n  repository: /old/clone   # where it is\n\n  other: x\nchecks:\n  - go test ./...\n"
+		out, previous, err := rewriteProductRepository([]byte(in), "/new/clone")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := strings.Replace(in, "/old/clone", "/new/clone", 1)
+		if string(out) != want || previous != "/old/clone" {
+			t.Errorf("out = %q, previous = %q; want %q and /old/clone", out, previous, want)
+		}
+	})
+	t.Run("replaces a quoted value", func(t *testing.T) {
+		t.Parallel()
+		in := "product:\n  id: x\n  repository: \"/old # clone\"\nz: 1\n"
+		out, previous, err := rewriteProductRepository([]byte(in), "/new/clone")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := string(out); strings.Contains(got, "old") || !strings.Contains(got, "/new/clone") || !strings.HasSuffix(got, "z: 1\n") {
+			t.Errorf("out = %q, want the whole quoted value replaced", got)
+		}
+		if previous != "/old # clone" {
+			t.Errorf("previous = %q, want the unquoted old value", previous)
+		}
+	})
+	t.Run("quotes a path with spaces so it reads back the same", func(t *testing.T) {
+		t.Parallel()
+		for _, path := range []string{"/Users/a b/my clone", "/tmp/x: y", "/tmp/with # hash"} {
+			out, _, err := rewriteProductRepository([]byte("product:\n  id: x\n  repository: /old\n"), path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var parsed struct {
+				Product struct {
+					Repository string `yaml:"repository"`
+				} `yaml:"product"`
+			}
+			if err := yaml.Unmarshal(out, &parsed); err != nil {
+				t.Fatalf("%q does not parse: %v", out, err)
+			}
+			if parsed.Product.Repository != path {
+				t.Errorf("read back %q, want %q (file %q)", parsed.Product.Repository, path, out)
+			}
+		}
+	})
+	t.Run("errors without a product.repository", func(t *testing.T) {
+		t.Parallel()
+		for _, in := range []string{"product:\n  id: x\n", "version: 1\n", "- a\n- b\n"} {
+			if _, _, err := rewriteProductRepository([]byte(in), "/new"); err == nil {
+				t.Errorf("rewriteProductRepository(%q) = nil error, want one", in)
+			}
+		}
+	})
 }
