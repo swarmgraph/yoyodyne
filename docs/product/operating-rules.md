@@ -25,6 +25,11 @@ revisions:
       at: 2026-11-09T03:20:33.70077Z
       reason: 'yoyodyne-ifd.437.19: records Mason''s direction of November 8, 2026 that the word ''gate'' stop being used, for both its meanings, so every role reads it as a standing rule now rather than after the printed strings are changed. It is a rule he gave; no goal changes, so the goals admit and refuse exactly the work they did before.'
       intent: consistent
+    - action: amended
+      by: product-manager
+      at: 2026-11-09T09:14:49.782929Z
+      reason: 'yoyodyne-ifd.437.19: narrows the Nov 8 rule against the word ''gate'' so it stops contradicting two things every role is also given: the stored reason a role gives for a step only the operator can take, and the approved brief and goals documents. Both are exempt only until each is reworded (the reason under 437.19, the documents under yoyodyne-v3cy). No goal changes, so the goals admit and refuse exactly the work they did before; this follows the reviewer''s report 42d9183b.'
+      intent: consistent
 approvals:
     - revision: 1
       by: product-manager
@@ -37,6 +42,10 @@ approvals:
     - revision: 3
       by: product-manager
       at: 2026-11-09T03:20:33.70077Z
+      reason: yoyodyne-ifd.437.19 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
+    - revision: 4
+      by: product-manager
+      at: 2026-11-09T09:14:49.782929Z
       reason: yoyodyne-ifd.437.19 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
 ---
 
@@ -60,4 +69,4 @@ Lead Product Manager.
 - Work on a change a run has already written and kept, such as a decided repair or continuation, or a merge being tried again, is taken first by any freed developer seat, the reliability seat and any dedicated seat included, ahead of fresh work of any priority. (the operator, 2026-10-25, recorded on yoyodyne-ifd.428.126.2.1)
 - When the intake brake trips, it summons the development manager to decide, never the operator; the operator is told and may release it. (789c052c)
 - A developer run never runs the tracker's command directly; the harness reads and writes the tracker on its behalf. (from CLAUDE.md, moved here by the item beside this one)
-- No role writes the word "gate" in anything a person reads. For a check a change must pass, name the check; for a step only a person can take, say so in those words, such as "a step only you can take" or "waiting on you". (the operator, 2026-11-08, recorded on yoyodyne-ifd.437.19)
+- No role writes the word "gate" in anything a person reads. For a check a change must pass, name the check; for a step only a person can take, say so in those words, such as "a step only you can take" or "waiting on you". Two kinds of wording are exempt until each is reworded: names the harness stores and checks, such as the fixed reason "human-gate" a role gives when only a person can take a step, which a role still writes exactly as stored; and the approved brief and goals documents, which the Lead Product Manager rewords one at a time. (the operator, 2026-11-08, recorded on yoyodyne-ifd.437.19; narrowed by the Lead Product Manager on 2026-11-09 so it no longer contradicts those)
