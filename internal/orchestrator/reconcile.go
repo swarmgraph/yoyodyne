@@ -163,6 +163,11 @@ type Reconciler struct {
 	// only to settle a run that has one, which is a run a publishing project
 	// produced; a purely local project never records one.
 	Publisher ReconcilePullRequests
+	// MergeQueues is the harness's merge queues, read for a run whose approved
+	// change was admitted to one: while its entry stands the run is waiting, and
+	// once it is gone the run is stopped saying so (mergequeuewait.go).
+	// Optional: a sweep wired without it leaves every such run waiting.
+	MergeQueues ReconcileMergeQueues
 	// Factory names the factory in the hidden line its close comments end with
 	// (forgeMark). Nil names the run's product alone.
 	Factory FactoryIdentities
@@ -587,6 +592,14 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 				state.RecoveryContinuation.RequestID)
 		}
 		return result, nil
+	}
+	// A run whose approved change waits in the harness's merge queue is the
+	// queue's to finish, and is asked about before any reading that could call
+	// it interrupted (mergequeuewait.go).
+	if waitsOnMergeQueue(state) {
+		if result, decided, err := r.settleMergeQueueWait(ctx, state); decided {
+			return result, err
+		}
 	}
 	if park, parked := r.parkNothingServes(state); parked && r.vanished(park) {
 		return r.settleVanished(ctx, state, park)
@@ -1826,7 +1839,7 @@ func (r Reconciler) completeIntegrated(ctx context.Context, state runstate.State
 	cleanup, cleanupErr := r.Worktrees.CleanupIntegrated(ctx, gitworktree.CleanupRequest{
 		Worktree:     worktreeOf(state),
 		TargetBranch: state.Integration.TargetBranch,
-		SourceCommit: state.Integration.SourceCommit,
+		SourceCommit: cleanupCommit(state),
 	})
 	// How far the cleanup got is a narrow update of the run as stored, because
 	// removing artifacts takes time in which the merge queue may record on the

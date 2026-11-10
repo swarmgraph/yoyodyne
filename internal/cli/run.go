@@ -923,7 +923,10 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		ConfigFiles:   parts.worktrees,
 		ConfigReaders: landingConfigReaders(parts.stateRoot, parts.config.Product.ID),
 		Publisher:     forge,
-		Factory:       factoryIdentities(parts),
+		// A run whose approved change waits in the harness's merge queue is read
+		// against the queue, so it is left waiting while its entry stands.
+		MergeQueues: mergeQueuesOf(parts),
+		Factory:     factoryIdentities(parts),
 		// A merge the forge still holds is read with its checks, and a red one is
 		// withdrawn before it is handed back or brought up to date.
 		Checks: forge,
@@ -973,6 +976,15 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		Reports:     reportsOf(parts),
 		RepairLimit: parts.config.Execution.RepairAttemptsBeforeReplan,
 	}
+}
+
+// mergeQueuesOf is the merge queue store where these parts have one, kept as
+// no reader rather than an interface holding nil.
+func mergeQueuesOf(parts components) orchestrator.ReconcileMergeQueues {
+	if parts.mergeQueues == nil {
+		return nil
+	}
+	return parts.mergeQueues
 }
 
 // reportsOf is the report store where these parts have one, kept as no
