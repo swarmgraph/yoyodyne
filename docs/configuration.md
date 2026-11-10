@@ -6879,8 +6879,13 @@ forge, or when it stops on something that needs a look — and a session drainin
 to restart into a new build waits for its passes like its recurring firings, and
 stops them past the drain bound — except a pass whose candidate's checks are
 running, which is let finish them, each check up to its configured
-`check_timeout`, because a candidate's checks count only whole and a stage
-stopped part-way runs every check again. Past the bound no queue starts a new
+`check_timeout`, so the check under way is not thrown away. A stage stopped
+part-way keeps the checks that had already passed, as long as the candidate's
+commit and its list of checks are unchanged, and the session that comes back
+runs only the others, the one cut off included; the cut-off check is recorded
+as cut off by the restart, not as a failure, and nothing is charged for it.
+Where the record of the stopped attempt cannot say which checks passed on that
+candidate, every check runs again and the candidate's record says why. Past the bound no queue starts a new
 check stage; the session that comes back runs it. While the session waits, its
 line names the queue, the candidate's generation, the check, and the latest
 moment that check can run to. A candidate's checks and review write to that
