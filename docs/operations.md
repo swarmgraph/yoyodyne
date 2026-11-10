@@ -629,8 +629,12 @@ A release is decided by the Lead Product Manager. Her sweep admits a release
 item titled for its version, such as `Cut v0.6.0: …`, and that item is the
 decision. Its own reviewed run does the preparation: it drafts and curates
 `docs/releases/<version>.md`, stamps the readiness result into it with
-`yoyo conformance --notes`, and lands both on `main` through review like any
-other change. What remains is the cut and the tag push, and who does them is
+`yoyo conformance --notes --from-export`, and lands both on `main` through
+review like any other change. `--from-export` is there because a developer run
+can open neither the tracker nor the harness's state: the run reads the work
+items from the tracker's export in its worktree, and the result says so. The
+cut always takes its own reading through the tracker and refuses a stamp whose
+verdict or definition that reading does not match. What remains is the cut and the tag push, and who does them is
 `approvals.releases`:
 
 ```yaml

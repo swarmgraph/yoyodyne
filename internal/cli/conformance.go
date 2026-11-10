@@ -28,8 +28,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/backlog"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/conformance"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 func runConformance(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -39,6 +43,7 @@ func runConformance(ctx context.Context, args []string, stdout, stderr io.Writer
 	definitionPath := flags.String("workflow", "", "workflow definition to run (default: the project's own copy, or the built-in one)")
 	jsonOutput := flags.Bool("json", false, "emit machine-readable JSON")
 	notes := flags.Bool("notes", false, "render the result as the Markdown section a release's notes carry")
+	fromExport := flags.Bool("from-export", false, "read the work items from the tracker's export, "+beads.ExportPath+", and keep this reading's record in a temporary directory, for a developer run that can open neither the tracker nor the harness's state")
 	positional, err := parseArguments(flags, args)
 	if err != nil {
 		return 2
@@ -67,14 +72,29 @@ func runConformance(ctx context.Context, args []string, stdout, stderr io.Writer
 	// it, and the gate says outright that nothing was judged instead of reporting
 	// a backlog with nothing wrong in it.
 	trackerUnreadable := ""
-	admitted, err := admittedWorkItems(ctx, parts.tracker())
+	var admitted []beads.WorkItem
+	if *fromExport {
+		admitted, err = exportedAdmittedWorkItems(parts.repository)
+	} else {
+		admitted, err = admittedWorkItems(ctx, parts.tracker())
+	}
 	if err != nil {
 		trackerUnreadable = err.Error()
 		admitted = nil
 	}
 	sources := conformance.Gather(parts.repository, parts.config.Product, admitted, trackerUnreadable)
+	instances := parts.store
+	if *fromExport {
+		sources.TrackerExport = beads.ExportPath
+		scratch, cleanup, err := scratchInstances(parts.config.Product.ID)
+		if err != nil {
+			return reportConformanceError(stdout, stderr, *jsonOutput, err)
+		}
+		defer cleanup()
+		instances = scratch
+	}
 
-	result, err := conformance.Assess(ctx, definition, parts.store, sources, time.Now)
+	result, err := conformance.Assess(ctx, definition, instances, sources, time.Now)
 	if err != nil {
 		return reportConformanceError(stdout, stderr, *jsonOutput, err)
 	}
@@ -93,6 +113,47 @@ func runConformance(ctx context.Context, args []string, stdout, stderr io.Writer
 		return 1
 	}
 	return 0
+}
+
+// exportedAdmittedWorkItems is admittedWorkItems read out of the tracker's
+// export instead of the tracker: the same statuses, in the backlog's order.
+//
+// It is how the release item's own developer run stamps its notes. That run's
+// sandbox refuses every bd command the store's lock, so it cannot read the
+// tracker at all, and the design gives the stamp to it all the same
+// (docs/designs/v1-harness-design.md, The release tag). What the stamp is
+// trusted for is unchanged by where it read from: the harness's cut takes a
+// fresh reading of its own, through the tracker, and refuses a stamp whose
+// verdict or definition that reading does not match.
+func exportedAdmittedWorkItems(repository string) ([]beads.WorkItem, error) {
+	items, err := beads.ReadExport(repository, backlogStatuses)
+	if err != nil {
+		return nil, err
+	}
+	backlog.Sort(items)
+	return items, nil
+}
+
+// scratchInstances is a state store for one reading taken with --from-export,
+// in a directory of its own that is removed when the command ends.
+//
+// The workflow runtime records an instance before its first check, and the
+// harness's state directory is outside what a developer run may write. The
+// record of a run's reading is the section it prints, which lands in the
+// release's notes through review, so nothing is lost by not keeping the
+// instance; the cut's own reading is recorded in the harness's state as always.
+func scratchInstances(productID domain.ProductID) (*runstate.Store, func(), error) {
+	directory, err := os.MkdirTemp("", "yoyo-conformance-")
+	if err != nil {
+		return nil, nil, fmt.Errorf("make a temporary directory for this reading's record: %w", err)
+	}
+	cleanup := func() { _ = os.RemoveAll(directory) }
+	store, err := runstate.NewStore(directory, productID)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	return store, cleanup, nil
 }
 
 // conformanceDefinition is the definition the gate runs: the one named on the
@@ -243,6 +304,13 @@ harness's own state root, so what a release was gated on can be read back rather
 than only having been printed. Nothing prunes those, and one is written per
 invocation.
 
+A developer run can open neither the tracker nor the harness's state, and the
+release item's run stamps its notes all the same. --from-export is for it: the
+work items are read from the tracker's export in the repository, .beads/issues.jsonl,
+the result says so, and the run's record is kept in a temporary directory that
+is removed when the command ends. The harness's cut always takes its own reading
+through the tracker, and refuses a stamp that reading does not match.
+
 The sequence is a workflow definition rather than code. This build ships one;
 a project that wants its own copies it to
 .yoyodyne/workflows/release-readiness.yaml and edits it there. Either way it is
@@ -253,5 +321,6 @@ Options:
   --config <path>     configuration file (default: the nearest .yoyodyne/config.yaml)
   --workflow <path>   workflow definition to run (default: the project's own copy, or the built-in one)
   --json              emit machine-readable JSON
-  --notes             render the result as the Markdown section a release's notes carry`)
+  --notes             render the result as the Markdown section a release's notes carry
+  --from-export       read the work items from the tracker's export, for a developer run`)
 }
