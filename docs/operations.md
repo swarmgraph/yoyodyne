@@ -3566,7 +3566,7 @@ recording its verdict is still hosted past the bound:
   forge outage can hold a promotion for hours, and those hours cost the
   scheduler nothing but the seat the promotion holds.
 - A run with a check running is left to finish that check, and only that
-  check: a new build never makes a check start over. The session asks the run
+  check, unless another developer slot is sitting empty meanwhile (below). The session asks the run
   to stop before its next check, and the run stops there by itself — between
   two checks, or once its last check has passed — at its checks, preserved like
   any stopped run. The wait is bounded by the running check's own configured
@@ -3592,6 +3592,21 @@ recording its verdict is still hosted past the bound:
   gets up to a minute's grace to record its verdict and move the run on to its
   review or a repair; the next look stops it there. This brief wait uses the
   ordinary loop too, so pulls and recurring tasks continue.
+
+  The wait for a running check is given up as soon as another developer slot
+  is sitting empty with work for it: a free slot while ready work waits and
+  neither the intake hold nor the operator's pause stops it starting, or a
+  slot still held by a run already stopped for this restart. Past the bound
+  the old build starts nothing new, so while it waits on the check no other
+  slot can be filled, and a check's limit can be most of an hour. So the
+  session stops the run part-way through its check instead, preserved at its
+  checks like any stopped run, and restarts at the next look; the session
+  that comes back fills the empty slot and runs that check again from its
+  start, keeping the results of the checks the run had already passed. The
+  session's line says which runs' checks were stopped and why. A free slot
+  with nothing ready for it does not count, and neither does a slot held by a
+  promotion, a document landing, or a merge queue candidate's checks, which
+  are still waited for as described here.
 - A merge queue pass whose candidate's checks are running is let finish
   them, each check up to its configured `execution.check_timeout`, and then
   stopped; a candidate's checks count only whole, so a stage stopped part-way

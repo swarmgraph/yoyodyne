@@ -1534,6 +1534,12 @@ type ScheduleDrain struct {
 	// through it; each then stopped itself before its next check. Records from
 	// sessions that waited out whole check stages name those here too.
 	ChecksWaited []string `json:"checks_waited,omitempty"`
+	// ChecksCut names the work items whose runs were being waited on for a
+	// running check past the bound and were stopped part-way through it instead,
+	// because another developer slot was sitting empty with work for it
+	// (cutCheckWaits). Each is in Stopped too; the check runs again from its
+	// start on the new build, and the checks it had passed keep their results.
+	ChecksCut []string `json:"checks_cut,omitempty"`
 	// Unreported names the work items whose runs the bound stopped and which had
 	// not reported back within stoppedRunGrace when the session restarted. The
 	// restart does not wait on them: a stopped run has no process left to wait
@@ -2882,6 +2888,23 @@ pulling:
 		// a carried-out decision took before the queue was read.
 		freeAtPoll, filledByCarryOut := max(free, 0), 0
 
+		// Past the drain bound, waiting for a running check keeps every other
+		// developer slot empty until the check ends, because nothing new is started
+		// past the bound and the session that would fill them is the one the
+		// restart brings up. So where a slot is sitting empty with work for it, the
+		// wait is given up: the runs it was for are stopped part-way through their
+		// check, and the restart follows at the next look (idleBesideCheckWaits).
+		if drain.boundReached {
+			if idle := s.idleBesideCheckWaits(ctx, &drain, pull, occupied, gone, mine, hosted, free, held || paused, claimed, claimedRead); idle > 0 {
+				if cut := s.cutCheckWaits(&schedule, &drain, hosted, mine); len(cut) > 0 {
+					session.draining(drain.record(running))
+					session.note(fmt.Sprintf("the watch session is past its drain bound with %s sitting empty with work for it, so it stopped waiting for the check running in %s and stopped %s part-way through it; it restarts into the new build as soon as nothing it hosts is still live, and the session that comes back fills the empty slot and runs that check again from its start, keeping the results of the checks already passed",
+						plural(idle, "developer slot", "developer slots"), strings.Join(cut, ", "), plural(len(cut), "run", "runs")), running)
+					continue
+				}
+			}
+		}
+
 		// A confirmed document waiting for a document landing to free is started
 		// as soon as one has, whatever the developer slots hold: it is a short
 		// reviewed run of a document a role has already written, counted against
@@ -4051,6 +4074,10 @@ func stopping(schedule Schedule) string {
 		if len(schedule.Drain.ChecksWaited) > 0 {
 			said += fmt.Sprintf("; the check running in %d run(s) was let finish rather than started over on the new build, and each run stopped before its next check, keeping the results of the checks it had passed: %s",
 				len(schedule.Drain.ChecksWaited), strings.Join(schedule.Drain.ChecksWaited, ", "))
+		}
+		if len(schedule.Drain.ChecksCut) > 0 {
+			said += fmt.Sprintf("; the check running in %d run(s) was stopped part-way rather than waited for, because a developer slot was sitting empty with work for it, so that check runs again from its start on the new build: %s",
+				len(schedule.Drain.ChecksCut), strings.Join(schedule.Drain.ChecksCut, ", "))
 		}
 		if len(schedule.Drain.Landings) > 0 {
 			said += fmt.Sprintf("; the landing checks of %d run(s) that had already landed were stopped, so each landing is recorded as unverified: %s",
@@ -7316,6 +7343,115 @@ func (s Scheduler) waitForRunningCheck(state runstate.State, index int, landings
 	return runstate.WatchCheckWait{RunID: state.RunID, WorkItemID: state.WorkItemID, Check: check, Until: until}, true
 }
 
+// idleBesideCheckWaits is how many developer slots are sitting empty with work
+// for them while the session, past its drain bound, waits for a check running
+// in one of its hosted runs. It is nothing where no such wait is going on.
+//
+// Two kinds of slot count. One is a free slot while ready work waits in the
+// queue and nothing — the intake hold or the operator's pause — stops it
+// being started; a free slot with nothing ready is not kept empty by the wait,
+// so it does not count. The other is a slot still held by a run stopped for
+// this restart, by this session or one before it, and no longer live here:
+// nothing runs in it, and only the session the restart brings up can continue
+// it, so it is as idle as a free one.
+//
+// The wait on a check exists so the check is not started over on the new
+// build, which saves at most that check's run time; a check's limit can be
+// most of an hour, and while it runs no other slot can be filled. That trade
+// is the wrong way round whenever a slot is empty with work for it, which is
+// why this gives the wait up rather than starting work in the old build: a run
+// the old build started past its bound would only be stopped at the next look.
+//
+// A run at its promotion, a document landing, and a merge queue candidate's
+// check stage are still waited for: a promotion holds the target branch's
+// lease, a document landing is never cut off part-way, and a queue candidate's
+// checks count only whole, so stopping them would run every check in the stage
+// again.
+func (s Scheduler) idleBesideCheckWaits(ctx context.Context, drain *redeployDrain, pull Pull, occupied map[string]runstate.State, gone map[string]bool, mine map[string]int, hosted map[int]context.CancelCauseFunc, free int, closed bool, claimed []beads.WorkItem, claimedRead bool) int {
+	waiting := false
+	for _, wait := range drain.checkWaits {
+		if wait.Queue == "" && wait.WorkItemID != "" {
+			waiting = true
+			break
+		}
+	}
+	if !waiting {
+		return 0
+	}
+	idle := 0
+	for id, state := range occupied {
+		if gone[id] || state.RedeployStop == nil {
+			continue
+		}
+		if index, ours := mine[id]; ours {
+			if _, live := hosted[index]; live {
+				continue
+			}
+		}
+		idle++
+	}
+	if free > 0 && !closed {
+		// A queue that cannot be read is not evidence of work waiting, so the
+		// wait goes on and the next look asks again. An entry already in flight
+		// is not work for a free slot, whatever the queue says of it.
+		if read, err := pull.queue(ctx, claimed, claimedRead); err == nil {
+			for _, entry := range read.queue.Entries {
+				if _, inFlight := occupied[entry.ID]; entry.Ready && !inFlight {
+					idle += free
+					break
+				}
+			}
+		}
+	}
+	return idle
+}
+
+// cutCheckWaits stops the hosted runs the session was waiting on for a running
+// check, part-way through it, and reports their work items. Each is stopped as
+// any run is at the bound: cancelled with the drain as its cause, so it
+// records a stop at its checks the session that comes back continues from,
+// with the checks it passed kept and the one cut short run again from its
+// start. Waits on merge queue candidates' checks are left as they were.
+func (s Scheduler) cutCheckWaits(schedule *Schedule, drain *redeployDrain, hosted map[int]context.CancelCauseFunc, mine map[string]int) []string {
+	stop := RedeployDrain{At: s.now(), Bound: drain.limit, SessionID: s.SessionID}
+	var cut []string
+	var kept []runstate.WatchCheckWait
+	for _, wait := range drain.checkWaits {
+		if wait.Queue != "" || wait.WorkItemID == "" {
+			kept = append(kept, wait)
+			continue
+		}
+		index, ours := mine[wait.WorkItemID]
+		if !ours {
+			continue
+		}
+		cancel, live := hosted[index]
+		if !live {
+			continue
+		}
+		cancel(stop)
+		delete(hosted, index)
+		cut = append(cut, wait.WorkItemID)
+	}
+	drain.checkWaits = kept
+	if len(cut) == 0 {
+		return nil
+	}
+	slices.Sort(cut)
+	schedule.Drain.ChecksWaited = slices.DeleteFunc(schedule.Drain.ChecksWaited, func(id string) bool { return slices.Contains(cut, id) })
+	for _, id := range cut {
+		if !slices.Contains(schedule.Drain.Stopped, id) {
+			schedule.Drain.Stopped = append(schedule.Drain.Stopped, id)
+		}
+		if !slices.Contains(schedule.Drain.ChecksCut, id) {
+			schedule.Drain.ChecksCut = append(schedule.Drain.ChecksCut, id)
+		}
+	}
+	slices.Sort(schedule.Drain.Stopped)
+	slices.Sort(schedule.Drain.ChecksCut)
+	return cut
+}
+
 // checkYieldGrace is how long past a running check's own limit a session waits
 // for the run to stop before its next check. A check that reaches its limit is
 // killed with every process it started and recorded within moments, so this is
@@ -8420,6 +8556,10 @@ func (s Schedule) Render() string {
 		if len(s.Drain.ChecksWaited) > 0 {
 			fmt.Fprintf(&rendered, "the check running in %d run(s) was let finish rather than started over on the new build, and each run stopped before its next check: %s\n",
 				len(s.Drain.ChecksWaited), strings.Join(s.Drain.ChecksWaited, ", "))
+		}
+		if len(s.Drain.ChecksCut) > 0 {
+			fmt.Fprintf(&rendered, "the check running in %d run(s) was stopped part-way rather than waited for, because a developer slot was sitting empty with work for it: %s\n",
+				len(s.Drain.ChecksCut), strings.Join(s.Drain.ChecksCut, ", "))
 		}
 		if s.Drain.BoundReached && len(s.Drain.Landings) > 0 {
 			fmt.Fprintf(&rendered, "the landing checks of %d run(s) that had already landed were stopped at the drain bound, so each landing is recorded as unverified: %s\n",

@@ -4695,7 +4695,12 @@ finish that check — up to
 [`check_timeout`](#what-a-whole-check-stage-may-cost) as configured, or the
 shorter limit the check was given, however far the machine's load has scaled
 it or `check_stage_timeout` — and stops before its next check, so a new build
-never makes a check start over; a run waiting for a heavy check's place or
+does not make a check start over. The exception is a developer slot sitting
+empty meanwhile: a free one while ready work waits, or one still held by a run
+stopped for the restart. Then the run is stopped part-way through its check and
+the session restarts at its next look, so the new build fills that slot and
+runs the check again; see
+[Operations](operations.md#a-session-draining-to-restart-into-a-deployed-build). A run waiting for a heavy check's place or
 between checks is stopped at the bound. Every check that
 passed before the stop keeps its result, so the session that comes back runs
 only the checks that had not finished — and only when the change is exactly the
