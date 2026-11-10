@@ -191,3 +191,44 @@ func TestRecoverableReadsWrappedErrorsAndTransportErrnos(t *testing.T) {
 		t.Error("a missing file is not a transport failure")
 	}
 }
+
+// The words ssh printed when an approved change could not read where GitHub's
+// main stood: the connection was never opened, and macOS gave no reason for it.
+// It is a network that is not there, so it is waited out, and it is the part of
+// that class in which nothing reached GitHub.
+func TestSSHFailingToConnectIsRecoverableAndUnreachable(t *testing.T) {
+	t.Parallel()
+	for _, detail := range []string{
+		"resolve main on origin failed with exit code 128: ssh: connect to host ssh.github.com port 443: Undefined error: 0\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.",
+		"ssh: connect to host github.com port 22: Operation timed out",
+		"fatal: unable to access 'https://github.com/o/r/': Could not resolve host: github.com",
+		"ssh: connect to host ssh.github.com port 443: Network is unreachable",
+	} {
+		failure := errors.New(detail)
+		if !Recoverable(failure) {
+			t.Errorf("Recoverable(%q) = false, want a network that is not there waited out", detail)
+		}
+		if !Unreachable(failure) {
+			t.Errorf("Unreachable(%q) = false, want a connection that was never made", detail)
+		}
+	}
+	if !Unreachable(fmt.Errorf("dial: %w", syscall.ENETUNREACH)) {
+		t.Error("Unreachable(ENETUNREACH) = false, want the errno read")
+	}
+	// A connection that dropped after it was made may have carried the request,
+	// and a refused key or a refused merge is an answer: none is unreachable.
+	for _, detail := range []string{
+		"merge pull request 7: OpenSSL SSL_read: Connection reset by peer, errno 54",
+		"fetch: the remote end hung up unexpectedly",
+		"git@github.com: Permission denied (publickey).\nssh: connect to host github.com port 22: Connection refused",
+		"GraphQL: Pull request is not mergeable: the merge commit cannot be cleanly created",
+		"",
+	} {
+		if Unreachable(errors.New(detail)) {
+			t.Errorf("Unreachable(%q) = true, want false", detail)
+		}
+	}
+	if Unreachable(nil) {
+		t.Error("Unreachable(nil) = true")
+	}
+}
