@@ -368,7 +368,10 @@ type Sources struct {
 	// instance that has never completed a pass is measured from.
 	ProgramManagers []ProgramManagerInstance
 	// MergeQueues is the product's merge queues; nil reads none.
-	MergeQueues     MergeQueues
+	MergeQueues MergeQueues
+	// MCPCalls is the record of the MCP calls the harness made, counted with no
+	// content (mcpcalls.go); nil reads none.
+	MCPCalls        MCPCallRecord
 	RestartRequests RestartRequests
 	LaneReports     LaneReports
 	Passes          Passes
@@ -935,6 +938,11 @@ type Standing struct {
 	MergeQueues        []MergeQueueStanding `json:"merge_queues,omitempty"`
 	MergeQueuesProblem string               `json:"merge_queues_problem,omitempty"`
 
+	// MCPCalls is the MCP calls of the last day, by tool and outcome, with no
+	// content; nil where the product has made none. See mcpcalls.go.
+	MCPCalls        *MCPCalls `json:"mcp_calls,omitempty"`
+	MCPCallsProblem string    `json:"mcp_calls_problem,omitempty"`
+
 	// Titles is this reading's one listing of the tracker, which the rendered
 	// lines show every work item they name against. It is nil where no tracker
 	// was wired, and the unreadable reading where the tracker could not be
@@ -1232,6 +1240,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	needs = append(needs, laneHumanBlockAttention(standing.ProgramManagers)...)
 	standing.ConversationPasses, standing.ConversationPassesProblem = ReadConversationPasses(sources)
 	standing.MergeQueues, standing.MergeQueuesProblem = ReadMergeQueues(sources.MergeQueues)
+	standing.MCPCalls, standing.MCPCallsProblem = ReadMCPCalls(sources.MCPCalls, now)
 	needs = append(needs, standing.Services.Attention()...)
 	needsProblem = joinProblems(needsProblem, standing.ServicesProblem)
 	// A running part whose build cannot read a key the configuration now

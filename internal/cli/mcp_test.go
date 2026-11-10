@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/mcpcall"
 	"github.com/mason-bryant/yoyodyne/internal/mcpcredential"
 )
 
@@ -176,5 +178,126 @@ func TestConfigShowReportsEachAgentsMCPTools(t *testing.T) {
 	stdout, _, _ = runCLI(t, "config", "show", "--json", "--config", writeConfig(t, validConfig))
 	if strings.Contains(stdout, `"mcp`) {
 		t.Fatalf("config show --json with no mcp section mentions MCP:\n%s", stdout)
+	}
+}
+
+// writeMCPCalls writes calls into the product's record as the call path writes
+// them: one settled line each, in a file of one process's own.
+func writeMCPCalls(t *testing.T, stateRoot string, calls ...mcpcall.Record) {
+	t.Helper()
+	record, err := mcpcall.NewRecords(stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(record.Directory(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var lines []byte
+	for _, call := range calls {
+		call.SchemaVersion, call.ProductID, call.Phase, call.PID = mcpcall.RecordSchemaVersion, "yoyodyne", mcpcall.PhaseSettled, 4242
+		encoded, err := json.Marshal(call)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines = append(append(lines, encoded...), '\n')
+	}
+	if err := os.WriteFile(filepath.Join(record.Directory(), "20261110-4242.jsonl"), lines, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// mcpCallsWithContent are three calls whose arguments, reasons and results
+// carry words a listing must never print.
+func mcpCallsWithContent() []mcpcall.Record {
+	started := time.Now().Add(-time.Hour).UTC()
+	return []mcpcall.Record{
+		{Entry: "e-search", Scope: "conversation:c1/pm", StartedAt: started, EndedAt: started.Add(time.Second),
+			Caller: mcpcall.CallerRecord{Kind: mcpcall.CallerConversation, Role: domain.RoleProductManager, Agent: "pm", Conversation: "c1", Turn: 3},
+			Server: "mail", Tool: "mail.search", Class: "read", Arguments: json.RawMessage(`{"query":"PRIVATE-ARGUMENT"}`), Why: "PRIVATE-WHY",
+			Outcome: mcpcall.OutcomePerformed, Result: "PRIVATE-RESULT", ResultBytes: 14, ResultDigest: "sha256:abc", Tries: 1},
+		{Entry: "e-send", Scope: "conversation:c1/pm", StartedAt: started.Add(time.Minute),
+			Caller: mcpcall.CallerRecord{Kind: mcpcall.CallerConversation, Role: domain.RoleProductManager, Agent: "pm", Conversation: "c1", Turn: 4},
+			Server: "mail", Tool: "mail.send", Class: "act", ID: "a1", Arguments: json.RawMessage(`{"to":"PRIVATE-ARGUMENT"}`),
+			Outcome: mcpcall.OutcomeUnknown, Reason: "the server stopped answering; whether the act happened is not known"},
+		{Entry: "e-refused", Scope: "run:r1", StartedAt: started.Add(2 * time.Minute),
+			Caller: mcpcall.CallerRecord{Kind: mcpcall.CallerDeveloper, Role: domain.RoleDeveloper, Agent: "developer", Run: "r1", Attempt: 1},
+			Tool:   "mail.delete", Outcome: mcpcall.OutcomeRefused, Refusal: mcpcall.RefusedNotOnList},
+	}
+}
+
+// `yoyo mcp calls` lists who asked for what and how it ended, with no
+// argument and no result; --entry prints one call whole.
+func TestMCPCallsListsTheRecordWithoutContent(t *testing.T) {
+	stateRoot := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
+	t.Setenv(execution.AgentRoleVariable, "")
+	t.Setenv("TZ", "America/Los_Angeles")
+	configPath := writeConfig(t, mcpCLIConfig)
+
+	stdout, stderr, code := runCLI(t, "mcp", "calls", "--config", configPath)
+	if code != 0 || !strings.Contains(stdout, "has made no MCP calls") {
+		t.Fatalf("mcp calls with no record: code %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+
+	writeMCPCalls(t, stateRoot, mcpCallsWithContent()...)
+	stdout, stderr, code = runCLI(t, "mcp", "calls", "--config", configPath)
+	if code != 0 {
+		t.Fatalf("mcp calls: code %d, stderr %q", code, stderr)
+	}
+	for _, want := range []string{
+		"pm (product-manager) in conversation c1, turn 3 asked for mail.search (read), performed, 14 bytes back  [entry e-search]",
+		`asked for mail.send (act), id "a1", outcome not known: it may have happened`,
+		`developer (developer) in run r1, attempt 1 asked for "mail.delete", which is not on the caller's list, refused (not_on_list)`,
+		"PST",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("mcp calls does not say %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "PRIVATE") {
+		t.Fatalf("mcp calls printed a call's content:\n%s", stdout)
+	}
+
+	stdout, _, _ = runCLI(t, "mcp", "calls", "--unknown", "--config", configPath)
+	if strings.Count(stdout, "[entry ") != 1 || !strings.Contains(stdout, "e-send") {
+		t.Fatalf("mcp calls --unknown:\n%s", stdout)
+	}
+	stdout, _, _ = runCLI(t, "mcp", "calls", "--tool", "mail.search", "--config", configPath)
+	if strings.Count(stdout, "[entry ") != 1 || !strings.Contains(stdout, "e-search") {
+		t.Fatalf("mcp calls --tool mail.search:\n%s", stdout)
+	}
+
+	stdout, stderr, code = runCLI(t, "mcp", "calls", "--entry", "e-search", "--config", configPath)
+	if code != 0 || !strings.Contains(stdout, "PRIVATE-RESULT") || !strings.Contains(stdout, "PRIVATE-ARGUMENT") || !strings.Contains(stdout, "why it was asked: PRIVATE-WHY") {
+		t.Fatalf("mcp calls --entry: code %d, stdout %q, stderr %q; want the call whole", code, stdout, stderr)
+	}
+	_, stderr, code = runCLI(t, "mcp", "calls", "--entry", "e-none", "--config", configPath)
+	if code != 1 || !strings.Contains(stderr, `no MCP call with the entry "e-none"`) {
+		t.Fatalf("mcp calls --entry e-none: code %d, stderr %q", code, stderr)
+	}
+	stdout, _, code = runCLI(t, "mcp", "calls", "--json", "--config", configPath)
+	if code != 0 || strings.Count(stdout, "\n") != 3 || !strings.Contains(stdout, "PRIVATE-RESULT") {
+		t.Fatalf("mcp calls --json: code %d:\n%s", code, stdout)
+	}
+}
+
+// What a server returned is the asking agent's alone, so an agent's process is
+// refused the two forms that print it, and still gets the list.
+func TestMCPCallsContentIsRefusedToAnAgentsShell(t *testing.T) {
+	stateRoot := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
+	t.Setenv(execution.AgentRoleVariable, string(domain.RoleDeveloper))
+	configPath := writeConfig(t, mcpCLIConfig)
+	writeMCPCalls(t, stateRoot, mcpCallsWithContent()...)
+
+	for _, args := range [][]string{{"--entry", "e-search"}, {"--json"}} {
+		stdout, stderr, code := runCLI(t, append([]string{"mcp", "calls", "--config", configPath}, args...)...)
+		if code != 1 || strings.Contains(stdout, "PRIVATE") || !strings.Contains(stderr, "refused from a process the harness launched for the developer") {
+			t.Fatalf("mcp calls %v as the developer: code %d, stdout %q, stderr %q; want it refused", args, code, stdout, stderr)
+		}
+	}
+	stdout, _, code := runCLI(t, "mcp", "calls", "--config", configPath)
+	if code != 0 || strings.Count(stdout, "[entry ") != 3 || strings.Contains(stdout, "PRIVATE") {
+		t.Fatalf("mcp calls as the developer: code %d:\n%s", code, stdout)
 	}
 }
