@@ -1636,6 +1636,27 @@ trailing slash marking a directory. A directory asked for as a file, a file
 asked for as a directory, and a file that is not text are each refused with the
 reason, and the refusal is evidence the role is told rather than silence.
 
+**A project with a companion intent repository is read there too.** Where the
+project keeps its governed documents in a
+[companion intent repository](designs/machine-home.md#the-companion-intent-repository),
+a request may add `"repository": "intent"` to read, list, or search there
+instead. The harness resolves the commit that repository's target branch — the
+branch it has checked out — names, once per block, and reads every such path
+out of that commit's tree; the intent repository's working tree is never read,
+just as the project's is not. The read is recorded and shown like any other,
+naming the intent repository, its branch, and its commit:
+
+```text
+[repository] 1 path(s) read at a recorded commit
+    read docs/designs/sums.md in the intent repository at 8f1c0a2e9b3d on main — 412 bytes, read 2026-11-09T10:30:00Z
+```
+
+A request naming no repository, or `"repository": "project"`, reads the
+project's repository exactly as before. Where the intent repository's branch
+cannot be named — its `HEAD` is detached — or the project keeps its intent in
+its own repository, each request naming `intent` is refused with the reason,
+and the project's reads beside it in the block are still made.
+
 **The program manager may also search.** A third action, `search`, takes a
 `pattern`, an optional `"regexp": true` that makes the pattern a regular
 expression in Go's syntax rather than a literal string, and an optional `path`

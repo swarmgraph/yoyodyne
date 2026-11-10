@@ -249,3 +249,110 @@ func git(t *testing.T, repository string, args ...string) {
 		t.Fatalf("git %v error = %v: %s", args, err, output)
 	}
 }
+
+// The companion intent repository is read at the commit its target branch
+// names: an edit in its working tree and a file nobody committed are never what
+// a role is shown, and the result and its rendering say which repository and
+// branch answered.
+func TestReaderReadsTheCompanionIntentRepositoryAtItsTargetBranch(t *testing.T) {
+	t.Parallel()
+
+	project := newRepository(t, map[string]string{"README.md": "the project\n"})
+	intent := newRepository(t, map[string]string{"docs/product/brief.md": "committed brief\n"})
+	intentHead := revParse(t, intent)
+	if err := os.WriteFile(filepath.Join(intent, "docs/product/brief.md"), []byte("uncommitted edit\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(intent, "docs/product/draft.md"), []byte("never committed\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	branchOutput, err := exec.Command("git", "-C", intent, "symbolic-ref", "--short", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("git symbolic-ref error = %v", err)
+	}
+	branch := strings.TrimSpace(string(branchOutput))
+
+	reader := Reader{Process: execution.OSProcessRunner{}, Directory: project, IntentDirectory: intent, Clock: fixedClock{}}
+	results, err := reader.Read(context.Background(), []Request{
+		{Action: ActionRead, Path: "docs/product/brief.md", Repository: RepositoryIntent},
+		{Action: ActionList, Path: "docs/product", Repository: RepositoryIntent},
+		{Action: ActionRead, Path: "README.md"},
+		{Action: ActionRead, Path: "docs/product/brief.md"},
+	})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	read, list, projectRead, missing := results[0], results[1], results[2], results[3]
+	if read.Problem != "" || strings.TrimSpace(read.Content) != "committed brief" {
+		t.Fatalf("intent read = %#v, want the committed text", read)
+	}
+	if read.Commit != intentHead || read.Repository != RepositoryIntent || read.Branch != branch {
+		t.Fatalf("intent read = %#v, want commit %s of the intent repository on %s", read, intentHead, branch)
+	}
+	if list.Problem != "" || len(list.Entries) != 1 || list.Entries[0] != "brief.md" {
+		t.Fatalf("intent list = %#v, want brief.md and not the untracked draft", list)
+	}
+	if projectRead.Problem != "" || projectRead.Commit != revParse(t, project) || projectRead.Repository != "" || projectRead.Branch != "" {
+		t.Fatalf("project read = %#v", projectRead)
+	}
+	if missing.Problem == "" || !strings.Contains(missing.Problem, "no docs/product/brief.md in the tree") {
+		t.Fatalf("project read of an intent path = %#v, want it refused", missing)
+	}
+	rendered := Render(results, AsEvidence)
+	if want := "in the intent repository at " + intentHead[:12] + " on " + branch; !strings.Contains(rendered, want) {
+		t.Fatalf("Render() = %q, want it to contain %q", rendered, want)
+	}
+	if !strings.Contains(read.Describe(), "in the intent repository at "+intentHead[:12]+" on "+branch) {
+		t.Fatalf("Describe() = %q", read.Describe())
+	}
+	if strings.Contains(projectRead.Describe(), "intent") {
+		t.Fatalf("a project read describes itself as %q", projectRead.Describe())
+	}
+}
+
+// A project that keeps its intent in its own repository refuses a request naming
+// the intent repository, as a result, and the project read beside it succeeds.
+func TestReaderRefusesTheIntentRepositoryWhereThereIsNone(t *testing.T) {
+	t.Parallel()
+
+	project := newRepository(t, map[string]string{"README.md": "the project\n"})
+	reader := Reader{Process: execution.OSProcessRunner{}, Directory: project, Clock: fixedClock{}}
+	results, err := reader.Read(context.Background(), []Request{
+		{Action: ActionRead, Path: "README.md", Repository: RepositoryIntent},
+		{Action: ActionRead, Path: "README.md"},
+	})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if !strings.Contains(results[0].Problem, "keeps its intent in its own repository") || results[0].Content != "" || results[0].Repository != RepositoryIntent {
+		t.Fatalf("intent read = %#v, want a refusal", results[0])
+	}
+	if results[1].Problem != "" || results[1].Content == "" || results[1].Commit != revParse(t, project) {
+		t.Fatalf("project read = %#v", results[1])
+	}
+}
+
+// An intent repository with no branch checked out names no target branch, so
+// nothing is read from it, and the project's reads are unaffected.
+func TestReaderReadsNothingFromADetachedIntentRepository(t *testing.T) {
+	t.Parallel()
+
+	project := newRepository(t, map[string]string{"README.md": "the project\n"})
+	intent := newRepository(t, map[string]string{"docs/product/brief.md": "committed brief\n"})
+	git(t, intent, "checkout", "-q", "--detach")
+
+	reader := Reader{Process: execution.OSProcessRunner{}, Directory: project, IntentDirectory: intent, Clock: fixedClock{}}
+	results, err := reader.Read(context.Background(), []Request{
+		{Action: ActionRead, Path: "docs/product/brief.md", Repository: RepositoryIntent},
+		{Action: ActionRead, Path: "README.md"},
+	})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if !strings.Contains(results[0].Problem, "detached") || results[0].Content != "" {
+		t.Fatalf("intent read = %#v, want a refusal saying the HEAD is detached", results[0])
+	}
+	if results[1].Problem != "" || results[1].Content == "" {
+		t.Fatalf("project read = %#v", results[1])
+	}
+}
