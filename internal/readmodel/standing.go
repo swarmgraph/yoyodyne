@@ -649,6 +649,10 @@ type WorkItemRef struct {
 	WaitReason              string                `json:"wait_reason,omitempty"`
 	SchedulingWaitProlonged bool                  `json:"scheduling_wait_prolonged,omitempty"`
 	SchedulingWaitWhose     string                `json:"scheduling_wait_whose,omitempty"`
+	// PlacedFirst is the line saying the Lead Product Manager placed this item
+	// first among work of its priority, in the words every listing of the queue
+	// uses, and empty for an item with no placement.
+	PlacedFirst string `json:"placed_first,omitempty"`
 }
 
 // Standing is where the harness stands, in the four lines and nothing else.

@@ -5961,7 +5961,8 @@ Recurring passes over conversation work (1):
 ```
 
 A pass is handed that work in the Lead Product Manager's order, highest
-priority first and then oldest admitted, so the first item is the one the role
+priority first, then the items she placed first among their priority, and then
+oldest admitted, so the first item is the one the role
 was asked to reach first. The line names it, says whether the last pass that
 answered with its account took it, and gives the role's reason where it did
 not, or `no reason given`. Where a later firing of the task gave no account —

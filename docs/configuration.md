@@ -4141,7 +4141,8 @@ The order a freed dedicated slot takes work in is:
 1. work on a change a run has already written and kept, carrying its label;
 2. such work carrying any other label, or none;
 3. fresh ready work carrying its label, in the Lead Product Manager's order —
-   highest priority first, then oldest admitted;
+   highest priority first, then, within one priority, the items she placed
+   first (earliest placement first), then oldest admitted;
 4. the ordinary order every other slot uses.
 
 The first two are the operating rule that work on a change a run already wrote
@@ -9256,8 +9257,9 @@ says what the pass is handed and how a violation is corrected.
 
 Every recurring task turn also receives the live work assigned to that role's
 conversation, with each item's priority shown. The harness lists it in backlog
-order: highest priority first (P0 before P1), then oldest admitted within each
-priority, using the same order as a developer pull. Parked and finished items
+order: highest priority first (P0 before P1), then within each priority the
+items the Lead Product Manager placed first, then oldest admitted, using the
+same order as a developer pull. Parked and finished items
 are excluded. This list is read again for each turn, so an architect's pass
 receives a newer P0 design before an older P2 without relying on the prompt to
 reorder an old briefing. The role reads each item in full before deciding.
