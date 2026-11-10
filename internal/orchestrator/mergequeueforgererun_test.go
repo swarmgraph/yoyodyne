@@ -203,3 +203,60 @@ func TestAQueueRestartAfterAskingNeverAsksGitHubASecondTime(t *testing.T) {
 		t.Errorf("handback does not say the request was cut off:\n%s", reason)
 	}
 }
+
+// githubQueueDrop is GitHub's own merge queue having removed the candidate's
+// pull request because the build failed on its merge commit, in a test the
+// candidate does not touch.
+func githubQueueDrop(f *promotionFixture, id int64) {
+	f.forge.Forge.Removal = publish.QueueRemoval{Events: []publish.QueueEvent{{Kind: "RemovedFromMergeQueueEvent"}}}
+	f.forge.Forge.QueuedMerge = publish.QueuedMergeChecks{
+		Commit:  "5505b7794135000000000000000000000000beef",
+		Failing: []publish.FailedCheck{{Name: "build", Paths: []string{".github"}, ID: id, Conclusion: "failure"}},
+	}
+	f.forge.DropQueuedMerge()
+}
+
+// A candidate GitHub's own merge queue dropped only for an untouched test has
+// its merge asked for once more, recorded on the attempt first: a pass lands
+// it, and a second drop withdraws it naming the test and not blaming the change.
+func TestAQueueCandidateGitHubsQueueDroppedForAnUntouchedTestIsQueuedOnceMore(t *testing.T) {
+	t.Parallel()
+
+	for _, again := range []bool{false, true} {
+		f, withdrawer, repair, checks := heldChecksFixture(t)
+		checks.reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 4}
+		f.promoter.Drops = f.forge.Forge
+		githubQueueDrop(f, 8001)
+
+		pass := f.pass(queueKey)
+		if pass.Outcome != runstate.MergeQueuePassWaiting || !strings.Contains(pass.Says, "queued the merge once more") {
+			t.Fatalf("again=%t: Pass() = %#v, want the merge queued once more", again, pass)
+		}
+		if len(f.forge.MergeRequests()) != 2 || !f.forge.HoldsQueuedMerge() {
+			t.Fatalf("again=%t: merge requests = %d, queued = %t; want one more, held by GitHub", again, len(f.forge.MergeRequests()), f.forge.HoldsQueuedMerge())
+		}
+		attempts := f.landing().Attempts
+		if rerun := attempts[len(attempts)-1].ForgeRerun; rerun == nil || !rerun.Asked() || rerun.CheckRuns[0] != 8001 {
+			t.Fatalf("again=%t: further run = %#v, want it recorded and accepted", again, rerun)
+		}
+		if !again {
+			f.forge.PerformQueuedMerge(t)
+			if landed := f.pass(queueKey); landed.Outcome != runstate.MergeQueuePassLanded {
+				t.Fatalf("Pass() = %#v, want the landing to go ahead", landed)
+			}
+			continue
+		}
+		githubQueueDrop(f, 8002)
+		stopped := f.pass(queueKey)
+		if stopped.Outcome != runstate.MergeQueuePassHandedBack || len(f.forge.MergeRequests()) != 2 || repair.count() != 1 {
+			t.Fatalf("second drop: Pass() = %#v, merge requests %d, handed back %d; want it handed back with nothing asked again", stopped, len(f.forge.MergeRequests()), repair.count())
+		}
+		_ = withdrawer
+		reason := f.landing().Handback.Reason
+		for _, want := range []string{"TestTheTestRunsDecidedRepairTakesTheHoldsStartAndItsLandingLiftsTheHold", "it failed again", "not put down to this change"} {
+			if !strings.Contains(reason, want) {
+				t.Errorf("handback does not say %q:\n%s", want, reason)
+			}
+		}
+	}
+}

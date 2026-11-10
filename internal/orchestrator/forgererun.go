@@ -22,6 +22,14 @@ package orchestrator
 // again, what happened before happens, and the stop says which tests failed and
 // whether the change touched them.
 //
+// GitHub's own merge queue is the other way such a merge fails: it builds a
+// merge commit of its own, runs the checks on it, and drops the request when
+// they fail, though the request's head passes. Running the failed job again on
+// that merge commit would not put the request back in the queue, so where the
+// failure there is confined to untouched tests the merge is queued once more
+// instead (readQueueDrop, and requeueUntouchedDrop in queuedchecks.go and
+// mergequeuepromotion.go), once per head and recorded first.
+//
 // Test names are read from Go's test output, which is what this repository's
 // checks print; a check printing anything else names no test, and its failure is
 // an ordinary one. The project-declared reading of a check's failing tests, and
@@ -315,4 +323,111 @@ func forgeFailureWhose(checks runstate.PullRequestChecks) string {
 		}
 	}
 	return " Whether this change touched what failed could not be told from GitHub's log."
+}
+
+// queueDrop is what GitHub's own merge queue says about a request it removed:
+// the checks it ran on the merge commit it built, which tests they name, and
+// whether the failure is confined to tests the change does not touch.
+type queueDrop struct {
+	// Removed is GitHub's timeline showing the request taken out of its merge
+	// queue, with the queue's merge commit found and failing. Nothing else
+	// about the drop is read where it is false.
+	Removed bool
+	Checks  runstate.PullRequestChecks
+	// Untouched is the failure confined to untouched tests, every failing check
+	// naming a job GitHub can say ran.
+	Untouched bool
+}
+
+// readQueueDrop reads why GitHub's own merge queue dropped a request, and
+// judges the failing tests on the queue's merge commit against the change's
+// paths. changedUnknown says why those paths are not known whole.
+//
+// Running the failed job again on the queue's merge commit would not put the
+// request back in the queue, so the further run a drop gets is the merge
+// queued again: GitHub builds a fresh merge commit and runs its checks once
+// more on it.
+func readQueueDrop(ctx context.Context, drops ReconcileDrops, logs ForgeJobLogTail, number int, changed []string, changedUnknown string, now time.Time) queueDrop {
+	if drops == nil || logs == nil {
+		return queueDrop{}
+	}
+	removal, err := drops.QueueRemoval(ctx, number)
+	if err != nil || !removal.RemovedFromQueue() {
+		return queueDrop{}
+	}
+	read, err := drops.QueuedMergeChecks(ctx, number)
+	if err != nil || !read.Found() || len(read.Failing) == 0 {
+		return queueDrop{}
+	}
+	checks := recordedChecks(publish.CheckReading{HeadCommit: read.Commit, Failing: read.Failing, Files: changed}, now)
+	judgment := judgeForgeTests(ctx, logs, checks.Failing, changed, changedUnknown)
+	checks.Tests = &judgment
+	drop := queueDrop{Removed: true, Checks: checks}
+	drop.Untouched = untouchedRerunDue(checks, judgment)
+	return drop
+}
+
+// newQueueRerun is the record of a merge queued again after GitHub's merge
+// queue dropped it, written before the merge is asked for. It names the head
+// the request carries, which is what one further run per commit is counted
+// on, and the failed check runs on the queue's merge commit.
+func newQueueRerun(head string, drop queueDrop, now time.Time) runstate.ForgeChecksRerun {
+	rerun := newUntouchedRerun(drop.Checks, *drop.Checks.Tests, now)
+	rerun.HeadCommit = head
+	return rerun
+}
+
+// queueDropSays is the sentence a stop over a merge GitHub's merge queue
+// dropped carries: which tests failed on the queue's merge commit, whether
+// the change touched them, and what became of the one further run.
+func queueDropSays(drop queueDrop, earlier *runstate.ForgeChecksRerun, head string) string {
+	if !drop.Removed {
+		return ""
+	}
+	said := fmt.Sprintf(" GitHub's merge queue failed it on its merge commit %s: %s.", shortCommit(drop.Checks.HeadCommit), drop.Checks.Tests.Describe())
+	switch {
+	case earlier != nil && earlier.HeadCommit == head && earlier.Asked():
+		said += " The harness had already queued the merge once more for this commit because only tests the change does not touch failed, and it failed again, so the failure is not put down to this change and nothing more is asked of GitHub."
+	case earlier != nil && earlier.HeadCommit == head:
+		said += " The harness's one further run for this commit was not made: " + nonEmpty(earlier.Refused, "the request was cut off before GitHub answered") + "."
+	case drop.Untouched:
+		said += " The failing tests are ones this change does not touch, so the failure is not put down to this change."
+	}
+	return said
+}
+
+// stepLogMemo reads each failing job's failed step once for a whole settlement
+// of a dropped merge: the judgment of its failing tests reads it through
+// JobLogTail, and the account the drop carries onto the item through
+// FailedStep, and both are the same read of GitHub's log.
+type stepLogMemo struct {
+	logs  ReconcileJobLogs
+	steps map[int64]stepLogRead
+}
+
+type stepLogRead struct {
+	failure publish.JobFailure
+	err     error
+}
+
+func newStepLogMemo(logs ReconcileJobLogs) *stepLogMemo {
+	return &stepLogMemo{logs: logs, steps: map[int64]stepLogRead{}}
+}
+
+func (m *stepLogMemo) FailedStep(ctx context.Context, checkRun int64, maxBytes int) (publish.JobFailure, error) {
+	if read, ok := m.steps[checkRun]; ok && maxBytes == failedStepOutputBytes {
+		return read.failure, read.err
+	}
+	failure, err := m.logs.FailedStep(ctx, checkRun, maxBytes)
+	if maxBytes == failedStepOutputBytes {
+		m.steps[checkRun] = stepLogRead{failure: failure, err: err}
+	}
+	return failure, err
+}
+
+// JobLogTail is the failed step's output, which ends on the line the step
+// failed on, where go test's summary of the failing packages is.
+func (m *stepLogMemo) JobLogTail(ctx context.Context, checkRun int64, _ int) (string, error) {
+	failure, err := m.FailedStep(ctx, checkRun, failedStepOutputBytes)
+	return failure.Output, err
 }

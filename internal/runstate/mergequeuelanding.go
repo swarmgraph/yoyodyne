@@ -890,8 +890,12 @@ func (a MergeQueuePromotionAttempt) validate(entryID string) error {
 	// Mutations are written in the path's order and only ever after the one
 	// before them settled: a mutation is requested only once everything ahead
 	// of it is known to have happened. The one repetition is a mutation asked
-	// for again, under the same key, after it was found not made.
+	// for again, under the same key, after it was found not made — and the
+	// merge asked for once more after GitHub's own merge queue dropped the one
+	// it had queued, which an attempt carrying its further run of GitHub's
+	// checks may do once (ForgeRerun).
 	order := append(a.Path.Mutations(), MergeQueueFollowTarget)
+	requeued := false
 	if len(a.Mutations) > maxMergeQueueMutations {
 		problems = append(problems, fmt.Errorf("%d mutations exceeds the %d an attempt keeps", len(a.Mutations), maxMergeQueueMutations))
 	}
@@ -902,8 +906,12 @@ func (a MergeQueuePromotionAttempt) validate(entryID string) error {
 			previous = &a.Mutations[index-1]
 		}
 		notMade := previous != nil && previous.Settled != nil && previous.Settled.Result == MergeQueueMutationNotMade
+		requeue := previous != nil && previous.Mutation == MergeQueueRequestMerge && record.Mutation == MergeQueueRequestMerge &&
+			previous.Settled != nil && previous.Settled.Result == MergeQueueMutationQueued
 		switch {
 		case notMade && record.Mutation == previous.Mutation:
+		case requeue && a.ForgeRerun != nil && !requeued:
+			requeued = true
 		case notMade:
 			problems = append(problems, fmt.Errorf("the %s was requested after the %s before it was not made", record.Mutation, previous.Mutation))
 		default:

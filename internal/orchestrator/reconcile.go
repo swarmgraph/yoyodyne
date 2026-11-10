@@ -940,6 +940,22 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 		// answers — so that is asked before the drop is handed to anybody.
 		// Keep the queued disposition until the checks decide what the drop
 		// means. A failed read records an unread state that the next sweep retries.
+		//
+		// A request GitHub's own merge queue removed because its checks on the
+		// queue's merge commit failed only in tests the change does not touch is
+		// queued once more first (forgererun.go), and a drop settled anyway says
+		// which tests failed there and whether the change touched them.
+		dropSays := ""
+		if r.JobLogs != nil {
+			r.JobLogs = newStepLogMemo(r.JobLogs)
+		}
+		if strings.EqualFold(observed.State, "OPEN") {
+			requeued, decided, says, err := r.requeueUntouchedDrop(ctx, &state)
+			if decided {
+				return requeued, err
+			}
+			dropSays = says
+		}
 		if replayed, decided, err := r.replayDroppedLanding(ctx, &state, observed); decided {
 			return replayed, err
 		}
@@ -947,7 +963,7 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 		published.MergeQueued = false
 		state.PullRequest = &published
 		account, queued := r.dropAccount(ctx, published, state.Integration.TargetBranch)
-		state.PublishFailure = droppedMerge(published, strings.ToLower(nonEmpty(observed.State, "in an unreported state")), state.Integration.TargetBranch, account)
+		state.PublishFailure = droppedMerge(published, strings.ToLower(nonEmpty(observed.State, "in an unreported state")), state.Integration.TargetBranch, account) + dropSays
 		// The moment the drop was found out, written down rather than left to be
 		// worked out again by whoever next reads the record. It is the one thing a
 		// channel can be told, and it is stamped here — before the settlement below

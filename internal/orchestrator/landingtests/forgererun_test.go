@@ -241,3 +241,83 @@ func TestARestartBetweenRecordingAndAskingNeverAsksASecondTime(t *testing.T) {
 		t.Fatalf("sweep = %#v, blocker = %q; want the run stopped saying the request was cut off", stopped, tracker.Record().BlockReason)
 	}
 }
+
+// queueDropped is GitHub's own merge queue having removed pull request 1563 on
+// November 1: the build job failed on the queue's merge commit, in a test the
+// change does not touch, while the pull request's own head passes.
+func queueDropped(forge *recordFirstForge, id int64) {
+	forge.Removal = publish.QueueRemoval{Events: []publish.QueueEvent{{Kind: "RemovedFromMergeQueueEvent"}}}
+	forge.QueuedMerge = publish.QueuedMergeChecks{
+		Commit:  "5505b7794135000000000000000000000000beef",
+		Failing: []publish.FailedCheck{{Name: "build", Paths: []string{".github"}, ID: id, Conclusion: "failure"}},
+	}
+	forge.Reading = publish.CheckReading{Files: []string{"internal/orchestrator/pipeline.go"}, Passing: 4}
+	forge.DropQueuedMerge()
+}
+
+// A request GitHub's merge queue dropped only for a test the change does not
+// touch is queued once more, recorded first; a pass lets it land, and a second
+// drop is settled as before, naming the test and not blaming the change.
+func TestAMergeGitHubsQueueDroppedForAnUntouchedTestIsQueuedOnceMore(t *testing.T) {
+	t.Parallel()
+
+	for _, again := range []bool{false, true} {
+		fixture, forge, tracker, reconciler, _ := untouchedSweep(t)
+		reconciler.Drops = forge
+		merges := len(forge.MergeRequests())
+		queueDropped(forge, 8001)
+
+		requeued := sweepOnce(t, reconciler)
+		if requeued.Action != orchestrator.ActionQueued || !strings.Contains(requeued.Detail, "queued the merge once more") {
+			t.Fatalf("again=%t: sweep = %#v, want the merge queued once more", again, requeued)
+		}
+		if len(forge.MergeRequests()) != merges+1 || !forge.HoldsQueuedMerge() || tracker.Record().Blocked {
+			t.Fatalf("again=%t: merges %d -> %d, queued %t, blocked %t; want one more merge request and nothing handed back",
+				again, merges, len(forge.MergeRequests()), forge.HoldsQueuedMerge(), tracker.Record().Blocked)
+		}
+		state := testharness.LoadRun(t, fixture.Store, testharness.PipelineRunID)
+		rerun := state.PullRequest.QueueRerun
+		if rerun == nil || !rerun.Asked() || rerun.HeadCommit != state.PullRequest.HeadCommit || rerun.CheckRuns[0] != 8001 {
+			t.Fatalf("again=%t: further run = %#v, want it recorded against the request's head", again, rerun)
+		}
+
+		if !again {
+			forge.PerformQueuedMerge(t)
+			if landed := sweepOnce(t, reconciler); landed.Action == orchestrator.ActionBlocked {
+				t.Fatalf("sweep after GitHub merged = %#v, want the landing settled", landed)
+			}
+			continue
+		}
+		queueDropped(forge, 8002)
+		stopped := sweepOnce(t, reconciler)
+		if stopped.Action != orchestrator.ActionBlocked || len(forge.MergeRequests()) != merges+1 {
+			t.Fatalf("second drop: sweep = %#v with %d merge requests; want it settled as before and nothing asked again", stopped, len(forge.MergeRequests()))
+		}
+		reason := tracker.Record().BlockReason
+		for _, want := range []string{"TestConcurrentCreationSurvivesAGitCommandTheHarnessDidNotCompose", "it failed again", "not put down to this change"} {
+			if !strings.Contains(reason, want) {
+				t.Errorf("blocker does not say %q:\n%s", want, reason)
+			}
+		}
+	}
+}
+
+// A drop on a test the change touches is settled as before at once, naming it.
+func TestAMergeGitHubsQueueDroppedForATouchedTestIsNotQueuedAgain(t *testing.T) {
+	t.Parallel()
+
+	_, forge, tracker, reconciler, _ := untouchedSweep(t)
+	reconciler.Drops = forge
+	merges := len(forge.MergeRequests())
+	queueDropped(forge, 8001)
+	forge.Reading.Files = []string{"internal/gitworktree/worktree.go"}
+	if stopped := sweepOnce(t, reconciler); stopped.Action != orchestrator.ActionBlocked {
+		t.Fatalf("sweep = %#v, want the drop settled as before", stopped)
+	}
+	if len(forge.MergeRequests()) != merges {
+		t.Fatal("the merge was asked for again")
+	}
+	if reason := tracker.Record().BlockReason; !strings.Contains(reason, "the failing tests the change touches") {
+		t.Errorf("blocker does not name the touched test:\n%s", reason)
+	}
+}

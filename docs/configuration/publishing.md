@@ -588,6 +588,16 @@ or a job GitHub will not run again is settled as it would have been without the
 extra run, and the stop names the failing tests and says whether the change
 touched them.
 
+Where the repository uses GitHub's own merge queue, GitHub can drop a queued
+pull request because its checks failed on the merge commit the queue built,
+while the pull request's own head passes. Running the failed job again on that
+merge commit would not put the request back in the queue, so where those
+failing tests are all ones the change does not touch, the sweep queues the
+merge once more instead, writing that on the run first: GitHub builds a new
+merge commit and runs its checks again. A head is given one such second run;
+a second drop is settled as a dropped merge is, naming the failing tests and
+saying the change did not touch them.
+
 A replay that **conflicts** is never retried and never resolved automatically
 — which side of a conflict is right is a decision about the product, not a Git
 operation — and it goes back to the developer that wrote the change before it
