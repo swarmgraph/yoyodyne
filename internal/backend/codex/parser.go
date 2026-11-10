@@ -344,6 +344,10 @@ func (m *providerMessage) usage() (json.RawMessage, bool) {
 
 type streamParser struct {
 	runID string
+	// executable is the program this invocation was started as, where the
+	// adapter's runner resolved it, said on the starting event so the record
+	// shows which installation ran.
+	executable string
 	// role is who this invocation was made as, and it is written onto the
 	// terminal event so the record says whose invocation it priced rather than
 	// leaving that to be inferred from where the terminal sits in the log.
@@ -653,6 +657,9 @@ func (p *streamParser) parseSessionConfigured(message providerMessage) error {
 func (p *streamParser) withLoaded(payload map[string]any) map[string]any {
 	if p.loaded.Reported {
 		payload["loaded"] = p.loaded.String()
+	}
+	if p.executable != "" {
+		payload["executable"] = p.executable
 	}
 	return payload
 }

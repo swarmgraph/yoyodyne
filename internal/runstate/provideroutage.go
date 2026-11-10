@@ -128,8 +128,11 @@ func (o ProviderOutage) Validate() error {
 // that tripped on this in September prescribed `yoyo release`, which lifts
 // nothing here.
 func DescribeProviderOutage(cause domain.ProviderOutageCause) string {
-	if cause == domain.ProviderUnreachable {
+	switch cause {
+	case domain.ProviderUnreachable:
 		return "a provider that cannot be reached"
+	case domain.ProviderProgramMissing:
+		return "a provider whose program cannot be found on this machine; it has to be installed again or its full path set in the configuration"
 	}
 	return "a provider that is not authenticated; the operator must log in"
 }
@@ -142,6 +145,8 @@ func (o ProviderOutage) Says() string {
 	switch o.Cause {
 	case domain.ProviderUnreachable:
 		head = "The provider cannot be reached"
+	case domain.ProviderProgramMissing:
+		return o.saysProgramMissing()
 	default:
 		head = "The provider is not authenticated; the operator must log in"
 	}
@@ -149,6 +154,27 @@ func (o ProviderOutage) Says() string {
 		head, count(o.Refusals, "turn"), o.Since.UTC().Format(time.RFC3339))
 	if endpoint := o.endpoint(); endpoint != "" {
 		said += " (" + endpoint + ")"
+	}
+	return said
+}
+
+// saysProgramMissing is the sentence for a provider whose program cannot be
+// found: which provider's program, since when, and the one fix. Nothing was
+// started, so it says no new work starts rather than that a turn was refused by
+// the provider, and it says the harness carries on by itself once the program
+// is back, because nobody has to restart anything.
+func (o ProviderOutage) saysProgramMissing() string {
+	provider := strings.TrimSpace(string(o.Provider))
+	subject := "The provider's program"
+	fix := "install it again, or set providers.<provider>.binary in .yoyodyne/config.yaml to its full path"
+	if provider != "" {
+		subject = "The " + provider + " program"
+		fix = "install it again, or set providers." + provider + ".binary in .yoyodyne/config.yaml to its full path"
+	}
+	said := fmt.Sprintf("%s cannot be found on this machine, so no new work starts on it; the fix: %s. The harness looks for it again on its own and carries on once it is back; %s turned away since %s",
+		subject, fix, count(o.Refusals, "attempt"), o.Since.UTC().Format(time.RFC3339))
+	if alias := strings.TrimSpace(o.AccountAlias); alias != "" {
+		said += " (account " + alias + ")"
 	}
 	return said
 }
