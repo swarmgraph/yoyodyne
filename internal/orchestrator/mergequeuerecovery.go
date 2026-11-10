@@ -557,7 +557,7 @@ func (q *queuePromotion) withdrawalLanded(ctx context.Context, state publish.Pul
 	if err := q.save(); err != nil {
 		return err
 	}
-	return q.confirmWith(ctx, state.MergeCommit)
+	return q.confirmWith(ctx, state.MergeCommit, state.MergedAt)
 }
 
 // Recover reads the first unfinished entry of a queue for what its newest

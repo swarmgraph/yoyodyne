@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -293,11 +294,29 @@ const mergeQueueHeldEvery = 5 * time.Minute
 // Each queue has one pass at a time; this bounds the queues.
 const maxMergeQueuePassesInFlight = 8
 
+// mergeQueueAgainEvery is how long a queue pass that ended waiting waits before
+// it goes round again on its own. A pass waiting on a merge the forge holds
+// learns of that merge only by asking, and a pull can take most of an hour when
+// the tracker is slow, so the queue does not wait for the next pull to ask
+// again: it asks every minute, which keeps the wait from a merge to the next
+// candidate's checks to a few minutes. Each turn asks the forge about one pull
+// request per queue, well inside the forge's limits.
+const mergeQueueAgainEvery = time.Minute
+
 // mergeQueuePasses is the queue passes a session has in flight, each in a
 // goroutine of its own, collected at the top of every pull and waited out when
-// the session ends, like its recurring firings.
+// the session ends, like its recurring firings. A pass that ends waiting goes
+// round again in the same goroutine (work), so a queue waiting on the forge or
+// on another process is worked at its own pace rather than the pull's.
 type mergeQueuePasses struct {
-	inFlight map[runstate.MergeQueueKey]bool
+	// again is how long a pass that ended waiting waits before it goes round
+	// again; zero is mergeQueueAgainEvery. settled is closed once the session
+	// stops letting passes go round: when it begins draining for a restart, and
+	// when it ends.
+	again       time.Duration
+	settled     chan struct{}
+	settledOnce sync.Once
+	inFlight    map[runstate.MergeQueueKey]bool
 	// held is a look at the held changes in flight, and heldAt when the last
 	// one began.
 	held   bool
@@ -323,6 +342,7 @@ func newMergeQueuePasses(ctx context.Context) *mergeQueuePasses {
 	checks := &queueCheckStages{}
 	passCtx, cancel := context.WithCancel(withQueueCheckStages(ctx, checks))
 	return &mergeQueuePasses{
+		settled:  make(chan struct{}),
 		inFlight: map[runstate.MergeQueueKey]bool{},
 		done:     make(chan mergeQueuePassDone, maxMergeQueuePassesInFlight+1),
 		ctx:      passCtx, cancel: cancel,
@@ -332,6 +352,40 @@ func newMergeQueuePasses(ctx context.Context) *mergeQueuePasses {
 }
 
 func (m *mergeQueuePasses) idle() bool { return len(m.inFlight) == 0 && !m.held }
+
+// settle stops every pass going round again: each ends at its next turn with
+// what it last found. It is safe to call more than once.
+func (m *mergeQueuePasses) settle() {
+	m.settledOnce.Do(func() { close(m.settled) })
+}
+
+// work passes one queue, and goes round again while the pass ends waiting —
+// on a merge the forge holds, on another process working the queue, on the
+// operator's pause or a provider — until a pass ends on anything else, the
+// session settles, or the pass's context ends. Every pass records itself
+// (MergeQueueDriver.Pass); the last is what the session collects.
+func (m *mergeQueuePasses) work(ctx context.Context, queues ScheduleMergeQueues, key runstate.MergeQueueKey) runstate.MergeQueuePass {
+	again := m.again
+	if again <= 0 {
+		again = mergeQueueAgainEvery
+	}
+	for {
+		pass := queues.Pass(ctx, key)
+		if pass.Outcome != runstate.MergeQueuePassWaiting {
+			return pass
+		}
+		timer := time.NewTimer(again)
+		select {
+		case <-timer.C:
+		case <-m.settled:
+			timer.Stop()
+			return pass
+		case <-ctx.Done():
+			timer.Stop()
+			return pass
+		}
+	}
+}
 
 // stopForRestart is a session past its drain bound stopping its queue passes:
 // none starts a new check stage from here, each pass whose candidate's checks
@@ -401,7 +455,7 @@ func (s Scheduler) startQueuePasses(schedule *Schedule, queues ScheduleMergeQueu
 		passCtx, stop := context.WithCancel(passes.ctx)
 		passes.stops[key] = stop
 		go func(key runstate.MergeQueueKey) {
-			passes.done <- mergeQueuePassDone{key: key, pass: queues.Pass(passCtx, key)}
+			passes.done <- mergeQueuePassDone{key: key, pass: passes.work(passCtx, queues, key)}
 		}(key)
 	}
 }

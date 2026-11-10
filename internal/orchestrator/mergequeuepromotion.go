@@ -963,7 +963,7 @@ func (q *queuePromotion) awaitForge(ctx context.Context) error {
 	}
 	switch {
 	case state.Merged:
-		return q.confirmWith(ctx, state.MergeCommit)
+		return q.confirmWith(ctx, state.MergeCommit, state.MergedAt)
 	case strings.EqualFold(state.State, "OPEN") && state.AutoMerge:
 		q.outcome.Waiting = fmt.Sprintf("the forge holds the merge of pull request %d queued until its own requirements are met", attempt.PullRequest)
 		if requested, asked := attempt.Mutation(runstate.MergeQueueRequestMerge); asked && requested.Settled != nil {
@@ -990,18 +990,18 @@ func (q *queuePromotion) confirm(ctx context.Context) error {
 			q.outcome.Unresolved = fmt.Sprintf("%s was moved onto the candidate %s and no longer holds it", q.key.TargetBranch, attempt.Candidate)
 			return nil
 		}
-		return q.land("")
+		return q.land("", time.Time{})
 	}
 	state, err := q.p.Pipeline.Publisher.State(ctx, attempt.CandidateBranch)
 	if err != nil {
 		return fmt.Errorf("read pull request %d after its merge: %w", attempt.PullRequest, err)
 	}
-	return q.confirmWith(ctx, state.MergeCommit)
+	return q.confirmWith(ctx, state.MergeCommit, state.MergedAt)
 }
 
 // confirmWith establishes on the remote target that the candidate itself
-// landed, and names the forge's merge commit where it made one.
-func (q *queuePromotion) confirmWith(ctx context.Context, mergeCommit string) error {
+// landed, and names the forge's merge commit and merge time where it made one.
+func (q *queuePromotion) confirmWith(ctx context.Context, mergeCommit string, mergedAt time.Time) error {
 	attempt := q.attempt()
 	remoteMerge, err := q.p.Lander.ConfirmRemoteTarget(ctx, gitworktree.Integration{
 		TargetBranch: q.key.TargetBranch, TargetCommit: attempt.Candidate, PreviousTargetCommit: attempt.TargetBase,
@@ -1022,18 +1022,27 @@ func (q *queuePromotion) confirmWith(ctx context.Context, mergeCommit string) er
 			q.key.TargetBranch, attempt.PullRequest)
 		return nil
 	}
-	return q.land(remoteMerge)
+	return q.land(remoteMerge, mergedAt)
 }
 
 // land records the confirmed landing: the attempt's own candidate, or, in the
-// forge's queue, the combined commit the forge landed.
-func (q *queuePromotion) land(remoteMerge string) error {
+// forge's queue, the combined commit the forge landed, with the forge's merge
+// time where it gave one.
+func (q *queuePromotion) land(remoteMerge string, mergedAt time.Time) error {
 	attempt := q.attempt()
 	landed := attempt.Candidate
 	if attempt.Path == runstate.MergeQueueLandThroughForgeQueue {
 		landed = remoteMerge
 	}
-	attempt.Landed = &runstate.MergeQueueLanded{Commit: landed, RemoteMerge: remoteMerge, ConfirmedAt: q.now()}
+	confirmed := q.now()
+	if mergedAt.After(confirmed) {
+		// A forge clock ahead of this machine's is not a merge in the future.
+		mergedAt = confirmed
+	}
+	if !mergedAt.IsZero() {
+		mergedAt = mergedAt.UTC()
+	}
+	attempt.Landed = &runstate.MergeQueueLanded{Commit: landed, RemoteMerge: remoteMerge, ConfirmedAt: confirmed, MergedAt: mergedAt}
 	return q.save()
 }
 

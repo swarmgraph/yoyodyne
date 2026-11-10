@@ -6903,8 +6903,15 @@ at a time: each step takes the queue's own worker lease, which is not the
 promotion lease, so a second session finds the queue taken and leaves it. Queues
 for different target branches move independently. A pass ends on its own — when
 nothing can move, when what is left waits on the operator, a provider or the
-forge, or when it stops on something that needs a look — and a session draining
-to restart into a new build waits for its passes like its recurring firings, and
+forge, or when it stops on something that needs a look. A pass that ends
+waiting goes round again by itself a minute later, without waiting for the
+session's next pull, so a merge the forge makes is noticed within a few minutes
+however long the session's pulls take while the tracker is slow. Each time a
+candidate's checks begin, the queue writes beside itself how long it waited
+since its last landing — from the forge's own merge time where the forge gave
+one — so the queue's weekly figures can count it. A session draining to restart
+into a new build stops its passes going round, waits for them like its recurring
+firings, and
 stops them past the drain bound — except a pass whose candidate's checks are
 running, which is let finish them, each check up to its configured
 `check_timeout`, because a candidate's checks count only whole and a stage
