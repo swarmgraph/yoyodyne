@@ -2458,6 +2458,10 @@ func (s *State) recordedTexts() []recordedText {
 	if s.TrackerPause != nil {
 		nested("tracker_pause.failure", "tracker_pause.failure", &s.TrackerPause.Failure, MaxRetryFailureBytes)
 	}
+	if s.ForgeWait != nil {
+		nested("forge_wait.step", "forge_wait.step", &s.ForgeWait.Step, MaxRecordedTextBytes)
+		nested("forge_wait.failure", "forge_wait.failure", &s.ForgeWait.Failure, MaxRetryFailureBytes)
+	}
 	if s.Changes != nil {
 		nested("changes.files", "changes.files", &s.Changes.Files, MaxChangeRecordBytes)
 		nested("changes.diff_stat", "changes.diff_stat", &s.Changes.DiffStat, MaxChangeRecordBytes)
@@ -3993,6 +3997,10 @@ type State struct {
 	// lifts them differs. That one is lifted by other work finishing, and this by
 	// a store that was contended becoming reachable again.
 	TrackerPause *TrackerPause `json:"tracker_pause,omitempty"`
+	// ForgeWait records that this run's approved change is waiting at its merge
+	// step for GitHub to be reachable again (forgewait.go). The run holds no
+	// developer slot while it is set. It is cleared once the step answers.
+	ForgeWait *ForgeWait `json:"forge_wait,omitempty"`
 	// RedeployStop records that the watch session hosting this run stopped it
 	// in order to restart into a build deployed over it, once the drain the
 	// session was given ran out with this run still going. Like a recorded
@@ -4722,6 +4730,14 @@ func (s State) Validate() error {
 		// continuation nothing will ever make.
 		if s.Status.Terminal() {
 			problems = append(problems, errors.New("tracker_pause requires a run that is still in flight"))
+		}
+	}
+	if s.ForgeWait != nil {
+		if err := s.ForgeWait.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("forge_wait: %w", err))
+		}
+		if s.Status.Terminal() {
+			problems = append(problems, errors.New("forge_wait requires a run that is still in flight"))
 		}
 	}
 	if s.HomeMigration != nil {
@@ -5609,8 +5625,15 @@ func (s Status) InFlight() bool {
 // landing never waits on development and development never waits on a landing.
 // Nor does a run that brings a file in, which is counted on its own
 // (HoldsOutsideFileLanding).
+//
+// Nor does an approved change waiting at its merge step for GitHub to be
+// reachable again (ForgeWait): no developer works on it while it waits, and an
+// outage can last hours. Once GitHub answers it carries on with its merge
+// without asking for a slot back, because the merge spends no provider and
+// waiting for a slot would only hold back a change that is ready to land; the
+// scheduler counts it again from then until the run ends.
 func (s State) HoldsDeveloperSlot() bool {
-	return s.Status.InFlight() && s.DependencyPause == nil && !s.HarnessAuthored()
+	return s.Status.InFlight() && s.DependencyPause == nil && s.ForgeWait == nil && !s.HarnessAuthored()
 }
 
 // HoldsDocumentLanding reports a run counted against

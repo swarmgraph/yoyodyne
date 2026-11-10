@@ -204,6 +204,9 @@ func WaitOf(state runstate.State) *Wait {
 		return &Wait{Kind: "a directive", Release: fmt.Sprintf("directive %s being resolved: %s", state.DirectivePause.DirectiveID, state.DirectivePause.Unresolved)}
 	case state.TrackerPause != nil:
 		return &Wait{Kind: "the tracker not answering", Release: "the tracker answering " + state.TrackerPause.Boundary}
+	case state.ForgeWait != nil:
+		since := state.ForgeWait.Since
+		return &Wait{Kind: "GitHub not being reachable at the merge step", Since: &since, Release: "GitHub answering; " + state.ForgeWait.Says()}
 	}
 	return nil
 }

@@ -783,7 +783,13 @@ func (a *activeRun) recoverDocumentIntegration(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer lease.Release()
+	// Held on the run, so a wait for GitHub in publishIntegration can give it
+	// back and take it again (forgewait.go).
+	a.promotionLease = lease
+	defer func() {
+		_ = a.promotionLease.Release()
+		a.promotionLease = nil
+	}()
 	observed, err := a.pipeline.Worktrees.Observe(ctx, a.worktree)
 	if err != nil || !observed.BranchIntegrated {
 		return err
