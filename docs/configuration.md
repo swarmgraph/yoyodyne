@@ -4688,14 +4688,23 @@ comes back re-adopts each one at its first pull, ahead of anything new, and
 continues it from the phase it was stopped at — the session that stopped it
 never does, however long it goes on pulling. A run at its promotion is waited
 out past the bound rather than interrupted, because it holds the target
-branch's lease. A document landing run is waited out at any step, and past the
+branch's lease. While one is, or while a document landing run is, the restart
+cannot come sooner, so the session goes on filling free developer slots and
+leaves each run at its developer attempt going, and stops those once nothing of
+the kind is left. A document landing run is waited out at any step, and past the
 bound no new one starts: a document a recurring pass confirms then waits for
 the session that comes back to land it. A run with a check running is left to
 finish that check — up to
 [`check_timeout`](#what-a-whole-check-stage-may-cost) as configured, or the
 shorter limit the check was given, however far the machine's load has scaled
 it or `check_stage_timeout` — and stops before its next check, so a new build
-never makes a check start over; a run waiting for a heavy check's place or
+does not make a check start over. The exception is a developer slot sitting
+empty meanwhile: a free one while ready work waits, or one still held by a run
+stopped for the restart, with nothing else holding the restart back. Then the
+run is stopped part-way through its check, and a merge queue candidate's checks
+likewise, and the session restarts at its next look, so the new build fills
+that slot and runs the check again; see
+[Operations](operations.md#a-session-draining-to-restart-into-a-deployed-build). A run waiting for a heavy check's place or
 between checks is stopped at the bound. Every check that
 passed before the stop keeps its result, so the session that comes back runs
 only the checks that had not finished — and only when the change is exactly the
@@ -6858,7 +6867,9 @@ to restart into a new build waits for its passes like its recurring firings, and
 stops them past the drain bound — except a pass whose candidate's checks are
 running, which is let finish them, each check up to its configured
 `check_timeout`, because a candidate's checks count only whole and a stage
-stopped part-way runs every check again. Past the bound no queue starts a new
+stopped part-way runs every check again. That wait too is given up while a
+developer slot sits empty with work for it, and the candidate's checks then run
+again whole in the session that comes back. Past the bound no queue starts a new
 check stage; the session that comes back runs it. While the session waits, its
 line names the queue, the candidate's generation, the check, and the latest
 moment that check can run to. A candidate's checks and review write to that
