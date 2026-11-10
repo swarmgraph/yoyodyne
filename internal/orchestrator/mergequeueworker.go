@@ -97,6 +97,9 @@ type MergeQueueRecords interface {
 	HoldStage(worker *runstate.Lease, key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration, stage runstate.MergeQueueStage) (*runstate.MergeQueueStageHold, error)
 	StageRunning(key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration, stage runstate.MergeQueueStage) (bool, string, error)
 	Landing(key runstate.MergeQueueKey, entryID string) (runstate.MergeQueueLanding, bool, error)
+	// RecordHandoff writes the wait from a landing to the next check
+	// (mergequeuehandoff.go).
+	RecordHandoff(ctx context.Context, key runstate.MergeQueueKey, handoff runstate.MergeQueueHandoff) (bool, error)
 }
 
 // ErrMergeQueueWorkerBusy is a queue another process is already working.
@@ -619,6 +622,7 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 	if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
 		return generation, false, fmt.Errorf("record that generation %d's checks began: %w", generation.Number, err)
 	}
+	w.recordHandoff(ctx, key, generation, generation.CheckRun.StartedAt)
 	launched := launches{worker: w, lease: lease, key: key, generation: &generation, hold: hold, stage: runstate.MergeQueueStageChecks}
 	// The project's dependencies are put in the candidate's checkout first where
 	// they are not what its inputs ask for (mergequeueinstall.go). Where they

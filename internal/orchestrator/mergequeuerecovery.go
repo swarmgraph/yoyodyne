@@ -557,7 +557,7 @@ func (q *queuePromotion) withdrawalLanded(ctx context.Context, state publish.Pul
 	if err := q.save(); err != nil {
 		return err
 	}
-	return q.confirmWith(ctx, state.MergeCommit)
+	return q.confirmWith(ctx, state.MergeCommit, state.MergedAt)
 }
 
 // Recover reads the first unfinished entry of a queue for what its newest
@@ -587,7 +587,17 @@ func (p MergeQueuePromoter) Recover(ctx context.Context, key runstate.MergeQueue
 		recovered := MergeQueueRecovery{Entry: pending.entry, Handback: q.landing.Handback}
 		return recovered, q.handBack(ctx)
 	}
-	entry, landing, found, err := p.next(key)
+	// An entry that has landed has nothing to recover, though its completion
+	// may still wait on the tracker, so it is passed over for the one behind it.
+	passedOver := map[string]bool{}
+	entry, landing, found, err := p.next(key, passedOver)
+	for err == nil && found {
+		if attempt, ok := landing.Current(); !ok || attempt.Landed == nil {
+			break
+		}
+		passedOver[entry.EntryID] = true
+		entry, landing, found, err = p.next(key, passedOver)
+	}
 	if err != nil || !found {
 		return MergeQueueRecovery{}, err
 	}
