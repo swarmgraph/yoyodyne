@@ -215,6 +215,11 @@ func (r Reconciler) settlePersonMerged(ctx context.Context, state *runstate.Stat
 	}
 	notes := renderPersonMergedNotes(*state, mergeCommit, result.Catchup)
 	var arranged *runstate.State
+	// Where the merge landed on the target branch of a project with a team
+	// branch, the commit the team's branch has to come to hold is the merge
+	// commit, else the published head.
+	landing := nonEmpty(mergeCommit, state.PullRequest.HeadCommit)
+	var teamWait *runstate.TeamMerge
 	err := r.recovering(ctx, state, runstate.RetryTrackerWrite, func(ctx context.Context) error {
 		item, err := r.Tracker.Show(ctx, state.WorkItemID)
 		if err != nil {
@@ -234,6 +239,16 @@ func (r Reconciler) settlePersonMerged(ctx context.Context, state *runstate.Stat
 				return fmt.Errorf("reopen the work item run %s did not discharge: %w", state.RunID, err)
 			}
 			arranged = &settled
+			return nil
+		}
+		if awaitsTeamMerge(*state) {
+			// Merged into the target branch by a person, not yet into the team's:
+			// the item stays claimed (teammerge.go).
+			scratch := *state
+			if err := recordTeamMergeWait(ctx, r.Tracker, &scratch, landing, r.clock().Now()); err != nil {
+				return err
+			}
+			teamWait = scratch.TeamMerge
 			return nil
 		}
 		if _, err := r.Tracker.Complete(ctx, state.WorkItemID, personMergedCompletionReason(*state, mergeCommit)); err != nil {
@@ -260,6 +275,13 @@ func (r Reconciler) settlePersonMerged(ctx context.Context, state *runstate.Stat
 		return fmt.Errorf("record the merge of pull request %d on run %s: %w", update.Number, state.RunID, err)
 	}
 	*state = recorded
+	if teamWait != nil && state.Integration != nil {
+		recorded, err := r.Store.Update(ctx, state.RunID, runstate.TeamMergeAwaited{Wait: *teamWait, At: r.clock().Now()})
+		if err != nil {
+			return fmt.Errorf("record that run %s waits for the team's merge: %w", state.RunID, err)
+		}
+		*state = recorded
+	}
 	// The run is now recorded as landed through its pull request and put at its
 	// cleanup, which is finished here the way a merge the forge made for the
 	// harness is finished: the branch and checkout are removed once the local

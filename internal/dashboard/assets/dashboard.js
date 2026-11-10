@@ -613,6 +613,35 @@ var standingWarningAgeSeconds = 5 * 60;
       banner.textContent = "";
       setHidden(banner, true);
     }
+    renderTeamMerge(standing);
+  }
+
+  // renderTeamMerge lists the items whose change landed on the target branch and
+  // waits for the team to merge it, one line each in the words the terminal
+  // prints, which the model says (Standing.WaitingForTeamMergeSays).
+  function renderTeamMerge(standing) {
+    var list = document.getElementById("team-merge");
+    var said = standing && standing.waiting_for_team_merge_says ? standing.waiting_for_team_merge_says : [];
+    var problem = standing && standing.waiting_for_team_merge_problem ? standing.waiting_for_team_merge_problem : "";
+    if (!list) {
+      // Made on first need, beside the banner it follows, so a page with nothing
+      // waiting for the team carries nothing for it.
+      if (!problem && said.length === 0) {
+        return;
+      }
+      list = el("ul", "team-merge");
+      list.id = "team-merge";
+      list.setAttribute("aria-label", "Waiting for the team's merge");
+      banner.parentNode.insertBefore(list, banner.nextSibling);
+    }
+    clear(list);
+    if (problem) {
+      list.appendChild(el("li", null, problem));
+    }
+    said.forEach(function (sentence) {
+      list.appendChild(el("li", null, sentence));
+    });
+    setHidden(list, list.childNodes.length === 0);
   }
 
   // ---- section 1: the status band ----------------------------------------

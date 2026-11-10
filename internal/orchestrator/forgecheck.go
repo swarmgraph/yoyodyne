@@ -14,7 +14,9 @@ import (
 // and settles the ones merged or closed (SettlePersonMerges), brings one the
 // target branch has moved past up to date (updatePersonMerge, which compares
 // the request's head with the target), and reads the reviews and comments on
-// the ones still open (TakeUpFeedback). The claim, team pause and records
+// the ones still open (TakeUpFeedback). It also fetches the team's branch for
+// each change waiting for the team's merge (execution.upstream_branch) and
+// closes the item whose landing commit it now carries (SettleTeamMerges). The claim, team pause and records
 // references the design adds with team mode are not read: team mode does not
 // exist yet, and the check covers them once it does.
 //
@@ -45,6 +47,9 @@ type ForgeCheck struct {
 	// open, brought up to date, merged and its item closed, or closed without
 	// merging and its item given back to the Lead Product Manager.
 	PersonMerges []PersonMergeSettlement `json:"person_merges"`
+	// TeamMerges is each landed change waiting for the team to merge it into
+	// their branch: still waiting, or found on that branch and its item closed.
+	TeamMerges []TeamMergeSettlement `json:"team_merges"`
 	// Feedback is what was said on each of them since the head was pushed, and
 	// what the check did about it.
 	Feedback []FeedbackSettlement `json:"feedback"`
@@ -55,6 +60,11 @@ type ForgeCheck struct {
 func (c ForgeCheck) Failures() int {
 	failures := 0
 	for _, settled := range c.PersonMerges {
+		if settled.Failure != "" {
+			failures++
+		}
+	}
+	for _, settled := range c.TeamMerges {
 		if settled.Failure != "" {
 			failures++
 		}
@@ -74,8 +84,9 @@ func (c ForgeCheck) Failures() int {
 func (r Reconciler) CheckForge(ctx context.Context) (ForgeCheck, error) {
 	r.RetryAtNextCheck = true
 	var check ForgeCheck
-	var mergeErr, feedbackErr error
+	var mergeErr, teamErr, feedbackErr error
 	check.PersonMerges, mergeErr = r.SettlePersonMerges(ctx)
+	check.TeamMerges, teamErr = r.SettleTeamMerges(ctx)
 	check.Feedback, feedbackErr = r.TakeUpFeedback(ctx)
-	return check, errors.Join(mergeErr, feedbackErr)
+	return check, errors.Join(mergeErr, teamErr, feedbackErr)
 }

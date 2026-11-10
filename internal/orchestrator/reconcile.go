@@ -1078,6 +1078,14 @@ func (r Reconciler) closeSettledMerge(ctx context.Context, state runstate.State)
 		}
 		return settled, nil
 	}
+	if awaitsTeamMerge(state) {
+		// Landed on the target branch, not yet on the team's: the item stays
+		// claimed and the returned state carries the wait (teammerge.go).
+		if err := recordTeamMergeWait(ctx, r.Tracker, &state, recordedLandingCommit(state), r.clock().Now()); err != nil {
+			return state, err
+		}
+		return state, nil
+	}
 	if _, err := r.Tracker.Complete(ctx, state.WorkItemID, settledMergeCompletionReason(state)); err != nil {
 		return state, fmt.Errorf("close integrated work item for run %s: %w", state.RunID, err)
 	}
@@ -1094,8 +1102,14 @@ func (r Reconciler) closeSettledMerge(ctx context.Context, state runstate.State)
 // whatever this run claimed or its reviewer approved, for the reason a dropped
 // merge does not reopen one: rewriting a closure an operator has already read is
 // a worse answer than leaving it and recording what happened beside it.
+//
+// A run waiting for the team's merge settles on an item still claimed
+// (in_progress): the wait is the settlement, and no sweep closes it.
 func itemSettled(state runstate.State, itemStatus string) bool {
 	if itemStatus == "closed" {
+		return true
+	}
+	if state.TeamMerge != nil && state.TeamMerge.Waiting() && itemStatus == "in_progress" {
 		return true
 	}
 	return !state.Discharges() && itemStatus == "open"
@@ -1789,6 +1803,11 @@ func (r Reconciler) completeIntegrated(ctx context.Context, state runstate.State
 				}
 				settled = &arranged
 				return nil
+			}
+			if awaitsTeamMerge(state) {
+				// The change is on the target branch and the team has not merged it
+				// yet: the item stays claimed (teammerge.go).
+				return recordTeamMergeWait(ctx, r.Tracker, &state, recordedLandingCommit(state), r.clock().Now())
 			}
 			if _, err := r.Tracker.Complete(ctx, state.WorkItemID, reconciledCompletionReason(state)); err != nil {
 				return fmt.Errorf("close integrated work item for run %s: %w", state.RunID, err)

@@ -4785,6 +4785,27 @@ work. Setting the limit is the development manager's decision, like the other
 numeric limits here. A drain (`yoyo work` without `--watch`) stops when it
 meets the limit, and says so.
 
+### Waiting for the team's branch
+
+```yaml
+execution:
+  upstream_branch: main   # unset by default
+```
+
+`execution.upstream_branch` names the team's branch on the same remote as the
+target branch. Unset, which is the default, keeps today's behavior exactly: an
+item whose change lands on the target branch is closed. With it set, a landed
+item stays open, "waiting for the team to merge it into main", until a fetch of
+that branch finds the item's landing commit there. That closes it with the
+commit recorded. The item is never pulled again while it waits, and an item
+that depends on it and lands on the same target branch may start. The fetch is
+made by the forge check, every `execution.forge_check_interval`, which runs
+for a project that sets this key even if it publishes nothing. `yoyo status`
+and the dashboard list each waiting item with the branch it landed on and the
+branch it waits to be merged into. Setting it is the development manager's
+decision. The reasoning is in
+[integrating to a local branch](designs/integrating-to-a-local-branch.md).
+
 ### When a configuration change takes effect
 
 **At the next selection.** `yoyo work` re-reads the configuration before every

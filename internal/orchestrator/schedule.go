@@ -743,6 +743,15 @@ type Pull struct {
 	// limit. PersonMerges is satisfied by *runstate.Store.
 	MaxWaitingPullRequests int
 	PersonMerges           PersonMergeWaits
+	// TeamMerges is where the runs waiting for the team's merge are read from,
+	// and TargetBranch is the branch this pull's runs land on. An item that
+	// depends on one of those runs' items, which lands on the same target, is
+	// offered although the tracker does not report it ready (teammergedeps.go).
+	// Both are optional: no TeamMerges offers nothing extra, and no TargetBranch
+	// counts a wait on any target as met, which is right for a harness with one
+	// target branch. TeamMerges is satisfied by *runstate.Store.
+	TeamMerges   TeamMergeWaits
+	TargetBranch func(ctx context.Context) (string, error)
 	// Slots is execution.developer_slots as this pull read it: what each of the
 	// Capacity developer slots prefers, in slot order, with the slots the list
 	// does not name preferring nothing. A slot that prefers a label pulls the
@@ -8004,6 +8013,10 @@ func (p Pull) queue(ctx context.Context, claimed []beads.WorkItem, read bool) (p
 	pullable := make([]string, 0, len(ready))
 	for _, item := range ready {
 		pullable = append(pullable, item.ID)
+	}
+	pullable, err = p.withTeamMergeDependents(ctx, pullable, admitted)
+	if err != nil {
+		return pulled{}, err
 	}
 	items := make(map[string]beads.WorkItem, len(admitted))
 	for _, item := range admitted {

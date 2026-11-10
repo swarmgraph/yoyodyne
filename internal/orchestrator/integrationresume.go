@@ -287,7 +287,7 @@ func (r IntegrationResumer) Resume(ctx context.Context, request IntegrationResum
 	if err != nil {
 		return result, fmt.Errorf("read the work item the stoppage is about: %w", err)
 	}
-	if err := continuableItem(item, entry.WorkItemID); err != nil {
+	if err := continuableItem(releaseTeamMergedFrom(r.Runs, item, prior.TargetBranch), entry.WorkItemID); err != nil {
 		return result, err
 	}
 	// The hold is read before anything is written. A promotion spends no provider,
@@ -570,7 +570,7 @@ func (r IntegrationResumer) supersedeOnItem(ctx context.Context, workItemID, rea
 	if err != nil {
 		return fmt.Errorf("put %s back to work for the promotion it was approved for: %w", workItemID, err)
 	}
-	if err := validateClaimedItem(item, workItemID); err != nil {
+	if err := validateClaimedItem(releaseTeamMergedFrom(r.Runs, item, ""), workItemID); err != nil {
 		return fmt.Errorf("validate the work item put back for its promotion: %w", err)
 	}
 	return nil

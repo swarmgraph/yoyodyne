@@ -513,6 +513,7 @@ func (r *resolution) apply(applied layer) error {
 		setValue(r.origins, "execution.worktree_root", execution.WorktreeRoot, &r.config.Execution.WorktreeRoot, applied.origin)
 		setValue(r.origins, "execution.remote", execution.Remote, &r.config.Execution.Remote, applied.origin)
 		setValue(r.origins, "execution.push_remote", execution.PushRemote, &r.config.Execution.PushRemote, applied.origin)
+		setValue(r.origins, "execution.upstream_branch", execution.UpstreamBranch, &r.config.Execution.UpstreamBranch, applied.origin)
 		setValue(r.origins, "execution.usage_limit_max_pause", execution.UsageLimitMaxPause, &r.config.Execution.UsageLimitMaxPause, applied.origin)
 		setValue(r.origins, "execution.usage_limit_in_process_pause", execution.UsageLimitInProcessPause, &r.config.Execution.UsageLimitInProcessPause, applied.origin)
 		setValue(r.origins, "execution.usage_limit_unknown_reset_pause", execution.UsageLimitUnknownResetPause, &r.config.Execution.UsageLimitUnknownResetPause, applied.origin)

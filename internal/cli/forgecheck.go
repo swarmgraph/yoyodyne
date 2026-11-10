@@ -78,6 +78,7 @@ func checkForge(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	output.Forge = reconciler.Forge
 	if !*jsonOutput {
 		printPersonMerges(stdout, stderr, output.PersonMerges)
+		printTeamMerges(stdout, stderr, output.TeamMerges)
 		printFeedback(stdout, stderr, output.Feedback)
 		fmt.Fprintln(stdout, describeForgeCheck(output))
 	}
@@ -134,10 +135,30 @@ func forgeCheckerFrom(parts components, answers publish.ResponseCache) orchestra
 // and how many it could not read or finish acting on.
 func describeForgeCheck(output forgeCheckOutput) string {
 	said := fmt.Sprintf("forge check: %d pull request(s) waiting for a person to merge them, %d read for feedback", len(output.PersonMerges), len(output.Feedback))
+	if len(output.TeamMerges) > 0 {
+		said += fmt.Sprintf(", %d landed change(s) waiting for the team to merge them", len(output.TeamMerges))
+	}
 	if failures := output.Failures(); failures > 0 {
 		said += fmt.Sprintf("; %d could not be read or acted on, and the next check reads them again", failures)
 	}
 	return said
+}
+
+// printTeamMerges says what the check found of each change waiting for the
+// team to merge it into their branch.
+func printTeamMerges(stdout, stderr io.Writer, merges []orchestrator.TeamMergeSettlement) {
+	for _, merge := range merges {
+		switch {
+		case merge.Failure != "":
+			fmt.Fprintf(stderr, "%s waiting for the team's merge not settled: %s\n", merge.WorkItemID, merge.Failure)
+		case merge.Kept != "":
+			fmt.Fprintf(stdout, "%s left as it stands: %s\n", merge.WorkItemID, merge.Kept)
+		case merge.Settled:
+			fmt.Fprintf(stdout, "%s: the team merged %s into %s (read at %s); the item is closed\n", merge.WorkItemID, merge.LandingCommit, merge.UpstreamBranch, merge.FoundOn)
+		default:
+			fmt.Fprintf(stdout, "%s landed on %s as %s and is waiting for the team to merge it into %s\n", merge.WorkItemID, merge.TargetBranch, merge.LandingCommit, merge.UpstreamBranch)
+		}
+	}
 }
 
 func reportForgeCheck(stdout, stderr io.Writer, jsonOutput bool, output forgeCheckOutput, err error) int {
@@ -151,6 +172,9 @@ func reportForgeCheck(stdout, stderr io.Writer, jsonOutput bool, output forgeChe
 		}
 		if output.PersonMerges == nil {
 			output.PersonMerges = []orchestrator.PersonMergeSettlement{}
+		}
+		if output.TeamMerges == nil {
+			output.TeamMerges = []orchestrator.TeamMergeSettlement{}
 		}
 		if output.Feedback == nil {
 			output.Feedback = []orchestrator.FeedbackSettlement{}

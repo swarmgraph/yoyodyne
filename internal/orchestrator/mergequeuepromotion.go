@@ -721,7 +721,7 @@ func (q *queuePromotion) fresh(ctx context.Context, mutation runstate.MergeQueue
 	if err != nil {
 		return false, fmt.Errorf("read what %s waits on: %w", q.entry.WorkItemID, err)
 	}
-	if blockers := blockingDependencies(item); len(blockers) > 0 {
+	if blockers := blockingDependencies(p.releaseTeamMerged(ctx, item, "")); len(blockers) > 0 {
 		return refuse(fmt.Sprintf("%s now waits on %s", q.entry.WorkItemID, strings.Join(blockers, ", ")))
 	}
 	if !p.automatic() || q.entry.IntegrationPolicy != string(p.Config.Approvals.Integration) {
@@ -1260,6 +1260,18 @@ func (c MergeQueueRunCompletion) RecordWorkItem(ctx context.Context, entry runst
 		}
 		settled.UpdatedAt = c.now()
 		return c.Store.Save(settled)
+	}
+	if awaitsTeamMerge(state) {
+		// Landed on the target branch, not yet on the team's: the item stays
+		// claimed and the run records the wait (teammerge.go).
+		if err := recordTeamMergeWait(ctx, c.Tracker, &state, completion.Landed, c.now()); err != nil {
+			return err
+		}
+		if state.TeamMerge == nil {
+			return nil
+		}
+		_, err := c.Store.Update(ctx, entry.RunID, runstate.TeamMergeAwaited{Wait: *state.TeamMerge, At: c.now()})
+		return err
 	}
 	reason := fmt.Sprintf("Reviewed by Yoyodyne run %s and landed on %s through the merge queue as %s, the candidate whose checks and independent review authorized it.",
 		entry.RunID, entry.TargetBranch, completion.Landed)
