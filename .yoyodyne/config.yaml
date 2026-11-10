@@ -111,7 +111,7 @@ services:
     token: file
 
 execution:
-  max_concurrent_developers: 3  # slot 1 reliability, slot 2 product, slot 3 general (operator, 2026-10-06)
+  max_concurrent_developers: 4  # slot 1 reliability, slot 2 product, slot 3 team development, slot 4 general (fourth slot approved by the operator, 2026-11-09)
   # One developer slot prefers the reliability label, per the operator's
   # direction of 2026-09-19: bugs, anything that keeps the system from
   # stalling, and anything that keeps the system from making mistakes. The
@@ -445,7 +445,7 @@ agents:
     model: opus
     effort: medium
     # One instance per configured developer slot.
-    instances: 3
+    instances: 4
     persona:
       version: v2
       path: personas/developer.md
