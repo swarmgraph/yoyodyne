@@ -1049,6 +1049,10 @@ var notAStep = map[string]string{
 	"recordEnvironmentalRefusal":  "records that the machine, not the work, refused the round",
 	"sendBackForBackgroundWork":   "records why a developer turn that left its own background work running is asked again inside the same develop step; the reissue is the step's own loop, not a step of its own",
 	"acceptDespiteBackgroundWork": "records that a turn sent back once for background work ended the same way again and its reply is taken as it stands; it decides nothing the develop step does not already do",
+	"newDeveloperAsks":            "builds the attempt's MCP caller from the configuration, or nothing for a developer holding no MCP tool; it decides nothing about the work",
+	"withMCPContract":             "adds the section telling a developer holding an MCP tool how to ask to the prompt it is about to be sent, inside the develop step",
+	"carryOutAsk":                 "carries out the MCP block a developer turn ended with and builds the message its session is resumed with inside the same develop step; the resume is the step's own loop, not a step of its own",
+	"askDespiteBackgroundWork":    "records that a turn sent back once for background work left it running again and also asked for MCP calls; it decides nothing the develop step does not already do",
 
 	// Reporting what the scheduler decided. Clearing the reason the scheduler
 	// kept for why the item had not started changes nothing about the work and

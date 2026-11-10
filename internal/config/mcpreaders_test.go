@@ -23,19 +23,28 @@ import (
 // whose revision is unchanged too (TestAProjectWithNoMCPSectionIsUnchanged) —
 // launches and instructs every role exactly as it did before the keys existed.
 //
+// Two files do hand it to a prompt, and only where the project declares a
+// server: internal/cli/mcppath.go wires the call path into the run pipeline,
+// nil when the mcp section declares no server, and
+// internal/orchestrator/mcpask.go tells a developer holding a read tool of the
+// block and carries the block out. With no server declared neither adds a
+// word to any instruction (TestADeveloperHoldingNoMCPToolIsToldNothing).
+//
 // A later piece that hands any of this to a launch or a prompt adds its file
 // here, which is where a reviewer sees that it does.
 var mcpReaders = map[string]bool{
-	"internal/config/document.go": true,
-	"internal/config/mcp.go":      true,
-	"internal/config/resolve.go":  true,
-	"internal/cli/cli.go":         true,
-	"internal/cli/mcp.go":         true,
-	"internal/doctor/mcp.go":      true,
-	"internal/mcpcall/command.go": true,
-	"internal/mcpcall/mcpcall.go": true,
-	"internal/mcpcall/path.go":    true,
-	"internal/mcpcall/remote.go":  true,
+	"internal/config/document.go":     true,
+	"internal/config/mcp.go":          true,
+	"internal/config/resolve.go":      true,
+	"internal/cli/cli.go":             true,
+	"internal/cli/mcp.go":             true,
+	"internal/cli/mcppath.go":         true,
+	"internal/doctor/mcp.go":          true,
+	"internal/mcpcall/command.go":     true,
+	"internal/mcpcall/mcpcall.go":     true,
+	"internal/mcpcall/path.go":        true,
+	"internal/mcpcall/remote.go":      true,
+	"internal/orchestrator/mcpask.go": true,
 }
 
 func TestNothingOnTheLaunchOrInstructionPathReadsTheMCPConfiguration(t *testing.T) {
