@@ -3126,7 +3126,7 @@ its bound **ends the run as a stoppage** — `timed_out`, no repair attempt spen
 the change preserved — and what it names is the bound, the configured figure
 and the load that scaled it, the check it stopped and how long that check had
 run, what the stage had spent across how many checks, and the two things that
-move it: narrow the per-run gate to what the change touches, or raise the
+move it: narrow the checks each run must pass to what the change touches, or raise the
 bound. That is a different failure from a check reaching its own budget, and it
 is reported as one, because raising `check_timeout` does nothing for a check the
 stage stopped.
