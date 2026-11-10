@@ -372,6 +372,17 @@ func (a MergeQueuePromotionAttempt) Next() MergeQueueMutation {
 	return ""
 }
 
+// Requests is how many times the attempt asked for the mutation.
+func (a MergeQueuePromotionAttempt) Requests(mutation MergeQueueMutation) int {
+	count := 0
+	for _, record := range a.Mutations {
+		if record.Mutation == mutation {
+			count++
+		}
+	}
+	return count
+}
+
 // Open reports an attempt neither landed nor set aside.
 func (a MergeQueuePromotionAttempt) Open() bool {
 	return a.Landed == nil && a.SetAside == nil
@@ -495,8 +506,10 @@ const (
 	// MergeQueueReleased is an entry whose queued merge was withdrawn for
 	// something other than a defect — its head to be rewritten, or the entry to
 	// move to the other queue mode — and that leaves the queue for whatever asked
-	// for the withdrawal to admit again. It names no failed candidate and charges
-	// nothing.
+	// for the withdrawal to admit again; or an entry whose candidate the remote
+	// refused to take, or that a person handed back (`yoyo queue hand-back`),
+	// which leaves the queue with its change kept for the development manager.
+	// It names no failed candidate and charges nothing.
 	MergeQueueReleased MergeQueueContinuation = "released"
 )
 

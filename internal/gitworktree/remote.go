@@ -25,6 +25,31 @@ type Publication struct {
 // target that drifted is.
 var ErrRemotePushRejected = errors.New("remote rejected the push")
 
+// ErrRemotePushInterrupted reports a push that ended without the remote
+// answering it: cut off, timed out, stalled, killed with the process that
+// asked for it, or exiting with nothing printed. Whether it arrived is not
+// known, so it is never read as a refusal: its caller looks at the remote
+// branch before asking for it again (pushInterrupted).
+var ErrRemotePushInterrupted = errors.New("the push ended without an answer from the remote")
+
+// pushInterrupted reports a push result that is not a refusal from the
+// remote. Git exits with a positive code and says why when the remote refuses
+// a push; a push that did not exit by itself, or exited saying nothing, was
+// stopped before any answer could be read.
+func pushInterrupted(result execution.ProcessResult) bool {
+	if result.Status == execution.ProcessSucceeded {
+		return false
+	}
+	return result.Status != execution.ProcessFailed || result.ExitCode <= 0 || strings.TrimSpace(result.Stderr) == ""
+}
+
+func nonEmptyText(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
 // ErrRemoteTargetDrift reports a remote target branch carrying work the
 // promotion was not written against. It is the remote half of ErrTargetDrift:
 // the merge must fail rather than have the forge reconcile a change nobody saw.

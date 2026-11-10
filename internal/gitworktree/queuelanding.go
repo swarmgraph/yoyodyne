@@ -116,6 +116,10 @@ func (m *Manager) PublishQueueCandidate(ctx context.Context, branch, candidate, 
 	if err != nil {
 		return err
 	}
+	if pushInterrupted(result) {
+		return fmt.Errorf("%w: publish %s on %s over %q ended %s with exit code %d and no answer from the remote: %s",
+			ErrRemotePushInterrupted, candidate, branch, expected, result.Status, result.ExitCode, nonEmptyText(strings.TrimSpace(result.Stderr), "nothing printed"))
+	}
 	if result.Status != execution.ProcessSucceeded {
 		return fmt.Errorf("%w: publish %s on %s over %q failed with exit code %d: %s",
 			ErrRemotePushRejected, candidate, branch, expected, result.ExitCode, strings.TrimSpace(result.Stderr))

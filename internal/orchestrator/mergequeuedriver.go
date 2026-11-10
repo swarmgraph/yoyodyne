@@ -206,6 +206,11 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			continue
 		case promoted.Landed:
 			continue
+		case promoted.HandedBack != nil:
+			// The remote refused this entry's candidate: the entry is handed back
+			// to its run, and the entries behind it go on.
+			handedBack++
+			continue
 		case promoted.Drift:
 			continue
 		case promoted.Dropped || d.heldTooLong(promoted):

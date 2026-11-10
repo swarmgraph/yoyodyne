@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
 
 func TestAQueueCandidateIsPromotedOnlyFromTheBaseItWasBuiltOn(t *testing.T) {
@@ -68,13 +70,47 @@ func TestAQueueCandidateBranchIsReplacedOnlyFromWhatItHeld(t *testing.T) {
 	if err := manager.PublishQueueCandidate(ctx, branch, head, ""); err != nil {
 		t.Fatalf("PublishQueueCandidate(new) error = %v", err)
 	}
-	if err := manager.PublishQueueCandidate(ctx, branch, base, ""); !errors.Is(err, ErrRemotePushRejected) {
+	if err := manager.PublishQueueCandidate(ctx, branch, base, ""); !errors.Is(err, ErrRemotePushRejected) || errors.Is(err, ErrRemotePushInterrupted) {
 		t.Fatalf("PublishQueueCandidate(expecting no branch where one stands) = %v, want it refused", err)
+	}
+	// A push cut off before the remote answers — the session stopping for a
+	// restart — is not a refusal, and moves nothing.
+	stopped, stop := context.WithCancel(ctx)
+	stop()
+	if err := manager.PublishQueueCandidate(stopped, branch, base, head); !errors.Is(err, ErrRemotePushInterrupted) || errors.Is(err, ErrRemotePushRejected) {
+		t.Fatalf("PublishQueueCandidate(cut off) = %v, want it read as interrupted", err)
+	}
+	if published, _, err := manager.QueueCandidateBranchCommit(ctx, branch); err != nil || published != head {
+		t.Fatalf("QueueCandidateBranchCommit() after the cut-off push = %s, %v; want it where it was", published, err)
 	}
 	if err := manager.PublishQueueCandidate(ctx, branch, base, head); err != nil {
 		t.Fatalf("PublishQueueCandidate(over what it held) error = %v", err)
 	}
 	if published, exists, err := manager.QueueCandidateBranchCommit(ctx, branch); err != nil || !exists || published != base {
 		t.Fatalf("QueueCandidateBranchCommit() = %s, %t, %v; want the replacement", published, exists, err)
+	}
+}
+
+// A push is a refusal only where Git exited by itself, with a positive code,
+// saying why; anything else ended before the remote answered.
+func TestOnlyAPushTheRemoteAnsweredIsARefusal(t *testing.T) {
+	t.Parallel()
+
+	for _, c := range []struct {
+		name        string
+		result      execution.ProcessResult
+		interrupted bool
+	}{
+		{"refused", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "! [remote rejected] main (protected branch hook declined)"}, false},
+		{"succeeded", execution.ProcessResult{Status: execution.ProcessSucceeded}, false},
+		{"killed with exit code -1", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: -1}, true},
+		{"cancelled by a restart", execution.ProcessResult{Status: execution.ProcessCancelled, ExitCode: -1}, true},
+		{"timed out", execution.ProcessResult{Status: execution.ProcessTimedOut, ExitCode: -1, Stderr: "Writing objects: 40%"}, true},
+		{"stalled", execution.ProcessResult{Status: execution.ProcessStalled, ExitCode: -1}, true},
+		{"exited saying nothing", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 128, Stderr: "  "}, true},
+	} {
+		if got := pushInterrupted(c.result); got != c.interrupted {
+			t.Errorf("%s: pushInterrupted() = %t, want %t", c.name, got, c.interrupted)
+		}
 	}
 }
