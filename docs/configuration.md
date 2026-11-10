@@ -982,7 +982,10 @@ yoyo project rename <old> <new>            # move a project directory, and every
   to a repository still at its path it refuses unless `--replace` is given, and
   says what it unbound; where the bound repository is gone it binds without
   being asked twice, which is the remedy for a moved or re-cloned repository.
-  It refuses while any run of the project is in flight. Where the project keeps
+  It refuses while any run of the project is in flight, and `--replace` refuses
+  while worktrees kept from stopped runs under `projects/<id>/worktrees/` are
+  registered with the clone it would unbind, naming each one, because a later
+  repair of one of those runs would work in that clone. Where the project keeps
   its configuration in the project directory, the bind rewrites that file's
   `product.repository` to the repository it binds, leaving every other line as
   it was; run against the repository already bound, it does the same for a file
