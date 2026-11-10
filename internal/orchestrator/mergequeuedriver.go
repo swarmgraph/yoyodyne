@@ -154,7 +154,18 @@ func (d MergeQueueDriver) Pass(ctx context.Context, key runstate.MergeQueueKey) 
 func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) runstate.MergeQueuePass {
 	landed, handedBack := 0, 0
 	var untidied []string
+	// unrecorded is a landing whose work item the last Promote could not record
+	// in time. It holds no entry up, and a pass that would otherwise end with
+	// nothing to do ends waiting on it instead, so it goes round again soon.
+	unrecorded := ""
 	done := func(outcome runstate.MergeQueuePassOutcome, entry runstate.MergeQueueEntry, says string) runstate.MergeQueuePass {
+		if unrecorded != "" {
+			if outcome == runstate.MergeQueuePassIdle {
+				outcome, says = runstate.MergeQueuePassWaiting, unrecorded
+			} else {
+				says = fmt.Sprintf("%s; %s", says, unrecorded)
+			}
+		}
 		if outcome == runstate.MergeQueuePassIdle {
 			switch {
 			case handedBack > 0:
@@ -191,6 +202,7 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			continue
 		}
 		promoted, err := d.Promoter.Promote(ctx, key)
+		unrecorded = promoted.Unrecorded
 		if err != nil {
 			return stopped(promoted.Entry, err)
 		}

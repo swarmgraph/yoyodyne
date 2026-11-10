@@ -6906,7 +6906,10 @@ nothing can move, when what is left waits on the operator, a provider or the
 forge, or when it stops on something that needs a look. A pass that ends
 waiting goes round again by itself a minute later, without waiting for the
 session's next pull, so a merge the forge makes is noticed within a few minutes
-however long the session's pulls take while the tracker is slow. Each time a
+however long the session's pulls take while the tracker is slow. Recording a
+landing on its work item may take at most a minute; where the tracker has not
+answered by then, the queue goes on to the next entry and records the work item
+at a later pass, so a slow tracker never holds the next candidate. Each time a
 candidate's checks begin, the queue writes beside itself how long it waited
 since its last landing — from the forge's own merge time where the forge gave
 one — so the queue's weekly figures can count it. A session draining to restart

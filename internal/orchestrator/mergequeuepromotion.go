@@ -124,6 +124,9 @@ type MergeQueuePromoter struct {
 	// branches the landing left on the remote (mergequeueretire.go); nil
 	// leaves them.
 	Retire MergeQueueRetirement
+	// WorkItemBound is how long recording a landing on its work item may take
+	// before the queue goes on without it; zero is mergeQueueWorkItemBound.
+	WorkItemBound time.Duration
 }
 
 // MergeQueuePromotion is what one call to Promote found and did. At most one
@@ -155,6 +158,11 @@ type MergeQueuePromotion struct {
 	// Untidied is what could not be tidied on the forge after a landing: the
 	// run's own pull request or a branch left open. It holds nothing up.
 	Untidied string
+	// Unrecorded is a landing confirmed whose recording on its work item did
+	// not finish within mergeQueueWorkItemBound or failed. It holds nothing
+	// up: Promote goes on to the entry behind it, and the next call tries the
+	// work item again (recordCompletion).
+	Unrecorded string
 	// ForgeHeldSince is when the forge took the merge it holds queued, set
 	// beside Waiting on such a merge; Dropped is a merge the forge stopped
 	// holding without making, set beside Unresolved. Both are what the driver
@@ -196,20 +204,42 @@ func (p MergeQueuePromoter) Promote(ctx context.Context, key runstate.MergeQueue
 	}
 	defer func() { _ = worker.Release() }()
 
-	entry, landing, found, err := p.next(key)
-	if err != nil || !found {
-		return MergeQueuePromotion{}, err
+	// An entry that landed and whose work item could not be recorded in time
+	// is passed over for the rest of this call, so a slow or failing tracker
+	// never holds the entries behind it; the next call tries it again first.
+	passedOver := map[string]bool{}
+	var unrecorded []string
+	for {
+		entry, landing, found, err := p.next(key, passedOver)
+		if err != nil || !found {
+			return MergeQueuePromotion{Unrecorded: strings.Join(unrecorded, "; ")}, err
+		}
+		q := &queuePromotion{p: p, worker: worker, key: key, entry: entry, landing: landing}
+		q.outcome.Entry = entry
+		err = q.promote(ctx)
+		if attempt, ok := q.landing.Current(); ok {
+			q.outcome.Attempt = attempt
+			q.outcome.Landed = attempt.Landed != nil
+		}
+		q.outcome.Completed = q.landing.Completion != nil && q.landing.Completion.Whole()
+		if err == nil && q.outcome.Landed && !q.outcome.Completed && q.outcome.Unrecorded != "" {
+			unrecorded = append(unrecorded, q.outcome.Unrecorded)
+			passedOver[entry.EntryID] = true
+			continue
+		}
+		if q.outcome.Unrecorded != "" {
+			unrecorded = append(unrecorded, q.outcome.Unrecorded)
+		}
+		q.outcome.Unrecorded = strings.Join(unrecorded, "; ")
+		return q.outcome, err
 	}
-	q := &queuePromotion{p: p, worker: worker, key: key, entry: entry, landing: landing}
-	q.outcome.Entry = entry
-	err = q.promote(ctx)
-	if attempt, ok := q.landing.Current(); ok {
-		q.outcome.Attempt = attempt
-		q.outcome.Landed = attempt.Landed != nil
-	}
-	q.outcome.Completed = q.landing.Completion != nil && q.landing.Completion.Whole()
-	return q.outcome, err
 }
+
+// mergeQueueWorkItemBound is how long recording a landing on its work item may
+// take before the queue goes on without it. The tracker can take minutes to
+// answer when its store is large, and the entries behind a landed change wait
+// on nothing the work item says, so the queue does not wait on it either.
+const mergeQueueWorkItemBound = time.Minute
 
 // MergeQueueWaiting is the worker's Waiting for a queue a promoter lands: an
 // entry waits to be verified until a promotion of it is under way or its
@@ -248,12 +278,15 @@ func (p MergeQueuePromoter) validate() error {
 // with nothing under way whose candidate waits on its target being made to
 // pass a check (runstate's WaitsOnTarget) is passed over, as the worker passes
 // it over, so it holds back none of the entries behind it.
-func (p MergeQueuePromoter) next(key runstate.MergeQueueKey) (runstate.MergeQueueEntry, runstate.MergeQueueLanding, bool, error) {
+func (p MergeQueuePromoter) next(key runstate.MergeQueueKey, passedOver map[string]bool) (runstate.MergeQueueEntry, runstate.MergeQueueLanding, bool, error) {
 	entries, err := p.Queue.Entries(key)
 	if err != nil {
 		return runstate.MergeQueueEntry{}, runstate.MergeQueueLanding{}, false, err
 	}
 	for _, entry := range runstate.MergeQueueWorkOrder(entries) {
+		if passedOver[entry.EntryID] {
+			continue
+		}
 		landing, found, err := p.Queue.Landing(key, entry.EntryID)
 		if err != nil {
 			return entry, runstate.MergeQueueLanding{}, false, err
@@ -1216,8 +1249,23 @@ func (q *queuePromotion) recordCompletion(ctx context.Context) error {
 		}
 	}
 	if completion.WorkItemAt == nil {
-		if err := q.p.Completion.RecordWorkItem(ctx, q.entry, *completion); err != nil {
-			return fmt.Errorf("record the landing on %s: %w", q.entry.WorkItemID, err)
+		// The work item is the one part of a completion read from the tracker,
+		// so it is bounded, and one not recorded in time is said and left to
+		// the next call rather than holding the queue (Promote).
+		bound := q.p.WorkItemBound
+		if bound <= 0 {
+			bound = mergeQueueWorkItemBound
+		}
+		itemCtx, cancel := context.WithTimeout(ctx, bound)
+		err := q.p.Completion.RecordWorkItem(itemCtx, q.entry, *completion)
+		cancel()
+		if err != nil {
+			if ctx.Err() != nil {
+				return fmt.Errorf("record the landing on %s: %w", q.entry.WorkItemID, err)
+			}
+			q.outcome.Unrecorded = fmt.Sprintf("entry %d landed, and recording that on %s has not finished (%v); it is tried again at the next pass",
+				q.entry.Order, q.entry.WorkItemID, err)
+			return nil
 		}
 		// The forge is tidied before the completion is written whole, so a
 		// process that stops between the two tidies again rather than never.

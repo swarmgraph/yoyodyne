@@ -21,10 +21,8 @@ type mergingQueues struct {
 	nextStarted  chan struct{}
 	mu           sync.Mutex
 	passes       int
-	mergedAt     time.Time
 	startedAt    time.Time
 	startedOnce  sync.Once
-	forgeAsked   int
 	finishedOnce bool
 }
 
@@ -41,7 +39,6 @@ func (q *mergingQueues) Pass(ctx context.Context, key runstate.MergeQueueKey) ru
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.passes++
-	q.forgeAsked++
 	select {
 	case <-q.merged:
 	default:
@@ -218,5 +215,82 @@ func TestALandingThroughTheForgeRecordsTheForgesMergeTime(t *testing.T) {
 	landed := attempts[len(attempts)-1].Landed
 	if landed == nil || !landed.MergedAt.Equal(mergedAt) || !landed.LandedAt().Equal(mergedAt) || !landed.ConfirmedAt.After(mergedAt) {
 		t.Fatalf("landed = %#v, want the forge's merge time %s kept beside the confirmation", landed, mergedAt)
+	}
+}
+
+// slowTracker is a tracker that does not answer while held: recording a
+// landing on its work item waits until it gives up, as a tracker call does
+// while the store times out.
+type slowTracker struct {
+	MergeQueueCompletion
+	mu    sync.Mutex
+	held  bool
+	tries int
+}
+
+func (c *slowTracker) RecordWorkItem(ctx context.Context, entry runstate.MergeQueueEntry, completion runstate.MergeQueueCompletion) error {
+	c.mu.Lock()
+	held := c.held
+	c.tries++
+	c.mu.Unlock()
+	if held {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return c.MergeQueueCompletion.RecordWorkItem(ctx, entry, completion)
+}
+
+func (c *slowTracker) release() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.held = false
+}
+
+// A tracker too slow to record a landing on its work item holds up nothing
+// behind it: the next entry is built, checked and landed in the same pass,
+// the pass ends waiting so it goes round again soon, and once the tracker
+// answers the work items are recorded.
+func TestASlowTrackerAfterALandingDoesNotHoldTheNextCandidate(t *testing.T) {
+	t.Parallel()
+
+	f := newPromotionFixture(t, landLocally)
+	tracker := &slowTracker{MergeQueueCompletion: f.promoter.Completion, held: true}
+	f.promoter.Completion = tracker
+	f.promoter.WorkItemBound = 50 * time.Millisecond
+	other := f.admitAnother(queueKey, "another", "another.txt", "another change\n")
+
+	pass := f.pass(queueKey)
+	if pass.Outcome != runstate.MergeQueuePassWaiting {
+		t.Fatalf("Pass() = %#v, want it waiting on the work items so it goes round again", pass)
+	}
+	generations, err := f.queue.Generations(queueKey, other.EntryID)
+	if err != nil || len(generations) == 0 || generations[0].CheckRun == nil {
+		t.Fatalf("Generations() = %#v, %v; want the next entry checked while the tracker was slow", generations, err)
+	}
+	for _, entry := range []runstate.MergeQueueEntry{f.entry, other} {
+		landing, _, err := f.queue.Landing(queueKey, entry.EntryID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if attempt, ok := landing.Current(); !ok || attempt.Landed == nil || landing.Completion == nil || landing.Completion.WorkItemAt != nil {
+			t.Fatalf("entry %s landing = %#v, want it landed with its work item still to record", entry.EntryID, landing)
+		}
+	}
+	if handoffs, err := f.queue.Handoffs(queueKey); err != nil || len(handoffs) != 1 {
+		t.Fatalf("Handoffs() = %#v, %v; want the wait to the next check recorded", handoffs, err)
+	}
+
+	tracker.release()
+	if pass := f.pass(queueKey); pass.Outcome == runstate.MergeQueuePassWaiting || pass.Outcome == runstate.MergeQueuePassStopped {
+		t.Fatalf("Pass() once the tracker answers = %#v, want both work items recorded", pass)
+	}
+	for _, entry := range []runstate.MergeQueueEntry{f.entry, other} {
+		landing, _, err := f.queue.Landing(queueKey, entry.EntryID)
+		if err != nil || landing.Completion == nil || !landing.Completion.Whole() {
+			t.Fatalf("entry %s landing = %#v, %v; want its completion whole", entry.EntryID, landing, err)
+		}
+	}
+	if pending := f.pending(); len(pending) != 0 {
+		t.Fatalf("Pending() = %v, want nothing left", pending)
 	}
 }
