@@ -32,9 +32,11 @@ package orchestrator
 // The target moving off the generation's base is drift: the attempt is set
 // aside, the generation invalidated, and the entry is verified again from
 // nothing on the new target by the worker. Nothing about the run is charged
-// for it. A refusal, a merge the forge stopped holding, and a remote target
-// that moved after the local one was moved are retained as they are and
-// reported. Withdrawing a queued merge and deciding what a failed candidate
+// for it. A push that ends before the remote answers is left for the next call
+// to observe and ask for again, and a push the remote refuses hands that one
+// entry back so the entries behind it go on. A merge the forge stopped
+// holding, and a remote target that moved after the local one was moved, are
+// retained as they are and reported. Withdrawing a queued merge and deciding what a failed candidate
 // costs are mergequeuerecovery.go's, and moving an entry between modes is
 // mergequeuetransfer.go's. The merge queue's driver (mergequeuedriver.go)
 // calls it once the worker has verified an entry.
@@ -50,6 +52,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/queuemode"
@@ -163,10 +166,14 @@ type MergeQueuePromotion struct {
 	// (mergequeuewhole.go). Verifying the candidate again does not change that,
 	// so the driver stops its pass on it rather than going round.
 	Uncovered bool
+	// HandedBack is the entry's turn in the queue ended by this call, with its
+	// change given back to its run: a push the remote refused, or a person
+	// handing it back (HandBack). The driver goes on to the next entry.
+	HandedBack *runstate.MergeQueueHandback
 }
 
 func (o MergeQueuePromotion) stopped() bool {
-	return o.Drift || o.Refusal != "" || o.Waiting != "" || o.Unresolved != ""
+	return o.Drift || o.Refusal != "" || o.Waiting != "" || o.Unresolved != "" || o.HandedBack != nil
 }
 
 // Promote lands the first entry of the queue the queue has not finished with,
@@ -579,13 +586,69 @@ func (q *queuePromotion) pushCandidate(ctx context.Context) error {
 		return err
 	}
 	err = q.p.Lander.PublishQueueCandidate(ctx, attempt.CandidateBranch, attempt.Candidate, expected)
-	if errors.Is(err, gitworktree.ErrRemotePushRejected) {
-		return q.settle(runstate.MergeQueueMutationNotMade, err.Error(), false)
-	}
-	if err != nil {
+	switch {
+	case errors.Is(err, gitworktree.ErrRemotePushInterrupted):
+		// Whether the push arrived is not known, so it is left unsettled: the
+		// next call looks at the candidate branch first (observe), records the
+		// push made where it arrived, and asks for it again where it did not. A
+		// session stopping for a restart onto a new build ends a push this way.
+		q.outcome.Waiting = fmt.Sprintf("the push of the candidate to %s ended before the remote answered (%v); the next pass looks at whether it arrived and asks for it again if it did not", attempt.CandidateBranch, err)
+		return nil
+	case errors.Is(err, gitworktree.ErrRemotePushRejected):
+		if err := q.settle(runstate.MergeQueueMutationNotMade, err.Error(), false); err != nil {
+			return err
+		}
+		return q.refusedPush(ctx, err.Error())
+	case err != nil:
 		return fmt.Errorf("publish the candidate on %s: %w", attempt.CandidateBranch, err)
 	}
 	return q.settle(runstate.MergeQueueMutationDone, "", false)
+}
+
+// refusedPush hands back the one entry whose candidate the remote refused, so
+// the entries behind it go on. An attempt that already moved the local target
+// cannot be handed back, because nothing takes that move back, so it is kept as
+// it is and reported.
+func (q *queuePromotion) refusedPush(ctx context.Context, detail string) error {
+	attempt := q.attempt()
+	why := fmt.Sprintf("the remote refused the push of candidate %s to %s, so it cannot land: %s", attempt.Candidate, attempt.CandidateBranch, detail)
+	if refusal := q.landing.HeadRewriteRefusal(); refusal != "" {
+		q.outcome.Unresolved = why + "; it is not handed back, because " + refusal
+		return nil
+	}
+	return q.handBackEntry(ctx, why)
+}
+
+// handBackEntry ends an entry's turn in the queue with its change kept on its
+// run for the development manager, and gives the run the reason. Its caller
+// has made sure nothing the queue asked for can still land the change
+// (HeadRewriteRefusal). An entry already handed back keeps what it was given.
+func (q *queuePromotion) handBackEntry(ctx context.Context, why string) error {
+	if q.landing.Handback != nil || q.landing.Completion != nil {
+		return nil
+	}
+	// The attempt is set aside in the same write, because an entry is handed
+	// back only once no attempt of it stands.
+	attempt := q.attempt()
+	if attempt != nil && attempt.SetAside == nil {
+		attempt.SetAside = &runstate.MergeQueueSetAside{At: q.now(), Reason: oneline.Fold(why, 1500)}
+		defer func() {
+			if q.landing.Handback == nil {
+				attempt.SetAside = nil
+			}
+		}()
+	}
+	q.landing.Handback = &runstate.MergeQueueHandback{
+		At: q.now(), Continuation: runstate.MergeQueueReleased, Mover: ownership.MoverDevelopmentManager,
+		Reason:       oneline.Fold(why+"; the entry leaves the queue so the entries behind it go on, and its change is kept on its run for the development manager to decide on", 1500),
+		ApprovedHead: q.entry.ApprovedHead,
+	}
+	if err := q.save(); err != nil {
+		q.landing.Handback = nil
+		return err
+	}
+	q.outcome.HandedBack = q.landing.Handback
+	return q.handBack(ctx)
 }
 
 // openPullRequest opens, or finds open, the pull request that carries the
@@ -1062,13 +1125,26 @@ func (q *queuePromotion) observe(ctx context.Context, record runstate.MergeQueue
 // request the forge opens once per branch — and an attempt that has changed nothing yet is set aside
 // instead, so the next is intended afresh under everything read again. A
 // local move observed not made is drift where the target moved and an
-// interruption where it did not. Everything else — a refusal, a merge neither
-// made nor held — is kept as it is and reported: deciding what it costs
-// belongs to later work, and asking again here would be deciding it.
+// interruption where it did not. A push the remote refused is handed back as
+// it is refused (refusedPush), so one found recorded not made and not handed
+// back is either a push cut off before the remote answered, which an earlier
+// build recorded as a refusal, or a refusal whose hand-back was never written
+// down: it is asked for again once, and a refusal of that push is handed back.
+// Asking again cannot push twice, because a candidate branch that already
+// carries the candidate is not pushed to. Everything else — a merge neither
+// made nor held, a push refused after the local target moved — is kept as it
+// is and reported: deciding what it costs belongs to later work, and asking
+// again here would be deciding it.
 func (q *queuePromotion) notMade(ctx context.Context, last runstate.MergeQueueMutationRecord) error {
 	attempt := q.attempt()
 	interrupted := last.Settled.Observed
 	switch {
+	case !interrupted && last.Mutation == runstate.MergeQueuePushCandidate && attempt.Requests(runstate.MergeQueuePushCandidate) == 1:
+		if !attempt.MovedTarget() {
+			return q.setAside(attempt, fmt.Sprintf("the push of the candidate was recorded as not made (%s), which a push cut off before the remote answered also reads as, so it is asked for again",
+				nonEmpty(last.Settled.Detail, "no reason was given")), false)
+		}
+		return q.pushCandidate(ctx)
 	case interrupted && last.Mutation == runstate.MergeQueueMoveTarget:
 		target, err := q.p.Lander.TargetCommit(ctx, q.key.TargetBranch)
 		if err != nil {

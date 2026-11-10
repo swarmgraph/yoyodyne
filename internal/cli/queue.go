@@ -1,8 +1,10 @@
 package cli
 
 // `yoyo queue`: moving a queued change between the harness's merge queue and
-// the forge's own. Reading the queues is `yoyo status`, which shows each queue
-// beside everything else the harness is doing from the shared read model.
+// the forge's own, and the two supported ways past an entry the queue stopped
+// on — taking it up again, or handing it back to its run with a reason
+// (mergequeuestopped.go). Reading the queues is `yoyo status`, which shows each
+// queue beside everything else the harness is doing from the shared read model.
 //
 // A transfer is the one thing that moves an entry between modes. Turning
 // execution.merge_queue off does not, and neither does the forge answering
@@ -18,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -31,6 +34,8 @@ func runQueue(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	switch args[0] {
 	case "transfer":
 		return transferQueueEntry(ctx, args[1:], stdout, stderr)
+	case "retry", "hand-back":
+		return actOnStoppedQueueEntry(ctx, args[0], args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown queue command %q\n\n", args[0])
 		printQueueUsage(stderr)
@@ -40,8 +45,21 @@ func runQueue(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 
 func printQueueUsage(writer io.Writer) {
 	fmt.Fprintln(writer, `Usage: yoyo queue transfer <entry> --mode <harness|forge> [--config <path>] [--json]
+       yoyo queue retry <entry> --reason <text> [--config <path>] [--json]
+       yoyo queue hand-back <entry> --reason <text> [--config <path>] [--json]
 
-Moves one queued change between the harness's merge queue and the forge's own.
+retry takes up again an entry the queue stopped on: its stopped promotion
+attempt is set aside with the reason, and the next pass begins a fresh one on
+the same checked and reviewed candidate where it still stands. A request whose
+answer was never recorded is left for the next pass, which looks at what it did
+first, and an entry whose change something the queue asked for could still land
+is refused.
+
+hand-back ends an entry's turn in the queue with the reason, so the entries
+behind it go on. Whatever its queue asked the forge for is withdrawn first, and
+the change is kept on its run for the development manager to decide on.
+
+transfer moves one queued change between the harness's merge queue and the forge's own.
 The entry is named as `+"`yoyo status`"+` names it (mqe-...).
 
 Whatever the change's current queue was asked for is withdrawn first, and the
@@ -145,4 +163,77 @@ func queueHolding(store *runstate.MergeQueueStore, entryID string) (runstate.Mer
 		}
 	}
 	return runstate.MergeQueueKey{}, false, nil
+}
+
+type queueEntryOutput struct {
+	Entry    *runstate.MergeQueueEntry            `json:"entry,omitempty"`
+	Attempt  *runstate.MergeQueuePromotionAttempt `json:"attempt,omitempty"`
+	Handback *runstate.MergeQueueHandback         `json:"handback,omitempty"`
+	Error    string                               `json:"error,omitempty"`
+}
+
+// actOnStoppedQueueEntry is `yoyo queue retry` and `yoyo queue hand-back`.
+func actOnStoppedQueueEntry(ctx context.Context, verb string, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("queue "+verb, flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	path := flags.String("config", "", "configuration file path (default: the nearest project configuration)")
+	reason := flags.String("reason", "", "why the entry is taken up again or handed back")
+	jsonOutput := flags.Bool("json", false, "emit machine-readable JSON")
+	positional, err := parseArguments(flags, args)
+	if err != nil {
+		return 2
+	}
+	if len(positional) != 1 || strings.TrimSpace(*reason) == "" {
+		fmt.Fprintf(stderr, "queue %s takes one entry and --reason saying why\n", verb)
+		return 2
+	}
+	fail := func(err error) int {
+		if *jsonOutput {
+			if code := writeJSON(stdout, stderr, queueEntryOutput{Error: err.Error()}); code != 0 {
+				return code
+			}
+		} else {
+			fmt.Fprintln(stderr, err)
+		}
+		return 1
+	}
+	parts, err := buildComponents(*path)
+	if err != nil {
+		return fail(err)
+	}
+	key, found, err := queueHolding(parts.mergeQueues, positional[0])
+	if err != nil {
+		return fail(err)
+	}
+	if !found {
+		return fail(fmt.Errorf("no merge queue of this product admits an entry %s", positional[0]))
+	}
+	promoter := mergeQueueDriverFrom(parts).Promoter
+	act := promoter.Retry
+	if verb == "hand-back" {
+		act = promoter.HandBack
+	}
+	result, err := act(ctx, key, positional[0], *reason)
+	if errors.Is(err, orchestrator.ErrMergeQueueWorkerBusy) {
+		return fail(errors.New("another process is working this queue right now; ask again once its pass ends"))
+	}
+	if err != nil {
+		return fail(err)
+	}
+	if *jsonOutput {
+		output := queueEntryOutput{Entry: &result.Entry, Handback: result.HandedBack}
+		if result.Attempt.Number != 0 {
+			output.Attempt = &result.Attempt
+		}
+		return writeJSON(stdout, stderr, output)
+	}
+	entry := result.Entry
+	if verb == "hand-back" {
+		fmt.Fprintf(stdout, "%s: %s, entry %d (%s), has left the queue for %s; its change is kept on run %s for the development manager, and the entries behind it go on\n",
+			entry.WorkItemID, entry.WorkItemTitle, entry.Order, entry.EntryID, entry.TargetBranch, entry.RunID)
+		return 0
+	}
+	fmt.Fprintf(stdout, "%s: %s, entry %d (%s), is taken up again; the next pass of the queue for %s begins a fresh attempt to land it\n",
+		entry.WorkItemID, entry.WorkItemTitle, entry.Order, entry.EntryID, entry.TargetBranch)
+	return 0
 }

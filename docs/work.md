@@ -2692,7 +2692,11 @@ Turning the switch off admits nothing new and lets what is queued finish in the
 queue it was admitted to; a change the queue was holding is then integrated the
 way it is with the switch off. Moving a queued change between the harness's
 queue and the forge's is `yoyo queue transfer`, which withdraws first and moves
-nothing while that withdrawal is unconfirmed. `yoyo status` and the dashboard
+nothing while that withdrawal is unconfirmed. A push of a candidate that ends
+before the remote answers is looked at and asked for again by the next pass,
+and one the remote refuses hands back only its own entry. An entry the queue
+stopped on is taken up again with `yoyo queue retry` or handed back to its run
+with `yoyo queue hand-back`, each with a reason. `yoyo status` and the dashboard
 show every queue and where each change in it stands.
 [The configuration guide](configuration.md#integrating-through-a-merge-queue)
 has the whole of it.

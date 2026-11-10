@@ -6868,6 +6868,34 @@ released entry, its candidates, and its landing record as history. The new
 entry has no candidate; it is built, checked and reviewed from nothing. A
 transfer interrupted part-way is finished by asking again.
 
+**Pushing a candidate.** A push of the candidate branch that fails without the
+remote refusing it — cut off by a restart onto a new build, timed out, exiting
+with nothing printed, or failing to reach the remote at all, such as a host
+that could not be looked up, a dropped connection or a server error — is not
+read as a refusal: the next pass looks at the candidate branch, records the
+push made where it arrived, and asks for it again where it did not, so nothing
+is pushed twice. A push the remote does refuse, which Git reports by naming the
+branch as rejected, hands that one entry back to its run, with the refusal in its words, for the
+development manager to decide on, and the queue goes on to the entries behind
+it.
+
+**An entry the queue stopped on** is taken up again, or handed back, with a
+command rather than by editing records:
+
+```sh
+yoyo queue retry <entry> --reason "<why>"
+yoyo queue hand-back <entry> --reason "<why>"
+```
+
+`retry` sets the stopped promotion attempt aside with the reason, and the next
+pass begins a fresh one on the same checked and reviewed candidate where it
+still stands. It refuses where something the queue asked the forge for could
+still land the change, and leaves a request with no recorded answer to the next
+pass, which looks at what it did first. `hand-back` withdraws whatever the queue
+asked the forge for, as a transfer does, and ends the entry's turn with its
+change kept on its run for the development manager, so the entries behind it go
+on.
+
 **Who works the queues.** A `yoyo work` session works every queue with an entry
 in it beside its pulls, one pass per queue at a time, each in its own
 goroutine, and never inside a developer slot. A queue is worked by one process
