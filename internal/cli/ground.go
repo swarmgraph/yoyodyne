@@ -265,7 +265,7 @@ func conversationRunRecoverer(parts components) chat.RunRecoverer {
 			if err != nil {
 				return nil, err
 			}
-			return orchestrator.BlockingDependencies(item), nil
+			return orchestrator.BlockingDependenciesAfterTeamMerges(parts.store, item), nil
 		},
 	}
 	// An interface holding a nil store is not nil, so it is set only where there

@@ -1073,6 +1073,10 @@ type Outcome struct {
 	// PersonMerge is the wait of a run whose published change a person merges,
 	// as runstate.State.PersonMerge records it.
 	PersonMerge *runstate.PersonMerge `json:"person_merge,omitempty"`
+	// TeamMerge is the wait of a run whose change landed on the target branch
+	// and waits for the team to merge it into theirs, as
+	// runstate.State.TeamMerge records it.
+	TeamMerge *runstate.TeamMerge `json:"team_merge,omitempty"`
 	// TargetProtection says what the forge answered about the target branch
 	// being protected, and so which way this run promoted: a protected target —
 	// or one the forge could not be asked about — lands through the pull request
@@ -1337,7 +1341,9 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	// where it is, and a run already in flight for it is left in flight rather
 	// than resumed — given a durable wait at its own phase where no process is
 	// behind it (waitInFlightOnDependencies).
-	if blockers := blockingDependencies(item); len(blockers) > 0 {
+	// A dependency on work that waits for the team's merge on this run's target
+	// branch is met (teammergedeps.go).
+	if blockers := blockingDependencies(p.releaseTeamMerged(ctx, item, "")); len(blockers) > 0 {
 		return p.waitInFlightOnDependencies(ctx, workItemID, blockers)
 	}
 	// An incomplete run for this item is either a run an interrupted process left
@@ -1405,7 +1411,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	if err := p.refuseSubstitutedHandback(workItemID); err != nil {
 		return Outcome{}, err
 	}
-	if err := validateReadyItem(item, workItemID); err != nil {
+	if err := validateReadyItem(p.releaseTeamMerged(ctx, item, ""), workItemID); err != nil {
 		return Outcome{}, err
 	}
 	// And whether its done-conditions are ones a run may satisfy at all, asked
@@ -1502,6 +1508,10 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		// from a fix that does not work.
 		Build:  p.Build,
 		Status: runstate.StatusPending,
+		// The team's branch, when the project names one other than the target:
+		// a change landing on the target then waits for the team's merge
+		// instead of closing its item (teammerge.go).
+		UpstreamBranch: upstreamBranchFor(p.Config.Execution.UpstreamBranch, targetBranch),
 	}
 	// In team mode the item is claimed on the shared remote first, and nothing
 	// below happens for an item another factory holds (teamclaims.go).
@@ -1687,7 +1697,7 @@ func (a *activeRun) claim(ctx context.Context) error {
 	claimedAt := a.pipeline.clock().Now()
 	a.state.WorkItemClaimedAt = &claimedAt
 	a.item = item
-	if err := validateClaimedItem(item, a.state.WorkItemID); err != nil {
+	if err := validateClaimedItem(a.pipeline.releaseTeamMerged(ctx, item, a.state.TargetBranch), a.state.WorkItemID); err != nil {
 		return fmt.Errorf("validate claimed work item: %w", err)
 	}
 	a.clearAcceptedSchedulingWait(ctx)
@@ -1830,7 +1840,7 @@ func (p Pipeline) Continue(ctx context.Context, workItemID, runID string) (Outco
 	if len(pausing) > 0 {
 		return pauseWorkItem(workItemID, pausing[0]), nil
 	}
-	if blockers := blockingDependencies(item); len(blockers) > 0 {
+	if blockers := blockingDependencies(p.releaseTeamMerged(ctx, item, "")); len(blockers) > 0 {
 		return pauseWorkItemForDependencies(workItemID, blockers), nil
 	}
 	inFlight, lease, err := p.Store.AdoptWithin(ctx, workItemID, p.Config.Execution.MaxConcurrentDevelopers)
@@ -1960,7 +1970,7 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		}
 		return Outcome{Retirement: retired.Retirement, RunID: retired.RunID, WorkItemID: retired.WorkItemID, Status: retired.Status, Phase: retired.Phase, Branch: retired.Branch, WorktreePath: retired.WorktreePath, Summary: retirementReason(retired)}, err
 	}
-	if err := validateClaimedItem(item, state.WorkItemID); err != nil {
+	if err := validateClaimedItem(p.releaseTeamMerged(ctx, item, state.TargetBranch), state.WorkItemID); err != nil {
 		return Outcome{}, fmt.Errorf("validate resumed work item: %w", err)
 	}
 	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: item, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(p.Repository)})
@@ -6162,7 +6172,7 @@ func (a *activeRun) holdForDependency(ctx context.Context) error {
 		}
 		return fmt.Errorf("read what %s waits on: %w", a.state.WorkItemID, err)
 	}
-	blockers := blockingDependencies(item)
+	blockers := blockingDependencies(a.pipeline.releaseTeamMerged(ctx, item, a.state.TargetBranch))
 	if len(blockers) == 0 {
 		return nil
 	}
@@ -8074,6 +8084,14 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 		a.state.PersonMerge = &wait
 		a.outcome.PersonMerge = &wait
 	}
+	// A change that landed on the target branch of a project with a team branch
+	// waits for the team's merge; the item stays claimed (teammerge.go).
+	waitsForTeam := a.outcome.Integration != nil && !a.mergeQueued() && !undischarged && awaitsTeamMerge(a.state)
+	if waitsForTeam {
+		wait := teamMergeWait(a.state, integrationLandingCommit(a.outcome.Integration), p.clock().Now())
+		a.state.TeamMerge = &wait
+		a.outcome.TeamMerge = &wait
+	}
 	if err := a.recordOutcomeOnce(ctx, func() string { return renderOutcomeNotes(a.outcome) }); err != nil {
 		return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("record successful run outcome: %w", err)), runstate.StatusFailed)
 	}
@@ -8117,7 +8135,7 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 			if err := settleErr; err != nil {
 				return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("reopen the work item this run did not discharge: %w", err)), runstate.StatusFailed)
 			}
-		} else {
+		} else if !waitsForTeam {
 			// Every run that closes an item read it open when it claimed it, so an
 			// item read back as closed is this close having landed.
 			if _, err := recoveringTrackerWrite(ctx, a,
@@ -11151,6 +11169,9 @@ func renderOutcomeNotes(outcome Outcome) string {
 			headline += " (" + outcome.PullRequest.URL + ")"
 		}
 		headline += ". The run holds no developer slot while it waits; the item closes once the pull request merges, and goes back to the Lead Product Manager if it is closed without merging."
+	}
+	if wait := outcome.TeamMerge; outcome.Integration != nil && wait != nil && wait.Waiting() {
+		headline += " " + teamMergeNotes(*wait)
 	}
 	// An escalated run integrated nothing, so it takes neither headline above. It
 	// is said in the words the item is actually left in: nothing landed, and what

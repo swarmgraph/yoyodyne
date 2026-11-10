@@ -1960,3 +1960,40 @@ func TestStatusOpensWithThePauseAboveTheSummary(t *testing.T) {
 		t.Fatalf("with no pause, status does not open with the summary:\n%s", out.String())
 	}
 }
+
+// A run whose change landed on the target branch and waits for the team's merge
+// is said by `yoyo status` in the run's own words, with both branches named.
+func TestStatusSaysWhichBranchAChangeLandedOnAndWhichItWaitsToBeMergedInto(t *testing.T) {
+	// Not parallel: the state root the command addresses is set here.
+	stateRoot := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
+	configPath := writeConfig(t, validConfig)
+	store, err := runstate.NewStore(stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := recordedRun(t, store, runstate.StatusSucceeded, "yoyodyne-landed", time.Now().Add(-time.Hour))
+	state.WorktreePath = "/state/worktree"
+	state.Branch = "yoyodyne/task/01234567"
+	state.BaseCommit = strings.Repeat("a", 40)
+	state.TargetBranch = "staging"
+	state.UpstreamBranch = "main"
+	state.Phase = runstate.PhaseIntegrating
+	state.ProviderSessionID = "developer-session"
+	state.ProviderModel = "opus"
+	state.ReviewSessionID = "reviewer-session"
+	state.ReviewModel = "opus"
+	state.ReviewDecision = runstate.ReviewApprove
+	state.Integration = &runstate.Integration{TargetBranch: "staging", SourceCommit: strings.Repeat("b", 40), TargetCommit: strings.Repeat("b", 40), PreviousTargetCommit: strings.Repeat("a", 40)}
+	state.TeamMerge = &runstate.TeamMerge{TargetBranch: "staging", UpstreamBranch: "main", LandingCommit: strings.Repeat("b", 40), Since: state.StartedAt}
+	saveRun(t, store, state)
+
+	stdout, stderr, code := runCLI(t, "status", "--config", configPath)
+	if code != 0 {
+		t.Fatalf("status exited %d: %s", code, stderr)
+	}
+	want := "Waiting for the team's merge: yoyodyne-landed"
+	if !strings.Contains(stdout, want) || !strings.Contains(stdout, "landed on staging as bbbbbbbbbbbb, waiting for the team to merge it into main") {
+		t.Fatalf("status does not say the wait (%q):\n%s", want, stdout)
+	}
+}

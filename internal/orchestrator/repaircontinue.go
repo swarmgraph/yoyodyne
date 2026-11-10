@@ -589,7 +589,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	if err != nil {
 		return result, fmt.Errorf("read the work item the stoppage is about: %w", err)
 	}
-	if err := continuableItem(item, entry.WorkItemID); err != nil {
+	if err := continuableItem(releaseTeamMergedFrom(c.Runs, item, prior.TargetBranch), entry.WorkItemID); err != nil {
 		return result, err
 	}
 	// The hold is read before anything is written, so a held harness leaves the
@@ -717,7 +717,7 @@ func (c RepairContinuer) recoverContinuation(ctx context.Context, prior runstate
 	if err != nil {
 		return result, fmt.Errorf("read the item before recovering its recorded continuation: %w", err)
 	}
-	if err := validateClaimedItem(item, prior.WorkItemID); err != nil {
+	if err := validateClaimedItem(releaseTeamMergedFrom(c.Runs, item, prior.TargetBranch), prior.WorkItemID); err != nil {
 		return result, fmt.Errorf("the run already holds its continuation but its item claim is not confirmed; no repair transition was repeated: %w", err)
 	}
 	// Save the existing record unchanged: an earlier save may have replaced the
@@ -1312,7 +1312,7 @@ func (c RepairContinuer) supersedeOnItem(ctx context.Context, item beads.WorkIte
 		}
 	}
 	if item.Status == claimedItemStatus {
-		return validateClaimedItem(item, item.ID)
+		return validateClaimedItem(releaseTeamMergedFrom(c.Runs, item, prior.TargetBranch), item.ID)
 	}
 	// The blocker this claim clears is the one the stopped run wrote, so the
 	// clear's account is read off the error where the read-back never confirmed
@@ -1326,7 +1326,7 @@ func (c RepairContinuer) supersedeOnItem(ctx context.Context, item beads.WorkIte
 	// other write here is: an item that still says it is blocked is one the
 	// pipeline refuses to resume, and finding that out from the refusal would
 	// cost the grant that has already been spent.
-	if err := validateClaimedItem(claimed, item.ID); err != nil {
+	if err := validateClaimedItem(releaseTeamMergedFrom(c.Runs, claimed, prior.TargetBranch), item.ID); err != nil {
 		return fmt.Errorf("validate the work item put back for its repair: %w", err)
 	}
 	return nil

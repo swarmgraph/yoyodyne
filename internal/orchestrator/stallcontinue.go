@@ -180,7 +180,7 @@ func (c StallContinuer) Continue(ctx context.Context, request StallContinueReque
 	if err != nil {
 		return result, fmt.Errorf("read the work item the stoppage is about: %w", err)
 	}
-	if err := continuableItem(item, entry.WorkItemID); err != nil {
+	if err := continuableItem(releaseTeamMergedFrom(c.Runs, item, prior.TargetBranch), entry.WorkItemID); err != nil {
 		return result, err
 	}
 	hold, held, err := c.Intake.Held()
@@ -226,7 +226,7 @@ func (c StallContinuer) Continue(ctx context.Context, request StallContinueReque
 	if err != nil {
 		return result, fmt.Errorf("put %s back to work for the stall it is owed: %w", entry.WorkItemID, err)
 	}
-	if err := validateClaimedItem(claimed, entry.WorkItemID); err != nil {
+	if err := validateClaimedItem(releaseTeamMergedFrom(c.Runs, claimed, prior.TargetBranch), entry.WorkItemID); err != nil {
 		return result, fmt.Errorf("validate the work item put back after its stall: %w", err)
 	}
 	// The slot is taken by the save that makes the run live, not by the reading
