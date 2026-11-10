@@ -29,7 +29,7 @@ type pathFixture struct {
 var fakeToolClasses = map[string]config.MCPToolClass{
 	"echo": config.MCPRead, "send": config.MCPAct, "hang": config.MCPRead, "hang-act": config.MCPAct,
 	"flaky": config.MCPRead, "flaky-act": config.MCPAct, "mixed": config.MCPRead, "big": config.MCPRead,
-	"leak": config.MCPRead, "leak-error": config.MCPRead,
+	"leak": config.MCPRead, "leak-error": config.MCPRead, "described": config.MCPRead,
 }
 
 func newPathFixture(t *testing.T) *pathFixture {

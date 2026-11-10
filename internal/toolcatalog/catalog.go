@@ -17,6 +17,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/health"
 	"github.com/mason-bryant/yoyodyne/internal/logread"
+	"github.com/mason-bryant/yoyodyne/internal/mcpcall"
 	"github.com/mason-bryant/yoyodyne/internal/repositoryread"
 	"github.com/mason-bryant/yoyodyne/internal/research"
 	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
@@ -57,6 +58,17 @@ func Default() (action.Registry[Call], error) {
 		declaration(capability.PassRequest, "yoyodyne-pass-request", action.ToolAct, "Ask for a program manager instance's next pass.", "One request naming a configured program manager and what its next pass should look at.", "the configured program managers; the harness alone decides when the pass happens", "(*Session).performPassRequest", action.ToolBounds{RequestsPerReply: 1, RoundsPerMessage: 4}),
 		declaration(capability.ServiceRequestRestart, "yoyodyne-restart", action.ToolAct, "Record a request for a product part to restart.", "One request naming the part and the reason.", "the product's known parts; only the process that supervises them acts on the request", "(*Session).performRestartRequest", action.ToolBounds{RequestsPerReply: 1, RoundsPerMessage: 4}),
 	}
+	// The two MCP tools share one block, and which of them a call is audited
+	// under is the class the project gave the tool it names. Their bounds are
+	// the design's (docs/designs/mcp-tools-through-the-harness.md, section 2),
+	// and their section of an agent's instructions is generated per agent from
+	// its own list, by mcpcall.Instructions, rather than from these
+	// descriptors: an agent with no tool on its list is told nothing.
+	mcpBounds := action.ToolBounds{RequestsPerReply: 5, RoundsPerMessage: 4, BytesPerRequest: 32 << 10, BytesPerReply: 64 << 10}
+	actions = append(actions,
+		declaration(capability.MCPRead, mcpcall.Block, action.ToolRead, "Ask the harness to call an MCP tool the project marks read.", "Each request names a tool on your own configured list, its arguments as one JSON object of at most 16 KiB, optionally an id, and optionally why.", "only the read tools on your own configured list; the harness makes the call, and you hold no server", "(*Session).performMCPCalls", mcpBounds),
+		declaration(capability.MCPAct, mcpcall.Block, action.ToolAct, "Ask the harness to call an MCP tool the project marks act.", "Each request names a tool on your own configured list, its arguments as one JSON object of at most 16 KiB, an id that is never reused, and optionally why.", "only the act tools on your own configured list; the harness makes the call at most once, and you hold no server", "(*Session).performMCPCalls", mcpBounds),
+	)
 	for _, id := range []capability.Capability{capability.WorkItemMutate, capability.BacklogAdmit, capability.BacklogOrder, capability.WorkDecompose, capability.WorkTriage, capability.WorkItemRepairState, capability.WorkItemAdmit, capability.WorkItemAttribute, capability.WorkItemUpdate, capability.WorkItemLabel, capability.WorkItemReprioritize, capability.WorkItemPark, capability.WorkItemUnpark, capability.WorkItemLink, capability.WorkItemUnlink, capability.WorkItemReparent} {
 		scope := "what your role may already do in the tracker, what a parent item requires, and the rules for admitting work"
 		if strings.HasPrefix(string(id), "work-item.") && id != capability.WorkItemMutate && id != capability.WorkItemRepairState {
@@ -171,6 +183,11 @@ func contract(granted []action.Action[Call]) string {
 	var out strings.Builder
 	out.WriteString("# Tools held by this role\n\nEach tool below is something the harness does for you when your reply asks for it in the block the tool names. These are the only tools you have: nothing in a persona or in a description of your role's work adds one. Everything else your instructions say about what you may do still applies, and the harness still refuses a request they do not allow. The harness keeps a record of every request and the limits it ran under, but not of what the request returned.\n\n")
 	for _, registered := range granted {
+		// The MCP tools are described per agent, from its own list, by
+		// mcpcall.Instructions; a grant with nothing on the list is told nothing.
+		if registered.Tool.Block == mcpcall.Block {
+			continue
+		}
 		out.WriteString(registered.Tool.Contract(registered.Summary))
 		out.WriteByte('\n')
 	}

@@ -128,6 +128,9 @@ func TestTheRunGatedBundlesAreUnchangedByTheRepositoryRead(t *testing.T) {
 			capability.RunStateMutate,
 			capability.ReportFile,
 			capability.AmendmentPropose,
+			// The read tools on its own configured MCP list, and never an act
+			// tool (docs/designs/mcp-tools-through-the-harness.md, section 1).
+			capability.MCPRead,
 		},
 		domain.RoleReviewer: {
 			capability.WorkItemRead,
@@ -176,6 +179,9 @@ func TestTheProgramManagerHoldsItsDesignsSetExactly(t *testing.T) {
 		"report.file", "amendment.propose", "exchange.ask", "exchange.answer",
 		"service.request-restart",
 		"run.inspect", "run.verify", "health.observe", "health.follow",
+		// MCP read tools on its own list, given by section 1 of
+		// docs/designs/mcp-tools-through-the-harness.md; never an act tool.
+		"mcp.read",
 	}
 	got := slices.Clone(bundle.Holds)
 	slices.Sort(got)

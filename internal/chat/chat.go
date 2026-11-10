@@ -35,6 +35,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/health"
 	"github.com/mason-bryant/yoyodyne/internal/intervention"
 	"github.com/mason-bryant/yoyodyne/internal/logread"
+	"github.com/mason-bryant/yoyodyne/internal/mcpcall"
 	"github.com/mason-bryant/yoyodyne/internal/modelfailover"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
@@ -408,6 +409,13 @@ type Options struct {
 	// role to advise from its briefing believing it had looked.
 	RepositoryReader RepositoryReader
 	LogReader        LogReader
+	// MCP is the one MCP call path, through which a role asks the harness to
+	// call a tool on its agent's own configured list. Nil, or an agent whose
+	// list is empty, tells the role nothing about MCP and refuses the block.
+	MCP MCPCalls
+	// MCPLimits narrows the design's limits on this agent's MCP calls. A bound
+	// it sets above the design's is ignored, so it can only tighten them.
+	MCPLimits mcpcall.Limits
 	// RunInspector is how a manager is shown one run and checks one expected
 	// state of it, through run.inspect and run.verify. It is wired for every
 	// role because the authority to ask is decided by the role's bundle, and a
@@ -685,6 +693,13 @@ type Session struct {
 	state                 runstate.Conversation
 	resumed               bool
 	toolUses              map[capability.Capability]*toolUse
+	// mcpMessage is this message's MCP caller, which counts its rounds and
+	// calls across the message; mcpRounds counts the rounds recorded under
+	// each MCP grant; mcpSection is the instructions' MCP section, built once a
+	// session. See mcp.go.
+	mcpMessage *mcpcall.Caller
+	mcpRounds  map[capability.Capability]int
+	mcpSection *string
 	// pass names the recurring-task firing whose turns this session is taking,
 	// where one is, so a lane report it writes is stamped with it. It is empty on
 	// an operator's own conversation.
@@ -1066,8 +1081,11 @@ type Reply struct {
 	// advice rests on is something the operator reading it is owed.
 	RepositoryReads []RepositoryRound `json:"repository_reads,omitempty"`
 	LogReads        []LogRound        `json:"log_reads,omitempty"`
-	RunReads        []RunRound        `json:"run_reads,omitempty"`
-	HealthReads     []HealthRound     `json:"health_reads,omitempty"`
+	// MCPCalls is what each round of MCP calls came to: names, outcomes and
+	// sizes, never the arguments or the results.
+	MCPCalls    []MCPRound    `json:"mcp_calls,omitempty"`
+	RunReads    []RunRound    `json:"run_reads,omitempty"`
+	HealthReads []HealthRound `json:"health_reads,omitempty"`
 	// Recoveries are the run.recover requests the reply made and what each came
 	// to. They are acts, so what they came to is the operator's to see whatever
 	// the turn concluded.
@@ -1611,6 +1629,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	healthRounds := 0
 	recoveryRounds := 0
 	s.toolUses = make(map[capability.Capability]*toolUse)
+	s.mcpMessage, s.mcpRounds = nil, nil
 	// The operator's side of this message is recorded with the first round, which
 	// is the one built around it. The rounds after it are the harness handing back
 	// what that round asked for, and record nothing as the operator's.
@@ -1902,6 +1921,26 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				}
 			} else {
 				undelivered += logread.Render(round.Results)
+			}
+		}
+		// MCP calls made by the harness on the role's behalf (mcp.go). Like the
+		// reads they never fail the turn: a refusal is handed back in this
+		// message with whatever else this round carries. A round asked for after
+		// the message's rounds are spent is refused call by call, shown on the
+		// reply and recorded, and not handed back, as every tool's is.
+		if parsed.MCPCarried {
+			roundsBefore, limit := s.mcpRoundsSpent()
+			wasSpent := parsed.MCPProblem == nil && limit > 0 && roundsBefore >= limit
+			round, evidence := s.performMCPCalls(ctx, parsed.MCPCalls, parsed.MCPProblem)
+			reply.MCPCalls = append(reply.MCPCalls, round)
+			roundsAfter, limit := s.mcpRoundsSpent()
+			if limit > 0 {
+				noteToolLimit(&spent, toolMCP, roundsAfter, limit)
+			}
+			if wasSpent {
+				refusedPastLimit = true
+			} else {
+				undelivered += evidence
 			}
 		}
 		// One run as it stands, or one expected state of it, read on a manager's
@@ -3033,6 +3072,14 @@ type parsedReply struct {
 	Writes        []artifact.Write
 	Reports       []report.Entry
 	ReportProblem error
+	// MCPCalls are the MCP calls this reply asked the harness to make.
+	// MCPCarried says it carried the block at all, readable or not, which is
+	// what a role holding no MCP grant is refused for, and MCPProblem why one it
+	// carried could not be read. Like a report, an unreadable block never fails
+	// the turn: the refusal is handed back and nothing in it is called.
+	MCPCalls   []mcpcall.Request
+	MCPCarried bool
+	MCPProblem error
 }
 
 // splitReply separates one answer into the prose the operator reads, the tracker
@@ -3050,6 +3097,9 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	// the harness cannot read is carried as its own problem rather than as the
 	// turn's: it is refused whole and everything else is taken apart as before.
 	rest, parsed.LaneReport, parsed.LaneReportCarried, parsed.LaneReportProblem = extractLaneReport(rest)
+	// So is the MCP block, for the same reason: a block that cannot be read is
+	// refused whole and handed back, and the rest of the answer stands.
+	rest, parsed.MCPCalls, parsed.MCPCarried, parsed.MCPProblem = mcpcall.Extract(rest)
 	prose, actions, requested, err := extractTrackerActions(rest)
 	if err != nil {
 		parsed.Prose = rest
@@ -3843,6 +3893,7 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// against the commit the file was read at.
 		s.reportRepositoryReads(out, reply)
 		s.reportLogReads(out, reply)
+		s.reportMCPCalls(out, reply)
 		s.reportRunReads(out, reply)
 		s.reportHealthReads(out, reply)
 		s.reportRecoveries(out, reply)

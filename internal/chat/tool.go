@@ -126,6 +126,9 @@ func (s *Session) refuseToolBlocks(answer string, parsed parsedReply, alreadyPer
 	}
 	add(capability.RunRecover, len(parsed.Recoveries))
 	add(capability.ResearchCommission, len(parsed.Queries))
+	if parsed.MCPCarried {
+		add(s.mcpTool(""), max(len(parsed.MCPCalls), 1))
+	}
 	add(capability.ProposalRaise, len(parsed.Proposals))
 	add(capability.ConcernRaise, len(parsed.Concerns))
 	add(capability.AgentContextMutate, len(parsed.Memories))

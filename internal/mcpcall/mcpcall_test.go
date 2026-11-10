@@ -113,7 +113,7 @@ func TestTheClientOpensListsAndCallsOverBothTransports(t *testing.T) {
 			for _, tool := range tools {
 				names = append(names, tool.Name)
 			}
-			if got, want := strings.Join(names, ","), "echo,environment,opening,ask-back,spawn,fail-with-credential,send,hang,hang-act,flaky,flaky-act,mixed,big,leak,leak-error"; got != want {
+			if got, want := strings.Join(names, ","), "echo,environment,opening,ask-back,spawn,fail-with-credential,send,hang,hang-act,flaky,flaky-act,mixed,big,leak,leak-error,described"; got != want {
 				t.Errorf("tools across both pages = %s, want %s", got, want)
 			}
 			if got := onlyText(t, call(t, session, "echo", `{"query":"invoice"}`)); got != `{"query":"invoice"}` {

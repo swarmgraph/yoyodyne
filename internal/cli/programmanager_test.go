@@ -65,6 +65,7 @@ func TestConfigAcceptsAProgramManagerAndShowsItsSetExactly(t *testing.T) {
 		"report.file", "amendment.propose", "exchange.ask", "exchange.answer",
 		"service.request-restart",
 		"run.inspect", "run.verify", "health.observe", "health.follow",
+		"mcp.read",
 	}
 	got := slices.Clone(agent.Capabilities)
 	slices.Sort(got)

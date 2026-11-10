@@ -47,7 +47,7 @@ type expression struct {
 }
 
 var expresses = map[string]expression{
-	"conversation.tool-grant": {question: "does the role hold every capability the registered tool requires?", asks: []capability.Capability{capability.LogRead, capability.RunInspect, capability.RunVerify, capability.HealthObserve, capability.HealthFollow, capability.RunRecover, capability.ReportFile, capability.AmendmentPropose}},
+	"conversation.tool-grant": {question: "does the role hold every capability the registered tool requires?", asks: []capability.Capability{capability.LogRead, capability.RunInspect, capability.RunVerify, capability.HealthObserve, capability.HealthFollow, capability.RunRecover, capability.ReportFile, capability.AmendmentPropose, capability.MCPRead, capability.MCPAct}},
 	"run.tool-grant":          {question: "does the run's role hold its requested report or amendment tool?", asks: []capability.Capability{capability.ReportFile, capability.AmendmentPropose}},
 	"review.tool-grant":       {question: "does the reviewer hold its requested report tool?", asks: []capability.Capability{capability.ReportFile}},
 	"conversation.authority-table": {
@@ -100,6 +100,7 @@ var expresses = map[string]expression{
 			capability.EvaluationRecord, capability.ExchangeAsk, capability.WorkItemMutate,
 			capability.RepositoryRead, capability.RepositoryList, capability.RepositorySearch,
 			capability.AgentContextMutate, capability.LaneReportWrite, capability.StopCauseRecord, capability.ServiceRequestRestart, capability.PassRequest,
+			capability.MCPRead, capability.MCPAct,
 		},
 		gap: "the repository block is refused unless the role holds both the read and the list, and a search in it unless the role holds the search as well; that the named read is the pair is a rule of the derivation rather than a capability either half states",
 	},
