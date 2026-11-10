@@ -216,7 +216,11 @@ type Tracker interface {
 // where the conversation is recorded.
 type Options struct {
 	DocumentPublisher DocumentPublisher
-	DocumentPolicy    artifact.Policy
+	// DocumentLandings reads the repository governed documents are kept in, to
+	// see whether a confirmed document landed by another route and to check a
+	// commit the operator names. Nil checks nothing, and /landed refuses.
+	DocumentLandings DocumentLandings
+	DocumentPolicy   artifact.Policy
 	// Role is the logical agent this conversation is with. It is required, and
 	// it decides three things that must not be able to disagree: the contract
 	// sent to the provider, what the role may ask the harness for, and which

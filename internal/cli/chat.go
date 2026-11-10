@@ -1128,7 +1128,13 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// so a document written from a conversation is one that command lists.
 		Documents:         artifactStore(repository, cfg.Product),
 		DocumentPublisher: pipelineFrom(parts),
-		DocumentPolicy:    artifact.Policy{Brief: cfg.Approvals.Brief, Goals: cfg.Approvals.Goals, Designs: cfg.Approvals.Designs, SpecificationsHome: cfg.Product.Specifications},
+		// Where the harness looks to see whether a confirmed document it holds has
+		// already landed, and checks a commit the operator names: the repository
+		// the project's governed documents are kept in, which is the companion
+		// intent repository where the project has one. Without it a document held
+		// for a project with one could only be given up by hand.
+		DocumentLandings: conversationDocumentLandings(parts),
+		DocumentPolicy:   artifact.Policy{Brief: cfg.Approvals.Brief, Goals: cfg.Approvals.Goals, Designs: cfg.Approvals.Designs, SpecificationsHome: cfg.Product.Specifications},
 		// What work admitted here has to name. It is read from the repository
 		// rather than from the conversation, so a goal retired since the
 		// conversation opened stops being one work can be admitted under.
