@@ -44,6 +44,12 @@ package orchestrator
 //     named in the check's log. A check that passes on the target's head, or
 //     whose log names a file or directory of the change, is the change's own
 //     failure and is handed back as the next case is (yoyodyne-c02).
+//   - Before any of the cases below, a failure confined to tests the change
+//     does not touch has the failing jobs run once more on the same head, the
+//     request recorded on the publication first and made at most once per head
+//     (forgererun.go). A pass lets the forge make the merge; a second failure
+//     is decided by the cases below, and their account names the failing tests
+//     and whether the change touched them.
 //   - A failing check naming a file the change touches is the change's own
 //     failure. The queued merge is withdrawn and the item is handed back with
 //     a failing check for repair in its preserved developer session. The red
@@ -106,9 +112,34 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 		return result, r.recordUnreadChecks(state, err)
 	}
 	checks := recordedChecks(reading, r.clock().Now())
-	if prior := published.Checks; prior != nil && prior.HeadCommit == checks.HeadCommit {
-		checks.Reruns = prior.Reruns
-		checks.RerunChecks = append([]int64(nil), prior.RerunChecks...)
+	checks.CarryFrom(published.Checks)
+	// A failure confined to tests the change does not touch has the failing
+	// jobs run once more on the same head before anything is withdrawn
+	// (forgererun.go). The request is saved before it is made, so a sweep that
+	// stops in between leaves it recorded and it is never made twice.
+	untouchedAsked, untouchedAwaiting := false, false
+	// A failure GitHub's own annotations put on a file the change touches is
+	// the change's without reading any log.
+	if checks.Red() && !checks.FailedInTheJob() && !checks.ChangeFails() && r.JobLogs != nil {
+		if prior := checks.UntouchedRerun; prior != nil && prior.Awaiting(checks.HeadCommit, checks.FailingCheckRuns()) {
+			untouchedAwaiting = true
+		} else {
+			judgment := judgeForgeTests(ctx, r.JobLogs, checks.Failing, reading.Files, listedChangeUnknown(reading.Files))
+			checks.Tests = &judgment
+			if untouchedRerunDue(checks, judgment) {
+				rerun := newUntouchedRerun(checks, judgment, r.clock().Now())
+				checks.UntouchedRerun = &rerun
+				published.Checks = &checks
+				state.PullRequest = &published
+				state.UpdatedAt = r.clock().Now()
+				if err := r.Store.Save(state); err != nil {
+					return reconciliationOf(state, ActionUnsettled), fmt.Errorf("record the further run of the checks of pull request %d on run %s: %w", published.Number, state.RunID, err)
+				}
+				settleUntouchedRerun(&rerun, askForgeRerun(ctx, r.Checks, checks), r.clock().Now())
+				checks.UntouchedRerun = &rerun
+				untouchedAsked = rerun.Asked()
+			}
+		}
 	}
 	// A job the forge ended is run again before anything is decided on it, and
 	// the merge stays armed meanwhile: the re-run's result is the head's reading
@@ -139,6 +170,15 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 			return r.settleStuckMerge(ctx, state, waited, true, "")
 		}
 		return result, nil
+	case untouchedAsked:
+		result.Detail += "; the failure is confined to tests this change does not touch, so the harness asked GitHub to run the failing job once more on the same commit and left the merge queued: a pass lets GitHub make it, and a second failure is read by the next sweep"
+		return result, nil
+	case untouchedAwaiting:
+		if waited, past := r.queuedPastLimit(state); past {
+			return r.settleStuckMerge(ctx, state, waited, true, "GitHub had not finished the second run of the failing job the harness asked for")
+		}
+		result.Detail += "; GitHub has not yet started the second run of the failing job the harness asked for, so the merge is left queued for the next sweep"
+		return result, nil
 	case rerun:
 		result.Detail += fmt.Sprintf("; the forge ended the failed jobs before any step failed, so the harness asked it to run them again (%d of %d on this head) and left the merge queued",
 			checks.Reruns, runstate.MaxCheckReruns)
@@ -150,8 +190,8 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 		return r.updateQueuedHead(ctx, state, result, false)
 	case checks.ChangeFails():
 		return r.handBackFailedChange(ctx, state, fmt.Sprintf(
-			"the forge's checks on pull request %d fail on this change: %s. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs its change repaired",
-			published.Number, checks.Describe(target)))
+			"the forge's checks on pull request %d fail on this change: %s.%s The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs its change repaired",
+			published.Number, checks.Describe(target), forgeFailureWhose(checks)))
 	case checks.FailedInTheJob():
 		why := fmt.Sprintf("were ended by the forge before any step failed, and ended that way again on each of %d re-run(s) of this head", checks.Reruns)
 		if rerunRefused != "" {
@@ -191,21 +231,7 @@ func (r Reconciler) recordUnreadChecks(state runstate.State, problem error) erro
 // and says what it refused if it refused any. A check with no check run to name
 // cannot be run again, which is a refusal as well.
 func (r Reconciler) rerunFailedJobs(ctx context.Context, checks runstate.PullRequestChecks) string {
-	var refused []string
-	for _, failing := range checks.Failing {
-		if failing.CheckRun <= 0 {
-			refused = append(refused, fmt.Sprintf("%s names no check run", failing.Name))
-			continue
-		}
-		if err := r.Checks.RerunCheck(ctx, failing.CheckRun); err != nil {
-			if errors.Is(err, publish.ErrForgeAccessRefused) {
-				refused = append(refused, fmt.Sprintf("%s: the forge would not let the harness's token run the job again (%v), and granting it that is the operator's", failing.Name, err))
-				continue
-			}
-			refused = append(refused, fmt.Sprintf("%s: %v", failing.Name, err))
-		}
-	}
-	return oneline.Bound(strings.Join(refused, "; "), 400)
+	return askForgeRerun(ctx, r.Checks, checks)
 }
 
 // recordedChecks is the forge's reading as the record keeps it: each failing
@@ -548,10 +574,7 @@ func (r Reconciler) replayDroppedLanding(ctx context.Context, state *runstate.St
 		return result, true, r.recordUnreadChecks(*state, err)
 	}
 	checks := recordedChecks(reading, r.clock().Now())
-	if prior := published.Checks; prior != nil && prior.HeadCommit == checks.HeadCommit {
-		checks.Reruns = prior.Reruns
-		checks.RerunChecks = append([]int64(nil), prior.RerunChecks...)
-	}
+	checks.CarryFrom(published.Checks)
 	// Carry the successful reading back to the caller even when it settles the
 	// drop instead of replaying it, so a previous read error does not survive.
 	published.Checks = &checks
@@ -859,3 +882,86 @@ func (r Reconciler) ContinueUpdates(ctx context.Context) ([]UpdateContinuation, 
 }
 
 var _ ReconcileChecks = publish.GitHub{}
+
+// requeueUntouchedDrop queues once more a merge GitHub's own merge queue
+// dropped because its checks on the queue's merge commit failed only in tests
+// the change does not touch. Rerunning the failed job on that merge commit
+// would not put the request back in the queue; queuing the merge again does,
+// and GitHub builds a fresh merge commit and runs its checks on it. The request
+// is written on the publication before it is made, under the target's
+// promotion lease, and a head is given one: a second drop, or any drop that is
+// not confined to untouched tests, is settled as before, and says carries the
+// sentence naming the tests for that settlement.
+//
+// decided is the drop settled here, the merge queued again.
+func (r Reconciler) requeueUntouchedDrop(ctx context.Context, state *runstate.State) (result Reconciliation, decided bool, says string, err error) {
+	published := *state.PullRequest
+	target := state.Integration.TargetBranch
+	if r.Drops == nil || r.JobLogs == nil {
+		return Reconciliation{}, false, "", nil
+	}
+	changed, unknown := []string(nil), "nothing is wired to this harness to list the pull request's files"
+	if r.Checks != nil {
+		reading, readErr := r.Checks.Checks(ctx, published.Number, target)
+		if readErr != nil {
+			unknown = "the pull request's files could not be read (" + oneline.Bound(readErr.Error(), 200) + ")"
+		} else {
+			changed, unknown = reading.Files, listedChangeUnknown(reading.Files)
+		}
+	}
+	drop := readQueueDrop(ctx, r.Drops, r.JobLogs, published.Number, changed, unknown, r.clock().Now())
+	earlier := published.QueueRerun
+	says = queueDropSays(drop, earlier, published.HeadCommit)
+	if !drop.Removed || !drop.Untouched || (earlier != nil && earlier.HeadCommit == published.HeadCommit) || state.ReviewDecision != runstate.ReviewApprove {
+		return Reconciliation{}, false, says, nil
+	}
+	promotion, err := r.Store.LeasePromotion(ctx, target)
+	if err != nil {
+		return reconciliationOf(*state, ActionUnsettled), true, "", fmt.Errorf("wait for a turn to queue the merge of pull request %d again: %w", published.Number, err)
+	}
+	defer func() { _ = promotion.Release() }()
+	rerun := newQueueRerun(published.HeadCommit, drop, r.clock().Now())
+	recorded, err := r.Store.Update(ctx, state.RunID, runstate.QueueRerunRecorded{Number: published.Number, Rerun: rerun, At: r.clock().Now()})
+	if err != nil {
+		return reconciliationOf(*state, ActionUnsettled), true, "", fmt.Errorf("record the further run of the checks of pull request %d on run %s: %w", published.Number, state.RunID, err)
+	}
+	if recorded.PullRequest == nil || recorded.PullRequest.QueueRerun == nil {
+		return Reconciliation{}, false, says, nil
+	}
+	method := mergeMethod
+	if published.MergeMethod != "" {
+		method = publish.MergeMethod(published.MergeMethod)
+	}
+	_, mergeErr := r.Publisher.Merge(ctx, publish.MergeRequest{Number: published.Number, HeadCommit: published.HeadCommit, Method: method})
+	refused := ""
+	if mergeErr != nil {
+		refused = oneline.Bound("GitHub would not take the merge again: "+mergeErr.Error(), 400)
+	}
+	settleUntouchedRerun(&rerun, refused, r.clock().Now())
+	answer := runstate.QueueRerunRecorded{Number: published.Number, Rerun: rerun, At: r.clock().Now()}
+	if refused == "" {
+		queuedAt := r.clock().Now()
+		answer.QueuedAt = &queuedAt
+	}
+	answered, err := r.Store.Update(ctx, state.RunID, answer)
+	if err != nil {
+		return reconciliationOf(*state, ActionUnsettled), true, "", fmt.Errorf("record GitHub's answer to queuing pull request %d again on run %s: %w", published.Number, state.RunID, err)
+	}
+	// The sweep carries on from the record as stored, so its later save is not
+	// refused as stale, with the forge's reading of the request it already took
+	// kept on it.
+	observed := *state.PullRequest
+	*state = answered
+	if state.PullRequest != nil {
+		carried := *state.PullRequest
+		carried.State, carried.Merged = observed.State, observed.Merged
+		state.PullRequest = &carried
+	}
+	if refused != "" {
+		return Reconciliation{}, false, queueDropSays(drop, &rerun, published.HeadCommit), nil
+	}
+	result = reconciliationOf(*state, ActionQueued)
+	result.Detail = fmt.Sprintf("GitHub's merge queue dropped pull request %d because its checks on the queue's merge commit failed only in tests this change does not touch (%s), so the harness queued the merge once more and GitHub runs its checks again on a fresh merge commit",
+		published.Number, drop.Checks.Tests.Describe())
+	return result, true, "", nil
+}

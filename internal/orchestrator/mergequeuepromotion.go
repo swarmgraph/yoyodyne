@@ -124,6 +124,26 @@ type MergeQueuePromoter struct {
 	// branches the landing left on the remote (mergequeueretire.go); nil
 	// leaves them.
 	Retire MergeQueueRetirement
+	// Checks reads the checks of a candidate whose merge the forge holds, and
+	// asks GitHub to run a failing job once more where only tests the change
+	// does not touch failed (forgererun.go). Nil reads none: the merge waits
+	// until the forge makes or drops it, or triage.stuck_merge_age passes.
+	Checks MergeQueueForgeChecks
+	// Drops reads why GitHub's own merge queue removed a candidate's pull
+	// request: the checks it ran on the merge commit it built. A candidate
+	// dropped that way only for tests the change does not touch has its merge
+	// queued once more (forgererun.go). Nil reads nothing, and a dropped merge
+	// is withdrawn as before.
+	Drops ReconcileDrops
+}
+
+// MergeQueueForgeChecks is the forge access a promotion reads a held merge's
+// checks with: the pull request's checks, the log of a failing job, and a
+// further run of one. It is satisfied by publish.GitHub.
+type MergeQueueForgeChecks interface {
+	Checks(ctx context.Context, number int, base string) (publish.CheckReading, error)
+	ForgeJobLogTail
+	ForgeRerunner
 }
 
 // MergeQueuePromotion is what one call to Promote found and did. At most one
@@ -161,6 +181,11 @@ type MergeQueuePromotion struct {
 	// withdraws an entry for.
 	ForgeHeldSince *time.Time
 	Dropped        bool
+	// ChecksFailed is a held merge whose checks on GitHub failed and will not
+	// be run again: why, naming the failing tests and whether the change
+	// touched them. The driver withdraws the entry for it at once, rather than
+	// waiting out triage.stuck_merge_age on a merge that cannot happen.
+	ChecksFailed string
 	// Uncovered is set beside Refusal where the refusal is the candidate's own
 	// checks not covering the whole check its run left to them
 	// (mergequeuewhole.go). Verifying the candidate again does not change that,
@@ -173,7 +198,7 @@ type MergeQueuePromotion struct {
 }
 
 func (o MergeQueuePromotion) stopped() bool {
-	return o.Drift || o.Refusal != "" || o.Waiting != "" || o.Unresolved != "" || o.HandedBack != nil
+	return o.Drift || o.Refusal != "" || o.Waiting != "" || o.Unresolved != "" || o.HandedBack != nil || o.ChecksFailed != ""
 }
 
 // Promote lands the first entry of the queue the queue has not finished with,
@@ -970,11 +995,158 @@ func (q *queuePromotion) awaitForge(ctx context.Context) error {
 			since := requested.Settled.At
 			q.outcome.ForgeHeldSince = &since
 		}
+		return q.readHeldChecks(ctx)
 	default:
-		q.outcome.Unresolved = fmt.Sprintf("the forge no longer holds the merge of pull request %d and has not made it (it reads %s); it is kept as it is and not asked for again",
-			attempt.PullRequest, strings.ToLower(nonEmpty(state.State, "unreported")))
+		says := ""
+		if strings.EqualFold(state.State, "OPEN") {
+			requeued, said, err := q.requeueUntouchedDrop(ctx)
+			if err != nil || requeued {
+				return err
+			}
+			says = said
+		}
+		q.outcome.Unresolved = fmt.Sprintf("the forge no longer holds the merge of pull request %d and has not made it (it reads %s); it is kept as it is and not asked for again.%s",
+			attempt.PullRequest, strings.ToLower(nonEmpty(state.State, "unreported")), says)
 		q.outcome.Dropped = true
 	}
+	return nil
+}
+
+// requeueUntouchedDrop asks for the candidate's merge once more where GitHub's
+// own merge queue dropped it because its checks on the queue's merge commit
+// failed only in tests the change does not touch: GitHub builds a fresh merge
+// commit and runs its checks again. The further run is recorded on the attempt
+// before the merge is asked for, and the request is the attempt's own merge
+// mutation, made under the target's promotion lease after everything is read
+// again (mutateTarget). A candidate is given one; any other drop returns the
+// sentence its withdrawal carries.
+func (q *queuePromotion) requeueUntouchedDrop(ctx context.Context) (requeued bool, says string, err error) {
+	attempt := q.attempt()
+	if q.p.Drops == nil || q.p.Checks == nil {
+		return false, "", nil
+	}
+	changed, cerr := q.p.Lander.CandidatePaths(ctx, attempt.TargetBase, attempt.Candidate)
+	unknown := ""
+	if cerr != nil {
+		unknown = "the paths the candidate changes could not be listed (" + oneline.Bound(cerr.Error(), 200) + ")"
+	} else if len(changed) == 0 {
+		unknown = "the candidate changes no path"
+	}
+	drop := readQueueDrop(ctx, q.p.Drops, q.p.Checks, attempt.PullRequest, changed, unknown, q.now())
+	earlier := attempt.ForgeRerun
+	says = queueDropSays(drop, earlier, attempt.Candidate)
+	if !drop.Removed || !drop.Untouched || earlier != nil {
+		return false, says, nil
+	}
+	rerun := newQueueRerun(attempt.Candidate, drop, q.now())
+	attempt.ForgeRerun = &rerun
+	if err := q.save(); err != nil {
+		attempt.ForgeRerun = nil
+		return false, "", err
+	}
+	asked := len(q.attempt().Mutations)
+	if err := q.mutateTarget(ctx, runstate.MergeQueueRequestMerge); err != nil {
+		return true, "", err
+	}
+	attempt = q.attempt()
+	settled := *attempt.ForgeRerun
+	refused := ""
+	switch {
+	case len(attempt.Mutations) == asked:
+		refused = nonEmpty(q.outcome.Refusal, "the merge could not be asked for again")
+	case attempt.Mutations[len(attempt.Mutations)-1].Settled == nil:
+		refused = "GitHub's answer was not recorded"
+	case attempt.Mutations[len(attempt.Mutations)-1].Settled.Result == runstate.MergeQueueMutationNotMade:
+		refused = "GitHub would not take the merge again: " + attempt.Mutations[len(attempt.Mutations)-1].Settled.Detail
+	}
+	settleUntouchedRerun(&settled, oneline.Bound(refused, 400), q.now())
+	attempt.ForgeRerun = &settled
+	if err := q.save(); err != nil {
+		return true, "", err
+	}
+	if q.outcome.Landed || q.attempt().Landed != nil {
+		return true, "", nil
+	}
+	if refused != "" {
+		q.outcome.Refusal = ""
+		return false, queueDropSays(drop, &settled, attempt.Candidate), nil
+	}
+	q.outcome.Waiting = fmt.Sprintf("GitHub's merge queue dropped pull request %d because its checks on the queue's merge commit failed only in tests the change does not touch (%s), so the harness queued the merge once more and GitHub runs its checks again on a fresh merge commit",
+		attempt.PullRequest, drop.Checks.Tests.Describe())
+	return true, "", nil
+}
+
+// readHeldChecks reads the checks of a merge the forge holds. A failure
+// confined to tests the change does not touch has the failing jobs run once
+// more on the candidate, recorded on the attempt before GitHub is asked; any
+// other failure, or one that fails again, is ChecksFailed, for the driver to
+// withdraw at once. Checks that pass or are still running leave the merge
+// waiting, and a reading that cannot be taken, or is of another commit, says
+// nothing against it.
+func (q *queuePromotion) readHeldChecks(ctx context.Context) error {
+	if q.p.Checks == nil {
+		return nil
+	}
+	attempt := q.attempt()
+	reading, err := q.p.Checks.Checks(ctx, attempt.PullRequest, q.key.TargetBranch)
+	if err != nil {
+		q.outcome.Waiting += fmt.Sprintf("; its checks could not be read now (%s)", oneline.Bound(err.Error(), 300))
+		return nil
+	}
+	if reading.HeadCommit != attempt.Candidate {
+		return nil
+	}
+	checks := recordedChecks(reading, q.now())
+	if !checks.Red() {
+		return nil
+	}
+	if checks.ChangeFails() {
+		q.outcome.Waiting, q.outcome.ForgeHeldSince = "", nil
+		q.outcome.ChecksFailed = fmt.Sprintf("GitHub's checks on pull request %d failed: %s.%s",
+			attempt.PullRequest, checks.Describe(q.key.TargetBranch), forgeFailureWhose(checks))
+		return nil
+	}
+	if rerun := attempt.ForgeRerun; rerun != nil && rerun.Awaiting(checks.HeadCommit, checks.FailingCheckRuns()) {
+		q.outcome.Waiting = fmt.Sprintf("GitHub's checks on pull request %d failed only in tests the change does not touch, and GitHub is running the failing job once more on the candidate; the merge stays queued until that run ends", attempt.PullRequest)
+		return nil
+	}
+	changed, err := q.p.Lander.CandidatePaths(ctx, attempt.TargetBase, attempt.Candidate)
+	unknown := ""
+	if err != nil {
+		unknown = "the paths the candidate changes could not be listed (" + oneline.Bound(err.Error(), 200) + ")"
+	} else if len(changed) == 0 {
+		unknown = "the candidate changes no path"
+	}
+	judgment := judgeForgeTests(ctx, q.p.Checks, checks.Failing, changed, unknown)
+	checks.Tests = &judgment
+	if attempt.ForgeRerun != nil {
+		rerun := *attempt.ForgeRerun
+		checks.UntouchedRerun = &rerun
+	}
+	if untouchedRerunDue(checks, judgment) {
+		rerun := newUntouchedRerun(checks, judgment, q.now())
+		attempt.ForgeRerun = &rerun
+		if err := q.save(); err != nil {
+			attempt.ForgeRerun = nil
+			return err
+		}
+		settled := rerun
+		settleUntouchedRerun(&settled, askForgeRerun(ctx, q.p.Checks, checks), q.now())
+		attempt = q.attempt()
+		attempt.ForgeRerun = &settled
+		if err := q.save(); err != nil {
+			return err
+		}
+		checks.UntouchedRerun = &settled
+		if settled.Asked() {
+			q.outcome.Waiting = fmt.Sprintf("GitHub's checks on pull request %d failed only in tests the change does not touch (%s), so the harness asked GitHub to run the failing job once more on the candidate; the merge stays queued, and lands if that run passes",
+				attempt.PullRequest, judgment.Describe())
+			return nil
+		}
+	}
+	q.outcome.Waiting, q.outcome.ForgeHeldSince = "", nil
+	q.outcome.ChecksFailed = fmt.Sprintf("GitHub's checks on pull request %d failed: %s.%s",
+		attempt.PullRequest, checks.Describe(q.key.TargetBranch), forgeFailureWhose(checks))
 	return nil
 }
 

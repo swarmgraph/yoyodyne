@@ -1641,6 +1641,14 @@ type PullRequest struct {
 	// still queued. It is what says whether a queued merge is going to land at
 	// all, and it is absent until a sweep has read it.
 	Checks *PullRequestChecks `json:"checks,omitempty"`
+	// QueueRerun is the one further run of GitHub's checks the harness asked for
+	// after GitHub's own merge queue dropped this request because its checks on
+	// the queue's merge commit failed only in tests the change does not touch
+	// (orchestrator's forgererun.go). The merge was queued again, so GitHub
+	// built a fresh merge commit and ran its checks once more. It names the
+	// request's head, and a head is given one however often the harness
+	// restarts.
+	QueueRerun *ForgeChecksRerun `json:"queue_rerun,omitempty"`
 	// HandedBack is the development manager's re-run of a publication nothing
 	// ever asked the forge to merge having been carried out: the change was
 	// handed back for a fresh run, so this request is no longer a publication
@@ -1872,6 +1880,11 @@ func (p PullRequest) Validate() error {
 	if p.Checks != nil {
 		if err := p.Checks.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("pull_request %w", err))
+		}
+	}
+	if p.QueueRerun != nil {
+		if err := p.QueueRerun.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("pull_request queue_rerun: %w", err))
 		}
 	}
 	if p.TargetRed != nil {
@@ -2480,6 +2493,35 @@ func (s *State) recordedTexts() []recordedText {
 				nested("pull_request.checks.failing[].annotations[].message", at(annotations, inner, "message"), &failing.Annotations[inner].Message, MaxCheckAnnotationBytes)
 			}
 		}
+	}
+	// The failing tests GitHub's log named, and the further run asked for when
+	// only tests the change does not touch failed (forgererun.go): test and
+	// package names are the project's, and the refusal is GitHub's words.
+	judged := func(prefix string, judgment *ForgeTestJudgment) {
+		for index := range judgment.Tests {
+			nested(prefix+".tests[].name", at(prefix+".tests", index, "name"), &judgment.Tests[index].Name, maxForgeTestNameBytes)
+			nested(prefix+".tests[].package", at(prefix+".tests", index, "package"), &judgment.Tests[index].Package, maxForgeTestNameBytes)
+		}
+		nested(prefix+".unnamed", prefix+".unnamed", &judgment.Unnamed, maxForgeTestUnnamedBytes)
+	}
+	rerunTexts := func(prefix string, rerun *ForgeChecksRerun) {
+		for index := range rerun.Checks {
+			nested(prefix+".checks[]", fmt.Sprintf("%s.checks[%d]", prefix, index), &rerun.Checks[index], maxCheckNameBytes)
+		}
+		judged(prefix+".tests", &rerun.Tests)
+		nested(prefix+".refused", prefix+".refused", &rerun.Refused, maxForgeTestUnnamedBytes)
+	}
+	if s.PullRequest != nil && s.PullRequest.Checks != nil {
+		checks := s.PullRequest.Checks
+		if checks.Tests != nil {
+			judged("pull_request.checks.tests", checks.Tests)
+		}
+		if rerun := checks.UntouchedRerun; rerun != nil {
+			rerunTexts("pull_request.checks.untouched_rerun", rerun)
+		}
+	}
+	if s.PullRequest != nil && s.PullRequest.QueueRerun != nil {
+		rerunTexts("pull_request.queue_rerun", s.PullRequest.QueueRerun)
 	}
 	// A wait on the target's red check names the checks the forge reported,
 	// phrased by the repository's workflows as the reading's own names are.

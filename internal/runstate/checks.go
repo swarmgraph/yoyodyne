@@ -61,6 +61,39 @@ type PullRequestChecks struct {
 	// MaxCheckReruns.
 	Reruns      int     `json:"reruns,omitempty"`
 	RerunChecks []int64 `json:"rerun_checks,omitempty"`
+	// Tests is which tests GitHub's logs of the failing jobs name, and whether
+	// the change touches them, where the harness read them for this reading.
+	Tests *ForgeTestJudgment `json:"tests,omitempty"`
+	// UntouchedRerun is the one further run of the failing jobs the harness
+	// asked GitHub for on this head because only tests the change does not
+	// touch failed (forgererun.go). It is carried from one reading of the same
+	// head to the next, so a head is given one however often it is read.
+	UntouchedRerun *ForgeChecksRerun `json:"untouched_rerun,omitempty"`
+}
+
+// CarryFrom keeps on a new reading what the harness asked of the forge about
+// an earlier reading of the same head: the re-runs of jobs the forge ended,
+// and the one further run for a failure in untouched tests. A reading of a new
+// head starts again.
+func (c *PullRequestChecks) CarryFrom(prior *PullRequestChecks) {
+	if prior == nil || prior.HeadCommit != c.HeadCommit {
+		return
+	}
+	c.Reruns = prior.Reruns
+	c.RerunChecks = append([]int64(nil), prior.RerunChecks...)
+	if prior.UntouchedRerun != nil {
+		rerun := *prior.UntouchedRerun
+		c.UntouchedRerun = &rerun
+	}
+}
+
+// FailingCheckRuns is the forge's ids of the reading's failing check runs.
+func (c PullRequestChecks) FailingCheckRuns() []int64 {
+	ids := make([]int64, 0, len(c.Failing))
+	for _, failing := range c.Failing {
+		ids = append(ids, failing.CheckRun)
+	}
+	return ids
 }
 
 // MaxCheckReruns bounds the re-runs one head is given before a job the forge
@@ -263,6 +296,15 @@ func (c PullRequestChecks) Describe(targetBranch string) string {
 	if c.Reruns > 0 {
 		rerun = fmt.Sprintf("; run again %d time(s) on this head", c.Reruns)
 	}
+	if c.Red() && c.Tests != nil {
+		rerun += "; " + c.Tests.Describe()
+	}
+	if c.UntouchedRerun != nil {
+		rerun += "; " + c.UntouchedRerun.Describe()
+		if c.Red() && !c.UntouchedRerun.Awaiting(c.HeadCommit, c.FailingCheckRuns()) && c.UntouchedRerun.Asked() {
+			rerun += ", and it failed again"
+		}
+	}
 	return fmt.Sprintf("checks %s; head %s %s%s; read %s", standing, head, behind, rerun, c.ReadAt.UTC().Format(time.RFC3339))
 }
 
@@ -310,6 +352,14 @@ func (c PullRequestChecks) Validate() error {
 	}
 	if c.Pending < 0 || c.Passing < 0 || c.BehindBy < 0 || c.Reruns < 0 {
 		problems = append(problems, errors.New("checks counts cannot be negative"))
+	}
+	if c.Tests != nil {
+		problems = append(problems, c.Tests.validate()...)
+	}
+	if c.UntouchedRerun != nil {
+		if err := c.UntouchedRerun.Validate(); err != nil {
+			problems = append(problems, err)
+		}
 	}
 	if len(c.Failing) > MaxRecordedFailingChecks {
 		problems = append(problems, fmt.Errorf("%d failing checks are recorded, which exceeds the bound of %d", len(c.Failing), MaxRecordedFailingChecks))

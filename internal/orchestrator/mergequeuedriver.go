@@ -213,14 +213,21 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			continue
 		case promoted.Drift:
 			continue
-		case promoted.Dropped || d.heldTooLong(promoted):
-			// A merge the forge dropped, or has held queued past the limit on a
-			// queued merge's wait, is withdrawn and the entry released, so it
+		case promoted.Dropped || promoted.ChecksFailed != "" || d.heldTooLong(promoted):
+			// A merge the forge dropped, whose checks failed (and, where only
+			// tests the change does not touch failed, failed again on GitHub's
+			// second run), or has held queued past the limit on a queued merge's
+			// wait, is withdrawn and the entry released, so it
 			// stops standing at the head of the queue; the next step hands the
 			// change back to its run, kept, for the development manager.
 			why := fmt.Sprintf("the forge held its merge queued for longer than triage.stuck_merge_age (%s)", d.stuckAge())
-			if promoted.Dropped {
+			switch {
+			case promoted.Dropped:
 				why = "the forge stopped holding its merge without making it: " + promoted.Unresolved
+			case promoted.ChecksFailed != "":
+				// A failed check is withdrawn at once: waiting out the limit on a
+				// merge whose checks failed only holds every entry behind it.
+				why = promoted.ChecksFailed
 			}
 			withdrawn, err := d.Promoter.Withdraw(ctx, key, promoted.Entry.EntryID, why)
 			switch {

@@ -277,8 +277,8 @@ func (r Reconciler) waitOnRedTargetOwned(ctx context.Context, state runstate.Sta
 		published.Checks = &checks
 		state.PullRequest = &published
 		return r.handBackFailedChange(ctx, state, fmt.Sprintf(
-			"the forge's checks on pull request %d fail on this change with its head level with %s: %s; so the failure is this change's own rather than %s's, and nothing was filed against %s: %s. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs its change repaired",
-			published.Number, target, ownership.Change, target, target, describe))
+			"the forge's checks on pull request %d fail on this change with its head level with %s: %s; so the failure is this change's own rather than %s's, and nothing was filed against %s: %s.%s The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs its change repaired",
+			published.Number, target, ownership.Change, target, target, describe, forgeFailureWhose(checks)))
 	}
 	if r.Filer == nil {
 		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
@@ -626,10 +626,7 @@ func (r Reconciler) resumeRedTarget(ctx context.Context, runID string) (Reconcil
 		return result, r.recordUnreadChecks(state, err)
 	}
 	checks := recordedChecks(reading, r.clock().Now())
-	if prior := published.Checks; prior != nil && prior.HeadCommit == checks.HeadCommit {
-		checks.Reruns = prior.Reruns
-		checks.RerunChecks = append([]int64(nil), prior.RerunChecks...)
-	}
+	checks.CarryFrom(published.Checks)
 	// A merge handed back from here carries this reading's account onto the
 	// item, not the one the wait began on.
 	handBack := func(reason string) (Reconciliation, error) {
@@ -684,10 +681,7 @@ func (r Reconciler) resumeRedTarget(ctx context.Context, runID string) (Reconcil
 func (r Reconciler) rerunEndedJobsAfterRedTarget(ctx context.Context, state runstate.State, checks runstate.PullRequestChecks) (Reconciliation, error) {
 	published := *state.PullRequest
 	target := state.Integration.TargetBranch
-	if prior := published.Checks; prior != nil && prior.HeadCommit == checks.HeadCommit {
-		checks.Reruns = prior.Reruns
-		checks.RerunChecks = append([]int64(nil), prior.RerunChecks...)
-	}
+	checks.CarryFrom(published.Checks)
 	record := func(detail string) (Reconciliation, error) {
 		published.Checks = &checks
 		state.PullRequest = &published

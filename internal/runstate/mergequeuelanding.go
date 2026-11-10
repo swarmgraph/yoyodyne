@@ -343,6 +343,11 @@ type MergeQueuePromotionAttempt struct {
 	Withdrawal *MergeQueueWithdrawal `json:"withdrawal,omitempty"`
 	Landed     *MergeQueueLanded     `json:"landed,omitempty"`
 	SetAside   *MergeQueueSetAside   `json:"set_aside,omitempty"`
+	// ForgeRerun is the one further run of GitHub's failing jobs asked for on
+	// the candidate's pull request because its checks failed only in tests the
+	// change does not touch (forgererun.go). It is written before GitHub is
+	// asked, so a restart never asks twice for the same candidate.
+	ForgeRerun *ForgeChecksRerun `json:"forge_rerun,omitempty"`
 }
 
 // Mutation is the attempt's newest record of one mutation, if it has one.
@@ -868,6 +873,14 @@ func (a MergeQueuePromotionAttempt) validate(entryID string) error {
 	if a.IntendedAt.IsZero() {
 		problems = append(problems, errors.New("the time it was intended is required"))
 	}
+	if a.ForgeRerun != nil {
+		if err := a.ForgeRerun.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+		if a.ForgeRerun.HeadCommit != a.Candidate {
+			problems = append(problems, errors.New("a further run of GitHub's checks is asked for on the candidate, and on no other commit"))
+		}
+	}
 	if a.PullRequest < 0 {
 		problems = append(problems, errors.New("pull request numbers are positive"))
 	}
@@ -877,8 +890,12 @@ func (a MergeQueuePromotionAttempt) validate(entryID string) error {
 	// Mutations are written in the path's order and only ever after the one
 	// before them settled: a mutation is requested only once everything ahead
 	// of it is known to have happened. The one repetition is a mutation asked
-	// for again, under the same key, after it was found not made.
+	// for again, under the same key, after it was found not made — and the
+	// merge asked for once more after GitHub's own merge queue dropped the one
+	// it had queued, which an attempt carrying its further run of GitHub's
+	// checks may do once (ForgeRerun).
 	order := append(a.Path.Mutations(), MergeQueueFollowTarget)
+	requeued := false
 	if len(a.Mutations) > maxMergeQueueMutations {
 		problems = append(problems, fmt.Errorf("%d mutations exceeds the %d an attempt keeps", len(a.Mutations), maxMergeQueueMutations))
 	}
@@ -889,8 +906,12 @@ func (a MergeQueuePromotionAttempt) validate(entryID string) error {
 			previous = &a.Mutations[index-1]
 		}
 		notMade := previous != nil && previous.Settled != nil && previous.Settled.Result == MergeQueueMutationNotMade
+		requeue := previous != nil && previous.Mutation == MergeQueueRequestMerge && record.Mutation == MergeQueueRequestMerge &&
+			previous.Settled != nil && previous.Settled.Result == MergeQueueMutationQueued
 		switch {
 		case notMade && record.Mutation == previous.Mutation:
+		case requeue && a.ForgeRerun != nil && !requeued:
+			requeued = true
 		case notMade:
 			problems = append(problems, fmt.Errorf("the %s was requested after the %s before it was not made", record.Mutation, previous.Mutation))
 		default:
@@ -1205,6 +1226,11 @@ func extendsAttempt(was, now MergeQueuePromotionAttempt) string {
 	}
 	if was.SetAside != nil && (now.SetAside == nil || *now.SetAside != *was.SetAside) {
 		return "a setting aside is never withdrawn or rewritten"
+	}
+	if was.ForgeRerun != nil {
+		if refusal := was.ForgeRerun.Extends(now.ForgeRerun); refusal != "" {
+			return refusal
+		}
 	}
 	if before := was.Withdrawal; before != nil {
 		after := now.Withdrawal

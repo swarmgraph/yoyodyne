@@ -1614,7 +1614,13 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// (nextCarryOutsExcept).
 	handedBack := &startsHandedBack{}
 	deliver := func(done completed) {
-		handedBack.note(done.index)
+		// A decision carried out is not one that came back without starting: it
+		// is the decision done, and the item stays this session's until its
+		// ending is collected. Noted, a pull that had read the decisions still
+		// outstanding just before it finished would fire the same decision again.
+		if done.carriedOut == nil || !done.carriedOut.Carried {
+			handedBack.note(done.index)
+		}
 		select {
 		case completions <- done:
 		case <-abandoned:

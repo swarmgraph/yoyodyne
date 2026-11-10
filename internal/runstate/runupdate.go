@@ -391,3 +391,40 @@ func (u MergeDropFound) apply(state *State) (bool, error) {
 	state.UpdatedAt = u.At
 	return true, nil
 }
+
+// QueueRerunRecorded records the one further run of GitHub's checks the sweep
+// asks for after GitHub's own merge queue dropped a request only for tests the
+// change does not touch (PullRequest.QueueRerun): first before the merge is
+// queued again, then with GitHub's answer, and, where GitHub took it, the merge
+// queued again from QueuedAt. A head is given one, so a record for the same
+// head may only be answered, never replaced. It changes nothing on a run whose
+// pull request is another one, carries another head, or has merged.
+type QueueRerunRecorded struct {
+	Number   int
+	Rerun    ForgeChecksRerun
+	QueuedAt *time.Time
+	At       time.Time
+}
+
+func (u QueueRerunRecorded) apply(state *State) (bool, error) {
+	published := state.PullRequest
+	if published == nil || published.Number != u.Number || published.Merged || published.HeadCommit != u.Rerun.HeadCommit {
+		return false, nil
+	}
+	if prior := published.QueueRerun; prior != nil && prior.HeadCommit == u.Rerun.HeadCommit {
+		if refusal := prior.Extends(&u.Rerun); refusal != "" {
+			return false, fmt.Errorf("record the further run of the checks of pull request %d: %s", u.Number, refusal)
+		}
+	}
+	changed := *published
+	rerun := u.Rerun
+	changed.QueueRerun = &rerun
+	if u.QueuedAt != nil {
+		queuedAt := *u.QueuedAt
+		changed.MergeQueued = true
+		changed.QueuedAt = &queuedAt
+	}
+	state.PullRequest = &changed
+	state.UpdatedAt = u.At
+	return true, nil
+}
