@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
 	"reflect"
 	"slices"
@@ -47,11 +48,33 @@ func allowedToolsOf(args []string) []string {
 	return rules
 }
 
+// clearSessionSubagentSettings removes, for the length of the test, every
+// sub-agent variable the environment running the tests could carry. An
+// invocation's environment keeps the harness's own CLAUDE_ variables, so a
+// test run inside a Claude Code session that sets them would otherwise find
+// that session's settings in the environment it checks. Each is set first, as
+// such a session would set it, so the test proves it ignores them whatever the
+// environment it is run from; t.Setenv restores the original afterwards.
+func clearSessionSubagentSettings(t *testing.T) {
+	t.Helper()
+	names := append([]string(nil), subagentModelOverrides...)
+	for _, variable := range subagentEnvironment {
+		names = append(names, variable[0])
+	}
+	for _, name := range names {
+		t.Setenv(name, "2")
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatalf("clear %s: %v", name, err)
+		}
+	}
+}
+
 // With sub-agents off a developer is invoked exactly as before they existed:
 // the same tools, the same settings, no agent definition, nothing forwarded,
-// and none of the variables that confine sub-agents.
+// and none of the variables that confine sub-agents. It does not run in
+// parallel, because it changes the test process's environment.
 func TestADeveloperWithoutSubagentsIsInvokedAsBefore(t *testing.T) {
-	t.Parallel()
+	clearSessionSubagentSettings(t)
 
 	command := runDeveloper(t, nil)
 	if got := allowedToolsOf(command.Args); !reflect.DeepEqual(got, developerTools) {
