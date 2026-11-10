@@ -238,6 +238,7 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 		said: "settled interrupted runs and converged local state by hand with yoyo reconcile",
 	})
 	trackerExports, trackerExportErr := maintainTrackerExports(ctx, parts)
+	endMergeHoldsLeftBehind(ctx, parts, stderr)
 	reconciler := reconcilerFrom(parts)
 	// This sweep hosts the runs it makes live, as its last step, so a queued head
 	// that fell behind its target is put back at its promotion here rather than

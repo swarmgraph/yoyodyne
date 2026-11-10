@@ -853,7 +853,8 @@ To act on the work tracker, end your reply with exactly one block, after the pro
   {"action":"unlink","id":"beads-id","depends_on":"beads-id","reason":"why"},
   {"action":"triage","id":"beads-id","run":"the run the docket entry names; left out only for an attempt that never became a run","decision":"repair|rerun|rescope|rearm|wait|escalate|stop|proceed|retire-raise|cross|give-back-claim|leave-claim-spent","budget":"cross only: the cap being crossed","superseded_by":"stop only, where there is one: the item doing the work instead","waits_on":"wait only, where there is one: the admitted work item the wait depends on","to":"escalate only: product-manager, architect, or operator","operator_reason":"escalate to the operator only: the reason on his closed list","reason":"why"},
   {"action":"triage","run":"a stopped document publication's run","decision":"retry|retire","reason":"why"},
-  {"action":"brake","decision":"release|probe|escalate","reason":"why"}
+  {"action":"brake","decision":"release|probe|escalate","reason":"why"},
+  {"action":"keep_version","id":"beads-id","decision":"here|shared","reason":"why"}
 ]}
 ` + "```" + `
 
