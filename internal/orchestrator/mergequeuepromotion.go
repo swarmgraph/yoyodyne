@@ -121,6 +121,13 @@ type MergeQueuePromoter struct {
 	// branches the landing left on the remote (mergequeueretire.go); nil
 	// leaves them.
 	Retire MergeQueueRetirement
+	// Checks reads the checks of a candidate's pull request whose merge the
+	// forge holds, and runs again one that ended without judging the change;
+	// Reruns is the record of each it ran again (mergequeuecheckrerun.go). Nil
+	// either reads no checks, and such a merge waits until it lands or the
+	// stuck-merge limit withdraws it.
+	Checks MergeQueueCandidateChecks
+	Reruns MergeQueueCheckReruns
 }
 
 // MergeQueuePromotion is what one call to Promote found and did. At most one
@@ -158,6 +165,12 @@ type MergeQueuePromotion struct {
 	// withdraws an entry for.
 	ForgeHeldSince *time.Time
 	Dropped        bool
+	// Unjudged is set beside Waiting where a check on the candidate's pull
+	// request ended without judging the change a second time, or could not be
+	// run again, and nothing else is still running there: the forge will never
+	// make the merge, and the driver withdraws it at once with this reason
+	// rather than waiting out the stuck-merge limit.
+	Unjudged string
 	// Uncovered is set beside Refusal where the refusal is the candidate's own
 	// checks not covering the whole check its run left to them
 	// (mergequeuewhole.go). Verifying the candidate again does not change that,
@@ -907,6 +920,7 @@ func (q *queuePromotion) awaitForge(ctx context.Context) error {
 			since := requested.Settled.At
 			q.outcome.ForgeHeldSince = &since
 		}
+		return q.answerUnjudgedChecks(ctx)
 	default:
 		q.outcome.Unresolved = fmt.Sprintf("the forge no longer holds the merge of pull request %d and has not made it (it reads %s); it is kept as it is and not asked for again",
 			attempt.PullRequest, strings.ToLower(nonEmpty(state.State, "unreported")))
