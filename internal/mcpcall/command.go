@@ -162,7 +162,7 @@ func (t *commandTransport) send(value any) error {
 		return fmt.Errorf("%w: %v", ErrFailed, err)
 	}
 	if _, err := t.stdin.Write(append(encoded, '\n')); err != nil {
-		return fmt.Errorf("%w: mcp server %q stopped reading: %v%s", ErrFailed, t.name, err, t.said())
+		return fmt.Errorf("%w: %w: mcp server %q stopped reading: %v%s", ErrFailed, ErrUnreachable, t.name, err, t.said())
 	}
 	return nil
 }
@@ -180,7 +180,7 @@ func (t *commandTransport) call(ctx context.Context, id int64, request map[strin
 				if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(ctx.Err(), context.Canceled) {
 					return message{}, fmt.Errorf("mcp server %q did not answer in time: %w", t.name, ctx.Err())
 				}
-				return message{}, fmt.Errorf("%w: mcp server %q stopped before answering: %v%s", ErrFailed, t.name, t.readErr, t.said())
+				return message{}, fmt.Errorf("%w: %w: mcp server %q stopped before answering: %v%s", ErrFailed, ErrUnreachable, t.name, t.readErr, t.said())
 			}
 			switch {
 			case m.answers(id):

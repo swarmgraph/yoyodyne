@@ -16,7 +16,9 @@ import (
 // MCP tools, or where a credential is kept: the configuration that loads them,
 // `yoyo config show`, `yoyo mcp login`, `yoyo doctor`, and the client in
 // internal/mcpcall that starts a declared server in the harness's own process
-// and reads its credential from the stores. None of them builds a
+// and reads its credential from the stores, with the one call path beside it
+// that resolves each caller's list and scrubs results of every server's
+// credential. None of them builds a
 // role's launch or its instructions, so a project that declares nothing —
 // whose revision is unchanged too (TestAProjectWithNoMCPSectionIsUnchanged) —
 // launches and instructs every role exactly as it did before the keys existed.
@@ -32,6 +34,7 @@ var mcpReaders = map[string]bool{
 	"internal/doctor/mcp.go":      true,
 	"internal/mcpcall/command.go": true,
 	"internal/mcpcall/mcpcall.go": true,
+	"internal/mcpcall/path.go":    true,
 	"internal/mcpcall/remote.go":  true,
 }
 
