@@ -6868,12 +6868,14 @@ released entry, its candidates, and its landing record as history. The new
 entry has no candidate; it is built, checked and reviewed from nothing. A
 transfer interrupted part-way is finished by asking again.
 
-**Pushing a candidate.** A push of the candidate branch that ends before the
-remote answers — cut off by a restart onto a new build, timed out, or exiting
-with nothing printed — is not read as a refusal: the next pass looks at the
-candidate branch, records the push made where it arrived, and asks for it again
-where it did not, so nothing is pushed twice. A push the remote does refuse
-hands that one entry back to its run, with the refusal in its words, for the
+**Pushing a candidate.** A push of the candidate branch that fails without the
+remote refusing it — cut off by a restart onto a new build, timed out, exiting
+with nothing printed, or failing to reach the remote at all, such as a host
+that could not be looked up, a dropped connection or a server error — is not
+read as a refusal: the next pass looks at the candidate branch, records the
+push made where it arrived, and asks for it again where it did not, so nothing
+is pushed twice. A push the remote does refuse, which Git reports by naming the
+branch as rejected, hands that one entry back to its run, with the refusal in its words, for the
 development manager to decide on, and the queue goes on to the entries behind
 it.
 

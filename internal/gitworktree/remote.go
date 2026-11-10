@@ -26,21 +26,41 @@ type Publication struct {
 var ErrRemotePushRejected = errors.New("remote rejected the push")
 
 // ErrRemotePushInterrupted reports a push that ended without the remote
-// answering it: cut off, timed out, stalled, killed with the process that
-// asked for it, or exiting with nothing printed. Whether it arrived is not
-// known, so it is never read as a refusal: its caller looks at the remote
-// branch before asking for it again (pushInterrupted).
+// refusing it: cut off, timed out, stalled, killed with the process that asked
+// for it, exiting with nothing printed, or failing on the way to the remote — a
+// host that could not be looked up, a dropped connection, a server error.
+// Whether it arrived is not known, so it is never read as a refusal: its
+// caller looks at the remote branch before asking for it again
+// (pushInterrupted).
 var ErrRemotePushInterrupted = errors.New("the push ended without an answer from the remote")
 
 // pushInterrupted reports a push result that is not a refusal from the
-// remote. Git exits with a positive code and says why when the remote refuses
-// a push; a push that did not exit by itself, or exited saying nothing, was
-// stopped before any answer could be read.
+// remote. Git reports the remote's answer about a ref on a line of its own
+// opening "! [rejected]" or "! [remote rejected]" — a branch that moved off
+// what the push expected, a hook or protection rule that declined it. Any
+// other failure is Git itself failing to get an answer: a process that did not
+// exit by itself, exited saying nothing, or could not reach the remote, which
+// a network that drops or a forge that errors produces, and which is waited
+// out rather than taken as the remote's refusal.
 func pushInterrupted(result execution.ProcessResult) bool {
 	if result.Status == execution.ProcessSucceeded {
 		return false
 	}
-	return result.Status != execution.ProcessFailed || result.ExitCode <= 0 || strings.TrimSpace(result.Stderr) == ""
+	if result.Status != execution.ProcessFailed || result.ExitCode <= 0 {
+		return true
+	}
+	return !remoteRefusedRef(result.Stderr)
+}
+
+// remoteRefusedRef reports Git's output naming a ref the remote refused.
+func remoteRefusedRef(stderr string) bool {
+	for _, line := range strings.Split(stderr, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "! [rejected]") || strings.HasPrefix(line, "! [remote rejected]") {
+			return true
+		}
+	}
+	return false
 }
 
 func nonEmptyText(value, fallback string) string {

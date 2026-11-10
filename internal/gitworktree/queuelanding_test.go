@@ -91,8 +91,9 @@ func TestAQueueCandidateBranchIsReplacedOnlyFromWhatItHeld(t *testing.T) {
 	}
 }
 
-// A push is a refusal only where Git exited by itself, with a positive code,
-// saying why; anything else ended before the remote answered.
+// A push is a refusal only where Git exited by itself naming a ref the remote
+// refused; anything else, a network or server failure included, ended without
+// the remote's refusal and is asked for again.
 func TestOnlyAPushTheRemoteAnsweredIsARefusal(t *testing.T) {
 	t.Parallel()
 
@@ -101,7 +102,11 @@ func TestOnlyAPushTheRemoteAnsweredIsARefusal(t *testing.T) {
 		result      execution.ProcessResult
 		interrupted bool
 	}{
-		{"refused", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "! [remote rejected] main (protected branch hook declined)"}, false},
+		{"refused by a hook", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "To github.com:o/r.git\n ! [remote rejected] main -> main (protected branch hook declined)\nerror: failed to push some refs"}, false},
+		{"refused as stale", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "To github.com:o/r.git\n ! [rejected]        abc -> yoyodyne/merge-queue/mqe-1 (stale info)\nerror: failed to push some refs"}, false},
+		{"host not found", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 128, Stderr: "fatal: unable to access 'https://github.com/o/r.git/': Could not resolve host: github.com"}, true},
+		{"server error", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 128, Stderr: "error: RPC failed; HTTP 500 curl 22 The requested URL returned error: 500\nfatal: the remote end hung up unexpectedly"}, true},
+		{"connection dropped", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 128, Stderr: "Connection reset by peer\nfatal: the remote end hung up unexpectedly"}, true},
 		{"succeeded", execution.ProcessResult{Status: execution.ProcessSucceeded}, false},
 		{"killed with exit code -1", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: -1}, true},
 		{"cancelled by a restart", execution.ProcessResult{Status: execution.ProcessCancelled, ExitCode: -1}, true},
