@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -477,4 +480,128 @@ func (f *fakeRepositoryReader) Read(_ context.Context, requests []repositoryread
 		return nil, f.err
 	}
 	return f.results, nil
+}
+
+// The architect keeps her designs in the companion intent repository. A request
+// naming it is read at the commit that repository's target branch names, the
+// continuation says where the text came from, and the conversation's record
+// carries the intent commit and branch rather than the project's HEAD.
+func TestTheArchitectReadsADocumentFromTheIntentRepository(t *testing.T) {
+	t.Parallel()
+
+	const design = "# Sums\n\nthe committed design\n"
+	project := newGitRepository(t, map[string]string{"README.md": "the project\n"})
+	intent := newGitRepository(t, map[string]string{"docs/designs/sums.md": design})
+	if err := os.WriteFile(filepath.Join(intent, "docs/designs/sums.md"), []byte("uncommitted edit\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	intentCommit := gitOutput(t, intent, "rev-parse", "HEAD")
+	projectCommit := gitOutput(t, project, "rev-parse", "HEAD")
+	branch := gitOutput(t, intent, "symbolic-ref", "--short", "HEAD")
+
+	asked := "Let me read the design.\n\n" +
+		repositoryread.Fence + "\n" +
+		`{"requests":[{"action":"read","path":"docs/designs/sums.md","repository":"intent","why":"the advice turns on the design"}]}` +
+		"\n```"
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", ResolvedModel: "claude-opus-5-20260514", FinalText: asked},
+		{SessionID: "session-1", ResolvedModel: "claude-opus-5-20260514", FinalText: "The design says what it says."},
+	}}
+	root := t.TempDir()
+	options := testOptions(t, provider)
+	options.Store = newTestStore(t, root)
+	options.Role = domain.RoleArchitect
+	options.Agent = string(domain.RoleArchitect)
+	options.RepositoryReader = repositoryread.Reader{
+		Process:         execution.OSProcessRunner{},
+		Directory:       project,
+		IntentDirectory: intent,
+		Clock:           fixedClock{},
+	}
+	session := openTestSession(t, options)
+
+	if _, err := session.Send(context.Background(), "What does the sums design say?"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	continuation := provider.requests[1].Prompt
+	for _, required := range []string{"the committed design", "in the intent repository at " + intentCommit[:12] + " on " + branch} {
+		if !strings.Contains(continuation, required) {
+			t.Fatalf("the continuation = %q, want it to contain %q", continuation, required)
+		}
+	}
+	if strings.Contains(continuation, "uncommitted edit") {
+		t.Fatalf("the continuation carried the working tree: %q", continuation)
+	}
+
+	events, err := newTestStore(t, root).LoadEvents(session.Evidence().ConversationID)
+	if err != nil {
+		t.Fatalf("LoadEvents() error = %v", err)
+	}
+	var recorded []map[string]any
+	for _, event := range events {
+		if event.Type != execution.EventRepositoryRead {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		recorded = append(recorded, payload)
+	}
+	if len(recorded) != 1 {
+		t.Fatalf("recorded %d repository read(s), want 1", len(recorded))
+	}
+	for key, want := range map[string]any{"commit": intentCommit, "repository": "intent", "branch": branch} {
+		if recorded[0][key] != want {
+			t.Errorf("recorded %s = %v, want %v", key, recorded[0][key], want)
+		}
+	}
+	if intentCommit == projectCommit {
+		t.Fatalf("the fixtures share a commit %s, so the record cannot tell the repositories apart", intentCommit)
+	}
+}
+
+// newGitRepository is a real repository holding the given files in one commit,
+// with the identity set on the repository so no machine configuration is
+// consulted. The files differ between repositories, so their commits do too.
+func newGitRepository(t *testing.T, files map[string]string) string {
+	t.Helper()
+
+	repository := filepath.Join(t.TempDir(), "repository")
+	if err := os.MkdirAll(repository, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	runGit(t, repository, "init", "-q", "-b", "main")
+	runGit(t, repository, "config", "user.name", "Yoyodyne Test")
+	runGit(t, repository, "config", "user.email", "yoyodyne@example.invalid")
+	for name, content := range files {
+		target := filepath.Join(repository, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+	}
+	runGit(t, repository, "add", "-A")
+	runGit(t, repository, "commit", "-q", "-m", "fixture")
+	return repository
+}
+
+func runGit(t *testing.T, repository string, args ...string) {
+	t.Helper()
+
+	if output, err := exec.Command("git", append([]string{"-C", repository}, args...)...).CombinedOutput(); err != nil {
+		t.Fatalf("git %v error = %v: %s", args, err, output)
+	}
+}
+
+func gitOutput(t *testing.T, repository string, args ...string) string {
+	t.Helper()
+
+	output, err := exec.Command("git", append([]string{"-C", repository}, args...)...).Output()
+	if err != nil {
+		t.Fatalf("git %v error = %v", args, err)
+	}
+	return strings.TrimSpace(string(output))
 }

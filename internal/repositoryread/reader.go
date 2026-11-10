@@ -28,6 +28,11 @@ type Reader struct {
 	// commit HEAD names is resolved once per block, and every path is read out of
 	// that commit's tree.
 	Directory string
+	// IntentDirectory is the companion intent repository, empty where the project
+	// keeps its intent in its own repository. A read that names it is resolved
+	// against the commit the branch it has checked out names — its target branch
+	// — and never its working tree.
+	IntentDirectory string
 	// Timeout bounds each Git command. Zero takes DefaultTimeout.
 	Timeout time.Duration
 	// RedactValues are the values that must not reach a prompt. Content is
@@ -71,15 +76,88 @@ func (r Reader) Read(ctx context.Context, requests []Request) ([]Result, error) 
 	}
 	redactor := execution.NewRedactor(r.RedactValues...)
 	results := make([]Result, 0, len(requests))
+	// The intent repository is resolved the first time a request names it, once
+	// for the block, so its reads are all of one tree as the project's are.
+	var intent *intentSource
 	// remaining is what this reply may still return of content across all its
 	// reads. It is spent in the order the paths were named, so a role that named
 	// a long file first has spent the budget on it and is told so on the next.
 	remaining := MaxBytesPerReply
 	for _, request := range requests {
-		result := r.resolve(ctx, commit, request, redactor, &remaining)
-		results = append(results, result)
+		if strings.TrimSpace(request.Repository) != RepositoryIntent {
+			results = append(results, r.resolve(ctx, commit, request, redactor, &remaining))
+			continue
+		}
+		if intent == nil {
+			resolved := r.resolveIntent(ctx)
+			intent = &resolved
+		}
+		results = append(results, r.resolveInIntent(ctx, *intent, request, redactor, &remaining))
 	}
 	return results, nil
+}
+
+// intentSource is the companion intent repository as one block sees it: the
+// branch it has checked out and the commit that branch names, or why neither
+// could be named.
+type intentSource struct {
+	branch  string
+	commit  string
+	problem string
+}
+
+// resolveIntent names the commit the companion intent repository's target
+// branch holds. Failing to is a problem carried by each intent request rather
+// than an error, so the project reads beside them still succeed.
+func (r Reader) resolveIntent(ctx context.Context) intentSource {
+	if r.IntentDirectory == "" {
+		return intentSource{problem: "this project keeps its intent in its own repository, so there is no companion intent repository to read; name no repository"}
+	}
+	source := r
+	source.Directory = r.IntentDirectory
+	output, err := source.git(ctx, 0, "symbolic-ref", "--quiet", "--short", "HEAD")
+	branch := strings.TrimSpace(output.Stdout)
+	if err != nil || branch == "" {
+		if err != nil && output.ExitCode != 1 {
+			return intentSource{problem: fmt.Sprintf("the companion intent repository's target branch could not be named: %s; nothing was read from it", singleLine(err.Error()))}
+		}
+		return intentSource{problem: "the companion intent repository's HEAD is detached, so it names no target branch; nothing was read from it"}
+	}
+	output, err = source.git(ctx, 0, "rev-parse", "--verify", "--end-of-options", "refs/heads/"+branch+"^{commit}")
+	commit := strings.TrimSpace(output.Stdout)
+	if err != nil || commit == "" {
+		reason := "git rev-parse named no commit"
+		if err != nil {
+			reason = singleLine(err.Error())
+		}
+		return intentSource{branch: branch, problem: fmt.Sprintf("the companion intent repository's branch %s names no commit: %s; nothing was read from it", branch, reason)}
+	}
+	return intentSource{branch: branch, commit: commit}
+}
+
+// resolveInIntent performs one request against the companion intent repository.
+// It is resolve with Git run there, and the result says which repository and
+// branch it came from.
+func (r Reader) resolveInIntent(ctx context.Context, intent intentSource, request Request, redactor execution.Redactor, remaining *int) Result {
+	// A refusal is still recorded as a read of the intent repository, so the
+	// record says where the role looked and why nothing came back.
+	if intent.problem != "" {
+		return Result{
+			Action:     strings.TrimSpace(request.Action),
+			Path:       strings.TrimSpace(request.Path),
+			Why:        strings.TrimSpace(request.Why),
+			ReadAt:     r.now(),
+			Repository: RepositoryIntent,
+			Branch:     intent.branch,
+			Problem:    intent.problem,
+		}
+	}
+	source := r
+	source.Directory = r.IntentDirectory
+	result := source.resolve(ctx, intent.commit, request, redactor, remaining)
+	result.Repository = RepositoryIntent
+	result.Branch = intent.branch
+	return result
 }
 
 // resolve performs one request. Everything it can go wrong with is recorded on
