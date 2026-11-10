@@ -210,6 +210,11 @@ const (
 	// hold does not decide a run. It is the one write a conversation makes to
 	// that record; everything else on it is the watching session's.
 	actionBrake = "brake"
+	// actionKeepVersion records which of two machines' versions of a held item
+	// stands: here, meaning this machine's, or shared. An item is held that way when the two
+	// cannot be merged, and neither has been edited. Recording is this role's,
+	// and the harness's next forge check carries it out (mergehold.go).
+	actionKeepVersion = "keep_version"
 	// actionWithdraw takes back a proposal this conversation made and nobody has
 	// decided, with the reason recorded. Its subject is a proposal rather than an
 	// item, and it exists because a proposal was the one thing the Lead Product
@@ -264,6 +269,7 @@ var trackerActionArguments = map[string][]string{
 	actionInFlight:     {"decision", "superseded_by"},
 	actionHandle:       {"report", "requests", "needs", "person_only", "operator_reason", "hand"},
 	actionBrake:        {"decision"},
+	actionKeepVersion:  {"decision"},
 	actionWithdraw:     {"proposal"},
 	actionDirective:    {"directive", "decision", "became"},
 	actionAmendment:    {"amendment", "decision"},
@@ -312,7 +318,8 @@ var trackerCapabilities = map[string]capability.Capability{
 	actionHandle:   capability.BacklogAdmit,
 	// Deciding the brake's hold is deciding what becomes of work that stopped
 	// moving, one level up: the same authority, held by the same role.
-	actionBrake: capability.WorkTriage,
+	actionBrake:       capability.WorkTriage,
+	actionKeepVersion: capability.WorkTriage,
 	// Taking back a proposal of one's own is admission run backwards before
 	// anything was admitted, so it belongs with admitting.
 	actionWithdraw: capability.BacklogAdmit,
@@ -354,7 +361,7 @@ var laneCapabilities = map[string]capability.Capability{
 var trackerActionNames = []string{
 	actionRead, actionSurvey, actionCreate, actionAttribute, actionUpdate, actionLabel, actionReparent,
 	actionReprioritize, actionPark, actionUnpark, actionLink, actionUnlink, actionRepair,
-	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake, actionWithdraw,
+	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake, actionKeepVersion, actionWithdraw,
 	actionDirective, actionAmendment,
 }
 
@@ -1304,6 +1311,10 @@ func (a TrackerAction) validateArguments() []error {
 			if err := hand.Check(); err != nil {
 				problems = append(problems, err)
 			}
+		}
+	case actionKeepVersion:
+		if !runstate.TrackerVersion(strings.TrimSpace(a.Decision)).Valid() {
+			problems = append(problems, fmt.Errorf("keep_version requires \"decision\", one of %s", strings.Join(runstate.TrackerVersionVocabulary(), ", ")))
 		}
 	case actionBrake:
 		switch decision := runstate.IntakeBrakeDecision(strings.TrimSpace(a.Decision)); {
@@ -2337,6 +2348,8 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		s.recordReportHandling(ctx, outcome)
 	case actionBrake:
 		s.decideBrake(outcome)
+	case actionKeepVersion:
+		s.decideKeepVersion(ctx, outcome)
 	case actionWithdraw:
 		s.withdrawProposal(outcome)
 	case actionDirective:
