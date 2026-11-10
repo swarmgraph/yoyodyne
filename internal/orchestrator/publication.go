@@ -386,6 +386,17 @@ func (r Reconciler) armRecoveredMerge(ctx context.Context, state runstate.State,
 		return recovery
 	}
 	defer func() { _ = promotion.Release() }()
+	// A hold on landing on the target stops the arming before the forge is
+	// asked; nothing is written, so the next sweep asks again.
+	landing, landingHeld, err := standingLandingHold(r.LandingHolds, integration.TargetBranch, r.clock().Now())
+	if err != nil {
+		recovery.Failure = fmt.Errorf("nothing was asked of the forge: read whether landing on %s is held: %w", integration.TargetBranch, err).Error()
+		return recovery
+	}
+	if landingHeld {
+		recovery.Failure = "nothing was asked of the forge: " + landing.Says()
+		return recovery
+	}
 
 	// From here every refusal is recorded with the method beside it, for the
 	// reason recordMergeMethod gives: a retry repeats a request whose method is

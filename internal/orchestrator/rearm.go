@@ -157,7 +157,11 @@ type Rearmer struct {
 	// refuses that arming, and a decision of the development manager's is
 	// carried out as ever.
 	Items RearmItems
-	Clock execution.Clock
+	// LandingHolds is the hold an outside tool places on landing on a target
+	// branch, read under the promotion lease before the forge is asked
+	// (landinghold.go). Optional: nil reads no hold.
+	LandingHolds LandingHolds
+	Clock        execution.Clock
 }
 
 // RearmItems reads a work item. It is satisfied by the tracker client.
@@ -341,6 +345,13 @@ func (r Rearmer) repeat(ctx context.Context, runID, targetBranch string, checked
 		return result, fmt.Errorf("wait for a turn to move %s: %w; nothing was spent, so the publication keeps its re-arm", targetBranch, err)
 	}
 	defer func() { _ = promotion.Release() }()
+	landing, landingHeld, err := standingLandingHold(r.LandingHolds, targetBranch, r.now())
+	if err != nil {
+		return result, fmt.Errorf("read whether landing on %s is held: %w; nothing was spent, so the publication keeps its re-arm", targetBranch, err)
+	}
+	if landingHeld {
+		return result, fmt.Errorf("%s; nothing was spent, so the publication keeps its re-arm", landing.Says())
+	}
 
 	published, integration, err := rearmablePublication(state)
 	if err != nil {

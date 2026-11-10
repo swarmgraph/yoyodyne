@@ -1394,6 +1394,31 @@ lifted, when, and by whom: this command, the conversation and its turn, or the
 harness and what moved it — because the channel owes you who ended a hold it
 announced: [the release is said once, by whom](reporting.md#a-finding-that-needs-your-hand).
 
+## Holding landing on one branch
+
+Your own script may need the harness to land nothing on a branch for a while: a
+release being cut from it, or a migration that must not see new commits.
+`yoyo landing hold` says so for one target branch:
+
+```bash
+./bin/yoyo landing hold staging --for 2h --reason "cutting release 1.2"
+./bin/yoyo landing release staging   # ends it sooner
+```
+
+`--for` and `--reason` are both required, and the duration may not be more than
+four hours. The hold ends on its own at the time it names, so a script that
+stops before it releases cannot leave landing stopped for good. While it stands,
+checks and reviews carry on, and a change that is ready to land on that branch
+waits with its evidence kept, then lands once the hold ends. Releasing a branch
+that is not held is not an error.
+
+`yoyo status` names each hold under its four lines: the branch, the reason, when
+it was set, and when it ends. This is not [`yoyo pause`](#pausing-everything-and-resuming-it),
+which stops everything the harness spends on a provider, and it is not the
+intake hold, which stops the harness choosing new work. It holds landing on one
+branch, and only on the machine it was placed on. Like `yoyo pause`, it is
+refused from a process the harness launched for a role.
+
 ## Where a finding that needs your hand goes
 
 Some of what the roles find can be acted on only by a person: a hook that has to

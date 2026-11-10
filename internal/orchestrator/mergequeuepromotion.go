@@ -710,6 +710,13 @@ func (q *queuePromotion) fresh(ctx context.Context, mutation runstate.MergeQueue
 	if held {
 		return refuse(fmt.Sprintf("the operator has paused harness activity since %s", hold.HeldAt.Local().Format("2006-01-02 15:04 MST")))
 	}
+	landing, landingHeld, err := standingLandingHold(p.LandingHolds, q.key.TargetBranch, p.clock().Now())
+	if err != nil {
+		return false, fmt.Errorf("read whether landing on %s is held: %w", q.key.TargetBranch, err)
+	}
+	if landingHeld {
+		return refuse(landing.Says())
+	}
 	pausing, err := p.pausingDirectives(q.entry.WorkItemID)
 	if err != nil {
 		return false, err
