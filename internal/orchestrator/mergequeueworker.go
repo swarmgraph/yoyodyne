@@ -73,6 +73,13 @@ import (
 // from wherever the target then is.
 const maxMergeQueueDriftRebuilds = 3
 
+// maxMergeQueueCheckoutAttempts bounds how many times one build of a candidate
+// asks for its checkout when the checkout fails outside the change: stopped at
+// its time limit, or refused by Git. Each attempt after the first gets a longer
+// limit (gitworktree.WithQueueCheckoutRetry); a checkout that fails all of them
+// stops the pass, charged to nothing, and the queue's next round starts over.
+const maxMergeQueueCheckoutAttempts = 3
+
 // MergeQueueCandidates is the part of the worktree manager the worker builds
 // and reads candidates with. It is satisfied by *gitworktree.Manager.
 type MergeQueueCandidates interface {
@@ -152,6 +159,9 @@ type MergeQueueVerification struct {
 	// as it stands, so no candidate could be built. It is a defect of the
 	// change, handed back by the promoter (HandBackConflict).
 	Conflict *gitworktree.QueueCandidateConflict
+	// CheckoutRetries says each candidate checkout that failed outside the
+	// change and was removed and tried again within this call, in order.
+	CheckoutRetries []string
 }
 
 // Work verifies the first waiting entry of a queue. It refuses with
@@ -222,7 +232,7 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 // refuses, to a wait, or to the target moving under it, which is reported by
 // returning with neither a verdict nor a refusal so the caller builds again.
 func (w MergeQueueWorker) verify(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, run runstate.State, author string, configured runstate.MergeQueueCheckConfiguration, outcome MergeQueueVerification) (MergeQueueVerification, error) {
-	generation, err := w.current(ctx, lease, key, entry, author, configured)
+	generation, err := w.current(ctx, lease, key, entry, author, configured, &outcome.CheckoutRetries)
 	outcome.Generation = generation
 	if err != nil {
 		return outcome, err
@@ -330,7 +340,10 @@ func (w MergeQueueWorker) now() time.Time {
 // current is the generation to verify: the standing one, reconciled with what
 // a worker before this one left, or a new one built on the target as it stands
 // when there is none or the standing one can no longer be promoted.
-func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, author string, configured runstate.MergeQueueCheckConfiguration) (runstate.MergeQueueGeneration, error) {
+//
+// Each checkout attempt that failed outside the change and was tried again is
+// added to retried.
+func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, author string, configured runstate.MergeQueueCheckConfiguration, retried *[]string) (runstate.MergeQueueGeneration, error) {
 	generations, err := w.Queue.Generations(key, entry.EntryID)
 	if err != nil {
 		return runstate.MergeQueueGeneration{}, err
@@ -371,18 +384,36 @@ func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, ke
 			return standing, err
 		}
 	}
-	candidate, err := w.Candidates.BuildQueueCandidate(ctx, gitworktree.QueueCandidateRequest{
+	request := gitworktree.QueueCandidateRequest{
 		Entry:        entry.EntryID,
 		TargetBranch: key.TargetBranch,
 		Heads:        []string{entry.ApprovedHead},
 		Message: fmt.Sprintf("yoyodyne: merge queue candidate for %s %s\n\nEntry: %s (order %d)\nRun: %s\nApproved head: %s\n",
 			entry.WorkItemID, entry.WorkItemTitle, entry.EntryID, entry.Order, entry.RunID, entry.ApprovedHead),
-	})
+	}
+	// A checkout that failed outside the change — stopped at its time limit on a
+	// busy machine, or refused by Git — has already been removed, so it is asked
+	// for again here, with a longer limit, rather than left for the queue's next
+	// round. Each attempt that failed is said on the call's outcome; none is
+	// charged to the change, because nothing about the change was judged.
+	var candidate gitworktree.QueueCandidate
+	for attempt := 1; ; attempt++ {
+		candidate, err = w.Candidates.BuildQueueCandidate(gitworktree.WithQueueCheckoutRetry(ctx, attempt-1), request)
+		if err == nil || !gitworktree.QueueCheckoutRetryable(err) || attempt >= maxMergeQueueCheckoutAttempts || ctx.Err() != nil {
+			break
+		}
+		*retried = append(*retried, fmt.Sprintf("the checkout for merge queue entry %d failed on attempt %d of %d and was removed and tried again at once: %v",
+			entry.Order, attempt, maxMergeQueueCheckoutAttempts, err))
+	}
 	var conflict *gitworktree.QueueCandidateConflict
 	if errors.As(err, &conflict) {
 		return runstate.MergeQueueGeneration{}, conflict
 	}
 	if err != nil {
+		if gitworktree.QueueCheckoutRetryable(err) && len(*retried) > 0 {
+			return runstate.MergeQueueGeneration{}, fmt.Errorf("build the candidate for merge queue entry %d: its checkout failed on all %d attempts, each removed before the next; the last: %w",
+				entry.Order, len(*retried)+1, err)
+		}
 		return runstate.MergeQueueGeneration{}, fmt.Errorf("build the candidate for merge queue entry %d: %w", entry.Order, err)
 	}
 	generation := runstate.MergeQueueGeneration{
