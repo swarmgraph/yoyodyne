@@ -53,6 +53,10 @@ const commandHelp = `Commands the harness carries out for you:
                               settle a directive and let the work it paused carry on
   /withdraw <directive-id> <why you no longer mean it>
                               take a directive out of force, keeping what it said
+  /landed <document> <commit>
+                              record a document you landed by hand as that commit, and give its place back
+  /drop <document> <reason>
+                              stop offering a document, whatever it waits for, and tell its author why
   /terminal-setup             set this terminal up so shift-return adds a new line rather than sending
   /help                       this list
   /exit                       end the conversation, stopping anything it is running
@@ -163,6 +167,8 @@ var singleMessage = map[string]singleMessageRule{
 	"/directive":       {},
 	"/resolve":         {},
 	"/withdraw":        {},
+	"/landed":          {},
+	"/drop":            {},
 	"/exit":            {why: "ends a conversation, and a single message is not one"},
 	"/quit":            {why: "ends a conversation, and a single message is not one"},
 	"/work":            {why: "runs a work item in the background of the conversation that started it, and this process exits before such a run could finish; `yoyo run <beads-id>` runs one from a command line"},
@@ -236,6 +242,10 @@ var afterTurn = map[string]string{
 	// It waits for the run this conversation started to finish, and nothing
 	// could be typed while it did.
 	"/wait": "it would stop you typing until the run finished",
+	// They change which documents the turn in flight is answering about, and the
+	// answer being written is about the documents as they stood.
+	"/landed": "it changes the documents the answer is being written about",
+	"/drop":   "it changes the documents the answer is being written about",
 	// Ending the conversation at once would cut off the answer being written and
 	// its record; it ends as soon as the answer has arrived.
 	"/exit": "it ends the conversation once the answer has arrived",
@@ -480,7 +490,7 @@ func (s *Session) dispatch(ctx context.Context, line string, out io.Writer) (boo
 		fmt.Fprintln(out)
 		return false, nil
 	case "/withdraw":
-		id, reason, _ := strings.Cut(argument, " ")
+		id, reason := splitCommand(argument)
 		// A withdrawal is durable the moment it is written, so what it achieved is
 		// printed before any failure that followed, for the same reason recording a
 		// directive is: an operator told their withdrawal failed would go and make
@@ -491,6 +501,22 @@ func (s *Session) dispatch(ctx context.Context, line string, out io.Writer) (boo
 			return false, err
 		}
 		fmt.Fprintln(out)
+		return false, nil
+	case "/landed":
+		id, commit := splitCommand(argument)
+		account, err := s.MarkLanded(ctx, id, commit)
+		if err != nil {
+			return false, err
+		}
+		fmt.Fprintln(out, account)
+		return false, nil
+	case "/drop":
+		id, reason := splitCommand(argument)
+		account, err := s.DropWrite(id, reason)
+		if err != nil {
+			return false, err
+		}
+		fmt.Fprintln(out, account)
 		return false, nil
 	default:
 		return false, fmt.Errorf("%s is not a command; /help lists what this conversation understands", name)

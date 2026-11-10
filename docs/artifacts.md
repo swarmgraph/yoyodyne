@@ -316,8 +316,12 @@ policy says. A project that keeps its documents in a
 has no reviewed run into that repository yet, so a document its automatic
 policy confirms is held rather than landed: it stays confirmed and saved, the
 owning role is told once what holds it, and it is tried again at each later
-message. It is not put to you; what your policy puts to you anyway is, and your
-confirmation writes it into that repository's checkout. A document confirmed while integration was automatic, whose run
+message. A document you landed by hand is found on that repository's target
+branch at the next message and its place is given back; `/landed <document>
+<commit>` records one the harness cannot find there by the commit you name, and
+`/drop <document> <reason>` stops offering one. It is not put to you; what
+your policy puts to you anyway is, and your confirmation writes it into that
+repository's checkout. A document confirmed while integration was automatic, whose run
 had not started when the setting changed, is put to you the same way, and the
 owning role is told.
 

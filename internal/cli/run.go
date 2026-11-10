@@ -209,6 +209,7 @@ type components struct {
 	// works.
 	mergeQueues  *runstate.MergeQueueStore
 	worktrees    *gitworktree.Manager
+	worktreeRoot string
 	redactValues []string
 }
 
@@ -512,6 +513,7 @@ func buildComponents(configPath string) (components, error) {
 		config:           cfg,
 		configPath:       resolved.Path,
 		repository:       repository,
+		worktreeRoot:     worktreeRoot,
 		stateRoot:        stateRoot,
 		runner:           processRunner,
 		store:            store,

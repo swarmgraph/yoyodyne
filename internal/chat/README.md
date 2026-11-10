@@ -245,7 +245,7 @@ removes them from the record once a turn has delivered them.
 |---|---|
 | `tracker.go` | `TrackerAction`, `extractTrackerActions`, `performTrackerActions`, `applyTrackerAction`, `carryOutTrackerAction`, `TrackerOutcome`, `renderTrackerResults`, refused-block hand-back (`recordRefusedTrackerBlock`) |
 | `role.go` | role authority, `SystemPrompt`, `WithRemit` |
-| `document.go`, `documentpublication.go` | document writes, policy confirmation, durable publication and returns to the owner |
+| `document.go`, `documentpublication.go`, `documentlanded.go` | document writes, policy confirmation, durable publication and returns to the owner; documents found landed by another route, `/landed`, `/drop` |
 | `sendinghold.go` | a hold on sending one document, lifted when its named work item closes; the notes a document leaves on the items it answers |
 | `compact.go`, `memory.go` | session compaction and the role's own memory |
 | `passcontext.go` | what a recurring turn starts from: a provider session of its own, the product intent with other documents left out, bounded to a third of the window, the previous turn's account carried forward, the conversation's session set aside and put back (`EndPass`), and compactions the provider reports |
