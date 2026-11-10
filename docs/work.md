@@ -2284,14 +2284,16 @@ configured limit, and stops before its next one, so a new build does not make a
 check start over however many arrive while it runs — unless another developer
 slot is sitting empty with work for it, when the run is stopped part-way through
 its check and the restart goes ahead, so the session that comes back fills that
-slot. Each check that passed before
+slot; a merge queue candidate's checks are treated the same way. Each check that passed before
 the stop keeps its result: the session that comes back runs only the checks
 that had not finished, and only when the change is exactly the one they passed
 on — a changed change runs every check again. A stage that has already finished gets a brief grace
 to record its verdict. A run at its promotion is waited out past the bound
 because it holds the target branch's lease, and a document landing run is
 waited out at any step, because it is short and one stopped part-way started
-over; past the bound no new one starts, and a document a recurring pass
+over; while either is, the session goes on filling free developer slots and
+leaves runs at their developer attempt going, stopping them once neither is
+left. Past the bound no new document landing run starts, and a document a recurring pass
 confirms then is left for the session that comes back to land. That stop is recorded as
 a restart rather than an ending, so `yoyo status` and the Slack sink say a
 session is coming back on the new build instead of telling you to start one,

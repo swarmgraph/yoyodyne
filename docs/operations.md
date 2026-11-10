@@ -3526,7 +3526,9 @@ still taking its turns is stopped in the same step and waited for only while it
 records how it was stopped — unless one of its document landing runs is
 still going, which is waited for first. Only a run at its promotion, a run with
 a check running, a document landing run, or a check stage a moment from
-recording its verdict is still hosted past the bound:
+recording its verdict is still hosted past the bound — and, while a promotion
+or a document landing is still being waited out, a run at its developer
+attempt, as the point on promotions below says:
 
 - Each run it still hosts at its developer attempt, its checks, or its review is
   stopped where it is and **preserved whole** — worktree, branch, claim,
@@ -3554,17 +3556,26 @@ recording its verdict is still hosted past the bound:
   `yoyo run <beads-id>` continues one the same way if no session does, and
   `yoyo reconcile` leaves it alone as a run its own pipeline can continue.
   The session that stopped a run never re-adopts it, and a draining session
-  re-adopts nothing: while it waits out a promotion past the bound, the run it
-  stopped stays stopped, holding its seat, rather than being resumed only for
-  the next look to stop it again.
+  re-adopts nothing: while it waits out a promotion past the bound, a run it
+  stopped at its checks or its review stays stopped, holding its seat, rather
+  than being resumed only for the next look to stop it again.
 - A run at its promotion is waited out: it holds the target branch's
   lease, and a promotion cancelled part-way is the one boundary durable state
   cannot describe, so the session waits it out past the bound and restarts
   after it. The wait is the session's ordinary loop and not a silence — the
   pull is still opened every poll and every recurring task still fires on its
-  cadence; only new starts are declined, and each declined pull says so. A
-  forge outage can hold a promotion for hours, and those hours cost the
-  scheduler nothing but the seat the promotion holds.
+  cadence. Because the restart is not coming sooner whatever else is stopped,
+  the session goes on filling its free developer slots meanwhile, decided
+  repairs and continuations first as ever, and leaves each run at its developer
+  attempt going, the ones it starts then included; a run at its checks or its
+  review is still stopped, so nothing left going reaches a promotion of its
+  own. The same holds while a document landing run is waited out. Once nothing
+  of the kind is left, every run at its developer attempt is stopped and
+  preserved for the session that comes back, which continues it in the same
+  developer session; one started moments before, with no developer session
+  recorded yet, is given up to two minutes to record one rather than being
+  cancelled. A forge outage can hold a promotion for hours, and those hours
+  cost the scheduler the seat the promotion holds and no other.
 - A run with a check running is left to finish that check, and only that
   check, unless another developer slot is sitting empty meanwhile (below). The session asks the run
   to stop before its next check, and the run stops there by itself — between
@@ -3593,24 +3604,32 @@ recording its verdict is still hosted past the bound:
   review or a repair; the next look stops it there. This brief wait uses the
   ordinary loop too, so pulls and recurring tasks continue.
 
-  The wait for a running check is given up as soon as another developer slot
-  is sitting empty with work for it: a free slot while ready work waits and
-  neither the intake hold nor the operator's pause stops it starting, or a
-  slot still held by a run already stopped for this restart. Past the bound
-  the old build starts nothing new, so while it waits on the check no other
-  slot can be filled, and a check's limit can be most of an hour. So the
-  session stops the run part-way through its check instead, preserved at its
-  checks like any stopped run, and restarts at the next look; the session
-  that comes back fills the empty slot and runs that check again from its
-  start, keeping the results of the checks the run had already passed. The
-  session's line says which runs' checks were stopped and why. A free slot
-  with nothing ready for it does not count, and neither does a slot held by a
-  promotion, a document landing, or a merge queue candidate's checks, which
-  are still waited for as described here.
+  The wait for a running check, in a run or in a merge queue candidate (next
+  point), is given up as soon as another developer slot is sitting empty with
+  work for it: a free slot while ready work waits and neither the intake hold
+  nor the operator's pause stops it starting, or a slot still held by a run
+  already stopped for this restart. Past the bound, with nothing but checks
+  to wait for, the old build starts nothing new, so while it waits on a check
+  no other slot can be filled, and a check's limit can be most of an hour. So
+  the session stops the run part-way through its check instead, preserved at
+  its checks like any stopped run, stops the queue pass part-way through its
+  candidate's checks, and restarts at the next look; the session that comes
+  back fills the empty slot, runs a stopped run's check again from its start,
+  keeping the results of the checks the run had already passed, and runs a
+  queue candidate's checks again whole. The session's line says which runs'
+  and queues' checks were stopped and why. A free slot with nothing ready for
+  it does not count. Nor is a check stopped while a promotion or a document
+  landing is still going, or a hosted run is not yet at a phase it can be
+  stopped at: the restart could not follow, so stopping the check would gain
+  nothing, and the free slot is filled by the old build instead, as the point
+  on promotions says.
 - A merge queue pass whose candidate's checks are running is let finish
   them, each check up to its configured `execution.check_timeout`, and then
   stopped; a candidate's checks count only whole, so a stage stopped part-way
-  would run every check again. Every other queue pass is stopped at the bound,
+  would run every check again. The exception is a developer slot sitting empty
+  with work for it, as the point above says: then the pass is stopped
+  part-way and the candidate's checks run again whole in the session that
+  comes back. Every other queue pass is stopped at the bound,
   and past it no queue starts a new check stage. The session's line names the
   queue, the candidate's generation, the check, and until when.
 - A document landing run — a confirmed document a role wrote, landed through
@@ -3656,10 +3675,15 @@ recording its verdict is still hosted past the bound:
 
 What a stopped run loses is the minutes its current phase had spent: a
 developer attempt resumes in the session it was making, and a review is asked
-for again. No check is started over: the running one finishes first, and only
-the checks that had not run are run when the run is re-adopted. The bound stops
-a developer attempt and a review; a promotion, a running check, and a document
-landing run are waited out past it. An already-finished check
+for again. A check is not ordinarily started over: the running one finishes
+first, and only the checks that had not run are run when the run is
+re-adopted. The exception is a developer slot sitting empty with work for it,
+when the running check is stopped part-way and runs again from its start on
+the new build, so that slot is filled within a poll of the bound rather than
+after the check's own limit. The bound stops a developer attempt and a review,
+except a developer attempt while a promotion or a document landing is still
+going; a promotion and a document landing run are waited out past it, and a
+running check is waited out unless a slot sits empty with work for it. An already-finished check
 stage gets up to a minute's grace to record its verdict and move to the next
 phase, where the next look stops the run. Set the bound longer if that trade
 is wrong for your project, and never to nothing — the configuration refuses
