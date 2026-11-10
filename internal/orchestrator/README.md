@@ -126,7 +126,11 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     (`followUpRound`), and otherwise until a probe run. Which checks a stage runs after a restart
     onto a new build stopped the run at its checks is `keepChecks` in
     `keptchecks.go`: checks that already passed on the same change keep their
-    results, and `keepPassed` records each check as it passes. A heavy check
+    results, and `keepPassed` records each check as it passes. The merge
+    queue does the same for a candidate's checks: each passed check is written
+    onto the generation as it passes, `setAside` keeps them on the
+    interruption, and `keptQueueChecks` (`mergequeueworker.go`) has the next
+    attempt on the same generation run only the others. A heavy check
     (`execution.heavy_checks`) waits for a place among the machine's before it
     launches: `HeavyCheckPermits` and `heavyCheckPriority` in
     `heavychecks.go` are what `verify`, `runLandingChecks` and the merge queue

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -334,12 +335,13 @@ func TestAFailingCheckOrARepairVerdictIsAVerificationThatDidNotPass(t *testing.T
 	}
 }
 
-func TestARestartDuringTheChecksRunsThemAgainOnTheSameCandidate(t *testing.T) {
+func TestARestartDuringTheChecksKeepsWhatPassedOnTheSameCandidate(t *testing.T) {
 	t.Parallel()
 
 	f := newQueueFixture(t)
-	// The worker dies with the checks finished and their result not written:
-	// what is on the record is checks that began.
+	// The worker dies with the checks finished and the stage's result not
+	// written: what is on the record is checks that began, and each check that
+	// passed, written as it passed.
 	f.records.fail = func(g runstate.MergeQueueGeneration) (bool, error) {
 		if g.CheckRun != nil && g.CheckRun.FinishedAt != nil {
 			return false, errors.New("the worker died")
@@ -359,8 +361,117 @@ func TestARestartDuringTheChecksRunsThemAgainOnTheSameCandidate(t *testing.T) {
 	if after.Number != 1 || after.Candidate != before.Candidate || len(after.Interruptions) != 1 || after.Interruptions[0].Stage != runstate.MergeQueueStageChecks {
 		t.Fatalf("generation = %#v, want the same candidate with the interrupted checks recorded", after)
 	}
-	if f.checks.calls() != 2 || f.reviewer.calls() != 1 {
-		t.Fatalf("checks ran %d times and the review %d, want 2 and 1", f.checks.calls(), f.reviewer.calls())
+	if passed := after.Interruptions[0].Passed; len(passed) != len(queueChecks) {
+		t.Fatalf("interruption kept %#v, want every check that passed before the restart", passed)
+	}
+	if !slices.Equal(after.CheckRun.Kept, queueChecks) || len(after.CheckRun.Results) != len(queueChecks) || after.CheckRun.RunWhole != "" {
+		t.Fatalf("checks = %#v, want every result kept from before the restart", after.CheckRun)
+	}
+	// Every check had passed, so none runs again.
+	if f.checks.calls() != 1 || f.reviewer.calls() != 1 {
+		t.Fatalf("checks ran %d times and the review %d, want 1 and 1", f.checks.calls(), f.reviewer.calls())
+	}
+}
+
+// TestARestartPartWayThroughTheChecksRunsOnlyTheChecksThatHadNotPassed is the
+// watch session restarting onto a new build while a candidate's second check
+// is waiting to start: the first check passed before the cut, so the session
+// that comes back keeps its result and runs only the second.
+func TestARestartPartWayThroughTheChecksRunsOnlyTheChecksThatHadNotPassed(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueFixture(t)
+	stages := &queueCheckStages{}
+	ctx, cancel := context.WithTimeout(withQueueCheckStages(context.Background(), stages), 5*time.Minute)
+	defer cancel()
+	// The restart lands as the first check passes: the session closes its
+	// queues to new check stages and stops the pass before the next check.
+	f.checks.finished = func(call int, result checks.Result) {
+		if call == 1 && result.Command == queueChecks[0] {
+			stages.close()
+			cancel()
+		}
+	}
+	verification, _ := f.worker.Work(ctx, queueKey)
+	if verification.Verified {
+		t.Fatalf("Work() = %#v; want the cut stage to earn nothing", verification)
+	}
+	cut := f.generations()[0]
+	if cut.CheckRun == nil || cut.CheckRun.FinishedAt == nil || !strings.Contains(cut.CheckRun.Problem, "cut off by the restart") ||
+		!strings.Contains(cut.CheckRun.Problem, queueChecks[1]) {
+		t.Fatalf("checks after the cut = %#v, want the second check recorded as cut off by the restart", cut.CheckRun)
+	}
+
+	f.checks.finished = nil
+	verification, err := f.restart()
+	if err != nil || !verification.Verified {
+		t.Fatalf("Work() after the restart = %#v, %v", verification, err)
+	}
+	after := verification.Generation
+	if after.Number != 1 || after.Candidate != cut.Candidate || len(after.Interruptions) != 1 {
+		t.Fatalf("generation = %#v, want the same candidate with one interrupted attempt", after)
+	}
+	interrupted := after.Interruptions[0]
+	if interrupted.Stage != runstate.MergeQueueStageChecks || !strings.Contains(interrupted.Problem, "cut off by the restart") ||
+		len(interrupted.Passed) != 1 || interrupted.Passed[0].Command != queueChecks[0] {
+		t.Fatalf("interruption = %#v, want the restart's cut recorded with the first check's pass", interrupted)
+	}
+	if ran := f.checks.ran(); len(ran) != 2 || !slices.Equal(ran[0], queueChecks) || !slices.Equal(ran[1], queueChecks[1:]) {
+		t.Fatalf("checks ran %v, want every check once and then only the one cut off", ran)
+	}
+	if !slices.Equal(after.CheckRun.Kept, queueChecks[:1]) || after.CheckRun.RunWhole != "" {
+		t.Fatalf("checks = %#v, want the first check's result kept", after.CheckRun)
+	}
+	if len(after.CheckRun.Results) != len(queueChecks) || after.CheckRun.Results[0].Command != queueChecks[0] || after.CheckRun.Results[1].Command != queueChecks[1] {
+		t.Fatalf("results = %#v, want one per check in the configured order", after.CheckRun.Results)
+	}
+	if err := after.Gate(f.configured()); err != nil {
+		t.Fatalf("Gate() = %v, want the kept and the new results to earn the gate together", err)
+	}
+	// The cut was the restart's, not the change's: recovery reads it as
+	// judging nothing and charges nothing for it.
+	failure, found, err := ClassifyMergeQueueFailure(MergeQueueFailureEvidence{Generations: []runstate.MergeQueueGeneration{cut}, Configured: f.configured()})
+	if err != nil || !found || failure.Class != runstate.MergeQueueInfrastructureFailure || !strings.Contains(failure.Reason, "nothing is charged") {
+		t.Fatalf("ClassifyMergeQueueFailure() = %#v, %v, %v; want an interruption nothing is charged for", failure, found, err)
+	}
+}
+
+func TestAnAttemptWhoseRecordCannotSayWhatPassedRunsEveryCheckAndSaysWhy(t *testing.T) {
+	t.Parallel()
+
+	generation := runstate.MergeQueueGeneration{
+		EntryID: "mqe-1", EntryOrder: 1, TargetBranch: "main", TargetBase: "base", Heads: []string{"head"},
+		Candidate: "candidate", Content: "tree", AuthorSession: "developer-session",
+		Checks: runstate.NewMergeQueueCheckConfiguration(queueChecks),
+	}
+	started := time.Date(2026, 11, 9, 21, 0, 0, 0, time.UTC)
+	passed := runstate.MergeQueueCheckResult{Command: queueChecks[0], Passed: true, Status: "succeeded"}
+
+	kept, why := keptQueueChecks(generation)
+	if kept != nil || why != "" {
+		t.Fatalf("keptQueueChecks() with no interruption = %v, %q; want nothing kept and nothing to say", kept, why)
+	}
+	for _, test := range []struct {
+		name         string
+		interruption runstate.MergeQueueInterruption
+		says         string
+	}{
+		{"written before passes were kept", runstate.MergeQueueInterruption{Stage: runstate.MergeQueueStageChecks, StartedAt: started}, "does not say which checks had passed"},
+		{"bound to another generation", runstate.MergeQueueInterruption{Stage: runstate.MergeQueueStageChecks, StartedAt: started, Binding: "another", Passed: []runstate.MergeQueueCheckResult{passed}}, "names another candidate or check list"},
+		{"naming a check not configured", runstate.MergeQueueInterruption{Stage: runstate.MergeQueueStageChecks, StartedAt: started, Binding: generation.Binding(),
+			Passed: []runstate.MergeQueueCheckResult{{Command: "make gone", Passed: true}}}, `"make gone"`},
+	} {
+		recorded := generation
+		recorded.Interruptions = []runstate.MergeQueueInterruption{test.interruption}
+		kept, why := keptQueueChecks(recorded)
+		if kept != nil || !strings.Contains(why, test.says) || !strings.Contains(why, "every check runs again") {
+			t.Errorf("%s: keptQueueChecks() = %v, %q; want every check run with why saying %q", test.name, kept, why, test.says)
+		}
+	}
+	recorded := generation
+	recorded.Interruptions = []runstate.MergeQueueInterruption{{Stage: runstate.MergeQueueStageChecks, StartedAt: started, Binding: generation.Binding(), Passed: []runstate.MergeQueueCheckResult{passed}}}
+	if kept, why := keptQueueChecks(recorded); len(kept) != 1 || kept[0] != passed || why != "" {
+		t.Fatalf("keptQueueChecks() = %v, %q; want the first check kept", kept, why)
 	}
 }
 
@@ -605,8 +716,12 @@ type countingChecks struct {
 	mu     sync.Mutex
 	runner CheckRunner
 	before func(call int)
-	count  int
-	dir    string
+	// finished is told each check's result as the runner reports it, after
+	// the caller's own Finished.
+	finished func(call int, result checks.Result)
+	count    int
+	dir      string
+	commands [][]string
 }
 
 func (c *countingChecks) Run(ctx context.Context, request checks.Request, sink func(execution.Event) error) ([]checks.Result, uint64, error) {
@@ -614,11 +729,29 @@ func (c *countingChecks) Run(ctx context.Context, request checks.Request, sink f
 	c.count++
 	call := c.count
 	c.dir = request.Directory
+	c.commands = append(c.commands, slices.Clone(request.Commands))
+	finished := c.finished
 	c.mu.Unlock()
 	if c.before != nil {
 		c.before(call)
 	}
+	if finished != nil {
+		told := request.Finished
+		request.Finished = func(result checks.Result) {
+			if told != nil {
+				told(result)
+			}
+			finished(call, result)
+		}
+	}
 	return c.runner.Run(ctx, request, sink)
+}
+
+// ran is the checks each call was asked to run, in order.
+func (c *countingChecks) ran() [][]string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.commands)
 }
 
 func (c *countingChecks) calls() int {
@@ -743,11 +876,12 @@ func TestARestartWaitsOutAStageAnEarlierWorkerLeftRunning(t *testing.T) {
 		t.Fatalf("generation = %#v, want the running checks left exactly as recorded", recorded)
 	}
 
-	// Once it has ended, the checks are set aside and run again.
+	// Once it has ended, the checks are set aside, and since each had passed
+	// and was written down as it passed, none runs again.
 	orphan.Close()
 	verification, err = f.restart()
-	if err != nil || !verification.Verified || len(verification.Generation.Interruptions) != 1 || f.checks.calls() != 2 {
-		t.Fatalf("Work() = %#v, %v with %d check runs; want the checks run again once the first ended", verification, err, f.checks.calls())
+	if err != nil || !verification.Verified || len(verification.Generation.Interruptions) != 1 || f.checks.calls() != 1 {
+		t.Fatalf("Work() = %#v, %v with %d check runs; want the passed checks kept once the first ended", verification, err, f.checks.calls())
 	}
 }
 

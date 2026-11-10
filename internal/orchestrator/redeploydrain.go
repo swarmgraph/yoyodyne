@@ -430,8 +430,9 @@ type queueCheckStagesKey struct{}
 
 // queueCheckStages is the merge queue check stages a session's queue passes have
 // going. A candidate's checks are one stage whose results count only whole —
-// a stage stopped part-way is set aside and every check in it runs again — so
-// a restart onto a new build does not stop a queue pass in its checks: it
+// a stage stopped part-way is set aside, and the checks that had not passed
+// in it run again (keptQueueChecks in mergequeueworker.go) — so a restart onto
+// a new build does not stop a queue pass in its checks: it
 // waits for the stage to end, each check held to its configured limit, and
 // stops the pass once it is past them. Once the drain bound has run out no
 // queue starts a new check stage; the session that comes back runs it.
@@ -514,6 +515,17 @@ func (q *queueCheckStages) end(key runstate.MergeQueueKey) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	delete(q.stages, key)
+}
+
+// restarting reports whether the drain bound has run out, so a check stage
+// stopped from here was cut off by the session's restart.
+func (q *queueCheckStages) restarting() bool {
+	if q == nil {
+		return false
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.closed
 }
 
 // close is the drain bound having run out: no queue starts a check stage from
