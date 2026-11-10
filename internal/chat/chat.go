@@ -2717,7 +2717,7 @@ func (s *Session) takeTurn(ctx context.Context, permit budget.Permission, prompt
 			stderr = result.Process.Stderr
 		}
 		if stderr != "" {
-			outputTail += "\nProcess stderr:\n" + stderr
+			outputTail += "\nWhat the process printed as errors:\n" + stderr
 		}
 		// The terminal can name a cause no preceding text event carried. Keep it
 		// last so bounding the combined output preserves that diagnostic.

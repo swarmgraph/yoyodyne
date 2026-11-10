@@ -2684,7 +2684,7 @@ GitHub's merge queue — or whose protection cannot be read — nothing is admit
 and nothing is merged the old way. The run stops at its promotion with its
 approval standing, the item is blocked naming the branch setting that holds it,
 and one report is filed for the queue however many changes it holds. A change
-already admitted waits with its candidate's gate kept. The harness takes the
+already admitted waits with its candidate's checks and review kept. The harness takes the
 held changes up by itself, in the order they were approved, at the first
 reading that finds the requirement gone; it never changes the setting itself.
 

@@ -4158,9 +4158,9 @@ type replayWork struct {
 
 func (w replayWork) String() string {
 	if !w.counted {
-		return fmt.Sprintf("bought for a replay that could not be counted, as %d commit(s) writing %d file(s)", w.commits, w.files)
+		return fmt.Sprintf("allowed for a replay that could not be counted, as %d commit(s) writing %d file(s)", w.commits, w.files)
 	}
-	return fmt.Sprintf("bought for replaying %d commit(s) that write %d file(s)", w.commits, w.files)
+	return fmt.Sprintf("allowed for replaying %d commit(s) that write %d file(s)", w.commits, w.files)
 }
 
 // countReplay counts what a replay of source from base onto target has to do.

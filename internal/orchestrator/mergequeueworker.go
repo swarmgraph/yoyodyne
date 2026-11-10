@@ -278,7 +278,7 @@ func (w MergeQueueWorker) validate() error {
 			problems = append(problems, errors.New("the merge queue worker needs a check runner, a reviewer, a run store, a tracker, and the operator's pause on harness activity"))
 		}
 		if len(w.Pipeline.Config.Checks) == 0 {
-			problems = append(problems, errors.New("the project configures no checks, so no merge queue candidate can earn its gate"))
+			problems = append(problems, errors.New("the project configures no checks, so no merge queue candidate can pass its checks"))
 		}
 	}
 	if w.Queue == nil || w.Candidates == nil {

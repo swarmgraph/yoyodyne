@@ -204,17 +204,17 @@ func (t TriageCarryOut) Validate() error {
 		problems = append(problems, err)
 	}
 	if !validTriageGate(t.Gate) {
-		problems = append(problems, fmt.Errorf("%q is not a gate; the gates are %s", t.Gate, strings.Join(TriageGateVocabulary(), ", ")))
+		problems = append(problems, fmt.Errorf("%q is not a recorded refusal reason; the reasons are %s", t.Gate, strings.Join(TriageGateVocabulary(), ", ")))
 	}
 	switch refusal := strings.TrimSpace(t.Refusal); {
 	case refusal == "":
-		problems = append(problems, errors.New("a carry-out record carries what the gate said, because a refusal nobody can read is one nobody can answer"))
+		problems = append(problems, errors.New("a carry-out record carries what the refusal said, because a refusal nobody can read is one nobody can answer"))
 	case len(refusal) > MaxTriageCarryOutRefusalBytes:
 		problems = append(problems, fmt.Errorf("the refusal is %d bytes, limit is %d", len(refusal), MaxTriageCarryOutRefusalBytes))
 	}
 	switch clears := strings.TrimSpace(t.Clears); {
 	case clears == "":
-		problems = append(problems, errors.New("a carry-out record says what would clear the gate, which is the whole of what a reader can act on"))
+		problems = append(problems, errors.New("a carry-out record says what would clear the refusal, which is the whole of what a reader can act on"))
 	case len(clears) > MaxTriageCarryOutClearsBytes:
 		problems = append(problems, fmt.Errorf("what would clear it is %d bytes, limit is %d", len(clears), MaxTriageCarryOutClearsBytes))
 	}
@@ -225,7 +225,7 @@ func (t TriageCarryOut) Validate() error {
 		problems = append(problems, fmt.Errorf("attempt %d is not an attempt; a carry-out record exists because one was made", t.Attempts))
 	}
 	if t.RefusedAt.IsZero() {
-		problems = append(problems, errors.New("a carry-out record records when the gate refused it"))
+		problems = append(problems, errors.New("a carry-out record records when the refusal was made"))
 	}
 	return errors.Join(problems...)
 }
@@ -281,7 +281,7 @@ func (t TriageCarryOut) Describe() string {
 	}
 	held := "refused by"
 	if t.Cause != "" {
-		held = "stopped by a gate that will not clear on its own:"
+		held = "stopped by a condition that will not clear on its own:"
 	}
 	if t.Waiting {
 		held = "waiting on"

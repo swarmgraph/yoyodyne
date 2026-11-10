@@ -1485,7 +1485,7 @@ func printRunReasons(writer io.Writer, run runstate.RunSummary) bool {
 	// proposal that reached only the run's printed outcome was, afterwards, one
 	// nobody could tell from a proposal never made.
 	if run.SchedulingWaitClearFailure != "" {
-		fmt.Fprintf(writer, "  scheduling reason clearing pending: %s\n", singleLine(run.SchedulingWaitClearFailure))
+		fmt.Fprintf(writer, "  the old reason this item had not started could not be removed yet: %s\n", singleLine(run.SchedulingWaitClearFailure))
 		printed = true
 	}
 	if run.ReportProblem != "" {

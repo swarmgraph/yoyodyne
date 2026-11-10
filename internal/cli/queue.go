@@ -53,7 +53,7 @@ again after an interruption finishes the same transfer rather than making a
 second one.
 
 The forge's queue is moved to only where it enforces everything the harness's
-queue gates on, exactly as at admission. Turning execution.merge_queue off moves
+queue requires before a merge, exactly as at admission. Turning execution.merge_queue off moves
 nothing: what is queued drains in the queue it was admitted to.`)
 }
 

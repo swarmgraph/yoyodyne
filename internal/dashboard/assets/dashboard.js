@@ -850,7 +850,7 @@ var standingWarningAgeSeconds = 5 * 60;
     figures.appendChild(figureRow("Cost", (period.floor ? "at least " : "") + (period.cost_text || money(period.cost_usd)) + " from " + count(period.invocations, "invocation"), "figure-cost"));
     figures.appendChild(figureRow("Of which", splitOf(period.kinds)));
     if (period.unpriced) {
-      figures.appendChild(figureRow("Not priced", count(period.unpriced, "exchange record") + " could not be read, so the cost is a floor", "figure-unreadable"));
+      figures.appendChild(figureRow("Not priced", count(period.unpriced, "exchange record") + " could not be read, so the cost is at least this much", "figure-unreadable"));
     }
     // The spend ledger's calls by kind of cost, in the read model's own words:
     // reported, estimated, the comparison at API prices that is not money
@@ -1798,7 +1798,7 @@ var standingWarningAgeSeconds = 5 * 60;
       lines.push({
         day: "unpriced",
         title: "not priced",
-        detail: count(spend.unpriced, "exchange record") + " could not be read, so every figure here and above is a floor",
+        detail: count(spend.unpriced, "exchange record") + " could not be read, so every figure here and above is at least what it says",
         className: "grouping-day-unreached"
       });
     }

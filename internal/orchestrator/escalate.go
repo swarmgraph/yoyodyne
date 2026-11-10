@@ -260,7 +260,7 @@ func undeliveredAndWaiting(entry triage.Entry, judgeErr error, delay time.Durati
 // failure nobody had.
 func putToHer(entry triage.Entry) string {
 	if permanentRefusal(entry) {
-		return "a carry-out refused by a gate that will not clear on its own"
+		return "a carry-out refused by a condition that will not clear on its own"
 	}
 	if entry.Class == triage.ClassEscalation {
 		return "the escalation raised by run " + entry.RunID

@@ -1129,16 +1129,16 @@ as many per pull as there are developer slots free for them and --limit leaves,
 each taking a developer slot exactly as a pulled item does -- so
 recording a decision is what causes it and nobody types a verb. "yoyo triage
 repair" and "yoyo triage rerun" still work and are what fires one now rather than
-at the next pass. Every gate those verbs ask refuses this the same way: your pause,
+at the next pass. Every condition those verbs check refuses this the same way: your pause,
 your intake hold, the item's own triage budgets, developer capacity, and the
 preserved worktree being what a continued developer could be handed back. Nothing
 is spent by a refusal, and every refusal is written onto the item's triage record
-and onto the docket entry she reads, naming the gate and what would clear it -- so
+and onto the docket entry she reads, naming the condition and what would clear it -- so
 a decision that cannot be carried out says so where she is looking rather than
 sitting silently. A recorded re-arm is carried out by the pass too, for a merge
 the forge dropped and for one nothing ever asked it to make: it is one merge
 request rather than a run, so it takes no developer slot, and "yoyo triage
-rearm" is what fires one now. A gate that stops one item is retried at a paced interval
+rearm" is what fires one now. A condition that stops one item is retried at a paced interval
 rather than every poll; one that stops everything at once -- your pause, your
 intake hold, a full harness -- is attempted once while it stands, so the docket
 says so, and again on the first pull after it opens. A decision no pull has
