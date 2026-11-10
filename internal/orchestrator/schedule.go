@@ -3046,8 +3046,8 @@ pulling:
 		// Among several, the Lead Product Manager's order decides (precedence).
 		// What keeps one change from holding slots for ever is the per-item bound
 		// on each kind of recovery, which every kind getting this precedence has
-		// (see keptChange). A re-run that starts over from the target is fresh
-		// work and is ordered by priority like any other.
+		// (see keptChange). A re-run whose earlier change is gone starts over from
+		// the target, so it is fresh work and is ordered by priority like any other.
 		var early *pulled
 		earlyAsked := false
 		readEarly := func() *pulled {
@@ -6137,10 +6137,10 @@ func decidedRecovery(decision string) bool {
 //     there. Bounded by the item's repair grant cap, which the development
 //     manager may cross five times (runstate.MaxDelegatedCapCrossings) and the
 //     operator beyond that.
-//   - a decided re-run, only where it starts from the kept change: a re-run of
-//     a run that raised its item, whose branch is still there (liftOf). Every
-//     other re-run starts from the target. Bounded by the item's re-run cap, crossed
-//     the same way.
+//   - a decided re-run, where the stopped run's branch is still there, whatever
+//     stopped that run: the re-run starts from that kept change (liftOf). A
+//     re-run whose earlier change is gone starts from the target and is fresh
+//     work. Bounded by the item's re-run cap, crossed the same way.
 //
 // A merge re-armed at the forge takes no developer slot and is fired before
 // any of these (carryOutRearms), bounded by the merge re-arm cap on each
@@ -6184,7 +6184,7 @@ func keptChange(ctx context.Context, pull Pull, now func() time.Time) func(Carry
 			return false
 		}
 		if task.Decision == runstate.TriageDecisionRerun {
-			return run.Escalated() && found.BranchThere
+			return found.BranchThere
 		}
 		return found.BranchThere || found.WorktreeThere
 	}

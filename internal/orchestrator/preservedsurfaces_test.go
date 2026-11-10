@@ -383,8 +383,8 @@ func TestPreservationGuardsAndPricesFollowTheRepositoryRatherThanRemovalFlags(t 
 		} else if err != nil && (!strings.Contains(err.Error(), state.Branch) || !strings.Contains(err.Error(), state.WorktreePath)) {
 			t.Fatalf("refusal does not name what was checked: %v", err)
 		}
-		// A re-run starts from the target branch, so it is admitted whether or not
-		// the change survived.
+		// A re-run starts from the target branch where the change did not survive,
+		// so it is admitted whether or not the change survived.
 		if err := rerunnable(state); err != nil {
 			t.Fatalf("rerunnable() = %v, want an ended run admitted to a re-run", err)
 		}

@@ -536,7 +536,7 @@ func resumableStop(prior runstate.State, found triage.Found) error {
 	// promotion the environment is going to let through, and what it needs is a
 	// person looking at the machine.
 	if prior.ResumptionsLeft() == 0 {
-		return fmt.Errorf("%w: run %s has been resumed %d times, which is the bound on one run's resumptions; an environment that has stopped the same promotion that often is a machine somebody has to look at, and `yoyo triage rerun` is what starts the item over once it is right", ErrNotResumable, prior.RunID, len(prior.IntegrationResumptions))
+		return fmt.Errorf("%w: run %s has been resumed %d times, which is the bound on one run's resumptions; an environment that has stopped the same promotion that often is a machine somebody has to look at, and `yoyo triage rerun` is what starts the item again in a fresh run once it is right, from the change the stopped run kept where its branch is still there, and from the target branch where it is not", ErrNotResumable, prior.RunID, len(prior.IntegrationResumptions))
 	}
 	// A replay that conflicted is refused in the docket's own sentence for it
 	// rather than in the general one below, because it is the stop a reader most

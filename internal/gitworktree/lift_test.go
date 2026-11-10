@@ -66,7 +66,7 @@ func TestALiftOfABranchCarryingNothingSaysSo(t *testing.T) {
 	if _, err := manager.LiftChange(context.Background(), worktree, "yoyodyne/raised/empty"); !errors.Is(err, ErrNothingToLift) {
 		t.Fatalf("LiftChange() error = %v, want ErrNothingToLift", err)
 	}
-	if _, err := manager.LiftChange(context.Background(), worktree, "yoyodyne/raised/gone"); err == nil || !strings.Contains(err.Error(), "not there to lift from") {
+	if _, err := manager.LiftChange(context.Background(), worktree, "yoyodyne/raised/gone"); !errors.Is(err, ErrLiftBranchGone) || !strings.Contains(err.Error(), "yoyodyne/raised/gone") {
 		t.Fatalf("LiftChange() of a missing branch error = %v, want it refused by name", err)
 	}
 }
@@ -85,8 +85,8 @@ func TestALiftThatConflictsLeavesTheWorktreeAsItWasCut(t *testing.T) {
 	worktree := preservedWorktree(t, manager, "yoyodyne-raised")
 
 	_, err := manager.LiftChange(context.Background(), worktree, "yoyodyne/raised/bbbb")
-	if err == nil || !strings.Contains(err.Error(), "does not apply cleanly") {
-		t.Fatalf("LiftChange() error = %v, want the conflict named", err)
+	if !errors.Is(err, ErrLiftDoesNotApply) || !strings.Contains(err.Error(), "does not apply cleanly") {
+		t.Fatalf("LiftChange() error = %v, want the conflict named as ErrLiftDoesNotApply", err)
 	}
 	if status := strings.TrimSpace(gitOutput(t, worktree.Path, "status", "--porcelain")); status != "" {
 		t.Fatalf("status = %q, want the worktree back as it was cut", status)

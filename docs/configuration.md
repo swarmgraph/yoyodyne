@@ -3952,7 +3952,8 @@ nothing about the backlog rather than reporting zeroes it never looked up.
 
 A decided repair or re-run is fired by the same pass. One that builds on a
 change a run already wrote and kept — a repair of a stopped run whose branch or
-worktree is still there, or a re-run of a raised run whose branch is still there,
+worktree is still there, or a re-run of a run whose branch is still there,
+whatever stopped it, which starts from that change,
 like the harness's own continuations and a finished merge — takes a freed
 developer slot ahead of fresh work of any priority, whatever label the slot
 prefers, the highest priority first among several, and its reason names the
@@ -7401,7 +7402,8 @@ which.
 
 Recording a decision and carrying it out are two steps, and three of the eight
 decisions have an action for the second. Two of them are the opposite answers to
-a run that stopped: `yoyo triage rerun` starts the item over, and `yoyo triage
+a run that stopped: `yoyo triage rerun` starts the item over in a fresh run,
+from the change the stopped run kept where its branch is still there, and `yoyo triage
 repair` continues the run that stopped on the change it already has. The third,
 `yoyo triage rearm`, is about a publication rather than a run: it repeats the
 merge request the forge dropped. A fourth action carries out no decision:
@@ -7670,7 +7672,8 @@ notices; what makes it visible is the stopped run's own record — terminal, its
 blocker standing, a failure returned to its developer, and a branch that still
 carries the change. So `yoyo run` reads that record before it reserves anything,
 and refuses, naming both the repair that would continue the change and the re-run
-that would deliberately start over. The one fresh run of such an item that is
+that would deliberately start a fresh run, carrying the kept change forward or
+starting from the target branch where that change no longer applies cleanly. The one fresh run of such an item that is
 right is the re-run, and it says so in the record before it starts: triage claims
 it against the stoppage, and a claim naming that run is what lets the fresh run
 through. Nothing is reserved, claimed, or created by the refusal, so carrying out
