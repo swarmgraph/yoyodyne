@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
@@ -31,6 +32,10 @@ type forgeCheckOutput struct {
 	// Forge is what the check asked the forge in its batched state query and how
 	// long the forge took.
 	Forge *orchestrator.ForgeQuestions `json:"forge,omitempty"`
+	// TeamBranchUpdate is what the check did to bring the target branch up to
+	// date with the team's branch, present only where execution.upstream_branch
+	// is set.
+	TeamBranchUpdate *orchestrator.TeamBranchUpdateOutcome `json:"team_branch_update,omitempty"`
 	// KeptAnswers is how many of the forge's answers are kept for the next check
 	// to ask about conditionally, and KeptAnswersProblem why they could not be
 	// read or written, where they could not; either costs full reads and
@@ -92,16 +97,36 @@ func checkForge(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	updater.Continue = continueUpdateFrom(parts, stderr)
 	repairer := reconciler
 	repairer.Continue = continueFeedbackRepairFrom(parts, stderr)
-	var updateErr, repairErr error
+	var updateErr, repairErr, branchErr error
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		output.Updates, updateErr = updater.ContinueUpdates(ctx)
 	}()
+	// Bringing the target branch up to date with the team's branch runs checks
+	// and a provider review, so it is hosted here beside the other two rather
+	// than before the read line.
+	branchDone := make(chan struct{})
+	go func() {
+		defer close(branchDone)
+		if parts.config.Execution.UpstreamBranch == "" {
+			return
+		}
+		branchUpdater, buildErr := teamBranchUpdaterFrom(parts, reconciler)
+		if buildErr != nil {
+			branchErr = buildErr
+			return
+		}
+		outcome, runErr := branchUpdater.Update(ctx)
+		output.TeamBranchUpdate = &outcome
+		branchErr = runErr
+	}()
 	output.FeedbackRepairs, repairErr = repairer.ContinueFeedbackRepairs(ctx)
 	<-done
-	err = errors.Join(err, updateErr, repairErr)
+	<-branchDone
+	err = errors.Join(err, updateErr, repairErr, branchErr)
 	if !*jsonOutput {
+		printTeamBranchUpdate(stdout, output.TeamBranchUpdate)
 		printUpdates(stdout, stderr, output.Updates)
 		printFeedbackRepairs(stdout, stderr, output.FeedbackRepairs)
 	}
@@ -129,6 +154,49 @@ func forgeCheckerFrom(parts components, answers publish.ResponseCache) orchestra
 	reconciler.RetryAtNextCheck = true
 	reconciler.Forge = &orchestrator.ForgeQuestions{}
 	return reconciler
+}
+
+// teamBranchUpdaterFrom is the update of the target branch to the team's
+// branch, built over the parts the rest of the forge check uses: the pipeline
+// the harness lands work with, the branch review's reviewer for the independent
+// review, and the reconciler's report collector.
+func teamBranchUpdaterFrom(parts components, reconciler orchestrator.Reconciler) (orchestrator.TeamBranchUpdater, error) {
+	records, err := runstate.NewTeamBranchUpdateStore(parts.stateRoot, parts.config.Product.ID)
+	if err != nil {
+		return orchestrator.TeamBranchUpdater{}, err
+	}
+	pipeline := pipelineFrom(parts)
+	return orchestrator.TeamBranchUpdater{
+		Pipeline: &pipeline,
+		Git:      parts.worktrees,
+		Records:  records,
+		Reviewer: branchReviewerFrom(parts, ""),
+		Reports:  reconciler.Reports,
+	}, nil
+}
+
+// printTeamBranchUpdate says in plain words what the check did to bring the
+// target branch up to date with the team's branch.
+func printTeamBranchUpdate(stdout io.Writer, outcome *orchestrator.TeamBranchUpdateOutcome) {
+	if outcome == nil || outcome.TargetBranch == "" {
+		return
+	}
+	target, upstream := outcome.TargetBranch, outcome.UpstreamBranch
+	switch {
+	case outcome.Busy:
+		fmt.Fprintf(stdout, "bringing %s up to date with %s: %s\n", target, upstream, outcome.Waiting)
+	case len(outcome.Conflict) > 0:
+		fmt.Fprintf(stdout, "bringing %s up to date with %s is waiting: merging it conflicts in %s\n", target, upstream, strings.Join(outcome.Conflict, ", "))
+		if outcome.Waiting != "" {
+			fmt.Fprintf(stdout, "  %s\n", outcome.Waiting)
+		}
+	case outcome.Landed != "":
+		fmt.Fprintf(stdout, "brought %s up to date with %s: merge %s\n", target, upstream, shortCommit(outcome.Landed))
+	case outcome.Waiting != "":
+		fmt.Fprintf(stdout, "bringing %s up to date with %s is waiting: %s\n", target, upstream, outcome.Waiting)
+	case outcome.Current:
+		fmt.Fprintf(stdout, "%s already carries %s\n", target, upstream)
+	}
 }
 
 // describeForgeCheck is the check's last line: how many pull requests it read,
@@ -218,6 +286,12 @@ tries again; a change it read and could not finish acting on, such as closing
 an item whose pull request merged, is read and acted on again by the next
 check, and a write repeated after a timeout in which it had gone through adds no
 second note.
+
+With execution.upstream_branch set, it also brings the target branch up to date
+with the team's branch: a merge of the team's branch, built in a checkout of its
+own, is checked, independently reviewed, and landed without rebasing or forcing
+the target. A conflict is put on the development manager's list and the update
+waits until either branch moves.
 
 The repair rounds and updates it starts are hosted by this process to their
 end, after the check's own report.

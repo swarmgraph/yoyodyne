@@ -368,12 +368,16 @@ type Sources struct {
 	// instance that has never completed a pass is measured from.
 	ProgramManagers []ProgramManagerInstance
 	// MergeQueues is the product's merge queues; nil reads none.
-	MergeQueues     MergeQueues
-	RestartRequests RestartRequests
-	LaneReports     LaneReports
-	Passes          Passes
-	Exchanges       Exchanges
-	FirstSeen       FirstSeen
+	MergeQueues MergeQueues
+	// TeamBranchUpdates is the record of bringing the target branch up to date
+	// with the team's branch; nil reads none, which is what a project with no
+	// execution.upstream_branch has.
+	TeamBranchUpdates TeamBranchUpdates
+	RestartRequests   RestartRequests
+	LaneReports       LaneReports
+	Passes            Passes
+	Exchanges         Exchanges
+	FirstSeen         FirstSeen
 	// PassRequests is the requests made for each instance's pass, so whoever
 	// asked can read what became of one. Optional: a reading without it carries
 	// no instance's requests.
@@ -748,6 +752,13 @@ type Standing struct {
 	WaitingForTeamMerge        []runstate.WaitingForTeamMergeItem `json:"waiting_for_team_merge,omitempty"`
 	WaitingForTeamMergeSays    []string                           `json:"waiting_for_team_merge_says,omitempty"`
 	WaitingForTeamMergeProblem string                             `json:"waiting_for_team_merge_problem,omitempty"`
+	// TeamBranchUpdates is the record of bringing the target branch up to date
+	// with the team's branch, TeamBranchUpdateSays each as sentences (the
+	// records' own Says), and TeamBranchUpdateProblem why they could not be
+	// read.
+	TeamBranchUpdates       []runstate.TeamBranchUpdate `json:"team_branch_updates,omitempty"`
+	TeamBranchUpdateSays    []string                    `json:"team_branch_update_says,omitempty"`
+	TeamBranchUpdateProblem string                      `json:"team_branch_update_problem,omitempty"`
 
 	Running        []RunningRun `json:"running"`
 	RunningProblem string       `json:"running_problem,omitempty"`
@@ -1390,6 +1401,10 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.WaitingForTeamMergeProblem = teamProblem
 	for _, item := range standing.WaitingForTeamMerge {
 		standing.WaitingForTeamMergeSays = append(standing.WaitingForTeamMergeSays, "Waiting for the team's merge: "+item.Says())
+	}
+	standing.TeamBranchUpdates, standing.TeamBranchUpdateProblem = ReadTeamBranchUpdates(sources.TeamBranchUpdates)
+	for _, update := range standing.TeamBranchUpdates {
+		standing.TeamBranchUpdateSays = append(standing.TeamBranchUpdateSays, update.Says()...)
 	}
 	standing.WorkItemNames = standing.Titles.Names(standing.namedItems()...)
 	standing.wording = ReadTextTerms(sources.Repository)
