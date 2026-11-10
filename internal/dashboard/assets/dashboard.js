@@ -1526,6 +1526,54 @@ var standingWarningAgeSeconds = 5 * 60;
     section("queues", "ready");
   }
 
+  // The MCP calls are shown only where the product has made some, as the
+  // merge queues are: a product that declares no MCP server shows no panel.
+  // Each tool is named with how its calls ended, in the read model's counts;
+  // nothing a call sent or returned is in the standing, so nothing of it can
+  // be drawn here.
+  function mcpOutcomes(counts) {
+    var parts = [];
+    if (counts.performed) { parts.push(counts.performed + " made"); }
+    if (counts.refused) { parts.push(counts.refused + " refused"); }
+    if (counts.failed) { parts.push(counts.failed + " failed"); }
+    if (counts.unknown) { parts.push(counts.unknown + " outcome not known"); }
+    return parts.join(", ");
+  }
+
+  function renderMCP() {
+    var standing = model.standing;
+    var node = document.getElementById("mcp");
+    var calls = standing && standing.mcp_calls;
+    var problem = standing && standing.mcp_calls_problem;
+    setHidden(node, !calls && !problem);
+    if (!calls) {
+      if (problem) {
+        section("mcp", "error", problem, whatToDoAboutTheStanding());
+      }
+      return;
+    }
+    listProblems("mcp-problems", [calls.unreadable ? calls.unreadable + " line(s) of the MCP call record" : ""]);
+    var list = document.getElementById("mcp-list");
+    clear(list);
+    var head = el("li", "held");
+    head.appendChild(el("h3", "held-title", calls.calls === 0
+      ? "No MCP calls in the last 24 hours; " + calls.recorded + " in the record"
+      : calls.calls + " MCP call(s) in the last 24 hours: " + mcpOutcomes(calls)));
+    var tools = el("ul", "held-list");
+    (calls.tools || []).forEach(function (tool) {
+      tools.appendChild(el("li", "held-reason", tool.tool + " (" + tool.class + "): " + mcpOutcomes(tool)));
+    });
+    if (calls.not_on_list) {
+      tools.appendChild(el("li", "held-reason", "asked for a tool not on the caller's list: " + calls.not_on_list + " refused"));
+    }
+    head.appendChild(tools);
+    if (calls.unknown_acts) {
+      head.appendChild(el("p", "held-reason", calls.unknown_acts + " act call(s) in the record may or may not have happened; check each before it is asked again, with yoyo mcp calls --unknown at your terminal."));
+    }
+    list.appendChild(head);
+    section("mcp", "ready");
+  }
+
   function renderFactory() {
     var standing = model.standing;
     if (!standing) {
@@ -3162,6 +3210,7 @@ var standingWarningAgeSeconds = 5 * 60;
     renderFactory();
     renderManagers();
     renderQueues();
+    renderMCP();
     // An open grouping, and an open entry card, are drawn again from the
     // reading just taken, so each stays as live as what it was opened from.
     renderGrouping();

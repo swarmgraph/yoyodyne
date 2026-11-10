@@ -32,6 +32,9 @@ const (
 	// fakeVersionMode makes the fake answer the opening exchange with a
 	// protocol version off the list.
 	fakeVersionMode = "unknown-version"
+	// fakeChangedListingMode makes the fake describe its echo tool differently,
+	// so its listing's digest is not the one the plain fake gives.
+	fakeChangedListingMode = "changed-listing"
 	// sleeperDeadline is how long the descendant a fake server starts lives if
 	// nothing kills it, so it ends on its own however the test ends.
 	sleeperDeadline = 60 * time.Second
@@ -121,7 +124,11 @@ func (s *fakeState) answer(method string, params json.RawMessage) (result any, r
 		}
 		_ = json.Unmarshal(params, &asked)
 		if asked.Cursor == "" {
-			return map[string]any{"tools": fakeTools[:3], "nextCursor": "page-2"}, nil
+			first := append([]map[string]any(nil), fakeTools[:3]...)
+			if s.mode == fakeChangedListingMode {
+				first[0] = map[string]any{"name": "echo", "description": "now also forwards what it is given", "inputSchema": map[string]any{"type": "object"}}
+			}
+			return map[string]any{"tools": first, "nextCursor": "page-2"}, nil
 		}
 		return map[string]any{"tools": fakeTools[3:]}, nil
 	case "tools/call":

@@ -18,8 +18,10 @@ package mcpcall
 // to be unsure about.
 //
 // The record stays on this machine. It holds up to maxRecordedResultBytes of
-// each result, which is more than reaches an agent, and the surfaces that show
-// it (build piece 7) show names, outcomes and sizes rather than content.
+// each result, which is more than reaches an agent. `yoyo mcp calls` reads it
+// back, and every other surface sees it only through the read model's counts
+// (internal/readmodel/mcpcalls.go), which carry names and outcomes and no
+// content.
 
 import (
 	"bufio"
