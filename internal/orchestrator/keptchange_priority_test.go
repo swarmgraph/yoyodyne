@@ -149,22 +149,31 @@ func TestAmongRecoveriesOfKeptChangesTheHigherPriorityStartsFirst(t *testing.T) 
 	}
 }
 
-// A re-run counts as work on a kept change only where it starts from that
-// change, which is a re-run of a run that raised its item with its branch still
-// there. A re-run of any other stopped run starts over from the target and waits
-// behind higher-priority work like fresh work (passedover_priority_test.go).
-func TestAReRunThatStartsFromTheKeptChangeGoesAheadOfHigherPriorityWork(t *testing.T) {
+// A decided re-run counts as work on a kept change whenever the stopped run's
+// branch is still there, whatever stopped that run, because the re-run starts
+// from that change (liftOf): a run that raised its item, a run that failed with
+// its change kept, and a run stopped only by something outside the work, such
+// as a refused push, with its branch and checkout kept. A re-run whose earlier
+// change is gone, or whose run left no branch at all, starts over from the
+// target and waits behind higher-priority work like fresh work.
+func TestAReRunOfAKeptChangeGoesAheadOfHigherPriorityWorkWhateverStoppedItsRun(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
-		name         string
-		escalated    bool
-		branchGone   bool
-		recoveryWins bool
+		name          string
+		escalated     bool
+		environmental bool
+		branchGone    bool
+		noBranch      bool
+		recoveryWins  bool
 	}{
 		{name: "raised-with-its-branch", escalated: true, recoveryWins: true},
+		{name: "failed-with-its-branch", recoveryWins: true},
+		{name: "push-refused-with-its-branch-and-checkout", environmental: true, recoveryWins: true},
 		{name: "raised-with-its-branch-gone", escalated: true, branchGone: true},
-		{name: "stopped-with-its-branch", escalated: false},
+		{name: "failed-with-its-branch-gone", branchGone: true},
+		{name: "push-refused-with-its-branch-gone", environmental: true, branchGone: true},
+		{name: "failed-leaving-no-branch", noBranch: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -177,8 +186,20 @@ func TestAReRunThatStartsFromTheKeptChangeGoesAheadOfHigherPriorityWork(t *testi
 			if test.escalated {
 				stopped.runs[0].LandingOutcome = runstate.LandingEscalate
 			}
+			if test.environmental {
+				stopped.runs[0].Blocker = "Yoyodyne stopped this item: the remote refused the harness's key when the approved change was pushed."
+				stopped.runs[0].Environmental = &runstate.EnvironmentalRefusal{
+					Cause:      runstate.CauseRemoteAuthRefused,
+					Detail:     "git push: Permission denied (publickey)",
+					RecordedAt: time.Date(2026, 11, 8, 9, 10, 0, 0, time.UTC),
+				}
+			}
 			if test.branchGone {
 				stopped.runs[0].BranchRemoved = true
+			}
+			if test.noBranch {
+				stopped.runs[0].Branch = ""
+				stopped.runs[0].WorktreePath = ""
 			}
 			harness.stoppages = stopped
 			fired := map[string]bool{}
@@ -196,6 +217,16 @@ func TestAReRunThatStartsFromTheKeptChangeGoesAheadOfHigherPriorityWork(t *testi
 			if got := strings.Join(runsStarted(schedule), ","); got != want {
 				t.Fatalf("started = %v, want %s", got, want)
 			}
+			if !test.recoveryWins {
+				return
+			}
+			carried := harness.carriedTask(t, "yoyodyne-xdj")
+			if !carried.KeptChange {
+				t.Fatalf("carried = %#v, want the re-run marked as building on a kept change", carried)
+			}
+			if ahead := aheadOfQueue(carried); !strings.Contains(ahead, "Rebuilds under held parents are offered (yoyodyne-94j)") {
+				t.Fatalf("what the run records of the slot it took = %q, want it to name the priority-0 item it went ahead of", ahead)
+			}
 		})
 	}
 }
@@ -210,7 +241,7 @@ func TestEveryRecoveryThatGoesAheadOfFreshWorkIsBounded(t *testing.T) {
 	t.Parallel()
 
 	kept := keptChange(context.Background(), Pull{Stoppages: preservedStoppage("yoyodyne-xdj")}, time.Now)
-	for _, decision := range []string{DecisionContinueChecks, DecisionContinueStall, DecisionFinishMerge, runstate.TriageDecisionRepair} {
+	for _, decision := range []string{DecisionContinueChecks, DecisionContinueStall, DecisionFinishMerge, runstate.TriageDecisionRepair, runstate.TriageDecisionRerun} {
 		task := decidedTask("yoyodyne-xdj")
 		task.Decision = decision
 		if !kept(task) {

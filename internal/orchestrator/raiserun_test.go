@@ -15,6 +15,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/review"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -228,24 +230,83 @@ func TestARerunOfARaiseWaitsForTheOwnerToReleaseItsParking(t *testing.T) {
 	}
 }
 
-// A re-run of a stopped run starts from the target as it always has: the ground
-// moved under that change, which is why it is being run again. Only a raise
-// lifts what its run left.
-func TestOnlyARaiseIsLiftedIntoItsRerun(t *testing.T) {
+// A re-run starts from the change its earlier run kept wherever that run's
+// branch is still there, whatever ended the run. A re-run of a raise keeps to
+// that change; a re-run of any other stopped run falls back to the target where
+// the change no longer applies, which is where it always used to start. A run
+// whose branch is gone leaves nothing to lift.
+func TestARerunStartsFromTheChangeItsEarlierRunKept(t *testing.T) {
 	t.Parallel()
 
 	stopped := stoppedState()
-	if lift := liftOf(stopped, preservedOf(stopped, triage.Found{BranchThere: true, WorktreeThere: true})); lift != nil {
-		t.Fatalf("lift = %#v, want a stopped run's re-run started from the target", lift)
+	lift := liftOf(stopped, preservedOf(stopped, triage.Found{BranchThere: true, WorktreeThere: true}))
+	if lift == nil || lift.Branch != stopped.Branch || lift.RunID != stopped.RunID || !lift.FallBackToTarget {
+		t.Fatalf("lift = %#v, want the stopped run's branch %s, falling back to the target", lift, stopped.Branch)
+	}
+	if lift := liftOf(stopped, preservedOf(stopped, triage.Found{WorktreeThere: true})); lift != nil {
+		t.Fatalf("lift = %#v, want nothing lifted from a stopped run whose branch is gone", lift)
 	}
 	raised := escalatedState(docketedRunID, docketedItem)
-	lift := liftOf(raised, preservedOf(raised, triage.Found{BranchThere: !raised.BranchRemoved, WorktreeThere: !raised.WorktreeRemoved}))
-	if lift == nil || lift.Branch != raised.Branch || lift.RunID != raised.RunID {
-		t.Fatalf("lift = %#v, want the raise's branch %s", lift, raised.Branch)
+	lift = liftOf(raised, preservedOf(raised, triage.Found{BranchThere: !raised.BranchRemoved, WorktreeThere: !raised.WorktreeRemoved}))
+	if lift == nil || lift.Branch != raised.Branch || lift.RunID != raised.RunID || lift.FallBackToTarget {
+		t.Fatalf("lift = %#v, want the raise's branch %s with no fall-back", lift, raised.Branch)
 	}
 	raised.BranchRemoved = true
 	if lift := liftOf(raised, preservedOf(raised, triage.Found{BranchThere: !raised.BranchRemoved, WorktreeThere: !raised.WorktreeRemoved})); lift != nil {
 		t.Fatalf("lift = %#v, want nothing lifted from a branch the record says is gone", lift)
+	}
+}
+
+// refusingLifter is a worktree manager whose every lift fails with one error.
+type refusingLifter struct {
+	WorktreeManager
+	err error
+}
+
+func (l refusingLifter) LiftChange(context.Context, gitworktree.Worktree, string) (gitworktree.Lift, error) {
+	return gitworktree.Lift{}, l.err
+}
+
+// A lift that may fall back starts the run from the target where the kept
+// change no longer applies or its branch has gone, and records no lifted
+// commit; a lift that may not ends the run, and any other failure ends either.
+func TestALiftThatMayFallBackStartsFromTheTargetWhenTheChangeNoLongerApplies(t *testing.T) {
+	t.Parallel()
+
+	other := errors.New("the repository could not be read")
+	for _, test := range []struct {
+		name     string
+		fallBack bool
+		err      error
+		ends     bool
+	}{
+		{name: "does-not-apply-falls-back", fallBack: true, err: fmt.Errorf("%w: conflict in README.txt", gitworktree.ErrLiftDoesNotApply)},
+		{name: "branch-gone-falls-back", fallBack: true, err: fmt.Errorf("%w: yoyodyne/xdj/01234567", gitworktree.ErrLiftBranchGone)},
+		{name: "other-failure-ends", fallBack: true, err: other, ends: true},
+		{name: "raise-does-not-apply-ends", err: fmt.Errorf("%w: conflict in README.txt", gitworktree.ErrLiftDoesNotApply), ends: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			run := &activeRun{
+				pipeline: Pipeline{Worktrees: refusingLifter{err: test.err}},
+				state: runstate.State{Selection: &runstate.Selection{
+					Lift: &runstate.Lift{RunID: docketedRunID, Branch: "yoyodyne/xdj/01234567", FallBackToTarget: test.fallBack},
+				}},
+			}
+			err := run.liftPreserved(context.Background())
+			if test.ends {
+				if !errors.Is(err, test.err) {
+					t.Fatalf("liftPreserved() error = %v, want the run ended on %v", err, test.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("liftPreserved() error = %v, want the run started from the target", err)
+			}
+			if run.state.LiftedCommit != "" {
+				t.Fatalf("lifted commit = %q, want none recorded", run.state.LiftedCommit)
+			}
+		})
 	}
 }
 

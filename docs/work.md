@@ -453,8 +453,9 @@ manager who decides the change is worth another go can hand the item a grant of
 further attempts, and [`yoyo triage
 repair`](conversation.md#deciding-what-becomes-of-stopped-work) re-enters that
 run's repair loop on the change it already has rather than starting the item
-over. Its opposite is `yoyo triage rerun`, which starts the item over for a
-change whose ground moved. **A watching `yoyo work` session fires whichever of
+over. Its opposite is `yoyo triage rerun`, which starts a fresh run of the item
+for a change whose ground moved, from the change the stopped run kept where its
+branch is still there. **A watching `yoyo work` session fires whichever of
 the two she recorded, at the first pull with a developer slot for it, without
 anybody typing either command**, so the verbs are what fires a decision now rather
 than at the next pull; every gate they ask refuses the pass in the same way, and
@@ -466,8 +467,9 @@ run <beads-id>`, which is you naming an item rather than carrying out a decision
 somebody recorded about a run that stopped. `yoyo run` enforces that difference
 rather than relying on it being understood: an item whose last run stopped with
 its change preserved on a branch is refused a fresh clean run, naming both the
-repair that would continue the change and the re-run that would start over
-deliberately, because a fresh worktree off the target branch looks perfectly
+repair that would continue the change and the re-run that would start a fresh
+run deliberately, carrying the kept change forward (or starting from the target
+branch where that change no longer applies cleanly), because a fresh worktree off the target branch looks perfectly
 valid and a developer given one delivers an empty change or reinvents the work.
 The repair goes the other way about it: it names the run it re-enters, and what
 carries it out can re-enter that run or refuse and nothing else — no reservation,
@@ -1854,9 +1856,9 @@ fresh work of any priority and whatever label the slot prefers, because the
 longer a repair waits for a slot the more the target moves under it and the
 dearer the repair becomes (the operator's rule of 2026-10-25, in
 [the operating rules](product/operating-rules.md)). That is a repair of a
-stopped run whose branch or worktree is still there, a re-run of a run that
-raised its item whose branch is still there (it starts from that change), the
-harness's own continuation of a check stage or of a stalled AI session, and a
+stopped run whose branch or worktree is still there, a re-run of a stopped or
+raising run whose branch is still there, whatever stopped it (it starts from
+that change), the harness's own continuation of a check stage or of a stalled AI session, and a
 finished merge. Among several of them the Lead Product Manager's order decides,
 the highest priority first, and the run's reason, on the run and on the item,
 names the ready work of higher priority it went ahead of. Whether the change is
@@ -1867,8 +1869,8 @@ has: the item's repair grant and re-run caps, which the development manager may
 cross five times before only the operator can, the bound on check-stage
 continuations of one candidate, the single time the harness continues a run
 whose AI session went silent, and the bound on resuming one run's integration. **Every other decision is ordered by priority,
-and wins only a tie.** A re-run that starts the developer over from the target
-is fresh work, whether or not the stopped run's branch is still there. Such a
+and wins only a tie.** A re-run whose stopped run's branch is gone starts the
+developer over from the target, and is fresh work. Such a
 decision goes ahead of the queue's own work at its item's priority and below,
 because a stoppage she has already judged is work chosen once, and behind ready
 work of a higher priority: a decision about a priority-3 item waits while a

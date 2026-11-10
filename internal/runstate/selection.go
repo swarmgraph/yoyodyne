@@ -66,10 +66,10 @@ type Selection struct {
 	At     time.Time `json:"at"`
 	// Lift names a change an earlier run of the item left on its branch that this
 	// run starts from rather than from the target branch alone. It is set by one
-	// selection only — the development manager's re-run of an item a role raised
-	// as unmeetable, once its owner amended and released it — and it is recorded
-	// with the rest of the selection because what a run was given to start from is
-	// part of why it came out the way it did.
+	// selection only — the development manager's re-run of an item whose earlier
+	// run kept its branch, whatever ended that run — and it is recorded with the
+	// rest of the selection because what a run was given to start from is part of
+	// why it came out the way it did.
 	Lift *Lift `json:"lift,omitempty"`
 }
 
@@ -81,6 +81,14 @@ type Selection struct {
 type Lift struct {
 	RunID  string `json:"run_id"`
 	Branch string `json:"branch"`
+	// FallBackToTarget says the run starts from the target branch alone when the
+	// change no longer applies cleanly to it or its branch has gone, rather than
+	// ending. A re-run of a run that stopped is given it: re-running from the
+	// target is what such a re-run did before it started from the kept change, so
+	// a change the target has moved past costs the re-run nothing. A re-run of a
+	// raise is not, because it was started to carry that change forward once its
+	// item was amended.
+	FallBackToTarget bool `json:"fall_back_to_target,omitempty"`
 }
 
 // maxLiftBranchBytes bounds the branch a lift names, which is a branch the

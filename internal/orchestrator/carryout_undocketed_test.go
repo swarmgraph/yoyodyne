@@ -86,8 +86,9 @@ func TestARerunRecordedAfterARepairClosedTheEntryIsAttemptedAtTheNextPull(t *tes
 
 // The 187 case: a re-run recorded against a run the docket never held, where
 // the item's one docketed stoppage has already been re-run. It is carried out:
-// the item starts again from the target branch, claimed under the key the docket
-// would have given the run, and it is not offered a second time.
+// the item starts again from the change that run kept on its branch, claimed
+// under the key the docket would have given the run, and it is not offered a
+// second time.
 func TestARerunOfAnUndocketedRunStartsTheItemAgain(t *testing.T) {
 	t.Parallel()
 
@@ -119,8 +120,8 @@ func TestARerunOfAnUndocketedRunStartsTheItemAgain(t *testing.T) {
 	if !carried.Carried || len(harness.started) != 2 {
 		t.Fatalf("carried = %#v, started = %#v, want the item started again", carried, harness.started)
 	}
-	if lift := harness.started[1].selection.Lift; lift != nil {
-		t.Fatalf("lift = %#v, want the fresh run started from the target branch", lift)
+	if lift := harness.started[1].selection.Lift; lift == nil || lift.RunID != undocketedRunID || !lift.FallBackToTarget {
+		t.Fatalf("lift = %#v, want the fresh run started from the change run %s kept, falling back to the target", lift, undocketedRunID)
 	}
 	claimed, err := harness.reruns.Claimed(docketedItem)
 	if err != nil {

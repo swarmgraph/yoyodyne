@@ -1758,7 +1758,7 @@ type ContinuationMismatchError struct {
 
 func (e ContinuationMismatchError) Error() string {
 	return fmt.Sprintf(
-		"a repair of %s was dispatched to continue run %s, and %s; nothing was reserved and no worktree was created. A repair continues a change that already exists, so it re-enters the run that holds it or it does nothing — starting a fresh run in its place hands a developer the findings about that change and an empty worktree off the target branch, which is delivered as an empty repair or as the same change reinvented. `yoyo triage rerun` is what starts %s over deliberately",
+		"a repair of %s was dispatched to continue run %s, and %s; nothing was reserved and no worktree was created. A repair continues a change that already exists, so it re-enters the run that holds it or it does nothing — starting a fresh run in its place hands a developer the findings about that change and an empty worktree off the target branch, which is delivered as an empty repair or as the same change reinvented. `yoyo triage rerun` is what starts %s again deliberately, in a fresh run from the change the stopped run kept where its branch is still there, and from the target branch where it is not",
 		e.WorkItemID, e.RunID, e.Found, e.WorkItemID)
 }
 
@@ -2532,7 +2532,7 @@ type SubstitutedHandbackError struct {
 
 func (e SubstitutedHandbackError) Error() string {
 	return fmt.Sprintf(
-		"run %s of %s stopped on a blocker with a failure returned to its developer and its change preserved on %s, so what that stoppage is owed is a repair of the change it already has rather than a fresh run started from nothing; no run was reserved and no worktree was created. A fresh run here hands a developer the work item and an empty worktree off the target branch, which is delivered as an empty change or as the preserved change re-derived by hand — `yoyo triage repair %s` continues the stopped run in the worktree it preserved at %s, and `yoyo triage rerun %s` is what starts over deliberately, recording that the development manager decided the ground moved",
+		"run %s of %s stopped on a blocker with a failure returned to its developer and its change preserved on %s, so what that stoppage is owed is a repair of the change it already has rather than a fresh run started from nothing; no run was reserved and no worktree was created. A fresh run here hands a developer the work item and an empty worktree off the target branch, which is delivered as an empty change or as the preserved change re-derived by hand — `yoyo triage repair %s` continues the stopped run in the worktree it preserved at %s, and `yoyo triage rerun %s` is what starts a fresh run deliberately, from that preserved change and from the target branch only where it no longer applies cleanly, recording that the development manager decided the ground moved",
 		e.RunID, e.WorkItemID, e.Branch, e.RunID, e.WorktreePath, e.RunID)
 }
 
@@ -8873,6 +8873,9 @@ type ChangeLifter interface {
 // the failure a fresh run over a preserved change always had. The one ending
 // that is not a failure is a branch carrying nothing past the target: there is
 // no change to start from, so the run starts from the target as any run does.
+// A lift that may fall back to the target (runstate.Lift.FallBackToTarget) does
+// the same where the change no longer applies cleanly or its branch has gone,
+// and the record shows it by naming no lifted commit.
 func (a *activeRun) liftPreserved(ctx context.Context) error {
 	selection := a.state.Selection
 	if selection == nil || selection.Lift == nil {
@@ -8885,6 +8888,9 @@ func (a *activeRun) liftPreserved(ctx context.Context) error {
 	}
 	lifted, err := lifter.LiftChange(ctx, a.worktree, lift.Branch)
 	if errors.Is(err, gitworktree.ErrNothingToLift) {
+		return nil
+	}
+	if lift.FallBackToTarget && (errors.Is(err, gitworktree.ErrLiftDoesNotApply) || errors.Is(err, gitworktree.ErrLiftBranchGone)) {
 		return nil
 	}
 	if err != nil {
