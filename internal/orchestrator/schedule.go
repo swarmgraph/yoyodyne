@@ -2644,6 +2644,15 @@ pulling:
 			// again at once, and says so where the operator reads its state.
 			s.release(&schedule, session, resumed)
 		}
+		// A missing program holds back only the work that would start on its
+		// provider, as a launch-settings hold does: where some slot starts on
+		// another provider, the pull carries on and that provider's slots are
+		// passed over below. Only when every slot is on it does the session stop
+		// choosing.
+		var missingProvider domain.Backend
+		if away && outage.Cause == domain.ProviderProgramMissing && outage.Provider != "" && !pull.everySlotOn(outage.Provider) {
+			missingProvider, away = outage.Provider, false
+		}
 		if away {
 			if !s.Watching {
 				schedule.Stopped = ScheduleProviderAway
@@ -2731,7 +2740,7 @@ pulling:
 		// The hold is on one provider. Where some developer slot dispatches onto
 		// another, the pull carries on and only the held provider's slots are
 		// passed over below; it stops whole only when every slot is on it.
-		var heldProvider domain.Backend
+		heldProvider := missingProvider
 		if held, standing := s.launchSettingsHeld(&schedule, pull); standing && !pull.everySlotOn(held.Provider) {
 			heldProvider = held.Provider
 		} else if standing {
@@ -4933,7 +4942,12 @@ func (s Scheduler) providerAway(ctx context.Context, schedule *Schedule, pull Pu
 		schedule.ProviderOutage = nil
 		return runstate.ProviderOutage{}, false, ""
 	}
-	if outage.Cause == domain.ProviderProgramMissing && pull.Provider != nil {
+	// Only the provider the pull can ask is asked: the developer's. A missing
+	// program of another provider is never cleared on the developer's program
+	// being found; it is left the probe interval, below, and the next attempt
+	// that needs it finds it or confirms it missing.
+	asksMissing := outage.Provider == "" || pull.DeveloperProvider == "" || outage.Provider == pull.DeveloperProvider
+	if outage.Cause == domain.ProviderProgramMissing && pull.Provider != nil && asksMissing {
 		availability, err := pull.Provider.CheckAvailability(ctx)
 		if err == nil && availability.Installed {
 			if _, _, err := pull.Outages.Clear(); err != nil {

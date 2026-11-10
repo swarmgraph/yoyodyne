@@ -2445,10 +2445,15 @@ it, and they are told apart only by what you do about them:
   Nothing was started, so it is never recorded as a sandbox that could not be
   entered. The remedy is installing the program again, or setting
   `providers.<name>.binary` to its full path. The harness looks for it again at
-  every pull of the watch and before each reissued attempt, and carries on by
-  itself once it is found; the watch records "runs are being started again"
-  with where it found it. The first dispatch or run to meet it files one
-  critical report for the outage, not one per attempt.
+  every pull of the watch (where it is the developer's provider; another
+  provider's is looked for again on the probe interval, and by the next attempt
+  that needs it) and before each reissued attempt, and carries on by itself once
+  it is found; the watch records "runs are being started again" with where it
+  found it. Whatever first meets it — a dispatch, a run, or a conversation
+  turn — files one critical report for the outage, not one per attempt, and an
+  attempt another provider served does not end it. Only work that would start
+  on that provider is held back: a developer slot whose run starts on another
+  provider is still filled, as with [the hold on a provider whose developer settings did not take effect](provider-plugins.md#checking-that-a-developers-settings-took-effect).
 
 The first two are read off the terminal the provider ends its stream with, and off the
 process's prose when there is no terminal — its stderr, or plain text on stdout

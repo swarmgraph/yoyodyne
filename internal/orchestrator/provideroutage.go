@@ -32,8 +32,6 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
-	"github.com/mason-bryant/yoyodyne/internal/oneline"
-	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -87,10 +85,9 @@ func (p Pipeline) noticeProviderOutage(cause domain.ProviderOutageCause, channel
 
 // noticeProviderOutageOn records the outage against the provider named, which
 // is the one the refused dispatch or invocation was made on. A missing program
-// that opens a new outage files the one critical report it earns: a missing
-// program is a stop nothing on the provider's side will end, so a person is
-// told at once rather than finding the line idle, and every later refusal
-// inside the same outage only counts.
+// whose sighting opens the outage files the one critical report it earns
+// (runstate.ProgramMissingReport), whichever process opened it; every later
+// sighting inside the same outage only counts.
 func (p Pipeline) noticeProviderOutageOn(provider domain.Backend, cause domain.ProviderOutageCause, channel domain.ProviderChannel, detail, waiting, alias string) error {
 	if p.ProviderOutages == nil {
 		return nil
@@ -110,37 +107,13 @@ func (p Pipeline) noticeProviderOutageOn(provider domain.Backend, cause domain.P
 	if err != nil {
 		return fmt.Errorf("record that the provider is answering nobody: %w", err)
 	}
-	if cause == domain.ProviderProgramMissing && recorded.Refusals == 1 {
-		return p.reportProgramMissing(recorded)
-	}
-	return nil
-}
-
-// reportProgramMissing files the harness's one report of a provider's program
-// that cannot be found, when the outage opens. It is critical because nothing
-// starts on that provider until a person installs the program again or names
-// its path, and the harness carries on by itself once it is back.
-func (p Pipeline) reportProgramMissing(outage runstate.ProviderOutage) error {
-	if p.Reports == nil {
-		return nil
-	}
-	message := oneline.Fold(outage.Says(), report.MaxMessageBytes*3/4)
-	if detail := strings.TrimSpace(outage.Detail); detail != "" {
-		message += " What was looked for: " + oneline.Fold(detail, report.MaxMessageBytes/5)
-	}
-	collected, err := report.Collect([]report.Entry{{Severity: report.SeverityCritical, Message: message}}, report.Attribution{
-		Role:         report.HarnessReporter,
-		RunID:        "program-missing@" + outage.Since.UTC().Format(time.RFC3339),
-		Build:        p.Build,
-		ProductID:    p.Config.Product.ID,
-		RepositoryID: string(p.Config.Product.RepositoryID),
-	}, p.clock().Now())
-	if err != nil {
-		return fmt.Errorf("report that the %s program cannot be found: %w", outage.Provider, err)
-	}
-	for _, reported := range collected {
+	if recorded.OpensProgramMissing() && p.Reports != nil {
+		reported, err := runstate.ProgramMissingReport(recorded, p.Build, string(p.Config.Product.RepositoryID), p.clock().Now())
+		if err != nil {
+			return err
+		}
 		if err := p.Reports.Append(reported); err != nil {
-			return fmt.Errorf("report that the %s program cannot be found: %w", outage.Provider, err)
+			return fmt.Errorf("report that the %s program cannot be found: %w", recorded.Provider, err)
 		}
 	}
 	return nil
@@ -160,6 +133,23 @@ func (p Pipeline) noticeProviderServed() error {
 		return fmt.Errorf("record that the provider is answering again: %w", err)
 	}
 	return nil
+}
+
+// noticeProviderServedBy is noticeProviderServed for an attempt the named
+// provider served, which leaves standing a missing program of another
+// provider (runstate.ProviderOutage.ClearedBy).
+func (p Pipeline) noticeProviderServedBy(served domain.Backend) error {
+	if p.ProviderOutages == nil {
+		return nil
+	}
+	standing, found, err := p.ProviderOutages.Standing()
+	if err != nil {
+		return fmt.Errorf("read whether the provider is answering: %w", err)
+	}
+	if !found || !standing.ClearedBy(served) {
+		return nil
+	}
+	return p.noticeProviderServed()
 }
 
 // CapacityServedRecorder is where a served invocation is written down as the

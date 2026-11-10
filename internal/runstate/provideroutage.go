@@ -36,6 +36,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 )
 
 // ProviderOutageSchemaVersion is 1 and has never changed.
@@ -172,11 +173,55 @@ func (o ProviderOutage) saysProgramMissing() string {
 		fix = "install it again, or set providers." + provider + ".binary in .yoyodyne/config.yaml to its full path"
 	}
 	said := fmt.Sprintf("%s cannot be found on this machine, so no new work starts on it; the fix: %s. The harness looks for it again on its own and carries on once it is back; %s turned away since %s",
-		subject, fix, count(o.Refusals, "attempt"), o.Since.UTC().Format(time.RFC3339))
+		subject, fix, count(o.Refusals, "attempt"), o.Since.Local().Format("Jan 2 15:04 MST"))
 	if alias := strings.TrimSpace(o.AccountAlias); alias != "" {
 		said += " (account " + alias + ")"
 	}
 	return said
+}
+
+// OpensProgramMissing reports an outage that a sighting has just opened over a
+// provider's program that cannot be found: the first sighting of that cause,
+// whichever process made it. That sighting files the one critical report the
+// outage earns (ProgramMissingReport), so each process that can meet a missing
+// program asks this after it records the sighting, and only the one that
+// opened the outage reports it.
+func (o ProviderOutage) OpensProgramMissing() bool {
+	return o.Cause == domain.ProviderProgramMissing && o.Refusals == 1
+}
+
+// ClearedBy reports whether an attempt the given provider served ends this
+// outage. A login or a network is the product's, so any served attempt ends
+// them. A missing program is one provider's: another provider serving says
+// nothing about it, and clearing it there would reopen it, and report it
+// again, at the next attempt that needs it. Empty on either side is read as
+// the same provider, as a record that names none has always been read.
+func (o ProviderOutage) ClearedBy(served domain.Backend) bool {
+	return o.Cause != domain.ProviderProgramMissing || o.Provider == "" || served == "" || o.Provider == served
+}
+
+// ProgramMissingReport is the one critical report for a provider's program
+// that cannot be found, filed by the harness when the outage opens. It is
+// critical because nothing starts on that provider until the program is
+// installed again or its path is set, and it says the harness carries on by
+// itself once the program is back. It is built here, beside the outage it
+// describes, so every process that can open the outage files the same report.
+func ProgramMissingReport(outage ProviderOutage, build, repositoryID string, now time.Time) (report.Report, error) {
+	message := oneline.Fold(outage.Says(), report.MaxMessageBytes*3/4)
+	if detail := strings.TrimSpace(outage.Detail); detail != "" {
+		message += " What was looked for: " + oneline.Fold(detail, report.MaxMessageBytes/5)
+	}
+	collected, err := report.Collect([]report.Entry{{Severity: report.SeverityCritical, Message: message}}, report.Attribution{
+		Role:         report.HarnessReporter,
+		RunID:        "program-missing@" + outage.Since.UTC().Format(time.RFC3339),
+		Build:        build,
+		ProductID:    outage.ProductID,
+		RepositoryID: repositoryID,
+	}, now)
+	if err != nil {
+		return report.Report{}, fmt.Errorf("report that the %s program cannot be found: %w", outage.Provider, err)
+	}
+	return collected[0], nil
 }
 
 // Mark names the outage durably, so a surface that says it once can say which

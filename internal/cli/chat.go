@@ -806,15 +806,21 @@ func prepareChat(ctx context.Context, role domain.AgentRole, agentName, configPa
 			// surface names which program is missing and the fix, and a scheduled
 			// turn records the wait rather than a failed pass.
 			refused = fmt.Errorf("%w: %v", chat.ErrProviderAway, refused)
-			if _, recordErr := parts.outages.Notice(runstate.ProviderOutageObservation{
+			recorded, recordErr := parts.outages.Notice(runstate.ProviderOutageObservation{
 				Cause:        domain.ProviderProgramMissing,
 				Provider:     agent.Backend,
 				AccountAlias: account.Alias,
 				Detail:       availability.NotInstalled(agent.Backend),
 				Waiting:      fmt.Sprintf("the %s conversation", role.Title()),
 				At:           time.Now().UTC(),
-			}); recordErr != nil {
+			})
+			if recordErr != nil {
 				return preparedChat{}, errors.Join(refused, fmt.Errorf("record that the provider's program cannot be found: %w", recordErr))
+			}
+			// The scheduled turn that opens the outage is often the first thing to
+			// meet a missing program, so it files the outage's one report here.
+			if err := reportProgramMissing(parts, cfg, recorded); err != nil {
+				return preparedChat{}, errors.Join(refused, err)
 			}
 			return preparedChat{}, refused
 		}
@@ -2033,4 +2039,22 @@ func artifactHomes(repository string, cfg config.Config, stderr io.Writer) prote
 		fmt.Fprintf(stderr, "warning: the documents the artifact homes own could not be read, so a done-condition naming one by its name rather than its path is not refused at admission: %v\n", err)
 	}
 	return protectedpath.ArtifactHomes(cfg, documents...)
+}
+
+// reportProgramMissing files the one critical report a missing-program outage
+// earns, where this sighting is the one that opened it
+// (runstate.ProgramMissingReport). A conversation with nowhere to keep reports
+// files nothing.
+func reportProgramMissing(parts components, cfg config.Config, recorded runstate.ProviderOutage) error {
+	if !recorded.OpensProgramMissing() || parts.reports == nil {
+		return nil
+	}
+	reported, err := runstate.ProgramMissingReport(recorded, buildinfo.Commit(), string(cfg.Product.RepositoryID), time.Now())
+	if err == nil {
+		err = parts.reports.Append(reported)
+	}
+	if err != nil {
+		return fmt.Errorf("report that the provider's program cannot be found: %w", err)
+	}
+	return nil
 }

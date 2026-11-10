@@ -257,3 +257,81 @@ func TestWatchingResumesByItselfWhenAMissingProgramIsBack(t *testing.T) {
 		t.Fatalf("dispatched %d run(s), want the item started once the program was back: %s", dispatched, schedule.Render())
 	}
 }
+
+// A conversation turn met the missing program first and opened the outage,
+// filing its one report. Dispatches that meet the same outage afterwards are
+// later sightings and file nothing more.
+func TestADispatchAfterAConversationOpenedTheOutageFilesNoSecondReport(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := &orchestratortest.Backend{ReportedAvailability: backend.Availability{ProgramMissing: true, Missing: `"claude" was not found`}}
+	pipeline, _ := newPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	pipeline.Reviewer = approvingReviewer()
+	outages := newOutageStore(t)
+	pipeline.ProviderOutages = outages
+	reports := &fakeReports{}
+	pipeline.Reports = reports
+	opened, err := outages.Notice(runstate.ProviderOutageObservation{
+		Cause: domain.ProviderProgramMissing, Provider: domain.BackendClaudeCode, Waiting: "the Architect conversation",
+	})
+	if err != nil || !opened.OpensProgramMissing() {
+		t.Fatalf("the conversation's sighting = %+v, %v, want it to open the outage", opened, err)
+	}
+
+	for range 2 {
+		var away ProviderOutageError
+		if _, err := pipeline.Run(context.Background(), tracker.Item.ID); !errors.As(err, &away) {
+			t.Fatalf("Run() error = %v, want the dispatch turned away as a wait", err)
+		}
+	}
+	if len(reports.appended) != 0 {
+		t.Fatalf("reports = %+v, want none from dispatches into an outage a conversation already opened and reported", reports.appended)
+	}
+	if standing, _, _ := outages.Standing(); standing.Refusals != 3 {
+		t.Fatalf("outage = %+v, want the two dispatches counted inside it", standing)
+	}
+}
+
+// The watch can ask only the developer's provider whether its program is
+// there. A missing program of another provider is never cleared on the
+// developer's being found, so it is neither reported again nor said to have
+// resumed; and work that starts on the developer's provider goes on being
+// chosen while it stands.
+func TestWatchingLeavesAnotherProvidersMissingProgramStandingAndKeepsChoosingWork(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-one")...)
+	outages := newOutageStore(t)
+	probe := &programProbe{installed: true}
+	harness.outages, harness.provider = outages, probe
+	harness.developerProvider = domain.BackendClaudeCode
+	harness.outageProbe = time.Hour
+	if _, err := outages.Notice(runstate.ProviderOutageObservation{
+		Cause: domain.ProviderProgramMissing, Provider: domain.BackendCodex, Waiting: "the review of run run-one", At: harness.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dispatched := 0
+	harness.run = func(h *scheduleHarness, id string) (Outcome, error) {
+		dispatched++
+		return h.complete(id), nil
+	}
+	harness.onSleep = func(h *scheduleHarness, sleeps int) bool { return sleeps < 3 }
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: &recordedSessions{}, Now: harness.clock}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	standing, away, err := outages.Standing()
+	if err != nil || !away || standing.Provider != domain.BackendCodex {
+		t.Fatalf("Standing() = %+v, %t, %v, want the codex program still recorded missing", standing, away, err)
+	}
+	if strings.Contains(strings.Join(schedule.FollowUpReleased, "\n"), "runs are being started again") {
+		t.Fatalf("released = %q, want nothing said to have resumed while the codex program is missing", schedule.FollowUpReleased)
+	}
+	if dispatched != 1 {
+		t.Fatalf("dispatched %d run(s), want the item on the developer's provider started while another provider's program is missing: %s", dispatched, schedule.Render())
+	}
+}
