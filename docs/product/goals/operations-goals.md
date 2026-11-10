@@ -18,6 +18,11 @@ revisions:
       by: product-manager
       at: 2026-10-05T00:29:54.416476Z
       reason: 'yoyodyne-ifd.433.11: intent: consistent. The opening said none of these goals gates v1 work, while [spend-follows-the-work] has had work admitted under it since the operator approved it on 2026-09-19. The opening now says that goal applies now and work is held to it. No goal is added, removed or reworded, so the goals admit and refuse exactly the same work as before.'
+    - action: amended
+      by: product-manager
+      at: 2026-11-09T15:29:49.305852Z
+      reason: 'yoyodyne-av7p: replaces the retired word ''gate'' in two places, with ''holds up'' in the opening and ''only once they are approved'' in the operations role goal. No goal is added, removed or changed in what it asks for, so the goals admit and refuse exactly the work they did before.'
+      intent: consistent
 approvals:
     - revision: 0
       by: operator
@@ -31,20 +36,18 @@ approvals:
       by: operator
       at: 2026-10-05T00:29:54.416476Z
       reason: approved by the operator in conversation chat-91253e0e070c17b0663651cc48602122, turn 1589, for the document the product-manager wrote there (document-1589.1)
+    - revision: 3
+      by: product-manager
+      at: 2026-11-09T15:29:49.305852Z
+      reason: yoyodyne-av7p - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
 ---
-
 # Operations goals
 
-These are post-v1 outcomes: Yoyodyne operating the software it builds. They
-support the brief's goal that the system can operate what it ships, and none of
-them gates v1 or its releases, with one exception: [spend-follows-the-work]
-applies now, and work is attributed to it and held to it as to any v1 goal.
-Recorded now so work that arrives ahead of them is designed knowing where it
-leads.
+These are post-v1 outcomes: Yoyodyne operating the software it builds. They support the brief's goal that the system can operate what it ships, and none of them holds up v1 or its releases, with one exception: [spend-follows-the-work] applies now, and work is attributed to it and held to it as to any v1 goal. Recorded now so work that arrives ahead of them is designed knowing where it leads.
 
 ## Goals
 
-- An operations role runs monitoring, uptime watching, and reboot-class recovery as routine work within capability ceilings: observation freely, runbook actions within recorded bounds, world-mutating actions only through an approval gate.
+- An operations role runs monitoring, uptime watching, and reboot-class recovery as routine work within capability ceilings: observation freely, runbook actions within recorded bounds, world-mutating actions only once they are approved.
   *Supports: the system can operate what it ships.*
 - A deploy happens only with the operator's explicit approval, recorded like any approval.
   *Supports: the system can operate what it ships.*
