@@ -2481,6 +2481,29 @@ func (s *State) recordedTexts() []recordedText {
 			}
 		}
 	}
+	// The failing tests GitHub's log named, and the further run asked for when
+	// only tests the change does not touch failed (forgererun.go): test and
+	// package names are the project's, and the refusal is GitHub's words.
+	if s.PullRequest != nil && s.PullRequest.Checks != nil {
+		checks := s.PullRequest.Checks
+		judged := func(prefix string, judgment *ForgeTestJudgment) {
+			for index := range judgment.Tests {
+				nested(prefix+".tests[].name", at(prefix+".tests", index, "name"), &judgment.Tests[index].Name, maxForgeTestNameBytes)
+				nested(prefix+".tests[].package", at(prefix+".tests", index, "package"), &judgment.Tests[index].Package, maxForgeTestNameBytes)
+			}
+			nested(prefix+".unnamed", prefix+".unnamed", &judgment.Unnamed, maxForgeTestUnnamedBytes)
+		}
+		if checks.Tests != nil {
+			judged("pull_request.checks.tests", checks.Tests)
+		}
+		if rerun := checks.UntouchedRerun; rerun != nil {
+			for index := range rerun.Checks {
+				nested("pull_request.checks.untouched_rerun.checks[]", fmt.Sprintf("pull_request.checks.untouched_rerun.checks[%d]", index), &rerun.Checks[index], maxCheckNameBytes)
+			}
+			judged("pull_request.checks.untouched_rerun.tests", &rerun.Tests)
+			nested("pull_request.checks.untouched_rerun.refused", "pull_request.checks.untouched_rerun.refused", &rerun.Refused, maxForgeTestUnnamedBytes)
+		}
+	}
 	// A wait on the target's red check names the checks the forge reported,
 	// phrased by the repository's workflows as the reading's own names are.
 	if s.PullRequest != nil && s.PullRequest.TargetRed != nil {

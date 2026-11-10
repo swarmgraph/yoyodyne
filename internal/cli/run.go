@@ -1558,6 +1558,10 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 	// holds, only for a project that publishes through it.
 	if parts.config.Approvals.Publishing == domain.ApprovalAutomatic {
 		promoter.Forge, promoter.Withdrawer = forge, forge
+		// A held merge is read with its checks: one failing only in tests the
+		// change does not touch has the failing job run once more, and any other
+		// failure is withdrawn at once.
+		promoter.Checks = forge
 		held.Forge = forge
 		// Once the queue lands a change, the run's own pull request and the
 		// queue's candidate branch are closed and deleted on the forge.
