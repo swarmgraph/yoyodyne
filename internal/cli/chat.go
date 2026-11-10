@@ -799,6 +799,23 @@ func prepareChat(ctx context.Context, role domain.AgentRole, agentName, configPa
 		refused := errors.New(availability.NotInstalled(agent.Backend))
 		standIn, servable := servableAlternate(ctx, cfg, parts.stateRoot, name, processRunner)
 		if !servable {
+			if !availability.ProgramMissing {
+				return preparedChat{}, refused
+			}
+			// A program found nowhere is a wait, recorded on the product so every
+			// surface names which program is missing and the fix, and a scheduled
+			// turn records the wait rather than a failed pass.
+			refused = fmt.Errorf("%w: %v", chat.ErrProviderAway, refused)
+			if _, recordErr := parts.outages.Notice(runstate.ProviderOutageObservation{
+				Cause:        domain.ProviderProgramMissing,
+				Provider:     agent.Backend,
+				AccountAlias: account.Alias,
+				Detail:       availability.NotInstalled(agent.Backend),
+				Waiting:      fmt.Sprintf("the %s conversation", role.Title()),
+				At:           time.Now().UTC(),
+			}); recordErr != nil {
+				return preparedChat{}, errors.Join(refused, fmt.Errorf("record that the provider's program cannot be found: %w", recordErr))
+			}
 			return preparedChat{}, refused
 		}
 		fmt.Fprintf(stderr, "warning: %v\nThis conversation's turns are served by its configured alternate, %s, until that is fixed.\n",
@@ -826,7 +843,10 @@ func prepareChat(ctx context.Context, role domain.AgentRole, agentName, configPa
 	// the same evidence the scheduler clears one on. An unreachable one is left
 	// standing: this check reads a local record and says nothing about the
 	// network, which the first served turn settles.
-	if standing, found, err := parts.outages.Standing(); err == nil && found && standing.Cause == domain.ProviderUnauthenticated {
+	// A program this check just found ends an outage over that program being
+	// missing, for the same reason.
+	if standing, found, err := parts.outages.Standing(); err == nil && found && (standing.Cause == domain.ProviderUnauthenticated ||
+		(standing.Cause == domain.ProviderProgramMissing && availability.Installed && (standing.Provider == "" || standing.Provider == agent.Backend))) {
 		if _, _, err := parts.outages.Clear(); err != nil {
 			fmt.Fprintf(stderr, "warning: the provider is logged in again and the outage could not be cleared: %v\n", err)
 		}

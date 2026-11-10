@@ -123,7 +123,7 @@ func (o ProviderOutage) Validate() error {
 
 // DescribeProviderOutage is the one sentence every surface names the wait in,
 // as the object of "paused for" or "waiting on". It says what the operator
-// does about it, because that is the whole difference between the two causes
+// does about it, because that is the whole difference between the causes
 // and the whole reason the wait is named rather than counted: the intake brake
 // that tripped on this in September prescribed `yoyo release`, which lifts
 // nothing here.

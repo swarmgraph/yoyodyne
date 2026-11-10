@@ -1220,7 +1220,7 @@ func providerFinding(check, binary string, named domain.Backend, availability ba
 			Check:   check,
 			Status:  StatusProblem,
 			Summary: fmt.Sprintf("%s is installed but not authenticated, so every agent invocation would be refused", binary),
-			Detail:  availability.Version,
+			Detail:  strings.TrimSpace(availability.Version + programPath(availability)),
 			Remedy:  providerLoginCommand(named),
 		}
 	}
@@ -1228,8 +1228,25 @@ func providerFinding(check, binary string, named domain.Backend, availability ba
 		Check:   check,
 		Status:  StatusOK,
 		Summary: fmt.Sprintf("%s is installed and authenticated", binary),
-		Detail:  strings.TrimSpace(availability.Version + " " + availability.AuthMethod),
+		Detail:  strings.TrimSpace(availability.Version + " " + availability.AuthMethod + programPath(availability)),
 	}
+}
+
+// programPath says which file the check ran, where the adapter resolved one,
+// and whether it is outside this process's search path: a program the harness
+// found in one of the usual install folders is used from there, and the
+// finding says so rather than leaving the reader to assume the search path.
+func programPath(availability backend.Availability) string {
+	path := strings.TrimSpace(availability.Path)
+	if path == "" {
+		return ""
+	}
+	for _, directory := range filepath.SplitList(os.Getenv("PATH")) {
+		if directory != "" && filepath.Clean(directory) == filepath.Dir(path) {
+			return "; at " + path
+		}
+	}
+	return "; at " + path + ", in a usual install folder outside this process's search path"
 }
 
 // checkForge asks about the forge only when the harness would actually use one.

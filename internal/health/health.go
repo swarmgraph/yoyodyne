@@ -318,6 +318,10 @@ type Command struct {
 	Name  string `json:"name"`
 	Found bool   `json:"found"`
 	Path  string `json:"path,omitempty"`
+	// InInstallFolder is set where the command is not on the part's search path
+	// and was found in one of the usual install folders the harness also looks
+	// in, which is where the part will start it from.
+	InInstallFolder bool `json:"in_install_folder,omitempty"`
 }
 
 // Service is one part the supervisor hosts, or the supervisor.

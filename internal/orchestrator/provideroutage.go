@@ -32,6 +32,8 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -80,19 +82,66 @@ func providerAway(result backend.RunResult, err error) (backend.ProviderOutage, 
 // the refusal was read, and empty for one met somewhere other than an
 // invocation.
 func (p Pipeline) noticeProviderOutage(cause domain.ProviderOutageCause, channel domain.ProviderChannel, detail, waiting, alias string) error {
+	return p.noticeProviderOutageOn(p.developer().Backend, cause, channel, detail, waiting, alias)
+}
+
+// noticeProviderOutageOn records the outage against the provider named, which
+// is the one the refused dispatch or invocation was made on. A missing program
+// that opens a new outage files the one critical report it earns: a missing
+// program is a stop nothing on the provider's side will end, so a person is
+// told at once rather than finding the line idle, and every later refusal
+// inside the same outage only counts.
+func (p Pipeline) noticeProviderOutageOn(provider domain.Backend, cause domain.ProviderOutageCause, channel domain.ProviderChannel, detail, waiting, alias string) error {
 	if p.ProviderOutages == nil {
 		return nil
 	}
-	if _, err := p.ProviderOutages.Notice(runstate.ProviderOutageObservation{
+	if provider == "" {
+		provider = p.developer().Backend
+	}
+	recorded, err := p.ProviderOutages.Notice(runstate.ProviderOutageObservation{
 		Cause:        cause,
-		Provider:     p.developer().Backend,
+		Provider:     provider,
 		AccountAlias: alias,
 		Detail:       detail,
 		Channel:      channel,
 		Waiting:      waiting,
 		At:           p.clock().Now(),
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("record that the provider is answering nobody: %w", err)
+	}
+	if cause == domain.ProviderProgramMissing && recorded.Refusals == 1 {
+		return p.reportProgramMissing(recorded)
+	}
+	return nil
+}
+
+// reportProgramMissing files the harness's one report of a provider's program
+// that cannot be found, when the outage opens. It is critical because nothing
+// starts on that provider until a person installs the program again or names
+// its path, and the harness carries on by itself once it is back.
+func (p Pipeline) reportProgramMissing(outage runstate.ProviderOutage) error {
+	if p.Reports == nil {
+		return nil
+	}
+	message := oneline.Fold(outage.Says(), report.MaxMessageBytes*3/4)
+	if detail := strings.TrimSpace(outage.Detail); detail != "" {
+		message += " What was looked for: " + oneline.Fold(detail, report.MaxMessageBytes/5)
+	}
+	collected, err := report.Collect([]report.Entry{{Severity: report.SeverityCritical, Message: message}}, report.Attribution{
+		Role:         report.HarnessReporter,
+		RunID:        "program-missing@" + outage.Since.UTC().Format(time.RFC3339),
+		Build:        p.Build,
+		ProductID:    p.Config.Product.ID,
+		RepositoryID: string(p.Config.Product.RepositoryID),
+	}, p.clock().Now())
+	if err != nil {
+		return fmt.Errorf("report that the %s program cannot be found: %w", outage.Provider, err)
+	}
+	for _, reported := range collected {
+		if err := p.Reports.Append(reported); err != nil {
+			return fmt.Errorf("report that the %s program cannot be found: %w", outage.Provider, err)
+		}
 	}
 	return nil
 }
@@ -162,7 +211,7 @@ func (p Pipeline) noticeCapacityServed(account, model, what string) error {
 func (a *activeRun) pauseForProviderOutage(ctx context.Context, outage backend.ProviderOutage) error {
 	p := a.pipeline
 	waiting := fmt.Sprintf("run %s of %s", a.state.RunID, a.state.WorkItemID)
-	if err := p.noticeProviderOutage(outage.Cause, outage.Channel, outage.Detail, waiting, a.state.AccountAlias); err != nil {
+	if err := p.noticeProviderOutageOn(outage.Provider, outage.Cause, outage.Channel, outage.Detail, waiting, a.state.AccountAlias); err != nil {
 		// The wait is taken whether or not it could be recorded: the record is what
 		// tells the operator, and losing it is worse than losing a run, but not so
 		// much worse that the run should be failed over it. It is said on the
@@ -273,7 +322,21 @@ func (p Pipeline) requireBackendReady(ctx context.Context, workItemID string, pr
 		return err
 	}
 	if !availability.Installed {
-		return fmt.Errorf("%s; `yoyo doctor` names what to install", availability.NotInstalled(named))
+		refusal := fmt.Sprintf("%s; `yoyo doctor` names what to install", availability.NotInstalled(named))
+		if !availability.ProgramMissing {
+			return errors.New(refusal)
+		}
+		// A program found nowhere is a wait, like a login: nothing is claimed,
+		// the item is exactly as startable as it was, and it is started once the
+		// program is found again (the scheduler asks at every pull).
+		refused := ProviderOutageError{Cause: domain.ProviderProgramMissing, Detail: refusal}
+		if recordErr := p.noticeProviderOutageOn(named, domain.ProviderProgramMissing, "", refusal, "the dispatch of "+workItemID, p.Config.AccountAlias()); recordErr != nil {
+			return errors.Join(refused, recordErr)
+		}
+		return refused
+	}
+	if err := p.clearOutageOnProgramFound(named); err != nil {
+		return err
 	}
 	if !availability.Authenticated {
 		detail := fmt.Sprintf("the %s backend is not authenticated; `yoyo doctor` names the login that fixes it (auth method: %s)",
@@ -289,6 +352,24 @@ func (p Pipeline) requireBackendReady(ctx context.Context, workItemID string, pr
 		return refused
 	}
 	return p.clearOutageOnLogin()
+}
+
+// clearOutageOnProgramFound lifts a standing missing-program outage of this
+// provider on the evidence of its program having been found and having
+// answered its version check. A missing program of another provider is left:
+// finding this one says nothing about that one.
+func (p Pipeline) clearOutageOnProgramFound(named domain.Backend) error {
+	if p.ProviderOutages == nil {
+		return nil
+	}
+	standing, found, err := p.ProviderOutages.Standing()
+	if err != nil {
+		return fmt.Errorf("read whether the provider is answering: %w", err)
+	}
+	if !found || standing.Cause != domain.ProviderProgramMissing || (standing.Provider != "" && standing.Provider != named) {
+		return nil
+	}
+	return p.noticeProviderServed()
 }
 
 // clearOutageOnLogin lifts a standing unauthenticated outage on the evidence of

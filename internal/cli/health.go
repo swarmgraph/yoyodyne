@@ -30,6 +30,8 @@ func (p productHealth) observer() health.Observer {
 		Product:          p.parts.config.Product.ID,
 		Sources:          standingSources(p.parts.configPath),
 		ProviderCommands: providerCommands(p.parts.config),
+		InstallFolders:   adapters.UsualInstallFolders(),
+		FolderCommands:   folderCommands(p.parts.config),
 		RedactValues:     p.parts.redactValues,
 	}
 	// An interface holding a nil store is not nil, so the keeper is set only
@@ -79,6 +81,31 @@ func providerCommands(cfg config.Config) []string {
 	}
 	sort.Strings(commands)
 	return commands
+}
+
+// folderCommands is the provider commands nothing configured a path for, which
+// the adapter also looks for in the usual install folders.
+func folderCommands(cfg config.Config) map[string]bool {
+	folders := map[string]bool{}
+	add := func(named domain.Backend) {
+		if named == "" {
+			return
+		}
+		descriptor, found := providerDescriptor(cfg, named)
+		if !found {
+			descriptor = backend.Descriptor{Adapter: named}
+		}
+		if descriptor.Binary == "" {
+			if binary := adapters.Binary(descriptor); binary != "" {
+				folders[binary] = true
+			}
+		}
+	}
+	for _, endpoint := range agentEndpoints(cfg) {
+		add(endpoint.Provider)
+		add(endpoint.AlternateProvider)
+	}
+	return folders
 }
 
 // conversationHealthObserver is the health hand a conversation is wired with,

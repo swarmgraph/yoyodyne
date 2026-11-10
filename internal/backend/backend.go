@@ -332,6 +332,10 @@ type ProviderOutage struct {
 	// on — the wait is the same either way — and it is what lets a reader of a
 	// run that waited tell which of the two shapes the provider produced.
 	Channel domain.ProviderChannel
+	// Provider is the provider whose program could not be found, set only for
+	// a missing program, where the refusal names the provider rather than
+	// coming from it. Empty is the provider the invocation was made on.
+	Provider domain.Backend
 }
 
 // RunResult is what one provider invocation is worth: the invocation's own

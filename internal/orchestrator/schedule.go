@@ -2637,7 +2637,13 @@ pulling:
 		// the session chooses nothing and says why, and it is the session that
 		// finds the login renewed — which is what makes re-authentication resume
 		// the line without anybody releasing anything.
-		if outage, away := s.providerAway(ctx, &schedule, pull); away {
+		outage, away, resumed := s.providerAway(ctx, &schedule, pull)
+		if resumed != "" {
+			// The provider's program was found again: the session chooses work
+			// again at once, and says so where the operator reads its state.
+			s.release(&schedule, session, resumed)
+		}
+		if away {
 			if !s.Watching {
 				schedule.Stopped = ScheduleProviderAway
 				break
@@ -4906,24 +4912,43 @@ func probeReason(hold runstate.IntakeHold, selected string) string {
 // a provider nobody can reach is left the probe interval and then pulled into
 // again: the dispatch is the probe, and a run it starts waits on its own if the
 // answer is still no.
-func (s Scheduler) providerAway(ctx context.Context, schedule *Schedule, pull Pull) (runstate.ProviderOutage, bool) {
+//
+// A provider's program that cannot be found is asked about at every pull too,
+// as cheaply: the availability check looks for the program again, on the
+// search path and in the usual install folders, and runs its version check.
+// The moment it is found the outage is cleared and the third value says so in
+// a sentence the session records, so work resumes without a restart and the
+// status line says why.
+func (s Scheduler) providerAway(ctx context.Context, schedule *Schedule, pull Pull) (runstate.ProviderOutage, bool, string) {
 	if pull.Outages == nil {
-		return runstate.ProviderOutage{}, false
+		return runstate.ProviderOutage{}, false, ""
 	}
 	outage, standing, err := pull.Outages.Standing()
 	if err != nil {
 		schedule.OutageProblem = fmt.Sprintf("whether the provider is answering could not be read, so the pull was made as though it were: %v", err)
-		return runstate.ProviderOutage{}, false
+		return runstate.ProviderOutage{}, false, ""
 	}
 	if !standing {
 		schedule.ProviderOutage = nil
-		return runstate.ProviderOutage{}, false
+		return runstate.ProviderOutage{}, false, ""
+	}
+	if outage.Cause == domain.ProviderProgramMissing && pull.Provider != nil {
+		availability, err := pull.Provider.CheckAvailability(ctx)
+		if err == nil && availability.Installed {
+			if _, _, err := pull.Outages.Clear(); err != nil {
+				schedule.OutageProblem = fmt.Sprintf("the provider's program was found again and the outage could not be cleared: %v", err)
+			}
+			schedule.ProviderOutage = nil
+			return runstate.ProviderOutage{}, false, programFound(outage, availability, s.now())
+		}
+		schedule.ProviderOutage = &outage
+		return outage, true, ""
 	}
 	// A lapsed login the check runner can ask about is its to re-check: the
 	// outage waits on its follow-up and asks the provider nothing itself.
 	if waiting, followed := s.loginFollowUp(schedule, outage, pull); followed {
 		schedule.ProviderOutage = &outage
-		return waiting, true
+		return waiting, true, ""
 	}
 	if outage.Cause == domain.ProviderUnauthenticated && pull.Provider != nil {
 		if loginAskedWithoutARunner(ctx, pull.Provider) {
@@ -4931,20 +4956,36 @@ func (s Scheduler) providerAway(ctx context.Context, schedule *Schedule, pull Pu
 				schedule.OutageProblem = fmt.Sprintf("the provider is logged in again and the outage could not be cleared: %v", err)
 			}
 			schedule.ProviderOutage = nil
-			return runstate.ProviderOutage{}, false
+			return runstate.ProviderOutage{}, false, ""
 		}
 		schedule.ProviderOutage = &outage
-		return outage, true
+		return outage, true, ""
 	}
 	// A provider nobody can reach, or a login nothing here can ask about: the
 	// pull is the probe, once the interval has passed since the provider was
 	// last met refusing.
 	if !s.now().Before(outage.LastSeen.Add(pull.OutageProbe)) {
 		schedule.ProviderOutage = nil
-		return runstate.ProviderOutage{}, false
+		return runstate.ProviderOutage{}, false, ""
 	}
 	schedule.ProviderOutage = &outage
-	return outage, true
+	return outage, true, ""
+}
+
+// programFound is the sentence the session records when a provider's program
+// that could not be found is found again: which program, where, and that work
+// is being started again.
+func programFound(outage runstate.ProviderOutage, availability backend.Availability, now time.Time) string {
+	program := "the provider's program"
+	if outage.Provider != "" {
+		program = "the " + string(outage.Provider) + " program"
+	}
+	where := ""
+	if path := strings.TrimSpace(availability.Path); path != "" {
+		where = " at " + path
+	}
+	return fmt.Sprintf("runs are being started again: the harness found %s%s at %s, after it could not be found since %s",
+		program, where, localTime(now), localTime(outage.Since))
 }
 
 // recordedWindow is a usage window the durable record says is closed over

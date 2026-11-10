@@ -117,15 +117,36 @@ provider that can serve a turn, including an agent's fallback provider.
    harness's current directory. Use absolute paths for scheduled execution.
 2. Without an override, the compiled adapter looks for `codex` or `claude` on
    that process's PATH. The child's account environment does not change lookup.
+3. Without an override, and only when the program is not on that PATH, the
+   adapter looks in a short fixed list of usual install folders, in this order:
+   `~/.local/bin`, `/opt/homebrew/bin`, and `/usr/local/bin`. Nothing outside
+   the list is searched. A service started with a fixed PATH does not see a
+   program its installer moved to `~/.local/bin`; this is what finds it there.
+   What is found gets the same version check as any other installation.
 
 An override that is missing or not executable fails with a setup remedy; yoyo
-does not silently select a different installation of the same provider. An agent
+does not silently select a different installation of the same provider, and a
+configured binary is never looked for in the usual install folders. An agent
 whose failover names another provider is served there instead, and the record
 says why ([an executable that cannot run](configuration/recovery.md#serving-a-turn-from-a-permitted-alternate-model)). The adapter retains the
-absolute path it resolved successfully for availability, authentication, launch
-and resume. Restart the conversation or service after changing configuration or
-moving an installation. Discovery does not establish authentication: the CLI's
+absolute path it resolved for availability, authentication, launch and resume,
+and checks that the file is still there before each use: a program that moved
+or was removed is looked for again rather than launched from where it was.
+The path used is said by `yoyo doctor` (with a note when it is in a usual
+install folder outside the search path) and recorded on each invocation's
+`run.started` event as `executable`. Restart the conversation or service after
+changing configuration. Discovery does not establish authentication: the CLI's
 own login check still runs in the configured account's provider home.
+
+A program found nowhere — not where the configuration names it, not on PATH,
+and not in the usual install folders — is a wait rather than a failure, like a
+login that expired ([waiting out a provider nobody can reach](operations.md#waiting-out-a-provider-nobody-can-reach)):
+nothing new is started on that provider, a run already going waits where it is
+with nothing spent, one critical report is filed, `yoyo status` names the
+missing program and the fix, and work carries on by itself once the program is
+found again. A program that is there and cannot be run (not executable, or a
+directory) is a setup fault and is reported as it always was, and a version
+check that times out is reported as that, never as a missing program.
 
 For the built-in providers, only `binary` may be specified under `providers`.
 Their adapter, capabilities, dialect and sandbox restrictions remain compiled in:

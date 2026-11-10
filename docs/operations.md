@@ -2425,9 +2425,9 @@ expired; three runs blocked in a row, the brake tripped, every recurring pass
 recorded 0 turns, and the maintenance job restarted the watch 158 times. Nothing
 told them. They learned by asking, three days later.
 
-**A provider that is not authenticated or cannot be reached is a named wait
-that spends nothing.** Two conditions earn it, and they are told apart only by
-what you do about them:
+**A provider that is not authenticated, cannot be reached, or whose program
+cannot be found is a named wait that spends nothing.** Three conditions earn
+it, and they are told apart only by what you do about them:
 
 - **Not authenticated** — the provider will not accept the account the harness
   asks under. `claude auth status` says so before a dispatch; inside a run the
@@ -2438,8 +2438,19 @@ what you do about them:
   offline or asleep, or a name does not resolve. The terminal says `Can't reach
   the API server` or carries the transport's own error. The remedy is the
   network coming back, which the harness finds by asking again.
+- **Program missing** — the provider's program is found nowhere: not where
+  `providers.<name>.binary` names it, not on the harness's search path, and not
+  in the usual install folders (`~/.local/bin`, `/opt/homebrew/bin`,
+  `/usr/local/bin`; see [executable setup](provider-plugins.md#executable-setup-and-precedence)).
+  Nothing was started, so it is never recorded as a sandbox that could not be
+  entered. The remedy is installing the program again, or setting
+  `providers.<name>.binary` to its full path. The harness looks for it again at
+  every pull of the watch and before each reissued attempt, and carries on by
+  itself once it is found; the watch records "runs are being started again"
+  with where it found it. The first dispatch or run to meet it files one
+  critical report for the outage, not one per attempt.
 
-Both are read off the terminal the provider ends its stream with, and off the
+The first two are read off the terminal the provider ends its stream with, and off the
 process's prose when there is no terminal — its stderr, or plain text on stdout
 where the stream should have been: a CLI that refuses an expired login before
 writing any envelope says so there, and an attempt that died so used to end as

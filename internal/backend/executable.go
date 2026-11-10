@@ -64,7 +64,7 @@ func ProgramMissingOutage(err error) (*ProviderOutage, bool) {
 	if !errors.As(err, &unavailable) || !unavailable.ProgramMissing() {
 		return nil, false
 	}
-	return &ProviderOutage{Cause: domain.ProviderProgramMissing, Detail: unavailable.Error()}, true
+	return &ProviderOutage{Cause: domain.ProviderProgramMissing, Detail: unavailable.Error(), Provider: unavailable.Provider}, true
 }
 
 // ExecutableResolver is a process runner that resolves the provider's program
