@@ -183,6 +183,45 @@ func TestPrintTeamPullRequestsSaysWhatTheCheckFound(t *testing.T) {
 	}
 }
 
+// The forge check's text output, as checkForge prints it, says what it found
+// for each tracked pull request, and before the closing count.
+func TestTheForgeCheckSaysWhatItFoundForEachTrackedPullRequest(t *testing.T) {
+	t.Parallel()
+
+	var output forgeCheckOutput
+	output.TeamPullRequests = []orchestrator.TeamPullRequestSettlement{
+		{Number: 7, Found: orchestrator.TeamPullRequestMerged, MergeCommit: "abc123", Items: []orchestrator.TeamPullRequestItem{
+			{WorkItemID: "ex-1", Settled: true},
+			{WorkItemID: "ex-2", Failure: "the tracker is down"},
+		}},
+		{Number: 8, Found: orchestrator.TeamPullRequestClosed, ClosedBy: "alice", Items: []orchestrator.TeamPullRequestItem{
+			{WorkItemID: "ex-3", Settled: true},
+		}},
+		{Number: 9, Failure: "read pull request #9: no route"},
+	}
+	var stdout, stderr bytes.Buffer
+	printForgeCheckFindings(&stdout, &stderr, output)
+	said := stdout.String()
+	merged := "pull request #7 into the team's branch merged as abc123; ex-1 closed\n"
+	closed := "pull request #8 was closed without being merged by alice; ex-3 goes back to the Lead Product Manager\n"
+	for _, want := range []string{merged, closed} {
+		if !strings.Contains(said, want) {
+			t.Errorf("stdout lacks %q:\n%s", want, said)
+		}
+	}
+	if count := strings.Index(said, "forge check:"); count < 0 || count < strings.Index(said, closed) {
+		t.Errorf("the closing count is missing or comes before what was found:\n%s", said)
+	}
+	for _, want := range []string{
+		"ex-2 on pull request #7 not settled: the tracker is down\n",
+		"pull request #9 into the team's branch not settled: read pull request #9: no route\n",
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("stderr lacks %q:\n%s", want, stderr.String())
+		}
+	}
+}
+
 func TestDescribeForgeCheckCountsPullRequestsIntoTheTeamsBranch(t *testing.T) {
 	t.Parallel()
 

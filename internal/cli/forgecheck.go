@@ -77,10 +77,7 @@ func checkForge(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	output.KeptAnswers = answers.Len()
 	output.Forge = reconciler.Forge
 	if !*jsonOutput {
-		printPersonMerges(stdout, stderr, output.PersonMerges)
-		printTeamMerges(stdout, stderr, output.TeamMerges)
-		printFeedback(stdout, stderr, output.Feedback)
-		fmt.Fprintln(stdout, describeForgeCheck(output))
+		printForgeCheckFindings(stdout, stderr, output)
 	}
 	// Said once the reading is over and before anything is hosted: see
 	// ForgeCheckReadLine.
@@ -106,6 +103,18 @@ func checkForge(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		printFeedbackRepairs(stdout, stderr, output.FeedbackRepairs)
 	}
 	return reportForgeCheck(stdout, stderr, *jsonOutput, output, err)
+}
+
+// printForgeCheckFindings is what a check without --json says it read and did,
+// before it hosts anything: each pull request waiting for a person, each
+// tracked pull request into the team's branch, each change waiting for the
+// team's merge, the feedback read, and the closing count.
+func printForgeCheckFindings(stdout, stderr io.Writer, output forgeCheckOutput) {
+	printPersonMerges(stdout, stderr, output.PersonMerges)
+	printTeamPullRequests(stdout, stderr, output.TeamPullRequests)
+	printTeamMerges(stdout, stderr, output.TeamMerges)
+	printFeedback(stdout, stderr, output.Feedback)
+	fmt.Fprintln(stdout, describeForgeCheck(output))
 }
 
 // forgeCheckerFrom is the reconciler a forge check runs with: the sweep's,
