@@ -125,6 +125,7 @@ func forgeCheckerFrom(parts components, answers publish.ResponseCache) orchestra
 	reconciler.Checks = forge
 	reconciler.Closers = forge
 	reconciler.Feedback = forge
+	reconciler.TeamPullRequests = forge
 	reconciler.HostsRuns = true
 	reconciler.RetryAtNextCheck = true
 	reconciler.Forge = &orchestrator.ForgeQuestions{}
@@ -137,6 +138,9 @@ func describeForgeCheck(output forgeCheckOutput) string {
 	said := fmt.Sprintf("forge check: %d pull request(s) waiting for a person to merge them, %d read for feedback", len(output.PersonMerges), len(output.Feedback))
 	if len(output.TeamMerges) > 0 {
 		said += fmt.Sprintf(", %d landed change(s) waiting for the team to merge them", len(output.TeamMerges))
+	}
+	if len(output.TeamPullRequests) > 0 {
+		said += fmt.Sprintf(", %d pull request(s) into the team's branch read", len(output.TeamPullRequests))
 	}
 	if failures := output.Failures(); failures > 0 {
 		said += fmt.Sprintf("; %d could not be read or acted on, and the next check reads them again", failures)
@@ -175,6 +179,9 @@ func reportForgeCheck(stdout, stderr io.Writer, jsonOutput bool, output forgeChe
 		}
 		if output.TeamMerges == nil {
 			output.TeamMerges = []orchestrator.TeamMergeSettlement{}
+		}
+		if output.TeamPullRequests == nil {
+			output.TeamPullRequests = []orchestrator.TeamPullRequestSettlement{}
 		}
 		if output.Feedback == nil {
 			output.Feedback = []orchestrator.FeedbackSettlement{}

@@ -114,6 +114,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 		return reconcileRuns(ctx, args[1:], stdout, stderr)
 	case "forge-check":
 		return checkForge(ctx, args[1:], stdout, stderr)
+	case "pull-request":
+		return runPullRequest(ctx, args[1:], stdout, stderr)
 	case "tracker":
 		return runTracker(ctx, args[1:], stdout, stderr)
 	case "heavy-checks":
@@ -940,6 +942,7 @@ Commands:
   cost              price work items from the runs made for them, and record it
   reconcile         settle interrupted runs, then converge local state on the forge
   forge-check       read the pull requests waiting for a person, and act on what changed
+  pull-request      record which pull request into the team's branch carries items waiting for the team's merge
   tracker export    export the tracker into this checkout, as a commit carrying the export needs
   tracker slow-calls  say which tracker calls ran out of time, for whom, for how long, and what held the store
   heavy-checks      read the places among this machine's heavy checks and what each cost, and give a kept one back

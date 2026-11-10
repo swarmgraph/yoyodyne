@@ -4803,7 +4803,25 @@ made by the forge check, every `execution.forge_check_interval`, which runs
 for a project that sets this key even if it publishes nothing. `yoyo status`
 and the dashboard list each waiting item with the branch it landed on and the
 branch it waits to be merged into. Setting it is the development manager's
-decision. The reasoning is in
+decision.
+
+An outside tool that opens its own pull request into the team's branch for a
+batch of waiting items tells the harness with
+`yoyo pull-request track <number> --item <id>...`, and takes it back with
+`yoyo pull-request untrack <number>`. The harness reads the pull request first
+and refuses, in plain words, one that goes into another branch, one closed
+without being merged, an item that is not waiting for the team's merge on this
+target branch, and an item whose landing commit is not among the pull request's
+commits, unless `--unverified` is given for a batch built from new commits, such
+as a squash. An item is carried by one pull request at a time, so tracking it on
+a second moves it. Each forge check reads every tracked pull request. One merged
+closes every item it carries with the merge commit recorded, so a squash merge
+closes them too. One closed without merging gives each item back to the Lead
+Product Manager, parked, with a note naming who closed it and when; the change
+stays on the target branch. While one is open, a waiting item whose landing
+commit appears among its commits is added to it, with a note. `yoyo status` and
+the dashboard say which pull request carries each waiting item, or that none
+does yet. The reasoning is in
 [integrating to a local branch](designs/integrating-to-a-local-branch.md).
 
 ### When a configuration change takes effect

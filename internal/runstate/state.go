@@ -2508,6 +2508,14 @@ func (s *State) recordedTexts() []recordedText {
 		unstated("person_merge.closed_by", "person_merge.closed_by", &s.PersonMerge.ClosedBy, maxForgeLoginBytes)
 		unstated("person_merge.update_refused", "person_merge.update_refused", &s.PersonMerge.UpdateRefused, MaxSelectionReasonBytes)
 	}
+	if s.TeamMerge != nil {
+		if s.TeamMerge.PullRequest != nil {
+			unstated("team_merge.pull_request.url", "team_merge.pull_request.url", &s.TeamMerge.PullRequest.URL, maxCheckURLBytes)
+		}
+		if s.TeamMerge.Returned != nil {
+			unstated("team_merge.returned.closed_by", "team_merge.returned.closed_by", &s.TeamMerge.Returned.ClosedBy, maxForgeLoginBytes)
+		}
+	}
 	if s.MergeDrop != nil {
 		unstated("merge_drop.reason", "merge_drop.reason", &s.MergeDrop.Reason, MaxRecordedTextBytes)
 		// The checks on the merge the forge's queue built are named as the

@@ -18,6 +18,12 @@ import (
 // LandingCommit is the commit on the target branch that has to appear on the
 // team's branch, and Since is when the wait began. Once a fetch finds it there,
 // FoundAt is when and FoundOn is the tip of the team's branch it was read at.
+//
+// PullRequest is the pull request into the team's branch that an outside tool
+// said carries the change. When that pull request's merge ends the wait, FoundBy
+// is its number and FoundOn is its merge commit. When it is closed without
+// merging, Returned records that the item was given back to the Lead Product
+// Manager, and the wait is over without the change reaching the team's branch.
 type TeamMerge struct {
 	TargetBranch   string     `json:"target_branch"`
 	UpstreamBranch string     `json:"upstream_branch"`
@@ -25,14 +31,28 @@ type TeamMerge struct {
 	Since          time.Time  `json:"since"`
 	FoundAt        *time.Time `json:"found_at,omitempty"`
 	FoundOn        string     `json:"found_on,omitempty"`
+
+	PullRequest *TeamPullRequest   `json:"pull_request,omitempty"`
+	FoundBy     int                `json:"found_by_pull_request,omitempty"`
+	Returned    *TeamMergeReturned `json:"returned,omitempty"`
+}
+
+// TeamMergeReturned records that the tracked pull request was closed without
+// merging and the item was given back to the Lead Product Manager.
+type TeamMergeReturned struct {
+	Number   int       `json:"number"`
+	ClosedBy string    `json:"closed_by,omitempty"`
+	ClosedAt time.Time `json:"closed_at"`
+	At       time.Time `json:"at"`
 }
 
 // Found reports a wait that ended in the landing commit appearing on the
 // team's branch.
 func (t TeamMerge) Found() bool { return t.FoundAt != nil }
 
-// Waiting reports a wait that has not ended.
-func (t TeamMerge) Waiting() bool { return !t.Found() }
+// Waiting reports a wait that has not ended: the landing commit has not been
+// found on the team's branch and the item has not been given back.
+func (t TeamMerge) Waiting() bool { return !t.Found() && t.Returned == nil }
 
 // Says is the wait in the words every surface uses for it.
 func (t TeamMerge) Says() string {
@@ -64,6 +84,25 @@ func (t TeamMerge) Validate() error {
 	if t.FoundAt == nil && t.FoundOn != "" {
 		problems = append(problems, errors.New("team_merge found_on requires found_at"))
 	}
+	if t.PullRequest != nil {
+		if err := t.PullRequest.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("team_merge pull_request: %w", err))
+		}
+	}
+	if t.FoundBy < 0 || (t.FoundBy > 0 && t.FoundAt == nil) {
+		problems = append(problems, errors.New("team_merge found_by_pull_request requires found_at"))
+	}
+	if t.Returned != nil {
+		if t.Returned.Number <= 0 {
+			problems = append(problems, errors.New("team_merge returned number must be positive"))
+		}
+		if t.Returned.ClosedAt.IsZero() || t.Returned.At.IsZero() {
+			problems = append(problems, errors.New("team_merge returned requires closed_at and at"))
+		}
+		if t.FoundAt != nil {
+			problems = append(problems, errors.New("team_merge cannot be both found and returned"))
+		}
+	}
 	return errors.Join(problems...)
 }
 
@@ -89,14 +128,21 @@ func (s *Store) WaitingForTeamMerge() ([]State, error) {
 type TeamMergeFound struct {
 	LandingCommit string
 	FoundOn       string
-	At            time.Time
+	// PullRequest, when set, is the tracked pull request whose merge ended the
+	// wait; FoundOn is then its merge commit.
+	PullRequest int
+	At          time.Time
 }
 
 func (u TeamMergeFound) apply(state *State) (bool, error) {
 	if !state.WaitingForTeamMerge() || state.TeamMerge.LandingCommit != u.LandingCommit {
 		return false, fmt.Errorf("run %s is not waiting for the team to merge %s, so finding it on the team's branch is not recorded on it", state.RunID, u.LandingCommit)
 	}
+	if u.PullRequest != 0 && (state.TeamMerge.PullRequest == nil || state.TeamMerge.PullRequest.Number != u.PullRequest) {
+		return false, fmt.Errorf("run %s is not tracked under pull request #%d, so its merge is not recorded on it", state.RunID, u.PullRequest)
+	}
 	wait := *state.TeamMerge
+	wait.FoundBy = u.PullRequest
 	at := u.At
 	wait.FoundAt = &at
 	wait.FoundOn = u.FoundOn
@@ -114,6 +160,10 @@ type WaitingForTeamMergeItem struct {
 	UpstreamBranch string    `json:"upstream_branch"`
 	LandingCommit  string    `json:"landing_commit"`
 	Since          time.Time `json:"since"`
+
+	PullRequest    int    `json:"pull_request,omitempty"`
+	PullRequestURL string `json:"pull_request_url,omitempty"`
+	Unverified     bool   `json:"unverified,omitempty"`
 }
 
 // WaitingForTeamMergeOf keeps only the runs waiting for the team's merge, one
@@ -132,6 +182,11 @@ func WaitingForTeamMergeOf(states []State) []WaitingForTeamMergeItem {
 			UpstreamBranch: state.TeamMerge.UpstreamBranch,
 			LandingCommit:  state.TeamMerge.LandingCommit,
 			Since:          state.TeamMerge.Since,
+		}
+		if pr := state.TeamMerge.PullRequest; pr != nil {
+			item.PullRequest = pr.Number
+			item.PullRequestURL = pr.URL
+			item.Unverified = pr.Unverified
 		}
 		if earlier, ok := latest[item.WorkItemID]; ok && earlier.Since.After(item.Since) {
 			continue
@@ -161,5 +216,12 @@ func (w WaitingForTeamMergeItem) Says() string {
 	if w.Title != "" {
 		name = fmt.Sprintf("%s (%s)", w.Title, w.WorkItemID)
 	}
-	return fmt.Sprintf("%s: landed on %s as %s, waiting for the team to merge it into %s", name, w.TargetBranch, commit, w.UpstreamBranch)
+	carried := "no pull request carries it yet"
+	if w.PullRequest > 0 {
+		carried = fmt.Sprintf("pull request #%d carries it", w.PullRequest)
+		if w.Unverified {
+			carried += " (its landing commit was not found among the pull request's commits)"
+		}
+	}
+	return fmt.Sprintf("%s: landed on %s as %s, waiting for the team to merge it into %s; %s", name, w.TargetBranch, commit, w.UpstreamBranch, carried)
 }

@@ -220,6 +220,12 @@ type Reconciler struct {
 	// which the note giving its item back carries (personmerge.go). Optional: a
 	// reconciler wired without it leaves such a request waiting and says why.
 	Closers ReconcileClosers
+	// TeamPullRequests reads a pull request into the team's branch that an
+	// outside tool carries tracked items in, with the commits it carries
+	// (teampullrequest.go). Optional: a reconciler wired without it cannot track
+	// such a pull request, and a forge check reports the ones already tracked as
+	// unread.
+	TeamPullRequests TeamPullRequestReader
 	// Filer files the item a queued merge's check red on the target itself is,
 	// one per target branch and check, as a red landing files its own; the merge
 	// then waits on that item rather than being handed to a person. Optional: a
@@ -1104,12 +1110,18 @@ func (r Reconciler) closeSettledMerge(ctx context.Context, state runstate.State)
 // a worse answer than leaving it and recording what happened beside it.
 //
 // A run waiting for the team's merge settles on an item still claimed
-// (in_progress): the wait is the settlement, and no sweep closes it.
+// (in_progress): the wait is the settlement, and no sweep closes it. One given
+// back to the Lead Product Manager, because the pull request carrying it was
+// closed without merging, settles on an item that is open: no sweep closes it or
+// notes it again.
 func itemSettled(state runstate.State, itemStatus string) bool {
 	if itemStatus == "closed" {
 		return true
 	}
 	if state.TeamMerge != nil && state.TeamMerge.Waiting() && itemStatus == "in_progress" {
+		return true
+	}
+	if state.TeamMerge != nil && state.TeamMerge.Returned != nil && itemStatus == "open" {
 		return true
 	}
 	return !state.Discharges() && itemStatus == "open"
