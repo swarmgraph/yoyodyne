@@ -197,6 +197,11 @@ func bindProject(args []string, stdout, stderr io.Writer) int {
 	if err := refuseRunsInFlight(root.Path, productID, "bind"); err != nil {
 		return fail(err)
 	}
+	if found && before.Present() {
+		if err := refuseWorktreesOfTheClone(root.Path, productID, before); err != nil {
+			return fail(err)
+		}
+	}
 	binding, err := home.Bind(home.AgreeOptions{Root: root.Path, ProductID: productID, Checkout: repository, Remote: remote})
 	if err != nil {
 		return fail(err)
@@ -407,6 +412,61 @@ func refuseRunsInFlight(root, productID, act string) error {
 	}
 	return fmt.Errorf("project %s has %d run(s) in flight, %s; %s refuses until they have ended, or `yoyo stop` has stopped them",
 		productID, len(runs), strings.Join(named, ", "), act)
+}
+
+// refuseWorktreesOfTheClone refuses to take a project off a clone that is still
+// there while worktrees kept from its stopped runs, under the project's
+// worktrees directory, are registered with that clone. A repair of one of those
+// runs works in its worktree, and so would go on working in a clone the project
+// is no longer bound to. A worktree registered with another clone, or whose
+// registration is gone, is not the clone's and does not hold the bind.
+func refuseWorktreesOfTheClone(root, productID string, leaving home.Binding) error {
+	directory := filepath.Join(home.ProjectDirectory(root, productID), home.WorktreesDirectoryName)
+	entries, err := os.ReadDir(directory)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read the worktrees of project %s under %s: %w", productID, directory, err)
+	}
+	var registered []string
+	for _, entry := range entries {
+		worktree := filepath.Join(directory, entry.Name())
+		if registeredWith(worktree, leaving.GitCommonDirectory) {
+			registered = append(registered, worktree)
+		}
+	}
+	if len(registered) == 0 {
+		return nil
+	}
+	return fmt.Errorf("project %s keeps %d worktree(s) from stopped runs that are registered with %s, the clone this bind would take it off: %s; "+
+		"a later repair of one of those runs would work in that clone, so bind refuses until they are removed. "+
+		"`yoyo reconcile` removes the ones no run needs any more; remove any other with `git -C %s worktree remove <path>` once its work is no longer wanted, then bind again",
+		productID, len(registered), leaving.Repository, strings.Join(registered, ", "), leaving.Repository)
+}
+
+// registeredWith reports whether the worktree at path is one Git has
+// registered with the repository whose common directory is common: its `.git`
+// file points at an entry under common's worktrees directory that is still
+// there.
+func registeredWith(path, common string) bool {
+	content, err := os.ReadFile(filepath.Join(path, ".git"))
+	if err != nil {
+		return false
+	}
+	gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(content)), "gitdir:")
+	if !ok {
+		return false
+	}
+	gitdir = strings.TrimSpace(gitdir)
+	if !filepath.IsAbs(gitdir) {
+		gitdir = filepath.Join(path, gitdir)
+	}
+	if info, err := os.Stat(gitdir); err != nil || !info.IsDir() {
+		return false
+	}
+	worktrees := filepath.Dir(filepath.Clean(gitdir))
+	return filepath.Base(worktrees) == "worktrees" && home.SameDirectory(filepath.Dir(worktrees), common)
 }
 
 func recordProjectAct(root, productID string, act projectAct) error {
@@ -771,7 +831,9 @@ list options:
   --home            print the machine home's path and nothing else
   --json            emit machine-readable JSON
 
-bind refuses while a run is in flight for the project. A configuration kept in
+bind refuses while a run is in flight for the project, and --replace refuses
+while worktrees kept from stopped runs are registered with the clone being
+left. A configuration kept in
 the project directory has its product.repository pointed at the repository
 bound, and a clone unbound while still there has its state-root marker removed.
 rename refuses while a

@@ -87,6 +87,50 @@ func TestASecondCloneIsRefusedAndBindReplaceMovesTheProject(t *testing.T) {
 	}
 }
 
+// bind --replace refuses while a worktree kept from a stopped run under the
+// project's worktrees directory is registered with the clone it would take the
+// project off, naming that worktree and how to remove it; a directory there
+// that Git has not registered with the clone does not hold it, and once the
+// registered worktree is removed the bind goes ahead as it always has.
+func TestBindReplaceRefusesWhileWorktreesAreRegisteredWithTheCloneBeingLeft(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", root)
+	first, firstConfig := boundProject(t, "git@github.com:example/yoyodyne.git")
+	_, secondConfig := boundProject(t, "https://github.com/example/yoyodyne")
+	if _, stderr, code := runCLI(t, "reports", "--config", firstConfig); code != 0 {
+		t.Fatalf("first start code = %d, stderr = %q", code, stderr)
+	}
+	git(t, first, "-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "-q", "--allow-empty", "-m", "base")
+	worktrees := filepath.Join(home.ProjectDirectory(root, "yoyodyne"), home.WorktreesDirectoryName)
+	kept := filepath.Join(worktrees, "yoyodyne-task-0123abcd")
+	git(t, first, "worktree", "add", "-q", "--detach", kept)
+	stray := filepath.Join(worktrees, "not-a-worktree")
+	if err := os.MkdirAll(stray, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runCLI(t, "project", "bind", "--replace", "--config", secondConfig)
+	if code == 0 {
+		t.Fatalf("bind --replace with a registered worktree code = 0, stdout = %q; want a refusal", stdout)
+	}
+	for _, want := range []string{kept, "registered with", "worktree remove", "yoyo reconcile"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr = %q, want it to say %q", stderr, want)
+		}
+	}
+	if strings.Contains(stderr, stray) {
+		t.Errorf("stderr = %q names %s, which no clone has registered", stderr, stray)
+	}
+	if binding, _, err := home.ReadBinding(root, "yoyodyne"); err != nil || !home.SameDirectory(binding.Repository, first) {
+		t.Fatalf("binding after the refusal = %+v, %v; want it still naming %s", binding, err, first)
+	}
+
+	git(t, first, "worktree", "remove", kept)
+	if stdout, stderr, code := runCLI(t, "project", "bind", "--replace", "--config", secondConfig); code != 0 || !strings.Contains(stdout, "in place of") {
+		t.Fatalf("bind --replace once the worktree is removed code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+}
+
 // Two products using one id refuse to start, naming the rename.
 func TestTwoProductsSharingAnIdAreRefusedNamingRename(t *testing.T) {
 	t.Setenv("YOYODYNE_STATE_HOME", t.TempDir())
