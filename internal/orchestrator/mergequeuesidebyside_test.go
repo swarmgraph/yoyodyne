@@ -266,3 +266,39 @@ func TestACandidateIsVerifiedOnlyWithEveryCheckPassedAndTheReviewApproving(t *te
 		}
 	}
 }
+
+// The checks' result landed while their save said it might not have, and the
+// review beside them finishes after that: the review's result is written over
+// what was saved, so neither stage's result is lost and nothing runs again.
+func TestAReviewFinishingAfterTheChecksUncertainSaveKeepsBothResults(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueFixture(t)
+	uncertain := make(chan struct{})
+	var once sync.Once
+	f.records.fail = func(g runstate.MergeQueueGeneration) (bool, error) {
+		if g.CheckRun != nil && g.CheckRun.FinishedAt != nil && (g.Review == nil || g.Review.FinishedAt == nil) {
+			once.Do(func() { close(uncertain) })
+			return true, runstate.ErrMergeQueueGenerationSaveUncertain
+		}
+		return false, nil
+	}
+	f.reviewer.before = func(call int) {
+		if call == 1 {
+			meet(t, uncertain, "the checks' uncertain save")
+		}
+	}
+	if _, err := f.work(); !errors.Is(err, runstate.ErrMergeQueueGenerationSaveUncertain) {
+		t.Fatalf("Work() error = %v, want the uncertain save reported", err)
+	}
+	recorded := f.generations()[0]
+	if recorded.CheckRun == nil || recorded.CheckRun.FinishedAt == nil || recorded.Review == nil || recorded.Review.FinishedAt == nil {
+		t.Fatalf("recorded checks %#v and review %#v, want both finished results kept", recorded.CheckRun, recorded.Review)
+	}
+	f.records.fail = nil
+	verification, err := f.work()
+	if err != nil || !verification.Verified || len(verification.Generation.Interruptions) != 0 || f.checks.calls() != 1 || f.reviewer.calls() != 1 {
+		t.Fatalf("Work() = %#v, %v with %d check runs and %d reviews; want both results kept and nothing run again",
+			verification, err, f.checks.calls(), f.reviewer.calls())
+	}
+}

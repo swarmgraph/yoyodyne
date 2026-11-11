@@ -787,6 +787,18 @@ func (s *sharedGeneration) record(lease *runstate.Lease, key runstate.MergeQueue
 		merged.LastSequence = last
 	}
 	if err := s.records.RecordGeneration(lease, key, merged); err != nil {
+		// A save that failed may still have landed, so what the record now
+		// says is read back: the other stage's next write is laid over what was
+		// saved, not over what this write hoped to save. Where the record cannot
+		// be read, the last known save stands, and the next write is checked
+		// against the record as always.
+		if generations, readErr := s.records.Generations(key, merged.EntryID); readErr == nil {
+			for _, recorded := range generations {
+				if recorded.Number == merged.Number {
+					s.latest = recorded
+				}
+			}
+		}
 		return err
 	}
 	s.latest = merged
