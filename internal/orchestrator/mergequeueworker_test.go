@@ -252,13 +252,16 @@ func TestTheTargetMovingDuringTheChecksRebuildsAndVerifiesAfresh(t *testing.T) {
 	if second.TargetBase != moved || readQueueFile(t, second.Checkout, "landed-during-checks.txt") == "" {
 		t.Fatalf("second generation base = %s, want it built on the moved target %s", second.TargetBase, moved)
 	}
-	// The first generation's checks stay where they were earned and authorize
-	// nothing; the review was only ever asked about the second.
-	if first.CheckRun == nil || first.CheckRun.Binding != first.Binding() || first.Review != nil {
+	// The first generation's checks and the review asked beside them stay where
+	// they were earned and authorize nothing; the second has its own of each.
+	if first.CheckRun == nil || first.CheckRun.Binding != first.Binding() || first.Review == nil || first.Review.Binding != first.Binding() {
 		t.Fatalf("first generation evidence = %#v, %#v", first.CheckRun, first.Review)
 	}
-	if f.checks.calls() != 2 || f.reviewer.calls() != 1 {
-		t.Fatalf("checks ran %d times and the review %d, want 2 and 1", f.checks.calls(), f.reviewer.calls())
+	if err := first.Gate(f.configured()); err == nil {
+		t.Fatal("the drifted generation still passes its gate")
+	}
+	if f.checks.calls() != 2 || f.reviewer.calls() != 2 {
+		t.Fatalf("checks ran %d times and the review %d, want each twice", f.checks.calls(), f.reviewer.calls())
 	}
 	// Drift is charged to nobody: the change's run is untouched.
 	if state, err := f.runs.Load(f.entry.RunID); err != nil || state.RepairAttempts != 0 {
@@ -322,9 +325,6 @@ func TestAFailingCheckOrARepairVerdictIsAVerificationThatDidNotPass(t *testing.T
 	verification, err := failing.work()
 	if err != nil || verification.Verified || !strings.Contains(verification.Refusal, "did not pass") {
 		t.Fatalf("Work() = %#v, %v; want a refusal for the failing check", verification, err)
-	}
-	if failing.reviewer.calls() != 0 {
-		t.Fatal("a candidate that failed its checks was sent for review")
 	}
 
 	repaired := newQueueFixture(t, repairVerdict)
@@ -782,31 +782,18 @@ func TestTheOperatorsPauseHoldsTheQueuesChecksAndReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	verification, err := f.work()
-	if err != nil || !strings.Contains(verification.Waiting, "paused harness activity") || f.checks.calls() != 0 {
+	if err != nil || !strings.Contains(verification.Waiting, "paused harness activity") || f.checks.calls() != 0 || f.reviewer.calls() != 0 {
 		t.Fatalf("Work() = %#v, %v with %d check runs; want nothing started while paused", verification, err, f.checks.calls())
 	}
 	if _, _, err := holds.Release(); err != nil {
 		t.Fatal(err)
 	}
 
-	// Paused while the checks run: the checks finish, and the review waits.
-	f.checks.before = func(call int) {
-		if call == 1 {
-			if _, err := holds.Hold(time.Now()); err != nil {
-				t.Error(err)
-			}
-		}
-	}
-	verification, err = f.work()
-	if err != nil || !strings.Contains(verification.Waiting, "review") || f.reviewer.calls() != 0 {
-		t.Fatalf("Work() = %#v, %v with %d reviews; want the review held", verification, err, f.reviewer.calls())
-	}
-	if _, _, err := holds.Release(); err != nil {
-		t.Fatal(err)
-	}
+	// The checks and the review start together, so once the pause is lifted
+	// both are asked for at once and the candidate is verified.
 	verification, err = f.work()
 	if err != nil || !verification.Verified || f.checks.calls() != 1 || f.reviewer.calls() != 1 {
-		t.Fatalf("Work() = %#v, %v; want the review asked once the pause lifted, and the checks kept", verification, err)
+		t.Fatalf("Work() = %#v, %v; want the checks and the review asked once the pause lifted", verification, err)
 	}
 }
 

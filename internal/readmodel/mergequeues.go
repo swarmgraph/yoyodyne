@@ -397,22 +397,40 @@ func placeByCandidate(read *QueueEntryStanding, generations []runstate.MergeQueu
 		read.State, read.Why = QueueEntryVerified, fmt.Sprintf("candidate %d passed its checks and its independent review and has not begun to land", latest.Number)
 	case latest.Paths != nil && len(latest.Paths.Refused) > 0:
 		read.State, read.Why = QueueEntryFailed, fmt.Sprintf("candidate %d changes protected paths its work item does not grant (%s)", latest.Number, strings.Join(latest.Paths.Refused, ", "))
+	case latest.Review != nil && latest.Review.FinishedAt != nil && latest.Review.Problem == "" &&
+		latest.Review.Decision != "" && latest.Review.Decision != "approve" && !candidateCheckFailed(latest):
+		// The checks and the review run at once, and a refusal stops the checks
+		// still running, so it is read before them.
+		read.State, read.Why = QueueEntryFailed, fmt.Sprintf("candidate %d's reviewer decided %q", latest.Number, latest.Review.Decision)
 	case latest.CheckRun == nil || latest.CheckRun.FinishedAt == nil:
 		read.State, read.Why = QueueEntryVerifying, fmt.Sprintf("candidate %d's checks have not finished", latest.Number)
 	case latest.CheckRun.Problem == "" && !candidateChecksPassed(latest):
 		read.State, read.Why = QueueEntryFailed, fmt.Sprintf("candidate %d did not pass its checks: %s", latest.Number, latest.Gate(configured))
-	case latest.Review == nil || latest.Review.FinishedAt == nil:
+	case (latest.Review == nil || latest.Review.FinishedAt == nil) && candidateChecksPassed(latest):
 		read.State, read.Why = QueueEntryVerifying, fmt.Sprintf("candidate %d passed its checks and its review has not finished", latest.Number)
-	case latest.Review.Problem == "" && latest.Review.Decision != "approve":
-		read.State, read.Why = QueueEntryFailed, fmt.Sprintf("candidate %d's reviewer decided %q", latest.Number, latest.Review.Decision)
 	default:
 		read.State, read.Why = QueueEntryVerifying, fmt.Sprintf("candidate %d is being verified again: %s", latest.Number, latest.Gate(configured))
 	}
 }
 
+// candidateCheckFailed reports a check that ran to its own end and failed on
+// the candidate.
+func candidateCheckFailed(generation runstate.MergeQueueGeneration) bool {
+	run := generation.CheckRun
+	if run == nil || run.FinishedAt == nil || run.Problem != "" {
+		return false
+	}
+	for _, result := range run.Results {
+		if !result.Passed && result.CouldNotRun == "" {
+			return true
+		}
+	}
+	return false
+}
+
 func candidateChecksPassed(generation runstate.MergeQueueGeneration) bool {
 	run := generation.CheckRun
-	if run == nil || len(run.Results) != len(generation.Checks.Commands) {
+	if run == nil || run.FinishedAt == nil || run.Problem != "" || len(run.Results) != len(generation.Checks.Commands) {
 		return false
 	}
 	for _, result := range run.Results {
