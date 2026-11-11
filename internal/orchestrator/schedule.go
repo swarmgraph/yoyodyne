@@ -160,6 +160,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"reflect"
 	"slices"
@@ -5726,6 +5727,15 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 	if pull.CarryOut == nil {
 		return nil, nil, nil, false
 	}
+	// Which of this session's starts had already ended is read before the
+	// decisions are, never after. A start ends only once its carry-out has
+	// returned, so one that ended before the decisions are read is accounted for
+	// in them. One that ends between the two reads ended after the list was
+	// taken, and the list can still show the decision that start carried out;
+	// counted as ended, that decision would be started a second time. Read first,
+	// such a start is still busy on this pull and its item is passed over until
+	// the next one.
+	endedBefore := handedBack.snapshot()
 	outstanding, err := pull.CarryOut.Outstanding()
 	// Kept apart from what a gate said about the attempt this pass then makes.
 	// Reading part of the record and firing what could be read are compatible, and
@@ -5811,7 +5821,7 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 		// it failed, or came back without reserving, and nothing more will come of
 		// it, so the decision goes ahead exactly as it would once the session has
 		// collected that ending.
-		leftover := ours && state.RunID == "" && handedBack.has(index)
+		leftover := ours && state.RunID == "" && endedBefore[index]
 		if busy && !leftover && (!reusesSlot || ours) {
 			var earlier *Started
 			if ours && index >= 0 && index < len(schedule.Started) {
@@ -7524,13 +7534,15 @@ func (h *startsHandedBack) forget(index int) {
 	delete(h.indices, index)
 }
 
-func (h *startsHandedBack) has(index int) bool {
+// snapshot is the starts handed back so far, as they stand now. A nil one has
+// none.
+func (h *startsHandedBack) snapshot() map[int]bool {
 	if h == nil {
-		return false
+		return nil
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.indices[index]
+	return maps.Clone(h.indices)
 }
 
 // forgetStart takes one collected start off mine, where it is still the start mine
