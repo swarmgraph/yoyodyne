@@ -2029,6 +2029,10 @@ type DeveloperSummary struct {
 	Text    string `json:"text"`
 	Content string `json:"content"`
 	Attempt int    `json:"attempt"`
+	// WholeBytes is how large the developer's summary was when the harness cut
+	// it to MaxDeveloperSummaryBytes, and zero for a summary kept whole or one
+	// cut before the size was recorded.
+	WholeBytes int `json:"whole_bytes,omitempty"`
 }
 
 func (s DeveloperSummary) Validate() error {
@@ -2036,8 +2040,8 @@ func (s DeveloperSummary) Validate() error {
 	if strings.TrimSpace(s.Text) == "" {
 		problems = append(problems, errors.New("text is required"))
 	}
-	if len(s.Text) > MaxRecordedTextBytes {
-		problems = append(problems, fmt.Errorf("text exceeds the %d byte bound", MaxRecordedTextBytes))
+	if len(s.Text) > MaxDeveloperSummaryBytes {
+		problems = append(problems, fmt.Errorf("text exceeds the %d byte bound", MaxDeveloperSummaryBytes))
 	}
 	if strings.TrimSpace(s.Content) == "" {
 		problems = append(problems, errors.New("content is required"))
@@ -2045,18 +2049,67 @@ func (s DeveloperSummary) Validate() error {
 	if s.Attempt < 0 {
 		problems = append(problems, errors.New("attempt cannot be negative"))
 	}
+	if s.WholeBytes < 0 {
+		problems = append(problems, errors.New("whole_bytes cannot be negative"))
+	}
 	return errors.Join(problems...)
 }
 
-// RecordDeveloperSummary retains the account within the existing recorded-text
-// bound, marking a cut on a rune boundary so a partial account is never whole
-// evidence to the reviewer.
-func RecordDeveloperSummary(text string) string {
-	return boundRecordedText(text, MaxRecordedTextBytes, reviewSummaryCutNote)
+// MaxDeveloperSummaryBytes bounds the developer's final summary the run record
+// keeps, and so what the reviewer is shown of it. It is its own bound rather
+// than MaxRecordedTextBytes because the summary is where a developer answers the
+// item's done-conditions, and at 4 KiB ordinary summaries were cut before
+// reaching them, so a reviewer sent a sound change back for answers the harness
+// had dropped. Nine of these (the latest and MaxEarlierDeveloperSummaries
+// earlier ones) stay well within the run record's own bound. The developer's
+// contract states this bound, and a test holds the two together.
+const MaxDeveloperSummaryBytes = 16 << 10
+
+// developerSummaryCutNote ends a summary the harness cut, saying the cut is the
+// harness's: a reviewer reading it must not take the missing tail as something
+// the developer left out.
+const developerSummaryCutNote = "\n[cut here by the harness when it recorded this summary; the rest was not recorded]"
+
+// RecordDeveloperSummary makes the record of one developer's final summary,
+// bound to the content and attempt it describes. A summary over
+// MaxDeveloperSummaryBytes is cut on a rune boundary, ends on a note saying the
+// harness cut it, and carries how large it was whole, so a partial account is
+// never shown to the reviewer as the whole of one.
+func RecordDeveloperSummary(text, content string, attempt int) DeveloperSummary {
+	summary := DeveloperSummary{
+		Text:    boundRecordedText(text, MaxDeveloperSummaryBytes, developerSummaryCutNote),
+		Content: content,
+		Attempt: attempt,
+	}
+	if whole := len(strings.TrimRight(text, "\n")); whole > MaxDeveloperSummaryBytes {
+		summary.WholeBytes = whole
+	}
+	return summary
+}
+
+// CutByHarness reports whether the harness cut this summary when recording it,
+// whether under today's bound or the 4 KiB one summaries were once recorded
+// under, which ended on the review summary's note and recorded no size.
+func (s DeveloperSummary) CutByHarness() bool {
+	return s.WholeBytes > 0 ||
+		strings.HasSuffix(s.Text, developerSummaryCutNote) ||
+		strings.HasSuffix(s.Text, reviewSummaryCutNote)
+}
+
+// CutStatement says, for whoever is shown this summary, that the harness cut it
+// and how large it was whole, or nothing for a summary kept whole.
+func (s DeveloperSummary) CutStatement() string {
+	if !s.CutByHarness() {
+		return ""
+	}
+	if s.WholeBytes > 0 {
+		return fmt.Sprintf("The harness cut this summary when it recorded it: the developer's summary was %d bytes and the record keeps at most %d, so the text after the cut was never recorded. The cut is the harness's, not the developer's.", s.WholeBytes, MaxDeveloperSummaryBytes)
+	}
+	return "The harness cut this summary when it recorded it, under the smaller bound summaries were once kept to, and how large it was whole was not recorded. The cut is the harness's, not the developer's."
 }
 
 // MaxEarlierDeveloperSummaries bounds how many earlier attempts' accounts a run
-// carries. Each is held to MaxRecordedTextBytes, so the record stays bounded
+// carries. Each is held to MaxDeveloperSummaryBytes, so the record stays bounded
 // however many repair rounds a run is granted; the review's own input bound
 // still applies to what is shown.
 const MaxEarlierDeveloperSummaries = 8
@@ -2264,10 +2317,10 @@ func (s *State) recordedTexts() []recordedText {
 	own("review_effort_description", &s.ReviewEffortDescription, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("review_summary", &s.ReviewSummary, MaxReviewSummaryBytes, reviewSummaryCutNote)
 	if s.DeveloperSummary != nil {
-		add("developer_summary.text", "developer_summary.text", &s.DeveloperSummary.Text, MaxRecordedTextBytes, reviewSummaryCutNote, true)
+		add("developer_summary.text", "developer_summary.text", &s.DeveloperSummary.Text, MaxDeveloperSummaryBytes, developerSummaryCutNote, true)
 	}
 	for index := range s.EarlierDeveloperSummaries {
-		add("earlier_developer_summaries[].text", at("earlier_developer_summaries", index, "text"), &s.EarlierDeveloperSummaries[index].Text, MaxRecordedTextBytes, reviewSummaryCutNote, true)
+		add("earlier_developer_summaries[].text", at("earlier_developer_summaries", index, "text"), &s.EarlierDeveloperSummaries[index].Text, MaxDeveloperSummaryBytes, developerSummaryCutNote, true)
 	}
 	// The landing reason is carried onward as an escalation's account, which is
 	// held to the blocker's bound, so it is held to that bound here too.

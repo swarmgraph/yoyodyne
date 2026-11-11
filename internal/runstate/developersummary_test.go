@@ -1,6 +1,7 @@
 package runstate
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -12,7 +13,8 @@ func TestDeveloperSummaryRequiresAnAccountAndItsBinding(t *testing.T) {
 		{Content: "content", Attempt: 0},
 		{Text: "implemented", Attempt: 0},
 		{Text: "implemented", Content: "content", Attempt: -1},
-		{Text: strings.Repeat("x", MaxRecordedTextBytes+1), Content: "content"},
+		{Text: strings.Repeat("x", MaxDeveloperSummaryBytes+1), Content: "content"},
+		{Text: "implemented", Content: "content", WholeBytes: -1},
 	} {
 		if err := summary.Validate(); err == nil {
 			t.Errorf("Validate() accepted an incomplete summary: %#v", summary)
@@ -24,16 +26,59 @@ func TestDeveloperSummaryRequiresAnAccountAndItsBinding(t *testing.T) {
 	}
 }
 
-func TestDeveloperSummaryIsBoundedWithAVisibleCut(t *testing.T) {
+// A summary past the 4 KiB bound summaries were once kept to is recorded whole,
+// because that bound cut ordinary summaries before their answers to the item's
+// done-conditions.
+func TestADeveloperSummaryPastTheOldBoundIsRecordedWhole(t *testing.T) {
 	t.Parallel()
-	text := "Implemented and checked compatibility. " + strings.Repeat("é", MaxRecordedTextBytes)
-	kept := RecordDeveloperSummary(text)
-	if len(kept) > MaxRecordedTextBytes || !utf8.ValidString(kept) ||
-		!strings.HasPrefix(kept, "Implemented and checked compatibility.") || !strings.HasSuffix(kept, reviewSummaryCutNote) {
-		t.Fatalf("a bounded summary lost its head or did not declare its cut: %q", kept)
+	text := "Condition 1 is met. " + strings.Repeat("Condition detail. ", 600) + "Condition 6 is met."
+	if len(text) <= 4<<10 || len(text) > MaxDeveloperSummaryBytes {
+		t.Fatalf("test summary is %d bytes, want it between the old bound and the new one", len(text))
 	}
-	if got := RecordDeveloperSummary("implemented"); got != "implemented" {
-		t.Fatalf("an account within the bound changed: %q", got)
+	summary := RecordDeveloperSummary(text, "content", 2)
+	if summary.Text != text || summary.WholeBytes != 0 || summary.CutByHarness() || summary.CutStatement() != "" {
+		t.Fatalf("a summary within the bound was not recorded whole: cut %v, whole %d, %d of %d bytes", summary.CutByHarness(), summary.WholeBytes, len(summary.Text), len(text))
+	}
+	if summary.Content != "content" || summary.Attempt != 2 {
+		t.Fatalf("summary lost its binding: %#v", summary)
+	}
+	if err := summary.Validate(); err != nil {
+		t.Fatalf("Validate() rejected a summary within the bound: %v", err)
+	}
+	if got := RecordDeveloperSummary("implemented", "content", 0); got.Text != "implemented" || got.CutByHarness() {
+		t.Fatalf("a short account changed: %#v", got)
+	}
+}
+
+func TestADeveloperSummaryPastTheBoundIsCutWithTheCutDeclared(t *testing.T) {
+	t.Parallel()
+	text := "Implemented and checked compatibility. " + strings.Repeat("é", MaxDeveloperSummaryBytes)
+	summary := RecordDeveloperSummary(text, "content", 0)
+	if len(summary.Text) > MaxDeveloperSummaryBytes || !utf8.ValidString(summary.Text) ||
+		!strings.HasPrefix(summary.Text, "Implemented and checked compatibility.") || !strings.HasSuffix(summary.Text, developerSummaryCutNote) {
+		t.Fatalf("a bounded summary lost its head or did not declare its cut: %q", summary.Text[len(summary.Text)-200:])
+	}
+	if summary.WholeBytes != len(text) || !summary.CutByHarness() {
+		t.Fatalf("whole = %d, cut = %v; want the whole size %d recorded", summary.WholeBytes, summary.CutByHarness(), len(text))
+	}
+	statement := summary.CutStatement()
+	for _, want := range []string{"The harness cut this summary", fmt.Sprintf("%d bytes", len(text)), fmt.Sprintf("at most %d", MaxDeveloperSummaryBytes), "not the developer's"} {
+		if !strings.Contains(statement, want) {
+			t.Errorf("cut statement %q does not say %q", statement, want)
+		}
+	}
+	if err := summary.Validate(); err != nil {
+		t.Fatalf("Validate() rejected a cut summary: %v", err)
+	}
+}
+
+// A summary recorded under the old 4 KiB bound ended on the review summary's
+// note and carried no size; it is still declared as the harness's cut.
+func TestASummaryCutUnderTheOldBoundIsStillDeclaredAsTheHarnesss(t *testing.T) {
+	t.Parallel()
+	old := DeveloperSummary{Text: "Condition 1 is met." + reviewSummaryCutNote, Content: "content"}
+	if !old.CutByHarness() || !strings.Contains(old.CutStatement(), "was not recorded") {
+		t.Fatalf("an old cut summary was not declared as cut: %q", old.CutStatement())
 	}
 }
 
