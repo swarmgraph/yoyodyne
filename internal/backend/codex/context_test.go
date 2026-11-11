@@ -50,6 +50,9 @@ type homeRunner struct {
 }
 
 func (r *homeRunner) Run(ctx context.Context, command execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
+	if isMCPListing(command) {
+		return r.fakeRunner.Run(ctx, command, observer)
+	}
 	home := ""
 	for _, entry := range command.Env {
 		if value, found := strings.CutPrefix(entry, ProviderHomeVariable+"="); found {

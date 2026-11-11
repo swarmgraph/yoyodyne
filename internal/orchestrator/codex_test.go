@@ -184,6 +184,14 @@ func (c *scriptedCodexCLI) Run(_ context.Context, command execution.Command, obs
 	if c.absent {
 		return execution.ProcessResult{}, exec.ErrNotFound
 	}
+	// A developer's turn first asks which MCP servers it would start, to turn
+	// them off; this provider lists none, and the listing is not a turn.
+	if len(command.Args) >= 2 && command.Args[0] == "mcp" && command.Args[1] == "list" {
+		if observer != nil {
+			observer(execution.Output{Stream: execution.StreamStdout, Text: "[]"})
+		}
+		return execution.ProcessResult{Status: execution.ProcessSucceeded}, nil
+	}
 	c.mu.Lock()
 	turn := len(c.commands)
 	c.commands = append(c.commands, command)

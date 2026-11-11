@@ -6343,7 +6343,10 @@ developer's turn where nothing overrides it, so the
 it that carry instructions: `developer_instructions` is emptied on every turn,
 and `model_instructions_file`, `experimental_compact_prompt_file`, and
 `compact_prompt` set at the top of the file are left out of what the turn
-reads.
+reads. Nor does a developer's turn start any MCP server the account's
+`config.toml` or the worktree's `.codex/config.toml` lists: each one is turned
+off by name on every turn
+([provider plugins](provider-plugins.md#capability-validation)).
 
 Every record says what was loaded, by name and source, and says `none` for
 each kind where that was nothing: a run keeps the developer's as
