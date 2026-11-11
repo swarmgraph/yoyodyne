@@ -937,8 +937,17 @@ previous attempt" was refused by a reviewer that was shown only that summary
 stands on its own and never points to an earlier one, because the reviewer
 judges the latest.
 
-Each saved copy retains at most 4 KiB, cutting on a character boundary and
-ending with a note when the rest was not recorded. It is shown as the
+Each saved copy retains at most 16 KiB, cutting on a character boundary and
+ending with a note that the harness cut it there; a cut copy also records how
+large the whole summary was. The bound was 4 KiB until ordinary summaries were
+cut before their answers to the item's done-conditions, and a reviewer sent a
+sound change back for answers the harness had dropped (`yoyodyne-h6t2`). The
+developer's contract states the bound and asks for the done-conditions to be
+answered first. Where a summary was cut, the review is told the harness cut it
+and how large it was, and the reviewer is told that such a cut is never by
+itself a reason to send the change back: a condition the cut text leaves
+unanswered is judged from the patch, the repository evidence, and the check
+results, or named as unverified. It is shown as the
 developer's own untrusted claims, and the reviewer is told what it may take
 from one and what it may not. It may take what the developer says it did and
 why — the decision behind a protected-path grant, the checks it says it ran,
