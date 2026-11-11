@@ -514,7 +514,13 @@ Each pass takes eleven steps, in this order, and each is recorded:
   history older than thirty days where no stage did, because the listings are
   past the limit. A store at least twice the size on disk that the last
   finished squash left it is squashed the same way even where its listings are
-  within ten seconds. A squash that finishes where, on the measured copy, the
+  within ten seconds, and so is a live store whose size on disk is past
+  `services.maintenance.tracker_limits.store_megabytes`, or whose listings of
+  open and ready work by the harness over the hour before took longer than
+  `listing_seconds`. Those two are read as the **limits** step reads them,
+  from the disk and from the log of calls, because a listing on an idle copy
+  is quick however large the live store has grown, so the measurement alone
+  never finds the live store due. A squash that finishes where, on the measured copy, the
   listings were still past ten seconds after the same squash files one
   warning for the development manager with the figures: the listings' times at
   each stage and the store's size either side of the squash. It is not filed
@@ -537,7 +543,9 @@ Each pass takes eleven steps, in this order, and each is recorded:
   first fails and is tried again by its caller. So a squash whose time on the
   measured copy is longer than `execution.redeploy_drain_limit` (fifteen
   minutes by default) is not run, and the pass files one warning for the
-  development manager naming the step and that time. Otherwise the pass reads
+  development manager naming the step and that time, and, where the store's
+  size or the slow listings made it due, saying so with the store's size on
+  disk. Otherwise the pass reads
   the store's size on disk, which lists no work items and so answers however
   large the store is, and then holds new runs in `tracker-squash-hold.json`
   under the product's state: a watching session starts nothing while it
