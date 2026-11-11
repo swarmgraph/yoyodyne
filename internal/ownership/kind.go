@@ -162,9 +162,9 @@ func AttentionKinds() []Kind {
 }
 
 // Kinds is every kind the registry keeps a rule for: the attention line's, the
-// stoppage, and the follow-up.
+// stoppage, the follow-up, and the empty developer slot.
 func Kinds() []Kind {
-	return append(AttentionKinds(), KindStoppage, KindFollowUp)
+	return append(AttentionKinds(), KindStoppage, KindFollowUp, KindEmptySlot)
 }
 
 // Valid reports whether a token is one of the attention line's kinds.
