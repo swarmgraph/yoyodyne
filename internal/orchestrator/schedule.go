@@ -3900,6 +3900,12 @@ pulling:
 			// reporting itself held while it works, which is the false half of the same
 			// misreading this exists to end.
 			window = providerWindow{}
+			if !probing {
+				// A pull that filled some free slots and left others empty says why
+				// about the ones it left, from what it passed over on the way; one
+				// that filled every free slot clears whatever it said before.
+				session.emptySlots(walkAccount(unfilledSlots(freeSlots, filled), queue, poll.passed, whyPassed, refused, heldProvider))
+			}
 			if probing {
 				// The line is still held: what started is the probe, and the session
 				// says so rather than saying it is choosing again. The hold is read

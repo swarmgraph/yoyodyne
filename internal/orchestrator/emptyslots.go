@@ -280,3 +280,14 @@ func slotNumbers(slots []developerslot.Slot) []int {
 	}
 	return numbers
 }
+
+// unfilledSlots is the numbers of the free slots a pull did not fill, in order.
+func unfilledSlots(free []developerslot.Slot, filled map[int]bool) []int {
+	var left []int
+	for _, slot := range free {
+		if !filled[slot.Number] {
+			left = append(left, slot.Number)
+		}
+	}
+	return left
+}

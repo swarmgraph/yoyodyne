@@ -219,3 +219,47 @@ func queueOf(ids ...string) backlog.Queue {
 	}
 	return queue
 }
+
+// A pull that fills one free slot and leaves another empty, because the next
+// ready item overlaps a run in flight, says why about the slot it left: a rule
+// keeping that item out, over that slot alone.
+func TestAPullThatFillsOneSlotSaysWhyItLeftTheOther(t *testing.T) {
+	t.Parallel()
+
+	claimed := beads.WorkItem{ID: "yoyodyne-epic", Title: "The whole of it", Status: "in_progress", Priority: 1}
+	child := beads.WorkItem{ID: "yoyodyne-epic.2", Title: "Second half", Status: "open", Priority: 0, Parent: "yoyodyne-epic"}
+	other := beads.WorkItem{ID: "yoyodyne-other", Title: "Something else", Status: "open", Priority: 1}
+	harness := newScheduleHarness(claimed, child, other)
+	harness.capacity = 3
+	harness.inFlight[claimed.ID] = runstate.State{RunID: "run-" + claimed.ID, WorkItemID: claimed.ID, Status: runstate.StatusRunning}
+	harness.onSleep = func(*scheduleHarness, int) bool { return false }
+	sessions := &recordedSessions{}
+
+	if _, err := (Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions}).Schedule(context.Background()); err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if pulled := harness.pullOrder(); len(pulled) == 0 || pulled[0] != other.ID {
+		t.Fatalf("pulled = %v, want the item that overlaps nothing started", pulled)
+	}
+	// The note is written by the pull that filled the other slot, before that
+	// pull's own line, rather than left to whatever pull comes next.
+	var note *runstate.EmptySlots
+	for _, transition := range sessions.recorded() {
+		if transition.emptySlots != nil {
+			note = transition.emptySlots
+			break
+		}
+		if strings.HasPrefix(transition.reason, "filled ") {
+			t.Fatalf("the filling pull wrote %q before any account of the slot it left empty", transition.reason)
+		}
+	}
+	if note == nil {
+		t.Fatal("no empty slot note was written for the slot the pull left empty")
+	}
+	if note.Cause != ownership.EmptySlotRule || !strings.Contains(note.Reason, child.ID) || !strings.Contains(note.Reason, "run-"+claimed.ID) {
+		t.Fatalf("note = %+v, want a rule naming the item it kept out and the run it overlaps", note)
+	}
+	if len(note.Slots) != 1 {
+		t.Fatalf("note slots = %v, want only the slot the pull left empty", note.Slots)
+	}
+}

@@ -5284,7 +5284,8 @@ has the rule.
 
   **A developer slot the scheduler left empty while ready work waits is said
   as a problem.** Each time a watching scheduler leaves a slot empty while
-  open, ready work no run carries is waiting, it records why on the watch log,
+  open, ready work no run carries is waiting, it records why on the watch log —
+  a pull that fills some free slots says why about the ones it left —
   and records it again only when the reason changes. The reason is one of five:
   a hold on new work, naming who placed it; a rule keeping work out, naming the
   item it kept out — work overlapping a run in flight, an item already tried,
