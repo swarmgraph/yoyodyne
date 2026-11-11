@@ -42,6 +42,10 @@ revisions:
       by: architect
       at: 2026-11-09T10:44:45.26264Z
       reason: Resends the revision answering a developer's proposal (amendment-23f23731, approved), raised while fixing what rebinding a project with a configuration kept outside its repository leaves behind. The binding governs where the two disagree. Bind rewrites the kept copy and removes the unbound clone's state-root marker, and yoyo doctor reports any disagreement. The first run was withdrawn only because GitHub held its merge queued over two hours, not for any fault in the text. Read whole at main 156b3df1; no other section changes.
+    - action: amended
+      by: architect
+      at: 2026-11-10T02:28:56.344478Z
+      reason: 'Writes the change approved as amendment-705ab9d9: the sentence on how a role''s read is resolved now says a role names the intent repository on the read, the harness resolves it at the intent repository''s target-branch commit and says which repository and commit it read, and the staleness and link checks still resolve governed paths there themselves. The same section''s two uses of the word ''gate'' are reworded under the operator''s November 8 rule. Read whole at main 6f2e4b56; no requirement changes and no other section changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -83,6 +87,11 @@ approvals:
       by: harness
       at: 2026-11-09T10:44:45.26264Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2523, for document-2523.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 9
+      by: harness
+      at: 2026-11-10T02:28:56.344478Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2564, for document-2564.1 under the automatic approval policy
 ---
 # The machine home
 
@@ -255,23 +264,27 @@ the second.
 What stays the same is everything the decision record protects. A revision
 lands in the intent repository as it lands in the project's today: on a branch,
 promoted into the intent repository's target under the one-promotion-per-target
-lease, with the revision log's reason as the commit's. The protected-path gate
-holds as it holds now: a run's write into a governed home is refused unless the
-item grants it, and `.yoyodyne/roles/` stays beyond any grant. What changes is
-evidence and reads. A change is evidenced by two recorded commits, the code's
-and the intent's, and every record that today carries one repository commit
-carries both, named. The repository read a role makes resolves a governed path
-in the intent repository and anything else in the project's, and says which it
-read from and at which commit. Staleness and the doclink checks follow the same
-resolution, so a design that cites code cites the project's commit and a check
+lease, with the revision log's reason as the commit's. The check on protected
+paths holds as it holds now: a run's write into a governed home is refused
+unless the item grants it, and `.yoyodyne/roles/` stays beyond any grant. What
+changes is evidence and reads. A change is evidenced by two recorded commits,
+the code's and the intent's, and every record that today carries one repository
+commit carries both, named. A role that reads a governed path in the intent
+repository says so on the read, with `"repository": "intent"`; the harness
+resolves that read at the commit the intent repository's target branch holds,
+and says which repository and which commit it read. Anything else a role reads
+resolves in the project's repository. The staleness check and the checks on
+links in documents still resolve governed paths in the intent repository
+themselves, so a design that cites code cites the project's commit and a check
 that follows the citation reads it there.
 
 Configuration, personas, and the developer-session instructions are then not in
-the project's repository. The harness materializes them into every worktree it
-cuts, untracked, listed in the worktree's own `.git/info/exclude`, and the diff
-gate reads them as not part of the change; a run that changes one of them
-changes nothing that lands. A repository with no `.yoyodyne/` at all is the
-whole point, so a missing directory there is not a fault.
+the project's repository. The harness writes them into every worktree it cuts,
+untracked, listed in the worktree's own `.git/info/exclude`, and the harness's
+check of what a run changed treats them as not part of the change; a run that
+changes one of them changes nothing that lands. A repository with no
+`.yoyodyne/` at all is the whole point, so a missing directory there is not a
+fault.
 
 The build of this is the contributor-mode epic's (yoyodyne-ifd.78), decomposed
 once the Lead Product Manager records the goal it serves and releases it.
