@@ -253,14 +253,18 @@ func TestARestartStopsARunningCheckOnceItsWaitReachesTheCeiling(t *testing.T) {
 			<-running
 			return
 		}
+		// The clock only ever moves forward, and a minute past each mark: the
+		// bound and the ceiling are reckoned from the moment the session found the
+		// deploy, which can be a few polls after began, and a clock set back to
+		// exactly began plus the bound at every pull would never reach them.
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		if _, said := waitedOnCheck(sessions); !said {
-			h.now = began.Add(h.drainLimit)
+			h.now = latest(h.now, began.Add(h.drainLimit+time.Minute))
 			return
 		}
 		waited.Store(true)
-		h.now = began.Add(h.drainLimit + redeployCheckWaitCeiling)
+		h.now = latest(h.now, began.Add(h.drainLimit+redeployCheckWaitCeiling+time.Minute))
 	}
 	harness.hostedRun = func(ctx context.Context, h *scheduleHarness, id string) (Outcome, error) {
 		h.mu.Lock()
@@ -289,8 +293,8 @@ func TestARestartStopsARunningCheckOnceItsWaitReachesTheCeiling(t *testing.T) {
 	if got := schedule.Drain.Stopped; len(got) != 1 || got[0] != id {
 		t.Fatalf("drain stopped = %v, want the run whose check outlasted the ceiling stopped", got)
 	}
-	if elapsed := harness.clock().Sub(began); elapsed > harness.drainLimit+redeployCheckWaitCeiling {
-		t.Fatalf("session restarted %s after the deploy, want no later than its bound and the ceiling, %s", elapsed, harness.drainLimit+redeployCheckWaitCeiling)
+	if elapsed := harness.clock().Sub(began); elapsed > harness.drainLimit+redeployCheckWaitCeiling+2*time.Minute {
+		t.Fatalf("session restarted %s after the deploy, want it at the ceiling, %s past the bound", elapsed, redeployCheckWaitCeiling)
 	}
 	started := schedule.Started[0]
 	if !started.Outcome.Paused || started.Outcome.RedeployStop == nil || started.Outcome.RedeployStop.Phase != runstate.PhaseChecking {
@@ -859,8 +863,10 @@ func TestARestartStopsAMergeQueueCandidatesChecksAtTheCeiling(t *testing.T) {
 			if queues.checkStopped.Load() {
 				t.Error("the candidate's checks were stopped before the ceiling")
 			}
+			// A minute past the ceiling, which is reckoned from the moment the
+			// session found the deploy rather than from began.
 			h.mu.Lock()
-			h.now = began.Add(h.drainLimit + redeployCheckWaitCeiling)
+			h.now = latest(h.now, began.Add(h.drainLimit+redeployCheckWaitCeiling+time.Minute))
 			h.mu.Unlock()
 			stage.Store(3)
 		}
@@ -892,4 +898,12 @@ func TestARestartStopsAMergeQueueCandidatesChecksAtTheCeiling(t *testing.T) {
 			}
 		}
 	}
+}
+
+// latest is the later of two moments, so a test moves its clock only forward.
+func latest(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
