@@ -36,6 +36,8 @@ type promotionFixture struct {
 	run      *recordingRun
 	remote   string
 	catchUps int
+	// expectRefusal is the sentence a test of one refusal says it must be.
+	expectRefusal string
 }
 
 // landingWay is how the fixture's target lands.
@@ -742,6 +744,18 @@ func TestWhatStopsARunsPromotionStopsTheQueues(t *testing.T) {
 				t.Fatal(err)
 			}
 		},
+		"a hold on landing on the target": func(f *promotionFixture) {
+			holds, err := runstate.NewLandingHoldStore(t.TempDir(), "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			hold, err := holds.Place("main", "cutting a release", time.Hour, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.worker.Pipeline.LandingHolds = holds
+			f.expectRefusal = hold.Says()
+		},
 		"a dependency added since": func(f *promotionFixture) {
 			f.tracker.Item.Dependencies = []beads.Dependency{{ID: "yoyodyne-other", Type: "blocks", Status: "open"}}
 		},
@@ -762,6 +776,9 @@ func TestWhatStopsARunsPromotionStopsTheQueues(t *testing.T) {
 			refused, err := f.promote()
 			if err != nil || refused.Refusal == "" || refused.Landed {
 				t.Fatalf("Promote() = %#v, %v; want a refusal", refused, err)
+			}
+			if f.expectRefusal != "" && refused.Refusal != f.expectRefusal {
+				t.Fatalf("refusal = %q, want %q", refused.Refusal, f.expectRefusal)
 			}
 			attempt, _ := f.landing().Current()
 			if f.local("main") != base || len(attempt.Mutations) != 0 {

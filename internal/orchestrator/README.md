@@ -134,6 +134,12 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     `heavycheck.go`.
 14. **Promotion and landing.** `integrate`, `finish`, `runLandingChecks`,
     `leaseLanding`, `fileRedLanding`, `nameUnreadingParts`.
+    A hold an outside tool placed on landing on the target
+    (`runstate.LandingHold`, `yoyo landing hold`) is read in `landinghold.go`
+    under the promotion lease just before the guarded change: `integrate` lets
+    the lease go and waits in probes (`awaitLandingHold`) with its evidence
+    kept, the merge queue's `fresh` refuses, and `armRecoveredMerge` and
+    `Rearmer.repeat` stop before asking the forge.
 15. **Endings.** `complete` (outcome notes, close, price, terminal record),
     `cleanUp`, `stop` (routes a stop to a pause or an ending), `escalate`,
     `pause`, `pauseForProviderStop`, `pauseForDirective`,

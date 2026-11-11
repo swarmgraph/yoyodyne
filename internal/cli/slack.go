@@ -463,6 +463,7 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		Amendments:      proposals,
 		OperatorHolds:   holds,
 		IntakeHolds:     intake,
+		LandingHolds:    slackLandingHolds(stateRoot, resolved.Config.Product.ID),
 		Sessions:        watch,
 		Reports:         reports,
 		Interventions:   interventions,
@@ -1120,6 +1121,16 @@ Options:
 // slackDocket is the triage docket the sink's standing reads, or none where it
 // cannot be opened: a reading without one names no product decision rather than
 // refusing the whole standing.
+// slackLandingHolds is the landing holds the channel names beside the other
+// holds, or nil where the store cannot be opened.
+func slackLandingHolds(stateRoot string, productID domain.ProductID) readmodel.LandingHolds {
+	store, err := runstate.NewLandingHoldStore(stateRoot, productID)
+	if err != nil {
+		return nil
+	}
+	return store
+}
+
 func slackDocket(stateRoot string, productID domain.ProductID) readmodel.Docket {
 	store, err := runstate.NewDocketStore(stateRoot, productID)
 	if err != nil {

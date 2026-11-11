@@ -196,6 +196,10 @@ type Reconciler struct {
 	// and is left exactly as it is. Optional: a sweep wired without it never
 	// settles a run parked on the operator's pause.
 	Holds OperatorHolds
+	// LandingHolds is the hold an outside tool places on landing on a target
+	// branch, read before a recovered merge is armed (landinghold.go). Optional:
+	// nil reads no hold.
+	LandingHolds LandingHolds
 	// Continue is how ContinueWaits continues a run that exited on its
 	// in-process usage-limit bound, and how ContinueUpdates carries a queued
 	// head through its update: the run's own pipeline re-entering the run named,
