@@ -10,6 +10,7 @@
 //	go run ./scripts/validationfixture ended <home> <product> <worktree path> <branch> <base commit>
 //	go run ./scripts/validationfixture hold <home> <product> <run id> <stop file> <seconds>
 //	go run ./scripts/validationfixture show <home> <product> <run id>
+//	go run ./scripts/validationfixture land-intent <home> <product> <config path> <document path> <content file>
 //
 // run records a run in flight and prints its id. ended records a run that had
 // already ended, cancelled, with the worktree it kept and the branch and commit
@@ -20,6 +21,10 @@
 // seconds have passed, whichever comes first, so a script that dies before it
 // creates the stop file still leaves nothing running. show prints the run's
 // worktree path and the path a migration note kept beside it, one per line.
+// land-intent lands one design in a project's companion intent repository
+// through the harness's own document route, with a scripted reviewer in place of
+// a provider (land.go says what that does and does not prove), and prints what
+// the run's record names, one name=value per line.
 package main
 
 import (
@@ -35,7 +40,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-const usage = "usage: validationfixture run|ended|hold|show <home> <product> ..."
+const usage = "usage: validationfixture run|ended|hold|show|land-intent <home> <product> ..."
 
 func main() {
 	if err := fixture(os.Args[1:]); err != nil {
@@ -88,6 +93,11 @@ func fixture(args []string) error {
 		fmt.Println(state.WorktreePath)
 		fmt.Println(kept)
 		return nil
+	case "land-intent":
+		if len(args) != 6 {
+			return errors.New(usage)
+		}
+		return landIntent(root, product, args[3], args[4], args[5])
 	default:
 		return errors.New(usage)
 	}

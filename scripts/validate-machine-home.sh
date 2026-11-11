@@ -20,11 +20,28 @@
 # and ~/.config are never read or written. The root is removed on exit, however
 # the script ends.
 #
-# It exits non-zero when any of checks 1 to 6 fails and zero otherwise. Check 7,
-# the companion intent repository, is reported as not yet built and counted
-# neither way until the contributor-mode work (yoyodyne-ifd.78) builds it. A
+# It exits non-zero when any of the seven checks fails and zero otherwise. A
 # behaviour a check describes that the harness lacks is a failure of that
 # check, never a check made easier.
+#
+# Check 7, the companion intent repository, proves less than the machine home
+# design's wording for it, and says so as it runs. The script has no provider
+# and no forge. What it proves: `yoyo init --external --intent` keeps the
+# governed homes in the intent repository and nothing in the project's;
+# `yoyo artifact check --intent` and `yoyo goals check --intent` pass on what
+# init wrote and refuse a deliberately broken goals document; and the
+# harness's own document route (orchestrator.Pipeline.PublishDocument, driven
+# by scripts/validationfixture) lands a decision record in the intent
+# repository's target branch through real worktrees, the real intent checks and
+# the real run store, and the run's record names the intent commit and the
+# project commit it read and the commit the landing left. What it does not
+# prove: the independent reviewer there is scripted, so no provider reviewed the
+# document, and what is shown of the review is that a verdict under a session
+# and model other than the author's was required and recorded. The refusal of a
+# run's write into a governed home without a grant, and the worktree's exclude
+# file, belong to a developer run's worktree, which needs a provider to start;
+# each is printed as not taken, with the reason, and the rest of the check
+# still runs and counts.
 #
 # Requires go and git. A run in flight is a record written through the
 # harness's own run store by scripts/validationfixture, whose lease a
@@ -471,8 +488,145 @@ if [ "$(listing "$earlier")" = "$before" ]; then pass "nothing was written to th
 finish
 
 # ---------------------------------------------------------------------------
-printf '\n=== check 7 (companion intent repository)\n'
-printf 'check 7 (companion intent repository): not yet built, counted neither passed nor failed; it waits on the contributor-mode work (yoyodyne-ifd.78)\n'
+begin "7 (companion intent repository)"
+fresh_home check7
+step "a fresh repository adopted with \`yoyo init --external --intent\`"
+new_repository "$work/demo" || fail "could not make the fresh repository"
+project_head="$(git -C "$work/demo" rev-parse HEAD 2>/dev/null)"
+(cd "$work/demo" && "$yoyo" init --external --intent --product demo </dev/null >"$work/init-intent.out" 2>&1); code=$?
+if [ "$code" -eq 0 ]; then pass "\`yoyo init --external --intent\` exited 0"; else fail "\`yoyo init --external --intent\` exited $code: $(oneline <"$work/init-intent.out")"; fi
+project_directory="$HOME/.yoyodyne/projects/demo"
+intent="$project_directory/intent"
+configuration="$project_directory/config.yaml"
+export YOYODYNE_CONFIG="$configuration"
+if [ -f "$configuration" ] && grep -q '^intent:' "$configuration" && grep -q 'repository: intent' "$configuration"; then
+  pass "the configuration under the project directory names the intent repository"
+else
+  fail "the configuration at $configuration does not name an intent repository"
+fi
+
+step "the governed homes are in the intent repository, and the project's repository holds none of the harness's files"
+if git -C "$intent" rev-parse --git-dir >/dev/null 2>&1; then pass "$intent is a Git repository"; else fail "$intent is not a Git repository"; fi
+for governed in docs/product docs/designs docs/decisions docs/decisions/invariants; do
+  if [ -d "$intent/$governed" ]; then pass "the intent repository holds $governed"; else fail "the intent repository holds no $governed"; fi
+done
+# init leaves the intent repository for the person to commit; this commits it as
+# a contributor does, as the adoption in the other checks does for a project.
+if git -C "$intent" rev-parse --verify -q HEAD >/dev/null 2>&1; then fail "init left commits in the intent repository, which it is meant to leave to the person"; else pass "init left the intent repository uncommitted, for the person to commit"; fi
+git -C "$intent" add -A && git -C "$intent" commit -q -m "adopt yoyodyne: the governed homes"
+for governed in docs/product/README.md docs/designs/README.md docs/decisions/README.md; do
+  if git -C "$intent" ls-files --error-unmatch "$governed" >/dev/null 2>&1; then pass "$governed is committed in the intent repository"; else fail "$governed is not committed in the intent repository"; fi
+done
+if [ -z "$(git -C "$intent" status --short)" ]; then pass "the intent repository's working tree is clean once committed"; else fail "the intent repository is not clean: $(git -C "$intent" status --short | oneline)"; fi
+if [ ! -e "$work/demo/.yoyodyne" ]; then pass "the project's repository holds no .yoyodyne/"; else fail "the project's repository holds .yoyodyne/"; fi
+for name in docs .beads CLAUDE.md AGENTS.md; do
+  if [ ! -e "$work/demo/$name" ]; then pass "the project's repository holds no $name"; else fail "the project's repository holds $name"; fi
+done
+if [ -z "$(git -C "$work/demo" status --short)" ]; then pass "git status in the project's repository is clean"; else fail "git status in the project's repository is not clean: $(git -C "$work/demo" status --short | oneline)"; fi
+if [ -z "$(git -C "$work/demo" ls-files)" ] && [ "$(git -C "$work/demo" rev-parse HEAD)" = "$project_head" ]; then pass "the project's repository tracks nothing and its history is the one it started with"
+else fail "the project's repository changed: $(git -C "$work/demo" ls-files | oneline)"; fi
+if [ -f "$intent/.beads/issues.jsonl" ]; then
+  pass "the tracker export is in the intent repository"
+else
+  printf '      not taken: the tracker export in the intent repository -- `yoyo init` does not write one there, and the export is written by the tracker, which this run does not start\n'
+fi
+
+step "the intent checks, over the intent repository from the project's repository"
+(cd "$work/demo" && "$yoyo" artifact check --intent "$intent" </dev/null >"$work/artifact-check.out" 2>&1); code=$?
+if [ "$code" -eq 0 ]; then pass "\`yoyo artifact check --intent\` passes on what init wrote"; else fail "\`yoyo artifact check --intent\` exited $code: $(oneline <"$work/artifact-check.out")"; fi
+(cd "$work/demo" && "$yoyo" goals check --intent "$intent" </dev/null >"$work/goals-check.out" 2>&1); code=$?
+if [ "$code" -eq 0 ]; then pass "\`yoyo goals check --intent\` passes on what init wrote"; else fail "\`yoyo goals check --intent\` exited $code: $(oneline <"$work/goals-check.out")"; fi
+cp -Rf "$intent" "$work/broken-intent"
+mkdir -p "$work/broken-intent/docs/product/goals"
+cat >"$work/broken-intent/docs/product/goals/broken-goals.md" <<'GOALS'
+---
+id: broken-goals
+kind: goals
+title: Broken goals
+supports:
+    - brief
+status: active
+revisions:
+    - action: created
+      by: product-manager
+      at: 2026-10-01T00:00:00Z
+      reason: a goals document the validation project writes broken on purpose
+---
+
+# Broken goals
+
+## Goals
+
+- A goal written across
+  two lines, which the format refuses.
+GOALS
+(cd "$work/demo" && "$yoyo" goals check --intent "$work/broken-intent" </dev/null >"$work/goals-broken.out" 2>&1); code=$?
+if [ "$code" -ne 0 ]; then pass "\`yoyo goals check --intent\` refuses a deliberately broken goals document in a scratch copy"; else fail "\`yoyo goals check --intent\` passed a goal written across two lines"; fi
+contains "$(cat "$work/goals-broken.out")" "not written on one line" "and says why"
+if [ -z "$(git -C "$intent" status --short)" ]; then pass "the broken copy left the real intent repository alone"; else fail "the real intent repository changed"; fi
+
+step "a document lands in the intent repository's target branch through the harness's own document route"
+printf '%s\n' "# The validation decision" "" "A decision record the validation project landed through the document route." >"$work/decision.md"
+intent_branch="$(git -C "$intent" branch --show-current)"
+intent_before="$(git -C "$intent" rev-parse HEAD 2>/dev/null)"
+intent_count_before="$(git -C "$intent" rev-list --count HEAD 2>/dev/null)"
+export PATH="$scratch/bin:$PATH"
+if "$fixture" land-intent "$HOME/.yoyodyne" demo "$configuration" docs/decisions/validation-landing.md "$work/decision.md" >"$work/land.out" 2>"$work/land.err"; then
+  pass "the document route ran to its end"
+else
+  fail "the document route stopped: $(oneline <"$work/land.err")"
+fi
+landed() { sed -n "s/^$1=//p" "$work/land.out" | head -1; }
+run_id="$(landed run)"
+printf '      the run: %s; status %s; detail: %s\n' "$run_id" "$(landed status)" "$(landed detail | cut -c1-300)"
+if [ "$(landed status)" = "succeeded" ] && [ "$(landed landed)" = "true" ]; then pass "the run succeeded and landed"; else fail "the run did not land: $(landed detail | cut -c1-400)"; fi
+intent_after="$(git -C "$intent" rev-parse HEAD 2>/dev/null)"
+if [ -n "$intent_after" ] && [ "$intent_after" != "$intent_before" ] && [ "$(git -C "$intent" rev-list --count HEAD)" -gt "$intent_count_before" ]; then
+  pass "the intent repository's $intent_branch branch moved from ${intent_before:0:12} to ${intent_after:0:12}"
+else
+  fail "the intent repository's $intent_branch branch did not move (${intent_before:0:12} -> ${intent_after:0:12})"
+fi
+landed_text="$(git -C "$intent" show "$intent_branch:docs/decisions/validation-landing.md" 2>&1)"
+contains "$landed_text" "A decision record the validation project landed through the document route." "the document is in the intent repository's $intent_branch branch, as written"
+contains "$landed_text" "by: harness" "its revision log records the confirmation under the harness's automatic policy"
+if [ -z "$(git -C "$intent" status --short)" ]; then pass "the intent repository's working tree is clean after the landing"; else fail "the intent repository is not clean after the landing: $(git -C "$intent" status --short | oneline)"; fi
+if [ "$(git -C "$intent" rev-parse HEAD)" = "$(landed intent_head)" ]; then pass "the head the fixture read is the head Git holds"; else fail "the fixture's intent head $(landed intent_head) is not Git's $(git -C "$intent" rev-parse HEAD)"; fi
+if [ "$(git -C "$work/demo" rev-parse HEAD)" = "$project_head" ] && [ -z "$(git -C "$work/demo" status --short)" ] && [ -z "$(git -C "$work/demo" ls-files)" ] && [ ! -e "$work/demo/.yoyodyne" ]; then
+  pass "the project's repository is unchanged by the landing: same history, clean, no .yoyodyne/"
+else
+  fail "the landing changed the project's repository"
+fi
+git -C "$intent" worktree prune 2>/dev/null
+if [ "$(git -C "$intent" worktree list | wc -l | tr -d ' ')" = "1" ]; then pass "no run worktree is left registered in the intent repository"; else fail "the intent repository still lists run worktrees: $(git -C "$intent" worktree list | oneline)"; fi
+
+step "the record of the landed change names both commits"
+contains "$(landed repository)" "intent" "the run record's repository is intent"
+if [ "$(landed intent_commit)" = "$intent_before" ] && [ -n "$intent_before" ]; then pass "it names the intent commit the run read, the one the branch held before the landing"; else fail "it names intent commit '$(landed intent_commit)', not $intent_before"; fi
+if [ "$(landed project_commit)" = "$project_head" ] && [ -n "$project_head" ]; then pass "it names the project commit, the head of the project's repository"; else fail "it names project commit '$(landed project_commit)', not $project_head"; fi
+if [ "$(landed target_commit)" = "$intent_after" ] && [ -n "$intent_after" ]; then pass "its integration's target commit is the intent repository's new head"; else fail "its integration's target commit is '$(landed target_commit)', not $intent_after"; fi
+record_file="$(find "$HOME/.yoyodyne/projects/demo" -name "$run_id.json" 2>/dev/null | head -1)"
+if [ -n "$record_file" ]; then
+  if grep -q '"repository": "intent"' "$record_file" && grep -q "\"intent_commit\": \"$intent_before\"" "$record_file" && grep -q "\"project_commit\": \"$project_head\"" "$record_file"; then
+    pass "the record on disk, $record_file, carries repository, intent_commit and project_commit"
+  else
+    fail "the record on disk does not carry them: $(grep -E '"(repository|intent_commit|project_commit)"' "$record_file" | oneline)"
+  fi
+else
+  fail "no record of run $run_id under the project directory"
+fi
+if [ -n "$(landed review_session)" ] && [ "$(landed review_session)" != "$(landed author_session)" ]; then
+  pass "the record carries a review session distinct from the author's"
+else
+  fail "the record's review session '$(landed review_session)' is not distinct from the author's '$(landed author_session)'"
+fi
+printf '      not proved: that a provider reviewed the document. The reviewer is scripted (it approves under a session and model of its own); only the route, the intent checks, the promotion and the record are real.\n'
+printf '      not observed on its own: the promotion lease. The promotion step of the pipeline takes it before the target branch moves, and the branch did move, but this run does not watch the lease taken or held.\n'
+
+step "what a developer run's worktree needs, and this run cannot reach"
+printf '      not taken: a run'"'"'s write into a governed home without a grant being refused -- that is a developer run'"'"'s change judged against its work item'"'"'s grants, and starting a developer run needs a provider.\n'
+printf '      not taken: the configuration the harness puts in a worktree being untracked and listed in that worktree'"'"'s exclude file -- it is written when a developer run'"'"'s worktree is cut, which needs a provider; a document landing writes none.\n'
+unset YOYODYNE_CONFIG
+finish
 
 # ---------------------------------------------------------------------------
 {
@@ -493,8 +647,8 @@ printf 'check 7 (companion intent repository): not yet built, counted neither pa
 
 printf '\n'
 if [ "$failed_checks" -eq 0 ]; then
-  printf 'checks 1 to 6 passed; check 7 not yet built\n'
+  printf 'checks 1 to 7 passed (check 7 with a scripted reviewer and two sub-parts not taken, as printed above)\n'
   exit 0
 fi
-printf '%d of checks 1 to 6 failed; check 7 not yet built\n' "$failed_checks"
+printf '%d of checks 1 to 7 failed\n' "$failed_checks"
 exit 1

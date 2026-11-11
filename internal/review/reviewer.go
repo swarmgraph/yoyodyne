@@ -154,7 +154,20 @@ type Request struct {
 	EarlierDeveloperSummariesDropped int
 	Changes                          gitworktree.ChangeDiff
 	Repository                       RepositoryEvidence
-	Checks                           []checks.Result
+	// ProjectCode is the project's own repository at the commit its target
+	// branch held when the run began: its file listing and whole copies of the
+	// files the document names. It is set only for a change that lands in a
+	// companion intent repository, whose reviewer is launched in that repository
+	// and so cannot otherwise read the code a design or an invariant constrains.
+	// The harness supplies it from its own Git access, so it is trusted evidence
+	// of the code, not developer testimony. It is empty for every other change
+	// and then nothing is shown. It is evidence for judging the document's claims
+	// about the code only; a verdict's absence claims are checked against
+	// Repository, never against this.
+	ProjectCode RepositoryEvidence
+	// ProjectCodeCommit is the project repository commit ProjectCode was read at.
+	ProjectCodeCommit string
+	Checks            []checks.Result
 	// CheckPatterns is what the item's done-conditions quote, as
 	// CriterionPatterns reads it. Every line of a check's retained output that
 	// contains one is quoted beside the check, so a criterion about what a check
@@ -383,7 +396,22 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	}
 	withoutRepository := request
 	withoutRepository.Repository = RepositoryEvidence{}
+	withoutRepository.ProjectCode = RepositoryEvidence{}
+	withoutRepository.ProjectCodeCommit = ""
 	remaining := MaxReviewInputBytes - len(systemPrompt) - len(appended) - len(redactor.Redact(reviewEvidencePrompt(withoutRepository))) + len(renderRepository(RepositoryEvidence{}))
+	if request.hasProjectCode() {
+		// Both sections share what is left. Each is given half, and a section that
+		// needs less than half leaves the rest to the other. The project's code is
+		// bounded first and the intent repository takes what it actually left.
+		section := projectCodeSection(request.ProjectCodeCommit)
+		renderProject := func(e RepositoryEvidence) string { return renderRepositorySection(e, section) }
+		projectBudget := remaining / 2
+		if needs := len(renderRepository(request.Repository)); needs < projectBudget {
+			projectBudget = remaining - needs
+		}
+		request.ProjectCode = request.ProjectCode.boundedAs(renderProject, projectBudget)
+		remaining -= len(renderProjectCode(request))
+	}
 	request.Repository = request.Repository.bounded(remaining)
 	prompt := redactor.Redact(reviewEvidencePrompt(request)) + appended
 	inputBytes := len(systemPrompt) + len(prompt)
@@ -1212,6 +1240,7 @@ func reviewEvidencePrompt(request Request) string {
 	}
 	prompt.WriteString(renderChanges(request.Changes, request.evidenceLocation()))
 	prompt.WriteString(renderRepository(request.Repository))
+	prompt.WriteString(renderProjectCode(request))
 	prompt.WriteString("\n# Check results\n\n")
 	prompt.WriteString(renderChecks(request.Checks, request.CheckPatterns, execution.EventLogOf(request.RunID)))
 	return prompt.String()

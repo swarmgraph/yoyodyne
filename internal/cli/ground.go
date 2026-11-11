@@ -511,6 +511,9 @@ func conversationPublications(parts components, role domain.AgentRole) chat.Stop
 	if parts.worktrees != nil {
 		decider.Copies = parts.worktrees
 	}
+	if parts.intentWorktrees != nil {
+		decider.IntentCopies = parts.intentWorktrees
+	}
 	return decider
 }
 

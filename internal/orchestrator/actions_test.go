@@ -991,6 +991,8 @@ var notAStep = map[string]string{
 	"recordStartingTarget":       "writes the commit the worktree was cut from onto the run's record and the item's notes",
 	"noteTeamTakeover":           "writes on the item that its claim on the shared remote was taken over from another factory; it never stops the run, so there is nothing for a definition to route",
 	"documentChecks":             "reads which check list a document landing runs; the check step it informs is verify",
+	"landsInIntentRepository":    "reads whether the run is in the project's companion intent repository, which the steps that act on a repository ask; it decides nothing a definition could route",
+	"checkEnvironment":           "reads the environment the checks of a landing in the companion intent repository are given; the check step it informs is verify",
 	"awaitLandingHold":           "waits out a hold an outside tool placed on landing on the target, with the run's phase and evidence untouched; the promotion it guards is the step",
 	"closeEarlierDocumentCopies": "closes the open pull request of an earlier stopped copy of the document a document run publishes, once that run's own request is recorded; it never stops the run, so there is nothing for a definition to route",
 	"stop":                       "turns a stopped step into the run's outcome, which for a pause or a hold leaves the run in flight",

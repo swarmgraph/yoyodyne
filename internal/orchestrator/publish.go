@@ -44,6 +44,12 @@ import (
 // origin with nothing that reconciles the two.
 
 func (p Pipeline) publishes() bool {
+	// The publisher is bound to the project's repository, so a landing in the
+	// companion intent repository publishes nothing: it is promoted locally and
+	// pushed to that repository's own remote where it has one.
+	if p.intentLanding {
+		return false
+	}
 	return p.Config.Approvals.Publishing == domain.ApprovalAutomatic
 }
 

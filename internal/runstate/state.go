@@ -70,6 +70,10 @@ import (
 // key — which is the refusal an older build owes a transition it cannot follow.
 const StateSchemaVersion = 1
 
+// RepositoryIntent is State.Repository for a run whose worktree, branch, base
+// commit and target branch are the project's companion intent repository's.
+const RepositoryIntent = "intent"
+
 // The shape of the three things a run records about how it was configured and
 // what was executing it. They are stated here rather than imported from the
 // configuration package for the reason the review decisions above are: the
@@ -3490,6 +3494,18 @@ type State struct {
 	// it was written against rather than whatever happens to be checked out
 	// when the run is picked up again.
 	TargetBranch string `json:"target_branch,omitempty"`
+	// Repository names which repository this run's worktree, branch, base commit
+	// and target branch are in: RepositoryIntent for the project's companion
+	// intent repository, empty for the project's own. Whatever acts on the run's
+	// worktree later reads it to choose the repository to act on.
+	Repository string `json:"repository,omitempty"`
+	// IntentCommit is the commit of the companion intent repository this run read
+	// the project's intent at. It is recorded when the run starts so that the
+	// developer, a resumed attempt and the reviewer all read the same commit.
+	IntentCommit string `json:"intent_commit,omitempty"`
+	// ProjectCommit is, for a run in the companion intent repository, the commit
+	// of the project's own repository its reviewer was shown the code at.
+	ProjectCommit string `json:"project_commit,omitempty"`
 	// UpstreamBranch is the team's branch fixed when the run started, from
 	// execution.upstream_branch. A run that records one does not close its item
 	// when its change lands on the target branch; it waits for the team's merge
@@ -4755,6 +4771,15 @@ func (s State) Validate() error {
 	}
 	if s.TargetBranch != "" && !validLocalBranch(s.TargetBranch) {
 		problems = append(problems, errors.New("target_branch must be a local branch name"))
+	}
+	if s.Repository != "" && s.Repository != RepositoryIntent {
+		problems = append(problems, fmt.Errorf("repository %q is not recognized; it is empty or %q", s.Repository, RepositoryIntent))
+	}
+	if s.IntentCommit != "" && !commitPattern.MatchString(s.IntentCommit) {
+		problems = append(problems, errors.New("intent_commit must be a full commit hash"))
+	}
+	if s.ProjectCommit != "" && !commitPattern.MatchString(s.ProjectCommit) {
+		problems = append(problems, errors.New("project_commit must be a full commit hash"))
 	}
 	if s.Integration != nil {
 		// Recorded integration is a claim that approved work was promoted, so it

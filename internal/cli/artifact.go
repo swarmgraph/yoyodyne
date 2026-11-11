@@ -673,6 +673,11 @@ Options:
   --config <path>       configuration file (default: the nearest .yoyodyne/config.yaml)
   --json                emit machine-readable JSON
 
+check options:
+  --intent <dir>        read the governed documents from this checkout of the
+                        intent repository (an existing directory, relative to the
+                        working directory) instead of the configured one
+
 list options:
   --kind <kind>         brief, goals, non-goals, design, specification, or decision
 

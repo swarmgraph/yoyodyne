@@ -302,6 +302,9 @@ landing_checks: []  # what runs whole, once per landing; see "Where the whole su
 path_checks: []     # checks a change runs only when it touches what they vouch for
 install: []         # what installs the project's dependencies; see configuration/runs.md
 document_checks: [] # what a confirmed document's landing runs; see "The document checks"
+intent:
+  repository: ""    # a companion intent repository, if the documents live outside the project's own
+  checks: []        # what a landing into that repository runs; see "The companion intent repository's checks"
 
 accounts:
   default: {}       # the provider account the agents below run under
@@ -833,9 +836,10 @@ reviewer is handed, a document a work item cites, and the management
 conversations' picture of the product all resolve their root through one
 function, `config.Product.IntentRoot`, which answers the companion repository
 where the configuration names one and the project's repository otherwise. Intent
-read from the companion repository is read as its checkout stands, and the
-context says so, rather than at the project commit a review is measured
-against. A test drives a whole run against a project repository holding none of
+read from the companion repository is read at the commit that repository's target
+branch holds, never from its checkout, and the context names that commit. A run
+records the commit it read, so its developer and its reviewer read the same one,
+and a change in the companion checkout that is not committed is not intent. A test drives a whole run against a project repository holding none of
 the harness's files.
 
 Four things are worth knowing about it:
@@ -849,24 +853,25 @@ Four things are worth knowing about it:
 - **A missing companion repository is a problem `yoyo doctor` names**, with
   `yoyo setup` as the remedy, because nothing can read the project's intent
   until it is there.
-- **A document confirmed by an automatic policy is held, not landed.** A design
-  confirmed under `approvals.designs: automatic` ordinarily lands through a
-  reviewed run into the project's repository. The reviewed run that would land
-  it in the companion repository instead — a branch cut from that repository,
-  checks that mean something for a repository of documents, independent
-  review, and promotion into its target branch under the one-at-a-time
-  promotion rule — is not built yet. Until it is, such a document stays
-  confirmed by its policy and saved in its conversation, the owning role is told
-  once what holds it, and it is tried again at each later message. It is not
-  put to you: confirming a design is not a decision that needs a person. What
-  your policy already puts to you — the brief and the goals under `human`, and
-  everything under `approvals.integration: human` — still is, and your `y`
-  writes the document into the companion repository's checkout, for you to
-  commit there, as `yoyo artifact approve`, `yoyo artifact identify`, and
-  `yoyo invariant` write there too. A confirmed document and the two artifact
-  commands say the write is an uncommitted change in the companion repository
-  and name it, without saying a run will refuse to start over it, because no
-  run starts from that repository.
+- **A confirmed document lands in the companion repository through a reviewed
+  run.** A design confirmed under `approvals.designs: automatic`, and a document
+  you approve, are written by a run cut from that repository's target branch,
+  checked with [the companion intent repository's
+  checks](#the-companion-intent-repositorys-checks), reviewed by the independent
+  reviewer — who is also shown the project's code at a commit the run records —
+  and promoted into that repository's target branch under the one-at-a-time
+  promotion rule. No pull request is opened, because the forge access is the
+  project's; the change is pushed to that repository's own remote where it has
+  one. The run's record names the repository, and the commit it merged. A
+  session built without access to the companion repository cannot cut that run,
+  so the document stays confirmed by its policy and saved in its conversation,
+  the owning role is told once what holds it, and it is tried again at each later
+  message. It is not put to you: confirming a design is not a decision that
+  needs a person. What your policy already puts to you — the brief and the goals
+  under `human` — still is. `yoyo artifact identify` and `yoyo invariant` write
+  into the companion repository's checkout, for you to commit there, and say the
+  write is an uncommitted change in that repository, which is not intent until
+  it is committed on its target branch.
 - **The tracker stays where it was.** The tracker's export under `.beads/` and
   the developer-session instruction files are still the project's, so a fully
   local adoption excludes them as above.
@@ -1509,7 +1514,8 @@ takes the first of them rather than a commit the harness makes.
 
 **Where no run can carry it, the write lands in your checkout and stops
 there, and the command says so.** That is a project with no independent reviewer
-configured, and one that keeps its intent in a companion intent repository:
+configured. A project that keeps its intent in a companion intent repository
+lands the approval through a run cut from that repository instead:
 
 ```
 docs/product/brief.md is now an uncommitted change in /home/you/src/example, and
@@ -3681,6 +3687,54 @@ declare none; a candidate the queue refuses ends the run with nothing handed
 to a developer, and the document goes back to its owner as any document that
 did not land does. An entry with no command is refused when the
 configuration loads, and `document_landings` may not be negative.
+
+### The companion intent repository's checks
+
+A confirmed document whose home is a companion intent repository
+(`intent.repository`) is landed by a run cut from that repository's target
+branch, not from the project's code. That run runs `intent.checks` and never
+`checks`, `document_checks`, `landing_checks`, `path_checks`, or `install`,
+because those are the code repository's commands, and a repository that holds
+only documents has nothing for them to build or test.
+
+When you name no list, the run uses two commands:
+
+```yaml
+intent:
+  checks:
+    - yoyo artifact check --intent .
+    - yoyo goals check --intent .
+```
+
+`yoyo artifact check` reads every governed document, its index, and the links
+written in them, and exits non-zero on a document that is malformed.
+`yoyo goals check` reads the goals the same way `yoyo goals list` does and exits
+non-zero when a goals document could not be read, a goal is not linked to the
+brief, or a goal is not written on one line.
+
+Each command runs in the run's own checkout of the intent repository, with
+`YOYODYNE_CONFIG` naming the project's configuration, which the harness sets.
+`--intent .` points the command at that checkout, so it reads the candidate
+document rather than the checkout the configuration names.
+
+To use a list of your own, write it in the configuration kept in the project's
+directory in the machine home, under `intent:` beside `repository:`:
+
+```yaml
+intent:
+  repository: intent
+  checks:
+    - yoyo artifact check --intent .
+    - yoyo goals check --intent .
+    - ./scripts/spell-check.sh
+```
+
+A list you write replaces the default whole, so keep the two commands above if
+you still want them. An entry with no command is refused when the configuration
+loads, and so is `intent.checks` in a configuration with no `intent.repository`:
+the list is what a landing into the companion intent repository runs, so it means
+nothing without one. An entry may be named in `execution.heavy_checks` like any
+other configured check.
 
 ### A check that could not run
 

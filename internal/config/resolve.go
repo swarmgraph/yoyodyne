@@ -611,6 +611,10 @@ func (r *resolution) apply(applied layer) error {
 	}
 	if intent := document.Intent; intent != nil {
 		setValue(r.origins, "intent.repository", intent.Repository, &r.config.Intent.Repository, applied.origin)
+		if intent.Checks != nil {
+			r.config.Intent.Checks = append([]string(nil), (*intent.Checks)...)
+			r.origins["intent.checks"] = applied.origin
+		}
 	}
 	if team := document.Team; team != nil {
 		setValue(r.origins, "team.enabled", team.Enabled, &r.config.Team.Enabled, applied.origin)
