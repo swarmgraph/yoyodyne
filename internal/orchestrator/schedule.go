@@ -488,6 +488,11 @@ type SessionState struct {
 	// starts. It is a note in the same way a dispatch wait
 	// is; see runstate.WatchTransition.RecurringPass.
 	RecurringPass *runstate.WatchPass
+	// EmptySlots is the session's account of the developer slots it left empty
+	// while ready work waited, written when the account changes (emptyslots.go).
+	// It is a note in the same way a dispatch wait is; see
+	// runstate.WatchTransition.EmptySlots.
+	EmptySlots *runstate.EmptySlots
 	// Draining marks every transition the session makes while it waits out the
 	// runs it hosts to restart into a build deployed over it, with the bound on
 	// that wait. It is beside the state rather than a state because draining is
@@ -1722,7 +1727,14 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			schedule.CarryOutReadProblem = joinProblem(schedule.CarryOutReadProblem, fmt.Sprintf("record why %s has not started: %v", workItemID, err))
 		}
 	}
+	// pullSlots is what the pull says about the developer slots it leaves empty,
+	// and whyPassed the reason it kept for each item it passed over, which that
+	// account names (emptyslots.go). Both are the pull's and are reset at the top
+	// of every pull.
+	pullSlots := newSlotAccount()
+	whyPassed := map[string]string{}
 	keepWait := func(workItemID string, class runstate.PassedOverClass, reason string) {
+		whyPassed[workItemID] = reason
 		passOver(workItemID, reason)
 		keepReason(workItemID, class, schedulingWaitReason(reason, waitItems))
 	}
@@ -2183,6 +2195,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// the interval this pull read. It reports false when the context ended, which
 	// is the operator stopping the session.
 	wait := func(pull Pull, state runstate.WatchState, said account) bool {
+		session.emptySlots(pullSlots.orElse(state, said.reason, false))
 		session.enter(state, said)
 		if running > 0 {
 			return collectUntilDue(pull)
@@ -2238,6 +2251,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		if running == 0 {
 			return wait(pull, runstate.WatchIdle, said)
 		}
+		session.emptySlots(pullSlots.orElse(runstate.WatchIdle, said.reason, false))
 		session.enter(runstate.WatchIdle, said)
 		return awaitRunOrPoll(pull)
 	}
@@ -2250,6 +2264,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// has to be noticed at the next interval rather than when the last of them
 	// finishes.
 	awaitProvider := func(pull Pull, said account) bool {
+		session.emptySlots(pullSlots.orElse(runstate.WatchIdle, said.reason, true))
 		session.enter(runstate.WatchIdle, said)
 		schedule.Polls++
 		if running == 0 {
@@ -2342,6 +2357,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	session.enter(runstate.WatchWatching, account{reason: s.opening()})
 pulling:
 	for {
+		pullSlots, whyPassed = newSlotAccount(), map[string]string{}
 		// A pull that read everything it needed clears the failures behind it. What
 		// the window measures is a store that has gone on being unreadable, rather
 		// than a count of the contended readings one session met over a long life.
@@ -2879,6 +2895,7 @@ pulling:
 		// standing over it and one item is never given two.
 		gone := workersGone(pull.Runs, occupied, mine, s.now())
 		free := pull.Capacity - (len(occupied) - len(gone))
+		pullSlots.counted(free, slotNumbers(pull.slotsOf(withoutItems(occupied, gone), nil).Free()))
 		// freed is the slots that came free since the last pull and whose runs had
 		// held them, which the line a filling poll writes says; heldElsewhere is how
 		// many slots another process's runs hold now, which decides what a session
@@ -3315,6 +3332,9 @@ pulling:
 				// polling and chooses nothing, and resumes in place when it is
 				// released. That is what makes holding intake something an operator
 				// can do to a session they are not sitting at.
+				if pullSlots.free > 0 {
+					pullSlots.say(pullSlots.holdAccount(hold))
+				}
 				if !wait(pull, runstate.WatchBraked, account{
 					reason: brakedReason(hold),
 					// This session's own runs: a held intake stops the choosing and
@@ -3373,6 +3393,10 @@ pulling:
 			free = 1
 		}
 		if free < 1 {
+			// Every slot is counted as taken, which is an empty slot only where one
+			// is counted for a start of this session that has no run on record.
+			pullSlots.say(countedAccount(withoutItems(occupied, gone), gone, mine, schedule.Started, s.now()))
+			session.emptySlots(pullSlots.account)
 			// A watch with a slot another process holds waits on the interval as
 			// well as on its own runs: that process's run ending frees a slot this
 			// session hears of only by reading the runs in flight again, so a wait on
@@ -3418,6 +3442,7 @@ pulling:
 		// drain as well as said, so the read model names the poll as the session
 		// restarting rather than as an idle session over a queue with work in it.
 		if remaining, declined := drain.declinesStarts(pull.Poll, s.now()); declined {
+			pullSlots.say(pullSlots.ruleAccount("the session is restarting onto a newly deployed build, so it starts nothing new into a free slot and the session that comes back fills it"))
 			schedule.Drain.Skipped++
 			skipped := drain.record(running)
 			skipped.PullSkipped = true
@@ -3468,6 +3493,7 @@ pulling:
 		// limit starts new work at the next pull with nothing to release
 		// (waitingpullrequests.go).
 		if waiting, reached := s.waitingPullRequestsReached(&schedule, pull); reached {
+			pullSlots.say(pullSlots.ruleAccount(waiting.Says()))
 			if !s.Watching {
 				schedule.Stopped = ScheduleWaitingPullRequests
 				break
@@ -3874,6 +3900,12 @@ pulling:
 			// reporting itself held while it works, which is the false half of the same
 			// misreading this exists to end.
 			window = providerWindow{}
+			if !probing {
+				// A pull that filled some free slots and left others empty says why
+				// about the ones it left, from what it passed over on the way; one
+				// that filled every free slot clears whatever it said before.
+				session.emptySlots(walkAccount(unfilledSlots(freeSlots, filled), queue, poll.passed, whyPassed, refused, heldProvider))
+			}
 			if probing {
 				// The line is still held: what started is the probe, and the session
 				// says so rather than saying it is choosing again. The hold is read
@@ -3934,6 +3966,7 @@ pulling:
 		// account that arrived an hour into the wait would arrive after the watchdog
 		// had already woken somebody over the silence.
 		passed := poll.passedOver(queue)
+		pullSlots.say(walkAccount(slotNumbers(freeSlots), queue, poll.passed, whyPassed, refused, heldProvider))
 		said := account{
 			reason:     readmodel.IdleLine(passed, len(occupied)),
 			running:    len(occupied),
@@ -7376,6 +7409,9 @@ type watchSession struct {
 	// every transition carries it while it lasts. It is nil for a session nothing
 	// was deployed over, which is most of them.
 	drain *runstate.WatchDrain
+	// slots is the account of its empty developer slots the session last wrote,
+	// and nil before it has written one (emptyslots.go).
+	slots *runstate.EmptySlots
 }
 
 // draining sets what every transition from here on carries about the drain. A

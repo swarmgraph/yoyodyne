@@ -5307,6 +5307,31 @@ has the rule.
   calls free is the slot the scheduler will fill. Where no slot prefers a
   label the line reads exactly as above.
 
+  **A developer slot the scheduler left empty while ready work waits is said
+  as a problem.** Each time a watching scheduler leaves a slot empty while
+  open, ready work no run carries is waiting, it records why on the watch log —
+  a pull that fills some free slots says why about the ones it left —
+  and records it again only when the reason changes. The reason is one of five:
+  a hold on new work, naming who placed it; a rule keeping work out, naming the
+  item it kept out — work overlapping a run in flight, an item already tried,
+  the provider's limit, a restart onto a new build, or the limit on pull
+  requests waiting for a person; a slot still counted as taken, naming what it
+  is counted for; no eligible item, with why the first ready items were passed
+  over; or not known, which is never left blank. The line names it in its head
+  and under the runs, opening on `problem:`, with since when and whose move it
+  is, and lists each ready item passed over with why. It is dropped once the
+  scheduler finds every slot filled or no ready work left, once its session
+  stops, or once this reading finds every slot taken. The health check the
+  development manager's passes carry lists it as a condition, with the same
+  reason.
+
+  ```text
+  Running (2 developer runs, and developer slot 3 empty while ready work waits):
+    …
+    problem: developer slot 3 left empty with 2 ready items waiting, because of a rule keeping work out: a rule keeps yoyodyne-h0ou out: sequenced behind work in flight: … This has stood since 2026-11-09 18:17 PST (1 hour ago), and it is the harness's to move: nothing: the slot is filled at the first poll after what keeps the work out ends
+      passed over (P0, reliability) Provider search path (yoyodyne-h0ou): sequenced behind work in flight: …
+  ```
+
   **A run with no process behind it is named as one rather than as running.**
   Its record says `running` until something writes its ending, and a process
   that dies writes nothing, so it stays on this line, but in place of the

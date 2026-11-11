@@ -118,6 +118,16 @@ func fixtureRecords() []Record {
 			}
 		}
 	}
+	slots := append([]EmptySlotCause{"", "something-nobody-named"}, EmptySlotCauses()...)
+	for _, slot := range slots {
+		for _, hold := range holds {
+			for _, flag := range append(flags, func(*Record) {}) {
+				record := Record{EmptySlot: slot, Hold: hold}
+				flag(&record)
+				records = append(records, record)
+			}
+		}
+	}
 	return records
 }
 
