@@ -102,6 +102,11 @@ type TrackerStoreSquash struct {
 	// why that measurement chose this squash.
 	MeasuredAt time.Time `json:"measured_at"`
 	Reason     string    `json:"reason,omitempty"`
+	// LiveDue is why the live store was due a squash whatever the measurement
+	// on a copy listed: its size on disk past its configured limit, or the
+	// harness's listings on it slow over the hour before. It is empty where
+	// neither was.
+	LiveDue string `json:"live_due,omitempty"`
 	// Changed is what the measurement found changed, on a squash refused for
 	// it, and Reported the warning filed about it, empty where none could be.
 	Changed  []ChangedRecords `json:"changed,omitempty"`
@@ -174,6 +179,9 @@ func (s TrackerStoreSquash) Says() string {
 		said := fmt.Sprintf("the store's %s was not squashed on the measurement at %s, because ", SquashedHistory(squash.Stage), measured)
 		if s.TooLong > 0 {
 			said += fmt.Sprintf("on the copy the squash held the store %s, longer than the %s a session restarting onto a new build waits for its runs to finish", sayTook(s.TooLong), sayTook(s.DrainBound))
+			if s.LiveDue != "" {
+				said += ", although it was due one because " + s.LiveDue
+			}
 		} else {
 			said += fmt.Sprintf("%d developer run(s) were still in flight once new runs had been held for the %s a session restarting onto a new build waits for its runs to finish; new runs were started again", s.StillRunning, sayTook(s.DrainBound))
 		}
@@ -298,6 +306,7 @@ func (s *TrackerStoreSquashStore) Record(squash TrackerStoreSquash) error {
 	squash.SchemaVersion, squash.ProductID = TrackerStoreSquashSchemaVersion, s.productID
 	squash.MeasuredAt = squash.MeasuredAt.UTC()
 	squash.Reason = oneline.Fold(squash.Reason, maxTrackerStoreCleanupTextBytes)
+	squash.LiveDue = oneline.Fold(squash.LiveDue, maxTrackerStoreCleanupTextBytes)
 	squash.Failed = oneline.Fold(squash.Failed, maxTrackerStoreCleanupTextBytes)
 	encoded, err := json.Marshal(squash)
 	if err != nil {

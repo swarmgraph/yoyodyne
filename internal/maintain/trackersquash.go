@@ -39,7 +39,13 @@ import (
 // it does; and history older than 30 days where nothing does, since the
 // listings are past the limit. A store that has doubled in size on disk since
 // the last squash that finished is due the squash of history older than 30
-// days even with its listings within the limit. A measurement on which any
+// days even with its listings within the limit, and so is a live store whose
+// size on disk is past services.maintenance.tracker_limits.store_megabytes, or
+// whose listings by the harness over the hour before took longer than
+// listing_seconds (liveSquashDue): a listing on an idle copy is quick however
+// large the live store is, so the copy's listings alone never find it due. A
+// squash due for either reason that is not run for its measured time says the
+// reason, and the store's size on disk, in its warning. A measurement on which any
 // stage changed an item or a note refuses both squashes, and the development
 // manager is warned once, naming the stage and the records.
 //
@@ -200,15 +206,18 @@ func (p *Pass) decideSquash(ctx context.Context, step runstate.SweepStep, now ti
 	if squashed, found := decided.LastSquashed(); found {
 		last = &squashed
 	}
-	stage, reason, none := squashChoice(latest, last)
+	live, size, unread := p.liveSquashDue(now)
+	stage, reason, none := squashChoice(latest, last, live)
 	if none != "" {
-		step.Outcome, step.Detail = runstate.StepSkipped, none
+		step.Outcome, step.Detail = runstate.StepSkipped, none+unread
 		return step
 	}
 	record := runstate.TrackerStoreSquash{
 		Name:       p.Squashes.NewName(now),
 		MeasuredAt: latest.StartedAt(),
 		Reason:     reason,
+		LiveDue:    live,
+		SizeOnDisk: size,
 		Squash:     beads.StoreSquash{Stage: stage},
 	}
 	bound := p.drainBound()
@@ -218,6 +227,42 @@ func (p *Pass) decideSquash(ctx context.Context, step runstate.SweepStep, now ti
 		return p.skipSquash(step, record, now)
 	}
 	return p.holdAndSquash(ctx, step, latest, record, latest.Measurement.CopyTook+measured.Took, now)
+}
+
+// liveSquashDue says why the live store is due the squash of history older
+// than 30 days whatever the latest measurement on a copy listed: its size on
+// disk is past services.maintenance.tracker_limits.store_megabytes, or the
+// harness's own listings of open and ready work over the hour before took
+// longer than listing_seconds. It is empty where neither is, size is the size
+// read, zero where it was not, and unread says, as a clause to add to the
+// step, a measure that could not be read.
+//
+// A listing on an idle copy of the store answers quickly however large the
+// live store has grown, so a measurement on a copy alone never finds the live
+// store due. Both measures here ask the store nothing: the size is read from
+// the disk, as the limits step reads it, and the listings' times from the log
+// of calls every harness process keeps, so they answer at any size.
+func (p *Pass) liveSquashDue(now time.Time) (due string, size int64, unread string) {
+	limits := p.trackerLimits()
+	var reasons []string
+	if p.Tracker != nil {
+		if _, read, err := p.Tracker.StoreSize(); err != nil {
+			unread += fmt.Sprintf("; the live store's size on disk could not be read, so whether it is past its limit is not known: %v", err)
+		} else {
+			size = read
+			if bound := int64(limits.StoreMegabytes) << 20; read > bound {
+				reasons = append(reasons, fmt.Sprintf("the live store is %s on disk, past its limit of %d MB (services.maintenance.tracker_limits.store_megabytes)", runstate.SayBytes(read), limits.StoreMegabytes))
+			}
+		}
+	}
+	if p.Calls != nil {
+		if timed, err := p.liveListings(now, limits); err != nil {
+			unread += fmt.Sprintf("; the log of the harness's tracker calls could not be read, so whether its listings on the live store were slow is not known: %v", err)
+		} else if timed.over > 0 {
+			reasons = append(reasons, timed.saysOver(limits, "limit"))
+		}
+	}
+	return strings.Join(reasons, ", and "), size, unread
 }
 
 // holdAndSquash reads the store's size on disk, holds new runs, waits for the
@@ -310,9 +355,16 @@ func (p *Pass) skipSquash(step runstate.SweepStep, record runstate.TrackerStoreS
 	}
 	var message string
 	if record.TooLong > 0 {
-		message = fmt.Sprintf("Maintenance did not squash the tracker store's %s (the %s step), because on the copy measured at %s the squash held the store %s, longer than the %s a session restarting onto a new build waits for its runs to finish (execution.redeploy_drain_limit). "+
+		due := ""
+		if record.LiveDue != "" {
+			due = fmt.Sprintf(" The store is due one, because %s.", record.LiveDue)
+		}
+		if size := runstate.SayBytes(record.SizeOnDisk); record.SizeOnDisk > 0 && !strings.Contains(due, size) {
+			due += fmt.Sprintf(" The live store is %s on disk.", size)
+		}
+		message = fmt.Sprintf("Maintenance did not squash the tracker store's %s (the %s step), because on the copy measured at %s the squash held the store %s, longer than the %s a session restarting onto a new build waits for its runs to finish (execution.redeploy_drain_limit).%s "+
 			"A squash holds the store for its whole length, so every run's tracker reads would wait behind it; a squash that long is a question for the design on keeping the store small rather than something to run. The measurement is recorded in %s.",
-			runstate.SquashedHistory(record.Squash.Stage), StepTrackerSquash, local(record.MeasuredAt), roundTook(record.TooLong), roundTook(record.DrainBound), p.Measurements.Path())
+			runstate.SquashedHistory(record.Squash.Stage), StepTrackerSquash, local(record.MeasuredAt), roundTook(record.TooLong), roundTook(record.DrainBound), due, p.Measurements.Path())
 	} else {
 		message = fmt.Sprintf("Maintenance did not squash the tracker store's %s (the %s step), because %d developer run(s) were still in flight after it had held new runs for the %s a session restarting onto a new build waits for its runs to finish (execution.redeploy_drain_limit). "+
 			"New runs are being started again. The next squash is decided on the next measurement of the store; the decision is recorded in %s.",
@@ -486,14 +538,23 @@ func (p *Pass) runSquash(ctx context.Context, step runstate.SweepStep, measured 
 //
 // last is the latest squash that ran on the live store and finished, where one
 // has: a store at least twice the size that squash left it is due the 30 day
-// squash even where its listings are within the limit.
-func squashChoice(measured runstate.TrackerStoreMeasurement, last *runstate.TrackerStoreSquash) (stage, reason, none string) {
+// squash even where its listings are within the limit. live is why the live
+// store is due that squash whatever the copy listed (liveSquashDue), and empty
+// where it is not; it is held to the same comparison on the copy as any other
+// reason.
+func squashChoice(measured runstate.TrackerStoreMeasurement, last *runstate.TrackerStoreSquash, live string) (stage, reason, none string) {
 	at := measured.StartedAt().Local().Format("2006-01-02 15:04 MST")
 	if measured.Failed != "" || !measured.Measurement.Measured() {
 		return "", "", fmt.Sprintf("the latest measurement of the tracker's store, at %s, did not finish, so no squash is decided on it", at)
 	}
 	limit := sayLimit(squashListingLimit)
-	doubled := storeDoubled(measured, last)
+	var reasons []string
+	for _, why := range []string{storeDoubled(measured, last), live} {
+		if why != "" {
+			reasons = append(reasons, why)
+		}
+	}
+	due := strings.Join(reasons, ", and ")
 	cannotShow := func(name, why string) string {
 		return fmt.Sprintf("the latest measurement, at %s, cannot show every item and note unchanged %s, because %s, so the store is not squashed", at, name, why)
 	}
@@ -506,19 +567,19 @@ func squashChoice(measured runstate.TrackerStoreMeasurement, last *runstate.Trac
 		if !within {
 			continue
 		}
-		if doubled == "" {
+		if due == "" {
 			return "", "", fmt.Sprintf("the latest measurement, at %s, listed open and ready items within %s %s (%s), so no squash is needed", at, limit, name, said)
 		}
 		if earlier, why := exportsShownThrough(measured, beads.StageOldSquashed); earlier != "" {
-			return "", "", cannotShow(earlier, why) + " although it has doubled in size since its last squash"
+			return "", "", cannotShow(earlier, why) + ", although it is due one because " + due
 		}
 		return beads.StageOldSquashed, fmt.Sprintf("%s, although the latest measurement, at %s, listed open and ready items within %s %s (%s); every item and note was unchanged across the squash on the copy, and %s",
-			doubled, at, limit, name, said, onTheCopy(beads.StageOldSquashed)), ""
+			due, at, limit, name, said, onTheCopy(beads.StageOldSquashed)), ""
 	}
 	cleaned := sayListings(measured, beads.StageCleanedUp)
 	also := ""
-	if doubled != "" {
-		also = "; besides, " + doubled
+	if due != "" {
+		also = "; besides, " + due
 	}
 	for _, name := range []string{beads.StageOldSquashed, beads.StageAllSquashed} {
 		if earlier, why := exportsShownThrough(measured, name); earlier != "" {
