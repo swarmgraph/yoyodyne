@@ -158,10 +158,12 @@ its branch for you to merge where `approvals.integration` is not `automatic`.
 Nothing is written into your checkout and nothing is yours to commit; the
 command names the run and says what it came to. The approval counts from when
 it reaches the target branch, as anything on it does. Only where no run can carry it
-— a project with no reviewer configured, or one that keeps its intent in a
-companion intent repository — is the approval written into the checkout the
-configuration points to, as an uncommitted change the command names along with
-that checkout.
+— a project with no reviewer configured — is the approval written into the
+checkout the configuration points to, as an uncommitted change the command names
+along with that checkout. A project that keeps its intent in a companion intent
+repository has the run cut from that repository, with that repository's own
+checks, and the approval counts from when it reaches that repository's target
+branch.
 
 A document in one of those directories with no usable identity is named on
 stderr rather than governed under a guessed id, so a home you have not given
@@ -220,6 +222,13 @@ and it is the one you run:
 ```sh
 ./bin/yoyo artifact check
 ```
+
+`--intent <dir>` reads the governed documents from that checkout of the
+companion intent repository instead of the configured one, and
+`yoyo goals check [--intent <dir>]` does the same for the goals alone: it exits 1
+when a goals document could not be read, a goal is not linked to the brief, or a
+goal is not written on one line. A landing into the companion intent repository
+runs both ([the companion intent repository's checks](configuration.md#the-companion-intent-repositorys-checks)).
 
 It reads every governed document — the artifacts, the goals stated in them, the
 invariants, the index at the door of each home, and the Markdown links written in
@@ -568,9 +577,8 @@ on its pull request where the project publishes, for you to merge, as every
 change there is. Nothing is written into your checkout either way.
 
 **A document you approve is written into your working tree only where no run
-can carry it.** That is a project with no independent reviewer configured, and
-a project that keeps its intent in a companion intent repository, whose reviewed
-run is not built yet. There the document is an uncommitted change in the
+can carry it.** That is a project with no independent reviewer configured. There
+the document is an uncommitted change in the
 checkout the configuration points to, and committing it is yours under your own
 identity. The printed result names that checkout and file, and `--json` carries
 it as `pending_commit`; a document going through a run carries `publishing`

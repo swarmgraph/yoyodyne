@@ -152,7 +152,13 @@ type ReconcileReleases interface {
 type Reconciler struct {
 	Tracker   WorkTracker
 	Worktrees ReconcileWorktrees
-	Store     ReconcileStore
+	// IntentWorktrees is the companion intent repository's manager, which holds
+	// the branch and checkout of a run recorded in that repository
+	// (runstate.RepositoryIntent). Nil where the project has no such repository or
+	// this sweep was built without access to it; a run recorded there is then
+	// reported as unsettled rather than looked for in the project's repository.
+	IntentWorktrees ReconcileWorktrees
+	Store           ReconcileStore
 	// These readers compare a confirmed forge landing with running builds,
 	// including keys added only to shipped templates. They are optional for
 	// callers that have no running-service records to compare.
@@ -484,6 +490,10 @@ func (r Reconciler) reconcileRun(ctx context.Context, recorded runstate.State) R
 
 // settle decides one run from its durable state and what the repository shows.
 func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconciliation, error) {
+	r, err := r.forRepository(state)
+	if err != nil {
+		return reconciliationOf(state, ActionUnsettled), err
+	}
 	if state.OutsideFile != nil {
 		r.Tracker = &documentTracker{item: beads.WorkItem{ID: state.WorkItemID, Title: state.WorkItemTitle, Status: "in_progress"}}
 		r.Docket = nil

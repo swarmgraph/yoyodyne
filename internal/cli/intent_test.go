@@ -110,8 +110,9 @@ func gitInCompanion(t *testing.T, directory string, args ...string) {
 	}
 }
 
-// An approval in a project that keeps its intent in a companion repository
-// lands there, and the command says so: it names that repository, the path
+// An approval that no run can carry — this project configures no independent
+// reviewer — in a project that keeps its intent in a companion repository is
+// written there, and the command says so: it names that repository, the path
 // inside it, and does not claim a run will refuse to start over it, since no
 // run starts from that repository.
 func TestApprovingInACompanionIntentProjectNamesTheCompanionRepository(t *testing.T) {
@@ -127,7 +128,7 @@ func TestApprovingInACompanionIntentProjectNamesTheCompanionRepository(t *testin
 	writeArtifact(t, intent, "docs/product/brief.md", artifactDocument("brief", "brief", "Product brief", nil))
 	writeArtifact(t, intent, "docs/product/goals/v1-goals.md", artifactDocument("v1-goals", "goals", "V1 goals", []string{"brief"}))
 	configPath := filepath.Join(projectDirectory, config.FileName)
-	writeArtifact(t, projectDirectory, config.FileName, "version: 1\nextends: builtin:v1\nproduct:\n  id: calc\n  repository: "+project+"\nintent:\n  repository: intent\n")
+	writeArtifact(t, projectDirectory, config.FileName, "version: 1\nproduct:\n  id: calc\n  repository: "+project+"\napprovals:\n  brief: human\n  goals: human\n  designs: automatic\n  integration: human\nchecks:\n  - go test ./...\nagents:\n  developer:\n    role: developer\n    backend: claude-code\n    model: opus\nintent:\n  repository: intent\n")
 
 	stdout, stderr, code := runCLI(t, "artifact", "approve", "--config", configPath, "brief",
 		"--reason", "approved by the operator in conversation")

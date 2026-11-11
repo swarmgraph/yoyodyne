@@ -29,8 +29,9 @@ import (
 // A project that keeps its intent in a companion intent repository is answered
 // the same way, so a document its automatic policy confirms stays confirmed by
 // that policy rather than being put to the operator: confirming a design is not
-// a decision only a person can make. PublishDocument then holds it — see
-// ErrCompanionPublicationNotBuilt.
+// a decision only a person can make. PublishDocument lands it in that
+// repository (intentroute.go), or holds it where this pipeline was built without
+// access to it — see ErrCompanionPublicationNotBuilt.
 func (p Pipeline) PublishesDocuments() bool { return p.automatic() }
 
 // LandsApprovedDocuments reports whether a document the operator approves can
@@ -40,13 +41,14 @@ func (p Pipeline) PublishesDocuments() bool { return p.automatic() }
 // it; where it does not, the run checks and reviews it and leaves it on its
 // branch for the operator to merge, as every change there is (reviewDocument).
 //
-// A companion intent repository is answered no, unlike in PublishesDocuments,
-// because holding a person's approval until that run is built would keep the
-// document out of the repository indefinitely, where the write into the
-// companion repository holds no run up. A project with no reviewer to run is
-// answered no as well, because the run could only stop for want of one.
+// A project whose intent is in a companion intent repository is answered yes
+// only where this pipeline has access to that repository, because the run lands
+// the document there: a write into the companion checkout would be uncommitted,
+// and runs read the repository at its target branch's commit, not its checkout.
+// A project with no reviewer to run is answered no, because the run could only
+// stop for want of one.
 func (p Pipeline) LandsApprovedDocuments() bool {
-	return !p.Config.Product.HasIntentRepository() && p.validateReviewPolicy() == nil
+	return (!p.Config.Product.HasIntentRepository() || p.IntentWorktrees != nil) && p.validateReviewPolicy() == nil
 }
 
 // PublishStandingApproval lands the operator's approval of a document as it now
@@ -80,18 +82,16 @@ func (p Pipeline) PublishStandingApproval(ctx context.Context, id, reason string
 }
 
 // ErrCompanionPublicationNotBuilt is why a confirmed document of a project that
-// keeps its intent in a companion intent repository is held rather than landed.
-// The reviewed run that would land it there — a branch cut from that repository,
-// checks that mean something for a repository holding only documents,
-// independent review, and promotion into its target under the promotion lease,
-// as docs/designs/machine-home.md describes — is not built yet. Running this
-// project's own checks over that repository, or landing the document in the
-// project's repository, would each be wrong, and putting it to the operator
-// would route a routine confirmation to a person. So the document stays
+// keeps its intent in a companion intent repository is held rather than landed:
+// this pipeline was built without access to that repository
+// (Pipeline.IntentWorktrees), so it has nowhere to cut the run that lands the
+// document. Running this project's own checks over the project's repository, or
+// landing the document there, would each be wrong, and putting it to the
+// operator would route a routine confirmation to a person. So the document stays
 // confirmed and saved in its conversation, the owning role is told once what
 // holds it, and it is offered again at every later message, which is what lands
-// it once that run exists.
-var ErrCompanionPublicationNotBuilt = errors.New("this project keeps its intent in a companion intent repository, and the reviewed run that lands a document there is not built yet; the document stays confirmed and saved in this conversation and is tried again at each later message, and nothing about it is waiting on the operator")
+// it once a pipeline with access to the repository offers it.
+var ErrCompanionPublicationNotBuilt = errors.New("this project keeps its intent in a companion intent repository, and this session has no access to it to cut the reviewed run that lands a document there; the document stays confirmed and saved in this conversation and is tried again at each later message, and nothing about it is waiting on the operator")
 
 // PublishDocument enters the ordinary delivery gates with an already written
 // candidate. Only the owning conversation, or the operator's approval of a
@@ -158,7 +158,10 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 		}
 	}
 	if p.Config.Product.HasIntentRepository() {
-		return runstate.DocumentDelivery{}, ErrCompanionPublicationNotBuilt
+		if p.IntentWorktrees == nil {
+			return runstate.DocumentDelivery{}, ErrCompanionPublicationNotBuilt
+		}
+		p = p.intentRoute()
 	}
 	// The tracker and docket below are replaced for the run itself, which has
 	// no backlog item; the real ones are kept for the two things a document run
@@ -593,6 +596,16 @@ func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.
 			return runstate.State{}, false, err
 		}
 		state = runstate.State{SchemaVersion: runstate.StateSchemaVersion, RunID: runID, ProductID: p.Config.Product.ID, RepositoryID: string(p.Config.Product.RepositoryID), WorkItemID: item.ID, WorkItemTitle: item.Title, Backend: p.reviewer().Backend, ConfigRevision: p.Config.Revision(), Build: p.Build, Status: runstate.StatusPending, Document: &document, TargetBranch: target}
+		if p.intentLanding {
+			// The run is in the companion intent repository, reads the project's
+			// intent at that repository's own target commit, and is reviewed beside
+			// the project's code at the commit its target branch holds now.
+			state.Repository = runstate.RepositoryIntent
+			state.ProjectCommit = p.projectCommit(ctx)
+			if _, state.IntentCommit, err = p.intentRevision(ctx, ""); err != nil {
+				return runstate.State{}, false, err
+			}
+		}
 		state, lease, err = p.reserveRun(ctx, state)
 		var capacity runstate.CapacityError
 		var existing runstate.ExistingWorkItemError
@@ -918,6 +931,11 @@ func documentDelivery(state runstate.State) runstate.DocumentDelivery {
 	switch {
 	case result.Landed:
 		result.Detail = fmt.Sprintf("Document %s (%s) landed through reviewed run %s at %s.\n", d.WriteID, d.Candidate.Artifact.Title, state.RunID, d.Candidate.Artifact.Path)
+		if state.Repository == runstate.RepositoryIntent {
+			// The path alone would read as a path in the project's repository, so
+			// the owning role and `yoyo status` are told which repository holds it.
+			result.Detail = fmt.Sprintf("Document %s (%s) landed through reviewed run %s at %s in the companion intent repository's %s branch, at commit %s.\n", d.WriteID, d.Candidate.Artifact.Title, state.RunID, d.Candidate.Artifact.Path, state.Integration.TargetBranch, state.Integration.TargetCommit)
+		}
 	case state.Status == runstate.StatusSucceeded:
 		// A run under an integration setting that is not automatic: the document
 		// passed and is waiting for the operator's merge, as every change there is.
@@ -1125,8 +1143,14 @@ func documentRouteRefusal(cfg config.Config, changed []string) error {
 // documentChecks is the list a confirmed document's landing runs in place of
 // the configured checks and path checks, and whether the project declared one.
 // A project that declared none has its document landings run the configured
-// checks, exactly as every other run does.
+// checks, exactly as every other run does. A document landing in the companion
+// intent repository runs that repository's own checks (config.IntentChecks)
+// and never the project's, because the project's checks are about code that
+// repository does not hold.
 func (a *activeRun) documentChecks() ([]string, bool) {
+	if a.state.Document != nil && a.landsInIntentRepository() {
+		return a.pipeline.intentChecks(), true
+	}
 	if a.state.Document == nil || len(a.pipeline.Config.DocumentChecks) == 0 {
 		return nil, false
 	}
@@ -1168,6 +1192,9 @@ func (a *activeRun) gateDocument(ctx context.Context, changed []string) error {
 // recovery as other runs, with the durable run record taking the place of
 // backlog bookkeeping.
 func (r Reconciler) forDocument(state runstate.State) Reconciler {
+	if routed, err := r.forRepository(state); err == nil {
+		r = routed
+	}
 	if state.HarnessAuthored() {
 		r.Tracker = &documentTracker{item: beads.WorkItem{ID: state.WorkItemID, Title: state.WorkItemTitle, Status: "in_progress"}}
 		r.Docket = nil

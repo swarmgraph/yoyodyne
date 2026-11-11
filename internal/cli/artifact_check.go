@@ -25,6 +25,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
@@ -84,6 +86,7 @@ func checkGovernedDocuments(args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	configPath := flags.String("config", "", "configuration file path (default: the nearest project configuration)")
 	jsonOutput := flags.Bool("json", false, "emit machine-readable JSON")
+	intentDirectory := flags.String("intent", "", "read the governed documents from this checkout of the intent repository instead of the configured one")
 	parsed, err := parseArguments(flags, args)
 	if err != nil {
 		return 2
@@ -96,6 +99,9 @@ func checkGovernedDocuments(args []string, stdout, stderr io.Writer) int {
 
 	resolved, err := loadConfiguration(*configPath)
 	if err != nil {
+		return reportGovernedCheckError(stdout, stderr, *jsonOutput, err)
+	}
+	if err := overrideIntentRepository(&resolved.Config, *intentDirectory); err != nil {
 		return reportGovernedCheckError(stdout, stderr, *jsonOutput, err)
 	}
 	repository, err := resolvePath(config.ProjectDirectory(resolved.Path), resolved.Config.Product.Repository)
@@ -163,6 +169,30 @@ func checkGovernedDocuments(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stderr, "\n%s in the governed documents\n", countOf(len(routed), "defect"))
 	return 1
+}
+
+// overrideIntentRepository points the configuration's governed documents at
+// directory, a checkout of the intent repository, in place of the configured
+// one. An empty directory leaves the configuration as it is. The directory is
+// resolved against the process's working directory and has to exist, because a
+// check that read nothing from a mistyped path would report a clean set.
+func overrideIntentRepository(cfg *config.Config, directory string) error {
+	if strings.TrimSpace(directory) == "" {
+		return nil
+	}
+	absolute, err := filepath.Abs(directory)
+	if err != nil {
+		return fmt.Errorf("resolve --intent %q: %w", directory, err)
+	}
+	info, err := os.Stat(absolute)
+	if err != nil {
+		return fmt.Errorf("--intent %q: %w", directory, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("--intent %q is not a directory", directory)
+	}
+	cfg.Product.IntentRepository = absolute
+	return nil
 }
 
 // governedDefects folds every reader's own problem type into the one shape the

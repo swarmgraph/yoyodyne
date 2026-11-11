@@ -754,7 +754,11 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 	selected := invariants.Select(item.Title, item.Description, item.Design, item.AcceptanceCriteria, change.Changes.Status, change.Changes.DiffStat)
 	revision := reviewedRevision(ctx, w.Candidates, generation.TargetBase)
 	revision.CandidateFiles = reviewedRevision(ctx, w.Candidates, generation.Candidate).ListFiles
-	intent, err := contextbundle.AssembleIntent(p.Repository, p.Config.Product.IntentRoot(p.Repository), p.Config.Product.Specifications, revision)
+	intentRevision, _, err := p.intentRevision(ctx, "")
+	if err != nil {
+		return generation, false, fmt.Errorf("assemble product intent for the candidate's review: %w", err)
+	}
+	intent, err := contextbundle.AssembleIntent(p.Repository, p.Config.Product.IntentRoot(p.Repository), p.Config.Product.Specifications, revision, intentRevision)
 	if err != nil {
 		return generation, false, fmt.Errorf("assemble product intent for the candidate's review: %w", err)
 	}

@@ -214,7 +214,12 @@ type components struct {
 	mergeQueues  *runstate.MergeQueueStore
 	worktrees    *gitworktree.Manager
 	worktreeRoot string
-	redactValues []string
+	// intentWorktrees is the worktree manager of the project's companion intent
+	// repository, and nil where the project keeps its intent in its own
+	// repository. It is a concrete pointer so that every place that hands it on
+	// can tell nil from a value; none may put a nil one into an interface.
+	intentWorktrees *gitworktree.Manager
+	redactValues    []string
 }
 
 // roots is where a product's three durable places are: the checkout the runs
@@ -517,6 +522,10 @@ func buildComponents(configPath string) (components, error) {
 	if err != nil {
 		return components{}, err
 	}
+	intentWorktrees, err := buildIntentWorktrees(cfg, worktreeRoot, processRunner)
+	if err != nil {
+		return components{}, err
+	}
 	return components{
 		config:           cfg,
 		configPath:       resolved.Path,
@@ -550,8 +559,41 @@ func buildComponents(configPath string) (components, error) {
 		trackerSlowCalls: trackerSlowCalls,
 		interventions:    interventions,
 		worktrees:        worktrees,
+		intentWorktrees:  intentWorktrees,
 		redactValues:     execution.SensitiveEnvironmentValues(os.Environ()),
 	}, nil
+}
+
+// buildIntentWorktrees is the worktree manager for the project's companion
+// intent repository, or nil where the project has none. Its runs are cut under a
+// directory beside the project's own worktree root, so the two repositories'
+// run branches and checkouts never share a directory, and it takes the default
+// remote because that repository's remote, where it has one, is its own.
+//
+// A configured intent repository that is not there yet answers nil rather than
+// an error, so every command still starts: its documents are then held, saved
+// in their conversations (orchestrator.ErrCompanionPublicationNotBuilt), and
+// `yoyo doctor` names the missing repository and how to create it.
+func buildIntentWorktrees(cfg config.Config, worktreeRoot string, runner execution.OSProcessRunner) (*gitworktree.Manager, error) {
+	if !cfg.Product.HasIntentRepository() {
+		return nil, nil
+	}
+	if _, err := os.Stat(cfg.Product.IntentRepository); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	root := filepath.Join(filepath.Dir(worktreeRoot), filepath.Base(worktreeRoot)+"-intent")
+	manager, err := gitworktree.New(gitworktree.Options{
+		Runner:         runner,
+		RepositoryRoot: cfg.Product.IntentRepository,
+		WorktreeRoot:   root,
+		Note: func(format string, args ...any) {
+			fmt.Fprintf(os.Stderr, format+"\n", args...)
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("prepare the companion intent repository %s for runs that land documents in it: %w", cfg.Product.IntentRepository, err)
+	}
+	return manager, nil
 }
 
 // primaryCheckout is the repository a command addresses, given the one its
@@ -682,6 +724,7 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// the report is collected.
 		ReferenceFinder: referenceFinder(parts),
 		Worktrees:       parts.worktrees,
+		IntentWorktrees: intentWorktreesOf(parts),
 		Store:           parts.store,
 		// The same store, named again because a workflow instance is written
 		// through it rather than through the interface a run's record goes
@@ -930,14 +973,15 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		RedactValues: parts.redactValues,
 	}
 	return orchestrator.Reconciler{
-		Tracker:       parts.tracker(),
-		Worktrees:     parts.worktrees,
-		Store:         parts.store,
-		Repository:    parts.repository,
-		ConfigFiles:   parts.worktrees,
-		ConfigReaders: landingConfigReaders(parts.stateRoot, parts.config.Product.ID),
-		Publisher:     forge,
-		Factory:       factoryIdentities(parts),
+		Tracker:         parts.tracker(),
+		Worktrees:       parts.worktrees,
+		IntentWorktrees: reconcileIntentWorktreesOf(parts),
+		Store:           parts.store,
+		Repository:      parts.repository,
+		ConfigFiles:     parts.worktrees,
+		ConfigReaders:   landingConfigReaders(parts.stateRoot, parts.config.Product.ID),
+		Publisher:       forge,
+		Factory:         factoryIdentities(parts),
 		// A merge the forge still holds is read with its checks, and a red one is
 		// withdrawn before it is handed back or brought up to date.
 		Checks: forge,
@@ -1586,4 +1630,22 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 		Promoter: promoter,
 		Queues:   parts.mergeQueues,
 	}
+}
+
+// intentWorktreesOf is the companion intent repository's manager as the
+// pipeline takes it, and nil where there is none: a nil *gitworktree.Manager
+// put into the interface would not be nil there.
+func intentWorktreesOf(parts components) orchestrator.IntentWorktrees {
+	if parts.intentWorktrees == nil {
+		return nil
+	}
+	return parts.intentWorktrees
+}
+
+// reconcileIntentWorktreesOf is the same for the reconciliation sweep.
+func reconcileIntentWorktreesOf(parts components) orchestrator.ReconcileWorktrees {
+	if parts.intentWorktrees == nil {
+		return nil
+	}
+	return parts.intentWorktrees
 }

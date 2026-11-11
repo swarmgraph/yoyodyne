@@ -484,6 +484,11 @@ func (r Reconciler) sweepWorktree(ctx context.Context, recorded runstate.State) 
 		return sweep, true
 	}
 	defer lease.Release()
+	r, err = r.forRepository(state)
+	if err != nil {
+		sweep.Failure = err.Error()
+		return sweep, true
+	}
 
 	// The state is re-read by AdoptRun, so a run something else settled, retired,
 	// or re-entered in the meantime is never swept from the snapshot this loop
@@ -705,6 +710,16 @@ func (r Reconciler) sweepBranch(ctx context.Context, recorded runstate.State, re
 		}, true
 	}
 	defer lease.Release()
+	r, err = r.forRepository(state)
+	if err != nil {
+		return BranchSweep{
+			RunID:        recorded.RunID,
+			WorkItemID:   recorded.WorkItemID,
+			Branch:       recorded.Branch,
+			TargetBranch: recorded.TargetBranch,
+			Failure:      err.Error(),
+		}, true
+	}
 
 	// Re-read under the lease, so a run something else settled, retired, or
 	// re-entered in the meantime is never swept from the snapshot this loop
@@ -864,7 +879,9 @@ func recordedTargets(recorded []runstate.State) []string {
 	seen := make(map[string]struct{}, len(recorded))
 	targets := make([]string, 0, len(recorded))
 	for _, state := range recorded {
-		if state.TargetBranch == "" {
+		// A target branch of the companion intent repository is that repository's
+		// and is not caught up from the project's remote.
+		if state.TargetBranch == "" || state.Repository == runstate.RepositoryIntent {
 			continue
 		}
 		if _, known := seen[state.TargetBranch]; known {

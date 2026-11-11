@@ -156,12 +156,13 @@ func branchReviewerFrom(parts components, model string) orchestrator.BranchRevie
 		// down. It records nothing about the branch and reaches no run: it is the
 		// account of why nothing happened, for somebody who is not at this
 		// terminal.
-		UsageLimits:  parts.usageLimits,
-		Repository:   parts.repository,
-		Config:       cfg,
-		StateRoot:    parts.stateRoot,
-		Build:        buildinfo.Commit(),
-		RedactValues: parts.redactValues,
+		UsageLimits:     parts.usageLimits,
+		Repository:      parts.repository,
+		Config:          cfg,
+		IntentWorktrees: intentWorktreesOf(parts),
+		StateRoot:       parts.stateRoot,
+		Build:           buildinfo.Commit(),
+		RedactValues:    parts.redactValues,
 	}
 }
 

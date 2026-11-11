@@ -144,11 +144,22 @@ tried. A measurement it cannot take is recorded as not taken, with the reason,
 never as zero: the time to the first independently reviewed change integrated
 needs a provider and a forge, and the script reaches neither.
 `VALIDATION_RECORD=<file>` keeps a copy of those measurements. It exits non-zero
-when any of checks 1 to 6 fails; check 7, the companion intent repository, is
-reported as not yet built and counted neither way until contributor mode
-(yoyodyne-ifd.78) builds it. A run in flight is a record
-[`scripts/validationfixture`](../scripts/validationfixture/main.go) writes and
-holds through the harness's own run store, for at most two minutes. Like the
+when any of the seven checks fails. Check 7 proves less than the design's
+wording, and prints where: `yoyo init --external --intent` keeps the governed
+homes in the intent repository and nothing in the project's, the intent checks
+pass on what init wrote and refuse a deliberately broken goals document, and
+the harness's own document route lands a decision record in the intent
+repository's target branch through real worktrees, the real intent checks and
+the real run store, with a record naming the intent commit and project commit.
+The independent reviewer there is scripted, because the script has no
+provider, so it does not show that a provider reviewed the document; the
+refusal of a run's write into a governed home without a grant and the
+worktree's exclude file need a developer run, and are printed as not taken
+with the reason while the rest of the check runs and counts. A run in flight,
+and that landing, are driven by
+[`scripts/validationfixture`](../scripts/validationfixture/main.go) through the
+harness's own run store; the lease it holds for a run in flight lasts at most
+two minutes. Like the
 walk it needs a scratch root outside every Git repository. CI does not run it
 yet, because checks 1, 5 and 6 fail on behaviour the harness does not have yet,
 and a job that failed on every pull request would stop every change; the job

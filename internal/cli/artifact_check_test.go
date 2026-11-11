@@ -261,3 +261,56 @@ func TestCheckTakesNoPositionalArgument(t *testing.T) {
 		t.Fatalf("check with an id code = %d, want 2; stderr = %q", code, stderr)
 	}
 }
+
+// --intent reads the governed documents from the directory it names, so a
+// checkout of the intent repository is checked rather than the configured one.
+func TestCheckWithIntentReadsTheNamedDirectoryInsteadOfTheConfiguredOne(t *testing.T) {
+	t.Parallel()
+
+	configPath := writeConfig(t, validConfig)
+	project := filepath.Dir(configPath)
+	// The configured documents are defective; the named directory's are not.
+	writeArtifact(t, project, "docs/product/brief.md", artifactDocument("brief", "brief", "Product brief", nil)+briefStatingOneGoal)
+	writeArtifact(t, project, "docs/product/goals/v1-goals.md",
+		artifactDocument("v1-goals", "goals", "V1 goals", []string{"brief"})+oneGoalWrappedOntoTwoLines)
+	writeHomeIndexes(t, configPath)
+
+	candidate := t.TempDir()
+	writeArtifact(t, candidate, "docs/product/brief.md", artifactDocument("brief", "brief", "Product brief", nil)+briefStatingOneGoal)
+	writeArtifact(t, candidate, "docs/product/goals/v1-goals.md",
+		artifactDocument("v1-goals", "goals", "V1 goals", []string{"brief"})+oneGoalOnOneLine)
+	resolved, err := loadConfiguration(configPath)
+	if err != nil {
+		t.Fatalf("loadConfiguration() error = %v", err)
+	}
+	for _, home := range artifacthome.Homes(resolved.Config) {
+		writeArtifact(t, candidate, home.Path(), string(home.README()))
+	}
+
+	if _, stderr, code := runCLI(t, "artifact", "check", "--config", configPath); code != 1 {
+		t.Fatalf("check of the configured documents code = %d, want 1; stderr = %q", code, stderr)
+	}
+	stdout, stderr, code := runCLI(t, "artifact", "check", "--config", configPath, "--intent", candidate)
+	if code != 0 {
+		t.Fatalf("check --intent code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+
+	// And the other way: a defect in the named directory fails the check.
+	writeArtifact(t, candidate, "docs/product/goals/v1-goals.md",
+		artifactDocument("v1-goals", "goals", "V1 goals", []string{"brief"})+oneGoalWrappedOntoTwoLines)
+	_, stderr, code = runCLI(t, "artifact", "check", "--config", configPath, "--intent", candidate)
+	if code != 1 || !strings.Contains(stderr, "not written on one line") {
+		t.Fatalf("check --intent over a defect code = %d, stderr = %q", code, stderr)
+	}
+}
+
+func TestCheckWithIntentRefusesADirectoryThatIsNotThere(t *testing.T) {
+	t.Parallel()
+
+	configPath := writeConfig(t, validConfig)
+	missing := filepath.Join(t.TempDir(), "nowhere")
+	_, stderr, code := runCLI(t, "artifact", "check", "--config", configPath, "--intent", missing)
+	if code != 1 || !strings.Contains(stderr, "--intent") {
+		t.Fatalf("check --intent of a missing directory code = %d, stderr = %q", code, stderr)
+	}
+}

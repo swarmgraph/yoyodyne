@@ -338,9 +338,10 @@ else is yours to approve: you are shown what would be written and asked; your `y
 approval in it and sends its exact content through the same isolated run,
 checks, and independent review a document confirmed under an automatic policy
 takes, merged the way every change in your project is. Nothing is left in your
-checkout for you to commit, except in a project with no reviewer configured or
-one that keeps its intent in a separate companion repository, where the
-approved document is written into your checkout for you to commit. Whose
+checkout for you to commit, except in a project with no reviewer configured,
+where the approved document is written into your checkout for you to commit. A
+project that keeps its intent in a separate companion repository has the run cut
+from that repository, and the document lands there. Whose
 approval it carries and the owning role are recorded in the document; see [writing a document from a
 conversation](artifacts.md#writing-a-document-from-a-conversation). A change that
 moves what the goals admit or refuse is still yours to decide, and it says so.
