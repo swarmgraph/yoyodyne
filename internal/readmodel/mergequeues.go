@@ -338,6 +338,11 @@ func placedByLanding(read *QueueEntryStanding, landing runstate.MergeQueueLandin
 	}
 	if handback := landing.Handback; handback != nil {
 		read.Generation = handback.Generation
+		defer func() {
+			if handback.IsSetAside() {
+				read.Why = fmt.Sprintf("%s; set aside: %s", read.Why, handback.SetAside)
+			}
+		}()
 		if handback.Continuation == runstate.MergeQueueReleased {
 			read.State, read.Why = QueueEntryReleased, handback.Reason
 			if handback.TransferTo != "" {

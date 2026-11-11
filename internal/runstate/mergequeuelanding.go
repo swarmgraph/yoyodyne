@@ -533,7 +533,8 @@ func (c MergeQueueContinuation) valid() bool {
 // its candidate is defective, and what follows for the work. It is written
 // once its merge, if one was asked for, is confirmed withdrawn, and ends the
 // entry's turn in the queue: neither the worker nor the promotion takes the
-// entry up again. Everything but HandedBackAt is fixed when it is written.
+// entry up again. Everything but HandedBackAt, ReportedAt, and the set-aside
+// fields is fixed when it is written.
 //
 // The failed candidate's evidence stays on its generation, which is never
 // removed; this names it, and the run, branch, and approved head that are the
@@ -577,6 +578,20 @@ type MergeQueueHandback struct {
 	// a defect of the change found before any candidate could be built: such a
 	// handback names no generation, and carries the conflict instead.
 	Conflict *MergeQueueConflict `json:"conflict,omitempty"`
+	// SetAside is why a handback that GoesToRun could not be given to its run:
+	// the run's own record refused what the hand-back would write, so trying
+	// again writes the same refused record. The entry is kept, with its change,
+	// for the development manager, and the queue goes on to the entries behind
+	// it. SetAsideAt is when that was decided; the two are set together, and
+	// never beside HandedBackAt.
+	SetAside   string     `json:"set_aside,omitempty"`
+	SetAsideAt *time.Time `json:"set_aside_at,omitempty"`
+}
+
+// IsSetAside reports a handback its run's record refused, kept for the
+// development manager rather than given to the run.
+func (h MergeQueueHandback) IsSetAside() bool {
+	return h.SetAsideAt != nil
 }
 
 // MergeQueueConflict is an approved head that would not merge onto the target
@@ -644,6 +659,15 @@ func (h MergeQueueHandback) validate() []error {
 	}
 	if h.ReportedAt != nil && (!h.Continuation.Reported() || h.ReportedAt.IsZero()) {
 		problems = append(problems, fmt.Errorf("a %s is not reported to the docket by itself", h.Continuation))
+	}
+	switch {
+	case (h.SetAsideAt == nil) != (h.SetAside == ""):
+		problems = append(problems, errors.New("a handback set aside records both when and why"))
+	case h.SetAsideAt != nil && (h.SetAsideAt.IsZero() || !h.GoesToRun() || h.HandedBackAt != nil):
+		problems = append(problems, errors.New("only a handback for a run that has not been given it is set aside"))
+	}
+	if err := mergeQueueText("handback set-aside reason", h.SetAside, false); err != nil {
+		problems = append(problems, err)
 	}
 	for field, value := range map[string]string{"target base": h.TargetBase, "candidate": h.Candidate, "approved head": h.ApprovedHead} {
 		if (released && value == "" && field != "approved head") || (conflicted && field == "candidate") {
@@ -1155,6 +1179,8 @@ func extendsLanding(recorded, revised MergeQueueLanding) error {
 			return conflict("a handback, once given to its run, is never withdrawn")
 		case was.ReportedAt != nil && !sameTime(was.ReportedAt, now.ReportedAt):
 			return conflict("a handback, once on the docket, is never withdrawn from it")
+		case was.SetAsideAt != nil && (!sameTime(was.SetAsideAt, now.SetAsideAt) || was.SetAside != now.SetAside):
+			return conflict("a handback, once set aside, is never taken back or rewritten")
 		case !sameHandback(*was, *now):
 			return conflict("a handback is never rewritten")
 		}
@@ -1163,7 +1189,8 @@ func extendsLanding(recorded, revised MergeQueueLanding) error {
 }
 
 // sameHandback compares everything a handback fixes when it is written, which
-// is all of it but when it was given to its run.
+// is all of it but when it was given to its run or put on the docket, and
+// whether it was set aside.
 func sameHandback(a, b MergeQueueHandback) bool {
 	if len(a.Heads) != len(b.Heads) || !a.At.Equal(b.At) {
 		return false
@@ -1175,6 +1202,7 @@ func sameHandback(a, b MergeQueueHandback) bool {
 	}
 	a.Heads, b.Heads, a.HandedBackAt, b.HandedBackAt, a.At, b.At = nil, nil, nil, nil, time.Time{}, time.Time{}
 	a.ReportedAt, b.ReportedAt = nil, nil
+	a.SetAside, b.SetAside, a.SetAsideAt, b.SetAsideAt = "", "", nil, nil
 	return reflect.DeepEqual(a, b)
 }
 
