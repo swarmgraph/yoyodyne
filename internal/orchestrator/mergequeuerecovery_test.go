@@ -19,6 +19,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/checks"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
@@ -779,5 +780,99 @@ func TestAWithdrawalConfirmedByAPromotionIsReleasedByTheNextRecovery(t *testing.
 	}
 	if after, err := f.promote(); err != nil || after.Entry.EntryID != "" || len(f.forge.MergeRequests()) != 1 {
 		t.Fatalf("Promote() after the release = %#v, %v; want nothing left and nothing asked again", after, err)
+	}
+}
+
+// validatingRun is the fixture's run store refusing, as the real store does,
+// any record that is not a valid run state.
+type validatingRun struct{ *recordingRun }
+
+func (v validatingRun) Save(state runstate.State) error {
+	if err := state.Validate(); err != nil {
+		return fmt.Errorf("invalid run state: %w", err)
+	}
+	return v.recordingRun.Save(state)
+}
+
+// releasedRunHandback is a stored code run that ended succeeded with its checks
+// passed and its change admitted to the queue, the entry released after its
+// forge merge was withdrawn, and the handback that release owes the run.
+func releasedRunHandback(t *testing.T) (*promotionFixture, validatingRun, runstate.MergeQueueHandback) {
+	t.Helper()
+	f := newPromotionFixture(t, landLocally)
+	at := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	passed := runstate.ChecksPassed{Content: "content", Commit: strings.Repeat("a", 40), At: at}
+	f.run.admittedRun.state = runstate.State{
+		SchemaVersion: runstate.StateSchemaVersion, RunID: f.entry.RunID, WorkItemID: f.entry.WorkItemID,
+		ProductID: "yoyodyne", RepositoryID: "yoyodyne", Backend: domain.BackendClaudeCode,
+		WorktreePath: f.repository, Branch: "change", BaseCommit: strings.Repeat("b", 40),
+		TargetBranch: "main", Status: runstate.StatusSucceeded, StartedAt: at, UpdatedAt: at, CompletedAt: &at,
+		ChecksPassed: &passed, MergeQueue: &runstate.MergeQueueAdmissionRecord{
+			EntryID: f.entry.EntryID, Order: f.entry.Order, Repository: f.entry.Repository, TargetBranch: f.entry.TargetBranch,
+			Mode: f.entry.Mode, ApprovedHead: f.head, AdmittedAt: at,
+		},
+	}
+	if err := f.run.admittedRun.state.Validate(); err != nil {
+		t.Fatalf("the stored code run is not a valid run state: %v", err)
+	}
+	handback := runstate.MergeQueueHandback{
+		At: at, Continuation: runstate.MergeQueueReleased, Mover: ownership.MoverHarness,
+		Reason: "the forge merge was withdrawn", Branch: "change", ApprovedHead: f.head,
+	}
+	return f, validatingRun{f.run}, handback
+}
+
+func TestAReleasedCodeRunWithPassedChecksIsHandedBackAsFailedWithoutThem(t *testing.T) {
+	t.Parallel()
+
+	f, runs, handback := releasedRunHandback(t)
+	f.tracker.Item.Status = "in_progress"
+	if err := (MergeQueueRunHandback{Store: runs, Tracker: f.tracker}).HandBack(context.Background(), f.entry, handback); err != nil {
+		t.Fatalf("HandBack() error = %v, want the hand-back saved", err)
+	}
+	saved := f.run.latest()
+	if saved.Status != runstate.StatusFailed || saved.CheckFailure == nil || saved.ChecksPassed != nil || strings.TrimSpace(saved.Blocker) == "" {
+		t.Fatalf("run = %s, check failure %#v, checks passed %#v; want a failed run with the failure recorded and no passed checks",
+			saved.Status, saved.CheckFailure, saved.ChecksPassed)
+	}
+	if f.run.saveCount() != 1 {
+		t.Fatalf("run saved %d times, want once", f.run.saveCount())
+	}
+	if f.tracker.Item.Status != "blocked" || !f.tracker.Blocked || !strings.Contains(f.tracker.BlockReason, handback.Reason) {
+		t.Fatalf("item status %q, block reason %q; want it blocked with the hand-back's note", f.tracker.Item.Status, f.tracker.BlockReason)
+	}
+}
+
+func TestAHandbackTriedAgainFindsItsNoteOnTheBlockedItemAndWritesItOnce(t *testing.T) {
+	t.Parallel()
+
+	f, runs, handback := releasedRunHandback(t)
+	f.tracker.Item.Status = "in_progress"
+	f.run.failSaves = 1
+	given := MergeQueueRunHandback{Store: runs, Tracker: f.tracker}
+	if err := given.HandBack(context.Background(), f.entry, handback); err == nil {
+		t.Fatal("HandBack() = nil, want the refused run write reported")
+	}
+	// The tracker holds the note the way bd does once an item is blocked on it.
+	f.tracker.Item.Notes = f.tracker.BlockReason
+	calls := append([]string(nil), f.tracker.Calls...)
+	if err := given.HandBack(context.Background(), f.entry, handback); err != nil {
+		t.Fatalf("HandBack() again error = %v", err)
+	}
+	if len(f.tracker.NoteRecords) != 0 || strings.Join(f.tracker.Calls, " ") != strings.Join(calls, " ") {
+		t.Fatalf("tracker calls %v, notes %v; want nothing written to the item again", f.tracker.Calls, f.tracker.NoteRecords)
+	}
+	if f.run.latest().CheckFailure == nil || f.run.saveCount() != 1 {
+		t.Fatalf("run saved %d times, check failure %#v; want the second try to have recorded it", f.run.saveCount(), f.run.latest().CheckFailure)
+	}
+
+	// A blocked item whose notes lack this note still gets it.
+	other, otherRuns, otherHandback := releasedRunHandback(t)
+	other.tracker.Item.Status, other.tracker.Item.Notes = "blocked", "an earlier, different note"
+	if err := (MergeQueueRunHandback{Store: otherRuns, Tracker: other.tracker}).HandBack(context.Background(), other.entry, otherHandback); err != nil {
+		t.Fatalf("HandBack() error = %v", err)
+	}
+	if len(other.tracker.NoteRecords) != 1 || !strings.Contains(other.tracker.NoteRecords[0], otherHandback.Reason) {
+		t.Fatalf("notes recorded %v, want the hand-back's note once", other.tracker.NoteRecords)
 	}
 }
