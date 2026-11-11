@@ -10,7 +10,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
-// RootVariable names the temporary root scripts/validate-two-factories.sh makes
+// RootVariable names the temporary root scripts/twofactory/validate.sh makes
 // for a validation and removes afterwards. Without it the validation does not
 // run, so nothing here is ever written anywhere the script did not make.
 const RootVariable = "YOYODYNE_TWO_FACTORY_ROOT"
@@ -48,7 +48,7 @@ var checks = []check{
 func TestTwoFactories(t *testing.T) {
 	root := os.Getenv(RootVariable)
 	if root == "" {
-		t.Skipf("the two-factory validation runs only from scripts/validate-two-factories.sh, which sets %s", RootVariable)
+		t.Skipf("the two-factory validation runs only from scripts/twofactory/validate.sh, which sets %s", RootVariable)
 	}
 	if !filepath.IsAbs(root) {
 		t.Fatalf("%s is %q, which is not an absolute path", RootVariable, root)

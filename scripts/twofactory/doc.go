@@ -3,7 +3,7 @@
 // can check" in docs/designs/working-alongside-other-contributors.md that the
 // validation work item names asserted one by one.
 //
-// It is run by scripts/validate-two-factories.sh, which makes the temporary
+// It is run by validate.sh beside it, which makes the temporary
 // root the homes and the remote live in, points HOME there, and removes it
 // afterwards. Run any other way, its test skips, so `make test` compiles it and
 // keeps it building without running it.

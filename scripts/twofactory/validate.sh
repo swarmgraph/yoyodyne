@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 #
-# validate-two-factories.sh - the two-factory validation. It sets up two
+# validate.sh - the two-factory validation. It sets up two
 # harness homes on one machine, each with its own machine identity and its own
 # clone of one throwaway bare remote, and asserts the checks the validation work
 # item (yoyodyne-ifd.429.110) names from "What a reviewer can check" in
 # docs/designs/working-alongside-other-contributors.md, printing each by number
 # and name as it passes or fails.
 #
-#   scripts/validate-two-factories.sh       what `make validate-two-factories` runs
+#   scripts/twofactory/validate.sh
 #
-# The checks themselves are the Go test in scripts/twofactory, which drives the
+# It lives beside its Go test, in that package's directory, and has no make
+# target, so a change to it is checked as a change to that package alone.
+#
+# The checks themselves are the Go test beside this script, which drives the
 # harness's own code: its claims, its pipeline, its scheduler, its forge check
 # and its status line. The forge is the stand-in the harness's own tests use,
 # reading and writing the throwaway remote; no request reaches GitHub.
@@ -27,10 +30,10 @@
 
 set -uo pipefail
 
-repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 for tool in go git; do
-  command -v "$tool" >/dev/null 2>&1 || { echo "validate-two-factories.sh needs $tool" >&2; exit 2; }
+  command -v "$tool" >/dev/null 2>&1 || { echo "scripts/twofactory/validate.sh needs $tool" >&2; exit 2; }
 done
 
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/yoyodyne-two-factories.XXXXXX")"

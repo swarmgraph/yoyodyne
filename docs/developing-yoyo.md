@@ -161,11 +161,10 @@ read the new name, and its check 6, the supervisor moving the state by itself,
 with `moving.json`, the drain limit, a supervisor stopped before or during the
 move, and a failing step undone.
 
-`make validate-two-factories` is the validation for working alongside other
+`scripts/twofactory/validate.sh` is the validation for working alongside other
 contributors ([the design](designs/working-alongside-other-contributors.md),
-build item 14). It runs
-[`scripts/validate-two-factories.sh`](../scripts/validate-two-factories.sh),
-which sets up two harness homes on one machine, each with a machine identity of
+build item 14). [The script](../scripts/twofactory/validate.sh)
+sets up two harness homes on one machine, each with a machine identity of
 its own and its own clone of one throwaway bare remote, inside a temporary root
 it removes on exit, with `HOME` pointed there so the real `~/.yoyodyne` is never
 read or written. The checks are the Go test in
