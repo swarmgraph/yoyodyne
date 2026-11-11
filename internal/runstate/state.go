@@ -3127,6 +3127,9 @@ type State struct {
 	// OutsideFile is set on a run that brings a pinned outside file in. See
 	// OutsideFileLanding.
 	OutsideFile *OutsideFileLanding `json:"outside_file,omitempty"`
+	// TeamBranchResolution is set on a run that resolves a conflict between the
+	// team's branch and the target branch. See TeamBranchResolutionRun.
+	TeamBranchResolution *TeamBranchResolutionRun `json:"team_branch_resolution,omitempty"`
 	// DocumentRetry is what a document run stopped by something that judged
 	// nothing says about the attempt after it. See DocumentRetry.
 	DocumentRetry *DocumentRetry `json:"document_retry,omitempty"`
@@ -4192,6 +4195,19 @@ func (s State) Validate() error {
 			problems = append(problems, fmt.Errorf("outside file: %w", err))
 		} else if s.RunID != s.OutsideFile.RunID() {
 			problems = append(problems, errors.New("a run that brings a file in has the run id its record and attempt name"))
+		}
+	}
+	if s.TeamBranchResolution != nil {
+		if s.Document != nil || s.OutsideFile != nil {
+			problems = append(problems, errors.New("a run that resolves a team branch conflict does nothing else"))
+		}
+		if err := s.TeamBranchResolution.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("team branch resolution: %w", err))
+		} else if s.RunID != s.TeamBranchResolution.RunID() {
+			problems = append(problems, errors.New("a run that resolves a team branch conflict has the run id its conflict and round name"))
+		}
+		if s.UpstreamBranch != "" {
+			problems = append(problems, errors.New("a run that resolves a team branch conflict does not wait for the team's merge"))
 		}
 	}
 	if s.DocumentConflict != nil {

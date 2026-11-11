@@ -158,11 +158,11 @@ func TestTeamBranchUpdateSays(t *testing.T) {
 	c.Conflict = &TeamBranchUpdateConflict{Paths: []string{"a.go", "b.go"}, FoundAt: at}
 	conflict.Pending = &c
 	want := "Bringing staging up to date with main is waiting: merging main at " + strings.Repeat("a", 12) + " conflicts in a.go, b.go"
-	if got := conflict.Says(); len(got) != 1 || got[0] != want+"." {
+	if got := conflict.Says(); len(got) != 1 || got[0] != want+"; waiting for the development manager to name an item to resolve it." {
 		t.Errorf("unreported conflict Says() = %q", got)
 	}
 	c.ReportedAt = &at
-	if got := conflict.Says(); len(got) != 1 || got[0] != want+"; the development manager has been told." {
+	if got := conflict.Says(); len(got) != 1 || got[0] != want+"; the development manager has been told; waiting for the development manager to name an item to resolve it." {
 		t.Errorf("reported conflict Says() = %q", got)
 	}
 	if got := c.Waiting(); !strings.Contains(got, "conflicts in a.go, b.go") {
@@ -245,5 +245,238 @@ func TestTeamBranchUpdateStoreKeepsBranchesApart(t *testing.T) {
 	}
 	if all[0].TargetBranch != "release-1.2" || all[1].TargetBranch != "release/1.2" || all[2].TargetBranch != "staging" {
 		t.Fatalf("All() order = %s, %s, %s", all[0].TargetBranch, all[1].TargetBranch, all[2].TargetBranch)
+	}
+}
+
+func conflictedRecord(t *testing.T, store *TeamBranchUpdateStore) TeamBranchUpdate {
+	t.Helper()
+	record := tbuRecord("staging")
+	pending := tbuAttempt()
+	pending.Conflict = &TeamBranchUpdateConflict{
+		Paths: []string{"app.txt"}, FoundAt: time.Date(2026, 11, 10, 9, 5, 0, 0, time.UTC),
+		Items: []TeamBranchConflictItem{{ID: "yoyodyne-abc.1", Title: "Adds the export button"}, {ID: "yoyodyne-abc.2"}},
+	}
+	record.Pending = &pending
+	if err := store.Save(record); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	return record
+}
+
+func tbuDecision() TeamBranchResolutionDecision {
+	return TeamBranchResolutionDecision{
+		TargetBranch: "staging", WorkItemID: "yoyodyne-abc.1", WorkItemTitle: "Adds the export button", Reason: "it touched the file last",
+		DecidedBy: "development-manager", Conversation: "dm-1", Turn: 3, At: time.Date(2026, 11, 10, 9, 10, 0, 0, time.UTC),
+	}
+}
+
+func TestAConflictItemIsSaidByTitleWithItsIdentifierAfterIt(t *testing.T) {
+	if got := (TeamBranchConflictItem{ID: "yoyodyne-abc.1", Title: "  Adds the\n export button "}).Says(); got != "Adds the export button (yoyodyne-abc.1)" {
+		t.Fatalf("Says() = %q", got)
+	}
+	if got := (TeamBranchConflictItem{ID: "yoyodyne-abc.2"}).Says(); got != "yoyodyne-abc.2" {
+		t.Fatalf("Says() with no title = %q, want the identifier alone", got)
+	}
+}
+
+func TestDecideResolutionRecordsTheDecisionOnTheConflictAndKeepsTheRoundsSpent(t *testing.T) {
+	store := newTBUStore(t, t.TempDir())
+	conflictedRecord(t, store)
+	ctx := context.Background()
+
+	decided, err := store.DecideResolution(ctx, tbuDecision())
+	if err != nil {
+		t.Fatalf("DecideResolution() error = %v", err)
+	}
+	resolution := decided.Pending.Resolution
+	if resolution == nil || resolution.WorkItemID != "yoyodyne-abc.1" || resolution.DecidedBy != "development-manager" || resolution.Conversation != "dm-1" || resolution.Turn != 3 || resolution.RoundsLeft() != 3 {
+		t.Fatalf("resolution = %#v, want the decision as made", resolution)
+	}
+	loaded, _, _ := store.Load("staging")
+	if loaded.Pending.Resolution == nil || loaded.Pending.Resolution.Reason != "it touched the file last" {
+		t.Fatalf("loaded = %#v, want the decision saved", loaded.Pending)
+	}
+	says := strings.Join(loaded.Says(), "\n")
+	if !strings.Contains(says, "the development manager decided that Adds the export button (yoyodyne-abc.1) resolves it (round 1 of 3 starts at the next check)") {
+		t.Fatalf("Says() = %q", says)
+	}
+
+	// A round ended, then a new decision naming another item: the item changes,
+	// the round spent stays counted.
+	ended := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
+	loaded.Pending.Resolution.Rounds = []TeamBranchResolutionRound{{RunID: "run-" + strings.Repeat("1", 32), StartedAt: ended.Add(-time.Hour), EndedAt: &ended, Why: "the reviewer refused it"}}
+	if err := store.Save(loaded); err != nil {
+		t.Fatal(err)
+	}
+	again := tbuDecision()
+	again.WorkItemID, again.WorkItemTitle, again.Reason = "yoyodyne-abc.2", "", "the other item is closer"
+	decided, err = store.DecideResolution(ctx, again)
+	if err != nil {
+		t.Fatalf("DecideResolution(again) error = %v", err)
+	}
+	if r := decided.Pending.Resolution; r.WorkItemID != "yoyodyne-abc.2" || r.Reason != "the other item is closer" || len(r.Rounds) != 1 || r.RoundsLeft() != 2 {
+		t.Fatalf("resolution after a second decision = %#v, want the new item with the round spent kept", r)
+	}
+	if says := strings.Join(decided.Says(), "\n"); !strings.Contains(says, "decided that yoyodyne-abc.2 resolves it (1 of 3 rounds used; the next starts at the next check)") {
+		t.Fatalf("Says() = %q", says)
+	}
+}
+
+func TestDecideResolutionRefusesInPlainWords(t *testing.T) {
+	ctx := context.Background()
+	store := newTBUStore(t, t.TempDir())
+	if _, err := store.DecideResolution(ctx, tbuDecision()); err == nil || !strings.Contains(err.Error(), "no update of staging is waiting on a conflict") {
+		t.Fatalf("DecideResolution() with no record = %v", err)
+	}
+	record := tbuRecord("staging")
+	pending := tbuAttempt()
+	pending.Refused = "the checks failed"
+	record.Pending = &pending
+	if err := store.Save(record); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DecideResolution(ctx, tbuDecision()); err == nil || !strings.Contains(err.Error(), "no update of staging is waiting on a conflict") {
+		t.Fatalf("DecideResolution() on a refused update = %v", err)
+	}
+
+	conflicted := conflictedRecord(t, store)
+	for name, change := range map[string]func(*TeamBranchResolutionDecision){
+		"empty reason": func(d *TeamBranchResolutionDecision) { d.Reason = "  " },
+		"no item":      func(d *TeamBranchResolutionDecision) { d.WorkItemID = "" },
+		"no decider":   func(d *TeamBranchResolutionDecision) { d.DecidedBy = "" },
+	} {
+		decision := tbuDecision()
+		change(&decision)
+		if _, err := store.DecideResolution(ctx, decision); err == nil {
+			t.Errorf("%s: DecideResolution() accepted it", name)
+		}
+	}
+	if loaded, _, _ := store.Load("staging"); loaded.Pending.Resolution != nil {
+		t.Fatalf("a refused decision was recorded: %#v", loaded.Pending.Resolution)
+	}
+
+	// A round in progress blocks a change of decision.
+	running := conflicted
+	running.Pending.Resolution = &TeamBranchResolution{WorkItemID: "yoyodyne-abc.1", Reason: "r", DecidedBy: "development-manager", DecidedAt: time.Now(),
+		Rounds: []TeamBranchResolutionRound{{RunID: "run-" + strings.Repeat("2", 32), StartedAt: time.Now()}}}
+	if err := store.Save(running); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DecideResolution(ctx, tbuDecision()); err == nil || !strings.Contains(err.Error(), "a round of resolving this conflict is running now") {
+		t.Fatalf("DecideResolution() during a round = %v", err)
+	}
+	if says := strings.Join(running.Says(), "\n"); !strings.Contains(says, "(round 1 of 3 in progress)") {
+		t.Fatalf("Says() = %q", says)
+	}
+
+	// Every round used: refused, and the line says so.
+	spent := running
+	ended := time.Now()
+	rounds := make([]TeamBranchResolutionRound, MaxTeamBranchResolutionRounds)
+	for i := range rounds {
+		rounds[i] = TeamBranchResolutionRound{RunID: "run-" + strings.Repeat(string(rune('3'+i)), 32), StartedAt: ended, EndedAt: &ended, Why: "no"}
+	}
+	spent.Pending.Resolution.Rounds = rounds
+	if err := store.Save(spent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DecideResolution(ctx, tbuDecision()); err == nil || !strings.Contains(err.Error(), "all 3 rounds of resolving this conflict have been used") {
+		t.Fatalf("DecideResolution() with the rounds spent = %v", err)
+	}
+	if says := strings.Join(spent.Says(), "\n"); !strings.Contains(says, "rounds of resolving it are spent (3 of 3)") {
+		t.Fatalf("Says() = %q", says)
+	}
+	if !spent.Pending.Resolution.Spent() || spent.Pending.Resolution.RoundsLeft() != 0 {
+		t.Fatal("three rounds are not spent")
+	}
+}
+
+func TestDecideResolutionLeavesTheRecordToTheUpdaterThatHoldsTheLease(t *testing.T) {
+	root := t.TempDir()
+	store := newTBUStore(t, root)
+	conflictedRecord(t, store)
+	lease, held, err := newTBUStore(t, root).LeaseUpdater(context.Background(), "staging")
+	if err != nil || !held {
+		t.Fatalf("LeaseUpdater() = %t, %v", held, err)
+	}
+	defer lease.Release()
+	if _, err := store.DecideResolution(context.Background(), tbuDecision()); err == nil || !strings.Contains(err.Error(), "is being worked on right now") {
+		t.Fatalf("DecideResolution() while the update is worked = %v, want it refused to be recorded again shortly", err)
+	}
+}
+
+func TestResolutionValidationRefusesWhatCannotBeKept(t *testing.T) {
+	good := TeamBranchResolution{WorkItemID: "x", Reason: "r", DecidedBy: "person", DecidedAt: time.Now()}
+	tooMany := good
+	tooMany.Rounds = make([]TeamBranchResolutionRound, MaxTeamBranchResolutionRounds+1)
+	for i := range tooMany.Rounds {
+		ended := time.Now()
+		tooMany.Rounds[i] = TeamBranchResolutionRound{RunID: "run-" + strings.Repeat("a", 32), StartedAt: ended, EndedAt: &ended}
+	}
+	twoOpen := good
+	twoOpen.Rounds = []TeamBranchResolutionRound{{RunID: "run-" + strings.Repeat("a", 32), StartedAt: time.Now()}, {RunID: "run-" + strings.Repeat("b", 32), StartedAt: time.Now()}}
+	badRun := good
+	badRun.Rounds = []TeamBranchResolutionRound{{RunID: "nope", StartedAt: time.Now()}}
+	noReason := good
+	noReason.Reason = ""
+	for name, resolution := range map[string]TeamBranchResolution{"too many rounds": tooMany, "two rounds in progress": twoOpen, "bad run id": badRun, "no reason": noReason} {
+		record := tbuRecord("staging")
+		pending := tbuAttempt()
+		pending.Resolution = &resolution
+		record.Pending = &pending
+		if err := record.Validate(); err == nil {
+			t.Errorf("%s: Validate() accepted it", name)
+		}
+	}
+	record := tbuRecord("staging")
+	pending := tbuAttempt()
+	pending.Resolution = &good
+	record.Pending = &pending
+	if err := record.Validate(); err != nil {
+		t.Fatalf("Validate() of a good decision = %v", err)
+	}
+	// Free text is bounded on save.
+	long := good
+	long.Reason = strings.Repeat("y", 3*MaxRecordedTextBytes)
+	pending.Resolution = &long
+	record.Pending = &pending
+	store := newTBUStore(t, t.TempDir())
+	if err := store.Save(record); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := store.Load("staging"); len(got.Pending.Resolution.Reason) > MaxRecordedTextBytes {
+		t.Fatalf("reason is %d bytes after save, want it bounded", len(got.Pending.Resolution.Reason))
+	}
+}
+
+func TestTeamBranchResolutionRunNamesItsRunAndItsBookkeepingItem(t *testing.T) {
+	run := TeamBranchResolutionRun{TargetBranch: "staging", UpstreamBranch: "main", TeamCommit: tbuCommit("a"), TargetBase: tbuCommit("b"), ConflictedBase: tbuCommit("c"),
+		Paths: []string{"app.txt"}, WorkItemID: "yoyodyne-abc.1", Round: 1}
+	if err := run.Validate(); err != nil {
+		t.Fatalf("Validate() = %v", err)
+	}
+	next := run
+	next.Round = 2
+	if run.RunID() == next.RunID() || !ValidRunID(run.RunID()) {
+		t.Fatalf("run ids %s and %s, want valid and distinct per round", run.RunID(), next.RunID())
+	}
+	if got, ok := TeamBranchResolutionRunOfItem(run.WorkItemBookkeepingID()); !ok || got != run.RunID() {
+		t.Fatalf("TeamBranchResolutionRunOfItem(%q) = %q, %t", run.WorkItemBookkeepingID(), got, ok)
+	}
+	if _, ok := TeamBranchResolutionRunOfItem("yoyodyne-abc.1"); ok {
+		t.Fatal("a tracker item was taken for a bookkeeping item")
+	}
+	for name, change := range map[string]func(*TeamBranchResolutionRun){
+		"round zero": func(r *TeamBranchResolutionRun) { r.Round = 0 },
+		"round four": func(r *TeamBranchResolutionRun) { r.Round = 4 },
+		"no paths":   func(r *TeamBranchResolutionRun) { r.Paths = nil },
+		"bad commit": func(r *TeamBranchResolutionRun) { r.ConflictedBase = "x" },
+		"no item":    func(r *TeamBranchResolutionRun) { r.WorkItemID = "" },
+	} {
+		bad := run
+		change(&bad)
+		if bad.Validate() == nil {
+			t.Errorf("%s: Validate() accepted it", name)
+		}
 	}
 }

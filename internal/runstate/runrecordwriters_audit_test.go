@@ -323,6 +323,8 @@ var outsideRunRecordBypasses = []outsideRunRecordSite{
 	{"internal/orchestrator/outsidefilelanding.go", "(*activeRun).writeOutsideFile", savesWholeRecord},
 	{"internal/orchestrator/outsidefilelanding.go", "(Pipeline).BringInOutsideFile", savesWholeRecord},
 	{"internal/orchestrator/outsidefilelanding.go", "(Pipeline).BringInOutsideFile", setsStatusOrStep},
+	{"internal/orchestrator/teambranchresolution.go", "(Pipeline).ResolveTeamBranchConflict", savesWholeRecord},
+	{"internal/orchestrator/teambranchresolution.go", "(Pipeline).ResolveTeamBranchConflict", setsStatusOrStep},
 	{"internal/orchestrator/pipeline.go", "(*activeRun).attemptDevelopment", savesWholeRecord},
 	{"internal/orchestrator/pipeline.go", "(*activeRun).attemptReview", savesWholeRecord},
 	{"internal/orchestrator/pipeline.go", "(*activeRun).attemptReview", setsStatusOrStep},

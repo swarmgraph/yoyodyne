@@ -322,6 +322,9 @@ func (r Recoverer) effect(ctx context.Context, state runstate.State, request Req
 		if state.OutsideFile != nil {
 			return notAllowed(fmt.Sprintf("run %s brings an outside file in, which holds no developer slot and waits on no work item", state.RunID), "")
 		}
+		if state.TeamBranchResolution != nil {
+			return notAllowed(fmt.Sprintf("run %s resolves a team branch conflict, which the next forge check of its update continues and which waits on no work item", state.RunID), "")
+		}
 		if r.Waitable == nil {
 			return notAllowed("nothing is wired to this conversation to say whether the run may wait", "")
 		}

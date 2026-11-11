@@ -6,6 +6,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -52,6 +53,12 @@ type teamUpdateFixture struct {
 	forge      *orchestratortest.Forge
 	verdict    string
 	updater    TeamBranchUpdater
+	tracker    *orchestratortest.Tracker
+	provider   *orchestratortest.Backend
+	// develop is what the fake developer does in the checkout it is given; nil is
+	// a developer that is not expected to be asked.
+	develop   func(request backend.RunRequest, attempt int) error
+	developed int
 }
 
 // newTeamUpdateFixture is a project whose target is staging, checked out in the
@@ -72,13 +79,33 @@ func newTeamUpdateFixture(t *testing.T) *teamUpdateFixture {
 	runPipelineGit(t, team, "config", "user.email", "teammate@example.invalid")
 
 	f := &teamUpdateFixture{t: t, repository: repository, remote: remote, team: team, verdict: teamApprove}
-	provider := &orchestratortest.Backend{Respond: func(backend.RunRequest) (backend.RunResult, error) {
+	provider := &orchestratortest.Backend{Respond: func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleDeveloper {
+			if f.develop == nil {
+				return backend.RunResult{}, errors.New("no developer was expected")
+			}
+			f.developed++
+			if err := f.develop(request, f.developed); err != nil {
+				return backend.RunResult{}, err
+			}
+			return backend.RunResult{
+				Backend: domain.BackendClaudeCode, SessionID: "update-developer-session", ResolvedModel: orchestratortest.DeveloperResolved,
+				FinalText: "resolved the conflict", Process: execution.ProcessResult{Status: execution.ProcessSucceeded}, LastEvent: request.LastSequence,
+			}, nil
+		}
+		// The review of a merge is told what it is reviewing; the review of a run's
+		// change is the ordinary one, which says what the approval approves.
+		verdict := f.verdict
+		if !strings.Contains(request.Prompt, "# Bringing") {
+			verdict = approveVerdict
+		}
 		return backend.RunResult{
 			Backend: domain.BackendClaudeCode, SessionID: "update-review-session", ResolvedModel: "claude-opus-5",
-			FinalText: f.verdict, Process: execution.ProcessResult{Status: execution.ProcessSucceeded},
+			FinalText: verdict, Process: execution.ProcessResult{Status: execution.ProcessSucceeded},
 		}, nil
 	}}
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	f.tracker, f.provider = tracker, provider
 	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"test -f app.txt", "test -f team-check.txt || true"})
 	pipeline.Config.Execution.UpstreamBranch = "main"
 	f.holds = newOperatorHoldStore(t)
@@ -113,6 +140,7 @@ func newTeamUpdateFixture(t *testing.T) *teamUpdateFixture {
 			Clock: fixedBranchClock{}, Repository: repository, Config: pipeline.Config,
 		},
 		Reports: f.reports,
+		Resolve: f.pipeline.ResolveTeamBranchConflict,
 	}
 	return f
 }
@@ -253,7 +281,7 @@ func TestAConflictWaitsIsReportedOnceAndIsBuiltAgainWhenABranchMoves(t *testing.
 	}
 	record := f.record()
 	conflict := record.Pending.Conflict
-	if conflict == nil || len(conflict.Paths) != 1 || conflict.Paths[0] != "app.txt" || len(conflict.Items) != 1 || conflict.Items[0] != "yoyodyne-staging-item" || record.Pending.ReportedAt == nil {
+	if conflict == nil || len(conflict.Paths) != 1 || conflict.Paths[0] != "app.txt" || len(conflict.Items) != 1 || conflict.Items[0].ID != "yoyodyne-staging-item" || record.Pending.ReportedAt == nil {
 		t.Fatalf("pending = %#v, want the conflict naming app.txt and the item that touched it, reported", record.Pending)
 	}
 	if f.checks.calls() != 0 || f.reviewer.calls() != 0 {

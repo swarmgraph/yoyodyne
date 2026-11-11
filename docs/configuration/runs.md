@@ -1512,9 +1512,25 @@ pull request waits for them, and a project that does not publish leaves the
 checked and reviewed merge for a person to land, since it has no pull request to
 carry their approval. It never rebases or forces the target, because
 pull requests and other contributors point at its commits. A conflict is not
-resolved: the development manager is told once which files conflict and which
-items on the target touched them, work keeps landing, and the update is tried
-again when either branch moves. Checks that fail, or a reviewer who does not
+resolved by the harness itself: the development manager is told once which files
+conflict and which items on the target touched them, each named by its title
+with its identifier after it, work keeps landing, and the update is tried again
+when either branch moves. Her decision names one item, and she records it with
+the `resolve-conflict` tracker action in her reply (`{"action":"resolve-conflict",
+"target":"<target branch>","id":"<item id>","reason":"<why>"}`; `target` may be
+left out where the project has one target branch). The action is refused in plain
+words where no conflict is waiting, the three rounds are used, or a round is
+running. Each next forge check then starts a run of it that resolves the conflict on the target: the developer
+works in a checkout that carries the conflict as Git left it, the run goes
+through the configured checks and an independent review, and it fails if a
+conflict marker is left in the files that conflicted. What the run approves is
+turned into the merge commit, which is checked and reviewed again as itself
+before it lands. Up to three such rounds are made for a conflict, counted
+against that limit and not against the item's repair attempts, and a fourth is
+never started; the development manager is told once when the three are used,
+and the update then waits for a branch to move or for a person to merge the
+team's branch by hand. The decision and the rounds spent carry over when only
+the target moves. Checks that fail, or a reviewer who does not
 approve, are handled the same way. The update belongs to no work item, so no
 item's repair budget is charged. A project with no configured checks never
 lands an update, because a merge no check ran on has earned nothing. `yoyo status`

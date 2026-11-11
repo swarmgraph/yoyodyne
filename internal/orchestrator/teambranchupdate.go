@@ -21,9 +21,13 @@ package orchestrator
 // the remote or the forge changes nothing and returns an error for the next
 // check to try again.
 //
-// A merge that conflicts is not resolved here. The update waits, the
-// development manager is told once which paths conflict and which items on the
-// target touched them, and it is tried again whenever either branch moves.
+// A merge that conflicts is not resolved by the harness itself. The update
+// waits, and the development manager is told once which paths conflict and which
+// items on the target touched them. Her decision names one item, and each next
+// check starts a run of it (teambranchresolution.go) that resolves the conflict
+// on the target, up to three rounds. What such a run approves is turned into
+// the merge commit of the update, which is then checked, reviewed and landed as
+// any update is. The update is tried again whenever either branch moves.
 
 import (
 	"context"
@@ -63,6 +67,8 @@ type TeamBranchGit interface {
 	TargetHolds(ctx context.Context, branch, commit string) (bool, error)
 	HoldsCommit(ctx context.Context, commit string) (bool, error)
 	BuildQueueCandidate(ctx context.Context, request gitworktree.QueueCandidateRequest) (gitworktree.QueueCandidate, error)
+	BuildConflictedMerge(ctx context.Context, request gitworktree.ConflictedMergeRequest) (gitworktree.ConflictedMerge, error)
+	CommitMergeOf(ctx context.Context, source, base, head, message string) (string, error)
 	RestoreQueueCandidate(ctx context.Context, entry, commit string) (string, error)
 	RemoveQueueCandidate(ctx context.Context, path string) error
 	CandidateChanges(ctx context.Context, baseCommit, candidate string, limits gitworktree.DiffLimits) (gitworktree.BranchChange, error)
@@ -98,6 +104,10 @@ type TeamBranchUpdater struct {
 	Reports ReportCollector
 	// Events receives the checks' event stream. Nil discards it.
 	Events func(execution.Event) error
+	// Resolve makes one round of resolving a conflict: a run of the item the
+	// development manager named (Pipeline.ResolveTeamBranchConflict). Nil is an
+	// updater that cannot start one, and a decision then waits.
+	Resolve func(context.Context, TeamBranchResolutionRequest) (TeamBranchResolutionOutcome, error)
 }
 
 // TeamBranchUpdateOutcome is what one call did, as the forge check prints it.
@@ -214,7 +224,12 @@ type teamBranchRun struct {
 	// team's tip stayed, kept so that a conflict or refusal it already told the
 	// development manager of is not told again when the new merge meets the same.
 	prior *runstate.TeamBranchUpdateAttempt
-	out   TeamBranchUpdateOutcome
+	// resolution is the decision to resolve a conflict, and the rounds spent on
+	// it, that the update this call replaced carried, for the same reason: a
+	// target that moved does not reset the limit or lose the decision. It is set
+	// only where the team's tip stayed, and a new tip starts afresh.
+	resolution *runstate.TeamBranchResolution
+	out        TeamBranchUpdateOutcome
 }
 
 func (r *teamBranchRun) now() time.Time { return r.p.clock().Now() }
@@ -299,6 +314,9 @@ func (r *teamBranchRun) update(ctx context.Context) error {
 		if pending.TeamCommit == tip && pending.ReportedAt != nil {
 			r.prior = pending
 		}
+		if pending.TeamCommit == tip && pending.Resolution != nil {
+			r.resolution = r.carriedResolution(*pending.Resolution)
+		}
 		r.record.Pending = nil
 	}
 	if r.pending() == nil {
@@ -307,10 +325,33 @@ func (r *teamBranchRun) update(ctx context.Context) error {
 	if err := r.save(); err != nil {
 		return err
 	}
-	if pending := r.pending(); pending.Conflict != nil || pending.Refused != "" {
+	if pending := r.pending(); pending.Conflict != nil {
+		return r.conflictWaiting(ctx)
+	} else if pending.Refused != "" {
 		return r.stillWaiting()
 	}
 	return r.work(ctx)
+}
+
+// carriedResolution is a decision and its rounds as they carry over to the merge
+// built again on a target that moved. The rounds stay counted. A round still
+// running is ended, because its change was made on the target as it stood, and
+// one that resolved the conflict is no longer a resolution of the merge now
+// built.
+func (r *teamBranchRun) carriedResolution(resolution runstate.TeamBranchResolution) *runstate.TeamBranchResolution {
+	carried := resolution
+	carried.Rounds = append([]runstate.TeamBranchResolutionRound(nil), resolution.Rounds...)
+	for i := range carried.Rounds {
+		round := &carried.Rounds[i]
+		switch {
+		case round.EndedAt == nil:
+			ended := r.now()
+			round.EndedAt, round.Why = &ended, fmt.Sprintf("%s moved while this round was running, so what it makes is not used", r.target)
+		case round.Resolved != "":
+			round.Why, round.Resolved = fmt.Sprintf("resolved the conflict at %s, but %s moved before the merge landed, so the merge was built again", shortCommit(round.Resolved), r.target), ""
+		}
+	}
+	return &carried
 }
 
 // carries reports whether the target already holds the team's tip. A project
@@ -362,19 +403,13 @@ func (r *teamBranchRun) catchUp(ctx context.Context) (string, error) {
 	return catchup.Held, nil
 }
 
-// stillWaiting says why an update already found to conflict, or refused, waits,
-// and tells the development manager once if that has not happened yet.
+// stillWaiting says why an update already refused waits, and tells the
+// development manager once if that has not happened yet.
 func (r *teamBranchRun) stillWaiting() error {
 	pending := r.pending()
 	r.wait("%s; it is tried again when either branch moves", pending.Waiting())
-	if pending.Conflict != nil {
-		r.out.Conflict = append([]string(nil), pending.Conflict.Paths...)
-	}
 	if pending.ReportedAt != nil {
 		return nil
-	}
-	if pending.Conflict != nil {
-		return r.reportConflict(*pending.Conflict)
 	}
 	return r.reportRefusal(pending.Refused)
 }
@@ -454,6 +489,21 @@ func (r *teamBranchRun) checkout(ctx context.Context) (string, bool, error) {
 		// A merge that is gone cannot be checked again, and nothing recorded
 		// about it says anything about the one that replaces it.
 		pending.Candidate, pending.Checks, pending.ChecksFinishedAt, pending.Review = "", nil, nil, nil
+		// A merge made from a resolution is made again from the resolution's
+		// approved commit where that is still kept; building it from the branches
+		// would only meet the conflict again.
+		if round, resolved := pending.Resolution.ResolvedBy(); resolved {
+			if kept, err := r.u.Git.HoldsCommit(ctx, round.Resolved); err == nil && kept {
+				if err := r.resolvedMerge(ctx, round.Resolved); err != nil {
+					return "", false, err
+				}
+				path, err := r.u.Git.RestoreQueueCandidate(ctx, r.entry, pending.Candidate)
+				if err != nil {
+					return "", false, fmt.Errorf("put the checkout of merge %s back: %w", pending.Candidate, err)
+				}
+				return path, true, nil
+			}
+		}
 	}
 	candidate, err := r.u.Git.BuildQueueCandidate(ctx, gitworktree.QueueCandidateRequest{
 		Entry:        r.entry,
@@ -511,6 +561,9 @@ func (r *teamBranchRun) conflicted(ctx context.Context, base string, conflict gi
 	sort.Strings(paths)
 	items, itemsErr := r.conflictItems(ctx, base, paths)
 	pending.Conflict = &runstate.TeamBranchUpdateConflict{Paths: paths, Items: items, FoundAt: r.now()}
+	if r.resolution != nil && pending.Resolution == nil {
+		pending.Resolution = r.resolution
+	}
 	if err := r.save(); err != nil {
 		return err
 	}
@@ -525,7 +578,7 @@ func (r *teamBranchRun) conflicted(ctx context.Context, base string, conflict gi
 // conflictItems is the work items on the target whose landed changes touched
 // any of the paths: the runs waiting for the team's merge whose landing commit
 // is among the commits on the target that changed one of them.
-func (r *teamBranchRun) conflictItems(ctx context.Context, base string, paths []string) ([]string, error) {
+func (r *teamBranchRun) conflictItems(ctx context.Context, base string, paths []string) ([]runstate.TeamBranchConflictItem, error) {
 	waits, ok := r.p.Store.(TeamMergeWaits)
 	if !ok {
 		return nil, errors.New("the run store cannot list the runs waiting for the team's merge")
@@ -544,7 +597,7 @@ func (r *teamBranchRun) conflictItems(ctx context.Context, base string, paths []
 			touching[commit] = true
 		}
 	}
-	found := map[string]bool{}
+	found := map[string]string{}
 	for _, state := range waiting {
 		if state.TeamMerge.TargetBranch != r.target {
 			continue
@@ -555,16 +608,31 @@ func (r *teamBranchRun) conflictItems(ctx context.Context, base string, paths []
 		}
 		for _, commit := range landed {
 			if commit != "" && touching[commit] {
-				found[state.WorkItemID] = true
+				found[state.WorkItemID] = state.WorkItemTitle
 			}
 		}
 	}
-	items := make([]string, 0, len(found))
-	for item := range found {
-		items = append(items, item)
+	items := make([]runstate.TeamBranchConflictItem, 0, len(found))
+	for id, title := range found {
+		items = append(items, runstate.TeamBranchConflictItem{ID: id, Title: r.currentTitle(ctx, id, title)})
 	}
-	sort.Strings(items)
+	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	return items, nil
+}
+
+// currentTitle is the title the tracker holds for an item now, and the run's own
+// where the tracker cannot say.
+func (r *teamBranchRun) currentTitle(ctx context.Context, id, fallback string) string {
+	if r.p.Tracker == nil {
+		return fallback
+	}
+	bounded, cancel := trackerRecordContext(ctx)
+	defer cancel()
+	shown, err := r.p.Tracker.Show(bounded, id)
+	if err != nil || shown.ID != id || strings.TrimSpace(shown.Title) == "" {
+		return fallback
+	}
+	return shown.Title
 }
 
 // runChecks runs the project's configured checks on the merge, after its
@@ -761,11 +829,16 @@ func (r *teamBranchRun) review(ctx context.Context, path string) (bool, string, 
 // reviewContext is what the harness tells the reviewer about the merge, and
 // nothing an agent wrote.
 func (r *teamBranchRun) reviewContext(attempt runstate.TeamBranchUpdateAttempt) string {
+	own := "The harness wrote no line of its own; every line in it was already on one of the two branches."
+	if round, resolved := attempt.Resolution.ResolvedBy(); resolved {
+		own = fmt.Sprintf("Merging the two conflicted in %s. Run %s resolved those conflicts for %s, as the development manager decided; that run's change was checked and independently reviewed before this commit was built from it. The harness took exactly the content of that run's approved commit `%s` and wrote nothing else, so judge in particular whether the resolution keeps both the team's change and the target's in those files.",
+			strings.Join(attempt.Resolution.Paths, ", "), round.RunID, attempt.Resolution.Says(), round.Resolved)
+	}
 	lines := []string{
 		fmt.Sprintf("# Bringing %s into %s", r.upstream, r.target),
 		"",
-		fmt.Sprintf("This change brings the team's merged work from `%s` into `%s`. The harness built it as commit `%s`: `%s` at `%s`, the team's branch tip, merged onto `%s` at `%s`. The harness wrote no line of its own; every line in it was already on one of the two branches.",
-			r.upstream, r.target, attempt.Candidate, r.upstream, attempt.TeamCommit, r.target, attempt.TargetBase),
+		fmt.Sprintf("This change brings the team's merged work from `%s` into `%s`. The harness built it as commit `%s`: `%s` at `%s`, the team's branch tip, merged onto `%s` at `%s`. %s",
+			r.upstream, r.target, attempt.Candidate, r.upstream, attempt.TeamCommit, r.target, attempt.TargetBase, own),
 		"",
 		"What you are asked is whether the merge is faithful: that it carries what the team's branch gained and what the target already held, and loses neither. Look in particular for a merge that has no textual conflict and still breaks behaviour, such as two changes that each call or rename the same thing in a way the other does not expect. The configured checks have already run on exactly this commit, and their results are below; judge whether they pass.",
 	}
@@ -1038,6 +1111,184 @@ func (r *teamBranchRun) confirmMerge(ctx context.Context, mergeCommit string) er
 	return nil
 }
 
+// conflictWaiting is an update found to conflict: it tells the development
+// manager once, and then does what her decision, if she made one, asks: a round
+// of resolving the conflict while the three the conflict is allowed are not all
+// used, and waiting once they are.
+func (r *teamBranchRun) conflictWaiting(ctx context.Context) error {
+	pending := r.pending()
+	conflict := pending.Conflict
+	r.out.Conflict = append([]string(nil), conflict.Paths...)
+	if pending.ReportedAt == nil {
+		if err := r.reportConflict(*conflict); err != nil {
+			return err
+		}
+	}
+	resolution := pending.Resolution
+	switch {
+	case resolution == nil:
+		r.wait("%s; it waits for the development manager to record a decision to resolve the conflict with one item, and is tried again when either branch moves", pending.Waiting())
+		return nil
+	case resolution.InProgress() != nil || !resolution.Spent():
+		return r.runRound(ctx)
+	}
+	r.wait("%s; all %d rounds of resolving it are used, so it waits for a branch to move or for a person to merge %s into %s by hand", pending.Waiting(), runstate.MaxTeamBranchResolutionRounds, r.upstream, r.target)
+	if resolution.SpentReportedAt == nil {
+		return r.reportRoundsSpent()
+	}
+	return nil
+}
+
+// runRound makes the next round of resolving the conflict, or settles the one
+// recorded as running, and acts on what it came to. The round is recorded before
+// the run starts, so a call that dies in the run leaves it findable.
+func (r *teamBranchRun) runRound(ctx context.Context) error {
+	pending := r.pending()
+	resolution, conflict := pending.Resolution, pending.Conflict
+	base, tip := pending.TargetBase, pending.TeamCommit
+	if r.u.Resolve == nil {
+		r.wait("%s; the decision that %s resolves it stands, and this check cannot start the run", pending.Waiting(), resolution.Says())
+		return nil
+	}
+	index := -1
+	for i := range resolution.Rounds {
+		if resolution.Rounds[i].EndedAt == nil {
+			index = i
+		}
+	}
+	conflicted := ""
+	if index >= 0 {
+		// A run recorded for this round, started by a call that has ended, keeps the
+		// commit it was cut from; one that never started is cut from a new one.
+		if state, err := r.p.Store.Load(resolution.Rounds[index].RunID); err == nil && state.TeamBranchResolution != nil {
+			conflicted = state.TeamBranchResolution.ConflictedBase
+		}
+	}
+	if conflicted == "" {
+		built, err := r.u.Git.BuildConflictedMerge(ctx, gitworktree.ConflictedMergeRequest{
+			Entry: r.entry, TargetBranch: r.target, Head: tip, Base: base,
+			Message: fmt.Sprintf("yoyodyne: %s at %s merged onto %s at %s, with the conflicts in %s left in place\n\nThis is the commit a run that resolves the conflicts starts from. Its only parent is %s.\n",
+				r.upstream, tip, r.target, base, strings.Join(conflict.Paths, ", "), base),
+		})
+		if err != nil {
+			return fmt.Errorf("leave the merge of %s into %s conflicted for the run that resolves it: %w", r.upstream, r.target, err)
+		}
+		conflicted = built.Commit
+	}
+	if index < 0 {
+		number := len(resolution.Rounds) + 1
+		resolution.Paths = append([]string(nil), conflict.Paths...)
+		resolution.Rounds = append(resolution.Rounds, runstate.TeamBranchResolutionRound{
+			RunID: runstate.TeamBranchResolutionRunID(r.target, tip, base, number, resolution.Restarts), StartedAt: r.now(),
+		})
+		index = len(resolution.Rounds) - 1
+		if err := r.save(); err != nil {
+			return err
+		}
+	}
+	var earlier []string
+	for _, round := range resolution.Rounds[:index] {
+		earlier = append(earlier, nonEmpty(round.Why, "it ended without resolving the conflict"))
+	}
+	request := TeamBranchResolutionRequest{
+		TargetBranch: r.target, UpstreamBranch: r.upstream, TeamCommit: tip, TargetBase: base, ConflictedBase: conflicted,
+		Paths: conflict.Paths, WorkItemID: resolution.WorkItemID, WorkItemTitle: resolution.WorkItemTitle,
+		Reason: resolution.Reason, DecidedBy: resolution.DecidedBy, Items: conflict.Items, Round: index + 1, Earlier: earlier,
+		Attempt: resolution.Restarts,
+	}
+	outcome, err := r.u.Resolve(ctx, request)
+	if err != nil {
+		return fmt.Errorf("make round %d of resolving the conflict in %s: %w", index+1, strings.Join(conflict.Paths, ", "), err)
+	}
+	switch {
+	case outcome.NotStarted:
+		// Nothing was started, or what was started was ended for a cause outside
+		// the work, so the round was not used; the next run of it is a new one.
+		resolution.Rounds = resolution.Rounds[:index]
+		resolution.Restarts++
+		if err := r.save(); err != nil {
+			return err
+		}
+		r.wait("%s; the run of %s that resolves it was not started (%s), and is asked for again at the next check", pending.Waiting(), resolution.Says(), nonEmpty(outcome.Why, "no reason was given"))
+		return nil
+	case outcome.Running:
+		r.wait("%s; round %d of %d, a run of %s, has not ended: %s", pending.Waiting(), index+1, runstate.MaxTeamBranchResolutionRounds, resolution.Says(), nonEmpty(outcome.Why, "it is running"))
+		return nil
+	case outcome.Resolved:
+		return r.resolved(ctx, index, outcome.ApprovedHead)
+	}
+	ended := r.now()
+	resolution.Rounds[index].EndedAt, resolution.Rounds[index].Why = &ended, nonEmpty(outcome.Why, "the run ended without resolving the conflict")
+	if err := r.save(); err != nil {
+		return err
+	}
+	if resolution.Spent() {
+		r.wait("%s; round %d of %d did not resolve it and all rounds are used, so it waits for a branch to move or for a person to merge %s into %s by hand", pending.Waiting(), index+1, runstate.MaxTeamBranchResolutionRounds, r.upstream, r.target)
+		return r.reportRoundsSpent()
+	}
+	r.wait("%s; round %d of %d did not resolve it (%s); the decision that %s resolves it stands, so the next check starts round %d",
+		pending.Waiting(), index+1, runstate.MaxTeamBranchResolutionRounds, oneline.Fold(strings.TrimRight(outcome.Why, "."), 400), resolution.Says(), index+2)
+	return nil
+}
+
+// resolved takes a run's approved head to a merge commit, which then goes the
+// way every update goes: its checks, the independent review of that exact
+// commit, and landing.
+func (r *teamBranchRun) resolved(ctx context.Context, index int, head string) error {
+	pending := r.pending()
+	resolution := pending.Resolution
+	if err := r.resolvedMerge(ctx, head); err != nil {
+		return err
+	}
+	ended := r.now()
+	resolution.Rounds[index].EndedAt, resolution.Rounds[index].Resolved = &ended, head
+	pending.Conflict = nil
+	if err := r.save(); err != nil {
+		return err
+	}
+	r.out.Conflict, r.out.Waiting = nil, ""
+	return r.work(ctx)
+}
+
+// resolvedMerge makes the merge commit of a resolution: the content of the run's
+// approved commit, with the target it was built on as its first parent and the
+// team's tip as its second, which is the shape every update's merge has.
+func (r *teamBranchRun) resolvedMerge(ctx context.Context, head string) error {
+	pending := r.pending()
+	base, tip := pending.TargetBase, pending.TeamCommit
+	message := fmt.Sprintf("yoyodyne: bring %s into %s\n\nMerges %s at %s into %s at %s. The merge conflicted in %s; the content is that of %s, which a run resolved the conflicts in and which was checked and reviewed independently.\n",
+		r.upstream, r.target, r.upstream, tip, r.target, base, strings.Join(pending.Resolution.Paths, ", "), head)
+	merge, err := r.u.Git.CommitMergeOf(ctx, head, base, tip, message)
+	if err != nil {
+		return fmt.Errorf("make the merge of %s into %s from the resolution %s: %w", r.upstream, r.target, head, err)
+	}
+	if err := r.exactMerge(ctx, merge, base, tip); err != nil {
+		return err
+	}
+	pending.Candidate, pending.Checks, pending.ChecksFinishedAt, pending.Review = merge, nil, nil, nil
+	return r.save()
+}
+
+// reportRoundsSpent tells the development manager, once, that every round of
+// resolving the conflict was used and what each came to.
+func (r *teamBranchRun) reportRoundsSpent() error {
+	pending := r.pending()
+	resolution := pending.Resolution
+	reasons := make([]string, 0, len(resolution.Rounds))
+	for i, round := range resolution.Rounds {
+		reasons = append(reasons, fmt.Sprintf("round %d: %s", i+1, oneline.Fold(strings.TrimRight(nonEmpty(round.Why, "it did not resolve the conflict"), "."), 500)))
+	}
+	message := fmt.Sprintf("All %d rounds of resolving the conflict in %s, between %s at %s and %s at %s, were used by runs of %s without resolving it (%s). No further run is started for this conflict. The update waits for a branch to move, or for a person to merge %s into %s by hand; work keeps landing on %s meanwhile.",
+		runstate.MaxTeamBranchResolutionRounds, strings.Join(pending.Conflict.Paths, ", "), r.upstream, shortCommit(pending.TeamCommit), r.target, shortCommit(pending.TargetBase),
+		resolution.Says(), strings.Join(reasons, "; "), r.upstream, r.target, r.target)
+	if err := r.tell(message); err != nil {
+		return err
+	}
+	at := r.now()
+	resolution.SpentReportedAt = &at
+	return r.save()
+}
+
 // alreadyTold carries over that the development manager was told of the same
 // thing about the update this one replaced.
 func (r *teamBranchRun) alreadyTold(prior *runstate.TeamBranchUpdateAttempt) error {
@@ -1065,12 +1316,17 @@ func (r *teamBranchRun) reportConflictWith(conflict runstate.TeamBranchUpdateCon
 	case itemsErr != nil:
 		touched = fmt.Sprintf("Which items on %s touched those files could not be read: %v.", r.target, itemsErr)
 	case len(conflict.Items) > 0:
-		touched = fmt.Sprintf("Items on %s whose landed changes touched those files: %s.", r.target, strings.Join(conflict.Items, ", "))
+		names := make([]string, 0, len(conflict.Items))
+		for _, item := range conflict.Items {
+			names = append(names, item.Says())
+		}
+		touched = fmt.Sprintf("Items on %s whose landed changes touched those files: %s.", r.target, strings.Join(names, ", "))
 	default:
 		touched = fmt.Sprintf("No item waiting for the team's merge on %s landed a change to those files.", r.target)
 	}
-	message := fmt.Sprintf("Bringing %s up to date with %s stopped on a conflict: merging %s at %s into %s at %s conflicts in %s%s. %s The harness does not resolve a conflict itself; work keeps landing on %s while the update waits, and the update is tried again whenever either branch moves.",
-		r.target, r.upstream, r.upstream, shortCommit(pending.TeamCommit), r.target, shortCommit(pending.TargetBase), strings.Join(shown, ", "), more, touched, r.target)
+	block := fmt.Sprintf(`{"action":"resolve-conflict","target":%q,"id":"<the item's id>","reason":"<why this item>"}`, r.target)
+	message := fmt.Sprintf("Bringing %s up to date with %s stopped on a conflict: merging %s at %s into %s at %s conflicts in %s%s. %s The harness does not resolve a conflict by itself. To resolve it, choose one item, one of those or another whose context fits, and write this tracker action in your reply: %s. The harness then starts a run of that item on %s with the conflict in front of the developer, checks it and has it reviewed independently, then checks and reviews the merged result before it lands. Up to %d such rounds are made, and they are not counted against the item's repair attempts. Work keeps landing on %s while the update waits, and the update is tried again whenever either branch moves.",
+		r.target, r.upstream, r.upstream, shortCommit(pending.TeamCommit), r.target, shortCommit(pending.TargetBase), strings.Join(shown, ", "), more, touched, block, r.target, runstate.MaxTeamBranchResolutionRounds, r.target)
 	return r.tell(message)
 }
 

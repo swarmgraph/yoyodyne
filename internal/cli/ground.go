@@ -462,6 +462,37 @@ func conversationStoppages(parts components, role domain.AgentRole) chat.Stoppag
 	return conversationStoppedRuns{store: parts.store}
 }
 
+// conversationTeamBranchResolutions wires where the development manager records
+// that a run of one item resolves a conflict between the target branch and the
+// team's branch, for her conversation alone and only where the project names a
+// team's branch. A store that cannot be opened leaves it unwired, and her
+// decision is then refused rather than recorded nowhere.
+func conversationTeamBranchResolutions(parts components, role domain.AgentRole) chat.TeamBranchResolutions {
+	if role != domain.RoleDevelopmentManager || strings.TrimSpace(parts.config.Execution.UpstreamBranch) == "" {
+		return nil
+	}
+	store, err := runstate.NewTeamBranchUpdateStore(parts.stateRoot, parts.config.Product.ID)
+	if err != nil {
+		// The project names a team's branch, so the action is refused with what
+		// kept its record from being opened rather than as if it named none.
+		return unopenedTeamBranchResolutions{err: err}
+	}
+	return store
+}
+
+// unopenedTeamBranchResolutions is the record of a project that names a team's
+// branch, where that record could not be opened: every decision is refused
+// with the reason.
+type unopenedTeamBranchResolutions struct{ err error }
+
+func (u unopenedTeamBranchResolutions) DecideResolution(context.Context, runstate.TeamBranchResolutionDecision) (runstate.TeamBranchUpdate, error) {
+	return runstate.TeamBranchUpdate{}, fmt.Errorf("the record of bringing the target branch up to date could not be opened: %w", u.err)
+}
+
+func (u unopenedTeamBranchResolutions) All() ([]runstate.TeamBranchUpdate, error) {
+	return nil, fmt.Errorf("the record of bringing the target branch up to date could not be opened: %w", u.err)
+}
+
 // conversationStops wires the hand that carries out a stop the development
 // manager decides, for her conversation and for no other. It writes the same
 // request beside the run the operator's stop writes, so the run stops the same

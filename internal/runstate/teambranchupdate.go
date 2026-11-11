@@ -86,6 +86,10 @@ type TeamBranchUpdateAttempt struct {
 	ChecksFinishedAt *time.Time                `json:"checks_finished_at,omitempty"`
 	Review           *TeamBranchUpdateReview   `json:"review,omitempty"`
 	Conflict         *TeamBranchUpdateConflict `json:"conflict,omitempty"`
+	// Resolution is the development manager's decision to have a run resolve
+	// the conflict, and the rounds spent on it. It outlives the conflict itself:
+	// a conflict resolved keeps it, so the record says how it was resolved.
+	Resolution *TeamBranchResolution `json:"resolution,omitempty"`
 	// Refused is why the update does not land as it stands (a check failed, the
 	// reviewer did not approve), said in plain words; the update waits for either
 	// branch to move.
@@ -122,14 +126,233 @@ type TeamBranchUpdateReview struct {
 	FinishedAt time.Time `json:"finished_at"`
 }
 
-// TeamBranchUpdateConflict is a merge that conflicts, which is never resolved
-// by the harness.
+// TeamBranchUpdateConflict is a merge that conflicts, which the harness does not
+// resolve itself: the development manager names an item whose run resolves it
+// (TeamBranchResolution).
 type TeamBranchUpdateConflict struct {
 	Paths []string `json:"paths"`
 	// Items are the work items on the target whose landed commits touched those
 	// paths.
-	Items   []string  `json:"items,omitempty"`
-	FoundAt time.Time `json:"found_at"`
+	Items   []TeamBranchConflictItem `json:"items,omitempty"`
+	FoundAt time.Time                `json:"found_at"`
+}
+
+// TeamBranchConflictItem is a work item named in a conflict, by the title it
+// is known by with its identifier after it.
+type TeamBranchConflictItem struct {
+	ID    string `json:"id"`
+	Title string `json:"title,omitempty"`
+}
+
+// Says is the item as every surface names it: its title with its identifier
+// after it, or the identifier alone where no title is known.
+func (i TeamBranchConflictItem) Says() string {
+	title := strings.Join(strings.Fields(i.Title), " ")
+	if title == "" {
+		return i.ID
+	}
+	return fmt.Sprintf("%s (%s)", title, i.ID)
+}
+
+// MaxTeamBranchResolutionRounds is how many rounds of resolving one conflict the
+// harness runs. The limit is the conflict's own and is not any item's repair
+// budget, because another contributor's work caused the conflict.
+const MaxTeamBranchResolutionRounds = 3
+
+// TeamBranchResolution is the decision that a run of one item resolves the
+// conflict on the target branch, and each round of that run.
+type TeamBranchResolution struct {
+	// WorkItemID and WorkItemTitle are the item whose run resolves the conflict.
+	WorkItemID    string `json:"work_item_id"`
+	WorkItemTitle string `json:"work_item_title,omitempty"`
+	Reason        string `json:"reason"`
+	// DecidedBy is the role that decided, such as "development-manager", or
+	// "person".
+	DecidedBy    string    `json:"decided_by"`
+	Conversation string    `json:"conversation,omitempty"`
+	Turn         int       `json:"turn,omitempty"`
+	DecidedAt    time.Time `json:"decided_at"`
+	// Paths are the files that conflicted when the first round started, kept
+	// because a conflict resolved no longer carries them.
+	Paths []string `json:"paths,omitempty"`
+	// Rounds are the runs made so far, oldest first.
+	Rounds []TeamBranchResolutionRound `json:"rounds,omitempty"`
+	// SpentReportedAt is when the development manager was told every round was
+	// used, so it is told once.
+	SpentReportedAt *time.Time `json:"spent_reported_at,omitempty"`
+	// Restarts counts the rounds that were not started, or were ended for a cause
+	// outside the work, such as a paused provider or a process that died before
+	// the developer's change was committed. None of them used a round; each makes
+	// the next run of the conflict a new one.
+	Restarts int `json:"restarts,omitempty"`
+}
+
+// TeamBranchResolutionRound is one run that tried to resolve the conflict.
+type TeamBranchResolutionRound struct {
+	RunID     string     `json:"run_id"`
+	StartedAt time.Time  `json:"started_at"`
+	EndedAt   *time.Time `json:"ended_at,omitempty"`
+	// Resolved is the approved head commit of the run, where it resolved the
+	// conflict.
+	Resolved string `json:"resolved,omitempty"`
+	// Why is, in plain words, why the round did not resolve the conflict.
+	Why string `json:"why,omitempty"`
+}
+
+// Says is the item the decision names, as every surface names it.
+func (r TeamBranchResolution) Says() string {
+	return TeamBranchConflictItem{ID: r.WorkItemID, Title: r.WorkItemTitle}.Says()
+}
+
+// RoundsLeft is how many rounds the conflict still has.
+func (r TeamBranchResolution) RoundsLeft() int {
+	return max(0, MaxTeamBranchResolutionRounds-len(r.Rounds))
+}
+
+// Spent reports every round of resolving the conflict has been used.
+func (r TeamBranchResolution) Spent() bool { return r.RoundsLeft() == 0 }
+
+// InProgress is the round that has started and not ended, or nil.
+func (r *TeamBranchResolution) InProgress() *TeamBranchResolutionRound {
+	if r == nil {
+		return nil
+	}
+	for i := range r.Rounds {
+		if r.Rounds[i].EndedAt == nil {
+			return &r.Rounds[i]
+		}
+	}
+	return nil
+}
+
+// ResolvedBy is the approved head of the round that resolved the conflict, and
+// false where none did.
+func (r *TeamBranchResolution) ResolvedBy() (TeamBranchResolutionRound, bool) {
+	if r == nil {
+		return TeamBranchResolutionRound{}, false
+	}
+	for _, round := range r.Rounds {
+		if round.Resolved != "" {
+			return round, true
+		}
+	}
+	return TeamBranchResolutionRound{}, false
+}
+
+func (r TeamBranchResolution) validate(name string) error {
+	var problems []error
+	if strings.TrimSpace(r.WorkItemID) == "" {
+		problems = append(problems, fmt.Errorf("%s resolution names no work item", name))
+	}
+	if strings.TrimSpace(r.Reason) == "" {
+		problems = append(problems, fmt.Errorf("%s resolution gives no reason", name))
+	}
+	if strings.TrimSpace(r.DecidedBy) == "" {
+		problems = append(problems, fmt.Errorf("%s resolution does not say who decided", name))
+	}
+	if r.DecidedAt.IsZero() {
+		problems = append(problems, fmt.Errorf("%s resolution has no decided_at", name))
+	}
+	if len(r.Rounds) > MaxTeamBranchResolutionRounds {
+		problems = append(problems, fmt.Errorf("%s resolution has %d rounds, more than the %d allowed", name, len(r.Rounds), MaxTeamBranchResolutionRounds))
+	}
+	open := 0
+	for i, round := range r.Rounds {
+		if !runIDPattern.MatchString(round.RunID) {
+			problems = append(problems, fmt.Errorf("%s resolution round %d has an invalid run id", name, i+1))
+		}
+		if round.StartedAt.IsZero() {
+			problems = append(problems, fmt.Errorf("%s resolution round %d has no started_at", name, i+1))
+		}
+		if round.Resolved != "" && !commitPattern.MatchString(round.Resolved) {
+			problems = append(problems, fmt.Errorf("%s resolution round %d has an invalid resolved commit", name, i+1))
+		}
+		if round.EndedAt == nil {
+			open++
+		}
+	}
+	if open > 1 {
+		problems = append(problems, fmt.Errorf("%s resolution has %d rounds in progress at once", name, open))
+	}
+	return errors.Join(problems...)
+}
+
+// TeamBranchResolutionDecision is a decision, as the development manager's
+// recorded decision hands it over, that a run of one item resolves the conflict
+// the update on a target branch is waiting on.
+type TeamBranchResolutionDecision struct {
+	TargetBranch  string
+	WorkItemID    string
+	WorkItemTitle string
+	Reason        string
+	// DecidedBy is the role that decided.
+	DecidedBy    string
+	Conversation string
+	Turn         int
+	At           time.Time
+}
+
+// DecideResolution records the decision on the update waiting on a conflict.
+// It takes the updater's lease without waiting, so it never changes a record the
+// updater is working from, and refuses in plain words where the decision cannot
+// stand: no update is waiting on a conflict, the reason or the item is missing,
+// every round of resolving this conflict is used, or a round is running now.
+// A decision made on an update that already carries one replaces the item, the
+// reason and the decider and keeps the rounds spent, because the limit belongs
+// to the conflict and not to the decision.
+func (s *TeamBranchUpdateStore) DecideResolution(ctx context.Context, decision TeamBranchResolutionDecision) (TeamBranchUpdate, error) {
+	if strings.TrimSpace(decision.WorkItemID) == "" {
+		return TeamBranchUpdate{}, errors.New("a decision to resolve the conflict has to name the item whose run resolves it")
+	}
+	if strings.TrimSpace(decision.Reason) == "" {
+		return TeamBranchUpdate{}, errors.New("a decision to resolve the conflict has to give its reason")
+	}
+	if strings.TrimSpace(decision.DecidedBy) == "" {
+		return TeamBranchUpdate{}, errors.New("a decision to resolve the conflict has to say who made it")
+	}
+	lease, held, err := s.LeaseUpdater(ctx, decision.TargetBranch)
+	if err != nil {
+		return TeamBranchUpdate{}, err
+	}
+	if !held {
+		return TeamBranchUpdate{}, fmt.Errorf("the update of %s is being worked on right now, so the decision was not recorded; record it again in a minute", decision.TargetBranch)
+	}
+	defer func() { _ = lease.Release() }()
+	update, found, err := s.Load(decision.TargetBranch)
+	if err != nil {
+		return TeamBranchUpdate{}, err
+	}
+	if !found || update.Pending == nil || update.Pending.Conflict == nil {
+		return TeamBranchUpdate{}, fmt.Errorf("no update of %s is waiting on a conflict, so there is nothing to resolve", decision.TargetBranch)
+	}
+	pending := update.Pending
+	var rounds []TeamBranchResolutionRound
+	if pending.Resolution != nil {
+		if pending.Resolution.Spent() {
+			return TeamBranchUpdate{}, fmt.Errorf("all %d rounds of resolving this conflict have been used; the update waits for a branch to move or for a person to merge %s into %s by hand", MaxTeamBranchResolutionRounds, update.UpstreamBranch, update.TargetBranch)
+		}
+		if pending.Resolution.InProgress() != nil {
+			return TeamBranchUpdate{}, fmt.Errorf("a round of resolving this conflict is running now (run %s); the decision can be changed once it ends", pending.Resolution.InProgress().RunID)
+		}
+		rounds = pending.Resolution.Rounds
+	}
+	var paths []string
+	if pending.Resolution != nil {
+		paths = pending.Resolution.Paths
+	}
+	at := decision.At
+	if at.IsZero() {
+		at = time.Now()
+	}
+	pending.Resolution = &TeamBranchResolution{
+		WorkItemID: strings.TrimSpace(decision.WorkItemID), WorkItemTitle: strings.Join(strings.Fields(decision.WorkItemTitle), " "),
+		Reason: strings.TrimSpace(decision.Reason), DecidedBy: strings.TrimSpace(decision.DecidedBy),
+		Conversation: decision.Conversation, Turn: decision.Turn, DecidedAt: at.UTC(), Paths: paths, Rounds: rounds,
+	}
+	if err := s.Save(update); err != nil {
+		return TeamBranchUpdate{}, err
+	}
+	return update, nil
 }
 
 // ChecksPassed reports the checks finished, at least one ran, and every one
@@ -163,6 +386,26 @@ func (a TeamBranchUpdateAttempt) Waiting() string {
 	return ""
 }
 
+// resolutionSays is what is decided about resolving the conflict, as the end of
+// the conflict's line.
+func (a TeamBranchUpdateAttempt) resolutionSays() string {
+	r := a.Resolution
+	switch {
+	case r == nil:
+		return "waiting for the development manager to name an item to resolve it"
+	case r.Spent():
+		return fmt.Sprintf("rounds of resolving it are spent (%d of %d)", len(r.Rounds), MaxTeamBranchResolutionRounds)
+	case r.InProgress() != nil:
+		return fmt.Sprintf("the %s decided that %s resolves it (round %d of %d in progress)", decidedByWords(r.DecidedBy), r.Says(), len(r.Rounds), MaxTeamBranchResolutionRounds)
+	case len(r.Rounds) > 0:
+		return fmt.Sprintf("the %s decided that %s resolves it (%d of %d rounds used; the next starts at the next check)", decidedByWords(r.DecidedBy), r.Says(), len(r.Rounds), MaxTeamBranchResolutionRounds)
+	}
+	return fmt.Sprintf("the %s decided that %s resolves it (round 1 of %d starts at the next check)", decidedByWords(r.DecidedBy), r.Says(), MaxTeamBranchResolutionRounds)
+}
+
+// decidedByWords is a deciding role as words: the development manager, a person.
+func decidedByWords(by string) string { return strings.ReplaceAll(by, "-", " ") }
+
 func shortCommit(commit string) string {
 	if len(commit) > 12 {
 		return commit[:12]
@@ -195,7 +438,7 @@ func (u TeamBranchUpdate) Says() []string {
 			if p.ReportedAt != nil {
 				told = "; the development manager has been told"
 			}
-			lines = append(lines, fmt.Sprintf("%smerging %s at %s conflicts in %s%s.", waiting, u.UpstreamBranch, shortCommit(p.TeamCommit), strings.Join(p.Conflict.Paths, ", "), told))
+			lines = append(lines, fmt.Sprintf("%smerging %s at %s conflicts in %s%s; %s.", waiting, u.UpstreamBranch, shortCommit(p.TeamCommit), strings.Join(p.Conflict.Paths, ", "), told, p.resolutionSays()))
 		case p.Refused != "":
 			lines = append(lines, fmt.Sprintf("%s%s.", waiting, strings.TrimRight(strings.TrimSpace(p.Refused), ".")))
 		case p.PullRequest != 0 && p.MergeRequestedAt != nil:
@@ -285,6 +528,18 @@ func (a TeamBranchUpdateAttempt) validate(name string) error {
 	}
 	if a.PullRequest < 0 {
 		problems = append(problems, fmt.Errorf("%s pull_request is negative", name))
+	}
+	if a.Resolution != nil {
+		if err := a.Resolution.validate(name); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	if a.Conflict != nil {
+		for _, item := range a.Conflict.Items {
+			if strings.TrimSpace(item.ID) == "" {
+				problems = append(problems, fmt.Errorf("%s conflict names an item with no id", name))
+			}
+		}
 	}
 	return errors.Join(problems...)
 }
@@ -394,6 +649,24 @@ func (s *TeamBranchUpdateStore) Save(update TeamBranchUpdate) error {
 	note := truncatedNote(MaxRecordedTextBytes)
 	bound := func(a TeamBranchUpdateAttempt) TeamBranchUpdateAttempt {
 		a.Refused = boundRecordedText(a.Refused, MaxRecordedTextBytes, note)
+		if a.Resolution != nil {
+			resolution := *a.Resolution
+			resolution.Reason = boundRecordedText(resolution.Reason, MaxRecordedTextBytes, note)
+			resolution.WorkItemTitle = boundRecordedText(resolution.WorkItemTitle, MaxRecordedTextBytes, note)
+			resolution.Rounds = append([]TeamBranchResolutionRound(nil), resolution.Rounds...)
+			for i := range resolution.Rounds {
+				resolution.Rounds[i].Why = boundRecordedText(resolution.Rounds[i].Why, MaxRecordedTextBytes, note)
+			}
+			a.Resolution = &resolution
+		}
+		if a.Conflict != nil {
+			conflict := *a.Conflict
+			conflict.Items = append([]TeamBranchConflictItem(nil), conflict.Items...)
+			for i := range conflict.Items {
+				conflict.Items[i].Title = boundRecordedText(conflict.Items[i].Title, MaxRecordedTextBytes, note)
+			}
+			a.Conflict = &conflict
+		}
 		if a.Review != nil {
 			review := *a.Review
 			review.Summary = boundRecordedText(review.Summary, MaxRecordedTextBytes, note)

@@ -18,6 +18,14 @@ import (
 // Keys name a string by its place in the record, with [] standing for any
 // element of a list.
 var structuredStrings = map[string]string{
+	"team_branch_resolution.target_branch":           "validated branch name, commit, path or item identifier, each bounded by TeamBranchResolutionRun.Validate",
+	"team_branch_resolution.upstream_branch":         "validated branch name, commit, path or item identifier, each bounded by TeamBranchResolutionRun.Validate",
+	"team_branch_resolution.team_commit":             "validated branch name, commit, path or item identifier, each bounded by TeamBranchResolutionRun.Validate",
+	"team_branch_resolution.target_base":             "validated branch name, commit, path or item identifier, each bounded by TeamBranchResolutionRun.Validate",
+	"team_branch_resolution.conflicted_base":         "validated branch name, commit, path or item identifier, each bounded by TeamBranchResolutionRun.Validate",
+	"team_branch_resolution.paths[]":                 "validated branch name, commit, path or item identifier, each bounded by TeamBranchResolutionRun.Validate",
+	"team_branch_resolution.work_item_id":            "validated branch name, commit, path or item identifier, each bounded by TeamBranchResolutionRun.Validate",
+	"team_branch_resolution.approved_head":           "validated branch name, commit, path or item identifier, each bounded by TeamBranchResolutionRun.Validate",
 	"outside_file.record":                            "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
 	"outside_file.record_digest":                     "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",
 	"outside_file.target_commit":                     "validated pinned record identity, address, or checksum, each bounded by OutsideFileLanding.Validate",

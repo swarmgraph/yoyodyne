@@ -172,6 +172,9 @@ func teamBranchUpdaterFrom(parts components, reconciler orchestrator.Reconciler)
 		Records:  records,
 		Reviewer: branchReviewerFrom(parts, ""),
 		Reports:  reconciler.Reports,
+		// A decision to resolve a conflict is carried out by a run of the item it
+		// names (teambranchresolution.go).
+		Resolve: pipeline.ResolveTeamBranchConflict,
 	}, nil
 }
 

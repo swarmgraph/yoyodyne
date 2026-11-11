@@ -197,6 +197,11 @@ var expresses = map[string]expression{
 		question: "none: an escalation carrying a report is a shape of what was said",
 		gap:      "what a turn must contain alongside a decision is not an authority anybody holds",
 	},
+	"conversation.resolve-conflict-needs-a-team-branch": {
+		question: "does the role hold triage?",
+		asks:     []capability.Capability{capability.WorkTriage},
+		gap:      "holding triage does not say which conflict a decision may name; whether one is waiting, and whether its rounds are spent, is the update's record to answer",
+	},
 	"conversation.triage-run-belongs-to-item": {
 		question: "does the role hold triage?",
 		asks:     []capability.Capability{capability.WorkTriage},

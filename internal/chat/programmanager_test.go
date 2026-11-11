@@ -51,6 +51,7 @@ func TestTheProgramManagerIsRefusedWhatItsDesignExcludes(t *testing.T) {
 		{"a repair of stale state", TrackerAction{Action: actionRepair, ID: "yoyodyne-ifd.1", Reason: "stale"}},
 		{"handling a report", TrackerAction{Action: actionHandle, Reason: "read"}},
 		{"a brake decision", TrackerAction{Action: actionBrake, Reason: "release"}},
+		{"a decision to resolve a conflict with the team's branch", TrackerAction{Action: actionResolveConflict, ID: "yoyodyne-ifd.1", Reason: "its owner knows the files"}},
 		{"a repair decision", triage("repair")},
 		{"a re-run decision", triage("rerun")},
 		{"a re-scope decision", triage("rescope")},

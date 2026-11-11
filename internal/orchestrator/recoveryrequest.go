@@ -58,6 +58,9 @@ func RecoveryContinuable(state runstate.State) error {
 	if state.OutsideFile != nil {
 		return errors.New("it brings an outside file in, which the scheduler continues at its next look at the record")
 	}
+	if state.TeamBranchResolution != nil {
+		return errors.New("it resolves a team branch conflict, which the next forge check of its update continues")
+	}
 	if pausedForUsageLimit(state) || pausedForDirective(state) || pausedForDependency(state) || pausedForTracker(state) ||
 		pausedForOperatorHold(state) || stoppedProviderIsResumable(state) || stoppedForRedeployIsResumable(state) ||
 		continuedAtCheckStage(state) || resumableRepair(state) {

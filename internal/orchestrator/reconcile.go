@@ -489,6 +489,18 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 			return result, nil
 		}
 	}
+	if state.TeamBranchResolution != nil {
+		// A round of resolving a team branch conflict is carried by the forge
+		// check of the update that started it, which settles it from this record.
+		r.Tracker = &documentTracker{item: beads.WorkItem{ID: state.WorkItemID, Title: state.WorkItemTitle, Status: "in_progress"}}
+		r.Docket = nil
+		if state.Status.InFlight() {
+			result := reconciliationOf(state, ActionResumable)
+			result.Detail = "the next forge check of the update that started this round continues it"
+			return result, nil
+		}
+		return reconciliationOf(state, ActionCompleted), nil
+	}
 	if state.Document != nil {
 		r.Tracker = &documentTracker{item: beads.WorkItem{ID: state.WorkItemID, Title: state.WorkItemTitle, Status: "in_progress"}}
 		r.Docket = nil

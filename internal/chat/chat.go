@@ -328,6 +328,11 @@ type Options struct {
 	// without one refuses a stop rather than recording a decision nothing will
 	// carry out.
 	Stops DecidedStops
+	// TeamBranchResolutions is where her decision that a run of one item resolves
+	// a conflict between the target branch and the team's branch is recorded. It
+	// is wired into her conversation alone, and only where the project names a
+	// team's branch; a conversation without one refuses the decision.
+	TeamBranchResolutions TeamBranchResolutions
 	// Publications is how the development manager's retry or retirement of a
 	// stopped document publication is carried out: such a run has no work item,
 	// so the decision is recorded on the run rather than on an item. It is wired
