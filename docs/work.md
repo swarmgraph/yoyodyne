@@ -2694,7 +2694,9 @@ way it is with the switch off. Moving a queued change between the harness's
 queue and the forge's is `yoyo queue transfer`, which withdraws first and moves
 nothing while that withdrawal is unconfirmed. A push of a candidate that ends
 before the remote answers is looked at and asked for again by the next pass,
-and one the remote refuses hands back only its own entry. An entry the queue
+and one the remote refuses hands back only its own entry. A change whose run
+will not take the hand-back is set aside with the reason, kept for the
+development manager, and the entries behind it go on. An entry the queue
 stopped on is taken up again with `yoyo queue retry` or handed back to its run
 with `yoyo queue hand-back`, each with a reason. `yoyo status` and the dashboard
 show every queue and where each change in it stands.
