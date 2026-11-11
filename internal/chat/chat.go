@@ -1117,6 +1117,9 @@ type Reply struct {
 	HandedBack []string `json:"handed_back,omitempty"`
 	// DocumentRefusals are action results returned to the role without failing the turn.
 	DocumentRefusals []string `json:"document_refusals,omitempty"`
+	// ConcernRefusals are concern blocks refused for naming a goal nothing
+	// records, returned to the role as results without failing the turn.
+	ConcernRefusals []string `json:"concern_refusals,omitempty"`
 	// RefusedAsks are questions put to a role the asker may not ask, said in
 	// ordinary words. Each was handed back to the asking role, and the rest of
 	// the reply that carried it was carried out.
@@ -1606,6 +1609,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	// for the same reason.
 	repositoryRounds := 0
 	documentHandedBack := false
+	concernHandedBack := false
 	logRounds := 0
 	runRounds := 0
 	healthRounds := 0
@@ -1750,6 +1754,28 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				documentHandedBack = true
 			}
 		}
+		// A concern naming a goal nothing records is refused the way a document is:
+		// as a result handed back to the role once in this message, and carried to
+		// its next turn after that, while the rest of the reply goes on. A whole
+		// failed turn would cost every other action the reply carried, over a goal
+		// the role can simply name again.
+		var concernResult string
+		if err := s.verifyConcernGoals(parsed.Concerns); err != nil {
+			if _, auditErr := auditTool(ctx, s, capability.ConcernRaise, nil, len(parsed.Concerns), func() (struct{}, error) { return struct{}{}, err }, nil); auditErr != nil && strings.Contains(auditErr.Error(), "audit failed") {
+				return reply, auditErr
+			}
+			concernResult = renderConcernRefusal(err)
+			parsed.Concerns = nil
+			reply.ConcernRefusals = append(reply.ConcernRefusals, concernResult)
+			if concernHandedBack {
+				if err := s.carryResults(concernResult); err != nil {
+					return reply, err
+				}
+				concernResult = ""
+			} else {
+				concernHandedBack = true
+			}
+		}
 		// A concern is recorded before anything else is decided about the turn: it
 		// is the product manager declining to propose, and what it declined to
 		// propose is evidence whether or not the rest of the turn holds together.
@@ -1818,7 +1844,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// rather than into the durable record — the tracker's results, and whatever
 		// research came back. It is owed to the role either way, so a round that
 		// ends up sending nothing writes it down instead of dropping it.
-		undelivered := documentResult
+		undelivered := documentResult + concernResult
 		if len(parsed.Actions) > 0 {
 			// The harness now goes to the tracker on the product manager's behalf,
 			// which emits no provider events, so the display is told directly rather
@@ -4399,6 +4425,9 @@ func (s *Session) reportTrackerActions(out io.Writer, reply Reply) {
 	for _, refusal := range reply.DocumentRefusals {
 		fmt.Fprintln(out, refusal)
 	}
+	for _, refusal := range reply.ConcernRefusals {
+		fmt.Fprintln(out, refusal)
+	}
 	// A block handed back is said before what came of it, so an operator reading
 	// the actions below knows they are the re-issue rather than the first asking.
 	for _, refusal := range reply.HandedBack {
@@ -5404,7 +5433,7 @@ A concern mentioned in passing inside a paragraph is not a concern; it reads as 
 {"concerns":[{"kind":"unplaceable|conflict|judgement","subject":"the work this is about, in one line","goal":"the goal at issue","detail":"what you see","question":"what you need the operator to decide?","options":["one answer you would accept","another"]}]}
 ` + "```" + `
 
-"kind" says which case this is: "unplaceable" is work you can attach to no goal, "conflict" is work that would cut against one, and "judgement" is work that fits the goals and that you think is against the product's intent. "goal" names the goal at issue — the one the work would cut against, or the one it fits on paper — and is required on "conflict" and "judgement" and refused on "unplaceable", which is exactly the case with no goal to name. "subject", "detail", and "question" are required, and "question" ends in a question mark because it is a question. "options" is optional and lists the answers you would accept, between 2 and ` + maxConcernOptionsText + ` of them, each on one line and each different from the others. Give it where the answer really is one of a few — which goal it should serve, whether to retire the work or reshape it — and leave it out where it is not, because two invented options are a worse question than an open one. The harness puts them to the operator to choose from, and always offers their own words as the last choice, so listing options never narrows what they can say and one of them is never the only way to answer. You are told which answer they gave, in the words of the option they chose, exactly as you are told what they typed.
+"kind" says which case this is: "unplaceable" is work you can attach to no goal, "conflict" is work that would cut against one, and "judgement" is work that fits the goals and that you think is against the product's intent. "goal" names the goal at issue — the one the work would cut against, or the one it fits on paper — and is required on "conflict" and "judgement" and refused on "unplaceable", which is exactly the case with no goal to name. Name it as you name the goal work serves — by its identity where the goals document states one, as in "[traceable-chain]", and otherwise in the words that document states it in, in full — on one line of at most ` + maxConcernGoalBytesText + ` bytes. The harness resolves it against the recorded goals before the operator is asked, and a concern block naming a goal they do not state puts nothing to the operator: the refusal, saying which goal was not found, is handed back to you to raise the concerns again. "subject", "detail", and "question" are required, and "question" ends in a question mark because it is a question. "options" is optional and lists the answers you would accept, between 2 and ` + maxConcernOptionsText + ` of them, each on one line and each different from the others. Give it where the answer really is one of a few — which goal it should serve, whether to retire the work or reshape it — and leave it out where it is not, because two invented options are a worse question than an open one. The harness puts them to the operator to choose from, and always offers their own words as the last choice, so listing options never narrows what they can say and one of them is never the only way to answer. You are told which answer they gave, in the words of the option they chose, exactly as you are told what they typed.
 
 Raise at most ` + maxConcernsPerTurnText + ` concerns in one reply. The harness puts each one to the operator, waits for their answer, and tells you what they said on your next turn. Nothing you raise this way is proposed, admitted, or created, so raise a concern instead of proposing the work rather than as well as.
 
