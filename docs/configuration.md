@@ -6783,7 +6783,7 @@ pass and holds the landing up in nothing.
 moves itself, in a project that does not publish, a candidate lands as exactly
 its own commit, so the queue builds the next waiting entry's candidate on top
 of the first entry's candidate, as if it lands, and runs its protected-path
-gate, checks and review beside the first one's. It checks at most one entry
+check, checks and review beside the first one's. It checks at most one entry
 ahead, and the pass lands the first entry once both are done. The candidate
 checked ahead is a commit of its own with its own recorded base, and its
 evidence is bound to it alone; it lands only if, as the promotion lease is

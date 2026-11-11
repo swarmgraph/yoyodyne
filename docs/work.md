@@ -2655,7 +2655,7 @@ remote.
 **The next change is checked while the current one is.** Where a candidate lands
 as exactly its own commit — a project that does not publish, whose target the
 harness moves itself — the queue builds the next waiting change's candidate on
-top of the current candidate, as if it lands, and runs its protected-path gate,
+top of the current candidate, as if it lands, and runs its protected-path check,
 checks and independent review beside the current one's. It checks at most one
 change ahead. That candidate is a commit of its own with its own base and its
 own evidence, and it lands only if, when the promotion takes its turn, the
