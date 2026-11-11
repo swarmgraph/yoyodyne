@@ -2432,8 +2432,13 @@ the harness's own stores, and the repository does not say whether a proposed
 change was decided or a document landed, so a question naming none of them is
 answered from nothing authoritative. An ask's `refers` list names the records a
 round rests on — an `amendment`, a `work-item`, a `document`, a `run`, a
-`report`, or a `turn` of either party's own conversation (`chat-…#12`) — each
-with the revision read where the asker has one. When the round is delivered the
+`report`, or a `turn` of either party's own conversation (`chat-…#12`). A
+`document`, such as a goal or a design, has to be named with the revision the
+asker read, because a question about wording that has since changed cannot
+otherwise be told apart from one about the wording as it stands. Anything else
+may be named without one, and a work item has none: the harness records when it
+read the item for the round instead, so an answer given against an older state
+of the item can still be found. When the round is delivered the
 harness reads every one from its own stores, redacts it, and attaches it to the
 round, saying where it came from, the revision or commit it reflects, and when it
 was observed in local time; both roles are shown the same attachments, whichever
@@ -2457,6 +2462,16 @@ sees it — an agent's memory, a credential, a provider's session, another
 product's record, or a conversation neither party holds. Nothing an attachment
 says gives either role any authority, and an exchange being answered or closed
 says nothing about whether the records it carried are decided or done.
+
+**An ask the harness cannot read costs the reply nothing else.** A question
+that is malformed, or that names a document without its revision, is not put to
+anybody. Everything else in the same reply — memory writes, tracker actions,
+reports, the other blocks — is carried out exactly as it would have been without
+it, and the role that asked is told in the same message what was wrong, so it
+can correct the block and send it again. The reply lists the question as one the
+harness could not read, and a recurring pass's record says it was handed back.
+A role that may not ask at all is still refused for carrying the block, readable
+or not.
 
 **A question can name what it was asked against.** The records an exchange's
 opening question names, with the revisions that were read, are also what it is

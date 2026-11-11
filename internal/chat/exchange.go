@@ -220,7 +220,12 @@ func (s *Session) reportExchanges(out io.Writer, reply Reply) {
 	}
 	fmt.Fprintf(out, "the %s asked another role (%d round(s)):\n", RoleTitle(s.state.Role), len(reply.Exchanges))
 	for _, round := range reply.Exchanges {
-		fmt.Fprintf(out, "  asked the %s: %s\n", RoleTitle(round.Asked), round.Question)
+		if round.Asked == "" {
+			// An ask the harness could not read says nobody it was put to.
+			fmt.Fprintf(out, "  asked: %s\n", round.Question)
+		} else {
+			fmt.Fprintf(out, "  asked the %s: %s\n", RoleTitle(round.Asked), round.Question)
+		}
 		switch {
 		case round.ID != "":
 			fmt.Fprintf(out, "    %s, %s, round %d of %d, %s\n",
@@ -308,6 +313,24 @@ func askRefused(cause error) string {
 		". Everything else your reply asked for was carried out as usual.\n\nCarry on without an answer, and say plainly that the question was not put. Do not ask the same role again in this reply.\n"
 }
 
+// askUnreadable is what the asking role is told when the harness could not read
+// its ask block. Unlike a question to a role it may not ask, this one is worth
+// sending again: the mistake is in the block, so the role is told what it was
+// and invited to correct it, and told that the rest of its reply was carried
+// out so it does not issue that again.
+func askUnreadable(cause error) string {
+	return "# Your ask\n\nThe question you asked was not put to anybody, because the harness could not read your ask block: " +
+		singleLine(cause.Error(), maxTrackerFailureBytes) +
+		". Everything else your reply asked for was carried out as usual.\n\nIf you still need the answer, correct the block and send it again in your next reply, with nothing else from this one repeated. Otherwise carry on, and say plainly that the question was not put.\n"
+}
+
+// unreadableAskSays is an unreadable ask in ordinary words, for the operator
+// and for the record of a pass.
+func unreadableAskSays(asker domain.AgentRole, cause error) string {
+	return fmt.Sprintf("the %s sent a question the harness could not read (%s), so it was handed back to be corrected and the rest of that reply was carried out",
+		RoleTitle(asker), singleLine(cause.Error(), maxTrackerFailureBytes))
+}
+
 // refusedAskSays is a refused ask in ordinary words, for the operator and for
 // the record of a pass.
 func refusedAskSays(asker domain.AgentRole, ask exchange.Ask) string {
@@ -350,15 +373,21 @@ func oneLineAsk(ask exchange.Ask) string {
 // than beside the tracker's so that what an ask may not do stays next to what an
 // ask is.
 func refuseUnauthorizedAsk(authority Authority, parsed parsedReply) error {
-	if parsed.Ask == nil {
+	if parsed.Ask == nil && parsed.AskProblem == nil {
 		return nil
 	}
+	// A role that may not ask is refused for carrying the block whether or not
+	// it could be read, exactly as before an unreadable one stopped failing the
+	// turn.
 	if !authority.Asks {
 		return &AuthorityError{
 			Role:    authority.Role,
 			Refused: "a question put to another role",
 			Reason:  "the ask channel is between the roles that hold judgement about the product, and this role says what it needs in prose instead",
 		}
+	}
+	if parsed.Ask == nil {
+		return nil
 	}
 	// A follow-up in a thread names no role, and there is nothing here to check
 	// against: who is being asked was decided when the exchange opened and passed
