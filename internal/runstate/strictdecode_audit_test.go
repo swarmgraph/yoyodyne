@@ -92,6 +92,7 @@ var strictSites = map[string]strictSite{
 	"internal/runstate/triage.go:(*TriageStore).load":                     {strictWriter, "the triage counters are read, incremented, and saved back"},
 	"internal/runstate/sidestream.go:(*SideStreamStore).Load":             {strictWriter, "a side stream is read to be answered and settled; its listing counts the per-agent bound"},
 	"internal/runstate/teamclaim.go:(*TeamClaimStore).Load":               {strictWriter, "a team claim is read under its item's lock to be taken, renewed, or released and saved back, so one this build cannot read whole is refused rather than rewritten from part of it"},
+	"internal/runstate/sharedrecords.go:(*SharedRecordsStore).Load":       {strictWriter, "the record of what was last shared is read to be replaced by the next check, and one this build cannot read whole is refused rather than rewritten from part of it"},
 	"internal/runstate/memory.go:(*MemoryStore).decodeTip":                {strictWriter, "a memory tip is read only by the write it numbers, under the agent's lock, and one that will not decode is rebuilt from the history rather than refused"},
 
 	// Gates: a refusal the caller declines to proceed on and reports.

@@ -34,6 +34,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/slack"
+	"github.com/mason-bryant/yoyodyne/internal/teamrecords"
 )
 
 // The environment the sink reads its credentials from, named where the launch
@@ -515,10 +516,37 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 	if readings, err := runstate.NewTrackerReadingStore(stateRoot, productID); err == nil {
 		standing.TrackerReadings = readings
 	}
+	// The records waiting to reach the team's shared remote, said as the
+	// terminal says them.
+	if store, err := runstate.NewSharedRecordsStore(stateRoot, productID); err == nil {
+		standing.SharedRecords = store
+	}
 	// The program manager instances, so the hourly line counts the stale ones
 	// from the derivation `yoyo status` prints them from.
 	programManagerSources(standing, resolved.Config, stateRoot)
 	observeProgramManagers(resolved.Config, stateRoot, time.Now())
+	// With team mode on, a directive from a reply is shared with the team's other
+	// factories as it is recorded. The parts are built the way every other command
+	// builds them, because the records repository is reached through the same
+	// worktree manager and identity the forge check uses. Parts that cannot be
+	// built are said and passed over rather than stopping the sink, for the
+	// reason above: a directive recorded without them is still recorded here,
+	// and the next forge check sends it with everything else filed on this
+	// machine.
+	var sharedDirectives slack.SharedDirectives
+	if resolved.Config.Team.Enabled {
+		parts, err := buildComponents(configPath)
+		if err == nil {
+			var sharer teamrecords.Sharer
+			var on bool
+			if sharer, on, err = teamRecords(context.Background(), parts); err == nil && on {
+				sharedDirectives = sharer
+			}
+		}
+		if err != nil {
+			fmt.Fprintf(stdout, "directives from Slack replies are recorded here and sent to the team's other factories at the next forge check, not as each reply arrives, because the shared records could not be opened: %v\n", err)
+		}
+	}
 	sink, err := slack.New(slack.Options{
 		Channel: settings.Channel,
 		// What the project configured is the picture beside each name and nothing
@@ -632,8 +660,9 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		// id, derived from the operators mapping rather than authored beside it. A
 		// project that has granted nobody gets an empty list, which is a sink that
 		// acknowledges every reply and acts on none.
-		Directives: directives,
-		Operators:  resolved.Config.SlackOperators(),
+		Directives:       directives,
+		SharedDirectives: sharedDirectives,
+		Operators:        resolved.Config.SlackOperators(),
 		// Who the project recognizes, which is the wider reading of the same
 		// mapping: every human it names who bound a member id, and what it calls
 		// them. A message from anybody else is a stranger's, and is told so once per

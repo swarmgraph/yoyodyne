@@ -12,6 +12,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/teamrecords"
 )
 
 // ForgeCheckReadLine is the line `yoyo forge-check` writes on standard error
@@ -37,7 +38,10 @@ type forgeCheckOutput struct {
 	// nothing else.
 	KeptAnswers        int    `json:"kept_answers"`
 	KeptAnswersProblem string `json:"kept_answers_problem,omitempty"`
-	Error              string `json:"error,omitempty"`
+	// Records is what sharing the team's records did, and is absent with team
+	// mode off.
+	Records *teamrecords.Result `json:"records,omitempty"`
+	Error   string              `json:"error,omitempty"`
 }
 
 // checkForge is one check of the forge: the pull requests waiting for a person
@@ -76,10 +80,24 @@ func checkForge(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	}
 	output.KeptAnswers = answers.Len()
 	output.Forge = reconciler.Forge
+	// With team mode on, the records other factories shared are copied in and the
+	// ones filed here are sent, once per check. A remote that cannot be reached is
+	// in the result and is not an error: the records stay here and the next check
+	// sends them.
+	if sharer, on, sharerErr := teamRecords(ctx, parts); sharerErr != nil {
+		err = errors.Join(err, sharerErr)
+	} else if on {
+		shared, syncErr := sharer.Sync(ctx)
+		output.Records = &shared
+		err = errors.Join(err, syncErr)
+	}
 	if !*jsonOutput {
 		printPersonMerges(stdout, stderr, output.PersonMerges)
 		printTeamMerges(stdout, stderr, output.TeamMerges)
 		printFeedback(stdout, stderr, output.Feedback)
+		if output.Records != nil {
+			fmt.Fprintln(stdout, output.Records.Says())
+		}
 		fmt.Fprintln(stdout, describeForgeCheck(output))
 	}
 	// Said once the reading is over and before anything is hosted: see
@@ -218,6 +236,11 @@ tries again; a change it read and could not finish acting on, such as closing
 an item whose pull request merged, is read and acted on again by the next
 check, and a write repeated after a timeout in which it had gone through adds no
 second note.
+
+With team mode on, each check also copies the reports, their handling and the
+directives other factories shared into this machine's own records, and sends the
+ones filed here. Any that cannot be sent stay here and are counted on the status
+line until a later check sends them.
 
 The repair rounds and updates it starts are hosted by this process to their
 end, after the check's own report.

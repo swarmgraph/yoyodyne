@@ -81,14 +81,18 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/notify"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/teamrecords"
 )
 
 // Directives is the durable directive record as the inbound half writes to it:
-// recording one, and settling one an operator names. It is an interface here for
-// the reason the feed is — the sink is assembled from the parts it needs rather
-// than reaching for the state root itself — and it is deliberately these two
-// methods and no more. Reading directives is the run pipeline's, and a reporting
-// process that could revise one would be a second authority over the record.
+// recording one, settling one an operator names, and reading back the one
+// directive a reply was recorded as when it was recorded already. It is an
+// interface here for the reason the feed is — the sink is assembled from the
+// parts it needs rather than reaching for the state root itself — and it is
+// deliberately these three methods and no more. Reading directives in general is
+// the run pipeline's, and a reporting process that could revise one would be a
+// second authority over the record.
 //
 // A reply that settles what this thread is waiting on without naming it needs to
 // know which directive that is, and that read is not here: it is the read model's,
@@ -98,7 +102,16 @@ import (
 // pipeline enforces on and every surface projects.
 type Directives interface {
 	Record(recorded directive.Directive) error
+	Load(id string) (directive.Directive, error)
 	Resolve(reference, resolution string, at time.Time) (directive.Directive, error)
+}
+
+// SharedDirectives records a directive where the team's other factories also
+// find it, in team mode (teamrecords.Sharer). It stands in for Directives.Record
+// and reports the directive that stands, which is the one already recorded where
+// another factory, or an earlier delivery of the same reply, recorded it first.
+type SharedDirectives interface {
+	ShareDirective(ctx context.Context, recorded directive.Directive) (directive.Directive, teamrecords.Sharing, error)
 }
 
 const (
@@ -141,6 +154,8 @@ type steering struct {
 	// nil on a sink assembled to carry the conversation and nothing else, and a
 	// reply that reaches a nil one is refused in its thread rather than acted on.
 	directives Directives
+	// shared is how a directive is recorded in team mode, and nil otherwise.
+	shared SharedDirectives
 	// conversation is the durable product-manager conversation a message
 	// addressed to this app reaches, and is nil on a sink assembled without one.
 	// deadline bounds one turn taken through it; turn guards taking one at a time
@@ -187,6 +202,7 @@ func newSteering(sink *Sink, options Options) *steering {
 	return &steering{
 		sink:         sink,
 		directives:   options.Directives,
+		shared:       options.SharedDirectives,
 		conversation: options.Conversation,
 		deadline:     deadline,
 		operators:    membership(options.Operators),
@@ -298,7 +314,14 @@ func (s *steering) handle(ctx context.Context, envelope socketEnvelope) {
 	// as not-listening — and it is never a gate, so a workspace that will not take
 	// a mark costs the reply its mark and nothing else.
 	s.mark(ctx, message.ts, notify.ReceiptUnderConsideration)
-	answered, question := s.act(ctx, topic, message, time.Now())
+	answered, question, kept := s.act(ctx, topic, message, time.Now())
+	if kept != "" {
+		// Said in the thread as a plain sentence and with no acknowledgment: the
+		// directive is in force here, and what the thread is owed is that the rest
+		// of the team has not yet been told.
+		s.sayInThread(ctx, message, kept, "a reply was recorded on this machine only, and saying so in its thread failed; `yoyo directive list` says what was recorded")
+		return
+	}
 	s.answer(ctx, threads, message.user, answered)
 	// A question goes to the product manager only once its receipt is in the
 	// thread, so the answer follows the line that promised it rather than racing
@@ -369,7 +392,11 @@ func disposition(answer notify.Notification) (notify.Receipt, bool) {
 // once the receipt is posted. It is empty for everything else, and it is only
 // ever returned with the turn already taken, so whoever posts the receipt owes
 // the conversation exactly one carry.
-func (s *steering) act(ctx context.Context, topic notify.Topic, message inboundMessage, at time.Time) (notify.Notification, string) {
+//
+// The third is a plain sentence said in the thread in place of the
+// acknowledgment, for a directive that applies on this machine and has not
+// yet reached the team's other factories. It is empty for everything else.
+func (s *steering) act(ctx context.Context, topic notify.Topic, message inboundMessage, at time.Time) (notify.Notification, string, string) {
 	// Authority first, and before the reply is even read: what an unlisted person
 	// typed is not something the harness should be parsing, let alone recording —
 	// or carrying to the product manager, which admits work and spends money and
@@ -377,11 +404,11 @@ func (s *steering) act(ctx context.Context, topic notify.Topic, message inboundM
 	// recognizes, so the refusal names the grant they are missing rather than
 	// telling a colleague this app has never heard of them.
 	if !s.operators[message.user] {
-		return refused(topic, at, "the reply is from somebody this project has not granted direct-work with a bound Slack member id, so nothing was recorded; `operators` in .yoyodyne/config.yaml is where that grant lives"), ""
+		return refused(topic, at, "the reply is from somebody this project has not granted direct-work with a bound Slack member id, so nothing was recorded; `operators` in .yoyodyne/config.yaml is where that grant lives"), "", ""
 	}
 	parsed, err := parseSteer(message.text)
 	if err != nil {
-		return refused(topic, at, err.Error()), ""
+		return refused(topic, at, err.Error()), "", ""
 	}
 	// What the reply is for is decided before anything about recording it is,
 	// because a question never reaches the record and an uncertain reply is asked
@@ -390,9 +417,10 @@ func (s *steering) act(ctx context.Context, topic notify.Topic, message inboundM
 	// asking about; neither of these branches can produce that.
 	switch {
 	case parsed.asks():
-		return s.ask(topic, message, parsed.text, at)
+		answered, question := s.ask(topic, message, parsed.text, at)
+		return answered, question, ""
 	case parsed.uncertain():
-		return refused(topic, at, askedBack), ""
+		return refused(topic, at, askedBack), "", ""
 	}
 	// A sink assembled to carry the conversation and nothing else reads replies —
 	// it has to, or a message addressed to this app inside a thread would reach
@@ -400,14 +428,14 @@ func (s *steering) act(ctx context.Context, topic notify.Topic, message inboundM
 	// left as a reply that vanished, which is the failure the whole inbound half
 	// is built not to have.
 	if s.directives == nil {
-		return refused(topic, at, "this sink was assembled without the directive record, so a reply in a thread steers nothing; `yoyo directive record` is how one is recorded"), ""
+		return refused(topic, at, "this sink was assembled without the directive record, so a reply in a thread steers nothing; `yoyo directive record` is how one is recorded"), "", ""
 	}
 	// A directive from a thread is scoped to the thread's work item, so a thread
 	// that is not about a work item has nothing to scope one to. Recording it
 	// unscoped would reach every item in the product, which is a far larger thing
 	// than anybody replying to an exchange meant.
 	if topic.Kind != notify.TopicWorkItem {
-		return refused(topic, at, "this thread is not a work item's, and a directive from a thread is scoped to the item the thread is about; `yoyo directive record` is how one is recorded against something else"), ""
+		return refused(topic, at, "this thread is not a work item's, and a directive from a thread is scoped to the item the thread is about; `yoyo directive record` is how one is recorded against something else"), "", ""
 	}
 	if parsed.settles() {
 		// A reply that named no directive is settling what this thread's own item is
@@ -419,26 +447,29 @@ func (s *steering) act(ctx context.Context, topic notify.Topic, message inboundM
 		if reference == "" {
 			held, err := s.holding(topic)
 			if err != nil {
-				return refused(topic, at, err.Error()), ""
+				return refused(topic, at, err.Error()), "", ""
 			}
 			reference = held
 		}
 		resolved, err := s.directives.Resolve(reference, parsed.resolution, at)
 		if err != nil {
-			return refused(topic, at, err.Error()), ""
+			return refused(topic, at, err.Error()), "", ""
 		}
 		// What became of it is said here, by this reply, so the delivery pass must
 		// not say it again when it reads the same settlement out of the record —
 		// unless this is not the thread that asked for it, in which case the thread
 		// that did has still heard nothing and is still owed the outcome.
 		s.said(ctx, resolved.ID, topic)
-		return acknowledged(topic, settledKind(resolved), resolved, at), ""
+		return acknowledged(topic, settledKind(resolved), resolved, at), "", ""
 	}
-	recorded, err := s.record(topic, message, parsed, at)
+	recorded, sharing, err := s.record(ctx, topic, message, parsed, at)
 	if err != nil {
-		return refused(topic, at, err.Error()), ""
+		return refused(topic, at, err.Error()), "", ""
 	}
-	return acknowledged(topic, notify.KindDirectiveRecorded, recorded, at), ""
+	if sharing == teamrecords.SharingNotShared {
+		return notify.Notification{}, "", keptHere
+	}
+	return acknowledged(topic, notify.KindDirectiveRecorded, recorded, at), "", ""
 }
 
 // askedBack is the one line a reply gets when the reading would not say whether
@@ -582,32 +613,62 @@ func waitingOn(held []directive.Directive) string {
 // item's thread is about that item, and an unscoped directive — which is what an
 // empty scope means — would pause the whole product from a message about one
 // piece of it.
-func (s *steering) record(topic notify.Topic, message inboundMessage, parsed steer, at time.Time) (directive.Directive, error) {
-	id, err := directive.NewID()
-	if err != nil {
-		return directive.Directive{}, err
-	}
+func (s *steering) record(ctx context.Context, topic notify.Topic, message inboundMessage, parsed steer, at time.Time) (directive.Directive, teamrecords.Sharing, error) {
 	recorded := directive.Directive{
 		SchemaVersion: directive.SchemaVersion,
-		ID:            id,
-		ProductID:     s.sink.store.Product(),
-		Kind:          parsed.kind,
-		ReceivedBy:    parsed.receivedBy,
-		ReceivedAt:    at.UTC(),
-		Text:          parsed.text,
-		Artifact:      parsed.artifact,
-		Unresolved:    parsed.unresolved,
-		Scope:         []string{topic.ID},
+		// Named by the message, so a reply seen by two factories, or delivered again
+		// after a restart, is one directive.
+		ID:         directive.ForSlackMessage(message.channel, message.ts),
+		ProductID:  s.sink.store.Product(),
+		Kind:       parsed.kind,
+		ReceivedBy: parsed.receivedBy,
+		ReceivedAt: at.UTC(),
+		Text:       parsed.text,
+		Artifact:   parsed.artifact,
+		Unresolved: parsed.unresolved,
+		Scope:      []string{topic.ID},
 	}
-	// Every bound a directive is held to is the directive package's, checked on
-	// the way into the store. A reply too long to be one is refused in the thread
-	// with the record's own words rather than with a second opinion about them.
-	if err := s.directives.Record(recorded); err != nil {
-		return directive.Directive{}, err
+	stands, sharing, err := s.write(ctx, recorded)
+	if err != nil {
+		return directive.Directive{}, "", err
 	}
-	s.remember(recorded, topic, message)
-	return recorded, nil
+	s.remember(stands, topic, message)
+	return stands, sharing, nil
 }
+
+// write records one directive and returns the one that stands under its
+// identifier. In team mode the directive is shared with the team's other
+// factories; the sharing reports a directive that could not be sent yet as
+// kept on this machine. Otherwise a directive already recorded under the
+// identifier is the one an earlier delivery of the same reply recorded, and it
+// is read back and stands.
+//
+// Every bound a directive is held to is the directive package's, checked on the
+// way into the store. A reply too long to be one is refused in the thread with
+// the record's own words rather than with a second opinion about them.
+func (s *steering) write(ctx context.Context, recorded directive.Directive) (directive.Directive, teamrecords.Sharing, error) {
+	if s.shared != nil {
+		return s.shared.ShareDirective(ctx, recorded)
+	}
+	err := s.directives.Record(recorded)
+	if errors.Is(err, runstate.ErrDirectiveRecorded) {
+		already, loadErr := s.directives.Load(recorded.ID)
+		if loadErr != nil {
+			return directive.Directive{}, "", loadErr
+		}
+		return already, teamrecords.SharingAlreadyRecorded, nil
+	}
+	if err != nil {
+		return directive.Directive{}, "", err
+	}
+	return recorded, teamrecords.SharingShared, nil
+}
+
+// keptHere is what a reply is told when its directive is in force on this
+// machine and the shared remote could not be reached to tell the team's other
+// factories. It stands in for the acknowledgment rather than following it, so a
+// thread is never told a directive is recorded without being told how far.
+const keptHere = "That is kept on this machine and applies here, but is not yet shared with the team's other factories because the shared remote could not be reached; it is shared at the next forge check."
 
 // remember keeps where one directive was said, who said it, and in which
 // message, which is the whole of what the durable directive record deliberately

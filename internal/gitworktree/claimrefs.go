@@ -228,8 +228,26 @@ func (m *Manager) pushClaimRef(ctx context.Context, ref, commit, expected string
 	if expected != "" && !commitPattern.MatchString(expected) {
 		return fmt.Errorf("expected claim commit %q is invalid", expected)
 	}
+	return m.pushLeased(ctx, leasedPush{git: []string{"-C", m.repositoryRoot}, url: m.remote, lease: ErrClaimLeaseRefused}, ref, commit, expected)
+}
+
+// leasedPush is where a leased push is made from and to, and the error a lease
+// the remote refused ends on. Claims push from the user's repository to the
+// remote by name; records push from their own bare repository to the URL.
+type leasedPush struct {
+	// git is the Git options that choose the repository the push is made from.
+	git []string
+	// url is what is pushed to: a remote's name, URL, or path.
+	url string
+	// lease is the error a refused lease is returned as.
+	lease error
+}
+
+// pushLeased moves ref on the remote to commit, or deletes it where commit is
+// empty, with a lease naming expected (empty: the reference must not exist).
+func (m *Manager) pushLeased(ctx context.Context, target leasedPush, ref, commit, expected string) error {
 	for attempt := 1; ; attempt++ {
-		line, err := m.pushClaimRefOnce(ctx, ref, commit, expected)
+		line, err := m.pushLeasedOnce(ctx, target, ref, commit, expected)
 		if err != nil || line == "" {
 			return err
 		}
@@ -241,18 +259,18 @@ func (m *Manager) pushClaimRef(ctx context.Context, ref, commit, expected string
 		// One still where it was is pushed again after a wait while the refusal
 		// is that lock, and taken as the remote refusing references under
 		// refs/yoyodyne/ when it is anything else, such as a hook that declined.
-		current, err := m.remoteRef(ctx, ref)
+		current, err := m.remoteRefAt(ctx, target.git, target.url, ref)
 		if err != nil {
-			return fmt.Errorf("push %s to %s was refused (%s), and the reference could not be read again: %w", ref, m.remote, line, err)
+			return fmt.Errorf("push %s to %s was refused (%s), and the reference could not be read again: %w", ref, target.url, line, err)
 		}
 		if current != expected {
-			return fmt.Errorf("%w: %s on %s", ErrClaimLeaseRefused, ref, m.remote)
+			return fmt.Errorf("%w: %s on %s", target.lease, ref, target.url)
 		}
 		if !lostRefLock(line) {
-			return fmt.Errorf("%w: %s on %s: %s", ErrClaimRefRefused, ref, m.remote, line)
+			return fmt.Errorf("%w: %s on %s: %s", ErrClaimRefRefused, ref, target.url, line)
 		}
 		if attempt >= claimPushAttempts {
-			return fmt.Errorf("push %s to %s kept losing the remote's lock on it to another push (%s)", ref, m.remote, line)
+			return fmt.Errorf("push %s to %s kept losing the remote's lock on it to another push (%s)", ref, target.url, line)
 		}
 		select {
 		case <-ctx.Done():
@@ -278,16 +296,17 @@ const claimPushAttempts = 11
 // later wait is one more of it.
 const claimPushRetryWait = 250 * time.Millisecond
 
-// pushClaimRefOnce makes one claim push. It returns nil and an empty line where
-// the push landed, ErrClaimLeaseRefused where the remote said the lease was
+// pushLeasedOnce makes one leased push. It returns nil and an empty line where
+// the push landed, the target's lease error where the remote said the lease was
 // stale, and the remote's own words for any other refusal of the reference,
 // which the caller judges by reading the reference again.
-func (m *Manager) pushClaimRefOnce(ctx context.Context, ref, commit, expected string) (string, error) {
-	result, err := m.runRemote(ctx, "-C", m.repositoryRoot,
+func (m *Manager) pushLeasedOnce(ctx context.Context, target leasedPush, ref, commit, expected string) (string, error) {
+	args := append(append([]string(nil), target.git...),
 		"-c", "core.hooksPath="+os.DevNull,
 		"push", "--porcelain", "--no-verify",
 		"--force-with-lease="+ref+":"+expected,
-		m.remote, commit+":"+ref)
+		target.url, commit+":"+ref)
+	result, err := m.runRemote(ctx, args...)
 	if err != nil {
 		return "", err
 	}
@@ -296,10 +315,10 @@ func (m *Manager) pushClaimRefOnce(ctx context.Context, ref, commit, expected st
 	}
 	line, found := porcelainRefLine(result.Stdout, ref)
 	if !found || !strings.HasPrefix(line, "!") {
-		return "", fmt.Errorf("push %s to %s failed with exit code %d: %s", ref, m.remote, result.ExitCode, strings.TrimSpace(result.Stderr))
+		return "", fmt.Errorf("push %s to %s failed with exit code %d: %s", ref, target.url, result.ExitCode, strings.TrimSpace(result.Stderr))
 	}
 	if strings.Contains(line, "stale info") {
-		return "", fmt.Errorf("%w: %s on %s", ErrClaimLeaseRefused, ref, m.remote)
+		return "", fmt.Errorf("%w: %s on %s", target.lease, ref, target.url)
 	}
 	return strings.TrimSpace(line), nil
 }
@@ -307,7 +326,13 @@ func (m *Manager) pushClaimRefOnce(ctx context.Context, ref, commit, expected st
 // remoteRef is the commit ref is at on the claims remote, and empty where the
 // remote holds no such reference.
 func (m *Manager) remoteRef(ctx context.Context, ref string) (string, error) {
-	result, err := m.runRemote(ctx, "-C", m.repositoryRoot, "ls-remote", "--exit-code", m.remote, ref)
+	return m.remoteRefAt(ctx, []string{"-C", m.repositoryRoot}, m.remote, ref)
+}
+
+// remoteRefAt is the commit ref is at on url, read from the repository the Git
+// options choose, and empty where the remote holds no such reference.
+func (m *Manager) remoteRefAt(ctx context.Context, git []string, url, ref string) (string, error) {
+	result, err := m.runRemote(ctx, append(append([]string(nil), git...), "ls-remote", "--exit-code", url, ref)...)
 	if err != nil {
 		return "", err
 	}
@@ -315,7 +340,7 @@ func (m *Manager) remoteRef(ctx context.Context, ref string) (string, error) {
 	case result.ExitCode == 2:
 		return "", nil
 	case result.Status != execution.ProcessSucceeded:
-		return "", fmt.Errorf("read %s on %s failed with exit code %d: %s", ref, m.remote, result.ExitCode, strings.TrimSpace(result.Stderr))
+		return "", fmt.Errorf("read %s on %s failed with exit code %d: %s", ref, url, result.ExitCode, strings.TrimSpace(result.Stderr))
 	}
 	for _, line := range strings.Split(result.Stdout, "\n") {
 		fields := strings.Fields(line)

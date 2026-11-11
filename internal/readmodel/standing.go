@@ -285,6 +285,11 @@ type Sources struct {
 	// reported anything" and "nothing was wired to read what anybody reported" are
 	// opposite answers, and only one of them means there is nothing to do.
 	Reports Reports
+	// SharedRecords is the state of this machine's record sharing with the team's
+	// other factories. It is optional, and a reading without one says nothing
+	// about shared records rather than that none wait: only team mode writes the
+	// state, so its absence is not a count of zero records kept back.
+	SharedRecords SharedRecords
 	// Interventions is the record of the operator's hand steps and messages,
 	// read for the count of his interventions. It is optional, and a reading
 	// without it says that nothing but the asks was counted.
@@ -751,6 +756,13 @@ type Standing struct {
 	WaitingForTeamMerge        []runstate.WaitingForTeamMergeItem `json:"waiting_for_team_merge,omitempty"`
 	WaitingForTeamMergeSays    []string                           `json:"waiting_for_team_merge_says,omitempty"`
 	WaitingForTeamMergeProblem string                             `json:"waiting_for_team_merge_problem,omitempty"`
+	// RecordsNotShared is how many records filed on this machine have not reached
+	// the team's shared remote, RecordsNotSharedSays the sentence saying so for the
+	// surfaces that print what the model says, and RecordsNotSharedProblem why the
+	// state could not be read.
+	RecordsNotShared        int    `json:"records_not_shared,omitempty"`
+	RecordsNotSharedSays    string `json:"records_not_shared_says,omitempty"`
+	RecordsNotSharedProblem string `json:"records_not_shared_problem,omitempty"`
 
 	Running        []RunningRun `json:"running"`
 	RunningProblem string       `json:"running_problem,omitempty"`
@@ -1400,6 +1412,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	for _, item := range standing.WaitingForTeamMerge {
 		standing.WaitingForTeamMergeSays = append(standing.WaitingForTeamMergeSays, "Waiting for the team's merge: "+item.Says())
 	}
+	standing.RecordsNotShared, standing.RecordsNotSharedSays, standing.RecordsNotSharedProblem = RecordsNotShared(sources)
 	standing.WorkItemNames = standing.Titles.Names(standing.namedItems()...)
 	standing.wording = ReadTextTerms(sources.Repository)
 	for index := range standing.NeedsHuman {
