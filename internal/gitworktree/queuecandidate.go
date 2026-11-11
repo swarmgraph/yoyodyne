@@ -33,7 +33,12 @@ type QueueCandidateRequest struct {
 	// Entry names the queue entry the candidate is for, and so its checkout.
 	Entry        string
 	TargetBranch string
-	Heads        []string
+	// Base, where set, is the commit the candidate is built on in place of the
+	// target as it stands: the candidate of the entry ahead, when the queue
+	// checks this one while that one is still being checked. Empty is the
+	// target's tip.
+	Base  string
+	Heads []string
 	// Message is the candidate commit's message.
 	Message string
 }
@@ -84,7 +89,7 @@ func (m *Manager) TargetCommit(ctx context.Context, branch string) (string, erro
 }
 
 // BuildQueueCandidate cuts a detached checkout of the target branch as it
-// stands and merges each head onto it in order, under the harness's identity
+// stands, or of the request's Base, and merges each head onto it in order, under the harness's identity
 // and with the repository's hooks off. A checkout a dead worker left at the
 // same path is removed first, because the path is the entry's own and nothing
 // else is ever put there.
@@ -100,9 +105,16 @@ func (m *Manager) BuildQueueCandidate(ctx context.Context, request QueueCandidat
 			return QueueCandidate{}, fmt.Errorf("head %q is not a full commit id", head)
 		}
 	}
-	base, err := m.TargetCommit(ctx, request.TargetBranch)
-	if err != nil {
+	base := request.Base
+	if base == "" {
+		var err error
+		if base, err = m.TargetCommit(ctx, request.TargetBranch); err != nil {
+			return QueueCandidate{}, err
+		}
+	} else if err := validateTargetBranch(request.TargetBranch); err != nil {
 		return QueueCandidate{}, err
+	} else if !commitPattern.MatchString(base) {
+		return QueueCandidate{}, fmt.Errorf("base %q is not a full commit id", base)
 	}
 	message := strings.TrimSpace(request.Message)
 	if message == "" {
