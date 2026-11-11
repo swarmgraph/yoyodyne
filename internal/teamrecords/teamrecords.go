@@ -233,24 +233,29 @@ func (s Sharer) ShareDirective(ctx context.Context, recorded directive.Directive
 		if _, _, _, err := s.copyIn(ctx, fetched, paths); err != nil {
 			return directive.Directive{}, "", err
 		}
-		if _, _, err := s.sync(ctx); err != nil {
-			return directive.Directive{}, "", err
-		}
 		local, err := s.Directives.Load(recorded.ID)
 		if err != nil {
 			return directive.Directive{}, "", err
 		}
+		// The directive that stands is recorded here now, so a failure sending
+		// this machine's other records does not change what the reply is told.
+		if _, _, err := s.sync(ctx); err != nil {
+			s.notSent(err)
+		}
 		return local, SharingAlreadyRecorded, nil
 	}
-	if _, err := s.recordLocally(recorded); err != nil {
+	local, err := s.recordLocally(recorded)
+	if err != nil {
 		return directive.Directive{}, "", err
 	}
+	// From here the directive is recorded and applies on this machine, so a
+	// failure sending it is a directive not yet shared, never one refused.
 	_, reached, err := s.sync(ctx)
 	if err != nil {
-		return directive.Directive{}, "", err
+		s.notSent(err)
+		return local, SharingNotShared, nil
 	}
-	local, err := s.Directives.Load(recorded.ID)
-	if err != nil {
+	if local, err = s.Directives.Load(recorded.ID); err != nil {
 		return directive.Directive{}, "", err
 	}
 	switch {
@@ -260,6 +265,21 @@ func (s Sharer) ShareDirective(ctx context.Context, recorded directive.Directive
 		return local, SharingAlreadyRecorded, nil
 	}
 	return local, SharingShared, nil
+}
+
+// notSent records why records filed here could not be sent, for a failure on
+// this machine rather than on the remote, so the status line still says some
+// are waiting and why. It is best effort: the next check counts them again.
+func (s Sharer) notSent(err error) {
+	previous, _, loadErr := s.State.Load()
+	if loadErr != nil {
+		return
+	}
+	waiting := previous.Waiting
+	if waiting < 1 {
+		waiting = 1
+	}
+	_, _, _ = s.waiting(previous, Result{}, waiting, "the records could not be prepared for sending: "+err.Error())
 }
 
 func (s Sharer) recordLocally(recorded directive.Directive) (directive.Directive, error) {
@@ -723,7 +743,9 @@ func (s Sharer) unshared(paths map[string]bool, remote map[string]directive.Dire
 		if paths[change] {
 			continue
 		}
-		if err := add(change, Envelope{Kind: KindDirectiveChange, Directive: &d, Names: d.ID}, own); err != nil {
+		// A change is this factory's own record whoever recorded the directive it
+		// names, so it carries this factory's name and never the original's.
+		if err := add(change, Envelope{Kind: KindDirectiveChange, Directive: &d, Names: d.ID}, ""); err != nil {
 			return nil, err
 		}
 	}

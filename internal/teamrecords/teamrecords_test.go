@@ -3,6 +3,8 @@ package teamrecords_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -466,5 +468,96 @@ func TestAnUnreadableRecordIsNamedAndTheRestStillArrive(t *testing.T) {
 	}
 	if _, err := os.Stat(b.reports.Path()); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestAChangeToACopiedDirectiveIsWrittenUnderTheFactoryThatMadeIt(t *testing.T) {
+	t.Parallel()
+	a, b, _ := newFactories(t)
+	id := "directive-" + strings.Repeat("cd", 16)
+	if err := a.dirs.Record(testDirective(id, epoch)); err != nil {
+		t.Fatal(err)
+	}
+	a.sync(t)
+	b.sync(t)
+	copied, err := b.dirs.Load(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied.Factory != "factory A" {
+		t.Fatalf("B's copy names factory %q, want factory A", copied.Factory)
+	}
+
+	if _, err := b.dirs.Resolve(id, "go with the second approach", epoch.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if result := b.sync(t); result.Shared != 1 {
+		t.Fatalf("B Sync() = %+v, want the change shared", result)
+	}
+
+	var changes []string
+	contents := b.snapshot(t)
+	for path := range contents {
+		if strings.HasPrefix(path, "directive-changes/") && strings.HasSuffix(path, ".json") {
+			changes = append(changes, path)
+		}
+	}
+	if len(changes) != 1 {
+		t.Fatalf("the remote holds directive changes %v, want exactly one", changes)
+	}
+	var envelope teamrecords.Envelope
+	if err := json.Unmarshal(contents[changes[0]], &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Kind != teamrecords.KindDirectiveChange || envelope.Names != id || envelope.Factory != "factory B" {
+		t.Errorf("change = kind %q names %q factory %q, want %q, %q, factory B", envelope.Kind, envelope.Names, envelope.Factory, teamrecords.KindDirectiveChange, id)
+	}
+
+	if result := a.sync(t); result.Copied != 1 {
+		t.Fatalf("A Sync() = %+v, want the change copied", result)
+	}
+	got, err := a.dirs.Load(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Resolved() || got.Resolution != "go with the second approach" {
+		t.Errorf("A's copy = %+v, want it resolved with B's resolution", got)
+	}
+}
+
+// failingBuild is a Remote that reads as the real one does but cannot prepare
+// what it is asked to send.
+type failingBuild struct{ teamrecords.Remote }
+
+func (failingBuild) Build(context.Context, string, map[string][]byte, time.Time) (string, error) {
+	return "", errors.New("no room to build the records commit")
+}
+
+func TestADirectiveRecordedHereButNotSendableIsReportedNotSharedWithoutAnError(t *testing.T) {
+	t.Parallel()
+	a, _, _ := newFactories(t)
+	id := directive.ForSlackMessage("C0123456789", "1699999999.000100")
+	sharer := a.sharer
+	sharer.Remote = failingBuild{Remote: a.records}
+
+	got, sharing, err := sharer.ShareDirective(context.Background(), testDirective(id, epoch))
+	if err != nil {
+		t.Fatalf("ShareDirective() error = %v, want none once the directive is recorded", err)
+	}
+	if sharing != teamrecords.SharingNotShared {
+		t.Errorf("sharing = %q, want %q", sharing, teamrecords.SharingNotShared)
+	}
+	if got.ID != id {
+		t.Errorf("returned directive %q, want %q", got.ID, id)
+	}
+	if _, err := a.dirs.Load(id); err != nil {
+		t.Errorf("the directive is not held locally: %v", err)
+	}
+	state, found, err := a.state.Load()
+	if err != nil || !found {
+		t.Fatalf("state Load() = found %v, error %v", found, err)
+	}
+	if state.Problem == "" || state.Waiting < 1 {
+		t.Errorf("state = %+v, want a problem and at least one record waiting", state)
 	}
 }
