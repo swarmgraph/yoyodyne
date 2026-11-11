@@ -3599,7 +3599,8 @@ recording its verdict is still hosted past the bound:
   forge outage can hold a promotion for hours, and those hours cost the
   scheduler nothing but the seat the promotion holds.
 - A run with a check running is left to finish that check, and only that
-  check: a new build never makes a check start over. The session asks the run
+  check, so a check that ends within the wait is not started over on the new
+  build. The session asks the run
   to stop before its next check, and the run stops there by itself — between
   two checks, or once its last check has passed — at its checks, preserved like
   any stopped run. The wait is bounded by the running check's own configured
@@ -3618,7 +3619,8 @@ recording its verdict is still hosted past the bound:
   is stopped there and runs again in the session that comes back. A run
   waiting for a heavy check's place, or between two checks, has nothing
   running and is stopped at the bound. However many builds are deployed while
-  the check runs, it runs once. Each check that passed before the
+  the check runs, it runs once, unless it is still running ten minutes past
+  the bound. Each check that passed before the
   stop keeps its result: the session that comes back runs only the checks that
   had not finished, and only when the change is exactly the one they passed on
   — same content, same commit, same repair attempt. A changed change runs every

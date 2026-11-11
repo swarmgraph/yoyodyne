@@ -1053,6 +1053,11 @@ func (p *Pass) takeUpWait() string {
 	if p.releasing != nil {
 		return fmt.Sprintf("once the release cut under way since %s has finished", runstate.LocalStamp(p.releasing.started))
 	}
+	if p.released != nil {
+		// A finished cut not yet recorded would be lost from the pass log by a
+		// re-execution now; the next pass records it and takes the build up.
+		return "once the next maintenance pass has recorded the release cut that has finished"
+	}
 	if held := p.hold(); held != "" {
 		return "once nothing holds restarts back; nothing is restarted while " + held
 	}

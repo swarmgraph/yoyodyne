@@ -401,6 +401,40 @@ func TestTheSupervisorTakesADeployedBuildUpBetweenPasses(t *testing.T) {
 	}
 }
 
+// A release cut that finishes between passes holds the supervisor's own move
+// until the next pass has recorded what the cut came to, so the re-execution
+// never loses that line from the pass log; that pass then takes the build up.
+func TestAFinishedReleaseCutIsRecordedBeforeTheSupervisorMoves(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	cut := &gatedRelease{release: make(chan struct{}), said: runstate.SweepStep{Name: StepRelease, Outcome: runstate.StepRan, Detail: "pushed v0.6.0 on 0123456789ab"}}
+	f.pass.Release = cut
+	f.pass.Look(context.Background(), f.now)
+	done := <-f.pass.running.done
+	f.pass.finish(context.Background(), done)
+
+	f.host.deployed = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	close(cut.release)
+	// Waited for on the cut's own result, which is put straight back for the
+	// look to find, so the look sees a cut that has finished.
+	finished := <-f.pass.releasing.done
+	f.pass.releasing.done <- finished
+	f.now = f.now.Add(time.Minute)
+	f.pass.Look(context.Background(), f.now)
+	if f.host.takenUp != "" || !strings.Contains(f.host.awaiting, "recorded the release cut") {
+		t.Fatalf("took up %q, awaiting %q; want the move held until the finished cut is recorded", f.host.takenUp, f.host.awaiting)
+	}
+
+	f.now = f.now.Add(10 * time.Minute)
+	recorded := f.pass1(t)
+	if step := stepNamed(t, recorded, StepRelease); step.Outcome != runstate.StepRan || !strings.Contains(step.Detail, "pushed v0.6.0") {
+		t.Fatalf("release step = %+v, want the finished cut recorded", step)
+	}
+	if f.host.takenUp != f.host.deployed {
+		t.Fatalf("took up %q, want the pass that recorded the cut to take the build up", f.host.takenUp)
+	}
+}
+
 // A failed step is failed on the record, on its problem, and on the claim, so
 // a schedule that runs and achieves nothing is findable; and the sink left
 // degraded is a failure rather than something the pass passes over.
