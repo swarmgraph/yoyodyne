@@ -1032,6 +1032,10 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// operator's stop request, made on her behalf and naming her. Wired for
 		// that role alone, so no other conversation can stop a run in her name.
 		Stops: conversationStops(parts, role),
+		// Where her decision that a run of one item resolves a conflict with the
+		// team's branch is recorded. Wired for that role alone, and only where the
+		// project names a team's branch.
+		TeamBranchResolutions: conversationTeamBranchResolutions(parts, role),
 		// The hand that carries out her retry or retirement of a stopped document
 		// publication, which has no work item to record either on. Wired for that
 		// role alone.

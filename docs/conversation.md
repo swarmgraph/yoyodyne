@@ -3338,6 +3338,31 @@ kind of decision decides the other. Where she records no brake decision by
 `execution.brake_cooldown`, the session probes by itself; the whole of that is
 in [operations](operations.md#pausing-everything-and-resuming-it).
 
+### Deciding which item resolves a conflict with the team's branch
+
+Where the project sets `execution.upstream_branch`, the harness keeps the target
+branch up to date with the team's branch, and when merging the team's branch into
+the target conflicts it tells the development manager once, in a report on her
+list. That is not a stopped run, so it is not a triage decision. She chooses the
+one item whose change touched the conflicting files, or whose owner best knows
+them, and records the `resolve-conflict` tracker action:
+
+```json
+{"action":"resolve-conflict","target":"staging","id":"<item id>","reason":"why this item"}
+```
+
+`id` and `reason` are required. `target` names the target branch and may be left
+out where the project has one. The decision is held to the same authority as a
+triage decision, so only she can record it. The harness reads the item from the
+tracker, records the decision on the update's record, and writes a note on the
+item saying she decided that a run of it resolves the conflict, and why. It
+starts that run at the next forge check, with the conflict in front of the
+developer; the run goes through the project's checks and an independent review.
+A conflict gets up to three rounds, which are not counted against the item's
+repair attempts. The action is refused, in words that say why, where the project
+names no team's branch, the item is not in the tracker or is closed, no conflict
+is waiting, the three rounds are used, or a round is running now.
+
 ### Resuming an approved change the environment stopped
 
 `yoyo triage resume <run-id>` is the one action here that carries out no

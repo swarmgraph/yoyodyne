@@ -924,6 +924,11 @@ func (d Docketer) RecordStoppedRun(state runstate.State) (bool, error) {
 	if state.OutsideFile != nil {
 		return false, nil
 	}
+	// A round of resolving a team branch conflict that stopped is told to the
+	// development manager by the update that started it (teambranchupdate.go).
+	if state.TeamBranchResolution != nil {
+		return false, nil
+	}
 	if err := d.validate(); err != nil {
 		return false, err
 	}
@@ -1636,7 +1641,7 @@ func (d Docketer) unreadyEntry(item beads.WorkItem, unmet []readiness.Unmet, now
 // A document run contributes only its stoppage, and only once it is the
 // development manager's to decide; see documentdocket.go.
 func (d Docketer) entriesFor(state runstate.State, now time.Time, already standingDocket, copies documentCopies) ([]triage.Entry, error) {
-	if state.OutsideFile != nil {
+	if state.OutsideFile != nil || state.TeamBranchResolution != nil {
 		return nil, nil
 	}
 	if state.Document != nil {

@@ -1963,6 +1963,9 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	if state.OutsideFile != nil {
 		return Outcome{}, errors.New("a run that brings a file in is continued by the scheduler's next look at its record")
 	}
+	if state.TeamBranchResolution != nil {
+		return Outcome{}, errors.New("a run that resolves a team branch conflict is continued by the next forge check of its update")
+	}
 	retired, handled, err := (RunRetirer{Runs: p.Store, Tracker: p.Tracker, Now: p.clock().Now(), ReadItem: p.readWorkItem}).Retire(ctx, state)
 	if handled {
 		if retired.Retirement == nil {
@@ -2872,6 +2875,11 @@ func appendUnique(values []string, value string) []string {
 // either kind of failure to the developer, and then integration and cleanup of
 // a change an attempt actually got approved.
 func (a *activeRun) verifyReviewAndFinish(ctx context.Context) (Outcome, error) {
+	if a.state.TeamBranchResolution != nil {
+		// A run that resolves a conflict ends at its approval, whatever the
+		// integration policy is, and integrates nothing (teambranchresolution.go).
+		return a.endResolution(ctx)
+	}
 	if a.state.HarnessAuthored() {
 		return a.reviewDocument(ctx)
 	}
@@ -3946,7 +3954,9 @@ func (a *activeRun) checkCandidateWhole(ctx context.Context, limit int) (bool, e
 // to merge, so it is checked whole here as it always was. Which queue it would
 // reach is queueChecksThisChangeWhole's question.
 func (a *activeRun) queueChecksCandidateWhole() bool {
-	return a.pipeline.automatic() && a.admitsToMergeQueue()
+	// A run that resolves a conflict ends at its approval and is never admitted,
+	// so what it checks is checked whole here.
+	return a.state.TeamBranchResolution == nil && a.pipeline.automatic() && a.admitsToMergeQueue()
 }
 
 // replayStopEnds is how a repair loop ends on a replay charged past the
@@ -6743,6 +6753,11 @@ func (a *activeRun) verify(ctx context.Context) error {
 	// or the record before the suite is spent on a change that cannot stand
 	// (gatePinnedFiles).
 	if err := a.gatePinnedFiles(ctx, changed); err != nil {
+		return err
+	}
+	// A run that resolves a conflict leaves none of Git's markers in the files that
+	// conflicted, for the same reason (teambranchresolution.go).
+	if err := a.gateConflictMarkers(); err != nil {
 		return err
 	}
 	// What the change touches is worked out once, here, and told to every check:

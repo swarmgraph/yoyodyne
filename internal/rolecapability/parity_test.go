@@ -234,10 +234,17 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // each with the architect's recommendation attached, as needing his hand
 // (yoyodyne-i92, under the architect's ruling for yoyodyne-ifd.437.14). It is
 // held under amendment.decide, and a change to the brief or the goals that does not say it is consistent with their intent stays his.
+//
+// The development manager's `resolve-conflict` records which item's run resolves
+// a conflict between the target branch and the team's branch, which the design
+// for integrating to a local branch gives to her decision
+// (docs/designs/integrating-to-a-local-branch.md, section 3; yoyodyne-ifd.429.146).
+// It is the same authority as triage, deciding what becomes of work that cannot
+// move, so it is held under the same capability and no other role holds it.
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
 	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment"},
 	domain.RoleArchitect:          {"amendment"},
-	domain.RoleDevelopmentManager: {"brake", "label"},
+	domain.RoleDevelopmentManager: {"brake", "label", "resolve-conflict"},
 }
 
 func TestConversationAuthorityDecidesWhatItDecidedBeforeTheConversion(t *testing.T) {

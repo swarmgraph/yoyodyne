@@ -197,6 +197,11 @@ var expresses = map[string]expression{
 		question: "none: an escalation carrying a report is a shape of what was said",
 		gap:      "what a turn must contain alongside a decision is not an authority anybody holds",
 	},
+	"conversation.resolve-conflict-needs-a-team-branch": {
+		question: "does the role hold triage?",
+		asks:     []capability.Capability{capability.WorkTriage},
+		gap:      "holding triage does not say which conflict a decision may name; whether one is waiting, and whether its rounds are spent, is the update's record to answer",
+	},
 	"conversation.triage-run-belongs-to-item": {
 		question: "does the role hold triage?",
 		asks:     []capability.Capability{capability.WorkTriage},
@@ -566,6 +571,10 @@ var expresses = map[string]expression{
 	"merge-queue.worker-lease": {
 		question: "no role holds it; the harness takes it in the process that works the queue",
 		gap:      "no capability names it yet: it makes one harness process the worker for a queue, and only the harness's own merge queue worker takes it, so there is nothing a role could be asked whether it holds",
+	},
+	"team-branch-update.updater-lease": {
+		question: "no role holds it; the harness takes it in the forge check that brings the target branch up to date with the team's branch",
+		gap:      "no capability names it: it makes one harness process the one bringing a target branch up to date, and the landing it leads to is still made under the promotion lease, so there is nothing a role could be asked whether it holds",
 	},
 	"merge-queue.generation-writer": {
 		question: "no role holds it; only the harness process holding the queue's worker lease records a candidate's generations",

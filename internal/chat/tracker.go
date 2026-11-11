@@ -245,28 +245,29 @@ const (
 // action that names one was misunderstood, and carrying out the part of it that
 // parsed would do something nobody asked for.
 var trackerActionArguments = map[string][]string{
-	actionRead:         {"report", "offset"},
-	actionSurvey:       {},
-	actionCreate:       {"title", "description", "goal", "parent", "priority", "class", "kind", "executor", "parked", "directive", "report", "labels", "distinct_from", "relevant_goals", "corrects"},
-	actionAttribute:    {"goal"},
-	actionUpdate:       {"title", "description", "note", "executor", "relevant_goals", "kind", "corrects"},
-	actionLabel:        {"add", "remove"},
-	actionReparent:     {"parent"},
-	actionReprioritize: {"priority"},
-	actionPark:         {},
-	actionUnpark:       {},
-	actionLink:         {"depends_on"},
-	actionUnlink:       {"depends_on"},
-	actionRepair:       {"state", "depends_on", "goal"},
-	actionClose:        {},
-	actionRetire:       {},
-	actionTriage:       {"run", "decision", "budget", "superseded_by", "waits_on", "to", "operator_reason", "hand"},
-	actionInFlight:     {"decision", "superseded_by"},
-	actionHandle:       {"report", "requests", "needs", "person_only", "operator_reason", "hand"},
-	actionBrake:        {"decision"},
-	actionWithdraw:     {"proposal"},
-	actionDirective:    {"directive", "decision", "became"},
-	actionAmendment:    {"amendment", "decision"},
+	actionRead:            {"report", "offset"},
+	actionSurvey:          {},
+	actionCreate:          {"title", "description", "goal", "parent", "priority", "class", "kind", "executor", "parked", "directive", "report", "labels", "distinct_from", "relevant_goals", "corrects"},
+	actionAttribute:       {"goal"},
+	actionUpdate:          {"title", "description", "note", "executor", "relevant_goals", "kind", "corrects"},
+	actionLabel:           {"add", "remove"},
+	actionReparent:        {"parent"},
+	actionReprioritize:    {"priority"},
+	actionPark:            {},
+	actionUnpark:          {},
+	actionLink:            {"depends_on"},
+	actionUnlink:          {"depends_on"},
+	actionRepair:          {"state", "depends_on", "goal"},
+	actionClose:           {},
+	actionRetire:          {},
+	actionTriage:          {"run", "decision", "budget", "superseded_by", "waits_on", "to", "operator_reason", "hand"},
+	actionResolveConflict: {"target"},
+	actionInFlight:        {"decision", "superseded_by"},
+	actionHandle:          {"report", "requests", "needs", "person_only", "operator_reason", "hand"},
+	actionBrake:           {"decision"},
+	actionWithdraw:        {"proposal"},
+	actionDirective:       {"directive", "decision", "became"},
+	actionAmendment:       {"amendment", "decision"},
 }
 
 // trackerCapabilities is which authority each operation belongs to. It is the
@@ -305,6 +306,9 @@ var trackerCapabilities = map[string]capability.Capability{
 	actionClose:        capability.BacklogAdmit,
 	actionRetire:       capability.BacklogAdmit,
 	actionTriage:       capability.WorkTriage,
+	// Deciding which item's run resolves a conflict with the team's branch is
+	// deciding what becomes of work that cannot move, which is triage's authority.
+	actionResolveConflict: capability.WorkTriage,
 	// Deciding that admitted work is superseded, narrowed, or to be retired is
 	// admission run backwards, as closing and retiring are; what it decides about
 	// the run in flight is nothing, which is the development manager's.
@@ -354,7 +358,7 @@ var laneCapabilities = map[string]capability.Capability{
 var trackerActionNames = []string{
 	actionRead, actionSurvey, actionCreate, actionAttribute, actionUpdate, actionLabel, actionReparent,
 	actionReprioritize, actionPark, actionUnpark, actionLink, actionUnlink, actionRepair,
-	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake, actionWithdraw,
+	actionClose, actionRetire, actionInFlight, actionTriage, actionResolveConflict, actionHandle, actionBrake, actionWithdraw,
 	actionDirective, actionAmendment,
 }
 
@@ -495,6 +499,10 @@ type TrackerAction struct {
 	// nothing else: an item can stop more than once, and a decision that does not
 	// say which stoppage it was about is one nobody can match to an entry.
 	Run string `json:"run,omitempty"`
+	// Target names the target branch a resolve-conflict decision is about. It is
+	// taken by that action and by nothing else, and it may be left out where one
+	// target branch is waiting on a conflict.
+	Target string `json:"target,omitempty"`
 	// Report names the collected report an action is about, copied from a
 	// listing or a citation. A read takes it instead of an item ID. A handling
 	// requires one: a handling that does not say which report it is about takes
@@ -1268,6 +1276,8 @@ func (a TrackerAction) validateArguments() []error {
 		problems = append(problems, a.repairProblems()...)
 	case actionTriage:
 		problems = append(problems, a.triageProblems()...)
+	case actionResolveConflict:
+		problems = append(problems, a.resolveConflictProblems()...)
 	case actionInFlight:
 		problems = append(problems, a.inFlightProblems()...)
 	case actionHandle:
@@ -1489,6 +1499,9 @@ func (a TrackerAction) arguments() []string {
 	}
 	if strings.TrimSpace(a.Run) != "" {
 		carried = append(carried, "run")
+	}
+	if strings.TrimSpace(a.Target) != "" {
+		carried = append(carried, "target")
 	}
 	if strings.TrimSpace(a.Budget) != "" {
 		carried = append(carried, "budget")
@@ -1897,6 +1910,8 @@ func refuseWhenClosed(action, id, status string) string {
 		// nobody asked for. A note about what was learned is still worth writing,
 		// which is what "update" is for.
 		return fmt.Sprintf("%s is closed, so what becomes of the work that stopped is no longer a decision; nothing was recorded, and a note about it is what \"update\" is for", id)
+	case actionResolveConflict:
+		return fmt.Sprintf("%s is closed and has left the backlog, so no run of it can resolve the conflict; name an item that is still open. Nothing was recorded", id)
 	case actionInFlight:
 		return fmt.Sprintf("%s is closed and has left the backlog, so there is no work in flight on it to decide about; nothing was recorded", id)
 	default:
@@ -2331,6 +2346,8 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		s.carryOutRepair(ctx, outcome)
 	case actionTriage:
 		s.carryOutTriage(ctx, outcome)
+	case actionResolveConflict:
+		s.carryOutResolveConflict(ctx, outcome)
 	case actionInFlight:
 		s.carryOutInFlightDecision(ctx, outcome)
 	case actionHandle:

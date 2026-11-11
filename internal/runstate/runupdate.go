@@ -391,3 +391,41 @@ func (u MergeDropFound) apply(state *State) (bool, error) {
 	state.UpdatedAt = u.At
 	return true, nil
 }
+
+// TeamBranchResolutionApproved ends a run that resolves a team branch conflict
+// at its approval: the head of the change that passed its checks and the
+// independent review is recorded, and the run succeeds having integrated
+// nothing. It is refused on a run that resolves no conflict, or that has already
+// ended some other way.
+type TeamBranchResolutionApproved struct {
+	Head string
+	At   time.Time
+}
+
+func (u TeamBranchResolutionApproved) apply(state *State) (bool, error) {
+	if state.TeamBranchResolution == nil {
+		return false, fmt.Errorf("run %s resolves no team branch conflict, so it does not end at an approval", state.RunID)
+	}
+	if !commitPattern.MatchString(u.Head) {
+		return false, fmt.Errorf("the approved head %q is not a full commit", u.Head)
+	}
+	if state.Status == StatusSucceeded && state.TeamBranchResolution.ApprovedHead == u.Head {
+		return false, nil
+	}
+	if state.Status.Terminal() {
+		return false, fmt.Errorf("run %s has already ended %s, so it does not end again at an approval", state.RunID, state.Status)
+	}
+	resolution := *state.TeamBranchResolution
+	resolution.ApprovedHead = u.Head
+	state.TeamBranchResolution = &resolution
+	state.HarnessCommit = u.Head
+	state.ProviderStop = ""
+	state.RedeployStop = nil
+	state.OperatorHeldSince = nil
+	state.Status = StatusSucceeded
+	state.Phase = PhaseComplete
+	state.UpdatedAt = u.At
+	completed := u.At
+	state.CompletedAt = &completed
+	return true, nil
+}

@@ -1102,6 +1102,8 @@ var notAStep = map[string]string{
 	"attemptReview":              "one provider invocation inside candidate.review",
 	"recordReviewVerdict":        "records a verdict against the item, charging a round where it sent the work back, inside candidate.review",
 	"gateProtectedPaths":         "the scope refusal candidate.check makes before it spends a suite",
+	"endResolution":              "ends a run that resolves a team branch conflict at its approval instead of promoting it, which the update that asked for it carries on from; it is the ending of that run and no step a delivery definition could order",
+	"gateConflictMarkers":        "the look for conflict markers a run that resolves a team branch conflict makes before it spends a suite, as candidate.check makes the comparison of pinned outside files",
 	"gatePinnedFiles":            "the comparison of pinned outside files with their records candidate.check makes before it spends a suite",
 	"gateReviewBound":            "the review-bound refusal candidate.check makes before it spends a suite or a review",
 	"integrationEarned":          "the reading of the gate off the record that candidate.integrate makes before it takes anything",
