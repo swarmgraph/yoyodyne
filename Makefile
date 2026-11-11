@@ -45,7 +45,7 @@ PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64
 # outgrows it is a package to split.
 TEST_TIMEOUT ?= 43m
 
-.PHONY: build test race vet fmt fmtcheck cachecheck check doccheck adoption validate-machine-home codex-resume dist dist-verify clean-dist release release-notes
+.PHONY: build test race vet fmt fmtcheck cachecheck check doccheck adoption validate-machine-home validate-two-factories codex-resume dist dist-verify clean-dist release release-notes
 .NOTPARALLEL: check
 
 # Every Go command below writes what it compiles to the build cache before it
@@ -356,6 +356,15 @@ adoption:
 # and docs/developing-yoyo.md says why CI does not run it yet.
 validate-machine-home:
 	scripts/validate-machine-home.sh
+
+# The two-factory validation: two harness homes on one machine against one
+# throwaway remote, held to the checks its work item (yoyodyne-ifd.429.110)
+# names from the working-alongside-other-contributors design. It fails when any
+# check fails; a check whose piece has not landed is reported as not yet built
+# and counted neither way. It stays out of `check`, like `validate-machine-home`,
+# and docs/developing-yoyo.md says why.
+validate-two-factories:
+	scripts/validate-two-factories.sh
 
 # The Codex native-resume test, run where it can run and required to have run.
 # It launches the real Codex, so the harness's checks -- which hide the

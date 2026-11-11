@@ -161,6 +161,37 @@ read the new name, and its check 6, the supervisor moving the state by itself,
 with `moving.json`, the drain limit, a supervisor stopped before or during the
 move, and a failing step undone.
 
+`make validate-two-factories` is the validation for working alongside other
+contributors ([the design](designs/working-alongside-other-contributors.md),
+build item 14). It runs
+[`scripts/validate-two-factories.sh`](../scripts/validate-two-factories.sh),
+which sets up two harness homes on one machine, each with a machine identity of
+its own and its own clone of one throwaway bare remote, inside a temporary root
+it removes on exit, with `HOME` pointed there so the real `~/.yoyodyne` is never
+read or written. The checks are the Go test in
+[`scripts/twofactory`](../scripts/twofactory/twofactory_test.go), which drives
+the harness's own claims, pipeline, scheduler, forge check and status line, with
+the stand-in forge the harness's own tests use in place of GitHub. It prints
+each check's number and name as it passes or fails: an item waiting for a person
+names its pull request, closes on merge and goes to the Lead Product Manager
+when closed unmerged; requested changes start a repair round and an ordinary
+comment reaches the development manager's list; each run records the target it
+started from and whether it was fetched; a conflict while bringing a pull
+request up to date is a repair round under its own limit; at the limit on
+waiting pull requests no new work starts and the status line names them; two
+factories racing for one item, exactly one claim push succeeds; a claim
+unrenewed for two hours is taken over naming the earlier holder; and, once their
+pieces land, reports and their handling travelling between factories, one
+directive from one Slack reply, repair budgets shared across factories, a spend
+whose push fails not acted on, and the team pause. A check whose piece has not
+landed is reported as not yet built, naming the work it waits on, and counted
+neither passed nor failed; when that piece lands, its check is written in
+`scripts/twofactory` and the line naming what it waits on goes. It exits
+non-zero when any check fails. Run any other way, the Go test skips, so
+`make test` keeps it compiling without running it. It stays out of `check`
+because it takes a minute or two and vouches for the team-mode work only, and
+CI does not run it yet.
+
 ## What a document landing runs: `make doccheck`
 
 A design, a decision, or the goals a role writes in conversation lands through a
