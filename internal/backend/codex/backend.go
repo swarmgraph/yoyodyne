@@ -690,6 +690,14 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 			}
 		}
 	}
+	if profile == profileDeveloper {
+		// A developer reads the account's config.toml and the worktree's, and
+		// every MCP server either lists is turned off by name. See mcp.go.
+		args, err = b.withMCPServersOff(ctx, args, invocation.WorkingDirectory, environment)
+		if err != nil {
+			return backend.RunResult{}, err
+		}
+	}
 	processResult, err := b.Runner.Run(ctx, execution.Command{
 		Name: b.binary(),
 		Args: args,

@@ -1120,9 +1120,38 @@ type fakeRunner struct {
 	errors   []error
 	commands []execution.Command
 	prompts  []string
+	// listings are the `codex mcp list` commands a developer's turn asked
+	// before it was made, kept apart from commands so a test counting turns
+	// counts turns. Each is answered with mcpListing, and an empty mcpListing
+	// is a listing of no servers.
+	listings   []execution.Command
+	mcpListing string
+}
+
+// isMCPListing reports whether command is the listing a developer's turn asks
+// for before it is made (see mcp.go).
+func isMCPListing(command execution.Command) bool {
+	return len(command.Args) >= 2 && command.Args[0] == "mcp" && command.Args[1] == "list"
+}
+
+// answerMCPListing answers a listing with listing, or with no servers.
+func answerMCPListing(listing string, observer execution.OutputObserver) (execution.ProcessResult, error) {
+	if listing == "" {
+		listing = "[]"
+	}
+	if observer != nil {
+		for _, line := range strings.Split(listing, "\n") {
+			observer(execution.Output{Stream: execution.StreamStdout, Text: line, Timestamp: time.Now()})
+		}
+	}
+	return execution.ProcessResult{Status: execution.ProcessSucceeded}, nil
 }
 
 func (f *fakeRunner) Run(_ context.Context, command execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
+	if isMCPListing(command) {
+		f.listings = append(f.listings, command)
+		return answerMCPListing(f.mcpListing, observer)
+	}
 	index := len(f.commands)
 	f.commands = append(f.commands, command)
 	if command.Stdin != nil {
@@ -1158,7 +1187,10 @@ type cuttingRunner struct {
 	after string
 }
 
-func (c *cuttingRunner) Run(_ context.Context, _ execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
+func (c *cuttingRunner) Run(_ context.Context, command execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
+	if isMCPListing(command) {
+		return answerMCPListing("", observer)
+	}
 	observer(execution.Output{Stream: execution.StreamStdout, Text: c.cut, LineTruncated: true, Timestamp: time.Now()})
 	observer(execution.Output{Stream: execution.StreamStdout, Text: c.after, Timestamp: time.Now()})
 	return execution.ProcessResult{Status: execution.ProcessSucceeded}, nil

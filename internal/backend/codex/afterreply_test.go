@@ -25,6 +25,9 @@ type lingeringRunner struct {
 }
 
 func (r *lingeringRunner) Run(_ context.Context, command execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
+	if isMCPListing(command) {
+		return answerMCPListing("", observer)
+	}
 	r.command = command
 	repliedAt := time.Date(2026, 9, 28, 18, 58, 33, 0, time.UTC)
 	replied := false

@@ -364,7 +364,16 @@ func sampleExecutable(binary string) (string, error) {
 	return "/provider/bin/" + binary, nil
 }
 
-func (r streamRunner) Run(_ context.Context, _ execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
+func (r streamRunner) Run(_ context.Context, command execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
+	// A Codex developer's turn first asks the CLI which MCP servers it would
+	// start, to turn them off. That is configuration rather than the provider
+	// speaking, so it lists none and the sample answers the turn itself.
+	if len(command.Args) >= 2 && command.Args[0] == "mcp" && command.Args[1] == "list" {
+		if observer != nil {
+			observer(execution.Output{Stream: execution.StreamStdout, Text: "[]"})
+		}
+		return execution.ProcessResult{Status: execution.ProcessSucceeded}, nil
+	}
 	status := execution.ProcessSucceeded
 	if r.sample.ExitCode != 0 {
 		status = execution.ProcessFailed
