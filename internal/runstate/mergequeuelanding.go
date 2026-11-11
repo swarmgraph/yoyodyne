@@ -533,8 +533,8 @@ func (c MergeQueueContinuation) valid() bool {
 // its candidate is defective, and what follows for the work. It is written
 // once its merge, if one was asked for, is confirmed withdrawn, and ends the
 // entry's turn in the queue: neither the worker nor the promotion takes the
-// entry up again. Everything but HandedBackAt, ReportedAt, and the set-aside
-// fields is fixed when it is written.
+// entry up again. Everything but HandedBackAt, ReportedAt, SetAside, and
+// SetAsideAt is fixed when it is written.
 //
 // The failed candidate's evidence stays on its generation, which is never
 // removed; this names it, and the run, branch, and approved head that are the
@@ -666,7 +666,7 @@ func (h MergeQueueHandback) validate() []error {
 	case h.SetAsideAt != nil && (h.SetAsideAt.IsZero() || !h.GoesToRun() || h.HandedBackAt != nil):
 		problems = append(problems, errors.New("only a handback for a run that has not been given it is set aside"))
 	}
-	if err := mergeQueueText("handback set-aside reason", h.SetAside, false); err != nil {
+	if err := mergeQueueText("the reason a handback was set aside", h.SetAside, false); err != nil {
 		problems = append(problems, err)
 	}
 	for field, value := range map[string]string{"target base": h.TargetBase, "candidate": h.Candidate, "approved head": h.ApprovedHead} {
