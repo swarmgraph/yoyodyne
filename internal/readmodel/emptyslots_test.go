@@ -96,3 +96,22 @@ func TestTheRunningLineSaysAnEmptySlotAsAProblem(t *testing.T) {
 		}
 	}
 }
+
+// A slot still counted as taken says, under the problem, which item it is
+// counted for, named as every list the harness builds names an item.
+func TestTheRunningLineNamesTheItemASlotIsStillCountedFor(t *testing.T) {
+	t.Parallel()
+
+	since := moment.Add(-30 * time.Minute)
+	standing := Standing{ObservedAt: moment, EmptySlots: &EmptySlots{
+		EmptySlots: runstate.EmptySlots{Cause: ownership.EmptySlotStillCounted, Reason: "the slot is still counted as taken for yoyodyne-done",
+			Slots: []int{2}, ReadyUnread: true, CountedFor: []string{"yoyodyne-done"}, Since: since, At: since},
+		Owner: ownership.Resolve(ownership.KindEmptySlot, ownership.Record{EmptySlot: ownership.EmptySlotStillCounted}),
+	}}
+	if rendered := standing.renderRunning(); !strings.Contains(rendered, "    the slot is still counted for yoyodyne-done\n") {
+		t.Fatalf("renderRunning() = %q, want the item the slot is counted for named under the problem", rendered)
+	}
+	if named := standing.EmptySlotsCountedFor(); len(named) != 1 || named[0] != "yoyodyne-done" {
+		t.Fatalf("EmptySlotsCountedFor() = %v, want the one item named", named)
+	}
+}

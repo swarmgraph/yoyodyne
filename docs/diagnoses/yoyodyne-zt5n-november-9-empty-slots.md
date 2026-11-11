@@ -29,34 +29,44 @@ last pull", and so did the one that ran from 19:48 until its restart after 21:27
 **Only two runs on record held slots for most of the first window:**
 
 - the build-move fix (yoyodyne-ifd.428.133, run-c030729a), in slot 2 from 18:16;
-- a run of yoyodyne-fo4v that the operator started by name at 14:58 and that
-  ended at 20:17. It records no slot number, so status lists it as running but
+- a run of the fix keeping an approved change in the merge queue from being
+  stopped as an interrupted run (yoyodyne-fo4v), which the operator started by
+  name at 14:58 and which ended at 20:17. It records no slot number, so status lists it as running but
   in no numbered slot.
 
-The run in slot 3 (yoyodyne-ifd.429.130, run-26bcb2f0) ended at 18:17. No run on
-record took that slot until yoyodyne-ifd.78.7 (run-a26f43a6) started at 19:55.
+The run in slot 3, of the hold an outside tool can set on landing
+(yoyodyne-ifd.429.130, run-26bcb2f0), ended at 18:17. No run on record took that
+slot until the fix making project re-binding refuse while kept worktrees are
+registered (yoyodyne-ifd.78.7, run-a26f43a6) started at 19:55.
 
 **The pulls ran slowly, and each one tried the same decided repairs and re-runs.**
-The harness recorded refusing a decided repair of run-152784a8 (yoyodyne-ifd.309)
-at 18:10, 18:30, 18:55, 19:16, 19:33, 19:50, 20:30, 20:47 and 21:14. Four other
-decided repairs (yoyodyne-ifd.434.12, ifd.428.126.4.9, ifd.207 and ifd.187) were
-refused alongside it. In the second session, three re-runs the development
+The harness recorded refusing a decided repair of run-152784a8, for letting the
+development manager cross a cap himself (yoyodyne-ifd.309), at 18:10, 18:30,
+18:55, 19:16, 19:33, 19:50, 20:30, 20:47 and 21:14. Four other decided repairs
+were refused alongside it: the machine home in ~/.yoyodyne
+(yoyodyne-ifd.434.12), the weekly tracker measurement
+(yoyodyne-ifd.428.126.4.9), the maintenance job as a product feature
+(yoyodyne-ifd.207), and making an environmental refusal a named state
+(yoyodyne-ifd.187). In the second session, three re-runs the development
 manager decided were tried the same way. So pulls came 17 to 40 minutes apart.
 While a pull carries out a decided repair or re-run, that work is counted as
 holding a slot until the harness has tried it.
 
 **Slot 3 is kept for team-development work.** At 19:55 the scheduler put
-yoyodyne-ifd.78.7, a priority 2 item labelled team-development and 369th in the
-order, into slot 3. That was ahead of the priority 0 items yoyodyne-ifd.429.117
-and yoyodyne-h0ou, 20th and 21st. This is the operating rule of October 28: a
+the re-binding fix (yoyodyne-ifd.78.7), a priority 2 item labelled
+team-development and 369th in the order, into slot 3. That was ahead of the
+priority 0 sub-agent depth test fix (yoyodyne-ifd.429.117) and provider
+search-path fix (yoyodyne-h0ou), 20th and 21st. This is the operating rule of October 28: a
 dedicated slot takes its own label's work first. So once team-development work
 was ready, slot 3 was never going to take those two items.
 
-**The second window began as yoyodyne-fo4v's run ended at 20:17.** The pull at
+**The second window began as the operator's run of the merge-queue fix
+(yoyodyne-fo4v) ended at 20:17.** The pull at
 20:23 filled one slot, and the next lines in the watch log are at 21:12. At
 21:12 a new build (05f69592) was found, and the session began waiting out its
-runs before restarting. yoyodyne-ifd.429.105 started in slot 3 at 20:57.
-yoyodyne-ifd.429.117 started at 21:19 and yoyodyne-h0ou at 21:20.
+runs before restarting. The re-run of the team pause shared through the remote (yoyodyne-ifd.429.105)
+started in slot 3 at 20:57. The sub-agent depth test fix (yoyodyne-ifd.429.117)
+started at 21:19 and the provider search-path fix (yoyodyne-h0ou) at 21:20.
 
 ## What the new record would have said
 
@@ -64,9 +74,11 @@ yoyodyne-ifd.429.117 started at 21:19 and yoyodyne-h0ou at 21:20.
   each decided repair or re-run that pull was carrying out. That fits the
   closing count of three against two runs on record. The records cannot confirm
   it: nothing written that night says what the third counted slot was. From
-  19:55 the slot held yoyodyne-ifd.78.7, by the dedicated-slot rule, and nothing
+  19:55 the slot held the re-binding fix (yoyodyne-ifd.78.7), by the
+  dedicated-slot rule, and nothing
   would have been recorded.
-- **The slot yoyodyne-fo4v's run held until 20:17:** nothing. A run the operator
+- **The slot the operator's run of the merge-queue fix (yoyodyne-fo4v) held
+  until 20:17:** nothing. A run the operator
   starts by name holds a developer slot like any other, so the slot was not
   empty, only unnumbered.
 - **20:17 to 21:20:** the same likely reason, *a slot still counted as taken*,
@@ -85,7 +97,10 @@ such a pull, not at its start.
 - Find out what held the third counted slot between pulls. The pulls carrying
   out decided repairs and re-runs, which take 17 to 40 minutes and are refused
   every time, are the first place to look.
-- Decide what becomes of the decided repairs the harness refuses at every pull
-  (yoyodyne-ifd.309, ifd.434.12, ifd.428.126.4.9, ifd.207, ifd.187).
+- Decide what becomes of the decided repairs the harness refuses at every pull:
+  the development manager crossing a cap himself (yoyodyne-ifd.309), the machine
+  home (yoyodyne-ifd.434.12), the weekly tracker measurement
+  (yoyodyne-ifd.428.126.4.9), the maintenance job (yoyodyne-ifd.207), and the
+  named environmental refusal (yoyodyne-ifd.187).
 - Consider having a run the operator starts by name record its slot number, so
   status shows which slot it holds.

@@ -136,6 +136,9 @@ func countedAccount(occupied map[string]runstate.State, gone map[string]bool, mi
 		if slot := started[mine[id]].Slot; slot > 0 {
 			account.Slots = append(account.Slots, slot)
 		}
+		if len(account.CountedFor) < runstate.MaxEmptySlotItems {
+			account.CountedFor = append(account.CountedFor, id)
+		}
 	}
 	sort.Ints(account.Slots)
 	if len(account.Slots) == 0 {

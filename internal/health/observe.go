@@ -409,8 +409,12 @@ func (o Observer) readEmptySlots(r *reading, standing readmodel.Standing) {
 		return
 	}
 	empty := standing.EmptySlots
+	says := empty.Problem(standing.ObservedAt)
+	if counted := standing.EmptySlotsCountedFor(); len(counted) > 0 {
+		says += "; the slot is still counted for " + strings.Join(counted, ", ")
+	}
 	r.add(Anomaly{Classification: ClassEmptySlot, Identity: Identity{Condition: "empty-slot:" + string(empty.Cause)},
-		Says: empty.Problem(standing.ObservedAt), Owner: empty.Owner.Owner, Needs: empty.Owner.Remedy})
+		Says: says, Owner: empty.Owner.Owner, Needs: empty.Owner.Remedy})
 }
 
 func (o Observer) readServices(r *reading, standing readmodel.Standing) {

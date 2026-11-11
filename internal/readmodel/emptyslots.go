@@ -120,6 +120,9 @@ func (s Standing) renderEmptySlots() string {
 	var rendered strings.Builder
 	if s.EmptySlots != nil {
 		fmt.Fprintf(&rendered, "  problem: %s\n", s.EmptySlots.Problem(s.ObservedAt))
+		for _, named := range s.EmptySlotsCountedFor() {
+			fmt.Fprintf(&rendered, "    the slot is still counted for %s\n", named)
+		}
 		for _, item := range s.EmptySlots.Passed {
 			fmt.Fprintf(&rendered, "    passed over %s: %s\n", s.named(item.WorkItemID, ""), item.Why)
 		}
@@ -128,4 +131,18 @@ func (s Standing) renderEmptySlots() string {
 		fmt.Fprintf(&rendered, "%s%s\n", partialRead, s.EmptySlotsProblem)
 	}
 	return rendered.String()
+}
+
+// EmptySlotsCountedFor is each item a slot still counted as taken is counted
+// for, named with its priority, labels, and title as this reading of the
+// tracker holds them, so no surface shows the item by its identifier alone.
+func (s Standing) EmptySlotsCountedFor() []string {
+	if s.EmptySlots == nil {
+		return nil
+	}
+	named := make([]string, 0, len(s.EmptySlots.CountedFor))
+	for _, id := range s.EmptySlots.CountedFor {
+		named = append(named, s.named(id, ""))
+	}
+	return named
 }

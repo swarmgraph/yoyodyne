@@ -53,6 +53,9 @@ type EmptySlots struct {
 	// Passed is the first ready items the poll passed over, in the order it
 	// reached them, each with why.
 	Passed []EmptySlotItem `json:"passed,omitempty"`
+	// CountedFor is the items a slot still counted as taken is counted for,
+	// where that is the cause, so a surface can name each by its title.
+	CountedFor []string `json:"counted_for,omitempty"`
 	// Since is when the session first recorded this reason, and At when it
 	// recorded this entry: the same reason said again over a different set of
 	// slots keeps its Since.
@@ -137,7 +140,7 @@ func (e EmptySlots) validate() error {
 		problems = append(problems, errors.New("an empty slot account records when it was taken"))
 	}
 	if e.Cleared {
-		if e.Cause != "" || e.Reason != "" || len(e.Slots) > 0 || len(e.Passed) > 0 {
+		if e.Cause != "" || e.Reason != "" || len(e.Slots) > 0 || len(e.Passed) > 0 || len(e.CountedFor) > 0 {
 			problems = append(problems, errors.New("a cleared empty slot account carries no reason, slot, or item"))
 		}
 		return errors.Join(problems...)
@@ -164,6 +167,14 @@ func (e EmptySlots) validate() error {
 	}
 	if len(e.Passed) > MaxEmptySlotItems {
 		problems = append(problems, fmt.Errorf("an empty slot account names %d items, past the %d it names", len(e.Passed), MaxEmptySlotItems))
+	}
+	if len(e.CountedFor) > MaxEmptySlotItems {
+		problems = append(problems, fmt.Errorf("an empty slot account names %d items a slot is counted for, past the %d it names", len(e.CountedFor), MaxEmptySlotItems))
+	}
+	for _, id := range e.CountedFor {
+		if err := domain.ValidateIdentifier("empty slot item counted for", id); err != nil {
+			problems = append(problems, err)
+		}
 	}
 	for _, item := range e.Passed {
 		if err := domain.ValidateIdentifier("empty slot item passed over", item.WorkItemID); err != nil {

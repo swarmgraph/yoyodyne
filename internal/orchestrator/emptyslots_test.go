@@ -145,6 +145,9 @@ func TestASlotStillCountedForAFinishedStartIsRecordedWithWhatItIsCountedFor(t *t
 	if account == nil || account.Cause != ownership.EmptySlotStillCounted {
 		t.Fatalf("account = %+v, want the slot still counted", account)
 	}
+	if len(account.CountedFor) != 1 || account.CountedFor[0] != "yoyodyne-done" {
+		t.Fatalf("account = %+v, want the item the slot is counted for carried for the surfaces to name", account)
+	}
 	if !strings.Contains(account.Reason, "yoyodyne-done") || len(account.Slots) != 1 || account.Slots[0] != 2 {
 		t.Fatalf("account = %+v, want slot 2 named as counted for yoyodyne-done", account)
 	}
