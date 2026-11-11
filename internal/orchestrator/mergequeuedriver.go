@@ -176,12 +176,30 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 		}
 		return done(runstate.MergeQueuePassStopped, entry, err.Error())
 	}
+	// An entry whose handback is recorded has already left the line, so a
+	// handback that could not be given to its run holds up nothing behind it:
+	// the pass passes over that entry, says why, and the next pass tries the
+	// handback again.
+	passedOver := map[string]bool{}
+	passOver := func(err error) bool {
+		var undelivered MergeQueueHandbackUndelivered
+		if !errors.As(err, &undelivered) || undelivered.Entry.EntryID == "" || passedOver[undelivered.Entry.EntryID] {
+			return false
+		}
+		passedOver[undelivered.Entry.EntryID] = true
+		untidied = append(untidied, fmt.Sprintf("entry %d has left the queue, but %v; it is tried again on the next pass, and the entries behind it went on",
+			undelivered.Entry.Order, undelivered.Err))
+		return true
+	}
 	repeated := ""
 	for step := 0; step < maxMergeQueuePassSteps; step++ {
 		if ctx.Err() != nil {
 			return done(runstate.MergeQueuePassWaiting, runstate.MergeQueueEntry{}, "the session working the queue stopped; the next pass carries on from the records")
 		}
-		recovered, err := d.Promoter.Recover(ctx, key)
+		recovered, err := d.Promoter.recover(ctx, key, passedOver)
+		if passOver(err) {
+			continue
+		}
 		if err != nil {
 			return stopped(recovered.Entry, err)
 		}
@@ -190,6 +208,9 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			continue
 		}
 		promoted, err := d.Promoter.Promote(ctx, key)
+		if passOver(err) {
+			continue
+		}
 		if err != nil {
 			return stopped(promoted.Entry, err)
 		}
@@ -213,17 +234,25 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			continue
 		case promoted.Drift:
 			continue
-		case promoted.Dropped || d.heldTooLong(promoted):
-			// A merge the forge dropped, or has held queued past the limit on a
-			// queued merge's wait, is withdrawn and the entry released, so it
-			// stops standing at the head of the queue; the next step hands the
-			// change back to its run, kept, for the development manager.
+		case promoted.Dropped || promoted.Unjudged != "" || d.heldTooLong(promoted):
+			// A merge the forge dropped, one it can never make because a check
+			// on the candidate ended without judging the change again after
+			// being run again (mergequeuecheckrerun.go), or one it has held
+			// queued past the limit on a queued merge's wait, is withdrawn and
+			// the entry released, so it stops standing at the head of the queue;
+			// the next step hands the change back to its run, kept, for the
+			// development manager.
 			why := fmt.Sprintf("the forge held its merge queued for longer than triage.stuck_merge_age (%s)", d.stuckAge())
-			if promoted.Dropped {
+			switch {
+			case promoted.Dropped:
 				why = "the forge stopped holding its merge without making it: " + promoted.Unresolved
+			case promoted.Unjudged != "":
+				why = promoted.Unjudged
 			}
 			withdrawn, err := d.Promoter.Withdraw(ctx, key, promoted.Entry.EntryID, why)
 			switch {
+			case passOver(err):
+				continue
 			case err != nil:
 				return stopped(promoted.Entry, err)
 			case withdrawn.Withdrawn || withdrawn.Landed:
@@ -248,7 +277,7 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 		}
 		switch {
 		case verified.Conflict != nil:
-			if _, err := d.Promoter.HandBackConflict(ctx, key, verified.Entry.EntryID, *verified.Conflict); err != nil {
+			if _, err := d.Promoter.HandBackConflict(ctx, key, verified.Entry.EntryID, *verified.Conflict); err != nil && !passOver(err) {
 				return stopped(verified.Entry, err)
 			}
 			handedBack++

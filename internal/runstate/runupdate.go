@@ -239,6 +239,35 @@ func (u QueuedRunCompleted) apply(state *State) (bool, error) {
 	return true, nil
 }
 
+// MergeQueueEntryLost stops a run that ended waiting on the merge queue and
+// whose entry the queue no longer holds, with nothing landed and nothing handed
+// back to the run: it fails with the reason and the blocker the item was given,
+// as the queue's own handback fails one, and keeps its branch and worktree. It
+// changes nothing on a run that is not waiting on the queue — one whose change
+// landed, or that already ended some other way.
+type MergeQueueEntryLost struct {
+	Blocker string
+	Failure string
+	At      time.Time
+}
+
+func (u MergeQueueEntryLost) apply(state *State) (bool, error) {
+	if !state.AwaitingMergeQueue() {
+		return false, nil
+	}
+	if strings.TrimSpace(u.Blocker) == "" || strings.TrimSpace(u.Failure) == "" {
+		return false, fmt.Errorf("run %s is stopped for a lost merge queue entry only with a blocker and a reason", state.RunID)
+	}
+	completed := u.At
+	state.Status = StatusFailed
+	state.StopClass = StopIntegration
+	state.Blocker = u.Blocker
+	state.Failure = u.Failure
+	state.CompletedAt = &completed
+	state.UpdatedAt = u.At
+	return true, nil
+}
+
 // RetryRecorded records one waited-out failure at a boundary, which the run's
 // own process writes before it waits. It is the narrow form for a process
 // whose copy may have gone out of date while another writer recorded on the
