@@ -124,3 +124,31 @@ func TestAQueuedRunEndsOnlyWithItsAdmissionRecorded(t *testing.T) {
 		t.Fatalf("two updates left the revision at %d, want %d", ended.Revision, state.Revision+2)
 	}
 }
+
+func TestALostMergeQueueEntryStopsOnlyARunWaitingOnTheQueue(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	state := publishedRun(t, store)
+	lost := MergeQueueEntryLost{Blocker: "the queue no longer has the entry", Failure: "the queue no longer has the entry", At: updateAt}
+	// A run that is not waiting on the queue is left exactly as it is.
+	if unchanged, err := store.Update(context.Background(), state.RunID, lost); err != nil || unchanged.Revision != state.Revision {
+		t.Fatalf("Update(MergeQueueEntryLost) on a run not waiting on the queue = %+v, %v; want nothing written", unchanged, err)
+	}
+	record := MergeQueueAdmissionRecord{EntryID: "mqe-" + strings.Repeat("c", 32), Order: 1, Repository: "yoyodyne", TargetBranch: "main", Mode: MergeQueueHarness, ApprovedHead: strings.Repeat("b", 40), AdmittedAt: updateAt}
+	if _, err := store.Update(context.Background(), state.RunID, MergeQueueAdmitted{Record: record, At: updateAt}); err != nil {
+		t.Fatalf("Update(MergeQueueAdmitted) error = %v", err)
+	}
+	if _, err := store.Update(context.Background(), state.RunID, QueuedRunCompleted{At: updateAt}); err != nil {
+		t.Fatalf("Update(QueuedRunCompleted) error = %v", err)
+	}
+	if _, err := store.Update(context.Background(), state.RunID, MergeQueueEntryLost{At: updateAt}); err == nil {
+		t.Fatal("a run waiting on the queue was stopped with no reason given")
+	}
+	stopped, err := store.Update(context.Background(), state.RunID, lost)
+	if err != nil {
+		t.Fatalf("Update(MergeQueueEntryLost) error = %v", err)
+	}
+	if stopped.Status != StatusFailed || stopped.StopClass != StopIntegration || stopped.Blocker != lost.Blocker || stopped.Failure != lost.Failure || stopped.AwaitingMergeQueue() {
+		t.Fatalf("the run stopped for a lost entry as %+v", stopped)
+	}
+}
