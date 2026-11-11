@@ -27,6 +27,7 @@ package directive
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -204,6 +205,10 @@ type Directive struct {
 	BecameBy     string           `json:"became_by,omitempty"`
 	BecameRole   domain.AgentRole `json:"became_role,omitempty"`
 	BecameAt     *time.Time       `json:"became_at,omitempty"`
+	// Factory is the factory, as its identity line names it, that recorded a
+	// directive this machine copied from the shared records of a team. It is
+	// empty for a directive recorded on this machine.
+	Factory string `json:"factory,omitempty"`
 }
 
 var (
@@ -219,6 +224,16 @@ func NewID() (string, error) {
 		return "", fmt.Errorf("generate directive id: %w", err)
 	}
 	return "directive-" + hex.EncodeToString(bytes), nil
+}
+
+// ForSlackMessage is the identifier a directive recorded from one Slack message
+// is given. The message's id, its channel and its timestamp (which Slack makes
+// unique within a channel), names the directive, so every factory that records
+// the same reply records the same directive, and a reply redelivered after a
+// restart names the one already recorded.
+func ForSlackMessage(channel, ts string) string {
+	sum := sha256.Sum256([]byte("slack-message\x00" + channel + "\x00" + ts))
+	return "directive-" + hex.EncodeToString(sum[:])[:32]
 }
 
 // ValidID reports an identifier of the shape this package issues. A store names
@@ -320,6 +335,7 @@ func (d Directive) Validate() error {
 	case strings.TrimSpace(d.Became) != "" || strings.TrimSpace(d.BecameReason) != "" || strings.TrimSpace(d.BecameBy) != "" || d.BecameRole != "":
 		problems = append(problems, errors.New("what a directive became requires who resolved it into that and the time they did"))
 	}
+	problems = append(problems, boundedLine("factory", d.Factory, false))
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid directive: %w", err)
 	}
@@ -779,4 +795,58 @@ func boundedLine(field, value string, required bool) error {
 		return fmt.Errorf("%s cannot span lines", field)
 	}
 	return nil
+}
+
+// Merge is how a change recorded on another machine is applied to this
+// machine's copy of a directive without rewriting what the copy already says:
+// it returns base with each disposition group base lacks and other has copied
+// from other. A group base already carries is left as it is, whatever other
+// holds.
+func Merge(base, other Directive) Directive {
+	if base.ResolvedAt == nil && other.ResolvedAt != nil {
+		base.Resolution, base.ResolvedAt = other.Resolution, other.ResolvedAt
+	}
+	if base.WithdrawnAt == nil && other.WithdrawnAt != nil {
+		base.Withdrawal, base.WithdrawnBy, base.WithdrawnAt, base.WithdrawnRole =
+			other.Withdrawal, other.WithdrawnBy, other.WithdrawnAt, other.WithdrawnRole
+	}
+	if base.BecameAt == nil && other.BecameAt != nil {
+		base.Became, base.BecameReason, base.BecameBy, base.BecameRole, base.BecameAt =
+			other.Became, other.BecameReason, other.BecameBy, other.BecameRole, other.BecameAt
+	}
+	return base
+}
+
+// Dispositions names the disposition groups the directive carries, in the order
+// "resolved", "withdrawn", "became". It lets a caller tell whether one copy
+// carries a change another lacks.
+func (d Directive) Dispositions() []string {
+	var names []string
+	if d.ResolvedAt != nil {
+		names = append(names, "resolved")
+	}
+	if d.WithdrawnAt != nil {
+		names = append(names, "withdrawn")
+	}
+	if d.BecameAt != nil {
+		names = append(names, "became")
+	}
+	return names
+}
+
+// SameDispositions reports whether two copies of a directive carry the same
+// value in each disposition group.
+func SameDispositions(a, b Directive) bool {
+	return sameTime(a.ResolvedAt, b.ResolvedAt) && a.Resolution == b.Resolution &&
+		sameTime(a.WithdrawnAt, b.WithdrawnAt) && a.Withdrawal == b.Withdrawal &&
+		a.WithdrawnBy == b.WithdrawnBy && a.WithdrawnRole == b.WithdrawnRole &&
+		sameTime(a.BecameAt, b.BecameAt) && a.Became == b.Became &&
+		a.BecameReason == b.BecameReason && a.BecameBy == b.BecameBy && a.BecameRole == b.BecameRole
+}
+
+func sameTime(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
 }

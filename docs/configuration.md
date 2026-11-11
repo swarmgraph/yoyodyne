@@ -5513,6 +5513,26 @@ under its state directory in `team-claims/`. Only the harness pushes these
 references, as it pushes pull request branches; no agent is given anything that
 writes one.
 
+### What the factories share: the records reference
+
+Reports, what was done about them, directives and later changes to directives
+travel between the team's factories as one file each, named by its own
+identifier and never rewritten; a change to a directive is a new file naming the
+directive. They are kept in the reference `refs/yoyodyne/records` on
+`execution.remote`, built in a Git repository of the harness's own under the
+state directory, `records.git`, so nothing is written in your repository.
+
+Each forge check shares them. The records other factories shared are copied
+into this machine's own report and directive records, naming the factory that
+filed them, and the ones filed here are sent. If another factory sent first, the
+check reads theirs and sends again; a record already on the remote stands. A
+directive from a Slack reply is named by the Slack message, so a reply two
+factories both see is one directive, and the reply is answered once the
+directive is shared or found already recorded. With the remote out of reach, the
+reply is told the directive is kept on this machine and shared at the next forge
+check. `yoyo status` counts the records not yet shared. Only the harness writes
+the reference; no agent is given anything that writes one.
+
 Team mode needs three things of the project, and `yoyo doctor` refuses team
 mode in plain words where any is missing: the harness has to publish through
 pull requests (`approvals.publishing: automatic`), because the forge is where

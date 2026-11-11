@@ -304,3 +304,43 @@ func ambiguousDirective(t *testing.T, unresolved string, scope []string) directi
 		Scope:         scope,
 	}
 }
+
+func TestRecordingADirectiveTwiceIsErrDirectiveRecorded(t *testing.T) {
+	t.Parallel()
+
+	store := newDirectives(t, t.TempDir())
+	recorded := operationalDirective(t, "keep the commit messages short")
+	if err := store.Record(recorded); err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+	err := store.Record(recorded)
+	if !errors.Is(err, ErrDirectiveRecorded) || !strings.Contains(err.Error(), "already recorded") {
+		t.Fatalf("Record() error = %v, want ErrDirectiveRecorded", err)
+	}
+}
+
+func TestAdoptReplacesARecordedDirectiveAndRefusesAnUnrecordedOne(t *testing.T) {
+	t.Parallel()
+
+	store := newDirectives(t, t.TempDir())
+	recorded := operationalDirective(t, "keep the commit messages short")
+	if err := store.Adopt(recorded); err == nil {
+		t.Fatal("Adopt() created a directive that was never recorded")
+	}
+	if err := store.Record(recorded); err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+	at := time.Date(2026, 8, 19, 9, 0, 0, 0, time.UTC)
+	adopted := directive.Merge(recorded, directive.Directive{Resolution: "carried out", ResolvedAt: &at})
+	adopted.Factory = "the build machine"
+	if err := store.Adopt(adopted); err != nil {
+		t.Fatalf("Adopt() error = %v", err)
+	}
+	loaded, err := store.Load(recorded.ID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.Resolution != "carried out" || loaded.Factory != "the build machine" {
+		t.Fatalf("Load() = %#v, want the adopted version", loaded)
+	}
+}
