@@ -426,13 +426,22 @@ Each pass takes eleven steps, in this order, and each is recorded:
   The cleanup deletes no work item, note, or history: listings, items, and
   `bd history` read the same after it as before. It is due once the store has
   grown `grown_megabytes` since the last cleanup left it, or `every` has passed
-  since that cleanup, whichever is first; a store the harness has never
-  cleaned up is cleaned up at the first pass. It runs after reconcile, so the
-  pass's own tracker calls are over; it does not start while any other process
-  has the store open, and says which; and it is stopped once it has held the
-  store for `max_hold`, so a call waiting behind it still answers inside its
-  own two minutes. A store in use, or a cleanup stopped at its hold, is a
-  skip rather than a failure, and the next pass tries again. Nothing before the
+  since that cleanup, whichever is first; a store past
+  `tracker_limits.store_megabytes` is also cleaned up every four hours however
+  little it has grown; and a store the harness has never cleaned up is cleaned
+  up at the first pass. It runs after reconcile, so the pass's own tracker
+  calls are over. While another process has the store open, a due cleanup is
+  put off and the pass says which process; once it has waited an hour from
+  when it fell due or was first put off, it starts beside them, because with
+  every developer slot busy the store may never be free. bd's lock orders it
+  among their calls: one already under way finishes first, and one that
+  arrives during the cleanup waits for it and is then made as it would have
+  been, so no run's write is lost or fails for it. Together these start a
+  cleanup of a store past its bound within six hours of the last, however busy
+  the slots are. It is stopped once it has held the store for `max_hold`, so a
+  call waiting behind it still answers inside its own two minutes. A cleanup
+  put off, or stopped at its hold, is a skip rather than a failure, and the
+  next pass tries again. Nothing before the
   cleanup, or while it holds the store, lists or counts work items: on a large
   store a listing of every item runs past its limit, and a cleanup that waited
   on one would never run on exactly the store that needs it. Whether one is
@@ -440,9 +449,15 @@ Each pass takes eleven steps, in this order, and each is recorded:
   counts the store's work items, closed ones included; a count that cannot be
   taken is recorded as unknown, with why, and does not fail the cleanup.
   Each cleanup that ran is recorded under the product's state in
-  `tracker-store-cleanups/`, and the maintenance line in `yoyo status` says the
-  latest: `the tracker's store was last cleaned up at 2026-11-02 05:41 PST, from
-  885 MB to 526 MB in 9.0 seconds, 1483 work items after it`. A cleanup
+  `tracker-store-cleanups/`, with how long it held the store and which
+  processes it started beside, if any; each pass that put a due cleanup off is
+  recorded in `tracker-store-cleanup-postponements/`, with when, the store's size,
+  why it was due, and why it was put off. The maintenance line in `yoyo status`
+  says the latest cleanup, the store's size at the last pass, and since when a
+  cleanup has been put off, if one has: `the tracker's store was last cleaned
+  up at 2026-11-02 05:41 PST, from 885 MB to 526 MB, holding the store for 9.0
+  seconds, 1483 work items after it; the tracker's store measured 530 MB at
+  2026-11-02 05:50 PST`. A cleanup
   that fails is a failure of the pass, in bd's own words, recorded, and not tried
   again until the next cleanup is due. Cleanups recorded before November 2026
   counted the items before the cleanup as well; where one of those found an item

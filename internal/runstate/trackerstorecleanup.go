@@ -8,9 +8,15 @@ package runstate
 // that ran it; and `yoyo status` says when the last one ran, the store's size
 // either side, and how long it took. Each cleanup that started is one file of
 // its own, created once and never rewritten, so nothing here needs a lock and
-// two records can never be one write that lost the other. A cleanup that never
-// started — not due, or another process using the store — is said on the pass
-// that skipped it and is not recorded here. A cleanup that started and failed
+// two records can never be one write that lost the other. A cleanup that was
+// not due is said on the pass that skipped it and is not recorded. A cleanup
+// that was due and put off — another process using the store, or an earlier
+// cleanup's missing items holding it back — is recorded too, in a directory of
+// its own beside the cleanups (TrackerStoreCleanupPutOff), because the pass
+// measures from the first postponement how long it has waited, and starts the
+// cleanup beside the other processes once it has waited long enough. Postponements
+// sit apart so that a build reading only the cleanups never mistakes one for a
+// cleanup that ran. A cleanup that started and failed
 // is recorded with that, because the pass reads it back and does not try again
 // until the next cleanup is due.
 //
@@ -85,6 +91,11 @@ type TrackerStoreCleanup struct {
 	Added        []string `json:"added,omitempty"`
 	// Failed is why a cleanup that started did not end as one: bd failing.
 	Failed string `json:"failed,omitempty"`
+	// Beside is the processes that had the store open when the cleanup started
+	// anyway, having been put off for as long as the pass waits, in words; empty
+	// where nothing else had it open. Each of their tracker calls waited behind
+	// the cleanup for at most Took.
+	Beside string `json:"beside,omitempty"`
 }
 
 // ItemsChanged reports a cleanup counted either side whose store did not hold
@@ -136,10 +147,15 @@ func sayIdentifiers(ids []string) string {
 }
 
 // Says is the cleanup in a sentence: when it ran, the store's size either side,
-// and how long it took, and that it was stopped where it was.
+// and how long it held the store, and that it was stopped where it was. bd
+// holds the store's lock for the whole of its run, so how long it ran is how
+// long every other tracker call could have waited on it.
 func (c TrackerStoreCleanup) Says() string {
-	said := fmt.Sprintf("at %s, from %s to %s in %s",
+	said := fmt.Sprintf("at %s, from %s to %s, holding the store for %s",
 		c.StartedAt.Local().Format("2006-01-02 15:04 MST"), SayBytes(c.SizeBefore), SayBytes(c.SizeAfter), sayTook(c.Took))
+	if c.Beside != "" {
+		said += ", started beside the processes that had it open: " + c.Beside
+	}
 	if items := c.SaysItems(); items != "" {
 		said += ", " + items
 	}
@@ -193,8 +209,49 @@ func (c TrackerStoreCleanups) LastFinished() (TrackerStoreCleanup, bool) {
 // TrackerStoreCleanupStore is where the product's cleanups are recorded, a
 // directory of one file each under the product.
 type TrackerStoreCleanupStore struct {
-	root, anchor string
-	productID    domain.ProductID
+	root, putOffs, anchor string
+	productID             domain.ProductID
+}
+
+// TrackerStoreCleanupPutOff is one pass at which a cleanup of the tracker's
+// store was due and did not start.
+type TrackerStoreCleanupPutOff struct {
+	SchemaVersion int              `json:"schema_version"`
+	ProductID     domain.ProductID `json:"product_id"`
+	Store         string           `json:"store,omitempty"`
+	// At is when the pass put it off.
+	At time.Time `json:"at"`
+	// SizeBefore and SizeAfter are the store's size in bytes when it was put off.
+	// Nothing ran, so they are the one reading, kept under the names a cleanup
+	// uses so the two read alike.
+	SizeBefore int64 `json:"size_before"`
+	SizeAfter  int64 `json:"size_after"`
+	// Reason is why the cleanup was due, and Why why it was put off, both in
+	// words.
+	Reason string `json:"reason,omitempty"`
+	Why    string `json:"why"`
+	// Busy is a postponement because other processes had the store open, which is
+	// what the pass's wait before it starts beside them is measured from.
+	Busy bool `json:"busy,omitempty"`
+}
+
+// Says is the postponement in a sentence: when, the store's size, and why.
+func (p TrackerStoreCleanupPutOff) Says() string {
+	return fmt.Sprintf("put off at %s, with the store at %s: %s", p.At.Local().Format("2006-01-02 15:04 MST"), SayBytes(p.SizeBefore), p.Why)
+}
+
+// TrackerStoreCleanupPutOffs is the recorded postponements, oldest first.
+type TrackerStoreCleanupPutOffs []TrackerStoreCleanupPutOff
+
+// FirstBusy is the earliest postponement because the store was busy, and false where
+// there is none.
+func (p TrackerStoreCleanupPutOffs) FirstBusy() (TrackerStoreCleanupPutOff, bool) {
+	for _, putOff := range p {
+		if putOff.Busy {
+			return putOff, true
+		}
+	}
+	return TrackerStoreCleanupPutOff{}, false
 }
 
 func NewTrackerStoreCleanupStore(root string, productID domain.ProductID) (*TrackerStoreCleanupStore, error) {
@@ -205,10 +262,83 @@ func NewTrackerStoreCleanupStore(root string, productID domain.ProductID) (*Trac
 	if err != nil {
 		return nil, err
 	}
+	product := home.ProductDirectory(root, string(productID))
 	return &TrackerStoreCleanupStore{
-		root:   filepath.Join(home.ProductDirectory(root, string(productID)), "tracker-store-cleanups"),
-		anchor: anchor, productID: productID,
+		root:    filepath.Join(product, "tracker-store-cleanups"),
+		putOffs: filepath.Join(product, "tracker-store-cleanup-postponements"),
+		anchor:  anchor, productID: productID,
 	}, nil
+}
+
+// RecordPutOff writes one cleanup that was due and did not start.
+func (s *TrackerStoreCleanupStore) RecordPutOff(putOff TrackerStoreCleanupPutOff) error {
+	if putOff.At.IsZero() {
+		return errors.New("a tracker store cleanup postponement's time is required")
+	}
+	putOff.SchemaVersion, putOff.ProductID = TrackerStoreCleanupSchemaVersion, s.productID
+	putOff.At = putOff.At.UTC()
+	putOff.Reason = oneline.Fold(putOff.Reason, maxTrackerStoreCleanupTextBytes)
+	putOff.Why = oneline.Fold(putOff.Why, maxTrackerStoreCleanupTextBytes)
+	encoded, err := json.Marshal(putOff)
+	if err != nil {
+		return err
+	}
+	root, err := pinStateRoot(s.putOffs, s.anchor)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return root.CreateFile(recordName(putOff.At), append(encoded, '\n'), 0o600)
+}
+
+// PutOffsSince returns the postponements recorded after since, oldest first. Each
+// file is named for its moment, so the files before since are passed over by
+// name and never opened: the directory grows by a file a pass while a cleanup
+// waits, and the pass reads only the wait it is in.
+func (s *TrackerStoreCleanupStore) PutOffsSince(since time.Time) (TrackerStoreCleanupPutOffs, error) {
+	entries, err := os.ReadDir(s.putOffs)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read the tracker store cleanup postponements in %s: %w", s.putOffs, err)
+	}
+	from := since.UTC().Format(recordTimeLayout)
+	var names []string
+	for _, entry := range entries {
+		if entry.Type().IsRegular() && strings.HasSuffix(entry.Name(), ".json") && entry.Name() > from {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	putOffs := make(TrackerStoreCleanupPutOffs, 0, len(names))
+	for _, name := range names {
+		encoded, err := readCleanupFile(filepath.Join(s.putOffs, name))
+		if err != nil {
+			return nil, fmt.Errorf("read the tracker store cleanup postponement %s: %w", name, err)
+		}
+		var putOff TrackerStoreCleanupPutOff
+		if _, err := decodeTolerating(encoded, &putOff); err != nil {
+			return nil, fmt.Errorf("decode the tracker store cleanup postponement %s: %w", name, err)
+		}
+		if putOff.SchemaVersion != TrackerStoreCleanupSchemaVersion {
+			return nil, fmt.Errorf("the tracker store cleanup postponement %s has schema version %d, which is not supported", name, putOff.SchemaVersion)
+		}
+		if putOff.ProductID != s.productID {
+			return nil, fmt.Errorf("the tracker store cleanup postponement %s belongs to product %q, not %q", name, putOff.ProductID, s.productID)
+		}
+		if putOff.At.After(since) {
+			putOffs = append(putOffs, putOff)
+		}
+	}
+	return putOffs, nil
+}
+
+// recordTimeLayout is how a record's file name begins, so names sort by time.
+const recordTimeLayout = "20060102T150405.000000000"
+
+func recordName(at time.Time) string {
+	return at.UTC().Format(recordTimeLayout) + "-" + rand.Text() + ".json"
 }
 
 // Path names the directory, so a failure can say where it is.
@@ -225,6 +355,7 @@ func (s *TrackerStoreCleanupStore) Record(cleanup TrackerStoreCleanup) error {
 	cleanup.Reason = oneline.Fold(cleanup.Reason, maxTrackerStoreCleanupTextBytes)
 	cleanup.Failed = oneline.Fold(cleanup.Failed, maxTrackerStoreCleanupTextBytes)
 	cleanup.ItemsNotCounted = oneline.Fold(cleanup.ItemsNotCounted, maxTrackerStoreCleanupTextBytes)
+	cleanup.Beside = oneline.Fold(cleanup.Beside, maxTrackerStoreCleanupTextBytes)
 	if len(cleanup.Missing) > maxMissingKept {
 		cleanup.Missing = cleanup.Missing[:maxMissingKept]
 	}
@@ -240,8 +371,7 @@ func (s *TrackerStoreCleanupStore) Record(cleanup TrackerStoreCleanup) error {
 		return err
 	}
 	defer root.Close()
-	name := cleanup.StartedAt.Format("20060102T150405.000000000") + "-" + rand.Text() + ".json"
-	return root.CreateFile(name, append(encoded, '\n'), 0o600)
+	return root.CreateFile(recordName(cleanup.StartedAt), append(encoded, '\n'), 0o600)
 }
 
 // Read returns every recorded cleanup, oldest first. No directory is a product
