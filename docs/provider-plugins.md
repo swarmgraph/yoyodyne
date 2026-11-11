@@ -342,6 +342,20 @@ account's file listed and one a trusted worktree's file listed, and with the
 table it started neither. A test asks the installed CLI the same thing, fresh
 and resumed, and skips where Codex is not installed.
 
+One test holds this for every role on every provider at once
+(`internal/backend/conformance/mcp_test.go`). It launches each role, fresh and
+resumed, plus a developer held read-only and a developer given sub-agents where
+the provider offers them. Each launch is made on a machine where the project's
+configuration declares MCP servers with their credentials stored, the harness's
+own environment carries a server's credential and asks for the claude.ai
+connectors, and the account's home and the repository each list a server of
+their own. The test then reads every command the adapter makes: its arguments,
+its environment, its prompt, the directory it starts in, and the provider home
+it reads. None of them may carry a server the project declares, a stored
+credential, or the project's MCP folder. A server the provider's own files list
+may be named only where the adapter turns it off. The test also checks that the
+check itself fails on each way a server could get in.
+
 An agent filling a [role definition](configuration.md#protected-role-definitions)
 is checked against the access its definition holds it to. That is its shipped
 role's, except that a developer whose definition removed `worktree.mutate` is
@@ -874,6 +888,13 @@ the foreground, or `yoyo review` — so a person watching sees it there. An
 exchange's report names its round and the role that asked; a side thread's names
 its turn and the conversation it is held beside. One call is one report however
 often it is seen again.
+
+A call to an MCP server or a connector is never expected. Every role is launched
+with none ([above](#capability-validation)), and the calls the harness makes for
+a role run in its own process and never appear in a provider's stream. So the
+report for one also says that a server reached the session and that somebody
+has to find out how it got there. A test sends such a call through each adapter
+for every role and checks that the report is filed.
 
 Codex calls are read from both of its output formats. In the format current
 versions write, a call is an item — `command_execution`, `file_change`,
