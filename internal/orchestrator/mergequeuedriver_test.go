@@ -10,6 +10,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -423,5 +424,61 @@ func TestAPassWithdrawsAMergeTheForgeHeldTooLongAndHandsTheChangeBack(t *testing
 		if len(f.forge.MergeRequests()) != 1 {
 			t.Fatalf("dropped=%t: the merge was asked for again", dropped)
 		}
+	}
+}
+
+// unreachableRun is a repair loop that cannot reach one run, counting each try.
+type unreachableRun struct {
+	*recordingRepair
+	runID string
+	tries int
+}
+
+func (u *unreachableRun) HandBack(ctx context.Context, entry runstate.MergeQueueEntry, handback runstate.MergeQueueHandback) error {
+	if entry.RunID == u.runID {
+		u.mu.Lock()
+		u.tries++
+		u.mu.Unlock()
+		return errors.New("the repair loop could not be reached")
+	}
+	return u.recordingRepair.HandBack(ctx, entry, handback)
+}
+
+func TestAHandbackTheQueueCannotGiveItsRunPassesOverThatEntryAndWorksTheOnesBehindIt(t *testing.T) {
+	t.Parallel()
+
+	f, _ := failingFixture(t, 2, 0)
+	repair := &unreachableRun{recordingRepair: &recordingRepair{}, runID: f.entry.RunID}
+	f.promoter.Repair = repair
+	// The first entry's handback is recorded and cannot be given.
+	if _, err := f.recover(); err == nil {
+		t.Fatal("Recover() = nil, want the handback that could not be given reported")
+	}
+	if handback := f.landing().Handback; handback == nil || handback.HandedBackAt != nil || repair.tries != 1 {
+		t.Fatalf("handback = %#v after %d tries, want it recorded and still owed", handback, repair.tries)
+	}
+	// An entry behind it, whose change passes the project's checks.
+	behind := f.admitAnother(queueKey, "behind", "feature.txt", "plain\n")
+
+	pass := f.pass(queueKey)
+	if pass.Outcome == runstate.MergeQueuePassStopped {
+		t.Fatalf("Pass() = %#v, want the pass to go on past the handback it could not give", pass)
+	}
+	if pass.Outcome != runstate.MergeQueuePassLanded || !strings.Contains(pass.Says, "entry 1 has left the queue") ||
+		!strings.Contains(pass.Says, "could not be reached") {
+		t.Fatalf("Pass() = %#v, want the entry behind landed and the first entry named as passed over", pass)
+	}
+	generations, err := f.queue.Generations(queueKey, behind.EntryID)
+	if err != nil || len(generations) == 0 {
+		t.Fatalf("generations of the entry behind = %#v, %v; want it worked", generations, err)
+	}
+	if landing, _, err := f.queue.Landing(queueKey, behind.EntryID); err != nil || landing.Completion == nil {
+		t.Fatalf("landing of the entry behind = %#v, %v; want it landed", landing, err)
+	}
+	if repair.tries != 2 {
+		t.Fatalf("the failing handback was tried %d times in all, want once more in the pass", repair.tries)
+	}
+	if handback := f.landing().Handback; handback == nil || handback.HandedBackAt != nil {
+		t.Fatalf("handback = %#v, want it still owed for the next pass", handback)
 	}
 }

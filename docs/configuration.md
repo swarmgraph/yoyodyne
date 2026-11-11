@@ -6799,10 +6799,18 @@ be the fix — and is built afresh once the target moves. A head that will not
 merge onto the target at all is handed back the way a replay conflict is, so the
 repair continuation moves the change onto the target and asks its developer to
 reconcile it. A handback no single run can take up goes on the development
-manager's docket. A candidate's merge the forge drops, or holds queued longer
-than `triage.stuck_merge_age`, is withdrawn by the queue's own pass, and once
-the forge confirms the withdrawal the entry leaves the queue and the change is
-handed back to its run, kept, for the development manager to decide on.
+manager's docket. While the forge holds a candidate's merge, a check on the
+candidate's pull request that ended without judging the change — cancelled by
+its own time limit, out of time, or never started — is run again once, at once,
+and the queue's pass says so on status and the dashboard. A candidate's merge
+the forge drops, holds queued longer than `triage.stuck_merge_age`, or can
+never make because such a check ended that way again after being run again, or
+could not be run again, with nothing else still running, is withdrawn by the
+queue's own pass, and once the forge confirms the withdrawal the entry leaves
+the queue and the change is handed back to its run, kept, for the development
+manager to decide on. An entry that has left the queue holds up nothing behind
+it: if its run cannot be told, the pass says so, works the entries behind it,
+and tries again on the next pass.
 
 **Which queue an entry is in is chosen when it is admitted.** The harness runs
 the queue itself on any forge. The forge's own merge queue is used only where

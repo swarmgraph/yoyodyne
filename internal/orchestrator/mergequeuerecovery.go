@@ -567,6 +567,13 @@ func (q *queuePromotion) withdrawalLanded(ctx context.Context, state publish.Pul
 // reported and charges nothing. An entry already handed back is the same
 // handback read again, and is given to its run where it has not been yet.
 func (p MergeQueuePromoter) Recover(ctx context.Context, key runstate.MergeQueueKey) (MergeQueueRecovery, error) {
+	return p.recover(ctx, key, nil)
+}
+
+// recover is Recover, passing over the owed handbacks of the entries in
+// passedOver: ones this pass already failed to give, which are tried again on
+// the next pass rather than at every step of this one.
+func (p MergeQueuePromoter) recover(ctx context.Context, key runstate.MergeQueueKey, passedOver map[string]bool) (MergeQueueRecovery, error) {
 	if err := p.validate(); err != nil {
 		return MergeQueueRecovery{}, err
 	}
@@ -579,7 +586,7 @@ func (p MergeQueuePromoter) Recover(ctx context.Context, key runstate.MergeQueue
 	}
 	defer func() { _ = worker.Release() }()
 
-	if pending, found, err := p.pendingHandback(key); err != nil || found {
+	if pending, found, err := p.pendingHandback(key, passedOver); err != nil || found {
 		if err != nil {
 			return MergeQueueRecovery{}, err
 		}
@@ -662,8 +669,9 @@ type pendingHandback struct {
 }
 
 // pendingHandback is the first entry handed back for repair whose run has not
-// been given it yet: a process that stopped between the two writes.
-func (p MergeQueuePromoter) pendingHandback(key runstate.MergeQueueKey) (pendingHandback, bool, error) {
+// been given it yet: a process that stopped between the two writes, or a
+// handback that could not be given. Entries in passedOver are skipped.
+func (p MergeQueuePromoter) pendingHandback(key runstate.MergeQueueKey, passedOver map[string]bool) (pendingHandback, bool, error) {
 	if p.Repair == nil {
 		return pendingHandback{}, false, nil
 	}
@@ -672,6 +680,9 @@ func (p MergeQueuePromoter) pendingHandback(key runstate.MergeQueueKey) (pending
 		return pendingHandback{}, false, err
 	}
 	for _, entry := range entries {
+		if passedOver[entry.EntryID] {
+			continue
+		}
 		landing, found, err := p.Queue.Landing(key, entry.EntryID)
 		if err != nil {
 			return pendingHandback{}, false, err
@@ -751,6 +762,19 @@ func handbackOwed(handback runstate.MergeQueueHandback) bool {
 		(handback.Continuation.Reported() && handback.ReportedAt == nil)
 }
 
+// MergeQueueHandbackUndelivered is a handback the queue has recorded, so its
+// entry has left the line, but could not give to its run or to the development
+// manager's docket. It is tried again on every later pass. It holds up nothing
+// behind it: the driver passes over that entry for the rest of the pass and
+// says so in the pass's account (mergequeuedriver.go).
+type MergeQueueHandbackUndelivered struct {
+	Entry runstate.MergeQueueEntry
+	Err   error
+}
+
+func (e MergeQueueHandbackUndelivered) Error() string { return e.Err.Error() }
+func (e MergeQueueHandbackUndelivered) Unwrap() error { return e.Err }
+
 // handBack gives a handback to whoever takes it up, once, and writes down that
 // it was given: a repair or an exhausted budget to the run, and a handback no
 // single run can take up to the development manager's docket, so no failure
@@ -763,13 +787,13 @@ func (q *queuePromotion) handBack(ctx context.Context) error {
 	at := q.now()
 	if handback.Continuation.Reported() {
 		if err := q.p.Repair.Report(ctx, q.entry, *handback); err != nil {
-			return fmt.Errorf("put merge queue entry %d on the development manager's docket: %w", q.entry.Order, err)
+			return MergeQueueHandbackUndelivered{Entry: q.entry, Err: fmt.Errorf("put merge queue entry %d on the development manager's docket: %w", q.entry.Order, err)}
 		}
 		handback.ReportedAt = &at
 		return q.save()
 	}
 	if err := q.p.Repair.HandBack(ctx, q.entry, *handback); err != nil {
-		return fmt.Errorf("hand merge queue entry %d back to run %s for repair: %w", q.entry.Order, q.entry.RunID, err)
+		return MergeQueueHandbackUndelivered{Entry: q.entry, Err: fmt.Errorf("hand merge queue entry %d back to run %s for repair: %w", q.entry.Order, q.entry.RunID, err)}
 	}
 	handback.HandedBackAt = &at
 	return q.save()
@@ -878,9 +902,14 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 	if handback.Continuation == runstate.MergeQueueBudgetExhausted {
 		notes += fmt.Sprintf(" It has spent %d of its %d repair attempts, so what follows is the development manager's decision.", handback.RepairAttempts, handback.RepairBudget)
 	}
-	if item.Status == "blocked" {
+	// The note goes on the item before the run records the hand-back, so a
+	// hand-back whose run record could not be written is tried again with the
+	// note already there; it is written once, and the item blocked once.
+	switch {
+	case item.Status == "blocked" && strings.Contains(item.Notes, notes):
+	case item.Status == "blocked":
 		_, err = h.Tracker.RecordOutcome(ctx, entry.WorkItemID, notes)
-	} else {
+	default:
 		_, err = h.Tracker.Block(ctx, entry.WorkItemID, notes)
 	}
 	if err != nil {
@@ -904,6 +933,9 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 		}
 	} else {
 		state.CheckFailure = &runstate.CheckFailure{Command: command, ExitCode: 1, Output: boundedTail(marker+"\n"+handback.Reason, runstate.MaxCheckOutputBytes)}
+		// A run record cannot hold both answers about one attempt, and the run's
+		// checks passed before it was admitted; a repair earns them again.
+		state.ChecksPassed = nil
 	}
 	state.Blocker = runstate.RecordBlocker(notes)
 	if state.HarnessAuthored() {
