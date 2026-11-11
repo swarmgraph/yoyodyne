@@ -368,7 +368,10 @@ type Sources struct {
 	// instance that has never completed a pass is measured from.
 	ProgramManagers []ProgramManagerInstance
 	// MergeQueues is the product's merge queues; nil reads none.
-	MergeQueues     MergeQueues
+	MergeQueues MergeQueues
+	// LandingHolds is the holds a person's script has placed on landing; nil
+	// reads none. It is satisfied by *runstate.LandingHoldStore.
+	LandingHolds    LandingHolds
 	RestartRequests RestartRequests
 	LaneReports     LaneReports
 	Passes          Passes
@@ -945,6 +948,11 @@ type Standing struct {
 	MergeQueues        []MergeQueueStanding `json:"merge_queues,omitempty"`
 	MergeQueuesProblem string               `json:"merge_queues_problem,omitempty"`
 
+	// LandingHolds is each hold standing on landing on a target branch, as of
+	// this reading.
+	LandingHolds        []runstate.LandingHold `json:"landing_holds,omitempty"`
+	LandingHoldsProblem string                 `json:"landing_holds_problem,omitempty"`
+
 	// Titles is this reading's one listing of the tracker, which the rendered
 	// lines show every work item they name against. It is nil where no tracker
 	// was wired, and the unreadable reading where the tracker could not be
@@ -1242,6 +1250,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	needs = append(needs, laneHumanBlockAttention(standing.ProgramManagers)...)
 	standing.ConversationPasses, standing.ConversationPassesProblem = ReadConversationPasses(sources)
 	standing.MergeQueues, standing.MergeQueuesProblem = ReadMergeQueues(sources.MergeQueues)
+	standing.LandingHolds, standing.LandingHoldsProblem = ReadLandingHolds(sources.LandingHolds, sources.now())
 	needs = append(needs, standing.Services.Attention()...)
 	needsProblem = joinProblems(needsProblem, standing.ServicesProblem)
 	// A running part whose build cannot read a key the configuration now

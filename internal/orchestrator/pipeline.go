@@ -437,6 +437,9 @@ type Pipeline struct {
 	// for by name: what it holds is the choosing, so a run this pipeline was told
 	// to make proceeds under it exactly as it would have.
 	Intake IntakeHolds
+	// LandingHolds is the hold an outside tool places on landing on one target
+	// branch (landinghold.go). It is optional: nil reads no hold.
+	LandingHolds LandingHolds
 	// TeamClaims takes the item's claim on the shared remote before a fresh run
 	// claims it in the tracker (teamclaims.go). It is nil unless the project has
 	// team mode on, and a pipeline without it claims in the tracker alone.
@@ -7499,13 +7502,19 @@ func (a *activeRun) integrate(ctx context.Context) error {
 	// system does it anyway when the process exits. A close that failed therefore
 	// says nothing about the promotion below, which either happened or did not.
 	defer func() { _ = lease.Release() }()
+	// A hold an outside tool placed on this target is read under the lease,
+	// immediately before the guarded change; see awaitLandingHold.
+	lease, err = a.awaitLandingHold(ctx, lease)
 	// Where the remote target stands is settled before the promotion rather than
 	// only after it. A promotion made onto a target the remote has moved away from
 	// can be neither published nor taken back, so finding out afterwards closes the
 	// item as integrated against a divergence nothing owns; finding out here leaves
 	// a change that can still be replayed onto wherever the target went.
-	a.landingAt("checking where "+p.Config.Execution.Remote+"'s "+target+" stands before landing", landingReadsRemote)
-	if err := a.settleRemoteTarget(ctx); err != nil {
+	if err == nil {
+		a.landingAt("checking where "+p.Config.Execution.Remote+"'s "+target+" stands before landing", landingReadsRemote)
+		err = a.settleRemoteTarget(ctx)
+	}
+	if err != nil {
 		return stoppedBy(runstate.StopIntegration, err)
 	}
 	// A target the forge protects is one whose local copy this run never moves:

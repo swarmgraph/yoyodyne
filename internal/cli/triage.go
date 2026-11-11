@@ -507,6 +507,8 @@ func rearmerFrom(parts components) orchestrator.Rearmer {
 		// the check that gated the original merge and the check that gates its
 		// repeat are one thing rather than two.
 		Worktrees: parts.worktrees,
+		// A repeated merge is not asked for onto a target an outside tool holds.
+		LandingHolds: parts.landingHolds,
 		// The same per-item counters the development manager's decision spends and
 		// `yoyo status` reports, so what proves the decision was made and what an
 		// operator reads about it can never be two different records.

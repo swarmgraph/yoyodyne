@@ -466,6 +466,7 @@ func printStanding(stdout io.Writer, standing *readmodel.Standing, summary *read
 	}
 	if standing != nil {
 		fmt.Fprint(stdout, standing.RenderLines())
+		fmt.Fprint(stdout, standing.RenderLandingHolds())
 		fmt.Fprint(stdout, standing.RenderUsageWindows())
 		fmt.Fprint(stdout, standing.RenderOwnerInterventions())
 		fmt.Fprint(stdout, standing.RenderProgramManagers())
@@ -764,6 +765,9 @@ func standingSources(configPath string) readmodel.Sources {
 	}
 	if store, err := runstate.NewIntakeHoldStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.IntakeHolds = store
+	}
+	if store, err := runstate.NewLandingHoldStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.LandingHolds = store
 	}
 	if store, err := runstate.NewWatchStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Sessions = store

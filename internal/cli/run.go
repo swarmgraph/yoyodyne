@@ -183,6 +183,10 @@ type components struct {
 	// tracker store is due or running: placed and lifted by the maintenance
 	// pass, read by a watching session that starts nothing while it stands.
 	squashHolds *runstate.TrackerSquashHoldStore
+	// landingHolds is the hold an outside tool places on landing on one target
+	// branch (`yoyo landing hold`), read under the promotion lease by every path
+	// that lands.
+	landingHolds *runstate.LandingHoldStore
 	// spend is the cost log every provider invocation this process makes lands
 	// in. It is built under the product beside the usage limits, and for the
 	// mirror-image reason: that log says when the harness could not spend, and
@@ -468,6 +472,10 @@ func buildComponents(configPath string) (components, error) {
 	if err != nil {
 		return components{}, err
 	}
+	landingHolds, err := runstate.NewLandingHoldStore(stateRoot, cfg.Product.ID)
+	if err != nil {
+		return components{}, err
+	}
 	spendLog, err := runstate.NewSpendStore(stateRoot, cfg.Product.ID)
 	if err != nil {
 		return components{}, err
@@ -536,6 +544,7 @@ func buildComponents(configPath string) (components, error) {
 		divergences:      divergences,
 		launchSettings:   launchSettings,
 		squashHolds:      squashHolds,
+		landingHolds:     landingHolds,
 		spend:            spendLog,
 		trackerListings:  trackerListings,
 		trackerSlowCalls: trackerSlowCalls,
@@ -762,6 +771,9 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// the item. It stops nothing already under way, which is the whole reason
 		// it is a second switch rather than part of the first.
 		Intake: parts.intake,
+		// The hold an outside tool places on landing on one target branch, read
+		// under the promotion lease immediately before the change lands.
+		LandingHolds: parts.landingHolds,
 		// In team mode, the item's claim on the shared remote, taken before the
 		// tracker's claim; nil with team mode off.
 		TeamClaims: pipelineTeamClaims(parts),

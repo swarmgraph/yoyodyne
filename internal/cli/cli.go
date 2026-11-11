@@ -102,6 +102,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 		return resumeWorkItem(args[1:], stdout, stderr)
 	case "release":
 		return releaseIntake(args[1:], stdout, stderr)
+	case "landing":
+		return runLanding(args[1:], stdout, stderr)
 	case "gate":
 		return runGate(args[1:], stdout, stderr)
 	case "queue":
@@ -934,6 +936,7 @@ Commands:
   pause             pause everything the harness would spend on a provider
   resume            lift that pause, or release one run's wait on the provider
   release           lift a hold on intake, so the harness chooses work again
+  landing           hold the harness's landing on one branch for a while, or end that hold
   gate              read the steps only a person can take, and record taking one
   queue             move a queued change between the harness's merge queue and the forge's
   review            review what a branch accumulated over a base, as one change
