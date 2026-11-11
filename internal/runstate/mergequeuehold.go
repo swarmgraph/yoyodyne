@@ -172,7 +172,7 @@ func (s *MergeQueueStore) StageRunning(key MergeQueueKey, generation MergeQueueG
 	}
 	host, _ := os.Hostname()
 	taken, err := tryLockStateFile(file)
-	if err == nil && !taken && !anyRecordedAlive(launched, host) {
+	if err == nil && !taken && !s.anyRecordedAlive(launched, host) {
 		taken, err = settleForkedCopies(file)
 	}
 	if err != nil {
@@ -188,7 +188,7 @@ func (s *MergeQueueStore) StageRunning(key MergeQueueKey, generation MergeQueueG
 		if launch.Host != host {
 			return true, fmt.Sprintf("pid %d was started on %s, another machine, whose processes this one cannot see", launch.PID, launch.Host), nil
 		}
-		if alive, reason := groupAlive(launch.ProcessGroup); alive {
+		if alive, reason := s.groupAlive(launch.ProcessGroup); alive {
 			return true, reason, nil
 		}
 	}
@@ -198,12 +198,12 @@ func (s *MergeQueueStore) StageRunning(key MergeQueueKey, generation MergeQueueG
 // anyRecordedAlive reports whether a process a stage recorded may still be
 // alive: one on another machine, which this one cannot see, or one whose
 // process group still has members here.
-func anyRecordedAlive(launched []MergeQueueLaunch, host string) bool {
+func (s *MergeQueueStore) anyRecordedAlive(launched []MergeQueueLaunch, host string) bool {
 	for _, launch := range launched {
 		if launch.Host != host {
 			return true
 		}
-		if alive, _ := groupAlive(launch.ProcessGroup); alive {
+		if alive, _ := s.groupAlive(launch.ProcessGroup); alive {
 			return true
 		}
 	}

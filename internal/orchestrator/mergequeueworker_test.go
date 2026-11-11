@@ -118,8 +118,9 @@ func (f *queueFixture) work() (MergeQueueVerification, error) {
 // and let it go — a worker that died with the stage unfinished, or one that
 // set a stage aside — once nothing that stage started is still running. It is
 // asked again for a bounded while if it waits on that stage, as the queue asks
-// again on its next pass. Every call that takes the same stage's hold for the
-// same generation a second time goes through it.
+// again on its next pass. A call that takes the same stage's hold for the same
+// generation a second time goes through it, or first waits for everything the
+// earlier start began to end (awaitEnded).
 //
 // A stage's hold is a lock that stays taken while any copy of its file is
 // open. Every process this test binary starts, for whichever test is running
@@ -138,6 +139,37 @@ func (f *queueFixture) restart() (MergeQueueVerification, error) {
 			return verification, err
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// awaitEnded waits, for a bounded while, until no stage of the entry's latest
+// generation reads as running: until every process the earlier start recorded
+// has ended and every copy of a stage's hold has been let go. A restart after it
+// finds nothing the earlier start left behind, so what it does next does not
+// depend on how quickly those processes ended. A stage still read as running
+// at the bound fails the test with the reason the queue gave.
+func (f *queueFixture) awaitEnded() {
+	f.t.Helper()
+	generations := f.generations()
+	if len(generations) == 0 {
+		return
+	}
+	generation := generations[len(generations)-1]
+	deadline := time.Now().Add(30 * time.Second)
+	for _, stage := range []runstate.MergeQueueStage{runstate.MergeQueueStageChecks, runstate.MergeQueueStageReview, runstate.MergeQueueStageBase} {
+		for {
+			running, reason, err := f.queue.StageRunning(queueKey, generation, stage)
+			if err != nil {
+				f.t.Fatalf("StageRunning(%s) error = %v", stage, err)
+			}
+			if !running {
+				break
+			}
+			if time.Now().After(deadline) {
+				f.t.Fatalf("the %s the earlier start began still reads as running: %s", stage, reason)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
 	}
 }
 
@@ -378,8 +410,13 @@ func TestARestartDuringTheReviewAsksAgainAndKeepsTheChecks(t *testing.T) {
 		t.Fatal("Work() succeeded past a lost record")
 	}
 	f.records.fail = nil
-	verification, err := f.restart()
-	if err != nil || !verification.Verified {
+	// The restart comes once everything the earlier start began has ended, so
+	// it is asked once and finds nothing to wait on. Whether a process an
+	// earlier start left running is waited out is the business of the tests
+	// of the stage's hold, not of this one.
+	f.awaitEnded()
+	verification, err := f.work()
+	if err != nil || !verification.Verified || verification.Waiting != "" {
 		t.Fatalf("Work() after the restart = %#v, %v", verification, err)
 	}
 	if interrupted := verification.Generation.Interruptions; len(interrupted) != 1 || interrupted[0].Stage != runstate.MergeQueueStageReview {
