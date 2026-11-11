@@ -464,9 +464,12 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		OperatorHolds:   holds,
 		IntakeHolds:     intake,
 		LandingHolds:    slackLandingHolds(stateRoot, resolved.Config.Product.ID),
-		Sessions:        watch,
-		Reports:         reports,
-		Interventions:   interventions,
+		// Since when each item has waited on the architect's design, as the
+		// terminal says it.
+		NeedsDesignLabelled: runs.NeedsDesignLabelled(),
+		Sessions:            watch,
+		Reports:             reports,
+		Interventions:       interventions,
 		// The triage docket, so the channel names an unanswered product decision
 		// about a run in flight exactly as the terminal does.
 		Docket: slackDocket(stateRoot, resolved.Config.Product.ID),

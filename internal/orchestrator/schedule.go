@@ -726,6 +726,10 @@ type Pull struct {
 	// Gates is the human gates a person has passed; see ScheduleGates for why a
 	// pull without one is refused rather than run.
 	Gates ScheduleGates
+	// NeedsDesignLabelled is since when each item has carried the needs-design
+	// label, so the refusal of one says it. Optional: a pull wired without it
+	// refuses the item in the same words without the time.
+	NeedsDesignLabelled NeedsDesignLabelledReader
 	// Staleness is optional; see ScheduleStaleness for what a pull without one
 	// loses, which is a sentence rather than a constraint.
 	Staleness ScheduleStaleness
@@ -6642,7 +6646,7 @@ func passedOverReason(entry backlog.Entry) (string, bool) {
 	case entry.Parking.Parked():
 		return parkedReason(entry.Parking), true
 	case entry.NeedsDesign:
-		return needsDesignReason(), true
+		return needsDesignReason(entry.NeedsDesignSince), true
 	case entry.Awaiting != "" && !entry.AwaitingLanding:
 		return heldReason(entry.Awaiting, entry.AwaitingCarryOut), true
 	case entry.HumanGates.Holds():
@@ -6729,9 +6733,10 @@ func parkedReason(parking domain.WorkItemParking) string {
 
 // needsDesignReason says that the item carries the needs-design label, in the
 // queue's own words, and that this is not a wait the queue drains towards: like
-// a parking, nothing clears it but somebody acting, here the architect.
-func needsDesignReason() string {
-	return "it is " + backlog.NeedsDesignHold + ". It is passed over at every pull until the label is removed, however far the queue drains"
+// a parking, nothing clears it but somebody acting, here the architect. It says
+// since when the item has waited where the harness's record of that was read.
+func needsDesignReason(since time.Time) string {
+	return "it is " + backlog.NeedsDesignHoldSince(since) + ". It is passed over at every pull until the label is removed, however far the queue drains"
 }
 
 // unreadyReason says that the item asks for something the tree does not have,
@@ -8045,6 +8050,14 @@ func (p Pull) queue(ctx context.Context, claimed []beads.WorkItem, read bool) (p
 		return pulled{}, fmt.Errorf("read the human gates a person has passed: %w", err)
 	}
 	queue := backlog.Order(admitted, pullable, held, discharged)
+	// Since when each item has waited on the architect's design, so the refusal
+	// says it. A record that cannot be read costs the time and nothing else: the
+	// label holds the item whether or not anybody knows since when.
+	if p.NeedsDesignLabelled != nil {
+		if record, _, err := p.NeedsDesignLabelled.Load(); err == nil {
+			queue = queue.WithNeedsDesignSince(record.Since)
+		}
+	}
 	// Coverage is read one status wider than the backlog. A claimed child has left
 	// the queue and is never chosen from here, but it is a run in flight over the
 	// same work, so its parent is the last thing that should be started beside it.

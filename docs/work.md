@@ -1631,6 +1631,19 @@ conversation with the item named, whichever path added it, and once a day
 she is woken again for every item still carrying it
 ([the recurring tasks](configuration.md#recurring-tasks) say how).
 
+Each item waiting on her design is shown among the dashboard's factory problems
+and on `yoyo status` as hers: its priority, **waiting on the architect's design
+since** a time in local time with the zone, and how long ago that was. P0 items
+come first, then the longest waits. The tracker keeps no time for a label being
+added, so the time is when a watching session's pull first saw the label, which
+is within one pull of its being set while a session is running and later by
+however long none was; an item no pull has seen yet is shown saying its time is
+not recorded. The pull's refusal says the same time. Taking the label off ends
+the wait and the entry, and putting it back starts a new one. A P0 item still
+waiting more than a day is reported to the Lead Product Manager once, as the
+harness's own report, and stays among the factory problems until the label
+comes off.
+
 **An item the tree cannot serve is not dispatched, and the read that says so is
 free.** Four items in a fortnight were handed to a developer that could not do
 them, and each cost a full run to establish why: one asked for machinery that was

@@ -1646,7 +1646,9 @@ var standingWarningAgeSeconds = 5 * 60;
 
   function entryKey(entry) {
     if (entry.kind === "held-work") {
-      return entry.kind + ":" + (entry.held_work ? entry.held_work.awaiting : "");
+      // A wait on the architect's design is one entry per item, so its key
+      // names the item; the other waits are one entry each.
+      return entry.kind + ":" + (entry.held_work ? entry.held_work.awaiting : "") + (entry.id ? ":" + entry.id : "");
     }
     return entry.kind + ":" + (entry.id || "");
   }
@@ -2400,7 +2402,14 @@ var standingWarningAgeSeconds = 5 * 60;
         add("Worst", pile.worst);
         break;
       case "held-work":
-        if (entry.held_work) {
+        if (entry.held_work && entry.held_work.awaiting === "design") {
+          add("Awaiting", "the architect's design");
+          add("Item", entry.work_item_id || "");
+          if (entry.held_work.priority !== undefined) {
+            add("Priority", "p" + entry.held_work.priority);
+          }
+          add("Since", entry.held_work.since ? dayAndClock(entry.held_work.since) : "not recorded yet");
+        } else if (entry.held_work) {
           add("Awaiting", entry.held_work.awaiting === "carry-out" ? "carry-out of a decision already recorded" : "the development manager's decision");
           add("Items", count(entry.held_work.count, "admitted item"));
         }

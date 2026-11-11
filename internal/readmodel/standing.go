@@ -371,12 +371,16 @@ type Sources struct {
 	MergeQueues MergeQueues
 	// LandingHolds is the holds a person's script has placed on landing; nil
 	// reads none. It is satisfied by *runstate.LandingHoldStore.
-	LandingHolds    LandingHolds
-	RestartRequests RestartRequests
-	LaneReports     LaneReports
-	Passes          Passes
-	Exchanges       Exchanges
-	FirstSeen       FirstSeen
+	LandingHolds LandingHolds
+	// NeedsDesignLabelled is since when each item has carried the needs-design
+	// label, for the factory problems and the queue's refusal. Optional: a
+	// reading without it shows each waiting item without the time.
+	NeedsDesignLabelled NeedsDesignLabelled
+	RestartRequests     RestartRequests
+	LaneReports         LaneReports
+	Passes              Passes
+	Exchanges           Exchanges
+	FirstSeen           FirstSeen
 	// PassRequests is the requests made for each instance's pass, so whoever
 	// asked can read what became of one. Optional: a reading without it carries
 	// no instance's requests.
@@ -1297,6 +1301,16 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	} else if problem != "" {
 		standing.FactoryProblemsProblem = joinProblems(standing.FactoryProblemsProblem, problem)
 	}
+	// Each item waiting on the architect's design is a factory problem of hers,
+	// P0 first, and on the attention line, which is where `yoyo status` says it.
+	waitingOnDesign := DesignWaits(queue, now)
+	standing.FactoryProblems = append(standing.FactoryProblems, waitingOnDesign...)
+	needs = append(needs, waitingOnDesign...)
+	if len(waitingOnDesign) > 0 {
+		if _, problem := readNeedsDesignSince(sources); problem != "" {
+			needsProblem = joinProblems(needsProblem, problem)
+		}
+	}
 	needsProblem = joinProblems(needsProblem, standing.FactoryProblemsProblem)
 	failing, failingProblem := ReadFailingTasks(sources)
 	for _, task := range failing {
@@ -1405,6 +1419,14 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	for index := range standing.NeedsHuman {
 		standing.NeedsHuman[index].titles = standing.Titles
 		standing.NeedsHuman[index].wording = standing.wording
+	}
+	// The items waiting on design are named with their titles in the factory
+	// problems as they are on the attention line.
+	for index := range standing.FactoryProblems {
+		if standing.FactoryProblems[index].WorkItemID != "" {
+			standing.FactoryProblems[index].titles = standing.Titles
+			standing.FactoryProblems[index].wording = standing.wording
+		}
 	}
 	for index := range standing.ProgramManagers {
 		standing.ProgramManagers[index] = citeProgramManager(standing.ProgramManagers[index], standing.Titles)
@@ -2287,6 +2309,12 @@ func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Cov
 		}
 	}
 	queue := backlog.Order(admitted, pullable, held, discharged)
+	// Since when each item has waited on the architect's design, so the refusal
+	// says it as the scheduler's does. What could not be read is said with the
+	// factory problems, where the time is shown.
+	if since, _ := readNeedsDesignSince(sources); since != nil {
+		queue = queue.WithNeedsDesignSince(since)
+	}
 	// What could not be read is reported only where it changed the answer. No
 	// admitted item declares a gate on most readings, and a line that announced an
 	// unread source every time would be a line reporting a gap that cost nothing —

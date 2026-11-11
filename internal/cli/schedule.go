@@ -804,6 +804,9 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// completion it knows, and that is exactly what must not pass a step
 		// somebody reserved for themselves.
 		Gates: parts.store,
+		// Since when each item has carried the needs-design label, recorded by the
+		// recurring trigger's pulls, so the refusal of one says it.
+		NeedsDesignLabelled: parts.store.NeedsDesignLabelled(),
 		Staleness: repositoryStaleness{
 			repository: parts.repository,
 			product:    parts.config.Product,

@@ -95,6 +95,9 @@ func (a Attention) Label() string {
 		}
 		return "merge waiting"
 	}
+	if a.Kind == AttentionHeldWork && a.HeldWork != nil && a.HeldWork.Awaiting == HeldAwaitingDesign {
+		return "waiting on design"
+	}
 	if a.Kind == AttentionOperatorAction && a.OperatorAction != nil && a.OperatorAction.Returned {
 		return "report to handle again"
 	}
@@ -477,12 +480,26 @@ const (
 	// HeldAwaitingWork is a stoppage she decided to wait on unfinished admitted
 	// work for, which comes back to her once that work is closed.
 	HeldAwaitingWork HeldWait = "work"
+	// HeldAwaitingDesign is one item carrying the needs-design label, waiting on
+	// the architect's design (docs/designs/needs-design-gate.md, "Showing the
+	// wait"). Unlike the other waits it is one entry per item, with since when
+	// and the item's priority, because how long each has waited is the point.
+	HeldAwaitingDesign HeldWait = "design"
 )
 
-// HeldWork is how many admitted items are in one of the two waits.
+// HeldWork is how many admitted items are in one of the waits. On a design
+// wait it is the one item the entry's WorkItemID names, with Since, Waited, and
+// Priority set.
 type HeldWork struct {
 	Awaiting HeldWait `json:"awaiting"`
 	Count    int      `json:"count"`
+	// Since is when the harness first saw the item carrying the label, and
+	// Waited how long before the reading that was; both are absent where the
+	// harness has no record of when.
+	Since  *time.Time    `json:"since,omitempty"`
+	Waited time.Duration `json:"waited,omitempty"`
+	// Priority is the item's priority as the tracker holds it.
+	Priority *int `json:"priority,omitempty"`
 }
 
 // What is the thing waiting, as the terminal prints it: derived from the
@@ -643,6 +660,9 @@ func (a Attention) What() string {
 			return a.FailingTask.Says()
 		}
 	case AttentionHeldWork:
+		if a.HeldWork != nil && a.HeldWork.Awaiting == HeldAwaitingDesign {
+			return a.HeldWork.designWaitSays(a.WorkItemID)
+		}
 		if a.HeldWork != nil {
 			counted := count(a.HeldWork.Count, "admitted item")
 			if a.HeldWork.Awaiting == HeldAwaitingCarryOut {
@@ -846,6 +866,9 @@ func (a Attention) Whose() string {
 	case AttentionHeldWork:
 		if a.HeldWork != nil && a.HeldWork.Awaiting == HeldAwaitingCarryOut {
 			return a.Mover.Possessive() + " — the decision is made, and what is outstanding is the harness acting on it"
+		}
+		if a.HeldWork != nil && a.HeldWork.Awaiting == HeldAwaitingDesign {
+			return a.Mover.Possessive() + " — no developer run starts the item until she makes its design readable, in its design field or landed in docs/designs naming it, and removes the " + domain.NeedsDesignLabel + " label; the entry clears when the label comes off"
 		}
 		return a.Mover.Possessive() + " — nothing pulls a stopped item until she decides what happens to it"
 	case AttentionCarriedItem:
@@ -1333,6 +1356,7 @@ func (a Attention) ownershipRecord() ownership.Record {
 		if a.HeldWork != nil {
 			record.AwaitingCarryOut = a.HeldWork.Awaiting == HeldAwaitingCarryOut
 			record.AwaitingWork = a.HeldWork.Awaiting == HeldAwaitingWork
+			record.NeedsDesign = a.HeldWork.Awaiting == HeldAwaitingDesign
 		}
 	case AttentionOperatorAction:
 		if action := a.OperatorAction; action != nil {
