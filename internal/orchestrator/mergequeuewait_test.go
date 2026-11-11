@@ -168,7 +168,17 @@ func (s *diesAfterAdmission) Update(ctx context.Context, runID string, update ru
 // leftQueue is a merge queue that still lists the run's entry and no longer
 // holds it: the entry was let go without landing.
 type leftQueue struct {
-	entry runstate.MergeQueueEntry
+	entry    runstate.MergeQueueEntry
+	handback *runstate.MergeQueueHandback
+}
+
+func (q leftQueue) Landing(runstate.MergeQueueKey, string) (runstate.MergeQueueLanding, bool, error) {
+	if q.handback == nil {
+		return runstate.MergeQueueLanding{}, false, nil
+	}
+	landing := runstate.NewMergeQueueLanding(q.entry)
+	landing.Handback = q.handback
+	return landing, true, nil
 }
 
 func (q leftQueue) Entries(runstate.MergeQueueKey) ([]runstate.MergeQueueEntry, error) {
@@ -224,6 +234,61 @@ func TestReconcileStopsARunWhoseMergeQueueEntryIsGoneSayingSo(t *testing.T) {
 			}
 			if !r.tracker.Blocked || !strings.Contains(r.tracker.BlockReason, test.says) {
 				t.Fatalf("item blocked %t for %q, want it blocked naming the queue", r.tracker.Blocked, r.tracker.BlockReason)
+			}
+		})
+	}
+}
+
+func TestReconcileReadsAMergeQueueHandbackBeforeStoppingARun(t *testing.T) {
+	t.Parallel()
+
+	const reason = "the forge held its merge queued for longer than triage.stuck_merge_age (2h0m0s)"
+	at := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+	for name, test := range map[string]struct {
+		handback runstate.MergeQueueHandback
+		action   ReconcileAction
+		says     string
+	}{
+		"handed back and not yet given to the run": {
+			handback: runstate.MergeQueueHandback{At: at, Continuation: runstate.MergeQueueReleased, Reason: reason},
+			action:   ActionQueued,
+			says:     "not yet given that to this run",
+		},
+		"handed back to the development manager's docket": {
+			handback: runstate.MergeQueueHandback{At: at, Continuation: runstate.MergeQueueUnattributed, Reason: reason, ReportedAt: &at},
+			action:   ActionBlocked,
+			says:     "the queue handed the change back: " + reason,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			r, queued := queuedRun(t)
+			entries, err := r.queue.Entries(runstate.MergeQueueKey{Repository: r.queueRepository(t), TargetBranch: "main"})
+			if err != nil || len(entries) != 1 {
+				t.Fatalf("entries = %#v, %v", entries, err)
+			}
+			handback := test.handback
+			queues := leftQueue{entry: entries[0], handback: &handback}
+			result := reconcileOne(t, r.reconciler(listedEarlier{ReconcileStore: r.runs, listed: []runstate.State{queued}}, queues))
+			if result.Action != test.action || !strings.Contains(result.Detail, test.says) {
+				t.Fatalf("reconciliation = %#v, want %s saying %q", result, test.action, test.says)
+			}
+			if strings.Contains(result.Detail, "without handing the change back") {
+				t.Fatalf("detail = %q, want the queue's hand-back named rather than denied", result.Detail)
+			}
+			saved, err := r.runs.Load(queued.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.action == ActionQueued {
+				if !saved.AwaitingMergeQueue() || r.tracker.Blocked {
+					t.Fatalf("run = %#v, item blocked %t; want the run left for the queue to give its hand-back", saved, r.tracker.Blocked)
+				}
+				return
+			}
+			if saved.Status != runstate.StatusFailed || !strings.Contains(saved.Failure, reason) || !r.tracker.Blocked || !strings.Contains(r.tracker.BlockReason, reason) {
+				t.Fatalf("run = %#v, item blocked %t for %q; want both stopped with the queue's reason", saved, r.tracker.Blocked, r.tracker.BlockReason)
 			}
 		})
 	}

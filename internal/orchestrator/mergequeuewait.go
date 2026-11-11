@@ -10,11 +10,13 @@ import (
 
 // ReconcileMergeQueues is what the sweep reads of the harness's merge queues:
 // whether the entry a run's approved change was admitted as still stands, and,
-// where it does not, whether the queue still lists it. It reads and never
-// writes; the queue's own driver is the only thing that moves an entry.
+// where it does not, whether the queue still lists it and what its landing
+// record says became of it. It reads and never writes; the queue's own driver
+// is the only thing that moves an entry.
 type ReconcileMergeQueues interface {
 	Entries(key runstate.MergeQueueKey) ([]runstate.MergeQueueEntry, error)
 	Standing(key runstate.MergeQueueKey, runID string) (runstate.MergeQueueEntry, bool, error)
+	Landing(key runstate.MergeQueueKey, entryID string) (runstate.MergeQueueLanding, bool, error)
 }
 
 var _ ReconcileMergeQueues = (*runstate.MergeQueueStore)(nil)
@@ -104,10 +106,37 @@ func (r Reconciler) settleMergeQueueWait(ctx context.Context, state runstate.Sta
 	}
 	reason := waiting + ", and the queue no longer has that entry and landed nothing; the change is still on the run's branch"
 	for _, listed := range entries {
-		if listed.RunID == state.RunID {
-			reason = waiting + ", and the queue let the entry go without landing it and without handing the change back to this run; the change is still on the run's branch"
-			break
+		if listed.RunID != state.RunID {
+			continue
 		}
+		landing, found, err := r.MergeQueues.Landing(admitted.Key(), listed.EntryID)
+		if err != nil {
+			return reconciliationOf(state, ActionUnsettled), true, fmt.Errorf("read the landing record of merge queue entry %d: %w", listed.Order, err)
+		}
+		reason = waiting + ", and the queue let the entry go without landing it and without handing the change back to this run; the change is still on the run's branch"
+		if found && landing.Handback != nil {
+			handback := *landing.Handback
+			if handbackOwed(handback) {
+				// The queue has handed the change back and not yet given that to
+				// the run, which it does on a later pass with its own reason and
+				// blocker; stopping the run here would put a second, different
+				// account on the item before the queue's arrives.
+				result := reconciliationOf(state, ActionQueued)
+				result.Detail = fmt.Sprintf("%s, and the queue has handed the change back (%s) but not yet given that to this run; the queue gives it on a later pass, so the run is left for it",
+					waiting, handback.Reason)
+				return result, true, nil
+			}
+			if handback.Continuation == runstate.MergeQueueReleased && handback.TransferTo != "" {
+				// The entry left this queue to be admitted to the other one, which
+				// records the new entry on the run itself.
+				result := reconciliationOf(state, ActionQueued)
+				result.Detail = fmt.Sprintf("%s, and the queue released the entry to move it to the %s merge queue, so the run is left waiting on that move",
+					waiting, modeName(handback.TransferTo))
+				return result, true, nil
+			}
+			reason = fmt.Sprintf("%s, and the queue handed the change back: %s; the change is still on the run's branch", waiting, handback.Reason)
+		}
+		break
 	}
 	result, err := r.stopLeftByMergeQueue(ctx, state, reason)
 	return result, true, err
