@@ -84,11 +84,22 @@ func (s *Supervisor) Deployed() string { return s.deployed }
 // deployed build or starting again, and is empty when every part is settled.
 // Taking a build up in the middle of either would leave the next supervisor to
 // finish a move it did not begin.
+//
+// A running child that takes a deployed build up itself is not one the
+// supervisor is moving: the scheduler drains its runs on its own clock, for as
+// long as its drain bound and the waits past it take, and a supervisor that
+// waited for that before moving itself followed it by that long again. The
+// supervisor that follows reattaches it and reads its build like any other's.
+// The moment it lets its lease go to re-execute is still a move, since a
+// supervisor taking itself up then could start a second copy of it.
 func (s *Supervisor) Moving() string {
 	for _, child := range s.Children {
 		state, known := s.states[child.Name()]
 		if !known {
 			return string(child.Name())
+		}
+		if _, self := child.(RestartsItself); self && state.State == runstate.ChildRunning && !state.SettingsRestarting {
+			continue
 		}
 		if state.RestartingInto != "" || state.SettingsRestarting || state.State == runstate.ChildDown {
 			return string(child.Name())
@@ -96,6 +107,12 @@ func (s *Supervisor) Moving() string {
 	}
 	return ""
 }
+
+// AwaitTakeUp records what the supervisor itself waits for before it moves onto
+// the deployed build, in words that finish "it moves onto it", and nothing where
+// it waits for nothing or is not behind. The pass says it at every look, and
+// the record carries it to `yoyo status`.
+func (s *Supervisor) AwaitTakeUp(why string) { s.takeUpWait = why }
 
 // TakeUp asks the supervisor to re-execute into the deployed build once the
 // tick it was asked in is over. It is refused while a restart is held, and

@@ -185,8 +185,15 @@ type Supervision struct {
 	// from, as the supervisor last read it: the build every part is moved onto.
 	// It is empty where the binary carries no revision, and then nothing is
 	// compared or restarted.
-	Deployed  string    `json:"deployed,omitempty"`
-	StartedAt time.Time `json:"started_at"`
+	Deployed string `json:"deployed,omitempty"`
+	// DeployedAt is when that binary was written, which is since when every part
+	// on another build has been behind it.
+	DeployedAt time.Time `json:"deployed_at,omitempty"`
+	// TakeUpWait is, while the supervisor itself is on a build other than
+	// Deployed, what it waits for before it re-executes into Deployed, in words
+	// that finish "it moves onto it": "at its next look" where nothing holds it.
+	TakeUpWait string    `json:"take_up_wait,omitempty"`
+	StartedAt  time.Time `json:"started_at"`
 	// ObservedAt is when the supervisor last wrote the record.
 	ObservedAt time.Time `json:"observed_at"`
 	// Children is every part of the product, in the order the section declares
@@ -210,6 +217,9 @@ func (s Supervision) Validate() error {
 	}
 	if s.ObservedAt.IsZero() {
 		problems = append(problems, errors.New("observed at is required"))
+	}
+	if len(s.TakeUpWait) > MaxChildReasonBytes {
+		problems = append(problems, fmt.Errorf("what the supervisor waits for is %d bytes, which exceeds the %d byte bound", len(s.TakeUpWait), MaxChildReasonBytes))
 	}
 	seen := make(map[config.ServiceName]struct{}, len(s.Children))
 	for _, child := range s.Children {
