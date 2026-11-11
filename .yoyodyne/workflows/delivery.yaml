@@ -10,11 +10,15 @@
 #
 # It is the built-in verbatim today, so that adopting it changed the sequence
 # not at all -- what it changed is who owns it. `internal/orchestrator/delivery.yaml`
-# is that built-in, and a test holds the two to the same content digest, so
-# editing one and not the other fails rather than leaving this repository
-# running a sequence its parity harness never measured. Diverging on purpose
-# means changing that test as well, which is the point at which somebody has
-# decided to.
+# is that built-in, and a test compares the two as decoded definitions, ignoring
+# comments, so this header is free to differ. Any difference in what they say
+# fails it, naming where they read differently, rather than leaving this
+# repository running a sequence its parity harness never measured. The one
+# difference it lets through is a transition the built-in routes and this copy
+# does not route at all: that is reported as one this copy has not yet adopted,
+# and a run here that takes it records a divergence until this copy does.
+# Diverging on purpose means changing that test as well, which is the point at
+# which somebody has decided to.
 #
 # Everything below is that definition. Its own account of itself follows.
 #
@@ -124,8 +128,13 @@ states:
       # replayed change, and a fresh independent verdict on it.
       superseded: check
       contended: blocked
-      # A replay that conflicts is never resolved by the harness. Both sides are
-      # left intact and the item is blocked.
+      # A replay that conflicts is never resolved by the harness. It goes back to
+      # the developer that wrote the change, in its own session, with the change
+      # moved onto where the target went and the disagreement left as Git's
+      # markers; what the developer settles re-earns the whole gate from there.
+      reconciling: develop
+      # The same conflict with the repair or integration budget spent: both sides
+      # are left intact and the item is blocked.
       conflicted: blocked
   complete:
     action: run.complete
