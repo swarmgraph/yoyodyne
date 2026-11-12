@@ -270,8 +270,11 @@ func (r exchangeEvidenceReaders) publication(document string, approved time.Time
 		switch {
 		case strings.TrimSpace(latest.ReviewSummary) != "" && latest.ReviewDecision != "":
 			returned.Reason = fmt.Sprintf("the reviewer %s it: %s", latest.ReviewDecision, singleLineText(latest.ReviewSummary))
+			if decision := string(latest.ReviewDecision); latest.ValueShown("review_decision", decision) != decision {
+				returned.Reason = fmt.Sprintf("the reviewer gave a verdict %s: %s", latest.ValueShown("review_decision", decision), singleLineText(latest.ReviewSummary))
+			}
 		case latest.RecordedStopClass() != "":
-			returned.Reason = fmt.Sprintf("it stopped (%s)", latest.RecordedStopClass())
+			returned.Reason = fmt.Sprintf("it stopped (%s)", runstate.StopCauseShown(latest.RecordedStopClass()))
 		default:
 			returned.Reason = fmt.Sprintf("it ended %s", latest.Status)
 		}
@@ -434,13 +437,13 @@ func (r exchangeEvidenceReaders) readRun(_ context.Context, id string) (exchange
 	}
 	fmt.Fprintf(&rendered, "repair attempts: %d, review rounds: %d\n", state.RepairAttempts, state.ReviewRounds)
 	if class := state.RecordedStopClass(); class != "" {
-		fmt.Fprintf(&rendered, "stop reason: %s\n", class)
+		fmt.Fprintf(&rendered, "stop reason: %s\n", runstate.StopCauseShown(class))
 	}
 	if state.ReviewDecision != "" {
-		fmt.Fprintf(&rendered, "review: %s: %s\n", state.ReviewDecision, singleLineText(state.ReviewSummary))
+		fmt.Fprintf(&rendered, "review: %s: %s\n", state.ValueShown("review_decision", string(state.ReviewDecision)), singleLineText(state.ReviewSummary))
 	}
 	if state.LandingOutcome != "" {
-		fmt.Fprintf(&rendered, "landing claimed: %s: %s\n", state.LandingOutcome, singleLineText(state.LandingReason))
+		fmt.Fprintf(&rendered, "landing claimed: %s: %s\n", state.ValueShown("landing_outcome", string(state.LandingOutcome)), singleLineText(state.LandingReason))
 	}
 	switch {
 	case state.RecordedAsMerged():

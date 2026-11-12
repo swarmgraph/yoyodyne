@@ -340,3 +340,19 @@ func TestARecordWithAnUnknownStatusIsStillRefused(t *testing.T) {
 		t.Errorf("Read() error = %v, want the unknown status refused and named", err)
 	}
 }
+
+// A pause cause this build does not know is said as unknown rather than read as
+// the usage limit a record naming no cause means.
+func TestAnUnknownPauseCauseIsNotDescribedAsAUsageLimit(t *testing.T) {
+	t.Parallel()
+
+	if got := DescribePause("a-cause-from-a-later-build", ""); got != `a pause whose cause is unknown to this build (recorded as "a-cause-from-a-later-build")` {
+		t.Errorf("DescribePause() = %q", got)
+	}
+	if got := DescribePause("", ""); got != "an exhausted provider usage limit" {
+		t.Errorf("DescribePause(no cause) = %q, want the usage limit an old record means", got)
+	}
+	if got := PhaseShown(PhaseReviewing); got != PhaseReviewing {
+		t.Errorf("PhaseShown(%q) = %q, want the phase itself", PhaseReviewing, got)
+	}
+}

@@ -55,6 +55,18 @@ func (e UnknownValueError) Shown() string {
 	return UnknownValueShown(e.Value)
 }
 
+// ValueShown is one of a run record's values as a surface prints it: as written
+// where this build knows it, and unknown with what was recorded where the
+// reading found this build does not (State.UnknownValues).
+func (s State) ValueShown(field, value string) string {
+	for _, unknown := range s.UnknownValues {
+		if unknown.Field == field && unknown.Value == value {
+			return unknown.Shown()
+		}
+	}
+	return value
+}
+
 // UnknownValueShown is how every surface prints a recorded value this build
 // does not know.
 func UnknownValueShown(value string) string {

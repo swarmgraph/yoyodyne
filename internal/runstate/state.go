@@ -350,6 +350,11 @@ func DescribePause(cause, kind string) string {
 	if outage, away := PausedForProviderOutage(cause); away {
 		return DescribeProviderOutage(outage)
 	}
+	// A cause a newer build wrote is not read as a usage limit, which is only
+	// what a record naming no cause at all means.
+	if cause != "" && cause != PauseUsageLimit {
+		return "a pause whose cause is " + UnknownValueShown(cause)
+	}
 	if strings.TrimSpace(kind) == "" {
 		kind = "provider"
 	}
@@ -5573,6 +5578,18 @@ func (p Phase) reached(other Phase) bool {
 	}
 	self, target := position(p), position(other)
 	return self >= 0 && target >= 0 && self >= target
+}
+
+// PhaseShown is a recorded phase as a surface prints it: the phase itself where
+// this build knows it, and where it does not — one a newer build wrote — unknown
+// with the value the record holds. It is for the read model's projections of a
+// run, which surfaces print as they are; anything deciding from a phase reads
+// State.Phase.
+func PhaseShown(p Phase) Phase {
+	if p == "" || p.Valid() {
+		return p
+	}
+	return Phase("phase " + UnknownValueShown(string(p)))
 }
 
 func (p Phase) Valid() bool {
