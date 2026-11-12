@@ -219,6 +219,9 @@ var Vocabulary = []Coinage{
 	// and looked for once it did, so the passed-over class still recorded under
 	// it is the one place it stands (RecordedValues).
 	{Term: "held for a person", Match: "held for a person", PlainWords: "the mover named: waiting on the development manager's decision, or on the harness carrying it out"},
+	{Term: "gate", Match: "gate", Whole: true, PlainWords: "the name of the check a change must pass, or, for a step only a person can take, that it is waiting on that person"},
+	{Term: "gate", Match: "gates", Whole: true, PlainWords: "the name of the check a change must pass, or, for a step only a person can take, that it is waiting on that person"},
+	{Term: "gate", Match: "gated", Whole: true, PlainWords: "the name of the check a change must pass, or, for a step only a person can take, that it is waiting on that person"},
 	{Term: "handback", Match: "handback", PlainWords: "handing the work back to the developer that made it"},
 	{Term: "heartbeat", Match: "heartbeat", PlainWords: "how often to repeat"},
 	{Term: "idle bound", Match: "idle bound", Whole: true, Guides: true, PlainWords: "that the AI session produced no output for too long, so the harness ended the run"},
@@ -245,6 +248,30 @@ var Vocabulary = []Coinage{
 	{Term: "usage window", Match: "usage window", PlainWords: "the provider's usage limit, until it resets at a named time"},
 	{Term: "wedged", Match: "wedge", PlainWords: "stuck, or say the condition outright"},
 	{Term: "whose-move", Match: "whose-move", PlainWords: "waiting on you"},
+}
+
+// KeptNames are, for a term, the names written with it that keep their names
+// when the words around them change, blanked before the term is looked for. A
+// name a role or a person types or the harness stores and checks is not a
+// sentence: `human-gate` is the fixed reason a role gives when only a person
+// can take a step, `human-gate:` is how a work item declares that step,
+// `yoyo gate` is the command that lists and records those steps, and a file
+// such as `docs/designs/needs-design-gate.md` is named by its path. Renaming one
+// changes what the harness accepts rather than what it says, so each stays
+// until a change that renames it takes it off this list. Everything else
+// written with the term is refused as before.
+var KeptNames = map[string]*regexp.Regexp{
+	"gate": regexp.MustCompile(`(?im)[\w./-]*\bgate[\w-]*\.(?:md|go)\b|\bhuman-gate\b|\byoyo\s+gate\b|^gate\s+(?:list|record)\b|^gate\s{2,}`),
+}
+
+// withoutKeptNames is text with the names KeptNames keeps for one term blanked
+// out, byte for byte, so nothing after them moves.
+func withoutKeptNames(term, text string) string {
+	kept, ok := KeptNames[term]
+	if !ok {
+		return text
+	}
+	return kept.ReplaceAllStringFunc(text, blank)
 }
 
 // Entry is one row of the register: a term, what it means in ordinary words, and
@@ -921,7 +948,7 @@ func (s scan) problems(stretches []passage) []Problem {
 			if s.registered[coinage.Term] || (s.guide && !coinage.Guides) {
 				continue
 			}
-			matches := s.patterns[position].FindAllStringIndex(stretch.text, -1)
+			matches := s.patterns[position].FindAllStringIndex(withoutKeptNames(coinage.Term, stretch.text), -1)
 			if s.excused[coinage.Term] {
 				if len(matches) > 0 {
 					if s.carried[coinage.Term] == nil {

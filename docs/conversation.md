@@ -1234,7 +1234,7 @@ unless it names what is unresolved: a pause nobody can name a reason for is a
 pause nobody can lift.
 
 A pause is not a cancellation. Work already under way keeps its claim, its
-branch, its worktree, and its developer session, and stops at its next gate —
+branch, its worktree, and its developer session, and stops before its next step —
 the point before its change could be checked, judged, or promoted. Work that has
 not started does not start. `yoyo reconcile` reports such a run as resumable and
 leaves it exactly where it is, so nothing settles it out from under you, and the
@@ -2537,8 +2537,8 @@ decision is recorded, however the harness was stopped carrying that decision
 out. Among the undecided, critical entries come first: an item a role raised as
 unmeetable, and a Lead Product Manager's decision about a run still in flight.
 After them come the oldest stoppages. The decided entries come last, where
-there is room: first those stopped by a gate that will not clear on its own,
-then those waiting on a gate that will. The fixed size is shared among the
+there is room: first those stopped by a condition that will not clear on its own,
+then those waiting on a condition that will. The fixed size is shared among the
 entries listed, so the window lists 25 whenever the docket holds more than 25.
 An entry longer than its share is cut, and says where. The window says how many
 live entries it did not list, how many of those are already decided, how long

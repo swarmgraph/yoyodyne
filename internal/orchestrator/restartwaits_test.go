@@ -730,7 +730,7 @@ func TestARestartLetsAMergeQueueCandidatesChecksFinish(t *testing.T) {
 	for _, transition := range sessions.recorded() {
 		if drain := transition.draining; drain != nil && len(drain.CheckWaits) == 1 && drain.CheckWaits[0].Queue == "main" &&
 			drain.CheckWaits[0].Generation == 3 && drain.CheckWaits[0].Check == "make race" &&
-			strings.Contains(drain.Says(), "the merge queue for main, checking candidate generation 3, to finish make race") {
+			strings.Contains(drain.Says(), "the merge queue for main, checking build 3 of the queued change, to finish make race") {
 			said = true
 		}
 	}

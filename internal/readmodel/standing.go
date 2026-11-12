@@ -2294,7 +2294,7 @@ func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Cov
 	// count is said, because that is exactly what is being overstated.
 	problem := ""
 	if unread != "" && queue.Gated() > 0 {
-		problem = fmt.Sprintf("the human gates a person has passed could not be read (%s), so all %d gated item(s) are reported as still waiting on somebody",
+		problem = fmt.Sprintf("the steps a person has recorded taking could not be read (%s), so all %d item(s) waiting on such a step are reported as still waiting on somebody",
 			unread, queue.Gated())
 	}
 	// Coverage is read one status wider than the order, exactly as the scheduling
