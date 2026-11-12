@@ -4568,7 +4568,7 @@ func (s *Session) reportTrackerActions(out io.Writer, reply Reply) {
 	}
 	// A block refused alone is said the same way: the rest of the reply stood.
 	for _, refusal := range reply.RefusedBlocks {
-		fmt.Fprintf(out, "%s\nEverything else in the reply was carried out; the refusal reaches the %s on its next turn.\n", refusal, RoleTitle(s.state.Role))
+		fmt.Fprintf(out, "%s\nEverything else in the reply was carried out, and the %s is told what was refused so it can send the block again.\n", refusal, RoleTitle(s.state.Role))
 	}
 	if len(reply.Actions) == 0 {
 		if len(reply.HandedBack) > 0 || len(reply.RefusedBlocks) > 0 {

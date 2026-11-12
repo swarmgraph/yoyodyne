@@ -287,14 +287,14 @@ corrected. Where a recurring task's pass took the turn, the refusal is written
 onto the pass's record beside what the pass decided, which is what
 [`yoyo sweeps`](operations.md#reading-what-the-recurring-tasks-found) reads.
 
-Three refusals are still of the whole reply. A block of a kind the role holds
-no authority for — readable or not, such as a memory block from a developer or
-a reviewer — refuses everything the reply asked for, because a role reaching
-past its authority is not a slip in a block's shape. An action that reaches
-outside a program manager's lane is refused the same way. And a reply whose
-report block cannot be read still loses only the reports: that block never
-decided anything, so it was never able to take the rest down with it. A sweep
-block written twice is not a refusal at all: the last one is the pass's
+Every refusal for want of authority is still of the whole reply, readable
+block or not, because a role reaching past its authority is not a slip in a
+block's shape. That covers a block of a kind the role holds no authority for,
+such as a memory block from a developer or a reviewer; an action that reaches
+outside a program manager's lane; and a document from a role that does not own
+that kind of document. A report block that cannot be read was always refused on
+its own: it loses only the reports, because that block never decided anything.
+A sweep block written twice is not a refusal at all: the last one is the pass's
 account, everything else is carried out, and the role is told on its next turn
 to write it once.
 

@@ -1658,7 +1658,7 @@ func printChatHandedBack(writer io.Writer, refusals []string) {
 // that the rest of the reply was carried out.
 func printChatRefusedBlocks(writer io.Writer, refusals []string) {
 	for _, refusal := range refusals {
-		fmt.Fprintf(writer, "\n%s\nEverything else in the reply was carried out; the refusal reaches the role on its next turn.\n", refusal)
+		fmt.Fprintf(writer, "\n%s\nEverything else in the reply was carried out, and the role is told what was refused so it can send the block again.\n", refusal)
 	}
 }
 
