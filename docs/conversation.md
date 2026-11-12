@@ -999,23 +999,30 @@ process this conversation has nothing to do with, which is what stopping has to
 mean once work starts without you asking for it item by item. The difference is
 only in who does the cancelling. A run this process owns is cancelled here. A run
 somewhere else is *asked*: the request is written beside the run, the process
-working on it reads that at its next provider call and ends the run there, and
+working on it reads that at the run's next step and ends the run there, and
 this waits for the run's own record to say so before reporting anything. So the
 report is about the run rather than about the request. A run that gives up is
 reported as stopped and what it left is settled exactly as above. A run that
 reached its own conclusion first is reported as having finished before the stop
 arrived, with nothing recorded on the item and nothing settled. And a run that
 has not given up by the time the grace runs out is reported as still in flight,
-stopping at its next provider call, with nothing it had thrown away — because a
-provider invocation already streaming is never interrupted. That generation is
-already paid for, and killing it would leave the run needing the same work again,
-which is the cost that makes killing processes the wrong verb in the first place.
+stopping at its next step, with nothing it had thrown away. A step already under
+way — a developer attempt or the checks — is let finish if it can within ten
+minutes of the stop being asked for, because that work is already paid for and
+throwing it away would leave the run needing it again; past ten minutes it is
+cut short, and what the developer had written is kept on the run's branch. A run
+whose checks have already passed on its change when the stop reaches it is not
+cancelled at all: the change goes on to its review, and the run says the stop
+arrived late. Until it takes effect, `yoyo status` shows the stop with who asked
+for it and when, in your local time with the zone named, and `/status` here says
+that a stop has been asked for on the run.
 
 The development manager can stop a run too, without you. A run whose work she
 decides is superseded, narrowed, or mis-launched is one she records a `stop`
 decision about, and the harness writes the same request this does on her behalf,
-naming her; the run stops at its next provider call exactly as it does for you,
-with its branch and worktree preserved.
+naming her; the run stops at its next step, no later than ten minutes after she
+asked, exactly as it does for you, with its branch and worktree preserved, and a
+change whose checks already passed is kept for its review in the same way.
 [Deciding what becomes of stopped work](#deciding-what-becomes-of-stopped-work)
 has the decision, and [how work flows](work.md#letting-the-harness-choose-the-work)
 has what it leaves behind. When it is the Lead Product Manager who decides the

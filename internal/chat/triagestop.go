@@ -13,7 +13,8 @@ package chat
 // Carrying it out is the operator's stop, made on her behalf. The harness writes
 // the same request beside the run that `/stop` writes, naming her as the one who
 // asked and the decision it carries out, and the run honors it at its next
-// provider-call boundary exactly as it honors the operator's: it ends itself
+// step exactly as it honors the operator's (or keeps a change whose checks
+// already passed for its review, internal/orchestrator/promptstop.go): it ends itself
 // cancelled, its branch and worktree are left where they are, and its developer
 // slot is free the moment its record is terminal. What differs is only what it
 // leaves behind — the run's record and the item's notes say she stopped it and

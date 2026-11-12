@@ -20,9 +20,10 @@ import (
 )
 
 // A stop recorded while the developer is working reaches the run at its next
-// provider call — the review — and ends it there. The invocation already
-// streaming is not interrupted, because throwing away a generation that has been
-// paid for is the cost that made killing processes the wrong verb.
+// step — before the checks — and ends it there, so neither the checks nor the
+// review are spent on it. An attempt that finishes inside the stop's bound is
+// not interrupted, because throwing away a generation that has been paid for is
+// the cost that made killing processes the wrong verb (promptstop.go).
 func TestARunStopsAtItsNextProviderCallWhenTheOperatorAsksIt(t *testing.T) {
 	t.Parallel()
 
@@ -63,10 +64,17 @@ func TestARunStopsAtItsNextProviderCallWhenTheOperatorAsksIt(t *testing.T) {
 	if outcome.Integration != nil || tracker.Closed {
 		t.Fatalf("a stopped run promoted its work: %#v (closed=%t)", outcome.Integration, tracker.Closed)
 	}
-	// The reviewer was never asked. Buying a verdict on a change nobody is going
-	// to take is exactly what stopping at the boundary avoids.
+	// Neither the checks nor the reviewer ran. Spending them on a change nobody
+	// is going to take is exactly what stopping at the boundary avoids, and a
+	// stop that waited for them is one that cancels finished work.
 	if reviews := countRoleRequests(provider.Requests, "reviewer"); reviews != 0 {
 		t.Fatalf("reviewer invocations = %d, want the stop to have landed before the review", reviews)
+	}
+	if len(outcome.Checks) != 0 {
+		t.Fatalf("checks = %#v, want the stop to have landed before the checks", outcome.Checks)
+	}
+	if !strings.Contains(err.Error(), "at the run's next step") {
+		t.Fatalf("Run() error = %v, want it to say the stop took effect at the next step", err)
 	}
 	stopped, err := store.Load(outcome.RunID)
 	if err != nil {
@@ -90,7 +98,10 @@ func TestARunStopsAtItsNextProviderCallWhenTheOperatorAsksIt(t *testing.T) {
 
 // A run whose process exited before it reached a boundary is picked up by a
 // later invocation. Without this, a stop the operator asked for would be
-// forgotten by exactly the restart that was meant to be safe.
+// forgotten by exactly the restart that was meant to be safe. The run's check
+// fails, so it parks before its repair attempt with no change that has passed
+// its checks; one parked after they passed keeps its change instead
+// (TestAStopFoundOnResumingARunWhoseChecksPassedKeepsTheChange).
 func TestAStopAlreadyAskedForEndsAResumedRunRatherThanContinuingIt(t *testing.T) {
 	t.Parallel()
 
@@ -105,7 +116,7 @@ func TestAStopAlreadyAskedForEndsAResumedRunRatherThanContinuingIt(t *testing.T)
 		}
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, approveVerdict)
-	firstPipeline := waiting(automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, first, []string{"exit 0"}), first),
+	firstPipeline := waiting(automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, first, []string{"exit 1"}), first),
 		&pausingClock{now: baseTime}, 6*time.Hour, 0)
 	firstPipeline.Holds = holds
 
@@ -115,6 +126,9 @@ func TestAStopAlreadyAskedForEndsAResumedRunRatherThanContinuingIt(t *testing.T)
 	}
 	if !parked.Paused || parked.Status != runstate.StatusRunning {
 		t.Fatalf("outcome = %#v, want a parked run still in flight", parked)
+	}
+	if held, err := store.Load(parked.RunID); err != nil || held.ChecksPassed != nil || held.Phase != runstate.PhaseDeveloping {
+		t.Fatalf("parked run = phase %q, checks passed %#v (%v), want it parked before its repair attempt", held.Phase, held.ChecksPassed, err)
 	}
 
 	// The operator stops the parked run and lifts the pause. Only one of those
@@ -150,6 +164,61 @@ func TestAStopAlreadyAskedForEndsAResumedRunRatherThanContinuingIt(t *testing.T)
 	}
 	if outcome.Integration != nil || tracker.Closed {
 		t.Fatalf("a stopped run promoted its work: %#v (closed=%t)", outcome.Integration, tracker.Closed)
+	}
+}
+
+// A run parked after its checks passed, with a stop recorded while it waited,
+// is resumed with its change kept for its review rather than cancelled: the stop
+// reached it only after the checks passed, and the run says it arrived late.
+func TestAStopFoundOnResumingARunWhoseChecksPassedKeepsTheChange(t *testing.T) {
+	t.Parallel()
+
+	repository, worktreeRoot, store := restartableFixture(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	holds := newOperatorHoldStore(t)
+	first := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		if _, err := holds.Hold(baseTime); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	firstPipeline := waiting(automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, first, []string{"exit 0"}), first),
+		&pausingClock{now: baseTime}, 6*time.Hour, 0)
+	firstPipeline.Holds = holds
+
+	parked, err := firstPipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil || !parked.Paused {
+		t.Fatalf("parked Run() = %#v, %v, want a parked run", parked, err)
+	}
+	if held, err := store.Load(parked.RunID); err != nil || held.ChecksPassed == nil {
+		t.Fatalf("parked run's checks passed = %#v (%v), want it parked at its review", held.ChecksPassed, err)
+	}
+	if err := store.RecordStop(runstate.StopRequest{
+		SchemaVersion: runstate.StopSchemaVersion,
+		ProductID:     "yoyodyne",
+		RunID:         parked.RunID,
+		WorkItemID:    tracker.Item.ID,
+		RequestedAt:   baseTime.Add(time.Hour),
+		Reason:        "we are doing something else first",
+	}); err != nil {
+		t.Fatalf("RecordStop() error = %v", err)
+	}
+	if _, _, err := holds.Release(); err != nil {
+		t.Fatalf("Release() error = %v", err)
+	}
+
+	second := orchestratortest.RoleBackend(func(backend.RunRequest) error { return nil }, approveVerdict)
+	secondPipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, second, []string{"exit 0"}), second)
+	secondPipeline.Holds = holds
+	outcome, err := secondPipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("resumed Run() error = %v, want the kept change reviewed", err)
+	}
+	if outcome.RunID != parked.RunID || outcome.Status != runstate.StatusSucceeded || outcome.Integration == nil {
+		t.Fatalf("resumed run = %#v, want the parked run's change reviewed and integrated", outcome)
+	}
+	if outcome.LateStop == nil || !strings.Contains(tracker.Notes, "Stop arrived late: the operator asked this run to stop") {
+		t.Fatalf("late stop = %#v, notes = %q, want the stop said to have arrived late", outcome.LateStop, tracker.Notes)
 	}
 }
 

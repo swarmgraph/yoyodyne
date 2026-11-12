@@ -418,6 +418,56 @@ func TestStatusNamesADeclarativeDivergenceWithoutCallingItAFailure(t *testing.T)
 	}
 }
 
+// A stop recorded on a run that is still working, and one that reached a run
+// only after its checks passed, are each said under the run, with when the stop
+// was asked for in the operator's local time.
+func TestStatusSaysAStopNotYetTakenEffectAndOneThatArrivedLate(t *testing.T) {
+	t.Parallel()
+
+	asked := time.Date(2026, 11, 11, 12, 57, 0, 0, time.UTC)
+	var out bytes.Buffer
+	printRunHistory(&out, runstate.RunHistory{
+		Matched:  2,
+		Recorded: 2,
+		Runs: []runstate.RunSummary{{
+			RunID:      "run-0123456789abcdef0123456789abcdef",
+			WorkItemID: "yoyodyne-fo4v",
+			Status:     runstate.StatusRunning,
+			Phase:      runstate.PhaseDeveloping,
+			StartedAt:  asked.Add(-time.Hour),
+			PendingStop: &runstate.StopRequest{
+				SchemaVersion: runstate.StopSchemaVersion,
+				ProductID:     "yoyodyne",
+				RunID:         "run-0123456789abcdef0123456789abcdef",
+				WorkItemID:    "yoyodyne-fo4v",
+				RequestedAt:   asked,
+				RequestedBy:   "the development manager",
+			},
+		}, {
+			RunID:      "run-fedcba9876543210fedcba9876543210",
+			WorkItemID: "yoyodyne-ifd.428.133",
+			Status:     runstate.StatusRunning,
+			Phase:      runstate.PhaseReviewing,
+			StartedAt:  asked.Add(-time.Hour),
+			LateStop: &runstate.LateStop{
+				RequestedAt:    asked,
+				RequestedBy:    "the development manager",
+				ChecksPassedAt: asked.Add(time.Hour),
+				NoticedAt:      asked.Add(time.Hour + time.Minute),
+			},
+		}},
+	}, "", false)
+	rendered := out.String()
+	for _, want := range []string{
+		"stop asked for: the development manager asked this run to stop at " + runstate.LocalStamp(asked) + ", and it has not taken effect yet",
+		"stop arrived late: the development manager asked this run to stop at " + runstate.LocalStamp(asked),
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered = %q, want it to say %q", rendered, want)
+		}
+	}
+}
+
 // The run nothing observed is the one the same count reads as clean, because it
 // has no divergence and never could have had one. It is named here for that
 // reason and, like a divergence, is not one of the reasons a run ended.

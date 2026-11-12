@@ -319,6 +319,26 @@ func (u InstallWaitRecorded) apply(state *State) (bool, error) {
 	return true, nil
 }
 
+// LateStopRecorded records a stop that reached the run only after its checks
+// had passed (LateStop). The same stop recorded again changes nothing.
+type LateStopRecorded struct {
+	Stop LateStop
+	At   time.Time
+}
+
+func (u LateStopRecorded) apply(state *State) (bool, error) {
+	if err := u.Stop.Validate(); err != nil {
+		return false, fmt.Errorf("late stop: %w", err)
+	}
+	if state.LateStop != nil && *state.LateStop == u.Stop {
+		return false, nil
+	}
+	stop := u.Stop
+	state.LateStop = &stop
+	state.UpdatedAt = u.At
+	return true, nil
+}
+
 // IntegrationRecorded records the run's integration: the merge queue's landing
 // of its change, which the queue records as a run's own promotion would be. It
 // changes nothing where the run already records the same landing.

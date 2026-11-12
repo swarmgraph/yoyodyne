@@ -2231,6 +2231,10 @@ func (s *State) recordedTexts() []recordedText {
 		unstated("install[].name", at("install", index, "name"), &s.Install[index].Name, MaxRecordedTextBytes)
 		nested("install[].output", at("install", index, "output"), &s.Install[index].Output, MaxInstallOutputBytes)
 	}
+	if s.LateStop != nil {
+		unstated("late_stop.requested_by", "late_stop.requested_by", &s.LateStop.RequestedBy, MaxStopRequestedByBytes)
+		unstated("late_stop.reason", "late_stop.reason", &s.LateStop.Reason, MaxStopReasonBytes)
+	}
 	if s.InstallWait != nil {
 		unstated("install_wait.name", "install_wait.name", &s.InstallWait.Name, MaxRecordedTextBytes)
 	}
@@ -3709,6 +3713,10 @@ type State struct {
 	// the claim, it is what says the clear was never confirmed and the item was
 	// left for the next pull.
 	StaleBlockClear *StaleBlockClear `json:"stale_block_clear,omitempty"`
+	// LateStop is a stop somebody asked for that reached this run only after
+	// its checks had passed, so the change was kept for its review rather than
+	// cancelled (stop.go). Absent on every run no stop reached late.
+	LateStop *LateStop `json:"late_stop,omitempty"`
 	// StartingTarget is the target this run's worktree was cut from, whether the
 	// remote was fetched for it, and how old it was where that fetch failed.
 	// Absent is a run with no target branch, and every run recorded before the
@@ -4577,6 +4585,11 @@ func (s State) Validate() error {
 	if s.StaleBlockClear != nil {
 		if err := s.StaleBlockClear.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("stale_block_clear: %w", err))
+		}
+	}
+	if s.LateStop != nil {
+		if err := s.LateStop.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("late_stop: %w", err))
 		}
 	}
 	if s.StartingTarget != nil {

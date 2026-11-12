@@ -451,7 +451,7 @@ func baselineScenarios() []baselineScenario {
 		},
 		{
 			name:    "operator-stop-cancels-the-run-and-preserves-its-work",
-			freezes: "A stop the operator asked for ends the run at its next provider-call boundary as cancelled rather than failed, before a verdict is bought, and leaves the worktree and branch for reconciliation to settle.",
+			freezes: "A stop the operator asked for ends the run at its next step as cancelled rather than failed, before the checks run or a verdict is bought, and leaves the worktree and branch for reconciliation to settle.",
 			drive:   baselineOperatorStop,
 		},
 		{
