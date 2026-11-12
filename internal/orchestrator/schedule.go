@@ -2811,7 +2811,9 @@ pulling:
 		// A run paused on work its item waits on holds no developer slot, so it is
 		// taken out of what counts against the capacity here and kept only for the
 		// race guard below: its change is still in its worktree, and work started
-		// beside it that shares its files would conflict with it when it lands.
+		// beside it that shares its files would conflict with it when it lands. So
+		// is a run waiting at its merge step for GitHub to be reachable again
+		// (runstate.ForgeWait), whose process is still behind it.
 		//
 		// A confirmed document's landing holds no developer slot either, and is
 		// taken out first: it is counted against the document landings alone
@@ -2882,6 +2884,12 @@ pulling:
 				if _, recorded := landing[id]; !recorded {
 					landing[id] = runstate.State{WorkItemID: id}
 				}
+				continue
+			}
+			// A run of this session's that holds no developer slot — one waiting at
+			// its merge step for GitHub to be reachable again — is already among the
+			// waiting runs and is not counted against the slots a second time.
+			if _, waiting := waitingRuns[id]; waiting {
 				continue
 			}
 			if _, recorded := occupied[id]; !recorded {

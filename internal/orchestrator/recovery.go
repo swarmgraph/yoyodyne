@@ -43,9 +43,17 @@ import (
 // it, which is what keeps this a wait around the existing behavior rather than a
 // second opinion about it.
 func (a *activeRun) recovering(ctx context.Context, boundary string, attempt func(context.Context) error) error {
+	return a.recoveringUnless(ctx, boundary, nil, attempt)
+}
+
+// recoveringUnless is recovering with a class of recoverable failure the caller
+// waits out itself, which is returned at once rather than asked again here
+// (recoveringReachable). A nil class leaves every recoverable failure to the
+// boundary's window.
+func (a *activeRun) recoveringUnless(ctx context.Context, boundary string, returned func(error) bool, attempt func(context.Context) error) error {
 	for {
 		err := attempt(ctx)
-		if err == nil || !recovery.Recoverable(err) {
+		if err == nil || !recovery.Recoverable(err) || (returned != nil && returned(err)) {
 			return err
 		}
 		retried, recordErr := a.recoverFrom(ctx, boundary, err)

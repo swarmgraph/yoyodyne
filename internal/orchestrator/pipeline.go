@@ -963,7 +963,10 @@ type Outcome struct {
 	// reporting some and succeeding anyway is what yoyodyne-ifd.264 is for: before
 	// it, one of these recorded completed and sometimes reviewed work as failed.
 	Retries []runstate.Retry `json:"retries,omitempty"`
-	Blocked bool             `json:"blocked,omitempty"`
+	// ForgeWaited is the last wait at the merge step for GitHub to be reachable
+	// again, kept after the run carried on so its notes can say it (forgewait.go).
+	ForgeWaited *runstate.ForgeWait `json:"forge_waited,omitempty"`
+	Blocked     bool                `json:"blocked,omitempty"`
 	// Environmental is the environment refusing this round rather than the work
 	// failing: which environmental cause the run recorded, and what the settle
 	// gave back once it found the round had delivered nothing. It is the one
@@ -2615,6 +2618,10 @@ type activeRun struct {
 	// is recorded as a narrow update on the record as stored rather than a save
 	// of a copy that may be out of date (recovery.go, recordRetry).
 	narrowRetries bool
+	// promotionLease is the target branch's promotion lease while integrate
+	// holds it, and nil otherwise. A wait for GitHub part-way through a
+	// promotion gives it back and takes it again (forgewait.go).
+	promotionLease *runstate.Lease
 	// scratch is the directory this run's developer is told to write its scratch
 	// files to, cut for this run alone and outside the worktree. It is derived
 	// from the worktree rather than recorded with the run, because it is a fact
@@ -2983,7 +2990,23 @@ func (a *activeRun) promoteApproved(ctx context.Context) (Outcome, bool, error) 
 			return outcome, false, err
 		}
 	}
+	// A landing that could not reach GitHub is made again once GitHub answers,
+	// for as long as that takes, with the promotion lease given back and the
+	// developer slot freed while it waits (forgewait.go). Whatever the landing
+	// ends on otherwise ends the wait, and is handled below as it always was.
 	err := a.integrate(ctx)
+	for {
+		away, waiting := forgeAwayOf(err)
+		if !waiting {
+			break
+		}
+		if waitErr := a.awaitForge(ctx, away); waitErr != nil {
+			err = waitErr
+			break
+		}
+		err = a.integrate(ctx)
+	}
+	a.endForgeWait()
 	if err == nil {
 		a.observe(ctx, deliveryIntegrate, "integrated")
 		outcome, err := a.finish(ctx)
@@ -3056,13 +3079,18 @@ func (a *activeRun) promotionState() string {
 }
 
 // endPromotion is the ending a failed promotion gets. Ordinarily that is the
-// failure it always was. The one exception is a run whose hosting session
-// cancelled it for its own redeploy in the moment between reading its phase and
-// the promotion starting: that goes through stop, so it ends with its reason
+// failure it always was. There are two exceptions, and both go through stop. A
+// run whose hosting session cancelled it for its own redeploy in the moment
+// between reading its phase and the promotion starting ends with its reason
 // naming the redeploy — nothing at a promotion is resumable, so it is cancelled
-// with its change preserved rather than held, and never silently.
+// with its change preserved rather than held, and never silently. And a run the
+// operator asked to stop while it waited for GitHub is recorded as stopped by
+// them, not as failed.
 func (a *activeRun) endPromotion(ctx context.Context, cause error) (Outcome, error) {
-	if _, forRedeploy := drainedForRedeploy(ctx); forRedeploy {
+	// The operator asking a run to stop while it waits for GitHub
+	// (awaitForge) is a stop rather than a failure, as it is everywhere else.
+	var stoppedByOperator operatorStop
+	if _, forRedeploy := drainedForRedeploy(ctx); forRedeploy || errors.As(cause, &stoppedByOperator) {
 		return a.stop(ctx, cause)
 	}
 	return a.fail(cause, failureStatus(ctx, cause))
@@ -7501,10 +7529,18 @@ func (a *activeRun) integrate(ctx context.Context) error {
 	// Releasing is this process letting the next promotion in, and the operating
 	// system does it anyway when the process exits. A close that failed therefore
 	// says nothing about the promotion below, which either happened or did not.
-	defer func() { _ = lease.Release() }()
+	// The lease is held on the run rather than here, so a wait for GitHub later
+	// in this promotion can give it back and take it again (forgewait.go); what
+	// is released at the end is whichever lease the run then holds.
+	a.promotionLease = lease
+	defer func() {
+		_ = a.promotionLease.Release()
+		a.promotionLease = nil
+	}()
 	// A hold an outside tool placed on this target is read under the lease,
-	// immediately before the guarded change; see awaitLandingHold.
-	lease, err = a.awaitLandingHold(ctx, lease)
+	// immediately before the guarded change; see awaitLandingHold. The wait
+	// gives the lease back and takes it again, so the run holds what it returns.
+	a.promotionLease, err = a.awaitLandingHold(ctx, lease)
 	// Where the remote target stands is settled before the promotion rather than
 	// only after it. A promotion made onto a target the remote has moved away from
 	// can be neither published nor taken back, so finding out afterwards closes the
@@ -11240,6 +11276,9 @@ func renderOutcomeNotes(outcome Outcome) string {
 	// completed, and a reader who cannot see the retries cannot see how close it
 	// came or that the network is degrading.
 	lines = append(lines, renderRetryNotes(outcome)...)
+	if line := renderForgeWaitNote(outcome); line != "" {
+		lines = append(lines, line)
+	}
 	if outcome.ProviderSessionID != "" {
 		lines = append(lines, "Claude session: "+outcome.ProviderSessionID)
 	}
