@@ -391,6 +391,13 @@ func (c *askingCodexCLI) Run(_ context.Context, command execution.Command, obser
 		return execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "codex-cli 0.44.0\n"}, nil
 	case command.Args[0] == "login":
 		return execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "Logged in using ChatGPT\n"}, nil
+	case len(command.Args) >= 2 && command.Args[0] == "mcp" && command.Args[1] == "list":
+		// Each developer turn first asks which MCP servers it would start, to
+		// turn them off; this CLI lists none, and the listing is not a turn.
+		if observer != nil {
+			observer(execution.Output{Stream: execution.StreamStdout, Text: "[]"})
+		}
+		return execution.ProcessResult{Status: execution.ProcessSucceeded}, nil
 	}
 	c.mu.Lock()
 	turn := len(c.turns)
