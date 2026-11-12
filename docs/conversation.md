@@ -120,7 +120,7 @@ retire. Three further operations are about none of that: `handle` records
 what became of a report another role filed, which is how the pile it is shown
 [stops being asked about](reporting.md#who-reads-them-and-what-became-of-each-one),
 `withdraw` takes back a proposal of the Lead Product Manager's own that you
-have not decided yet ([below](#proposals-and-deciding-them-in-batches)), and
+have not decided yet ([below](#proposals-and-deciding-them)), and
 `directive` ends a directive you recorded, by resolving it into what now carries
 it or withdrawing one that directs nothing
 ([below](#directives-and-the-work-they-pause)). Every
@@ -379,7 +379,7 @@ carried out with the closure stated rather than refused. An item the tracker wil
 not describe is neither refused nor assumed to be open: the action is attempted
 and what could not be read is said.
 
-## Proposals, and deciding them in batches
+## Proposals, and deciding them
 
 The Lead Product Manager can propose a Beads work item instead of creating one, when
 the decision is yours rather than its. What becomes of a proposal is

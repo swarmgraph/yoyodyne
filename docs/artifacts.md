@@ -429,8 +429,8 @@ the run starts before the command or prompt returns, so what it came to is said
 to you as well as to the owning role; with `--json` it is carried as
 `published`. Once it merges, `yoyo artifact show
 v2-goals` reads back exactly what any hand-written document reads back as,
-because it is one. Anything else declines, and what you said is kept as the
-reason.
+because it is one. Only `n`, `no` or `decline` declines it, with what you said
+kept as the reason; any other answer leaves it waiting, as described above.
 
 Nothing about that widens what a role may do. The write goes through the same
 ownership boundary every other change to these documents goes through, so the
