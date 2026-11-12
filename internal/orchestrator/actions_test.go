@@ -1015,16 +1015,16 @@ var notAStep = map[string]string{
 	// steps between them, and the design puts them outside what a definition can
 	// reach for exactly that reason: a sequence that could omit one would be a
 	// sequence that could spend through a pause the operator placed.
-	"stopRequested":           "reads whether the operator has asked this run to stop",
-	"honorStop":               "reads whether a stop was asked for, and records one that arrived after the checks passed",
-	"watchForStop":            "watches a step in progress for a stop that has waited its bound",
-	"holdForOperator":         "waits out the operator's hold on spending",
-	"holdForDirective":        "waits out a directive that pauses this work",
-	"holdForDependency":       "waits out work this item was made to depend on",
-	"pauseForUsageLimit":      "waits out a provider usage limit",
-	"pauseForServerOverload":  "waits out a provider that could not serve the invocation",
-	"pauseForProviderOutage":  "waits out a provider nobody is logged into or nobody can reach, spending nothing",
-	"awaitRecordedUsageLimit": "serves a usage-limit deadline an earlier process recorded",
+	"stopRequestedAtNewAttempt": "reads whether the operator has asked this run to stop, before a developer attempt",
+	"honorStop":                 "reads whether a stop was asked for, and records one that arrived after the checks passed",
+	"watchForStop":              "watches a step in progress for a stop that has waited its bound",
+	"holdForOperator":           "waits out the operator's hold on spending",
+	"holdForDirective":          "waits out a directive that pauses this work",
+	"holdForDependency":         "waits out work this item was made to depend on",
+	"pauseForUsageLimit":        "waits out a provider usage limit",
+	"pauseForServerOverload":    "waits out a provider that could not serve the invocation",
+	"pauseForProviderOutage":    "waits out a provider nobody is logged into or nobody can reach, spending nothing",
+	"awaitRecordedUsageLimit":   "serves a usage-limit deadline an earlier process recorded",
 
 	// Developer routing (developerrouting.go): which endpoint of a pinned pair a
 	// developer invocation runs on, and the record of each attempt made there.
