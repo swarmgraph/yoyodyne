@@ -814,6 +814,13 @@ func standingSources(configPath string) readmodel.Sources {
 	if store, err := runstate.NewMergeQueueStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.MergeQueues = store
 	}
+	// Where the target branch stands against the team's branch, which only a
+	// project with execution.upstream_branch set has a record of.
+	if cfg.Execution.UpstreamBranch != "" {
+		if store, err := runstate.NewTeamBranchUpdateStore(stateRoot, cfg.Product.ID); err == nil {
+			sources.TeamBranchUpdates = store
+		}
+	}
 	// The product's supervisor and its record of the parts, so a part the
 	// supervisor has left down is said here with its reason.
 	if store, err := runstate.NewConfigReaderStore(stateRoot, cfg.Product.ID); err == nil {

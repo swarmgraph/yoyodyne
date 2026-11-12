@@ -571,6 +571,10 @@ var expresses = map[string]expression{
 		question: "no role holds it; the harness takes it in the process that works the queue",
 		gap:      "no capability names it yet: it makes one harness process the worker for a queue, and only the harness's own merge queue worker takes it, so there is nothing a role could be asked whether it holds",
 	},
+	"team-branch-update.updater-lease": {
+		question: "no role holds it; the harness takes it in the forge check that brings the target branch up to date with the team's branch",
+		gap:      "no capability names it: it makes one harness process the one bringing a target branch up to date, and the landing it leads to is still made under the promotion lease, so there is nothing a role could be asked whether it holds",
+	},
 	"merge-queue.generation-writer": {
 		question: "no role holds it; only the harness process holding the queue's worker lease records a candidate's generations",
 		gap:      "the same as the worker lease it is checked against: writing the queue's own verification record is the harness's bookkeeping, and no role could be asked whether it holds it",
