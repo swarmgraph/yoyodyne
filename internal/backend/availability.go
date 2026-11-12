@@ -42,8 +42,9 @@ import (
 // environment it hands the child -- so that is the PATH named.
 func NotFound(binary string) Availability {
 	return Availability{
-		Installed: false,
-		Missing:   fmt.Sprintf("%s was not found on PATH %s", binary, os.Getenv("PATH")),
+		Installed:      false,
+		Missing:        fmt.Sprintf("%s was not found on PATH %s", binary, os.Getenv("PATH")),
+		ProgramMissing: true,
 	}
 }
 

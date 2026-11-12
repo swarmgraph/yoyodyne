@@ -6,7 +6,8 @@ import (
 	"testing"
 )
 
-// TestMain gives these tests an empty user home and no CODEX_HOME, so a Codex
+// TestMain gives these tests an empty user home, no usual install folders, and
+// no CODEX_HOME, so a Codex
 // invocation they make falls back to an empty Codex home of its own. The Codex
 // adapter keeps the home it runs under inside an account home that holds an
 // instruction file, so without this a test would write into the Codex home of
@@ -23,6 +24,10 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	// The machine's own install folders are not these tests' to search: a
+	// provider installed there would be found by a test arranging it missing.
+	// A test that needs a folder names its own.
+	usualInstallFolders = func() []string { return nil }
 	code := m.Run()
 	_ = os.RemoveAll(home)
 	os.Exit(code)

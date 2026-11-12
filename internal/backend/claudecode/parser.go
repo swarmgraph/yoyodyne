@@ -18,6 +18,11 @@ const maxEventTextBytes = execution.MaxEventTextBytes
 
 type streamParser struct {
 	runID string
+	// executable is the program this invocation was started as, where the
+	// adapter's runner resolved it, said on the starting event so the record
+	// shows which installation ran: the one on the search path, or one found in
+	// a usual install folder because the search path did not reach it.
+	executable string
 	// role is who this invocation was made as, and it is written onto the
 	// terminal event so the record says whose invocation it priced rather than
 	// leaving that to be inferred from where the terminal sits in the log. See
@@ -415,6 +420,9 @@ func (p *streamParser) parseSystem(envelope streamEnvelope) error {
 		}
 		if p.loaded.Reported {
 			payload["loaded"] = p.loaded.String()
+		}
+		if p.executable != "" {
+			payload["executable"] = p.executable
 		}
 		return p.emit(execution.EventRunStarted, payload)
 	case apiRetrySubtype:

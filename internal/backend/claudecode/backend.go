@@ -558,7 +558,7 @@ func (b Backend) CheckAvailability(ctx context.Context) (backend.Availability, e
 	if versionResult.Status != execution.ProcessSucceeded {
 		return backend.Availability{}, fmt.Errorf("check Claude Code version: %w", backend.VersionCheckFailed(ctx, binary, versionCheckTimeout, versionResult))
 	}
-	availability := backend.Availability{Installed: true, Version: strings.TrimSpace(versionResult.Stdout)}
+	availability := backend.Availability{Installed: true, Version: strings.TrimSpace(versionResult.Stdout), Path: backend.ResolvedExecutable(b.Runner)}
 
 	authResult, err := b.Runner.Run(ctx, execution.Command{Name: binary, Args: []string{"auth", "status", "--json"}, Env: environment, Timeout: 10 * time.Second}, nil)
 	if err != nil {
@@ -770,6 +770,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	// when it fails, so its output is also redacted by shape.
 	redactor := execution.NewRedactor(request.RedactValues...).WithSecretShapes()
 	parser := newStreamParser(request.RunID, request.Role, request.LastSequence, clock, redactor, request.EventSink, request.ReplySink, b.dialect())
+	parser.executable = backend.ResolvedExecutable(b.Runner)
 	parser.loaded = loaded
 	if subagent != "" {
 		parser.subagents.models = map[string]string{subagent: subagents.Model}
@@ -866,6 +867,13 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		}
 	})
 	if err != nil {
+		// A program found nowhere started nothing and judged nothing, so it is
+		// handed back as the wait it is (backend.ProgramMissingOutage) beside the
+		// error, which still names the program for a caller that moves the turn
+		// to another provider.
+		if outage, missing := backend.ProgramMissingOutage(err); missing {
+			return backend.RunResult{Backend: b.provider(), IsError: true, ProviderOutage: outage, LastEvent: request.LastSequence}, fmt.Errorf("run Claude Code: %w", err)
+		}
 		return backend.RunResult{}, fmt.Errorf("run Claude Code: %w", err)
 	}
 	// A process that failed without writing a terminal has said whatever it had

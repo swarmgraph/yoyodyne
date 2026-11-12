@@ -435,6 +435,7 @@ func (b Backend) CheckAvailability(ctx context.Context) (backend.Availability, e
 		Installed:   true,
 		Version:     strings.TrimSpace(versionResult.Stdout),
 		APIProvider: "openai",
+		Path:        backend.ResolvedExecutable(b.Runner),
 	}
 
 	loginResult, err := b.Runner.Run(ctx, execution.Command{Name: binary, Args: []string{"login", "status"}, Env: environment, Timeout: 10 * time.Second}, nil)
@@ -644,6 +645,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	// when it fails, so its output is also redacted by shape.
 	redactor := execution.NewRedactor(request.RedactValues...).WithSecretShapes()
 	parser := newStreamParser(request.RunID, request.Role, request.LastSequence, clock, redactor, request.EventSink, request.ReplySink, b.dialect())
+	parser.executable = backend.ResolvedExecutable(b.Runner)
 	parser.loaded = loaded
 	var parseErrors []error
 	// The account this invocation is made under is the request's, falling back to
@@ -763,6 +765,13 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 		}
 	})
 	if err != nil {
+		// A program found nowhere started nothing and judged nothing, so it is
+		// handed back as the wait it is (backend.ProgramMissingOutage) beside the
+		// error, which still names the program for a caller that moves the turn
+		// to another provider.
+		if outage, missing := backend.ProgramMissingOutage(err); missing {
+			return backend.RunResult{Backend: b.provider(), IsError: true, ProviderOutage: outage, LastEvent: request.LastSequence}, fmt.Errorf("run Codex: %w", err)
+		}
 		return backend.RunResult{}, fmt.Errorf("run Codex: %w", err)
 	}
 	if len(parseErrors) > 0 {

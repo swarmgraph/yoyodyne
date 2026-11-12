@@ -4647,7 +4647,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 		// that met it refusing. A record that would not clear is said on the
 		// outcome rather than allowed to end an attempt that was served.
 		if err == nil && providerResult.ProviderOutage == nil {
-			if servedErr := a.pipeline.noticeProviderServed(); servedErr != nil {
+			if servedErr := a.pipeline.noticeProviderServedBy(a.state.Backend); servedErr != nil {
 				a.outcome.ProviderOutageProblem = servedErr.Error()
 			}
 		}
@@ -9103,7 +9103,7 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 		// here for the reason a developer attempt records it: a run that met the
 		// outage in review is the only invocation that would ever find out.
 		if reviewReachedProvider(reported, err) {
-			if servedErr := a.pipeline.noticeProviderServed(); servedErr != nil {
+			if servedErr := a.pipeline.noticeProviderServedBy(reported.reviewBackend); servedErr != nil {
 				a.outcome.ProviderOutageProblem = servedErr.Error()
 			}
 		}
