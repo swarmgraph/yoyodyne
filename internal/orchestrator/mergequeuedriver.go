@@ -153,6 +153,9 @@ func (d MergeQueueDriver) Pass(ctx context.Context, key runstate.MergeQueueKey) 
 func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) runstate.MergeQueuePass {
 	landed, handedBack := 0, 0
 	var untidied []string
+	// retried is each candidate checkout the worker tried again within this
+	// pass, so a pass that went on to land says what the busy machine cost it.
+	var retried []string
 	done := func(outcome runstate.MergeQueuePassOutcome, entry runstate.MergeQueueEntry, says string) runstate.MergeQueuePass {
 		if outcome == runstate.MergeQueuePassIdle {
 			switch {
@@ -167,6 +170,9 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 		}
 		if len(untidied) > 0 {
 			says = fmt.Sprintf("%s; %s", says, strings.Join(untidied, "; "))
+		}
+		if len(retried) > 0 {
+			says = fmt.Sprintf("%s; %s", says, strings.Join(retried, "; "))
 		}
 		return runstate.MergeQueuePass{Outcome: outcome, EntryID: entry.EntryID, WorkItemID: entry.WorkItemID, Says: says}
 	}
@@ -272,6 +278,7 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			return done(runstate.MergeQueuePassStopped, promoted.Entry, promoted.Refusal)
 		}
 		verified, err := d.Worker.Work(ctx, key)
+		retried = append(retried, verified.CheckoutRetries...)
 		if err != nil {
 			return stopped(verified.Entry, err)
 		}

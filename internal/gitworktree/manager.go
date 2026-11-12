@@ -4282,6 +4282,18 @@ func describeCheckout(files int, counted bool) string {
 // it in any other class would charge the item a round and its re-run for
 // exactly the failure this item exists to stop charging for.
 func (m *Manager) checkoutFiles(ctx context.Context, commit string) (int, bool, error) {
+	files, counted, killedAfter := m.countCheckout(ctx, commit)
+	if killedAfter > 0 {
+		return 0, false, fmt.Errorf("%w: counting the tree to be checked out was still running after %s, so the checkout never started and no agent of this run was invoked",
+			ErrCheckoutKilled, killedAfter)
+	}
+	return files, counted, nil
+}
+
+// countCheckout is checkoutFiles without the wording of its refusal, for a
+// caller that says it in its own words: the count, whether it was read, and,
+// where the harness ended the count, the time limit it was ended at.
+func (m *Manager) countCheckout(ctx context.Context, commit string) (files int, counted bool, killedAfter time.Duration) {
 	// Bounded by the figure this reads rather than by the one runWithEnvironment
 	// would read for itself, which is the same budget and not the same number:
 	// the load is read per command, so a refusal naming a figure it read a second
@@ -4290,18 +4302,17 @@ func (m *Manager) checkoutFiles(ctx context.Context, commit string) (int, bool, 
 	result, err := m.runBounded(ctx, nil, budget, "-C", m.repositoryRoot, "ls-tree", "-r", "--name-only", commit)
 	if err != nil {
 		m.recordNote("the tree under %s could not be counted, so its checkout is bounded as an uncounted tree: %v", commit, err)
-		return 0, false, nil
+		return 0, false, 0
 	}
 	if killedCheckout(result) {
-		return 0, false, fmt.Errorf("%w: counting the tree to be checked out was still running after %s, so the checkout never started and no agent of this run was invoked",
-			ErrCheckoutKilled, budget)
+		return 0, false, budget
 	}
 	if result.Status != execution.ProcessSucceeded {
 		m.recordNote("counting the tree under %s failed with exit code %d, so its checkout is bounded as an uncounted tree: %s",
 			commit, result.ExitCode, strings.TrimSpace(result.Stderr))
-		return 0, false, nil
+		return 0, false, 0
 	}
-	return strings.Count(result.Stdout, "\n"), true, nil
+	return strings.Count(result.Stdout, "\n"), true, 0
 }
 
 // killedCheckout reports an add this harness ended rather than Git answering:
