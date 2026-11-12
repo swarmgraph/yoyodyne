@@ -21,6 +21,14 @@
 //   - provider: whether the provider is answering, read from the product's
 //     outage record. While it is not, the supervisor holds every restart it
 //     would choose to make, and the steps below say so where it held one.
+//   - run-index: the index of run records rebuilt from every record
+//     (runstate.Store.RebuildRunIndex), so a record changed in place by
+//     something that went round the run store — an older build still running
+//     through a redeploy — is in the index by the time anything counts the runs
+//     in flight, and a bad entry is cleared without anybody removing the index
+//     by hand. It names each record that could not be read. It runs off the
+//     supervisor's goroutine, before reconcile, so reconcile reads the index
+//     as rebuilt.
 //   - reconcile: `yoyo reconcile` from the supervisor's own binary, which
 //     settles what interrupted runs left behind, converges the checkout and
 //     the worktrees, and takes the stall reading. It is the one slow step, so
@@ -130,6 +138,7 @@ import (
 // The step names, as the sweep record carries them.
 const (
 	StepProvider        = "provider"
+	StepRunIndex        = "run-index"
 	StepReconcile       = "reconcile"
 	StepTrackerCleanup  = "cleanup"
 	StepTrackerMeasure  = "measure"
@@ -163,6 +172,13 @@ const (
 	// measureBound bounds one measurement, every call on the copy included.
 	measureBound = 2 * time.Hour
 )
+
+// RunIndex is the index of the product's run records, rebuilt on every pass,
+// and the records it could not read. It is satisfied by *runstate.Store.
+type RunIndex interface {
+	RebuildRunIndex() error
+	UnreadableRuns() ([]runstate.Unreadable, error)
+}
 
 // Claims is where the pass records its cadence and its report: the sweep
 // store every recurring task records in. It is satisfied by
@@ -306,6 +322,10 @@ type Pass struct {
 	SquashHolds SquashHolds
 	Runs        RunsInFlight
 	DrainBound  time.Duration
+	// RunIndex is the run records' index the pass rebuilds; where it is nil the
+	// step says nothing is wired and the index is rebuilt only by the other
+	// readers that rebuild it (runstate.Store.RebuildRunIndex).
+	RunIndex RunIndex
 	// Sleep waits while the squash waits for the runs in flight, reporting false
 	// where ctx ended first; nil waits on the clock.
 	Sleep func(ctx context.Context, d time.Duration) bool
@@ -350,11 +370,12 @@ type underway struct {
 	done    chan offGoroutine
 }
 
-// offGoroutine is what the pass does off the supervisor's goroutine: reconcile,
-// then the tracker's cleanup, with the record of the cleanup where one ran,
+// offGoroutine is what the pass does off the supervisor's goroutine: the run
+// index rebuilt, then reconcile, then the tracker's cleanup, with the record of the cleanup where one ran,
 // then the measurement of the tracker's store, then its squash, and then the
 // check of its limits.
 type offGoroutine struct {
+	indexed    runstate.SweepStep
 	reconciled runstate.SweepStep
 	cleaned    runstate.SweepStep
 	cleanup    *runstate.TrackerStoreCleanup
@@ -435,7 +456,8 @@ func (p *Pass) Look(ctx context.Context, now time.Time) {
 	p.log("maintenance pass %d starting", claimed.Firings)
 	done := p.running.done
 	go func() {
-		work := offGoroutine{reconciled: p.reconcile(ctx)}
+		work := offGoroutine{indexed: p.rebuildRunIndex()}
+		work.reconciled = p.reconcile(ctx)
 		work.cleaned, work.cleanup = p.cleanUpTracker(ctx)
 		work.measured = p.measureTracker(ctx)
 		work.squashed = p.squashTracker(ctx)
@@ -507,6 +529,7 @@ func (p *Pass) finish(ctx context.Context, done offGoroutine) {
 		StartedAt:     started.UTC(),
 	}
 	recorded.Steps = append(recorded.Steps, p.provider())
+	recorded.Steps = append(recorded.Steps, done.indexed)
 	recorded.Steps = append(recorded.Steps, done.reconciled)
 	recorded.Steps = append(recorded.Steps, done.cleaned)
 	recorded.Steps = append(recorded.Steps, done.measured)
@@ -597,6 +620,36 @@ func (p *Pass) provider() runstate.SweepStep {
 		step.Outcome, step.Detail = runstate.StepRan, outage.Says()+"; nothing is restarted while it stands"
 	default:
 		step.Outcome, step.Detail = runstate.StepRan, "answering"
+	}
+	return step
+}
+
+// rebuildRunIndex rebuilds the index of run records from every record and says
+// which records could not be read. A record that will not read is not the
+// step failing: the index holds it as unreadable, every listing names it, and
+// the dashboard says it among the factory problems.
+func (p *Pass) rebuildRunIndex() runstate.SweepStep {
+	step := runstate.SweepStep{Name: StepRunIndex}
+	if p.RunIndex == nil {
+		step.Outcome, step.Detail = runstate.StepSkipped, "no run store is wired, so the index of run records is rebuilt only when a listing finds an entry it cannot read"
+		return step
+	}
+	if err := p.RunIndex.RebuildRunIndex(); err != nil {
+		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the index of run records could not be rebuilt: %v", err)
+		return step
+	}
+	unreadable, err := p.RunIndex.UnreadableRuns()
+	switch {
+	case err != nil:
+		step.Outcome, step.Detail = runstate.StepRan, fmt.Sprintf("the index of run records was rebuilt from every record; which records it could not read could not be listed: %v", err)
+	case len(unreadable) == 0:
+		step.Outcome, step.Detail = runstate.StepRan, "the index of run records was rebuilt from every record, and every record reads"
+	default:
+		says := make([]string, 0, len(unreadable))
+		for _, record := range unreadable {
+			says = append(says, record.Says())
+		}
+		step.Outcome, step.Detail = runstate.StepRan, fmt.Sprintf("the index of run records was rebuilt from every record; %d could not be read: %s", len(unreadable), strings.Join(says, "; "))
 	}
 	return step
 }

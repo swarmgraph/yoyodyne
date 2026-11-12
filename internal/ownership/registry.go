@@ -199,6 +199,7 @@ var registry = map[Kind]Rule{
 	KindKeptHeavyCheck:    keptHeavyCheckRule,
 	KindLaneHumanBlock:    laneHumanBlockRule,
 	KindDocumentApproval:  documentApprovalRule,
+	KindUnreadableRun:     unreadableRunRule,
 	KindStoppage:          stoppageRule,
 	KindFollowUp:          followUpRule,
 }
@@ -594,6 +595,14 @@ func unrunCheckRule(Record) (Answer, bool) {
 
 func capacityDegradedRule(Record) (Answer, bool) {
 	return owned(MoverNobody, "nothing: the limit lifts on the provider's clock", "")
+}
+
+// unreadableRunRule is a run record that will not read. Nothing acts on the
+// run meanwhile, so whether it is a run still going and what becomes of its
+// work is the development manager's to find out; the harness reads it again as
+// soon as its file changes.
+func unreadableRunRule(Record) (Answer, bool) {
+	return owned(MoverDevelopmentManager, "find out why the run record does not read and settle the run", "")
 }
 
 func keptHeavyCheckRule(Record) (Answer, bool) {
