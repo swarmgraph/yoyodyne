@@ -16,9 +16,10 @@ import (
 // the request's head with the target), and reads the reviews and comments on
 // the ones still open (TakeUpFeedback). It also fetches the team's branch for
 // each change waiting for the team's merge (execution.upstream_branch) and
-// closes the item whose landing commit it now carries (SettleTeamMerges). The claim, team pause and records
-// references the design adds with team mode are not read: team mode does not
-// exist yet, and the check covers them once it does.
+// closes the item whose landing commit it now carries (SettleTeamMerges). With
+// team mode on it also merges the tracker's shared export into this machine's
+// tracker (TrackerShare), which trackershare.go explains. The claim, team pause
+// and records references the design adds with team mode are not read here yet.
 //
 // Two rules make a check safe to repeat and safe to fail:
 //
@@ -53,6 +54,11 @@ type ForgeCheck struct {
 	// Feedback is what was said on each of them since the head was pushed, and
 	// what the check did about it.
 	Feedback []FeedbackSettlement `json:"feedback"`
+	// Tracker is what merging the shared tracker export found and did, and nil
+	// with team mode off. TrackerFailure is why it could not finish, which the
+	// next check tries again.
+	Tracker        *TrackerShareResult `json:"tracker,omitempty"`
+	TrackerFailure string              `json:"tracker_failure,omitempty"`
 }
 
 // Failures counts the requests the check could not read or finish acting on,
@@ -74,6 +80,9 @@ func (c ForgeCheck) Failures() int {
 			failures++
 		}
 	}
+	if c.TrackerFailure != "" {
+		failures++
+	}
 	return failures
 }
 
@@ -88,5 +97,14 @@ func (r Reconciler) CheckForge(ctx context.Context) (ForgeCheck, error) {
 	check.PersonMerges, mergeErr = r.SettlePersonMerges(ctx)
 	check.TeamMerges, teamErr = r.SettleTeamMerges(ctx)
 	check.Feedback, feedbackErr = r.TakeUpFeedback(ctx)
+	if r.TrackerShare != nil {
+		// Said on the check rather than returned: a remote or tracker that cannot
+		// answer is left for the next check, as a request that cannot be read is.
+		merged, err := r.TrackerShare.Check(ctx)
+		check.Tracker = &merged
+		if err != nil {
+			check.TrackerFailure = err.Error()
+		}
+	}
 	return check, errors.Join(mergeErr, teamErr, feedbackErr)
 }

@@ -277,6 +277,9 @@ type Reconciler struct {
 	Feedback    ReconcileFeedback
 	Reports     ReportCollector
 	RepairLimit int
+	// TrackerShare merges the tracker's shared export at each forge check, and
+	// is nil with team mode off (trackershare.go).
+	TrackerShare *TrackerShare
 	// RetryAtNextCheck says a write that fails on something a later attempt may
 	// survive is not waited out and asked again here: it fails this pass, as it
 	// stands, and the next pass makes it again. The forge check sets it
