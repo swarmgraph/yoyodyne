@@ -289,7 +289,7 @@ func TestTheCallPathsRefusalsComeBackInTheSameMessage(t *testing.T) {
 		if len(calls) != 2 || calls[0].Refusal != string(want[0]) || calls[1].Refusal != string(want[1]) {
 			t.Fatalf("paused=%t calls=%#v", paused, calls)
 		}
-		if len(provider.requests) != 2 || !strings.Contains(provider.requests[1].Prompt, "refused: "+string(want[0])) {
+		if len(provider.requests) != 2 || !strings.Contains(provider.requests[1].Prompt, want[0].Sentence()) || strings.Contains(provider.requests[1].Prompt, "refused: "+string(want[0])) {
 			t.Fatalf("paused=%t: the refusals were not handed back in the same message", paused)
 		}
 	}
@@ -366,6 +366,33 @@ func TestARoleHoldingNoMCPGrantIsRefusedTheBlock(t *testing.T) {
 		held, _ := AuthorityFor(role)
 		if !held.MCPCalls {
 			t.Errorf("the %s may not ask for MCP calls", role)
+		}
+	}
+}
+
+// The operator's line for a round says why each refused call was refused in a
+// sentence, for every reason the call path can give, and never shows the
+// stored reason, which stays on the call for the record.
+func TestMCPRoundShowsEachRefusalAsASentence(t *testing.T) {
+	for _, reason := range mcpcall.RefusalReasons {
+		tool := "mail.send"
+		if reason == mcpcall.RefusedNotOnList {
+			tool = ""
+		}
+		call := MCPCall{Tool: tool, Outcome: string(mcpcall.OutcomeRefused), Refusal: string(reason)}
+		line := MCPRound{Calls: []MCPCall{call}}.Render()
+		if !strings.Contains(line, reason.Sentence()) {
+			t.Errorf("%s: the line lacks its sentence %q: %q", reason, reason.Sentence(), line)
+		}
+		if strings.Contains(line, "("+string(reason)+")") || strings.Contains(line, "not_on_list") {
+			t.Errorf("%s: the line shows the stored reason: %q", reason, line)
+		}
+		encoded, err := json.Marshal(call)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(encoded), `"refusal":"`+string(reason)+`"`) {
+			t.Errorf("%s: the record lost the stored reason: %s", reason, encoded)
 		}
 	}
 }

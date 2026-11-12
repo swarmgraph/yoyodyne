@@ -226,6 +226,15 @@ func TestEveryRefusalIsOnTheClosedListAndCallsNothing(t *testing.T) {
 			if c.want == RefusedNotOnList && answer.Tool != "" {
 				t.Errorf("a refusal names the tool it refused: %+v", answer)
 			}
+			// What the role is handed says why in a sentence, not the stored
+			// reason.
+			evidence := answer.Evidence()
+			if !strings.Contains(evidence, c.want.Sentence()) {
+				t.Errorf("the refusal handed back lacks its sentence %q: %s", c.want.Sentence(), evidence)
+			}
+			if strings.Contains(evidence, "refused: ") || strings.Contains(evidence, "not_on_list") {
+				t.Errorf("the refusal handed back shows the stored reason: %s", evidence)
+			}
 			// The tools this caller may not use are the two off its list; no
 			// refusal names either, and none lists any other tool.
 			for _, words := range []string{answer.Reason, answer.Evidence()} {
@@ -510,5 +519,34 @@ func TestAServerThatNeverAnswersIsEndedAtTheLimitAndTheCallerCarriesOn(t *testin
 	}
 	if after := f.do(t, caller, Request{Tool: "fake.echo"})[0]; after.Outcome != OutcomePerformed {
 		t.Fatalf("the caller could not carry on: %+v", after)
+	}
+}
+
+// Every reason on the closed list has a sentence of its own that says what was
+// refused and why in ordinary words, and none is the stored reason itself.
+func TestEveryRefusalReasonHasASentence(t *testing.T) {
+	unknown := RefusalReason("not-a-reason").Sentence()
+	seen := map[string]RefusalReason{}
+	for _, reason := range RefusalReasons {
+		sentence := reason.Sentence()
+		if sentence == "" || sentence == unknown {
+			t.Fatalf("%s has no sentence of its own: %q", reason, sentence)
+		}
+		if !strings.HasPrefix(sentence, "The call was refused because ") || !strings.HasSuffix(sentence, ".") {
+			t.Errorf("%s does not read as a sentence saying why: %q", reason, sentence)
+		}
+		if strings.Contains(sentence, "_") || strings.Contains(sentence, "`") {
+			t.Errorf("%s reads as a code: %q", reason, sentence)
+		}
+		if other, ok := seen[sentence]; ok {
+			t.Errorf("%s and %s share a sentence: %q", reason, other, sentence)
+		}
+		seen[sentence] = reason
+	}
+	if RefusalReason("").Sentence() != "" {
+		t.Error("a call that was not refused has a refusal sentence")
+	}
+	if !strings.HasSuffix(unknown, ".") || strings.Contains(unknown, "not-a-reason") {
+		t.Errorf("an unknown reason is not described in words: %q", unknown)
 	}
 }
