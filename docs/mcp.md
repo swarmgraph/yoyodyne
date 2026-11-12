@@ -143,9 +143,12 @@ the agent is an AI model run by a provider, such as Anthropic or OpenAI. So:
   which show only tool names, how each call ended, and counts.
 - **An agent could still copy what it read into something it writes.** The
   harness cannot tell when an agent puts a private result into the work
-  tracker, whose export is committed to the repository. The roles are to be
-  told never to, in the instructions that come with the step that lets them
-  ask, and that instruction will be the only guard on it.
+  tracker, whose export is committed to the repository. A conversation role
+  that may ask for calls is told, with its list of tools, not to copy a result
+  into the tracker, a report, or a document unless the work needs it there.
+  That instruction is the only guard on it, and it leaves the judgement to the
+  agent. A developer run cannot ask for calls yet, and will be given the same
+  instruction when it can.
 - **A result can try to steer the agent.** It is marked as outside data, never
   instructions, which lowers this and does not remove it. That is part of why
   developers hold read tools only.
