@@ -482,6 +482,17 @@ func (q *queueCheckStages) begin(key runstate.MergeQueueKey, generation uint64, 
 	return true
 }
 
+// accepting reports whether a new check stage may start: false once the drain
+// bound has run out.
+func (q *queueCheckStages) accepting() bool {
+	if q == nil {
+		return true
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return !q.closed
+}
+
 // started is the stage beginning a check, and launched that check launching
 // under its limit.
 func (q *queueCheckStages) started(key runstate.MergeQueueKey, check string, now time.Time) {
