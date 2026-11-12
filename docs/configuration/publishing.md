@@ -643,6 +643,10 @@ way. A run that stopped earlier, while pushing its branch for its pull request
 before its checks, for one of these causes only, is taken up the same way at its
 checks, on the same branch and in the same worktree, with no repair attempt or
 re-run spent; it pushes its branch once the checks pass and before its review.
+Either kind is taken up only while its branch and its checkout are both still
+there: a run whose branch or checkout is gone is left for the development
+manager, with the reason said, and the harness does not put the checkout back to
+take it up.
 
 A published run's pull request follows the replay: the run branch is replaced on
 the remote from exactly the commit the harness published there, so the request

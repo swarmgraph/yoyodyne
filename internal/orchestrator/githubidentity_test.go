@@ -151,7 +151,7 @@ func TestNothingIsTouchedWhileGitHubStillDoesNotAnswer(t *testing.T) {
 			if pass.Stopped != 1 || pass.TakenUp != 0 || len(landing.reasons) != 0 {
 				t.Fatalf("pass = %#v, resumptions = %v; want the change left stopped", pass, landing.reasons)
 			}
-			for _, want := range []string{"stays stopped at " + name + " for the development manager", "GitHub still does not accept the harness's identity", "Permission denied (publickey)"} {
+			for _, want := range []string{"stays stopped at " + name + " for the development manager", "GitHub still does not accept the harness's identity", "Permission denied (publickey)", docketedTitle + " (" + docketedItem + ")"} {
 				if !strings.Contains(pass.Says, want) {
 					t.Fatalf("says = %q, want %q", pass.Says, want)
 				}
@@ -184,6 +184,40 @@ func TestAPublishingStopWhoseBranchOrCheckoutIsGoneIsNotTakenUp(t *testing.T) {
 			}
 			if checkout.Restores != 0 {
 				t.Fatalf("a checkout was restored %d times for a push the run owes", checkout.Restores)
+			}
+			h.assertNothingWritten(t)
+		})
+	}
+}
+
+// An approved change stopped at landing whose branch or checkout is gone is left
+// for the development manager rather than resumed, even once GitHub answers:
+// the resumption would put the removed checkout back from the branch.
+func TestALandingStopWhoseBranchOrCheckoutIsGoneIsNotTakenUp(t *testing.T) {
+	t.Parallel()
+
+	for name, checkout := range map[string]*orchestratortest.RecoveryCheckout{
+		"checkout gone": {Ownership: &orchestratortest.Ownership{}, Present: false, Branch: true},
+		"branch gone":   {Ownership: &orchestratortest.Ownership{}, Present: true, Branch: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			h := newResumeHarness(t, landingRefusedState())
+			landing := &landingResumes{result: IntegrationResumeResult{Resumed: true}}
+			stops := h.identityStops(&identityProbe{}, landing)
+			stops.Worktrees = checkout
+			pass := stops.Take(context.Background())
+
+			if pass.Stopped != 1 || pass.TakenUp != 0 || len(landing.reasons) != 0 {
+				t.Fatalf("pass = %#v, resumptions = %v; want the change left stopped and never handed to the resumption", pass, landing.reasons)
+			}
+			for _, want := range []string{"stays stopped at landing for the development manager", "branch or checkout is gone", docketedTitle + " (" + docketedItem + ")"} {
+				if !strings.Contains(pass.Says, want) {
+					t.Fatalf("says = %q, want %q", pass.Says, want)
+				}
+			}
+			if checkout.Restores != 0 {
+				t.Fatalf("a checkout was restored %d times for a run left for the development manager", checkout.Restores)
 			}
 			h.assertNothingWritten(t)
 		})

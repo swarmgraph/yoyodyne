@@ -123,6 +123,7 @@ func (g GitHubIdentityStops) Take(ctx context.Context) GitHubIdentityPass {
 			continue
 		}
 		pass.Stopped++
+		named := g.itemNamed(ctx, run.WorkItemID)
 		where := "landing"
 		if publishing {
 			where = "publishing"
@@ -134,16 +135,16 @@ func (g GitHubIdentityStops) Take(ctx context.Context) GitHubIdentityPass {
 		}
 		if refused != nil {
 			says = append(says, fmt.Sprintf("run %s of %s stays stopped at %s for the development manager: GitHub still does not accept the harness's identity: %s",
-				run.RunID, run.WorkItemID, where, singleLine(refused.Error(), 300)))
+				run.RunID, named, where, singleLine(refused.Error(), 300)))
 			continue
 		}
 		var tookUp bool
 		var account string
 		var wait bool
 		if publishing {
-			tookUp, account, wait = g.takeUpPublishing(ctx, entry, run)
+			tookUp, account, wait = g.takeUpPublishing(ctx, entry, run, named)
 		} else {
-			tookUp, account, wait = g.takeUpLanding(ctx, run)
+			tookUp, account, wait = g.takeUpLanding(ctx, run, named)
 		}
 		if tookUp {
 			pass.TakenUp++
@@ -163,28 +164,36 @@ func (g GitHubIdentityStops) Take(ctx context.Context) GitHubIdentityPass {
 // takeUpLanding resumes an approved change stopped at its landing, and says what
 // became of it. wait reports a hold or a full harness, which the next look asks
 // about again.
-func (g GitHubIdentityStops) takeUpLanding(ctx context.Context, run runstate.State) (tookUp bool, says string, wait bool) {
+func (g GitHubIdentityStops) takeUpLanding(ctx context.Context, run runstate.State, named string) (tookUp bool, says string, wait bool) {
 	if g.ResumeLanding == nil {
-		return false, fmt.Sprintf("run %s of %s stays stopped at landing for the development manager: nothing here can resume it", run.RunID, run.WorkItemID), false
+		return false, fmt.Sprintf("run %s of %s stays stopped at landing for the development manager: nothing here can resume it", run.RunID, named), false
+	}
+	// A change whose branch or checkout is gone is left for the development
+	// manager rather than resumed: the resumption would put a removed checkout
+	// back from the branch, and taking a run up on GitHub's answer alone is only
+	// for one that stands exactly as it stopped. Nothing is written.
+	remains, _ := g.Worktrees.(readmodel.Remains)
+	if found := readmodel.LookFor(ctx, remains, run); found.Unknown || !found.BranchThere || !found.WorktreeThere {
+		return false, fmt.Sprintf("run %s of %s stays stopped at landing for the development manager: its branch or checkout is gone or could not be verified, and the harness does not put one back to take a run up after GitHub answers again: %s", run.RunID, named, found.Describe()), false
 	}
 	now := g.now()
 	reason := fmt.Sprintf("GitHub answered again with the same identity at %s, so the harness took the approved change up again at its landing, with its approval, passed checks and repair count kept and no repair attempt or re-run spent.", runstate.LocalStamp(now))
 	result, err := g.ResumeLanding(ctx, run.RunID, reason)
 	switch {
 	case result.Resumed:
-		says = fmt.Sprintf("run %s of %s was taken up again at its landing", run.RunID, run.WorkItemID)
+		says = fmt.Sprintf("run %s of %s was taken up again at its landing", run.RunID, named)
 		if err != nil {
 			says += fmt.Sprintf(" and then ended: %s", singleLine(err.Error(), 300))
 		}
 		return true, says, false
 	case result.IntakeHeld != nil:
-		return false, fmt.Sprintf("run %s of %s waits at landing: intake is held, so nothing is taken up until it is released; it is asked again next look", run.RunID, run.WorkItemID), true
+		return false, fmt.Sprintf("run %s of %s waits at landing: intake is held, so nothing is taken up until it is released; it is asked again next look", run.RunID, named), true
 	case result.CapacityFull != nil:
-		return false, fmt.Sprintf("run %s of %s waits at landing: every developer slot is occupied (%d of %d); it is asked again next look", run.RunID, run.WorkItemID, result.CapacityFull.Active, result.CapacityFull.Limit), true
+		return false, fmt.Sprintf("run %s of %s waits at landing: every developer slot is occupied (%d of %d); it is asked again next look", run.RunID, named, result.CapacityFull.Active, result.CapacityFull.Limit), true
 	case err != nil:
-		return false, fmt.Sprintf("run %s of %s stays stopped at landing for the development manager: it could not be taken up: %s", run.RunID, run.WorkItemID, singleLine(err.Error(), 300)), false
+		return false, fmt.Sprintf("run %s of %s stays stopped at landing for the development manager: it could not be taken up: %s", run.RunID, named, singleLine(err.Error(), 300)), false
 	}
-	return false, fmt.Sprintf("run %s of %s was not taken up at its landing", run.RunID, run.WorkItemID), false
+	return false, fmt.Sprintf("run %s of %s was not taken up at its landing", run.RunID, named), false
 }
 
 // takeUpPublishing takes a change that stopped while publishing up at its
@@ -196,9 +205,9 @@ func (g GitHubIdentityStops) takeUpLanding(ctx context.Context, run runstate.Sta
 // The order is the continuation's: everything that can refuse is asked before
 // anything is written, the item is put back before the run is made live, and the
 // docket entry is closed last.
-func (g GitHubIdentityStops) takeUpPublishing(ctx context.Context, entry triage.Entry, listed runstate.State) (tookUp bool, says string, wait bool) {
+func (g GitHubIdentityStops) takeUpPublishing(ctx context.Context, entry triage.Entry, listed runstate.State, named string) (tookUp bool, says string, wait bool) {
 	stays := func(why string) (bool, string, bool) {
-		return false, fmt.Sprintf("run %s of %s stays stopped at publishing for the development manager: %s", listed.RunID, listed.WorkItemID, why), false
+		return false, fmt.Sprintf("run %s of %s stays stopped at publishing for the development manager: %s", listed.RunID, named, why), false
 	}
 	if err := g.validatePublishing(); err != nil {
 		return stays("it cannot be taken up from here: " + singleLine(err.Error(), 300))
@@ -231,14 +240,14 @@ func (g GitHubIdentityStops) takeUpPublishing(ctx context.Context, entry triage.
 		return stays("whether intake is held could not be read: " + singleLine(err.Error(), 300))
 	}
 	if held {
-		return false, fmt.Sprintf("run %s of %s waits at publishing: intake is held, so nothing is taken up until it is released; it is asked again next look", prior.RunID, prior.WorkItemID), true
+		return false, fmt.Sprintf("run %s of %s waits at publishing: intake is held, so nothing is taken up until it is released; it is asked again next look", prior.RunID, named), true
 	}
 	full, free, err := slotIsFree(g.Runs, g.Capacity)
 	if err != nil {
 		return stays(singleLine(err.Error(), 300))
 	}
 	if !free {
-		return false, fmt.Sprintf("run %s of %s waits at publishing: every developer slot is occupied (%d of %d); it is asked again next look", prior.RunID, prior.WorkItemID, full.Active, full.Limit), true
+		return false, fmt.Sprintf("run %s of %s waits at publishing: every developer slot is occupied (%d of %d); it is asked again next look", prior.RunID, named, full.Active, full.Limit), true
 	}
 	remains, _ := g.Worktrees.(readmodel.Remains)
 	found := readmodel.LookFor(ctx, remains, prior)
@@ -268,11 +277,11 @@ func (g GitHubIdentityStops) takeUpPublishing(ctx context.Context, entry triage.
 	if err := g.Runs.ReserveLive(ctx, prior.TakenUpAtChecks(reason, now), g.Capacity); err != nil {
 		if capacity, taken := slotTakenMeanwhile(err); taken {
 			noteSlotTaken(ctx, g.Items, entry.WorkItemID, prior.RunID, capacity)
-			return false, fmt.Sprintf("run %s of %s waits at publishing: the last developer slot went to another run (%d of %d); it is asked again next look", prior.RunID, prior.WorkItemID, capacity.Active, capacity.Limit), true
+			return false, fmt.Sprintf("run %s of %s waits at publishing: the last developer slot went to another run (%d of %d); it is asked again next look", prior.RunID, named, capacity.Active, capacity.Limit), true
 		}
 		return stays(fmt.Sprintf("taking it up could not be recorded on the run, whose item has already been told why: %s", singleLine(err.Error(), 300)))
 	}
-	says = fmt.Sprintf("run %s of %s was taken up again at its checks, owing its push", prior.RunID, prior.WorkItemID)
+	says = fmt.Sprintf("run %s of %s was taken up again at its checks, owing its push", prior.RunID, named)
 	if err := g.closeEntry(entry, reason, now); err != nil {
 		says += fmt.Sprintf("; its docket entry could not be closed: %s", singleLine(err.Error(), 300))
 	}
@@ -321,6 +330,20 @@ func (g GitHubIdentityStops) validatePublishing() error {
 		problems = append(problems, fmt.Errorf("developer capacity is %d, which runs nothing", g.Capacity))
 	}
 	return errors.Join(problems...)
+}
+
+// itemNamed names a work item the way a person reads it: by its title with its
+// identifier after it, and by the identifier alone only where the title cannot
+// be read.
+func (g GitHubIdentityStops) itemNamed(ctx context.Context, workItemID string) string {
+	if g.Items == nil {
+		return workItemID
+	}
+	item, err := g.Items.Show(ctx, workItemID)
+	if err != nil || strings.TrimSpace(item.Title) == "" {
+		return workItemID
+	}
+	return fmt.Sprintf("%s (%s)", strings.TrimSpace(item.Title), workItemID)
 }
 
 func (g GitHubIdentityStops) now() time.Time {

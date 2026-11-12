@@ -645,7 +645,9 @@ credential needs nobody to say it is settled: the harness asks GitHub with the
 same identity on its regular look at held work, never on a clock, and resumes
 the run itself at its promotion the first time GitHub answers (and takes up a
 run that stopped while pushing its branch, before its checks, at its checks
-instead). `yoyo triage resume
+instead). It takes a run up this way only while its branch and checkout are
+both still there; one whose branch or checkout is gone is left for the
+development manager, with the reason said. `yoyo triage resume
 <run-id>` resumes the run at the promotion it stopped short of — replay onto
 where the target now stands, push, merge request — with its approval standing,
 and it charges the item nothing: no review round, no repair grant, no re-run.
