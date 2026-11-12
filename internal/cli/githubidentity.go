@@ -12,7 +12,7 @@ import (
 // gitHubIdentityProbe asks GitHub, with the identity the harness publishes
 // under, whether it answers for a target branch: the remotes must take the
 // harness's credential for listing that branch, and, where pull requests are
-// opened automatically, the GitHub command-line tool must be logged in. A nil
+// opened automatically, the GitHub command line tool must be logged in. A nil
 // error means GitHub answered. It reads and writes nothing.
 func gitHubIdentityProbe(parts components) func(ctx context.Context, target string) error {
 	return func(ctx context.Context, target string) error {
@@ -32,10 +32,10 @@ func gitHubIdentityProbe(parts components) func(ctx context.Context, target stri
 			return err
 		}
 		if !availability.Installed {
-			return errors.New("the GitHub command-line tool is not installed, so it is not logged in")
+			return errors.New("the GitHub command line tool is not installed, so it is not logged in")
 		}
 		if !availability.Authenticated {
-			return errors.New("the GitHub command-line tool is not logged in")
+			return errors.New("the GitHub command line tool is not logged in")
 		}
 		return nil
 	}

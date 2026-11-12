@@ -4404,7 +4404,7 @@ func integrationStopCauseOf(failure error) (runstate.EnvironmentalCause, bool) {
 	case errors.Is(failure, ErrMergeQueueHeld):
 		return runstate.CauseMergeQueueHeld, true
 	// The same cause where it did not come through a Git remote command: the
-	// GitHub command-line tool not logged in, or the machine unable to name the
+	// GitHub command line tool not logged in, or the machine unable to name the
 	// user the harness runs as, in the words recovery reads them by.
 	case recovery.AuthenticationRefusedDetail(failure.Error()):
 		return runstate.CauseRemoteAuthRefused, true
@@ -9867,7 +9867,7 @@ func resumableRepair(state runstate.State) bool {
 // record saying it was put there on purpose, and with the worktree, branch, and
 // developer session its change and its review need. A run taken up again after
 // an identity stop is the same shape for the same reason: it is at the checks
-// with the push it still owes (PublishOwed) and the take-up that says the
+// with the push it still owes (PublishOwed) and the record of taking it up that says the
 // harness put it there. A run at the checks with neither is one a process died
 // in, and that is the sweep's to settle rather than this path's to adopt.
 func continuedAtCheckStage(state runstate.State) bool {

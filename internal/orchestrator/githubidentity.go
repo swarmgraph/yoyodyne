@@ -2,7 +2,7 @@ package orchestrator
 
 // Taking up runs that stopped only because the harness could not reach GitHub
 // as itself: the SSH key the remote refused, a machine that could not name the
-// user it runs as, the GitHub command-line tool not logged in.
+// user it runs as, the GitHub command line tool not logged in.
 //
 // Nothing is wrong with the change in such a run, and nothing a person decides
 // is needed to move it, only GitHub answering the harness's identity again. So
@@ -256,7 +256,7 @@ func (g GitHubIdentityStops) takeUpPublishing(ctx context.Context, entry triage.
 	reason := fmt.Sprintf("Taken up again by the harness at %s: run %s stopped while publishing its branch only because GitHub would not accept the harness's identity (%s), and GitHub has now answered with the same identity again. It goes on at its checks on the same branch and in the same worktree, and pushes its branch once they pass and before its review. Its repair count is kept; no repair attempt or re-run was spent.",
 		runstate.LocalStamp(now), prior.RunID, prior.IdentityStop.Detail)
 	if _, err := g.Items.RecordOutcome(ctx, entry.WorkItemID, reason); err != nil {
-		return stays("the take-up could not be noted on the work item: " + singleLine(err.Error(), 300))
+		return stays("taking it up could not be noted on the work item: " + singleLine(err.Error(), 300))
 	}
 	claimed, _, err := g.Items.Claim(ctx, entry.WorkItemID)
 	if err != nil {
@@ -270,7 +270,7 @@ func (g GitHubIdentityStops) takeUpPublishing(ctx context.Context, entry triage.
 			noteSlotTaken(ctx, g.Items, entry.WorkItemID, prior.RunID, capacity)
 			return false, fmt.Sprintf("run %s of %s waits at publishing: the last developer slot went to another run (%d of %d); it is asked again next look", prior.RunID, prior.WorkItemID, capacity.Active, capacity.Limit), true
 		}
-		return stays(fmt.Sprintf("the take-up could not be recorded on the run, whose item has already been told why: %s", singleLine(err.Error(), 300)))
+		return stays(fmt.Sprintf("taking it up could not be recorded on the run, whose item has already been told why: %s", singleLine(err.Error(), 300)))
 	}
 	says = fmt.Sprintf("run %s of %s was taken up again at its checks, owing its push", prior.RunID, prior.WorkItemID)
 	if err := g.closeEntry(entry, reason, now); err != nil {

@@ -272,7 +272,7 @@ const gitHubIdentityProbeTimeout = 30 * time.Second
 
 // gitHubIdentityClears is what clears a decision refused because the harness
 // could not reach GitHub as itself, in the words the refusal carries on the item.
-const gitHubIdentityClears = "GitHub accepting the harness's identity again: the SSH key loaded (`ssh-add`, then `ssh -T git@github.com` to check), the machine able to name the user the harness runs as, and the GitHub command-line tool logged in (`gh auth login`). Nothing was spent, and the harness asks GitHub itself and carries the same decision out as soon as GitHub answers, with nobody deciding it again"
+const gitHubIdentityClears = "GitHub accepting the harness's identity again: the SSH key loaded (`ssh-add`, then `ssh -T git@github.com` to check), the machine able to name the user the harness runs as, and the GitHub command line tool logged in (`gh auth login`). Nothing was spent, and the harness asks GitHub itself and carries the same decision out as soon as GitHub answers, with nobody deciding it again"
 
 // gitHubIdentityAnswers returns a question that asks GitHub at most once however
 // often it is put, so one read of the docket pays for one call. It answers false

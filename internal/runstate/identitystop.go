@@ -22,7 +22,7 @@ import (
 
 // MaxIdentityTakeUps bounds how many times one run is taken up again after an
 // identity stop. A run refused this many times is a machine someone has to
-// look at; the take-up refuses at the bound before it writes anything, and the
+// look at; taking a run up refuses at the bound before it writes anything, and the
 // record refuses past it, so the two say the same thing.
 const MaxIdentityTakeUps = 8
 
@@ -90,7 +90,7 @@ func (s State) IdentityTakeUpsLeft() int {
 }
 
 // validateIdentityStop reports every contract violation in the record's account
-// of an identity stop and of the take-ups after it.
+// of an identity stop and of each time it was taken up after it.
 func (s State) validateIdentityStop() []error {
 	var problems []error
 	if s.IdentityStop != nil {
@@ -99,7 +99,7 @@ func (s State) validateIdentityStop() []error {
 		}
 	}
 	if len(s.IdentityTakeUps) > MaxIdentityTakeUps {
-		problems = append(problems, fmt.Errorf("%d identity take-ups are recorded, which exceeds the bound of %d", len(s.IdentityTakeUps), MaxIdentityTakeUps))
+		problems = append(problems, fmt.Errorf("the run is recorded as taken up %d times after an identity stop, which exceeds the bound of %d", len(s.IdentityTakeUps), MaxIdentityTakeUps))
 	}
 	for index, takeUp := range s.IdentityTakeUps {
 		if err := takeUp.Validate(); err != nil {
@@ -112,7 +112,7 @@ func (s State) validateIdentityStop() []error {
 // TakenUpAtChecks is a run stopped by an identity stop made live again at its
 // checks, owing the push it never made, which PublishOwed carries until the
 // push is made after the checks pass. Nothing is counted: no attempt, no review
-// round, no grant. The failure it ended on is kept on the take-up rather than
+// round, no grant. The failure it ended on is kept on the record of taking it up rather than
 // lost with the clearing.
 func (s State) TakenUpAtChecks(reason string, now time.Time) State {
 	live := s

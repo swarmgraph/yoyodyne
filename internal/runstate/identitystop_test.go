@@ -19,8 +19,8 @@ func publishRefusedState(t *testing.T) State {
 	return state
 }
 
-// The identity stop and its take-ups are held to the bounds the record states:
-// a stop says what refused and when, and a take-up says why and when.
+// The identity stop and its records of taking up are held to the bounds the record states:
+// a stop says what refused and when, and a taking up says why and when.
 func TestAnIdentityStopAndItsTakeUpsAreHeldToTheirBounds(t *testing.T) {
 	t.Parallel()
 
@@ -36,15 +36,15 @@ func TestAnIdentityStopAndItsTakeUpsAreHeldToTheirBounds(t *testing.T) {
 		return all
 	}
 	for name, shape := range map[string]func(*State){
-		"a stop without detail":    func(s *State) { s.IdentityStop.Detail = " " },
-		"a stop with long detail":  func(s *State) { s.IdentityStop.Detail = strings.Repeat("x", MaxEnvironmentalDetailBytes+1) },
-		"a stop without a time":    func(s *State) { s.IdentityStop.RecordedAt = time.Time{} },
-		"a take-up without reason": func(s *State) { s.IdentityTakeUps = []IdentityTakeUp{{TakenUpAt: s.UpdatedAt}} },
-		"a take-up without a time": func(s *State) { s.IdentityTakeUps = []IdentityTakeUp{{Reason: "r"}} },
-		"a take-up with long reason": func(s *State) {
+		"a stop without detail":      func(s *State) { s.IdentityStop.Detail = " " },
+		"a stop with long detail":    func(s *State) { s.IdentityStop.Detail = strings.Repeat("x", MaxEnvironmentalDetailBytes+1) },
+		"a stop without a time":      func(s *State) { s.IdentityStop.RecordedAt = time.Time{} },
+		"a taking up without reason": func(s *State) { s.IdentityTakeUps = []IdentityTakeUp{{TakenUpAt: s.UpdatedAt}} },
+		"a taking up without a time": func(s *State) { s.IdentityTakeUps = []IdentityTakeUp{{Reason: "r"}} },
+		"a taking up with long reason": func(s *State) {
 			s.IdentityTakeUps = []IdentityTakeUp{{Reason: strings.Repeat("r", MaxSelectionReasonBytes+1), TakenUpAt: s.UpdatedAt}}
 		},
-		"too many take-ups": func(s *State) { s.IdentityTakeUps = takenUp(MaxIdentityTakeUps + 1) },
+		"too many records of taking up": func(s *State) { s.IdentityTakeUps = takenUp(MaxIdentityTakeUps + 1) },
 	} {
 		state := publishRefusedState(t)
 		shape(&state)
@@ -66,7 +66,7 @@ func TestAnIdentityStopAndItsTakeUpsAreHeldToTheirBounds(t *testing.T) {
 	}
 }
 
-// The identity stop, the owed push, and the take-ups survive the file.
+// The identity stop, the owed push, and the records of taking up survive the file.
 func TestAnIdentityStopRoundTripsThroughJSON(t *testing.T) {
 	t.Parallel()
 

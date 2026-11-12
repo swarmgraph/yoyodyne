@@ -116,7 +116,7 @@ func TestAChangeStoppedWhilePublishingIsTakenUpAtItsChecksOnceGitHubAnswers(t *t
 		t.Fatalf("taken-up run still carries its stop: %#v, failure %q, class %q", state.IdentityStop, state.Failure, state.StopClass)
 	}
 	if len(state.IdentityTakeUps) != 1 || state.IdentityTakeUps[0].SupersededFailure != publishRefusedState().Failure || !strings.Contains(state.IdentityTakeUps[0].Reason, runstate.LocalStamp(docketedNow)) {
-		t.Fatalf("take-ups = %#v, want the one this made, carrying what it superseded and the local time", state.IdentityTakeUps)
+		t.Fatalf("records of taking up = %#v, want the one this made, carrying what it superseded and the local time", state.IdentityTakeUps)
 	}
 	if state.RepairAttempts != 1 {
 		t.Fatalf("repair attempts = %d, want the count kept at 1", state.RepairAttempts)
@@ -129,7 +129,7 @@ func TestAChangeStoppedWhilePublishingIsTakenUpAtItsChecksOnceGitHubAnswers(t *t
 		t.Fatalf("the item's triage record was spent: %#v", counters)
 	}
 	if !strings.Contains(h.tracker.Notes, "Taken up again by the harness") || !strings.Contains(h.tracker.Notes, "No user exists for uid 501") || !h.tracker.Claimed {
-		t.Fatalf("item notes = %q, claimed = %t; want the take-up recorded and the item put back", h.tracker.Notes, h.tracker.Claimed)
+		t.Fatalf("item notes = %q, claimed = %t; want the taking up recorded and the item put back", h.tracker.Notes, h.tracker.Claimed)
 	}
 	closure, closed := h.closure(t)
 	if !closed || closure.Decision != triage.ContinuedChecksDecision || !strings.Contains(closure.DecidedBy, "the harness") {

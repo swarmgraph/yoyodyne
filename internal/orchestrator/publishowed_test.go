@@ -172,7 +172,7 @@ func TestARunOwingAPushIsAdoptedAtItsChecksOnlyWhenTakenUp(t *testing.T) {
 	state.Status, state.Phase, state.RepairAttempts = runstate.StatusRunning, runstate.PhaseChecking, 0
 	state.PublishOwed = true
 	if continuedAtCheckStage(state) {
-		t.Fatal("a run owing a push with no take-up recorded was adopted")
+		t.Fatal("a run owing a push with no taking up recorded was adopted")
 	}
 	state.IdentityTakeUps = []runstate.IdentityTakeUp{{Reason: "GitHub answers", TakenUpAt: state.UpdatedAt}}
 	if !continuedAtCheckStage(state) {
@@ -180,6 +180,6 @@ func TestARunOwingAPushIsAdoptedAtItsChecksOnlyWhenTakenUp(t *testing.T) {
 	}
 	state.PublishOwed = false
 	if continuedAtCheckStage(state) {
-		t.Fatal("a take-up alone adopted a run that owes nothing")
+		t.Fatal("a taking up alone adopted a run that owes nothing")
 	}
 }

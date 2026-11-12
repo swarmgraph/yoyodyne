@@ -150,7 +150,7 @@ func TestAnAuthenticationRefusalIsNeverRecoverable(t *testing.T) {
 		"remote: Permission to x/y.git denied to somebody.\nfatal: unable to access 'https://github.com/x/y.git/': The requested URL returned error: 403",
 		// The machine could not name its own user, so SSH never connected.
 		"No user exists for uid 501\nfatal: Could not read from remote repository.",
-		// The GitHub command-line tool with no login, in its words and the harness's.
+		// The GitHub command line tool with no login, in its words and the harness's.
 		"gh auth status: You are not logged into any GitHub hosts. To log in, run: gh auth login",
 		"the GitHub CLI is not authenticated; run `gh auth login` before handing published work to Yoyodyne",
 	} {

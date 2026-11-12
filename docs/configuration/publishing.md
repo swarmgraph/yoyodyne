@@ -638,7 +638,7 @@ same answer; the harness instead asks GitHub with the same identity at its
 regular look at held work, about every five minutes, and resumes the run itself
 at its promotion the first time GitHub answers, so the person only has to
 restore the identity. A machine that cannot name its user ("No user exists for
-uid 501") and a GitHub command-line tool that is not logged in are read the same
+uid 501") and a GitHub command line tool that is not logged in are read the same
 way. A run that stopped earlier, while pushing its branch for its pull request
 before its checks, for one of these causes only, is taken up the same way at its
 checks, on the same branch and in the same worktree, with no repair attempt or
