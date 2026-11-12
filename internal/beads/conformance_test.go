@@ -1167,7 +1167,7 @@ func TestStatusesListingConformance(t *testing.T) {
 		t.Fatalf("Block() error = %v", err)
 	}
 	claimed := create("Being worked")
-	if _, err := client.claim(ctx, claimed.ID); err != nil {
+	if _, err := client.claim(ctx, claimed.ID, true); err != nil {
 		t.Fatalf("claim() error = %v", err)
 	}
 	closed := create("Landed")
@@ -1389,7 +1389,7 @@ func TestBlockedClaimConformance(t *testing.T) {
 
 	// The bare claim, which is what Claim makes first and what every caller made
 	// before the recovery existed.
-	if item, err := client.claim(ctx, created.ID); err == nil {
+	if item, err := client.claim(ctx, created.ID, true); err == nil {
 		t.Fatalf("bd claimed the blocked item %#v; it refused before, so the recovery below now runs over a claim that "+
 			"already succeeded and this check no longer says what the claim path meets", item)
 	} else if !staleBlockedRefusal.MatchString(err.Error()) {

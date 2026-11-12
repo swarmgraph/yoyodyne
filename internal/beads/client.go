@@ -51,13 +51,17 @@ type WorkItem struct {
 	// FramedNotes is the notes as the tracker stores them, boundaries included,
 	// and is empty where they carry none. Only a reader that needs to tell one
 	// append from another reads it, through RecordedNotes.
-	FramedNotes  string `json:",omitempty"`
-	Status       string
-	Priority     int
-	IssueType    string
-	Assignee     string
-	Parent       string
-	Dependencies []Dependency
+	FramedNotes string `json:",omitempty"`
+	Status      string
+	Priority    int
+	IssueType   string
+	Assignee    string
+	// ClaimAssignee is the tracker's record that the assignee was set by a
+	// harness claim rather than by a person (claimassignee.go). An assignee
+	// without it is a person's, or one a claim left before claims recorded it.
+	ClaimAssignee bool
+	Parent        string
+	Dependencies  []Dependency
 	// CreatedAt is when the tracker recorded this item, which is what says what
 	// the work was admitted knowing. It is the zero time where the tracker did not
 	// say, and a caller that needs it reports that it does not know rather than
@@ -500,6 +504,11 @@ type Client struct {
 	// which drive a clear that lands late and one that never lands without
 	// waiting the seconds the real bound spans.
 	readBack staleBlockClearReadBack
+	// claimRead is how a claim reads the item before it is made, to decide
+	// whether it marks the assignee it sets (claimWouldMark). Nil is Show; it is
+	// set only by this package's tests of the other parts of a claim, whose
+	// scripted trackers answer the claim's own writes and reads in order.
+	claimRead func(context.Context, string) (WorkItem, error)
 	// Listings is told how each listing ended, where it is set: that it
 	// answered, or that it failed after its retries and what it said. It is what
 	// lets `yoyo status` say the tracker is not answering listings and since
@@ -1406,11 +1415,29 @@ func (c Client) Claim(ctx context.Context, id string) (WorkItem, *StaleBlockClea
 	if err := validateIssueID(id); err != nil {
 		return WorkItem{}, nil, err
 	}
-	item, err := c.claim(ctx, id)
+	mark := c.claimWouldMark(ctx, id)
+	item, err := c.claim(ctx, id, mark)
 	if err == nil || !staleBlockedRefusal.MatchString(err.Error()) {
 		return item, nil, err
 	}
-	return c.claimPastStaleBlock(ctx, id, err)
+	return c.claimPastStaleBlock(ctx, id, err, mark)
+}
+
+// claimWouldMark reads the item before it is claimed, to decide whether the
+// claim marks the assignee it sets as its own (claimMarks). A read that fails
+// leaves the claim unmarked rather than stopping it: the claim is what the run
+// needs, and an unmarked assignee is the one never cleared, which costs a name
+// left on an item rather than a person's name taken off one.
+func (c Client) claimWouldMark(ctx context.Context, id string) bool {
+	read := c.Show
+	if c.claimRead != nil {
+		read = c.claimRead
+	}
+	before, err := read(ctx, id)
+	if err != nil {
+		return false
+	}
+	return claimMarks(before)
 }
 
 // StaleBlockClear is the account of a stale blocked status a claim cleared on
@@ -1478,11 +1505,13 @@ func sleepWithin(ctx context.Context, interval time.Duration) error {
 	}
 }
 
-func (c Client) claim(ctx context.Context, id string) (WorkItem, error) {
+func (c Client) claim(ctx context.Context, id string, mark bool) (WorkItem, error) {
 	// A claim read back as in progress is taken to be this one: the item was
 	// selected unclaimed, and a claim somebody else made in the seconds since
 	// would have been refused to this one had it arrived first.
-	return c.writeItem(ctx, id, func(item WorkItem) bool { return item.Status == statusInProgress }, "update", id, "--claim", "--json")
+	args := append([]string{"update", id, "--claim"}, claimMarkArgs(mark)...)
+	args = append(args, "--json")
+	return c.writeItem(ctx, id, func(item WorkItem) bool { return item.Status == statusInProgress }, args...)
 }
 
 // claimPastStaleBlock decides whether the status bd refused on is stale, and
@@ -1509,7 +1538,7 @@ func (c Client) claim(ctx context.Context, id string) (WorkItem, error) {
 // saying so is appended, and the item is left for the next pull rather than
 // claimed — a claim made on a status the tracker still holds as blocked is the
 // refusal this was entered on, met a second time.
-func (c Client) claimPastStaleBlock(ctx context.Context, id string, refusal error) (WorkItem, *StaleBlockClear, error) {
+func (c Client) claimPastStaleBlock(ctx context.Context, id string, refusal error, mark bool) (WorkItem, *StaleBlockClear, error) {
 	item, err := c.Show(ctx, id)
 	if err != nil {
 		return WorkItem{}, nil, errors.Join(refusal, fmt.Errorf("re-read %s to judge whether its blocked status is stale: %w", id, err))
@@ -1542,7 +1571,7 @@ func (c Client) claimPastStaleBlock(ctx context.Context, id string, refusal erro
 	if _, err := c.writeItem(ctx, id, noteLanded(corrected), "update", id, "--status=open", "--append-notes="+corrected, "--json"); err != nil {
 		return WorkItem{}, nil, errors.Join(refusal, fmt.Errorf("clear the stale blocked status on %s: %w", id, err))
 	}
-	claimed, account, err := c.claimOnConfirmedClear(ctx, id)
+	claimed, account, err := c.claimOnConfirmedClear(ctx, id, mark)
 	if err != nil {
 		return WorkItem{}, account, errors.Join(refusal, err)
 	}
@@ -1615,7 +1644,7 @@ func clearOrder(id string, account *StaleBlockClear, readBack string) string {
 // the read made room for: where no claim within the bound is taken, the clear
 // is reported as unconfirmed, with how many claims bd refused, and the item is
 // left for the next pull.
-func (c Client) claimOnConfirmedClear(ctx context.Context, id string) (WorkItem, *StaleBlockClear, error) {
+func (c Client) claimOnConfirmedClear(ctx context.Context, id string, mark bool) (WorkItem, *StaleBlockClear, error) {
 	readBack := c.readBack.settled()
 	account := &StaleBlockClear{Outcome: domain.StaleBlockClearUnconfirmed}
 	for attempt := 1; attempt <= readBack.reads; attempt++ {
@@ -1633,7 +1662,7 @@ func (c Client) claimOnConfirmedClear(ctx context.Context, id string) (WorkItem,
 		if item.Status != statusOpen {
 			continue
 		}
-		claimed, err := c.claim(ctx, id)
+		claimed, err := c.claim(ctx, id, mark)
 		if err == nil {
 			account.Outcome = domain.StaleBlockClearConfirmed
 			if attempt > 1 {
@@ -1719,7 +1748,20 @@ func (c Client) Block(ctx context.Context, id, reason string) (WorkItem, error) 
 	if item.Status != "blocked" {
 		return WorkItem{}, fmt.Errorf("work item %s status is %q after being blocked, want blocked", item.ID, item.Status)
 	}
-	return c.confirmWritten(ctx, item, appendedNote(reason))
+	return c.confirmedGivenBack(ctx, item, reason)
+}
+
+// confirmedGivenBack confirms the note a give-back wrote and then clears the
+// assignee the run's claim set, where it marked one (givenBack). Blocking,
+// releasing, reopening, and clearing a block answer through it, and closing
+// calls givenBack itself, so no write that ends a run's hold on an item leaves
+// the claim's name on it.
+func (c Client) confirmedGivenBack(ctx context.Context, item WorkItem, note string) (WorkItem, error) {
+	confirmed, err := c.confirmWritten(ctx, item, appendedNote(note))
+	if err != nil {
+		return WorkItem{}, err
+	}
+	return c.givenBack(ctx, confirmed), nil
 }
 
 // Unblock clears a status of blocked, carrying the account of why it was stale
@@ -1746,7 +1788,7 @@ func (c Client) Unblock(ctx context.Context, id, note string) (WorkItem, error) 
 	if item.Status != statusOpen {
 		return WorkItem{}, fmt.Errorf("work item %s status is %q after its blocked status was cleared, want open", item.ID, item.Status)
 	}
-	return c.confirmWritten(ctx, item, appendedNote(note))
+	return c.confirmedGivenBack(ctx, item, note)
 }
 
 // Release gives a claimed work item back to the queue, carrying the reason into
@@ -1772,7 +1814,7 @@ func (c Client) Release(ctx context.Context, id, reason string) (WorkItem, error
 	if item.Status != statusOpen {
 		return WorkItem{}, fmt.Errorf("work item %s status is %q after its claim was released, want open", item.ID, item.Status)
 	}
-	return c.confirmWritten(ctx, item, appendedNote(reason))
+	return c.confirmedGivenBack(ctx, item, reason)
 }
 
 func (c Client) AddBlocker(ctx context.Context, id, blockerID string) error {
@@ -1957,7 +1999,13 @@ func (c Client) Complete(ctx context.Context, id, reason string) (WorkItem, erro
 	if strings.TrimSpace(reason) == "" {
 		return WorkItem{}, errors.New("completion reason is required")
 	}
-	return c.writeItem(ctx, id, func(item WorkItem) bool { return item.Status == statusClosed }, "close", id, "--reason="+reason, "--json")
+	item, err := c.writeItem(ctx, id, func(item WorkItem) bool { return item.Status == statusClosed }, "close", id, "--reason="+reason, "--json")
+	if err != nil {
+		return WorkItem{}, err
+	}
+	// A finished run gives its item back by closing it, and the claim's name goes
+	// with it for the reason it does on every other give-back.
+	return c.givenBack(ctx, item), nil
 }
 
 // Reopen returns a claimed item to the backlog, carrying into its notes the
@@ -2010,7 +2058,7 @@ func (c Client) Reopen(ctx context.Context, id, reason string, parking domain.Wo
 		}
 		return WorkItem{}, fmt.Errorf("work item %s is still parked %q after being reopened unparked", item.ID, item.Parking)
 	}
-	return c.confirmWritten(ctx, item, appendedNote(reason))
+	return c.confirmedGivenBack(ctx, item, reason)
 }
 
 // maxBDOutputBytes is how much of one bd invocation's output this client keeps.
@@ -2383,6 +2431,7 @@ func convertWorkItemIn(raw rawWorkItem, writerZone *time.Location) (WorkItem, er
 	item.Executor = executorIn(raw.Metadata)
 	item.Parking = parkingIn(raw.Metadata)
 	item.Landing = metadataString(raw.Metadata, LandingKey)
+	item.ClaimAssignee = claimAssigneeIn(raw.Metadata)
 	item.Origin = originIn(raw.Metadata)
 	if saved := metadataString(raw.Metadata, schedulingWaitKey); saved != "" {
 		var wait SchedulingWait

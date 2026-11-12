@@ -6543,6 +6543,32 @@ finishing without giving it back, which is a hole in the pipeline, and a run
 still recorded as in flight is a process something killed. What is done about
 them is the same either way, so neither line hands you a chore.
 
+### Who holds an item, and the assignee a claim sets
+
+A claim also sets the item's assignee, to this machine's Git name, because that
+is what `bd update --claim` does. The claim records in the item's metadata
+(`yoyodyne_claim_assignee`) that it set that name, and every write that gives
+the item back afterwards — closing it, blocking it, releasing it, reopening it
+after an evidence landing, clearing a stale block — clears an assignee so
+marked. An assignee a person set by hand is never marked, so nothing the harness
+does clears it. If the clear after a give-back fails, the give-back still
+stands, and the name stays marked as the claim's until the clean-up below
+clears it.
+
+Nobody reads the assignee to decide anything; it is there for people reading
+the tracker. The dashboard's card on an item and `yoyo status <item>` say who
+holds the item in so many words: a running run, a person who set the assignee
+by hand, or nobody, with a name a finished run's claim left behind said to be
+exactly that. The tracker view the roles read says the same, from the tracker
+alone.
+
+Claims made before they recorded their name left it on every item they
+touched. `yoyo tracker unassign` clears the assignee on every unfinished
+item a recorded run claimed and no run is working on now, appending a note to
+each, and lists what it cleared, what it left because no run ever claimed the
+item (so a person set the name), and what it left because a run holds the
+item. `--dry-run` lists the same and changes nothing. It is safe to run again.
+
 ## Conversation-carried work that has landed
 
 The other thing a pull closes for you is work no run ever carried. An item

@@ -984,8 +984,8 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			// The card is headed with the item in the operator's form, as the
 			// read model names it.
 			`<h2 id="card-heading" class="popup-title">(P1, dashboard) Dashboard 3 of 3: the page, five sections, with its empty, loading, and error states (yoyodyne-ifd.141.3)</h2>`,
-			"<dt>Id</dt>", "<dt>Title</dt>", "<dt>Status</dt>", "<dt>Priority</dt>", "<dt>Labels</dt>", "<dt>Parent</dt>", "<dt>Description</dt>", "<dt>Design</dt>", "<dt>Acceptance criteria</dt>", "<dt>Notes</dt>", "<dt>Run</dt>",
-			"<dd>in_progress</dd>", "<dd>P1 (0 is the most urgent, 4 the least)</dd>", "<dd>dashboard</dd>", "<dd>yoyodyne-ifd.141</dd>",
+			"<dt>Id</dt>", "<dt>Title</dt>", "<dt>Status</dt>", "<dt>Held by</dt>", "<dt>Priority</dt>", "<dt>Labels</dt>", "<dt>Parent</dt>", "<dt>Description</dt>", "<dt>Design</dt>", "<dt>Acceptance criteria</dt>", "<dt>Notes</dt>", "<dt>Run</dt>",
+			"<dd>in_progress</dd>", "<dd>a running run, run-c07d6849e1f55fd7b982600b8f97a303</dd>", "<dd>P1 (0 is the most urgent, 4 the least)</dd>", "<dd>dashboard</dd>", "<dd>yoyodyne-ifd.141</dd>",
 			`<p class="card-run-flight">in flight — developing, 12m elapsed, $3.41 so far</p>`,
 			"branch: yoyodyne/yoyodyne-ifd-141-3/c07d6849",
 			"developer session: 0f2c41ab-7e05-4c3d-9a1b-6e8f0d2a4c71",

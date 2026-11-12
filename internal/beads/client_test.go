@@ -24,6 +24,7 @@ func TestClientWorkItemLifecycle(t *testing.T) {
 
 	responses := []string{
 		workItemJSON("open", ""),
+		workItemJSON("open", ""),
 		workItemJSON("in_progress", ""),
 		workItemJSON("in_progress", "checks passed"),
 		`{"issue_id":"yoyodyne-1","depends_on_id":"yoyodyne-blocker","status":"added"}`,
@@ -54,7 +55,10 @@ func TestClientWorkItemLifecycle(t *testing.T) {
 
 	wantArgs := [][]string{
 		{"show", "yoyodyne-1", "--json"},
-		{"update", "yoyodyne-1", "--claim", "--json"},
+		// The claim reads the item first, and marks the assignee it sets as its own
+		// because the item had none.
+		{"show", "yoyodyne-1", "--json"},
+		{"update", "yoyodyne-1", "--claim", "--set-metadata=yoyodyne_claim_assignee=true", "--json"},
 		{"update", "yoyodyne-1", "--append-notes=" + FrameNote("checks passed"), "--json"},
 		{"dep", "add", "yoyodyne-1", "yoyodyne-blocker", "--json"},
 		{"close", "yoyodyne-1", "--reason=done", "--json"},
@@ -1668,7 +1672,7 @@ func TestClientClaimsPastAStaleBlockedStatus(t *testing.T) {
 			"",
 		},
 	}
-	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", readBack: unsleepingReadBack(t)}
+	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", claimRead: unmarkedClaims, readBack: unsleepingReadBack(t)}
 	item, cleared, err := client.Claim(context.Background(), "yoyodyne-1")
 	if err != nil {
 		t.Fatalf("Claim() error = %v", err)
@@ -1760,7 +1764,7 @@ func TestClientClaimsPastAStaleBlockedStatusWhoseClearLandsLate(t *testing.T) {
 		slept = append(slept, interval)
 		return nil
 	}}
-	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", readBack: readBack}
+	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", claimRead: unmarkedClaims, readBack: readBack}
 	item, cleared, err := client.Claim(context.Background(), "yoyodyne-1")
 	if err != nil {
 		t.Fatalf("Claim() error = %v", err)
@@ -1823,7 +1827,7 @@ func TestClientLeavesAnItemWhoseStaleBlockClearNeverLands(t *testing.T) {
 		reads++
 		return nil
 	}}
-	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", readBack: readBack}
+	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", claimRead: unmarkedClaims, readBack: readBack}
 	item, cleared, err := client.Claim(context.Background(), "yoyodyne-1")
 	if err == nil {
 		t.Fatal("Claim() error = nil, want the unconfirmed clear reported")
@@ -1915,7 +1919,7 @@ func TestClientRetriesAClaimRefusedOnTheStatusAfterTheClearReadBackOpen(t *testi
 		slept = append(slept, interval)
 		return nil
 	}}
-	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", readBack: readBack}
+	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", claimRead: unmarkedClaims, readBack: readBack}
 	item, cleared, err := client.Claim(context.Background(), "yoyodyne-1")
 	if err != nil {
 		t.Fatalf("Claim() error = %v, want the claim retried and taken on the same call", err)
@@ -1980,7 +1984,7 @@ func TestClientClaimLandsAgainstATrackerThatLagsTheClear(t *testing.T) {
 		},
 	}
 	readBack := staleBlockClearReadBack{reads: 5, interval: time.Second, sleep: func(context.Context, time.Duration) error { return nil }}
-	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", readBack: readBack}
+	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", claimRead: unmarkedClaims, readBack: readBack}
 	item, cleared, err := client.Claim(context.Background(), "yoyodyne-1")
 	if err != nil {
 		t.Fatalf("Claim() error = %v, want the claim to land against a lagging tracker", err)
@@ -2042,7 +2046,7 @@ func TestClientLeavesAnItemWhoseClaimIsRefusedOnTheStatusThroughoutTheBound(t *t
 		},
 	}
 	readBack := staleBlockClearReadBack{reads: 2, interval: time.Second, sleep: func(context.Context, time.Duration) error { return nil }}
-	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", readBack: readBack}
+	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", claimRead: unmarkedClaims, readBack: readBack}
 	item, cleared, err := client.Claim(context.Background(), "yoyodyne-1")
 	if err == nil {
 		t.Fatal("Claim() error = nil, want the claim left for the next pull")
@@ -2099,7 +2103,7 @@ func TestClientReportsAStaleBlockClearReadBackTheContextEnded(t *testing.T) {
 	readBack := staleBlockClearReadBack{reads: 5, interval: time.Second, sleep: func(context.Context, time.Duration) error {
 		return context.DeadlineExceeded
 	}}
-	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", readBack: readBack}
+	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", claimRead: unmarkedClaims, readBack: readBack}
 	_, cleared, err := client.Claim(context.Background(), "yoyodyne-1")
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Claim() error = %v, want the context's ending", err)
@@ -2146,7 +2150,7 @@ func TestClientRefusesToClaimAnItemWaitingOnUnfinishedWork(t *testing.T) {
 			`[]`,
 		},
 	}
-	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo"}
+	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", claimRead: unmarkedClaims}
 	_, _, err := client.Claim(context.Background(), "yoyodyne-1")
 	if err == nil {
 		t.Fatal("Claim() error = nil, want the refusal to stand")
@@ -2172,7 +2176,7 @@ func TestClientReturnsAClaimRefusalItCannotJudge(t *testing.T) {
 		}},
 		responses: []string{""},
 	}
-	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo"}
+	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", claimRead: unmarkedClaims}
 	if _, _, err := client.Claim(context.Background(), "yoyodyne-1"); err == nil || !strings.Contains(err.Error(), "issue not found") {
 		t.Fatalf("Claim() error = %v, want bd's own refusal", err)
 	}
@@ -2216,7 +2220,7 @@ func TestClientDoesNotReopenAnItemThatHasMovedSinceTheRefusal(t *testing.T) {
 		}},
 		responses: []string{"", workItemJSON("in_progress", "")},
 	}
-	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo"}
+	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", claimRead: unmarkedClaims}
 	_, _, err := client.Claim(context.Background(), "yoyodyne-1")
 	if err == nil || !strings.Contains(err.Error(), "in_progress") {
 		t.Fatalf("Claim() error = %v, want the refusal to stand and name what it found", err)
