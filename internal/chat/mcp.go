@@ -57,6 +57,8 @@ type MCPCall struct {
 	Tool    string `json:"tool,omitempty"`
 	ID      string `json:"id,omitempty"`
 	Outcome string `json:"outcome"`
+	// Refusal is the stored reason a call was refused, kept for the record;
+	// Render shows its sentence, never the reason itself.
 	Refusal string `json:"refusal,omitempty"`
 	Bytes   int    `json:"bytes,omitempty"`
 	Cut     bool   `json:"cut,omitempty"`
@@ -87,9 +89,6 @@ func (r MCPRound) Render() string {
 			name = "a tool not on the list"
 		}
 		line := name + ": " + call.Outcome
-		if call.Refusal != "" {
-			line += " (" + call.Refusal + ")"
-		}
 		if call.Bytes > 0 {
 			line += fmt.Sprintf(", %d bytes", call.Bytes)
 		}
@@ -98,6 +97,11 @@ func (r MCPRound) Render() string {
 		}
 		if call.Repeat {
 			line += ", a repeat of an earlier call"
+		}
+		// The stored reason is kept on the call for the record; the operator
+		// is shown what it means.
+		if call.Refusal != "" {
+			line += ". " + mcpcall.RefusalReason(call.Refusal).Sentence()
 		}
 		out.WriteString(indent(line))
 	}

@@ -272,6 +272,33 @@ const (
 // RefusalReasons is the closed list, in the design's order.
 var RefusalReasons = []RefusalReason{RefusedNotOnList, RefusedArguments, RefusedSecret, RefusedLimit, RefusedPaused, RefusedCredential, RefusedID}
 
+// Sentence says in ordinary words what a refusal for this reason means. It is
+// what a person or a role is shown in place of the stored reason, which stays
+// in the call record beside it. Like the reasons themselves, none of these
+// names a tool. The particulars of one refusal — which limit, which server's
+// credential — are in the Answer's Reason, shown after this sentence.
+func (r RefusalReason) Sentence() string {
+	switch r {
+	case RefusedNotOnList:
+		return "The call was refused because the tool is not on the list of MCP tools this role may use."
+	case RefusedArguments:
+		return "The call was refused because its arguments were not a single JSON object, or were larger than allowed."
+	case RefusedSecret:
+		return "The call was refused because its arguments held a value the harness keeps secret."
+	case RefusedLimit:
+		return "The call was refused because a limit on MCP calls had already been reached."
+	case RefusedPaused:
+		return "The call was refused because the operator has paused the harness."
+	case RefusedCredential:
+		return "The call was refused because the credential for the tool's server is not stored on this machine."
+	case RefusedID:
+		return "The call was refused because its id was missing, malformed, or already used for a different call."
+	case "":
+		return ""
+	}
+	return "The call was refused for a reason this version of the harness does not describe."
+}
+
 // Answer is what one call came to, in the order the reply asked.
 type Answer struct {
 	// Tool is the tool asked for. It is empty on a call refused as not on the
@@ -314,10 +341,10 @@ func (a Answer) Evidence() string {
 		fmt.Fprintf(&text, " (id %s)", a.ID)
 	}
 	fmt.Fprintf(&text, ": %s", a.Outcome)
-	if a.Refusal != "" {
-		fmt.Fprintf(&text, ", refused: %s", a.Refusal)
-	}
 	text.WriteString("\n")
+	if a.Refusal != "" {
+		text.WriteString(a.Refusal.Sentence() + "\n")
+	}
 	if a.Repeat {
 		text.WriteString("This id was asked before with the same content, so nothing was called; this is what was recorded then.\n")
 	}
