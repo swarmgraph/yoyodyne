@@ -889,7 +889,7 @@ func Extract(reply string) (prose string, result *Result, note string, err error
 		return block.Before, nil, "", err
 	}
 	if count > 1 {
-		note = fmt.Sprintf("the reply carried %d sweep blocks, and the last of them is the account recorded; extra blocks are not a failure", count)
+		note = fmt.Sprintf("the reply carried %d sweep blocks; the last of them is the account recorded, and everything else the reply asked for was carried out as usual", count)
 	}
 	return block.Rest, result, note, nil
 }

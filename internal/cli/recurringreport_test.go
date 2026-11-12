@@ -624,3 +624,36 @@ func TestFailedRolePassFindingKeepsTheTerminalDiagnosticAfterPrintedOutput(t *te
 		t.Fatalf("finding = %s", findings[0].Message)
 	}
 }
+
+// A pass whose reply carries an unreadable block beside the rest of its work,
+// and two sweep blocks, keeps everything else it did: the memory is recorded,
+// the last sweep block is the account, the record names the refused block
+// beside what the pass decided, and the next pass opens with both told to it.
+func TestAPassWithARefusedBlockAndTwoSweepBlocksKeepsItsWorkAndIsToldNextTime(t *testing.T) {
+	t.Parallel()
+
+	first := rememberedRuling + "\n\n```yoyodyne-ask\nnot json\n```\n\n" +
+		"```yoyodyne-sweep\n" + `{"status":"more","summary":"halfway"}` + "\n```\n\n" + recoveredReport
+	p := newReportRecoveryPass(t, first, recoveredReport)
+
+	pass := p.fire(t)
+	if pass.Failed || pass.Result == nil || pass.Result.Summary != "recorded the ruling" {
+		t.Fatalf("first pass = %+v, want the last sweep block recorded as the account", pass)
+	}
+	if !strings.Contains(pass.Problem, "more than one sweep block") || !strings.Contains(pass.Problem, "question to another role block was refused") {
+		t.Fatalf("first pass problem = %q, want the extra sweep block and the refused question named", pass.Problem)
+	}
+	memories, _, err := p.memories.Live("architect")
+	if err != nil || len(memories) != 1 {
+		t.Fatalf("memories = %+v, %v; want the memory written beside the refused block", memories, err)
+	}
+
+	p.fire(t)
+	if len(p.backend.requests) != 2 {
+		t.Fatalf("requests = %d, want one per pass", len(p.backend.requests))
+	}
+	next := p.backend.requests[1].Prompt
+	if !strings.Contains(next, "carried more than one sweep block") || !strings.Contains(next, "A block in your last reply was refused") {
+		t.Fatalf("second pass prompt does not tell the role what its last reply lost:\n%s", next)
+	}
+}

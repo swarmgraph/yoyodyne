@@ -8,7 +8,6 @@ package chat
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
@@ -127,10 +126,12 @@ func TestExemptedWorkStillNamesAGoalTheRepositoryRecords(t *testing.T) {
 	}
 	session := openTestSession(t, options)
 
-	_, err := session.Send(context.Background(), "how many plugins are there?")
-	var unresolved *ProposalGoalError
-	if !errors.As(err, &unresolved) {
-		t.Fatalf("Send() error = %v, want the goal refused", err)
+	reply, err := session.Send(context.Background(), "how many plugins are there?")
+	if err != nil {
+		t.Fatalf("Send() error = %v, want the proposal refused alone", err)
+	}
+	if len(reply.RefusedBlocks) != 1 || !strings.Contains(reply.RefusedBlocks[0], "proposal block was refused") || len(reply.Proposals) != 0 {
+		t.Fatalf("refused blocks = %q, proposals = %+v, want the goal refused and nothing proposed", reply.RefusedBlocks, reply.Proposals)
 	}
 	if len(tracker.created) != 0 {
 		t.Fatalf("created = %#v, want an exemption that does not exempt the goal", tracker.created)

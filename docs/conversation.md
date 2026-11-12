@@ -128,7 +128,8 @@ argument is validated before anything runs, at most ten actions happen per reply
 each one is recorded in the conversation's log as asked-for and then as applied
 or failed, and all of them are printed to you as they happen. An action that
 failed is reported as failed rather than described as done, and a block the
-harness cannot read changes nothing at all. Some actions are more than one write,
+harness cannot read changes nothing itself, while the rest of the reply is
+carried out ([below](#one-bad-block-loses-only-itself)). Some actions are more than one write,
 and one that failed after part of it landed — or that failed without anything
 being able to say whether it landed — is reported as neither: it says it did not
 finish, and lists what landed and what nothing can say either way. Only "failed"
@@ -144,18 +145,19 @@ that changed it, and the reason given, appended to the item's notes in the same
 write as the priority. If the live item cannot be read, the priority is left
 alone: the harness cannot record an old priority it did not establish.
 
-**A block the harness refuses is handed straight back, inside the same
-message.** A refused block is refused whole, so nothing in it happens: one title
-over 200 bytes loses all ten actions beside it. The refusal is a result like any
+**A tracker block the harness refuses is handed straight back, inside the same
+message.** A refused tracker block is refused whole, so nothing in it happens:
+one title over 200 bytes loses all ten actions beside it. Everything else the
+reply asked for is carried out as if the block had not been there. The refusal is a result like any
 other, so it comes back to the role as a further round of the message you sent,
 in the harness's own words and saying how many rounds of tracker actions the
 message has left, and the role reissues the corrected block before its reply
 ends. You are shown the refusal and then what the reissue did, and nobody has to
 relay anything. In the week to 2026-09-25 that relay was done by hand four times,
 because a refusal used to wait for the role's next turn. A refused round counts
-against the message's four rounds. Anything else the refused reply asked for —
-a proposal, a question, a read, a memory — was not taken up either, and the role
-is told so.
+against the message's four rounds. What the rest of the reply came to — a
+memory recorded, a read, a question answered — comes back in the same round,
+and the role is told that only the tracker actions have to be asked for again.
 
 A block refused again on the round it was handed back in goes to you as
 critical, and so does a round that answers without asking for any tracker
@@ -266,6 +268,35 @@ discovered by the run that gets it — its diff against the target branch cannot
 contain work that branch already carries, so it spends its repair attempts and
 its review rounds finding that out, and the second of those two produced a
 confident review demanding code that had already merged.
+
+### One bad block loses only itself
+
+A reply can carry several blocks: tracker
+actions, proposals, concerns, research, reads, a question to another role,
+memories, a document, and the rest. A block the harness cannot read, or one
+that fails a check made before anything is recorded — a proposal under a goal
+nothing states, a done condition no run can meet, a parent the tracker does not
+hold — is refused on its own. Nothing in that block happens, and everything
+else in the reply is carried out exactly as it would have been. The refusal is
+recorded in the conversation's log as `reply.block.refused`, with the kind of
+block and the harness's reason, and you are shown it beside what the rest of
+the reply did; `--json` carries it under `refused_blocks`. The role is told what
+was refused and why at the start of its next turn, or in the same message where
+that message is already handing it results, so it can send the block again
+corrected. Where a recurring task's pass took the turn, the refusal is written
+onto the pass's record beside what the pass decided, which is what
+[`yoyo sweeps`](operations.md#reading-what-the-recurring-tasks-found) reads.
+
+Every refusal for want of authority is still of the whole reply, readable
+block or not, because a role reaching past its authority is not a slip in a
+block's shape. That covers a block of a kind the role holds no authority for,
+such as a memory block from a developer or a reviewer; an action that reaches
+outside a program manager's lane; and a document from a role that does not own
+that kind of document. A report block that cannot be read was always refused on
+its own: it loses only the reports, because that block never decided anything.
+A sweep block written twice is not a refusal at all: the last one is the pass's
+account, everything else is carried out, and the role is told on its next turn
+to write it once.
 
 ## Bringing it an idea rather than a work item
 

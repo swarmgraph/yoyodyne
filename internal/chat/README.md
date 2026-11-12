@@ -262,6 +262,7 @@ removes them from the record once a turn has delivered them.
 | `origin.go` | reading an admission's origin back out of an older item's notes, for `yoyo goals origins`; the origin an admission records is `creationOrigin` in `admission.go` |
 | `report.go`, `reportcoverage.go`, `lanereport.go` | reports roles file and read; program manager lane reports; `ForPass` |
 | `stopcause.go` | a program manager's post-mortems of stopped runs: counting the stops its pass was handed (`HandStops`) and filing each cause's one report, over `runstate/stopcause.go` |
+| `refusedblock.go` | a block other than the tracker's that cannot be read, or whose proposal fails its checks, is refused alone (`parsedReply.Refused`, `settleRefusedBlocks`): audited, recorded as `reply.block.refused`, said on `Reply.RefusedBlocks`, and told to the role with the round's results; a role without authority for the kind is still refused whole (`refusedBlockAuthority`) |
 | `exchange.go` | one role asking another (`conductAsk`) |
 | `freshness.go`, `refresh.go` | how old the role's picture of the product is, and refreshing it |
 | `research.go`, `repository.go` | outside research and repository reads at a commit |

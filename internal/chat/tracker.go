@@ -918,17 +918,25 @@ func renderRefusedTrackerBlock(refused *TrackerError) string {
 // same message, how many rounds of tracker actions it has left, and that a
 // second refusal goes to the operator rather than back to the role.
 //
-// It says nothing else the reply asked for happened either, because it did not:
-// a reply whose tracker block is refused is taken no further apart than its
-// reports, so any proposal, question, read, memory, or lane report it carried is
-// lost with the block and is the role's to ask for again beside the actions.
-func renderHandedBackTrackerBlock(refused *TrackerError, roundsLeft int) string {
+// The rest of the reply was carried out, so what it came to follows the refusal
+// as results, and only the tracker actions have to be issued again.
+func renderHandedBackTrackerBlock(refused *TrackerError, roundsLeft int, results string) string {
 	var rendered strings.Builder
 	rendered.WriteString(renderRefusedTrackerBlock(refused))
+	if results != "" {
+		rendered.WriteString(results)
+		if !strings.HasSuffix(results, "\n\n") {
+			rendered.WriteString("\n")
+		}
+	}
 	rendered.WriteString("# Continue\n\n")
 	rendered.WriteString("The harness is handing this back to you as a further round of the same message, so you can put it right before you finish answering. ")
 	fmt.Fprintf(&rendered, "This message has %d round(s) of tracker actions left. ", roundsLeft)
-	rendered.WriteString("Apart from any report it filed, nothing else your last reply asked the harness for was taken up either — proposals, questions, reads, memories, a lane report — so ask again for anything in it you still want. ")
+	rendered.WriteString("Everything else your last reply asked the harness for was carried out")
+	if results != "" {
+		rendered.WriteString(", and what it came to is above")
+	}
+	rendered.WriteString("; only the tracker actions have to be issued again. ")
 	rendered.WriteString("A block refused again is handed to the operator rather than back to you.\n")
 	return rendered.String()
 }

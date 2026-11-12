@@ -112,6 +112,9 @@ type chatOutput struct {
 	// to the role within the same message, in the harness's own words. What the
 	// role re-issued after it is among the actions.
 	HandedBack []string `json:"handed_back,omitempty"`
+	// RefusedBlocks are blocks of the reply refused alone, the rest of it carried
+	// out.
+	RefusedBlocks []string `json:"refused_blocks,omitempty"`
 	// Stopped says why the harness, rather than the role, ended the answer: the
 	// message used its budget of turns, time or spend, or took its one closing
 	// turn after a tool reached its own limit.
@@ -405,6 +408,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 			ResultsCarriedOver: reply.ResultsCarriedOver,
 			TrackerRoundsSpent: reply.TrackerRoundsSpent,
 			HandedBack:         reply.HandedBack,
+			RefusedBlocks:      reply.RefusedBlocks,
 			Stopped:            reply.Stopped,
 			Reports:            reply.Reports,
 			ReportProblem:      reply.ReportProblem,
@@ -416,6 +420,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 	// is the same answer an interactive conversation over the same stream gives.
 	theme := console.ThemeFor(stdout, os.Getenv)
 	printChatHandedBack(stdout, reply.HandedBack)
+	printChatRefusedBlocks(stdout, reply.RefusedBlocks)
 	printChatActions(stdout, role, reply.Actions, reply.TrackerRoundsSpent)
 	printChatStopped(stdout, reply.Stopped)
 	printChatResearch(stdout, reply.Research)
@@ -1505,6 +1510,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 		output.ResultsCarriedOver = reply.ResultsCarriedOver
 		output.TrackerRoundsSpent = reply.TrackerRoundsSpent
 		output.HandedBack = reply.HandedBack
+		output.RefusedBlocks = reply.RefusedBlocks
 		output.Stopped = reply.Stopped
 		output.Reports = reply.Reports
 		output.ReportProblem = reply.ReportProblem
@@ -1520,6 +1526,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 	}
 	theme := console.ThemeFor(stdout, os.Getenv)
 	printChatHandedBack(stdout, output.HandedBack)
+	printChatRefusedBlocks(stdout, output.RefusedBlocks)
 	printChatActions(stdout, role, output.Actions, output.TrackerRoundsSpent)
 	printChatStopped(stdout, output.Stopped)
 	printChatResearch(stdout, output.Research)
@@ -1644,6 +1651,14 @@ func printOtherRoleHeader(writer io.Writer, role domain.AgentRole) {
 func printChatHandedBack(writer io.Writer, refusals []string) {
 	for _, refusal := range refusals {
 		fmt.Fprintf(writer, "\n%s\nNothing in that block was carried out; the harness handed the refusal back within this message so it could re-issue the actions.\n", refusal)
+	}
+}
+
+// printChatRefusedBlocks says which blocks of the reply were refused alone, and
+// that the rest of the reply was carried out.
+func printChatRefusedBlocks(writer io.Writer, refusals []string) {
+	for _, refusal := range refusals {
+		fmt.Fprintf(writer, "\n%s\nEverything else in the reply was carried out, and the role is told what was refused so it can send the block again.\n", refusal)
 	}
 }
 

@@ -386,40 +386,28 @@ func (e *AuthorityError) Error() string {
 // because the provider answered.
 func (s *Session) authorize(parsed parsedReply) error {
 	authority := s.authority()
-	if len(parsed.Proposals) > 0 && !authority.Proposals {
-		return &AuthorityError{
-			Role:    authority.Role,
-			Refused: "work items to be proposed",
-			Reason:  "proposing work the operator approves belongs to the Lead Product Manager, and this role says what it found in prose instead",
+	// A block the harness could not read is refused alone, but only a role that
+	// may send the kind of block at all gets that: for any other the reply is
+	// refused whole, exactly as a readable block of that kind would be.
+	for _, refused := range parsed.Refused {
+		if err := s.refusedBlockAuthority(authority, refused.Kind); err != nil {
+			return err
 		}
+	}
+	if len(parsed.Proposals) > 0 && !authority.Proposals {
+		return blockRefusal(authority, blockProposal)
 	}
 	if len(parsed.Concerns) > 0 && !authority.Concerns {
-		return &AuthorityError{
-			Role:    authority.Role,
-			Refused: "a concern to be put to the operator",
-			Reason:  "stopping work over a goal belongs to the Lead Product Manager, and this role raises what it found in prose instead",
-		}
+		return blockRefusal(authority, blockConcern)
 	}
 	if len(parsed.Queries) > 0 && !authority.Research {
-		return &AuthorityError{
-			Role:    authority.Role,
-			Refused: "evidence to be gathered from outside the repository",
-			Reason:  "research is the Lead Product Manager's, and this role reasons over the evidence it was given",
-		}
+		return blockRefusal(authority, blockResearch)
 	}
 	if parsed.Evaluation != nil && !authority.Evaluations {
-		return &AuthorityError{
-			Role:    authority.Role,
-			Refused: "an evaluation to be recorded",
-			Reason:  "judging an idea the operator brought is the Lead Product Manager's, and this role says what it thinks in prose instead",
-		}
+		return blockRefusal(authority, blockEvaluation)
 	}
 	if len(parsed.Reads) > 0 && !authority.RepositoryReads {
-		return &AuthorityError{
-			Role:    authority.Role,
-			Refused: "a repository path to be read",
-			Reason:  "reading the repository by path is the management roles' — the Lead Product Manager, the architect, and the development manager — and this role reasons over the evidence it was given",
-		}
+		return blockRefusal(authority, blockRepositoryRead)
 	}
 	if !authority.RepositorySearch && slices.ContainsFunc(parsed.Reads, func(read repositoryread.Request) bool {
 		return read.Action == repositoryread.ActionSearch
@@ -434,7 +422,7 @@ func (s *Session) authorize(parsed parsedReply) error {
 		return &AuthorityError{Role: authority.Role, Refused: "an MCP call to be made", Reason: "this role holds neither the mcp.read nor the mcp.act grant"}
 	}
 	if len(parsed.LogReads) > 0 && !authority.LogReads {
-		return &AuthorityError{Role: authority.Role, Refused: "an operational record to be read", Reason: "this role holds no log.read grant"}
+		return blockRefusal(authority, blockLogRead)
 	}
 	for _, request := range parsed.RunReads {
 		if request.Action == runinspect.ActionVerify && !authority.RunVerifies {
@@ -445,7 +433,7 @@ func (s *Session) authorize(parsed parsedReply) error {
 		}
 	}
 	if len(parsed.Recoveries) > 0 && !authority.RunRecovers {
-		return &AuthorityError{Role: authority.Role, Refused: "a recovery to be carried out on a run", Reason: "this role holds no run.recover grant; carrying out recovery decisions is the development manager's"}
+		return blockRefusal(authority, blockRecovery)
 	}
 	for _, request := range parsed.HealthReads {
 		if request.Action == health.ActionFollow && !authority.HealthFollows {
@@ -456,11 +444,7 @@ func (s *Session) authorize(parsed parsedReply) error {
 		}
 	}
 	if len(parsed.Memories) > 0 && !authority.Memory {
-		return &AuthorityError{
-			Role:    authority.Role,
-			Refused: "a memory to be recorded",
-			Reason:  "a memory of one's own is kept by the management roles — the Lead Product Manager, the architect, and the development manager — and this role's judgement is exercised inside runs, which remember nothing between invocations",
-		}
+		return blockRefusal(authority, blockMemory)
 	}
 	if parsed.LaneReportCarried && !authority.LaneReport {
 		return &AuthorityError{
@@ -470,32 +454,16 @@ func (s *Session) authorize(parsed parsedReply) error {
 		}
 	}
 	if parsed.Restart != nil && !authority.RestartRequests {
-		return &AuthorityError{
-			Role:    authority.Role,
-			Refused: "a part of the product to be restarted",
-			Reason:  "asking the supervisor to restart a part is the program manager's, and this role says what it found in prose instead",
-		}
+		return blockRefusal(authority, blockRestart)
 	}
 	if parsed.StopCauses != nil && !authority.StopCauses {
-		return &AuthorityError{
-			Role:    authority.Role,
-			Refused: "stopped runs to be counted against their causes",
-			Reason:  "the post-mortem of stopped runs is the program manager's, and this role says what it found in prose instead",
-		}
+		return blockRefusal(authority, blockPostMortem)
 	}
 	if parsed.PassRequest != nil && !authority.PassRequests {
-		return &AuthorityError{
-			Role:    authority.Role,
-			Refused: "a program manager instance to be asked for a pass",
-			Reason:  "asking a program manager for a pass is the operator's and the Lead Product Manager's, and this role asks the Lead Product Manager for one instead",
-		}
+		return blockRefusal(authority, blockPassRequest)
 	}
 	if parsed.Observed != nil && !authority.Interventions {
-		return &AuthorityError{
-			Role:    authority.Role,
-			Refused: "a hand step to be recorded",
-			Reason:  "writing down a hand step the operator took outside the harness is the program manager's, and this role says what it noticed in prose instead",
-		}
+		return blockRefusal(authority, blockHandStep)
 	}
 	// An ask is refused above the tracker rather than beside it, because it is
 	// the one block that most replies carrying it carry alone: checking it after

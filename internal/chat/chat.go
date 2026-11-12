@@ -1139,6 +1139,11 @@ type Reply struct {
 	// ordinary words. Each was handed back to the asking role, and the rest of
 	// the reply that carried it was carried out.
 	RefusedAsks []string `json:"refused_asks,omitempty"`
+	// RefusedBlocks are blocks of the reply, other than a tracker block, that
+	// were refused alone, one plain sentence each. Nothing in such a block was
+	// carried out; everything else in the reply was, and the role is told of the
+	// refusal on its next turn.
+	RefusedBlocks []string `json:"refused_blocks,omitempty"`
 	// Reports are what the product manager noticed and filed for the operator
 	// while it answered. They are collected rather than acted on: a report
 	// changes nothing about the turn that carried it, exactly as it changes
@@ -1616,6 +1621,11 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	// none — which is the tracker budget changing size for a reason nothing about
 	// the tracker explains.
 	trackerRounds := 0
+	// unhandedRefusal is the refusal of a tracker block that was not handed back
+	// in this message, which ends the message once its round has been carried out,
+	// and refusalStop is the budget's stop where that is why it was not handed back.
+	var unhandedRefusal error
+	var refusalStop string
 	// researchRounds counts the rounds that actually went outside this machine.
 	// It is its own budget for the reason the tracker's is: one message asking the
 	// tracker twice must not thereby have fewer chances to check a fact.
@@ -1678,56 +1688,59 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// the turn, and a report that could not be read is noted rather than
 		// returned: the rest of the answer is unaffected by either.
 		s.collectReply(&reply, parsed)
-		// A tracker block the harness would not read is recorded, and handed back
-		// to the role that sent it as a further round of this same message, so it
-		// can re-issue the actions before its reply ends rather than waiting for
-		// somebody to relay the refusal. A refusal is what that round of actions
-		// came to, so it spends a round like any other result.
+		// A tracker block the harness would not read is refused alone: it is
+		// audited and recorded, and the rest of the reply is carried out as any
+		// round's is, with no tracker action in it. The refusal is handed back to the
+		// role that sent it as a further round of this same message, together with
+		// what the rest of the reply came to, so it can re-issue the actions before
+		// its reply ends rather than waiting for somebody to relay the refusal. A
+		// refusal is what that round of actions came to, so it spends a round like
+		// any other result.
 		//
-		// Two cases are not handed back, and each ends the message as a refused
-		// block always has — the answer above is real, the turn is returned as
-		// failed, and nothing in the block was carried out. A refusal with one
-		// still unanswered goes to the operator, which is what a block refused
-		// again on the round it was handed back in comes to. And one on the last
-		// round has no round to be handed back in, so it waits for the role's next
-		// turn and the wakeup the harness owes it.
+		// Two cases are not handed back, and each ends the message after the round
+		// has been carried out: the turn is returned as failed with the refusal, and
+		// what the round owes the role is written down for its next turn. A refusal
+		// with one still unanswered goes to the operator, which is what a block
+		// refused again on the round it was handed back in comes to. And one on the
+		// last round, or where the budget stops the message, has no round to be
+		// handed back in, so it waits for the role's next turn and the wakeup the
+		// harness owes it.
 		var refused *TrackerError
+		handBack := false
 		if errors.As(err, &refused) {
-			if auditErr := s.refuseToolBlocks(answer, parsed); auditErr != nil {
+			if auditErr := s.refuseBlock(fenceName(trackerFence)); auditErr != nil {
 				return reply, errors.Join(err, auditErr)
 			}
 			trackerRounds++
 			noteToolLimit(&spent, toolTracker, trackerRounds, maxTrackerRounds)
 			decision := budget.Decide(messageSpent(), s.options.MessageBudget)
-			handBack := s.state.RefusedBlock == nil && trackerRounds < maxTrackerRounds && decision.Stop == ""
-			if problem := s.recordRefusedTrackerBlock(refused, handBack); problem != nil || !handBack {
-				if decision.Stop != "" && problem == nil {
-					problem = s.recordMessageStopped(&reply, decision.Stop, messageSpent())
-				}
+			handBack = s.state.RefusedBlock == nil && trackerRounds < maxTrackerRounds && decision.Stop == ""
+			if problem := s.recordRefusedTrackerBlock(refused, handBack); problem != nil {
 				return reply, errors.Join(err, problem)
 			}
-			permit = decision.Permission
-			reply.HandedBack = append(reply.HandedBack, refused.Error())
-			prompt = renderHandedBackTrackerBlock(refused, maxTrackerRounds-trackerRounds)
-			if permit.Closing() {
-				prompt += closingTurnNotice
+			if handBack {
+				reply.HandedBack = append(reply.HandedBack, refused.Error())
+				resultsInPrompt = renderRefusedTrackerBlock(refused)
+			} else {
+				unhandedRefusal, refusalStop = err, decision.Stop
 			}
-			resultsInPrompt = renderRefusedTrackerBlock(refused)
-			continue
-		}
-		// The block was readable, so a refusal waiting on a correction has had one.
-		// It is settled here rather than after the rest of the parse is judged:
-		// what a recorded refusal is owed is a block the harness can read, and a
-		// reply whose proposals or research would not decode still sent one.
-		//
-		// Whether it asked for anything is the other half. A turn the harness woke
-		// that came back with no tracker action at all has ended the correction with
-		// the actions still lost, and the settling is what says so.
-		if settled := s.settleRefusedTrackerBlock(len(parsed.Actions) > 0); settled != nil {
-			return reply, errors.Join(err, settled)
-		}
-		if err != nil {
-			return reply, errors.Join(err, s.refuseToolBlocks(answer, parsed))
+		} else {
+			// The block was readable, so a refusal waiting on a correction has had
+			// one. It is settled here rather than after the rest of the parse is
+			// judged: what a recorded refusal is owed is a block the harness can
+			// read, and a reply whose proposals or research would not decode still
+			// sent one.
+			//
+			// Whether it asked for anything is the other half. A turn the harness
+			// woke that came back with no tracker action at all has ended the
+			// correction with the actions still lost, and the settling is what says
+			// so.
+			if settled := s.settleRefusedTrackerBlock(len(parsed.Actions) > 0); settled != nil {
+				return reply, errors.Join(err, settled)
+			}
+			if err != nil {
+				return reply, errors.Join(err, s.refuseToolBlocks(answer, parsed))
+			}
 		}
 		// A question put to a role this one may not ask is refused alone: it is
 		// handed back to the role below, and the reply's other blocks are judged
@@ -1747,6 +1760,13 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// for, so both are returned; what the role asked for is simply not done.
 		if err := s.authorize(parsed); err != nil {
 			return reply, errors.Join(err, s.refuseToolBlocks(answer, parsed))
+		}
+		// What the harness could not read, in a block this role may send, is lost
+		// alone. The refusal is recorded now and told to the role with this round's
+		// results below; the proposal checks further down add theirs.
+		refusedNotice, err := s.settleRefusedBlocks(&reply, parsed.Refused)
+		if err != nil {
+			return reply, err
 		}
 
 		// A refused document is an action result, not a failed turn. Keep the
@@ -1782,20 +1802,31 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// under a goal nothing states is being asked to approve traceability that
 		// does not exist, and the approval is spent by the time the creation
 		// refuses it.
-		if err := s.verifyProposalGoals(parsed.Proposals); err != nil {
-			return reply, errors.Join(&ProposalGoalError{Err: err}, s.refuseToolBlocks(answer, parsed, capability.ConcernRaise))
-		}
-		// What a proposal says done means is checked next, for the same reason
-		// and at the same cost: a done-condition naming a document no run may
-		// write is work no run can finish, and the operator would be approving it.
-		if err := s.verifyProposalConditions(parsed.Proposals); err != nil {
-			return reply, errors.Join(&ProposalConditionError{Err: err}, s.refuseToolBlocks(answer, parsed, capability.ConcernRaise))
-		}
-		// What a proposal is placed against is confirmed to exist before the
-		// operator is asked about any of it. A block naming an item nobody created
-		// proposes nothing, exactly as an unreadable one does.
-		if err := s.verifyProposalReferences(ctx, parsed.Proposals); err != nil {
-			return reply, errors.Join(&ProposalPlacementError{Err: err}, s.refuseToolBlocks(answer, parsed, capability.ConcernRaise))
+		// A proposal that fails any of the three checks below is lost alone, as an
+		// unreadable one is: it is refused as a proposal block, none of the reply's
+		// proposals are recorded, and the rest of the reply carries on.
+		if len(parsed.Proposals) > 0 {
+			var proposalRefusal error
+			if err := s.verifyProposalGoals(parsed.Proposals); err != nil {
+				proposalRefusal = &ProposalGoalError{Err: err}
+			} else if err := s.verifyProposalConditions(parsed.Proposals); err != nil {
+				// What a proposal says done means is checked next, for the same reason
+				// and at the same cost: a done-condition naming a document no run may
+				// write is work no run can finish, and the operator would be approving it.
+				proposalRefusal = &ProposalConditionError{Err: err}
+			} else if err := s.verifyProposalReferences(ctx, parsed.Proposals); err != nil {
+				// What a proposal is placed against is confirmed to exist before the
+				// operator is asked about any of it.
+				proposalRefusal = &ProposalPlacementError{Err: err}
+			}
+			if proposalRefusal != nil {
+				parsed.Proposals = nil
+				notice, err := s.settleRefusedBlocks(&reply, []refusedBlock{{Kind: blockProposal, Block: fenceName(proposalFence), Err: proposalRefusal}})
+				refusedNotice += notice
+				if err != nil {
+					return reply, err
+				}
+			}
 		}
 		// What each proposal looks like among the work already admitted is judged
 		// before any of it is recorded, so a proposal that is work the tracker
@@ -1837,6 +1868,9 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// rather than into the durable record — the tracker's results, and whatever
 		// research came back. It is owed to the role either way, so a round that
 		// ends up sending nothing writes it down instead of dropping it.
+		// A round that hands a refused tracker block back is handing results back
+		// too, so what the blocks below produce joins undelivered rather than being
+		// written down for the next turn.
 		undelivered := documentResult
 		if len(parsed.Actions) > 0 {
 			// The harness now goes to the tracker on the product manager's behalf,
@@ -2016,7 +2050,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			if err != nil {
 				return reply, err
 			}
-			if undelivered != "" {
+			if undelivered != "" || handBack {
 				undelivered += renderMemoryResults(outcomes)
 			} else if err := s.carryResults(renderMemoryResults(outcomes)); err != nil {
 				return reply, err
@@ -2035,7 +2069,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			if err != nil {
 				return reply, err
 			}
-			if undelivered != "" {
+			if undelivered != "" || handBack {
 				undelivered += renderLaneReportResult(outcome)
 			} else if err := s.carryResults(renderLaneReportResult(outcome)); err != nil {
 				return reply, err
@@ -2048,7 +2082,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		if parsed.Restart != nil {
 			outcome := s.performRestartRequest(*parsed.Restart)
 			reply.Restart = &outcome
-			if undelivered != "" {
+			if undelivered != "" || handBack {
 				undelivered += renderRestartResult(outcome)
 			} else if err := s.carryResults(renderRestartResult(outcome)); err != nil {
 				return reply, err
@@ -2061,7 +2095,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			outcome := s.performStopCauses(ctx, *parsed.StopCauses)
 			reply.StopCauses = &outcome
 			reply.Reports = append(reply.Reports, outcome.reports...)
-			if undelivered != "" {
+			if undelivered != "" || handBack {
 				undelivered += renderStopCauseResult(outcome)
 			} else if err := s.carryResults(renderStopCauseResult(outcome)); err != nil {
 				return reply, err
@@ -2073,7 +2107,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		if parsed.PassRequest != nil {
 			outcome := s.performPassRequest(*parsed.PassRequest)
 			reply.PassRequest = &outcome
-			if undelivered != "" {
+			if undelivered != "" || handBack {
 				undelivered += renderPassRequestResult(outcome)
 			} else if err := s.carryResults(renderPassRequestResult(outcome)); err != nil {
 				return reply, err
@@ -2084,7 +2118,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		if parsed.Observed != nil {
 			outcome := s.performObserved(*parsed.Observed)
 			reply.Observed = &outcome
-			if undelivered != "" {
+			if undelivered != "" || handBack {
 				undelivered += renderObservedResult(outcome)
 			} else if err := s.carryResults(renderObservedResult(outcome)); err != nil {
 				return reply, err
@@ -2093,9 +2127,22 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// owed is what the continuation carries that the role has not yet seen,
 		// without the instruction to carry on, so a message the budget stops can
 		// write it down for the next turn rather than drop it.
+		// The refusal of a block the role sent travels with whatever this round is
+		// already handing back, or waits for the next turn where it hands back
+		// nothing, the way a memory's result does.
+		if refusedNotice != "" {
+			if undelivered != "" || handBack {
+				undelivered += refusedNotice
+			} else if err := s.carryResults(refusedNotice); err != nil {
+				return reply, err
+			}
+		}
 		owed := undelivered
 		if undelivered != "" {
-			continuation = undelivered + continueAfterResults
+			continuation = undelivered
+			if !handBack {
+				continuation += continueAfterResults
+			}
 		}
 		if refusedAsk != nil {
 			said := refusedAskSays(s.state.Role, *refusedAsk)
@@ -2143,6 +2190,24 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			owed += asked.delivery
 			chargeTo = asked.chargeTo
 		}
+		// A tracker refusal that is not handed back ends the message here, after
+		// everything else the reply asked for has been carried out. What this round
+		// owes the role is written down for its next turn, where the refusal also
+		// waits, because no round follows to hand it back in.
+		if unhandedRefusal != nil {
+			if owed != "" {
+				reply.ResultsCarriedOver = true
+				if err := s.carryResults(owed); err != nil {
+					return reply, errors.Join(unhandedRefusal, err)
+				}
+			}
+			break
+		}
+		// The round a refused tracker block is handed back in opens with the refusal
+		// and then carries what the rest of this round came to.
+		if handBack {
+			continuation = renderHandedBackTrackerBlock(refused, maxTrackerRounds-trackerRounds, continuation)
+		}
 		// A request refused past a tool's limit hands nothing back, but the
 		// role was still asking, so the decision is what ends the message and
 		// the stop is recorded rather than read as the role finishing.
@@ -2172,6 +2237,12 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		}
 	}
 
+	if unhandedRefusal != nil {
+		if refusalStop != "" {
+			return reply, errors.Join(unhandedRefusal, s.recordMessageStopped(&reply, refusalStop, messageSpent()))
+		}
+		return reply, unhandedRefusal
+	}
 	// What a recurring turn said is kept for the next one, which starts in a
 	// session of its own and would otherwise not hear it.
 	if s.pass != "" {
@@ -3080,16 +3151,22 @@ type parsedReply struct {
 	MCPCalls   []mcpcall.Request
 	MCPCarried bool
 	MCPProblem error
+	// Refused are the blocks, other than the tracker block, that could not be
+	// read: each is refused alone and the rest of the reply is taken apart as if
+	// it had not been there. Send adds the blocks it refuses after reading them.
+	Refused []refusedBlock
 }
 
 // splitReply separates one answer into the prose the operator reads, the tracker
 // actions it asked for, the work items it proposed, and the reports it filed. A
-// tracker or proposal block the harness cannot read leaves the rest of the
-// answer as prose and reports a typed failure: nothing in an unreadable block is
-// carried out or recorded, and the answer itself is still the operator's to
-// read. The report block is the exception at both ends: it is taken out first,
-// and one that cannot be read leaves everything else to be taken apart exactly
-// as it would have been.
+// block it cannot read is refused alone: it is recorded in Refused, its text
+// stays in the prose, and the rest of the answer is taken apart as if it had not
+// been there. The tracker block is the one whose refusal comes back as the
+// returned error, a *TrackerError, because Send hands it back to the role within
+// the message; the reply it returns beside that error is complete, with no
+// actions. The report, lane report and MCP blocks are taken out first, and one
+// that cannot be read leaves everything else to be taken apart exactly as it
+// would have been.
 func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	rest, reports, reportErr := report.Extract(answer)
 	parsed := parsedReply{Reports: reports, ReportProblem: reportErr}
@@ -3100,90 +3177,117 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	// So is the MCP block, for the same reason: a block that cannot be read is
 	// refused whole and handed back, and the rest of the answer stands.
 	rest, parsed.MCPCalls, parsed.MCPCarried, parsed.MCPProblem = mcpcall.Extract(rest)
+	// A tracker block that cannot be read is refused alone like any other: its
+	// text stays in the prose, no action comes of it, and the failure is returned
+	// beside a fully taken-apart reply for Send to hand back to the role.
+	var trackerErr error
 	prose, actions, requested, err := extractTrackerActions(rest)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, &TrackerError{Role: role, Actions: requested, Err: err}
+		trackerErr = &TrackerError{Role: role, Actions: requested, Err: err}
+		prose, actions = rest, nil
 	}
-	prose, proposals, err := extractProposals(prose)
-	if err != nil {
-		parsed.Prose = rest
-		return parsed, &ProposalError{Err: err}
+	// Every other block is refused alone when it cannot be read: the reply goes on
+	// being taken apart from the prose as it was before that block's extractor ran,
+	// so the unreadable block's text stays in the prose and nothing in it is
+	// carried out.
+	refuse := func(kind, fence string, err error) {
+		parsed.Refused = append(parsed.Refused, refusedBlock{Kind: kind, Block: fenceName(fence), Err: err})
 	}
-	prose, concerns, err := extractConcerns(prose)
+	next, proposals, err := extractProposals(prose)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, &ConcernError{Err: err}
+		refuse(blockProposal, proposalFence, &ProposalError{Err: err})
+	} else {
+		prose = next
 	}
-	prose, queries, err := research.Extract(prose)
+	next, concerns, err := extractConcerns(prose)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, &ResearchError{Err: err}
+		refuse(blockConcern, concernFence, &ConcernError{Err: err})
+	} else {
+		prose = next
 	}
-	prose, evaluated, err := evaluation.Extract(prose)
+	next, queries, err := research.Extract(prose)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, &EvaluationError{Err: err}
+		refuse(blockResearch, research.Fence, &ResearchError{Err: err})
+	} else {
+		prose = next
 	}
-	prose, reads, err := repositoryread.Extract(prose)
+	next, evaluated, err := evaluation.Extract(prose)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, &RepositoryError{Err: err}
+		refuse(blockEvaluation, evaluation.Fence, &EvaluationError{Err: err})
+	} else {
+		prose = next
 	}
-	prose, logs, err := logread.Extract(prose)
+	next, reads, err := repositoryread.Extract(prose)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, fmt.Errorf("log read block refused: %w", err)
+		refuse(blockRepositoryRead, repositoryread.Fence, &RepositoryError{Err: err})
+	} else {
+		prose = next
 	}
-	prose, runReads, err := runinspect.Extract(prose)
+	next, logs, err := logread.Extract(prose)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, fmt.Errorf("run block refused: %w", err)
+		refuse(blockLogRead, logread.Fence, fmt.Errorf("log read block refused: %w", err))
+	} else {
+		prose = next
 	}
-	prose, healthReads, err := health.Extract(prose)
+	next, runReads, err := runinspect.Extract(prose)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, fmt.Errorf("health block refused: %w", err)
+		refuse(blockRunRead, runinspect.Fence, fmt.Errorf("run block refused: %w", err))
+	} else {
+		prose = next
 	}
-	prose, recoveries, err := runrecover.Extract(prose)
+	next, healthReads, err := health.Extract(prose)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, fmt.Errorf("recover block refused: %w", err)
+		refuse(blockHealthRead, health.Fence, fmt.Errorf("health block refused: %w", err))
+	} else {
+		prose = next
 	}
-	prose, ask, err := exchange.Extract(prose)
+	next, recoveries, err := runrecover.Extract(prose)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, &AskError{Err: err}
+		refuse(blockRecovery, runrecover.Fence, fmt.Errorf("recover block refused: %w", err))
+	} else {
+		prose = next
 	}
-	prose, memories, err := extractMemoryWrites(prose)
+	next, ask, err := exchange.Extract(prose)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, &MemoryError{Err: err}
+		refuse(blockAsk, exchange.Fence, &AskError{Err: err})
+	} else {
+		prose = next
 	}
-	prose, restart, err := extractRestart(prose)
+	next, memories, err := extractMemoryWrites(prose)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, &RestartError{Err: err}
+		refuse(blockMemory, memoryFence, &MemoryError{Err: err})
+	} else {
+		prose = next
 	}
-	prose, stopCauses, err := extractStopCauses(prose)
+	next, restart, err := extractRestart(prose)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, &StopCauseError{Err: err}
+		refuse(blockRestart, restartFence, &RestartError{Err: err})
+	} else {
+		prose = next
 	}
-	prose, passRequest, err := extractPassRequest(prose)
+	next, stopCauses, err := extractStopCauses(prose)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, &PassRequestError{Err: err}
+		refuse(blockPostMortem, stopCauseFence, &StopCauseError{Err: err})
+	} else {
+		prose = next
 	}
-	prose, observed, err := extractIntervention(prose)
+	next, passRequest, err := extractPassRequest(prose)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, &InterventionError{Err: err}
+		refuse(blockPassRequest, passRequestFence, &PassRequestError{Err: err})
+	} else {
+		prose = next
 	}
-	prose, writes, err := artifact.ExtractWrites(prose)
+	next, observed, err := extractIntervention(prose)
 	if err != nil {
-		parsed.Prose = rest
-		return parsed, &DocumentError{Role: role, Err: err}
+		refuse(blockHandStep, interventionFence, &InterventionError{Err: err})
+	} else {
+		prose = next
+	}
+	next, writes, err := artifact.ExtractWrites(prose)
+	if err != nil {
+		refuse(blockDocument, artifact.WriteFence, &DocumentError{Role: role, Err: err})
+	} else {
+		prose = next
 	}
 	parsed.Prose = prose
 	parsed.Actions = actions
@@ -3203,7 +3307,7 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	parsed.PassRequest = passRequest
 	parsed.Observed = observed
 	parsed.Writes = writes
-	return parsed, nil
+	return parsed, trackerErr
 }
 
 // collectReply records what one round of an answer reported and carries the
@@ -3272,6 +3376,13 @@ func (s *Session) carryResults(results string) error {
 		return fmt.Errorf("record the results the %s has not been told: %w", RoleTitle(s.state.Role), err)
 	}
 	return nil
+}
+
+// TellNextTurn writes a notice the role reads at the start of its next turn, for
+// something about its last reply that only the caller of Send judged, such as a
+// recurring pass reading the account out of it.
+func (s *Session) TellNextTurn(notice string) error {
+	return s.carryResults(notice)
 }
 
 // Proposals returns the proposals from this conversation that the operator has
@@ -4455,8 +4566,12 @@ func (s *Session) reportTrackerActions(out io.Writer, reply Reply) {
 	for _, refusal := range reply.HandedBack {
 		fmt.Fprintf(out, "%s\nNothing in that block was carried out; the harness handed the refusal back within this message so it could re-issue the actions.\n", refusal)
 	}
+	// A block refused alone is said the same way: the rest of the reply stood.
+	for _, refusal := range reply.RefusedBlocks {
+		fmt.Fprintf(out, "%s\nEverything else in the reply was carried out, and the %s is told what was refused so it can send the block again.\n", refusal, RoleTitle(s.state.Role))
+	}
 	if len(reply.Actions) == 0 {
-		if len(reply.HandedBack) > 0 {
+		if len(reply.HandedBack) > 0 || len(reply.RefusedBlocks) > 0 {
 			fmt.Fprintln(out)
 		}
 		return
