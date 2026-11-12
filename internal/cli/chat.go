@@ -1082,6 +1082,10 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// here, and a reader nobody may ask is never asked.
 		RepositoryReader: conversationRepositoryReader(parts),
 		LogReader:        logread.Reader{StateRoot: parts.stateRoot, ProductID: parts.config.Product.ID, RedactValues: parts.redactValues},
+		// The one MCP call path, through which a role asks the harness to call
+		// a tool on its agent's own configured list. Nil where the project
+		// declares no MCP server, so the role is told nothing about MCP.
+		MCP: conversationMCP(parts, stderr),
 		// How a manager is shown one run of this product and checks one expected
 		// state of it: the run store observed without taking any lease, and the
 		// repository asked whether the run's branch and worktree are there. It is

@@ -91,6 +91,11 @@ func bundles() []Bundle {
 				// does not say it is consistent with their intent is refused at the act,
 				// because a change of fundamental intent stays the operator's.
 				capability.AmendmentDecide,
+				// Asking the harness to make an MCP call to a tool on the agent's
+				// own configured list, of either class
+				// (docs/designs/mcp-tools-through-the-harness.md, section 1).
+				capability.MCPRead,
+				capability.MCPAct,
 			},
 		},
 		{
@@ -122,6 +127,10 @@ func bundles() []Bundle {
 				capability.ExchangeAsk,
 				capability.ExchangeAnswer,
 				capability.AgentContextMutate,
+				// MCP calls of either class, to tools on the agent's own list, as
+				// the Lead Product Manager holds them.
+				capability.MCPRead,
+				capability.MCPAct,
 			},
 		},
 		{
@@ -157,6 +166,10 @@ func bundles() []Bundle {
 				capability.ExchangeAsk,
 				capability.ExchangeAnswer,
 				capability.AgentContextMutate,
+				// MCP calls of either class, to tools on the agent's own list, as
+				// the Lead Product Manager holds them.
+				capability.MCPRead,
+				capability.MCPAct,
 			},
 		},
 		{
@@ -181,6 +194,11 @@ func bundles() []Bundle {
 				// execute them itself before it submits anything.
 				capability.ChecksExecute,
 				capability.RunStateMutate,
+				// MCP calls to read tools only: an act taken during a run happens
+				// before review and could not be undone if review refused the
+				// change (docs/designs/mcp-tools-through-the-harness.md, section 1).
+				// A run carries out no MCP block yet; see declaredAhead.
+				capability.MCPRead,
 			},
 		},
 		{
@@ -257,6 +275,9 @@ func bundles() []Bundle {
 				capability.ExchangeAsk,
 				capability.ExchangeAnswer,
 				capability.ServiceRequestRestart,
+				// MCP calls to read tools only, on its own configured list; a
+				// program manager acts on nothing outside the harness.
+				capability.MCPRead,
 			},
 		},
 	}
@@ -284,6 +305,10 @@ func declaredAhead() []Ahead {
 		{
 			Capability: capability.ReadModelRead,
 			Reason:     "the read-model block a pass opens with and the one named query a reply may ask for are their own child of yoyodyne-ifd.430.13; until it lands the program manager is handed no read-model query",
+		},
+		{
+			Capability: capability.MCPRead,
+			Reason:     "a developer run carries out no MCP block until the build piece for developer runs in docs/designs/mcp-tools-through-the-harness.md lands; until then a developer's bundle names the read it will hold, and no run asks for it",
 		},
 		{
 			Capability: capability.AmendmentPropose,

@@ -174,7 +174,9 @@ func TestConfigShowReportsEachAgentsMCPTools(t *testing.T) {
 		t.Fatalf("config show with no mcp section mentions MCP:\n%s", stdout)
 	}
 	stdout, _, _ = runCLI(t, "config", "show", "--json", "--config", writeConfig(t, validConfig))
-	if strings.Contains(stdout, `"mcp`) {
+	// The grant names mcp.read and mcp.act are among an agent's capabilities and
+	// tools whatever the file says; what must not appear is an MCP key.
+	if strings.Contains(stdout, `"mcp"`) || strings.Contains(stdout, `"mcp_tools"`) {
 		t.Fatalf("config show --json with no mcp section mentions MCP:\n%s", stdout)
 	}
 }

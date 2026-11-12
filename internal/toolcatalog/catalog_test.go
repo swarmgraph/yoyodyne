@@ -1,6 +1,7 @@
 package toolcatalog
 
 import (
+	"github.com/mason-bryant/yoyodyne/internal/mcpcall"
 	"strings"
 	"testing"
 
@@ -48,6 +49,14 @@ func TestRoleToolsAreExactlyTheGrantedDescriptors(t *testing.T) {
 			}
 			heading := "## " + entry.Name + " ("
 			count := strings.Count(contract, heading)
+			// The MCP tools are described per agent from its own list, by
+			// mcpcall.Instructions, so the role's section names neither.
+			if entry.Tool.Block == mcpcall.Block {
+				if count != 0 {
+					t.Errorf("%s tool %s is in the role's tools section, which describes no MCP tool", role, entry.Name)
+				}
+				continue
+			}
 			if held && count != 1 || !held && count != 0 {
 				t.Errorf("%s tool %s: count %d held %t", role, entry.Name, count, held)
 			}

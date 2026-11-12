@@ -97,7 +97,9 @@ loops: `takeTurn` → `splitReply` → `collectReply` → `authorize` (`role.go`
 `verifyProposalGoals` / `verifyProposalConditions` /
 `verifyProposalReferences` → `recordProposals` → `admit` →
 `performTrackerActions` (`tracker.go`, at most `maxTrackerRounds`) →
-`performResearch` → `performRepositoryReads` → `performLogReads` /
+`performResearch` → `performRepositoryReads` → `performLogReads` →
+`performMCPCalls` (`mcp.go`: MCP calls through `internal/mcpcall`, each
+recorded as `tool.requested` then `tool.performed` or `tool.refused`) →
 `performRunReads` / `performHealthReads` (`tool.go`, `runinspect.go`,
 `health.go`) → `recordEvaluation` →
 `performMemoryWrites` → `writeLaneReport` → `performRestartRequest` →
@@ -263,6 +265,7 @@ removes them from the record once a turn has delivered them.
 | `exchange.go` | one role asking another (`conductAsk`) |
 | `freshness.go`, `refresh.go` | how old the role's picture of the product is, and refreshing it |
 | `research.go`, `repository.go` | outside research and repository reads at a commit |
+| `mcp.go` | MCP calls a role asks for in a `yoyodyne-mcp` block, made through `internal/mcpcall` (`performMCPCalls`), and the MCP section of the instructions of an agent holding tools (`mcpInstructions`, read by `systemPrompt` in `role.go`) |
 | `tool.go`, `runinspect.go`, `health.go`, `recover.go` | the audit every tool call passes (`auditTool`); `log.read`; `run.inspect` and `run.verify` over `internal/runinspect`; `health.observe` and `health.follow` over `internal/health`; `run.recover` over `internal/runrecover` (`performRecoveries`) |
 | `stream.go`, `activity.go`, `wording.go`, `replycut.go` | showing a reply while it arrives; plain-words findings; cut replies |
 | `spend.go` | what a turn spends, attributed |

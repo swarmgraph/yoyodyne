@@ -22,6 +22,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/health"
 	"github.com/mason-bryant/yoyodyne/internal/logread"
+	"github.com/mason-bryant/yoyodyne/internal/mcpcall"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/repositoryread"
 	"github.com/mason-bryant/yoyodyne/internal/research"
@@ -435,6 +436,7 @@ func TestEveryToolNamesABlockTheHarnessReads(t *testing.T) {
 		trackerFence, memoryFence, proposalFence, concernFence, laneReportFence, restartFence, passRequestFence, stopCauseFence,
 		artifact.WriteFence, report.Fence, amendment.Fence, exchange.Fence, evaluation.Fence,
 		research.Fence, repositoryread.Fence, logread.Fence, runinspect.Fence, health.Fence, runrecover.Fence,
+		mcpcall.Fence,
 	} {
 		read[strings.TrimPrefix(fence, "```")] = true
 	}
