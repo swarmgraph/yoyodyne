@@ -102,8 +102,8 @@ func (a *activeRun) honorStop() error {
 	if !errors.As(err, &stopped) {
 		return err
 	}
-	passed := a.state.ChecksPassed
-	if passed == nil || passed.Attempt != a.state.RepairAttempts {
+	passed, kept := checksPassedOnHeldChange(a.state)
+	if !kept {
 		return err
 	}
 	if late := a.state.LateStop; late != nil && late.RequestedAt.Equal(stopped.request.RequestedAt.UTC()) {
@@ -125,4 +125,38 @@ func (a *activeRun) honorStop() error {
 	}
 	a.outcome.LateStop = a.state.LateStop
 	return nil
+}
+
+// checksPassedOnHeldChange reports the checks having passed on the attempt the
+// run holds now, which is what makes a stop found after them a late one. A
+// repair handed back since is a new attempt and does not count.
+func checksPassedOnHeldChange(state runstate.State) (*runstate.ChecksPassed, bool) {
+	passed := state.ChecksPassed
+	if passed == nil || passed.Attempt != state.RepairAttempts {
+		return nil, false
+	}
+	return passed, true
+}
+
+// recordLateStopOnUnheldRun is the sweep's half of honorStop, for a run no
+// process holds whose checks have passed on the change it holds: the stop is
+// recorded as having arrived late, and the run is left for the rest of the
+// sweep to settle as it would any run in flight, so its own pipeline resumes it
+// to its review rather than the sweep cancelling a change that has just earned
+// its checks. It reports whether the stop was such a stop.
+func (r Reconciler) recordLateStopOnUnheldRun(ctx context.Context, state runstate.State, request runstate.StopRequest) (runstate.State, bool, error) {
+	passed, kept := checksPassedOnHeldChange(state)
+	if !kept {
+		return state, false, nil
+	}
+	now := r.clock().Now()
+	late := runstate.NewLateStop(request, passed.At, now)
+	if existing := state.LateStop; existing != nil && existing.RequestedAt.Equal(late.RequestedAt) {
+		return state, true, nil
+	}
+	written, err := r.Store.Update(ctx, state.RunID, runstate.LateStopRecorded{Stop: late, At: now})
+	if err != nil {
+		return state, true, fmt.Errorf("record the stop that reached run %s after its checks passed: %w", state.RunID, err)
+	}
+	return written, true, nil
 }

@@ -577,7 +577,17 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 			return reconciliationOf(state, ActionUnsettled), fmt.Errorf("read whether run %s was asked to stop: %w", state.RunID, err)
 		}
 		if requested {
-			return r.settleStopRequest(ctx, state, request)
+			// A run whose checks have passed on the change it holds keeps that
+			// change: the stop is recorded as late and the run is settled below
+			// like any run in flight (promptstop.go).
+			written, late, err := r.recordLateStopOnUnheldRun(ctx, state, request)
+			if err != nil {
+				return reconciliationOf(state, ActionUnsettled), err
+			}
+			if !late {
+				return r.settleStopRequest(ctx, state, request)
+			}
+			state = written
 		}
 	}
 	// A run in flight that the development manager has answered through
@@ -2091,18 +2101,19 @@ func vanishedReason(state runstate.State, park recordedPark, grace time.Duration
 }
 
 // honoursStop reports a run the sweep may end on a stop request: one in flight
-// that has not reached its promotion. A live run reads a stop only at a
-// provider-call boundary, and the last of those is its review, so a run in its
-// integrating phase or with a promotion on its record is past every point a
-// stop could have reached. Cancelling one would record work already on the
-// target as stopped; the sweep completes it from its promotion instead, as it
-// always has.
+// that has not reached its promotion. A live run reads a stop at its step
+// boundaries, the last of which is its review, so a run in its integrating
+// phase or with a promotion on its record is past every point a stop could have
+// reached. Cancelling one would record work already on the target as stopped;
+// the sweep completes it from its promotion instead, as it always has. A run
+// whose checks have passed on the change it holds is not cancelled either: the
+// stop is recorded as late and the change kept (recordLateStopOnUnheldRun).
 func honoursStop(state runstate.State) bool {
 	return state.Status.InFlight() && state.Integration == nil && state.Phase != runstate.PhaseIntegrating
 }
 
 // settleStopRequest honours a stop somebody asked for on a run whose process is
-// gone. A live run reads the request at its next provider-call boundary and ends
+// gone. A live run reads the request at its next step and ends
 // itself cancelled, its artifacts where they are and its item told; a run with
 // no process reaches no boundary, and on 2026-09-27 a stop the development
 // manager decided stood unread for most of a day over a run that had been dead

@@ -890,7 +890,7 @@ func (s *Session) WaitForWork(ctx context.Context) (*FinishedRun, error) {
 //
 // The two paths differ only in who does the cancelling. A run this process owns
 // is cancelled here and settled here. A run somewhere else is asked to stop,
-// which it does at its next provider call, and this waits for that to happen so
+// which it does at its next step, and this waits for that to happen so
 // it can say what actually became of it — never that it stopped something it
 // only asked about.
 func (s *Session) StopWork(ctx context.Context, workItemID, reason string) (Stopped, error) {
@@ -1076,7 +1076,7 @@ func (s *Session) stopRun(ctx context.Context, run RunSnapshot, reason string) (
 	}
 	if ended == nil {
 		// The run has not ended within the grace. It keeps everything it has and
-		// stops at its next provider call, so nothing here decides anything about
+		// stops at its next step, so nothing here decides anything about
 		// it: saying it stopped would be a claim about a run that is still going.
 		return stopped, errors.Join(append(problems, s.recordStopOutcome(stopped))...)
 	}

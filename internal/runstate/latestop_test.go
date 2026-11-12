@@ -100,3 +100,42 @@ func TestALateStopIsRecordedOnce(t *testing.T) {
 		t.Fatal("Update() with an empty late stop error = nil, want it refused")
 	}
 }
+
+// A stop the run has already recorded as arriving late is said once, as late,
+// and not also as still waiting to take effect; and the bound is said in
+// minutes rather than Go's duration notation.
+func TestALateStopIsNotAlsoSaidToBePending(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	state := testState(t, StatusRunning)
+	if err := store.Create(state); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	asked := time.Date(2026, 11, 11, 12, 57, 0, 0, time.UTC)
+	request := StopRequest{
+		SchemaVersion: StopSchemaVersion,
+		ProductID:     domain.ProductID("yoyodyne"),
+		RunID:         state.RunID,
+		WorkItemID:    state.WorkItemID,
+		RequestedAt:   asked,
+		RequestedBy:   "the development manager",
+	}
+	if err := store.RecordStop(request); err != nil {
+		t.Fatalf("RecordStop() error = %v", err)
+	}
+	if says := request.Pending(); !strings.Contains(says, "(10 minutes after it was asked for)") || strings.Contains(says, "10m0s") {
+		t.Fatalf("Pending() = %q, want the bound said as 10 minutes", says)
+	}
+	late := NewLateStop(request, asked.Add(time.Hour), asked.Add(90*time.Minute))
+	if _, err := store.Update(context.Background(), state.RunID, LateStopRecorded{Stop: late, At: late.NoticedAt}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	history, err := store.History(RunQuery{})
+	if err != nil {
+		t.Fatalf("History() error = %v", err)
+	}
+	if len(history.Runs) != 1 || history.Runs[0].LateStop == nil || history.Runs[0].PendingStop != nil {
+		t.Fatalf("summary = %#v, want the stop said only as late", history.Runs)
+	}
+}

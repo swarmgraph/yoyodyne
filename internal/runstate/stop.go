@@ -226,6 +226,12 @@ func (s *Store) stopPath(runID string) (string, error) {
 // recorded, and is cut short once it passes.
 const StopTakesEffectWithin = 10 * time.Minute
 
+// StopBoundSays is StopTakesEffectWithin in the words a person reads it in,
+// "10 minutes" rather than Go's "10m0s".
+func StopBoundSays() string {
+	return fmt.Sprintf("%d minutes", int(StopTakesEffectWithin/time.Minute))
+}
+
 // TakesEffectBy is the latest moment this stop takes effect on a run that is
 // still working.
 func (r StopRequest) TakesEffectBy() time.Time {
@@ -237,7 +243,7 @@ func (r StopRequest) TakesEffectBy() time.Time {
 // zone named, and when it will have taken effect at the latest.
 func (r StopRequest) Pending() string {
 	says := fmt.Sprintf("%s asked this run to stop at %s, and it has not taken effect yet; it takes effect at the run's next step, and no later than %s (%s after it was asked for), unless the run's checks have already passed, in which case the change is kept for its review",
-		r.StoppedBy(), LocalStamp(r.RequestedAt), LocalStamp(r.TakesEffectBy()), StopTakesEffectWithin)
+		r.StoppedBy(), LocalStamp(r.RequestedAt), LocalStamp(r.TakesEffectBy()), StopBoundSays())
 	if reason := strings.TrimSpace(r.Reason); reason != "" {
 		says += ": " + reason
 	}

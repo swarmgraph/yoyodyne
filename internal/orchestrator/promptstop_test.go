@@ -113,7 +113,7 @@ func TestAStopCutsALongDeveloperAttemptShortAtItsBound(t *testing.T) {
 	if outcome.Status != runstate.StatusCancelled {
 		t.Fatalf("status = %q, want a stopped run recorded as cancelled", outcome.Status)
 	}
-	for _, want := range []string{"the development manager stopped this run", "cutting short the developer's attempt", runstate.StopTakesEffectWithin.String()} {
+	for _, want := range []string{"the development manager stopped this run", "cutting short the developer's attempt", "10 minutes"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("Run() error = %v, want it to say %q", err, want)
 		}
@@ -210,5 +210,60 @@ func TestAStopArrivingAfterTheChecksPassKeepsTheChangeForReview(t *testing.T) {
 	}
 	if len(history.Runs) != 1 || history.Runs[0].LateStop == nil || history.Runs[0].PendingStop != nil {
 		t.Fatalf("summary = %#v, want the late stop on the ended run and nothing pending", history.Runs)
+	}
+}
+
+// A run no process holds whose checks passed on the change it holds is not
+// cancelled by the sweep when a stop is on file: the stop is recorded as late,
+// the change is kept, and the run is left in flight for its own pipeline to
+// take on to its review. A run whose checks have not passed is still cancelled
+// at once (deadrun_unix_test.go).
+func TestTheSweepKeepsAChangeWhoseChecksPassedWhenAStopArrives(t *testing.T) {
+	t.Parallel()
+
+	repository, worktreeRoot, store := restartableFixture(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := providerStopBackend(1, execution.ProcessStalled, approveVerdict)
+	pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, []string{"exit 0"}), provider)
+	paused, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil || !paused.Paused {
+		t.Fatalf("Run() error = %v, paused = %t", err, paused.Paused)
+	}
+	// The run is taken to where its checks passed and its review was cut off,
+	// with no process left holding it.
+	state, err := store.Load(paused.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	passedAt := time.Now().Add(-time.Minute).UTC()
+	state.Phase = runstate.PhaseReviewing
+	state.ChecksPassed = &runstate.ChecksPassed{Content: "content-the-checks-passed", Attempt: state.RepairAttempts, At: passedAt, Commands: []string{"exit 0"}}
+	if err := store.Save(state); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	request := stopWaitedItsBound(paused.RunID)
+	if err := store.RecordStop(request); err != nil {
+		t.Fatalf("RecordStop() error = %v", err)
+	}
+
+	for sweep := 0; sweep < 2; sweep++ {
+		results := reconcileSweep(t, repository, worktreeRoot, store, tracker)
+		if len(results) != 1 || results[0].Action == ActionCancelled {
+			t.Fatalf("sweep %d = %#v, want the run whose checks passed left in flight rather than cancelled", sweep, results)
+		}
+	}
+	after, err := store.Load(paused.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !after.Status.InFlight() || after.CompletedAt != nil {
+		t.Fatalf("run = %q, want it still in flight with its change kept", after.Status)
+	}
+	if after.LateStop == nil || !after.LateStop.RequestedAt.Equal(request.RequestedAt.UTC()) ||
+		!after.LateStop.ChecksPassedAt.Equal(passedAt) || after.LateStop.RequestedBy != "the development manager" {
+		t.Fatalf("late stop = %#v, want the stop recorded as arriving after the checks passed", after.LateStop)
+	}
+	if after.WorktreeRemoved || after.BranchRemoved || tracker.Closed || tracker.Blocked {
+		t.Fatalf("run = %#v, item closed=%t blocked=%t; want nothing removed and the item untouched", after, tracker.Closed, tracker.Blocked)
 	}
 }

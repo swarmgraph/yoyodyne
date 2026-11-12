@@ -6583,10 +6583,10 @@ func (e operatorStop) Error() string {
 	if !e.at.IsZero() {
 		if e.cut != "" {
 			stopped += fmt.Sprintf("; it took effect at %s by cutting short %s, because a stop waits at most %s for the step a run is in the middle of",
-				runstate.LocalStamp(e.at), e.cut, runstate.StopTakesEffectWithin)
+				runstate.LocalStamp(e.at), e.cut, runstate.StopBoundSays())
 		} else {
 			stopped += fmt.Sprintf("; it took effect at the run's next step (a stop waits at most %s for the step a run is in the middle of)",
-				runstate.StopTakesEffectWithin)
+				runstate.StopBoundSays())
 		}
 	}
 	return stopped

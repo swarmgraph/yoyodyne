@@ -622,8 +622,11 @@ func (s *Store) summarize(state State) RunSummary {
 	// A stop that cannot be read is left off the listing rather than failing it,
 	// as the conversation's survey leaves it off: the run says the same thing
 	// about itself once it reads the request.
+	// A stop already recorded as having arrived late is not pending: it was
+	// answered by keeping the change, and LateStop says so.
 	if state.Status.InFlight() {
-		if request, requested, err := s.StopRequested(state.RunID); err == nil && requested {
+		if request, requested, err := s.StopRequested(state.RunID); err == nil && requested &&
+			(state.LateStop == nil || !state.LateStop.RequestedAt.Equal(request.RequestedAt.UTC())) {
 			summary.PendingStop = &request
 		}
 	}

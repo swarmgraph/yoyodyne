@@ -1,10 +1,10 @@
 {
   "scenario": "operator-stop-cancels-the-run-and-preserves-its-work",
-  "freezes": "A stop the operator asked for ends the run at its next provider-call boundary as cancelled rather than failed, before a verdict is bought, and leaves the worktree and branch for reconciliation to settle.",
+  "freezes": "A stop the operator asked for ends the run at its next step as cancelled rather than failed, before the checks run or a verdict is bought, and leaves the worktree and branch for reconciliation to settle.",
   "steps": [
     {
       "name": "run",
-      "error": "the operator stopped this run at \u003ctime\u003e: it is rewriting the wrong file; it took effect at the run's next step (a stop waits at most 10m0s for the step a run is in the middle of)",
+      "error": "the operator stopped this run at \u003ctime\u003e: it is rewriting the wrong file; it took effect at the run's next step (a stop waits at most 10 minutes for the step a run is in the middle of)",
       "ending": "cancelled",
       "outcome": {
         "base_commit": "\u003ccommit-1\u003e",
@@ -14,7 +14,7 @@
           "diff_stat": "feature.txt | 1 +\n 1 file changed, 1 insertion(+)",
           "status": "A feature.txt"
         },
-        "failure": "the operator stopped this run at \u003ctime\u003e: it is rewriting the wrong file; it took effect at the run's next step (a stop waits at most 10m0s for the step a run is in the middle of)",
+        "failure": "the operator stopped this run at \u003ctime\u003e: it is rewriting the wrong file; it took effect at the run's next step (a stop waits at most 10 minutes for the step a run is in the middle of)",
         "phase": "checking",
         "preservation": {
           "branch": "yoyodyne/yoyodyne-task/01234567",
@@ -67,7 +67,7 @@
       "text": "implemented the work item"
     },
     "effort_settled": true,
-    "failure": "the operator stopped this run at \u003ctime\u003e: it is rewriting the wrong file; it took effect at the run's next step (a stop waits at most 10m0s for the step a run is in the middle of)",
+    "failure": "the operator stopped this run at \u003ctime\u003e: it is rewriting the wrong file; it took effect at the run's next step (a stop waits at most 10 minutes for the step a run is in the middle of)",
     "harness_commit": "\u003ccommit-2\u003e",
     "last_sequence": 0,
     "phase": "checking",
@@ -135,7 +135,7 @@
       [
         "Yoyodyne bootstrap run failed.",
         "Run: run-0123456789abcdef0123456789abcdef",
-        "Failure: the operator stopped this run at \u003ctime\u003e: it is rewriting the wrong file; it took effect at the run's next step (a stop waits at most 10m0s for the step a run is in the middle of)",
+        "Failure: the operator stopped this run at \u003ctime\u003e: it is rewriting the wrong file; it took effect at the run's next step (a stop waits at most 10 minutes for the step a run is in the middle of)",
         "Phase: checking",
         "Branch: yoyodyne/yoyodyne-task/01234567 (checked and there)",
         "Worktree: \u003cworktrees\u003e/yoyodyne-task-01234567 (checked and there)",

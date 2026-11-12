@@ -561,7 +561,7 @@ func renderRunSnapshots(theme console.Theme, runs []RunSnapshot) string {
 		fmt.Fprintf(&rendered, "    %s\n", run.chosen())
 		if run.StopRequested {
 			fmt.Fprint(&rendered, theme.State(console.StateFailed,
-				"    you have asked this run to stop; it ends itself at its next provider call, and nothing has been thrown away yet\n"))
+				"    you have asked this run to stop; it ends itself at its next step, no later than ten minutes after you asked, and nothing has been thrown away yet; a change whose checks already passed is kept for its review instead\n"))
 		}
 		if run.Detail != "" {
 			fmt.Fprintf(&rendered, "    %s\n", singleLine(run.Detail, maxSurveyTitleBytes*2))
@@ -1056,8 +1056,9 @@ func (s Stopped) Render() string {
 		if s.Requested {
 			// The request is durable and the run is somewhere else, so this is not a
 			// failure and there is nothing to type again: the run stops at its next
-			// provider call, and what it kept until then it still has.
-			fmt.Fprintf(&rendered, "asked %s to stop; it had not given up by the time this stopped waiting, so it is still in flight and stops at its next provider call.\n", s.WorkItemID)
+			// step, within runstate.StopTakesEffectWithin, and what it kept until
+			// then it still has.
+			fmt.Fprintf(&rendered, "asked %s to stop; it had not given up by the time this stopped waiting, so it is still in flight and stops at its next step, no later than ten minutes after it was asked. If its checks have already passed, its change is kept for its review instead.\n", s.WorkItemID)
 			rendered.WriteString(indent("/status says whether it has, and what it left behind is settled the next time anything settles."))
 			return rendered.String()
 		}

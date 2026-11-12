@@ -469,7 +469,7 @@ listing another process has moved on from. **It never starts a developer.**
 | Action | When |
 | --- | --- |
 | `held` | A live process holds the run; it is left alone |
-| `cancelled` | Somebody asked the run to stop and no process holds it, so nothing would reach the boundary that honours a stop: the sweep ends it cancelled at once, as the run would have, the artifacts left as they were and a stop the development manager decided docketed and closed by her decision |
+| `cancelled` | Somebody asked the run to stop and no process holds it, so nothing would reach the boundary that honours a stop: the sweep ends it cancelled at once, as the run would have, the artifacts left as they were and a stop the development manager decided docketed and closed by her decision. A run whose checks have passed on the change it holds is not cancelled: the sweep records the stop as late (`late_stop`) and settles the run as it would any run in flight, so its own pipeline takes the change on to its review |
 | `resumable` | The run's own pipeline can continue it: a repair loop with durable state, a usage-limit or overload pause, an operator hold that still stands, or — within the last thirty minutes — a provider stopped on time, a directive, dependency, or tracker pause, an outage wait past its probe, or an operator hold since lifted |
 | `blocked`, for a run whose process vanished | A park nothing continued for thirty minutes (`Reconciler.VanishedGrace`) — a provider stopped on time, a directive, dependency, or tracker pause, an outage wait, or an operator hold since lifted: the harness ends the run, recorded as ended by something outside the work (`process-vanished`), naming what the sweep observed and what it was parked on, the item is blocked, the artifacts are left as they were, and the stoppage is docketed |
 | `queued` | The forge accepted a merge it has not performed; nothing can be decided until it does |
@@ -619,6 +619,12 @@ is unmeasured. Most of these are asserted somewhere in
   is the point of the field. `internal/orchestrator/declarative_test.go` asserts
   both halves — the run recording it and delivering anyway, and the recorder
   refusing the trace.
+- `late_stop`, a stop that reached a run only after its checks passed on the
+  change it holds, which keeps the change for its review instead of cancelling
+  it — in the run itself and in the sweep. No trace holds it: the traced stop
+  is taken before the checks. Both halves, and a stop cutting a long developer
+  attempt or check stage short, are asserted in
+  `internal/orchestrator/promptstop_test.go`.
 - The budgets a round refused from outside the work hands back. The
   classification itself is traced, on a first round that had nothing to hand back.
 - `usage_limit_paused_seconds` reaching `execution.usage_limit_max_pause`, and
