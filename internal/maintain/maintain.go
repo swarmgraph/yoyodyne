@@ -21,7 +21,7 @@
 //   - provider: whether the provider is answering, read from the product's
 //     outage record. While it is not, the supervisor holds every restart it
 //     would choose to make, and the steps below say so where it held one.
-//   - run-index: the index of run records rebuilt from every record
+//   - index: the index of run records rebuilt from every record
 //     (runstate.Store.RebuildRunIndex), so a record changed in place by
 //     something that went round the run store — an older build still running
 //     through a redeploy — is in the index by the time anything counts the runs
@@ -138,7 +138,7 @@ import (
 // The step names, as the sweep record carries them.
 const (
 	StepProvider        = "provider"
-	StepRunIndex        = "run-index"
+	StepRunIndex        = "index"
 	StepReconcile       = "reconcile"
 	StepTrackerCleanup  = "cleanup"
 	StepTrackerMeasure  = "measure"

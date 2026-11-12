@@ -409,7 +409,7 @@ Each pass takes twelve steps, in this order, and each is recorded:
   out; on 2026-09-17 the old job restarted the watch 158 times over an expired
   login. A part that dies is still started again, because a part left dead
   through an outage is one nothing is left to notice the outage ending.
-- **run-index** — the index of run records (`.run-index.json` beside the
+- **index** — the index of run records (`.run-index.json` beside the
   records under the product's state) rebuilt from every record. The harness
   keeps the index in step with every record it writes, so what leaves it out of
   date is a record changed by something else, such as an older build still
@@ -617,7 +617,7 @@ skipped or failed in capitals and saying why:
 2026-09-29T17:00:00Z  maintenance (the supervisor's own pass, no role woken)
   4 step(s) ran, 4 skipped, 0 failed
   - provider: ran, answering
-  - run-index: ran, the index of run records was rebuilt from every record, and every record reads
+  - index: ran, the index of run records was rebuilt from every record, and every record reads
   - reconcile: ran, yoyo reconcile exited 0: settled 0 runs
   - rebuild: ran, /Users/you/github/yoyodyne/bin/yoyo is built from main's tip 3d3d367a1b2c
   - restart-requests: SKIPPED, no program manager has an open restart request

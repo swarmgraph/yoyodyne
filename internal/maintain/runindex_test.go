@@ -68,7 +68,7 @@ func TestEveryPassRebuildsTheRunIndexAndNamesWhatWillNotRead(t *testing.T) {
 	recorded := f.pass1(t)
 	step := stepNamed(t, recorded, StepRunIndex)
 	if step.Outcome != runstate.StepRan || !strings.Contains(step.Detail, "rebuilt") || !strings.Contains(step.Detail, spoiled.RunID) {
-		t.Fatalf("run-index step = %+v, want it run, naming the record that could not be read", step)
+		t.Fatalf("index step = %+v, want it run, naming the record that could not be read", step)
 	}
 	active, err := runs.Incomplete()
 	if err != nil || len(active) != 1 || active[0].RunID != revived.RunID {
