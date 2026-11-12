@@ -3640,10 +3640,17 @@ recording its verdict is still hosted past the bound:
   ordinary loop too, so pulls and recurring tasks continue.
 - A merge queue pass whose candidate's checks are running is let finish
   them, each check up to its configured `execution.check_timeout`, and then
-  stopped; a candidate's checks count only whole, so a stage stopped part-way
-  would run every check again. Every other queue pass is stopped at the bound,
-  and past it no queue starts a new check stage. The session's line names the
-  queue, the candidate's generation, the check, and until when.
+  stopped. Each of a candidate's checks is recorded as it passes, so a stage
+  stopped part-way keeps the checks that had already passed: the session that
+  comes back runs only the others, the one cut off included, as long as the
+  candidate's commit and its list of checks are unchanged. The check cut off is
+  recorded on the candidate as cut off by the restart, not as a failure, and
+  nothing is charged to the change for it. Where the record of the stopped
+  attempt cannot say which checks passed on that same candidate, every check
+  runs again and the candidate's record says why. Every other queue pass is
+  stopped at the bound, and past it no queue starts a new check stage. The
+  session's line names the queue, the candidate's generation, the check, and
+  until when.
 - A document landing run — a confirmed document a role wrote, landed through
   its reviewed run — is never stopped for a restart, at any step: its checks,
   its review, or its promotion. It is short and bounded by its own checks' and
