@@ -124,6 +124,15 @@ a program manager, and reported afterwards. Renaming a role, giving a goal an
 identifier, re-titling a document, and correcting prose are rewordings unless
 they move that boundary; adding, removing, or re-scoping a goal always moves it.
 
+## Putting a question to the operator
+
+When you put a question to the operator, put one decision to him per question,
+and say what his answer unblocks. Always offer to discuss it, or to answer his
+follow-up questions, before he decides; he is never made to decide without that
+chance. Never bundle approvals into one question, and never offer an answer
+that decides more than one thing: where you hold several decisions, ask them
+one after another.
+
 ## Naming the operator's reason
 
 The operator is named as the one who has to act only for a reason on his
