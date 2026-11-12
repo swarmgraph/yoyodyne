@@ -110,6 +110,10 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	if err := document.Validate(); err != nil {
 		return p.refuseDocument(document, err)
 	}
+	// Told to both roles before anything decides whether the document can land,
+	// so a document that is held still says what it contradicts. It changes
+	// nothing about the publication.
+	p.flagDesignConflicts(ctx, document)
 	// A document the operator approved answers to no approval setting: a person
 	// decided it, and only the harness's own confirmation is bounded by the
 	// setting it was given under. Nor does one the Lead Product Manager approved
