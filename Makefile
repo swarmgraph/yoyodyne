@@ -195,15 +195,15 @@ test: cachecheck
 # than reading an unset variable as "nothing to test" and passing on that.
 #
 # What the harness names is only where the changed Go files are, so
-# scripts/check-scope.sh reads the change from Git and runs the whole module
-# instead whenever the change touches a file outside every package that the
-# check reads, a package the list does not name, or cannot be read at all.
-# Markdown outside every package is not one of those: the race check leaves it
-# out, and `make test` runs DOCUMENT_TESTS beside the packages for it. Set and
-# empty is the harness saying the change touches no Go package: where the
-# change is only such Markdown, the race check then runs over nothing and
-# `make test` over DOCUMENT_TESTS alone, each saying so, and the whole module
-# runs otherwise. That script says what it compares and why. Left undefined, as
+# scripts/check-scope.sh reads the change from Git. A list runs those packages
+# and only those: a package the change touches that the list leaves out is
+# added to them, and a file outside every package -- the Makefile, a script,
+# the configuration, a document -- leaves the race check as it is and has
+# `make test` run DOCUMENT_TESTS beside the packages. Only a change Git cannot
+# read runs the whole module. Set and empty is the harness saying the change
+# touches no Go package: where the change is only Markdown outside every
+# package, the race check then runs over nothing and `make test` over
+# DOCUMENT_TESTS alone, each saying so, and the whole module runs otherwise. That script says what it compares and why. Left undefined, as
 # `make check`, CI, and a person's own run leave it, `make test` is the whole
 # module.
 #
