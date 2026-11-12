@@ -778,51 +778,84 @@ func (s *Session) decideWrite(made decision) (WriteOutcome, error) {
 }
 
 // decideWrites puts the documents this conversation is waiting on to the
-// operator, one at a time. They are asked one at a time deliberately: a document
-// is read before it is approved, and a batch prompt is an invitation to approve
-// what was not read.
+// operator, one at a time and in order, each as its own question naming the
+// document and what deciding it unblocks (askone.go). They are asked one at a
+// time deliberately: a document is read before it is approved, and a batch
+// prompt is an invitation to approve what was not read.
+//
+// An answer decides the one document it was asked about. One the harness does
+// not recognise, or an empty one, leaves it waiting and declines nothing; a
+// question about it goes to the role that wrote it, and that document and every
+// one after it are put again once the role has answered.
 func (s *Session) decideWrites(ctx context.Context, writes []PendingWrite, screen console.Console) error {
-	if len(writes) == 0 {
+	var waiting []PendingWrite
+	for _, pending := range writes {
+		if !s.isWriteDecided(pending.ID) {
+			waiting = append(waiting, pending)
+		}
+	}
+	if len(waiting) == 0 {
+		return nil
+	}
+	// Where the operator has just chosen to ask about a proposal, that question is
+	// said first and these wait for its answer, so nothing else is put to them in
+	// between.
+	if s.followUp != "" {
+		for _, pending := range waiting {
+			s.leaveWaiting(pending.ID)
+		}
 		return nil
 	}
 	// Everything below writes to the console as an ordinary writer: on a terminal
 	// that puts it above the composing region, and anywhere else it is the stream
 	// it always was.
 	var out io.Writer = screen
+	role := RoleTitle(s.state.Role)
 	publishing := false
-	fmt.Fprint(out, s.theme.Proposal(fmt.Sprintf(
-		"The %s wrote %d document(s). Nothing is written to the repository unless you approve it.\n\n",
-		RoleTitle(s.state.Role), len(writes))))
-	for _, pending := range writes {
-		if s.isWriteDecided(pending.ID) {
-			continue
+	// An approved document's reviewed run starts as soon as the asking stops
+	// rather than at whatever the operator says next, and what it came to is said
+	// to them as well as to the owning role.
+	publish := func() error {
+		if !publishing {
+			return nil
 		}
+		published, err := s.PublishApproved(ctx)
+		if published != "" {
+			fmt.Fprintln(out, published)
+		}
+		return err
+	}
+	fmt.Fprint(out, s.theme.Proposal(fmt.Sprintf(
+		"The %s wrote %d document(s), asked one at a time. Nothing is written to the repository unless you approve it.\n\n",
+		role, len(waiting))))
+	for index, pending := range waiting {
+		delete(s.putAgain, pending.ID)
 		fmt.Fprint(out, s.theme.Proposal(pending.Render(s.theme)))
 		fmt.Fprintln(out)
-		line, err := s.ask(ctx, screen, writeDecisionPrompt(pending))
+		fmt.Fprintln(out, writeUnblocks(pending))
+		line, err := s.ask(ctx, screen, writeDecisionPrompt(pending, index+1, len(waiting), role))
 		if errors.Is(err, io.EOF) {
-			fmt.Fprintln(out, "input ended before you decided; nothing was written.")
-			if publishing {
-				published, err := s.PublishApproved(ctx)
-				fmt.Fprint(out, published)
-				return err
-			}
-			return nil
+			fmt.Fprintln(out, "input ended before you decided; nothing more was written or declined.")
+			return publish()
 		}
 		if err != nil {
 			return fmt.Errorf("read document decision: %w", err)
 		}
-		answer := strings.TrimSpace(line)
-		verb, rest := nextWord(answer)
-		// The contract's own rule, which is the fail-closed one: an answer nobody
-		// can be sure of declines, and is kept as the reason it was declined.
-		made := decision{proposalID: pending.ID, approve: matches(verb, approveWords)}
-		if !made.approve {
-			made.reason = answer
-			if matches(verb, declineWords) {
-				made.reason = strings.TrimSpace(rest)
+		answer := readOneAnswer(line)
+		switch answer.kind {
+		case answerAsk:
+			for _, later := range waiting[index:] {
+				s.leaveWaiting(later.ID)
 			}
+			s.followUp = followUpMessage(pending.ID, pending.Write.Describe(), answer.words)
+			fmt.Fprint(out, askedFirst(pending.ID, role, len(waiting)-index-1))
+			return publish()
+		case answerUndecided:
+			s.leaveWaiting(pending.ID)
+			fmt.Fprint(out, leftWaiting(pending.ID, answer))
+			continue
 		}
+		made := decision{proposalID: pending.ID, approve: answer.kind == answerApprove, reason: answer.words}
 		outcome, err := s.decideWrite(made)
 		saved := s.record()
 		// A store that would not write the document is reported and the
@@ -840,17 +873,7 @@ func (s *Session) decideWrites(ctx context.Context, writes []PendingWrite, scree
 		fmt.Fprintln(out)
 		publishing = publishing || outcome.Publishing != ""
 	}
-	// An approved document's reviewed run starts now rather than at whatever the
-	// operator says next, and what it came to is said to them as well as to the
-	// owning role.
-	if !publishing {
-		return nil
-	}
-	published, err := s.PublishApproved(ctx)
-	if published != "" {
-		fmt.Fprintln(out, published)
-	}
-	return err
+	return publish()
 }
 
 func (s *Session) isWriteDecided(writeID string) bool {
@@ -865,9 +888,8 @@ func (s *Session) isWriteDecided(writeID string) bool {
 // writeDecisionPrompt is what the operator decides one document under. It names
 // what would happen to the repository rather than asking a bare yes: this is the
 // one prompt in a conversation whose answer changes a file.
-func writeDecisionPrompt(pending PendingWrite) string {
-	return fmt.Sprintf("%s? [y or yes approves it and records your approval in it; anything else declines, and is kept as the reason] ",
-		pending.Write.Describe())
+func writeDecisionPrompt(pending PendingWrite, position, count int, role string) string {
+	return oneQuestionPrompt(pending.Write.Describe(), position, count, role)
 }
 
 // Render describes one written document as the operator decides on it: what

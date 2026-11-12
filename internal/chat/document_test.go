@@ -484,7 +484,7 @@ func TestTheOperatorIsShownTheDocumentAndItIsWrittenOnTheirYes(t *testing.T) {
 	// document approved unread is the transcription problem with an extra step.
 	for _, required := range []string{
 		"Ship the thing.",
-		"create v2-goals (goals) in docs/product?",
+		"create v2-goals (goals) in docs/product (1 of 1)?",
 		"records your approval in it",
 		"docs/product/v2-goals.md",
 	} {
@@ -497,7 +497,7 @@ func TestTheOperatorIsShownTheDocumentAndItIsWrittenOnTheirYes(t *testing.T) {
 	}
 }
 
-func TestAnAnswerNobodyCanBeSureOfDeclinesTheDocument(t *testing.T) {
+func TestAnAnswerNobodyCanBeSureOfLeavesTheDocumentWaiting(t *testing.T) {
 	t.Parallel()
 
 	provider := &fakeBackend{results: []backendapi.RunResult{{
@@ -508,17 +508,51 @@ func TestAnAnswerNobodyCanBeSureOfDeclinesTheDocument(t *testing.T) {
 	session := openTestSession(t, options)
 
 	var out strings.Builder
-	// The fail-closed rule the proposals already follow, applied where it matters
-	// most: this is the prompt whose answer writes a file.
+	// An answer the harness does not recognise decides nothing: the document is
+	// neither written nor declined, and is still waiting on the operator.
 	if err := session.Converse(context.Background(),
 		testConsole(strings.NewReader("write the goals up\nlet me think about it\n/exit\n"), &out)); err != nil {
 		t.Fatalf("Converse() error = %v", err)
 	}
-	if !strings.Contains(out.String(), "let me think about it") {
-		t.Fatalf("the answer was not kept as the reason:\n%s", out.String())
+	if !strings.Contains(out.String(), `"let me think about it" is not an answer the harness recognises, so document-1.1 is left undecided; nothing was approved or declined.`) {
+		t.Fatalf("the transcript does not say the document was left undecided:\n%s", out.String())
 	}
 	if _, err := os.Stat(filepath.Join(repository, "docs")); !os.IsNotExist(err) {
 		t.Fatalf("an unclear answer wrote a document: %v", err)
+	}
+	if waiting := session.Writes(); len(waiting) != 1 {
+		t.Fatalf("documents waiting = %#v, want the document still waiting", waiting)
+	}
+}
+
+// Asking about a document before deciding it sends the question to the role
+// that wrote it and leaves the document undecided; it is put again after the
+// answer, and decided then.
+func TestAQuestionAboutADocumentGoesToItsWriterBeforeItIsDecided(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", ResolvedModel: "claude-opus-5",
+			FinalText: documentReply("create", "v2-goals", "goals", "docs/product", "# Goals\\n\\nShip the thing.")},
+		{SessionID: "session-1", ResolvedModel: "claude-opus-5", FinalText: "It covers only the next release."},
+	}}
+	options, repository := documentOptions(t, provider)
+	session := openTestSession(t, options)
+
+	var out strings.Builder
+	if err := session.Converse(context.Background(),
+		testConsole(strings.NewReader("write the goals up\nask does it cover v3?\ny\n/exit\n"), &out)); err != nil {
+		t.Fatalf("Converse() error = %v", err)
+	}
+	if len(provider.requests) != 2 || !strings.Contains(provider.requests[1].Prompt, "A question about document-1.1 (create v2-goals (goals) in docs/product) before I decide it; it is still undecided: does it cover v3?") {
+		t.Fatalf("the question did not reach the role as its own turn: %d turns", len(provider.requests))
+	}
+	transcript := out.String()
+	if !strings.Contains(transcript, "document-1.1 stays undecided.") || strings.Count(transcript, "create v2-goals (goals) in docs/product (1 of 1)?") != 2 {
+		t.Fatalf("the document was not left undecided and asked again:\n%s", transcript)
+	}
+	if _, err := os.Stat(filepath.Join(repository, "docs", "product", "v2-goals.md")); err != nil {
+		t.Fatalf("the document approved after the answer is not in the repository: %v", err)
 	}
 }
 

@@ -72,8 +72,9 @@ message from the command line, and every recurring role pass
 12. **Printing what a turn did.** `reportTrackerActions`, `reportResearch`,
     `reportRepositoryReads`, `reportPicture`, `reportEvaluation`,
     `reportAdmitted`.
-13. **Deciding in the console.** `raise` / `answerTo` (concerns), `decide`,
-    `undecidedCards`, `applyDecisions`, `decideOne`.
+13. **Deciding in the console.** `raise` / `answerTo` (concerns), `decide`
+    (one proposal per question, through `askone.go`), `undecidedCards`,
+    `applyDecisions`, `decideOne`.
 14. **Deciding from one message.** `Decided`, `Decide`, `answerFromMessage`,
     `refuseUnnamed`, `pendingCards`.
 15. **The prompt and the record.** `turnPrompt` (product context on the
@@ -257,7 +258,8 @@ removes them from the record once a turn has delivered them.
 | `steer.go`, `work.go`, `milestone.go` | console slash commands: `/work`, `/stop`, `commandMenu` (the list a slash opens at the prompt, read out of `commandHelp`), surveys (`SurveyWork`), `StartWork`, `StopWork` |
 | `turncommand.go` | a command typed while a turn is being answered: carried out at once on a copy of the conversation, what it would write kept and written when the turn ends |
 | `triage.go`, `triagestop.go`, `repair.go` | development manager decisions on stopped runs |
-| `proposal.go`, `admission.go`, `resemblance.go`, `condition.go`, `concern.go`, `decision.go`, `withdraw.go` | proposals, admission without asking, duplicates, concerns, batch decisions |
+| `proposal.go`, `admission.go`, `resemblance.go`, `condition.go`, `concern.go`, `decision.go`, `withdraw.go` | proposals, admission without asking, duplicates, concerns, the grammar a single message decides proposals in |
+| `askone.go` | the console's one-at-a-time question about each proposal and document: `readOneAnswer` (approve, decline, ask first, or leave waiting), what deciding it unblocks, the question asked before deciding (`followUp`, taken by `converse` as the next message) and the items put again after the next message (`putAgain`) |
 | `amendment.go`, `amendmentdecision.go` | changes other roles proposed to this role's documents, delivered into its turns, and the `amendment` tracker action that decides one under the owner's authority (carried out without a tracker, from `applyTrackerAction`) |
 | `origin.go` | reading an admission's origin back out of an older item's notes, for `yoyo goals origins`; the origin an admission records is `creationOrigin` in `admission.go` |
 | `report.go`, `reportcoverage.go`, `lanereport.go` | reports roles file and read; program manager lane reports; `ForPass` |

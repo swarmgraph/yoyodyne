@@ -392,7 +392,7 @@ those settings are set, and so is a new goals document or brief, or a revision
 of either that adds or removes a goal or was not approved as it stood before
 it, whatever it is marked.
 For the documents put to you, you are shown what would happen and the document itself,
-and asked:
+and asked about each one on its own, in order, with a count:
 
 ```
 document document-4.1 · create v2-goals (goals) in docs/product
@@ -402,9 +402,20 @@ document document-4.1 · create v2-goals (goals) in docs/product
   # Goals
   ...
 
-create v2-goals (goals) in docs/product? [y or yes approves it and records your
-approval in it; anything else declines, and is kept as the reason]
+Approving document-4.1 records your approval in it and lets the harness create
+v2-goals (goals) in docs/product in the repository; declining it records why,
+and nothing is written.
+create v2-goals (goals) in docs/product (1 of 1)? [y approves it; n <reason>
+declines it; ask <question> asks the Lead Product Manager about it first;
+anything else leaves it waiting]
 ```
+
+`ask` followed by a question, or anything ending in a question mark, sends the
+question to the role that wrote the document and leaves the document undecided;
+it is put to you again once the role has answered. An empty answer, or one the
+harness does not recognise, declines nothing: the document is left waiting and
+put to you again after your next message. A decline keeps the whole of what you
+typed as its reason.
 
 On your `y` the harness prepares the document itself: it generates the
 frontmatter the contract requires for the artifact home, records the revision

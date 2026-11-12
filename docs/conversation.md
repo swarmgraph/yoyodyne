@@ -425,6 +425,8 @@ conversation](artifacts.md#writing-a-document-from-a-conversation).
 **Two shapes decide, and everything else is speech.** A message decides when it
 names a proposal by its identifier — `approve 3.1`, `decline 3.1 too vague` —
 or when it is nothing but decision words: `y`, `no`, `decline all`, `approve 1,3`.
+A bare `y` or `no` decides only where exactly one proposal is waiting; with
+several waiting it is refused, and nothing is declined that you did not name.
 Anything else is said to the Lead Product Manager and leaves every proposal exactly
 where it was, including a reply that happens to open with one of those words:
 `no, let's look at the resolver instead` is a sentence, not a decline. That is
@@ -461,54 +463,42 @@ else: under `work_items: automatic` there is no per-item question left to narrow
 so an exempt class is admitted on the approved goal every other item is admitted
 on.
 
-A turn that proposes five things is not five questions in a row. One answer
-decides as many of them as you like:
+Proposals are put to you one at a time, in order, each as its own question. The
+header says how many are waiting, and each card is followed by what deciding it
+unblocks and a question that says where it stands among them:
 
 ```text
+The Lead Product Manager proposes 2 work item(s), asked one at a time. Nothing is created unless you approve it.
+
 ╭─ 1 · proposal 4.1 · Pause on a usage limit ───────────────────────────────────
 │ Wait for the limit to reset and resume the same run.
 │ why: you said capacity is not failure.
 │ goal: run development nearly autonomously.
 ╰──────────────────────────────────────────────────────────────────────────────
-
-decide 3 proposals? [approve 1,3 and decline 2 <reason>; anything else declines them all] approve 1,3 and decline 2 not this quarter
+Approving proposal 4.1 creates the work item "Pause on a usage limit", so it can be started; declining it records why, and nothing is created.
+create 4.1 (1 of 2)? [y approves it; n <reason> declines it; ask <question> asks the Lead Product Manager about it first; anything else leaves it waiting]
 ```
 
-Batching changes the prompt and nothing underneath it. Each decision is recorded
-on its own, the approval before the creation it authorized, and a decline keeps
-your own words as the reason. An approval has to name what it creates —
-`approve` on its own is refused wherever there is more than one item it could
-mean, and the single-proposal question is still answered with `y` or `yes`,
-which does name the only one there is.
+One answer decides the one proposal it was asked about, and nothing else:
 
-There are three things an answer can be, and they are not the same:
-
-- **It decides some or all of them.** Those decisions are carried out. Anything
-  it said nothing about is left exactly where it was and put to you again,
-  rather than guessed at; whatever is left keeps the number it was proposed
-  with, so the last of five is still card 5.
-- **It is a decision the harness cannot carry out whole** — it approves a card
-  that is not there, decides the same card twice, or trails off into words after
-  the proposals it named. Then it decides *no part of it*, including clauses
-  that were perfectly good on their own, nothing is created, you are told what
-  stopped it, and all of it is put to you again. Half of a misread answer is how
-  work nobody asked for gets created, and being asked twice is the whole cost of
-  a typo.
-- **It is not a decision at all** — it names no proposal and starts with nothing
-  the harness recognises, like `hmm` or `not this quarter`. That declines
-  everything it was asked about and is kept as the reason, exactly as any answer
-  that is not a yes always has been.
+- **`y`, `yes` or `approve`** creates it. The approval is recorded before the
+  creation it authorized.
+- **`n`, `no` or `decline`, with your reason after it if you like,** turns it
+  down. The record keeps the whole of what you typed as the reason, down to the
+  word you turned it down with.
+- **`ask` followed by your question, or anything ending in a question mark,**
+  decides nothing. The asking stops there, your question is the next thing said
+  to the role that made the proposal, naming the proposal and saying it is still
+  undecided, and once it has answered that proposal and every one after it are
+  put to you again, in order.
+- **Anything else, including an empty answer,** decides nothing either. The
+  proposal is left waiting, nothing is approved or declined, the harness says
+  so, and it is put to you again after your next message. An answer the harness
+  does not recognise never declines anything.
 
 The one thing not put to you again is a proposal the tracker refused to create:
 it stays undecided and is named when the conversation ends, because asking you
 the same question until the tracker recovers is not asking you anything.
-
-Because a decline keeps your words verbatim — the whole of what you typed about
-those items, down to the word you turned them down with — its reason runs to the
-end of the line, so write the approvals first. A decline separates the proposals
-it names with commas or `and`, and everything after them is your reason even
-when it starts with a number: `decline 2 3 weeks out` turns down card 2 for
-being three weeks out rather than turning down cards 2 and 3.
 
 Work reaches the queue only with a goal named against it, and the goal has to be
 one you approved. Every proposal, and every item the Lead Product Manager admits
