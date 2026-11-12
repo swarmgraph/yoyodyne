@@ -203,33 +203,62 @@ func (s *Session) tellHeldForRoom(record *writeRecord) error {
 // ones held for sending, which runstate.MaxHeldWrites bounds separately. It
 // counts as the record does (runstate.PendingWrite.Held), so a hold seen lifted
 // in this process still counts as held until its document is confirmed.
+//
+// Waiting documents are counted as documents rather than revisions: a document
+// whose run is going and a newer revision waiting behind it hold one place
+// (runstate.WaitingDocuments).
 func (s *Session) waitingAndHeld() (waiting, held int) {
+	return s.waitingAndHeldWithout(nil)
+}
+
+// waitingAndHeldWithout counts as waitingAndHeld does, leaving out the waiting
+// revisions a new revision is about to free.
+func (s *Session) waitingAndHeldWithout(frees func(*writeRecord) bool) (waiting, held int) {
+	documents := map[string]bool{}
 	for _, record := range s.writes {
 		switch {
-		case record.decided:
+		case record.decided || (frees != nil && frees(record)):
 		case record.pending.Write.Hold != nil && record.pending.Publication == nil:
 			held++
 		default:
-			waiting++
+			documents[strings.TrimSpace(record.pending.Write.ID)] = true
 		}
 	}
-	return waiting, held
+	return len(documents), held
 }
 
 // refuseWriteCount refuses documents beyond what the conversation may keep:
 // runstate.MaxPendingWrites waiting for a decision or publication, and
 // runstate.MaxHeldWrites held for sending.
-func (s *Session) refuseWriteCount(writes []artifact.Write) error {
-	waiting, held := s.waitingAndHeld()
+//
+// A new revision of a document already waiting takes no new place, and what it
+// frees — a revision whose run has not started or has ended — is counted as
+// given back.
+func (s *Session) refuseWriteCount(writes []artifact.Write, places []revisionPlace) error {
+	waitingDocuments := map[string]bool{}
+	frees := func(record *writeRecord) bool {
+		for _, place := range places {
+			if place.frees(record) {
+				return true
+			}
+		}
+		return false
+	}
+	_, held := s.waitingAndHeldWithout(frees)
+	for _, record := range s.writes {
+		if !record.decided && !frees(record) && !(record.pending.Write.Hold != nil && record.pending.Publication == nil) {
+			waitingDocuments[strings.TrimSpace(record.pending.Write.ID)] = true
+		}
+	}
 	for _, write := range writes {
 		if write.Hold != nil {
 			held++
 		} else {
-			waiting++
+			waitingDocuments[strings.TrimSpace(write.ID)] = true
 		}
 	}
-	if waiting > runstate.MaxPendingWrites {
-		return fmt.Errorf("%d document(s) would be waiting for confirmation or publication and the limit is %d; finish those before writing another",
+	if waiting := len(waitingDocuments); waiting > runstate.MaxPendingWrites {
+		return fmt.Errorf("%d documents would be waiting for confirmation or publication and the limit is %d per role. Wait for one to land or be handed back, write a new revision of one already waiting (it replaces the waiting revision if its run has not started), or withdraw one whose run has not started with \"withdraw\"; \"list\" shows each and where it stands",
 			waiting, runstate.MaxPendingWrites)
 	}
 	if held > runstate.MaxHeldWrites {

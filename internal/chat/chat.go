@@ -1362,7 +1362,8 @@ func (s *Session) adopt(existing runstate.Conversation) {
 	s.writes = nil
 	for _, pending := range existing.PendingWrites {
 		s.writes = append(s.writes, &writeRecord{
-			pending: restoredWrite(existing.ConversationID, pending),
+			pending:    restoredWrite(existing.ConversationID, pending),
+			unanswered: pending.Unanswered,
 		})
 	}
 	// The same for what the agent has not been told: it acted, the process that
@@ -1739,7 +1740,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				return reply, auditErr
 			}
 			documentResult = s.renderDocumentRefusal(err)
-			parsed.Writes = nil
+			parsed.Writes, parsed.Withdraw = nil, nil
 			reply.DocumentRefusals = append(reply.DocumentRefusals, documentResult)
 			if documentHandedBack {
 				if err := s.carryResults(documentResult); err != nil {
@@ -1809,6 +1810,15 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		if err != nil {
 			return reply, err
 		}
+		// A withdrawal and a listing are answered in this message, after the
+		// block's documents are recorded, so the list shows what was just
+		// written and a withdrawal can name any document already waiting.
+		documentAnswer, err := s.answerDocumentRequests(parsed)
+		if err != nil {
+			return reply, err
+		}
+		documentResult += documentAnswer
+		reply.Writes = s.Writes()
 		// What the turn set going is carried out here, and what it produced is what
 		// the next round of this message answers from. A reply may both act on the
 		// tracker and ask another role, so both are carried out and both are handed
@@ -3030,7 +3040,12 @@ type parsedReply struct {
 	// Writes are the documents this reply wrote as typed actions, each of which
 	// waits on the operator before anything reaches the repository. Most replies
 	// write none.
-	Writes        []artifact.Write
+	Writes []artifact.Write
+	// Withdraw are this role's own waiting documents the reply took back, and
+	// ListDocuments says it asked to see every one of them and where it stands
+	// (waitingdocuments.go). Both travel in the same block as Writes.
+	Withdraw      []artifact.Withdrawal
+	ListDocuments bool
 	Reports       []report.Entry
 	ReportProblem error
 }
@@ -3130,11 +3145,13 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 		parsed.Prose = rest
 		return parsed, &InterventionError{Err: err}
 	}
-	prose, writes, err := artifact.ExtractWrites(prose)
+	prose, documents, err := artifact.ExtractDocumentBlock(prose)
 	if err != nil {
 		parsed.Prose = rest
 		return parsed, &DocumentError{Role: role, Err: err}
 	}
+	writes := documents.Writes
+	parsed.Withdraw, parsed.ListDocuments = documents.Withdraw, documents.List
 	parsed.Prose = prose
 	parsed.Actions = actions
 	parsed.Proposals = proposals

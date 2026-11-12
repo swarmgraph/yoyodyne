@@ -146,8 +146,8 @@ func TestAConfirmedDocumentFoundOnTheTargetAsConfirmedIsRecordedAsLanded(t *test
 	content := landedText(t, "v2-goals", "# Goals")
 	landings := &fakeLandings{repository: "the companion intent repository at /intent", commit: landedCommit, target: map[string]string{landedPath("v2-goals"): content + "\n"}}
 	session, publisher := heldSession(t, landings, confirmedRecord(t, "v2-goals", "document-1.1", "# Goals", ""))
-	if err := session.refuseCopies([]artifact.Write{{ID: "v2-goals"}}); err == nil {
-		t.Fatal("the held document did not refuse a second copy before it was settled")
+	if place := session.placeRevision(artifact.Write{ID: "v2-goals"}); place.behind != session.writes[0] {
+		t.Fatal("a new revision did not wait behind the confirmed document before it was settled")
 	}
 
 	if err := session.PublishDocuments(context.Background()); err != nil {
@@ -221,8 +221,8 @@ func TestARevisionNotYetLandedStaysHeld(t *testing.T) {
 		if publisher.offers != 1 {
 			t.Errorf("%s: publisher offered %d times, want 1", name, publisher.offers)
 		}
-		if err := session.refuseCopies([]artifact.Write{{ID: "v2-goals"}}); err == nil {
-			t.Errorf("%s: the held document stopped refusing a second copy", name)
+		if place := session.placeRevision(artifact.Write{ID: "v2-goals"}); place.behind != session.writes[0] {
+			t.Errorf("%s: a new revision stopped waiting behind the confirmed document", name)
 		}
 	}
 }
@@ -328,8 +328,9 @@ func TestDropWriteGivesAHeldDocumentsPlaceBack(t *testing.T) {
 	}
 	session, _ := heldSession(t, nil, records...)
 	fresh := artifact.Write{Action: artifact.WriteCreate, ID: "fresh", Kind: artifact.KindGoals, Title: "Fresh", Directory: "docs/product", Body: "# Goals", Reason: "drafted"}
-	// The limit counts the write being added, so it is the next one over it.
-	if err := session.refuseWriteCount([]artifact.Write{fresh, fresh}); err == nil {
+	// The limit counts the write being added, so with every place taken it is
+	// the one over it.
+	if err := session.refuseWriteCount([]artifact.Write{fresh}, nil); err == nil {
 		t.Fatal("held documents did not fill the places")
 	}
 	if _, err := session.DropWrite("document-1.1", "  "); err == nil || !strings.Contains(err.Error(), "recorded and told") {
@@ -353,7 +354,7 @@ func TestDropWriteGivesAHeldDocumentsPlaceBack(t *testing.T) {
 	if len(events) != 1 || !strings.Contains(string(events[0].Payload), "the intent repository already has it") {
 		t.Errorf("dropped events = %#v", events)
 	}
-	if err := session.refuseWriteCount([]artifact.Write{fresh}); err != nil {
+	if err := session.refuseWriteCount([]artifact.Write{fresh}, nil); err != nil {
 		t.Fatalf("a new document is refused after a place was given back: %v", err)
 	}
 	if err := session.refuseWrites(context.Background(), []artifact.Write{fresh}); err != nil {

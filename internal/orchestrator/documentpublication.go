@@ -292,6 +292,53 @@ func (p Pipeline) ResumableDocuments(conversationID string) ([]runstate.Document
 	return resumable, judged, nil
 }
 
+// DocumentStanding reads where one handoff's runs stand without starting or
+// continuing any of them: no run recorded, the latest run still going, or the
+// latest run ended and how. Its owning conversation reads it to decide whether
+// a new revision replaces the handoff, waits behind it, or opens a fresh run,
+// and to tell its role where each of its documents stands.
+func (p Pipeline) DocumentStanding(document runstate.DocumentPublication) (runstate.DocumentStanding, error) {
+	var latest *runstate.State
+	for attempt := 0; attempt < runstate.MaxDocumentAttempts; attempt++ {
+		state, err := p.Store.Load(document.RunIDFor(attempt))
+		if errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		if err != nil {
+			return runstate.DocumentStanding{}, err
+		}
+		latest = &state
+		if !retryable(state) {
+			break
+		}
+	}
+	if latest == nil {
+		return runstate.DocumentStanding{}, nil
+	}
+	return runstate.DocumentStanding{RunID: latest.RunID, Started: true, Delivery: documentDelivery(*latest)}, nil
+}
+
+// WithdrawDocument takes a handoff off the wait for a document landing, so the
+// scheduler starts no run of it, where its run has not started or its last run
+// was handed back without landing it. It refuses one whose run is still going
+// or has passed. The wait is cleared before the run store is read again, so a
+// run the scheduler reserved in between is found and named rather than left
+// publishing a document its owner withdrew.
+func (p Pipeline) WithdrawDocument(document runstate.DocumentPublication) error {
+	p.clearDocumentWait(document)
+	standing, err := p.DocumentStanding(document)
+	if err != nil {
+		return err
+	}
+	if standing.Running() {
+		return fmt.Errorf("run %s has started publishing it and has not ended", standing.RunID)
+	}
+	if standing.Finished() && !standing.HandedBack() {
+		return fmt.Errorf("run %s has already passed it", standing.RunID)
+	}
+	return nil
+}
+
 // documentHeld is an attempt the intake hold kept from starting, carrying the
 // hold's own reason so the owning conversation is told why.
 type documentHeld struct {
@@ -908,6 +955,7 @@ func documentDelivery(state runstate.State) runstate.DocumentDelivery {
 	if !result.Settled {
 		return result
 	}
+	result.Passed = state.Status == runstate.StatusSucceeded
 	result.Judged = !result.Landed && state.DocumentJudged()
 	// A document waiting in a merge queue — the harness's, or the forge's — has
 	// not landed yet, and its conversation keeps it until it has.

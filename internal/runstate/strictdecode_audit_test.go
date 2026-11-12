@@ -119,7 +119,7 @@ var strictSites = map[string]strictSite{
 	// was written seconds ago by a role this build instructed, and the refusal
 	// reaches the turn as an error naming the block.
 	"internal/amendment/amendment.go:Decode":            {strictValidator, "an amendment block in an agent's reply"},
-	"internal/artifact/write.go:DecodeWrites":           {strictValidator, "a document-write block in an owning role's conversation reply"},
+	"internal/artifact/write.go:decodeWriteDocument":    {strictValidator, "a document-write block in an owning role's conversation reply"},
 	"internal/chat/concern.go:decodeConcerns":           {strictValidator, "a concern block in a conversation reply"},
 	"internal/chat/intervention.go:extractIntervention": {strictValidator, "an intervention block in a conversation reply"},
 	"internal/chat/lanereport.go:decodeLaneReport":      {strictValidator, "a lane report block in a program manager's reply"},

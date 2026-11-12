@@ -147,7 +147,11 @@ func (s *Session) refuseToolBlocks(answer string, parsed parsedReply, alreadyPer
 	if parsed.StopCauses != nil {
 		add(capability.StopCauseRecord, 1)
 	}
-	add(s.writeTool(), len(parsed.Writes))
+	listed := 0
+	if parsed.ListDocuments {
+		listed = 1
+	}
+	add(s.writeTool(), len(parsed.Writes)+len(parsed.Withdraw)+listed)
 	for _, id := range alreadyPerformed {
 		delete(counts, id)
 		if registered, found := toolcatalog.Registry().Lookup(string(id)); found {
