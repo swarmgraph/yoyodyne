@@ -7292,15 +7292,18 @@ in a row stop the record.
 
 ## MCP servers, and the tools each agent may ask for
 
-A project can declare MCP servers and list, for each agent, the exact tools that
-agent may ask the harness to call on its behalf
+A project can declare MCP (Model Context Protocol) servers, programs that offer
+named tools, and list, for each agent, the exact tools that agent may ask the
+harness to call on its behalf
 ([the design](designs/mcp-tools-through-the-harness.md)). No agent ever holds a
 server, a connection to one, or its credentials: the harness makes every call
 itself. **In this build a conversation — the Lead Product Manager, the
 architect, the development manager, or a program manager — can ask for the
 tools on its own agent's list; a developer run cannot ask yet.** A project that
 says nothing has no servers and no lists, and runs exactly as it did before the
-keys existed.
+keys existed. [Using MCP servers](mcp.md) is the setup guide, in order, with a
+worked example to copy, and says what a result sent to an AI provider means for
+private data.
 
 ```yaml
 mcp:
@@ -7350,6 +7353,16 @@ agents:
 - `yoyo config show` reports each agent's MCP tools beside its other tools, and
   `yoyo doctor` reports each server whose credential is missing, naming the
   server and the command to run. A missing credential stops nothing else.
+- **The record of calls** is kept under the product's state directory, in
+  `mcp-calls/`, one entry per call, and stays on this machine. `yoyo mcp calls`
+  lists it by who asked, the tool, and how each call ended, and prints a call's
+  arguments and result only for `--entry` or `--json`, which a process the
+  harness started for a role is refused. `yoyo status` and the dashboard show
+  the last 24 hours of calls by tool and outcome and never what a call sent or
+  returned; neither does anything the harness writes to the tracker or Slack.
+- **A server whose tool listing changes** from the one it gave at its last call
+  gets one note filed for the development manager, naming the server and the
+  two listings' digests.
 - Both keys are yours alone: a role's write to the configuration is refused for
   `mcp` and for any agent's `mcp_tools`.
 - **How a conversation asks.** An agent with tools on its list is told, in its

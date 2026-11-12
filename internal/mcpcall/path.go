@@ -41,6 +41,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/mcpcredential"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -369,6 +370,17 @@ type Path struct {
 	ClientVersion string
 	// Now is the clock; nil is the machine's.
 	Now func() time.Time
+	// Notes is where the harness files its note to the development manager
+	// that a server's tool listing changed since the last call to it, under
+	// Attribution's product, repository and build. Nil files none.
+	Notes       Notes
+	Attribution report.Attribution
+}
+
+// Notes is the pile the harness's own reports are filed into. It is satisfied
+// by *runstate.ReportStore.
+type Notes interface {
+	Append(reported report.Report) error
 }
 
 // pending is one call that passed every check and is to be made.
@@ -535,6 +547,10 @@ type doing struct {
 	// prior is every earlier call that was not refused, by its scope and id.
 	prior     map[string]Record
 	replyUsed int
+	// listings is the digest of each server's tool listing at the latest call
+	// the record holds for it, and what this Do has seen since; nil where the
+	// record could not be read, which notes nothing.
+	listings map[string]string
 }
 
 func (d *doing) prepare() {
@@ -557,6 +573,14 @@ func (d *doing) prepare() {
 		d.problems = append(d.problems, err)
 		d.prior = nil
 		return
+	}
+	// The record is in the order the calls started, so the last digest seen
+	// for a server is the one at its latest call.
+	d.listings = map[string]string{}
+	for _, record := range records {
+		if record.Server != "" && record.ListingDigest != "" {
+			d.listings[record.Server] = record.ListingDigest
+		}
 	}
 	for _, record := range records {
 		if record.ID == "" || record.Outcome == OutcomeRefused {
@@ -717,6 +741,10 @@ func (d *doing) batch(server string, declared config.MCPServer, items []*pending
 			return err
 		}
 		listing = listingDigest(tools)
+		d.noteListing(server, listing)
+		for _, item := range items {
+			item.record.ListingDigest = listing
+		}
 		offered := map[string]bool{}
 		for _, tool := range tools {
 			offered[tool.Name] = true
@@ -731,7 +759,6 @@ func (d *doing) batch(server string, declared config.MCPServer, items []*pending
 				item.settled = true
 				continue
 			}
-			item.record.ListingDigest = listing
 			if !item.asked {
 				asked := item.record
 				asked.Phase = PhaseAsked
@@ -784,6 +811,63 @@ func (d *doing) batch(server string, declared config.MCPServer, items []*pending
 		item.notMade = "not made: " + why
 		item.unreachable = unreachable
 	}
+}
+
+// noteListing files one note for the development manager where a server's
+// tool listing is not the one it gave at the latest call the record holds. The
+// harness shows agents each tool's description from that listing, as untrusted
+// text, and the project marked each tool read or act against what the tool did
+// when it was declared; a listing that changed is the one sign the harness has
+// that either may no longer hold. The calls of this batch record the new
+// digest, so the next call compares against it and a change is noted once. The
+// note names the server and the two digests, and nothing the server said.
+func (d *doing) noteListing(server, listing string) {
+	if d.listings == nil {
+		return
+	}
+	previous := d.listings[server]
+	d.listings[server] = listing
+	if previous == "" || previous == listing || d.path.Notes == nil {
+		return
+	}
+	message := fmt.Sprintf("MCP server %q now gives a different list of its tools from the one it gave at its last call (listing %s before, %s now), seen when %s asked it for a call. "+
+		"Agents are shown each tool's description from that list, and the configuration marks each tool read or act by what it did when it was declared, so somebody should check that the server is still the one meant and that each tool on an agent's list still does what its mark says.",
+		server, shortDigest(previous), shortDigest(listing), callerWords(d.caller.record))
+	attribution := d.path.Attribution
+	attribution.Role, attribution.Agent, attribution.WorkItemID = report.HarnessReporter, "", ""
+	attribution.RunID = "mcp-listing:" + server + "@" + shortDigest(listing)
+	collected, err := report.Collect([]report.Entry{{Severity: report.SeverityNote, Message: message, For: domain.RoleDevelopmentManager}}, attribution, d.path.now())
+	if err != nil {
+		d.problems = append(d.problems, fmt.Errorf("the note that MCP server %q changed its tool listing could not be made: %w", server, err))
+		return
+	}
+	for _, reported := range collected {
+		if err := d.path.Notes.Append(reported); err != nil {
+			d.problems = append(d.problems, fmt.Errorf("the note that MCP server %q changed its tool listing could not be filed: %w", server, err))
+		}
+	}
+}
+
+// shortDigest is a listing's digest cut to what tells two apart in words.
+func shortDigest(digest string) string {
+	digest = strings.TrimPrefix(digest, "sha256:")
+	if len(digest) > 12 {
+		return digest[:12]
+	}
+	return digest
+}
+
+// callerWords is who asked, as the note says it.
+func callerWords(caller CallerRecord) string {
+	switch caller.Kind {
+	case CallerConversation:
+		return fmt.Sprintf("the %s agent %s", caller.Role, caller.Agent)
+	case CallerDeveloper:
+		return fmt.Sprintf("developer run %s", caller.Run)
+	case CallerScheduled:
+		return fmt.Sprintf("recurring task %s", caller.Task)
+	}
+	return "a caller"
 }
 
 // settle records how a call ended and answers it.

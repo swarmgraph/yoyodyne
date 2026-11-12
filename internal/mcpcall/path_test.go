@@ -15,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/mcpcredential"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -510,5 +511,66 @@ func TestAServerThatNeverAnswersIsEndedAtTheLimitAndTheCallerCarriesOn(t *testin
 	}
 	if after := f.do(t, caller, Request{Tool: "fake.echo"})[0]; after.Outcome != OutcomePerformed {
 		t.Fatalf("the caller could not carry on: %+v", after)
+	}
+}
+
+type collectedNotes struct{ reports []report.Report }
+
+func (c *collectedNotes) Append(reported report.Report) error {
+	c.reports = append(c.reports, reported)
+	return nil
+}
+
+// A server whose tool listing is not the one it gave at its last call files
+// one note for the development manager, naming the server and the two
+// digests and nothing the server said; the next call, against the new
+// listing, files none.
+func TestAChangedToolListingFilesOneNoteForTheDevelopmentManager(t *testing.T) {
+	t.Parallel()
+	f := newPathFixture(t)
+	notes := &collectedNotes{}
+	f.path.Notes = notes
+	f.path.Attribution = report.Attribution{ProductID: testProduct, RepositoryID: "yoyodyne", Build: "0123456789abcdef0123456789abcdef01234567"}
+	echo := Request{Tool: "fake.echo", Arguments: json.RawMessage(`{"say":"hello"}`)}
+
+	if answers := f.do(t, f.lead(t), echo); answers[0].Outcome != OutcomePerformed {
+		t.Fatalf("the first call = %+v", answers[0])
+	}
+	if answers := f.do(t, f.lead(t), echo); answers[0].Outcome != OutcomePerformed || len(notes.reports) != 0 {
+		t.Fatalf("an unchanged listing filed %d note(s); answer %+v", len(notes.reports), answers[0])
+	}
+	before := f.records(t)[0].ListingDigest
+
+	changed := f.path.Config.MCP.Servers["fake"]
+	changed.Command = fakeCommand(fakeChangedListingMode)
+	f.path.Config.MCP.Servers["fake"] = changed
+	if answers := f.do(t, f.lead(t), echo); answers[0].Outcome != OutcomePerformed {
+		t.Fatalf("the call after the change = %+v", answers[0])
+	}
+	if len(notes.reports) != 1 {
+		t.Fatalf("a changed listing filed %d notes, want one", len(notes.reports))
+	}
+	note := notes.reports[0]
+	after := f.records(t)[2].ListingDigest
+	if after == before || after == "" {
+		t.Fatalf("the call after the change recorded listing %q, the same as %q", after, before)
+	}
+	if note.Severity != report.SeverityNote || note.For != domain.RoleDevelopmentManager || note.Role != report.HarnessReporter {
+		t.Fatalf("the note = %+v, want the harness's note for the development manager", note)
+	}
+	for _, want := range []string{`MCP server "fake"`, shortDigest(before), shortDigest(after), "the product-manager agent lead"} {
+		if !strings.Contains(note.Message, want) {
+			t.Errorf("the note does not say %q: %s", want, note.Message)
+		}
+	}
+	for _, never := range []string{"forwards", "hello", "says back"} {
+		if strings.Contains(note.Message, never) {
+			t.Errorf("the note carries %q, which the server or the call said: %s", never, note.Message)
+		}
+	}
+
+	f.do(t, f.lead(t), echo)
+	if len(notes.reports) != 1 {
+		t.Fatalf("the same new listing filed another note: %d in all", len(notes.reports))
 	}
 }
