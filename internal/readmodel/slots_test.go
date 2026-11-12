@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -277,5 +278,60 @@ func TestTheRunningLineSaysARunWasMovedToAnotherSlotAndWhy(t *testing.T) {
 				t.Fatalf("running line %q, want a run never moved to say nothing about a move", other)
 			}
 		})
+	}
+}
+
+// A run waiting at its merge step for GitHub to be reachable again holds no
+// developer slot, so status says it as paused, in plain words, with when it next
+// tries; and the banner every surface shows says it too, because a surface that
+// lists only the running runs would otherwise not show it at all.
+func TestARunWaitingForGitHubIsSaidAsPausedWithItsNextTry(t *testing.T) {
+	t.Parallel()
+	sources := quietSources()
+	sources.Capacity = 1
+	sources.Slots = []domain.DeveloperSlot{{Prefer: []string{"dashboard"}}}
+	since := moment.Add(-14 * time.Minute)
+	next := moment.Add(3 * time.Minute)
+	sources.Tracker = statusTracker{fakeTracker{byStatus: map[string][]beads.WorkItem{"": {{ID: "yoyodyne-ifd.435.43", Title: "Second MCP piece", Status: "in_progress"}}}}}
+	sources.Runs = fakeRuns{
+		incomplete: []runstate.State{{
+			RunID: "run-merge", WorkItemID: "yoyodyne-ifd.435.43", Status: runstate.StatusRunning, Phase: runstate.PhaseIntegrating,
+			StartedAt: moment.Add(-3 * time.Hour), UpdatedAt: moment.Add(-time.Minute),
+			ForgeWait: &runstate.ForgeWait{
+				Step:  "reading where origin's main stands before landing",
+				Since: since, Tries: 4, NextTryAt: next,
+				Failure: "ssh: connect to host ssh.github.com port 443: Undefined error: 0",
+			},
+		}},
+	}
+	standing := ReadStanding(context.Background(), sources)
+	if len(standing.Running) != 0 {
+		t.Fatalf("running = %+v, want the waiting run off the running line", standing.Running)
+	}
+	if len(standing.PausedRuns) != 1 || standing.PausedRuns[0].WaitingForGitHub == "" {
+		t.Fatalf("paused runs = %+v, want the run waiting for GitHub", standing.PausedRuns)
+	}
+	if len(standing.DeveloperSlots) != 1 || !standing.DeveloperSlots[0].Free() {
+		t.Fatalf("developer slots = %+v, want the slot counted free while the run waits", standing.DeveloperSlots)
+	}
+	nextSaid := "next try at " + next.Local().Format("15:04 MST")
+	if next.Local().YearDay() != time.Now().Local().YearDay() {
+		nextSaid = "next try at " + next.Local().Format("2006-01-02 15:04 MST")
+	}
+	rendered := standing.Render()
+	for _, want := range []string{
+		"Paused, holding no developer slot (1 developer run):\n",
+		"Second MCP piece (yoyodyne-ifd.435.43) — approved and waiting for GitHub to be reachable again: GitHub could not be reached while reading where origin's main stands before landing, 4 tries since ",
+		nextSaid + ", waiting 14m\n",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered:\n%s\nmissing: %q", rendered, want)
+		}
+	}
+	// The banner names the work item by its title, with its number after it.
+	if !strings.HasPrefix(standing.Paused, "Waiting for GitHub: the approved change for ") ||
+		!strings.Contains(standing.Paused, "Second MCP piece (yoyodyne-ifd.435.43) is waiting for GitHub to be reachable again") ||
+		!strings.Contains(standing.Paused, nextSaid) {
+		t.Fatalf("banner = %q, want it to say the run is waiting for GitHub and when it next tries", standing.Paused)
 	}
 }

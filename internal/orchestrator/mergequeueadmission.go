@@ -14,15 +14,17 @@ package orchestrator
 //
 // The mode is chosen at admission (internal/queuemode). Where neither mode can
 // land into the target as it is protected — the target lands changes only
-// through the forge's own merge queue — or the protection cannot be read to
-// say, nothing is admitted and nothing is merged the old way either: the
+// through the forge's own merge queue — or GitHub answered the read of the
+// protection with a refusal, nothing is admitted and nothing is merged the old way either: the
 // operator chose the queue by the switch, and replaying the change would land
 // it through the path they turned off. The change waits at its promotion with
 // its approval standing, held with the setting named (CauseMergeQueueHeld),
 // and the queue files one report for the condition however many changes it
 // holds. The design is "GitHub's own merge queue" in the document above;
 // mergequeueheld.go is what takes the held changes up again once the
-// condition clears or the switch is turned off.
+// condition clears or the switch is turned off. A read of the protection that
+// cannot reach GitHub at all is not a hold: the run waits for GitHub and asks
+// again (gitHubWaitingQueueReader in forgewait.go).
 //
 // A run whose change is admitted ends succeeded with its item still claimed and
 // its branch and worktree kept, because the queue may hand the change back to
@@ -124,7 +126,7 @@ func (a *activeRun) admitToMergeQueue(ctx context.Context) (Outcome, bool, error
 			return end(fmt.Errorf("record the commit admitted to the merge queue: %w", err))
 		}
 	}
-	admitter, err := a.queueAdmitter(ctx)
+	admitter, waiting, err := a.queueAdmitter(ctx)
 	if err != nil {
 		return end(err)
 	}
@@ -140,6 +142,11 @@ func (a *activeRun) admitToMergeQueue(ctx context.Context) (Outcome, bool, error
 		admitter.Only = runstate.MergeQueueHarness
 	}
 	admitted, err := admitter.Admit(ctx, admission)
+	if waiting != nil && waiting.stopped != nil {
+		// The operator stopped the run while it waited for GitHub; the read's
+		// failure the admitter saw is not what ended it.
+		return end(waiting.stopped)
+	}
 	if err != nil {
 		return end(fmt.Errorf("admit the approved change to the merge queue for %s: %w", key.TargetBranch, err))
 	}
@@ -157,21 +164,30 @@ func (a *activeRun) admitToMergeQueue(ctx context.Context) (Outcome, bool, error
 
 // queueAdmitter is the admitter this run's approved change is admitted with:
 // the queue, and the forge asked what its own merge queue establishes where
-// the project publishes.
-func (a *activeRun) queueAdmitter(ctx context.Context) (queuemode.Admitter, error) {
+// the project publishes. The waiting reader it also returns, nil where the
+// forge is not asked, is what says the operator stopped the run while it
+// waited for GitHub, which the admitter would otherwise turn into a hold.
+func (a *activeRun) queueAdmitter(ctx context.Context) (queuemode.Admitter, *gitHubWaitingQueueReader, error) {
 	p := a.pipeline
 	publishing, _, err := p.resolvePublishing(ctx)
 	if err != nil {
-		return queuemode.Admitter{}, fmt.Errorf("resolve whether the project publishes: %w", err)
+		return queuemode.Admitter{}, nil, fmt.Errorf("resolve whether the project publishes: %w", err)
 	}
 	var forge publish.QueueCapabilityReader
+	var waiting *gitHubWaitingQueueReader
 	if publishing {
-		forge, _ = p.Publisher.(publish.QueueCapabilityReader)
+		if reader, ok := p.Publisher.(publish.QueueCapabilityReader); ok {
+			// A protection read that cannot reach GitHub is waited out here rather
+			// than turned into a hold (forgewait.go): a hold blocks the item and
+			// reports it, which is the run ended for a network outage.
+			waiting = &gitHubWaitingQueueReader{run: a, inner: reader}
+			forge = waiting
+		}
 	}
 	return queuemode.Admitter{
 		Queue: p.MergeQueue, Forge: forge, Now: p.clock().Now,
 		Harness: queuemode.Harness{PullRequests: publishing, CheckConfiguration: runstate.NewMergeQueueCheckConfiguration(p.Config.Checks).Digest},
-	}, nil
+	}, waiting, nil
 }
 
 // queueAdmission is this run's admission to its target's queue, short of the
@@ -200,7 +216,7 @@ func (a *activeRun) queueAdmission() runstate.MergeQueueAdmission {
 //   - admission chose the forge's own merge queue for it (queueElsewhere),
 //     which lands a commit this harness never checks.
 //
-// A change the queue holds, or whose target's protection cannot be read to
+// A change the queue holds, or whose target's protection GitHub refused to
 // say, is not admitted at all, so nothing is owed yet: it is asked again when
 // the hold is lifted and the change taken up.
 func (a *activeRun) wholeCheckOwedHere() string {
