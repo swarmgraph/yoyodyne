@@ -272,6 +272,29 @@ const (
 // RefusalReasons is the closed list, in the design's order.
 var RefusalReasons = []RefusalReason{RefusedNotOnList, RefusedArguments, RefusedSecret, RefusedLimit, RefusedPaused, RefusedCredential, RefusedID}
 
+// Plain is the reason as a short sentence for a person reading what a reply
+// did. The stored code stays what the call record and the role are given; this
+// is only how an operator is shown it, and it names no tool.
+func (r RefusalReason) Plain() string {
+	switch r {
+	case RefusedNotOnList:
+		return "the tool is not on this role's list of tools it may use"
+	case RefusedArguments:
+		return "what the call was asked to send could not be read or was too large"
+	case RefusedSecret:
+		return "what the call was asked to send held a secret the harness keeps"
+	case RefusedLimit:
+		return "it would have gone past a limit on how many calls the role makes or how much they return"
+	case RefusedPaused:
+		return "work is paused, so no calls are made"
+	case RefusedCredential:
+		return "the server's password or key is not stored on this machine"
+	case RefusedID:
+		return "an act call needs an id of its own that has not been used before"
+	}
+	return "the harness refused it for a reason it did not name"
+}
+
 // Answer is what one call came to, in the order the reply asked.
 type Answer struct {
 	// Tool is the tool asked for. It is empty on a call refused as not on the
