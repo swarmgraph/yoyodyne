@@ -104,6 +104,19 @@ var expresses = map[string]expression{
 		},
 		gap: "the repository block is refused unless the role holds both the read and the list, and a search in it unless the role holds the search as well; that the named read is the pair is a rule of the derivation rather than a capability either half states",
 	},
+	"conversation.authorize-refused-block": {
+		question: "does the role hold the capability the kind of block it could not have read belongs to?",
+		asks: []capability.Capability{
+			capability.ProposalRaise, capability.ConcernRaise, capability.ResearchCommission,
+			capability.EvaluationRecord, capability.ExchangeAsk,
+			capability.RepositoryRead, capability.RepositoryList,
+			capability.LogRead, capability.RunInspect, capability.RunVerify,
+			capability.HealthObserve, capability.HealthFollow, capability.RunRecover,
+			capability.AgentContextMutate, capability.StopCauseRecord, capability.ServiceRequestRestart, capability.PassRequest,
+			capability.ReportFile, capability.ArtifactProductMutate, capability.ArtifactDesignMutate,
+		},
+		gap: "an unreadable block names no action, so a run or health block is allowed where the role holds either of its two capabilities, and a document block where it holds either document grant",
+	},
 	"conversation.tracker-action": {
 		question: "does the role hold the capability the action it asked for belongs to?",
 		asks: []capability.Capability{
