@@ -753,6 +753,11 @@ func runConfigShow(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stdout, "# MCP tools for %s: %s\n", name, describeMCPTools(mcpTools))
 			}
 		}
+		// Printed only where a query is declared, so a project with none prints
+		// exactly what it printed before the key existed.
+		for _, line := range describeIntakeQueries(resolved.Config.Intake) {
+			fmt.Fprintf(stdout, "# %s\n", line)
+		}
 		encoded, err := yaml.Marshal(resolved.Config)
 		if err != nil {
 			fmt.Fprintf(stderr, "render effective configuration: %v\n", err)

@@ -7367,6 +7367,57 @@ agents:
   and never its arguments or result. The servers are asked for their listings
   once each time a conversation is opened.
 
+## Scheduled message intake
+
+A project can declare queries the harness will run on a schedule, reading new
+messages from a source such as a Slack channel so that a matching message can
+start work under a written rule
+([the design](designs/scheduled-message-intake.md)). **In this build the
+section loads, is checked, and is shown by `yoyo config show`; nothing runs a
+query yet.** A project that says nothing has no queries, and its configuration
+and its revision are exactly what they were before the key existed.
+
+```yaml
+intake:
+  queries:
+    slack-bugs:
+      tool: slack.search             # a read tool declared under mcp
+      arguments: {query: in-bugs}    # literals, sent on every call
+      since_argument: after          # filled with the start of the time window
+      until_argument: before         # filled with its end
+      more_field: has_more           # optional: says the source held some back
+      every: 1h                      # the default; never less than 5m
+      items: messages                # where the messages are in the answer
+      fields: {id: ts, sender: user, text: text, sent_at: ts, link: permalink}
+      senders: [U123, U456]          # or anyone: true, never both
+      reader: message-reader         # the default, and the only reader there is
+      rules: intake-rules            # the id of the rules document
+      questions: lead-product-manager  # the default, or person
+      limits: {messages_per_run: 20, messages_per_day: 100, starts_per_day: 5, questions_per_day: 5, text_bytes: 4096}
+```
+
+Loading refuses, saying what is wrong in plain words:
+
+- a `tool` that is not declared under `mcp` as `read`, because a query runs
+  with nobody watching and must change nothing outside the harness;
+- a query without both `since_argument` and `until_argument`, or naming one
+  argument for both, or setting either among its literal `arguments`;
+- a query with neither a `senders` list nor `anyone: true`, or with both;
+- an `every` shorter than five minutes;
+- any `intake` section while `team.enabled` is on, because each machine keeps
+  its own record of the messages it has read, so two machines could both start
+  work from one message;
+- a missing `items`, a missing `id`, `sender`, `text` or `sent_at` field, a
+  `reader` other than `message-reader`, a missing `rules` id, a `questions`
+  value other than the two above, and a limit below 1. A limit left out takes
+  the value shown above.
+
+`yoyo config show` prints one line for each query, saying what it calls, how
+often, and whose messages it takes, with `anyone: true` named in that line and
+in the effective configuration below it wherever it is set. The whole section
+is yours alone: a role's write to the configuration is refused for `intake` and
+everything under it.
+
 ## Reading the repository from a conversation
 
 The three management roles — Lead Product Manager, architect, development manager —
