@@ -398,7 +398,7 @@ services:
       max_hold: 15s        # the longest one cleanup holds the store; 20s at most
 ```
 
-Each pass takes eleven steps, in this order, and each is recorded:
+Each pass takes twelve steps, in this order, and each is recorded:
 
 - **provider** — whether the provider is answering, read from the product's
   [outage record](#waiting-out-a-provider-nobody-can-reach). While it stands,
@@ -409,6 +409,17 @@ Each pass takes eleven steps, in this order, and each is recorded:
   out; on 2026-09-17 the old job restarted the watch 158 times over an expired
   login. A part that dies is still started again, because a part left dead
   through an outage is one nothing is left to notice the outage ending.
+- **index** — the index of run records (`.run-index.json` beside the
+  records under the product's state) rebuilt from every record. The harness
+  keeps the index in step with every record it writes, so what leaves it out of
+  date is a record changed by something else, such as an older build still
+  running through a redeploy; a run that build made live again would be missing
+  from the runs in flight until a rebuild. The index is also rebuilt as a
+  watch session starts, before it counts any run in flight, and whenever a
+  listing finds a record the index chose that will not read, so nobody ever has
+  to remove the index file by hand. The step names each record that could not
+  be read, which is not a failure of the step: see
+  [one run record that will not read](#one-run-record-that-will-not-read).
 - **reconcile** — [`yoyo reconcile`](#recovering-interrupted-runs), run from the
   supervisor's own binary: it settles what interrupted runs left behind,
   converges the checkout and the worktrees, and takes the
@@ -604,8 +615,9 @@ skipped or failed in capitals and saying why:
 
 ```text
 2026-09-29T17:00:00Z  maintenance (the supervisor's own pass, no role woken)
-  3 step(s) ran, 4 skipped, 0 failed
+  4 step(s) ran, 4 skipped, 0 failed
   - provider: ran, answering
+  - index: ran, the index of run records was rebuilt from every record, and every record reads
   - reconcile: ran, yoyo reconcile exited 0: settled 0 runs
   - rebuild: ran, /Users/you/github/yoyodyne/bin/yoyo is built from main's tip 3d3d367a1b2c
   - restart-requests: SKIPPED, no program manager has an open restart request
@@ -4900,6 +4912,31 @@ file under `reruns/` by hand is never the recovery: a claim changed that way
 carries no account of who changed it or why, and the docket, the carry-out, and
 every status surface read the record rather than the edit.
 
+### One run record that will not read
+
+A run record can stop reading: a newer build wrote a value the build reading
+it does not know, or the file was damaged. One such record does not empty
+everything that lists runs.
+
+- **What you see.** The dashboard's standing and `yoyo status` read past it.
+  The running panel lists every run in flight that reads, and every other
+  section that lists runs does the same. The record is named among the
+  **Factory problems** and on the needs-a-human line as an **unreadable run**:
+  the run, its file under the product's state, and what refused it. It is the
+  development manager's to look into.
+- **What acts on runs.** The scheduler, reservations, reconcile, and the
+  development manager's list of stopped runs never act on the record and never
+  take it for a run that finished. A record whose readable part still says the
+  run ended is left out of what they count. One that may be a run still going
+  makes the listing they read refuse rather than count it as absent, because a
+  run counted as absent is one a second start could duplicate.
+- **What clears it.** The harness reads the record again as soon as its file
+  changes, so the record put right, or the product moved onto a build that
+  reads it, clears the entry. The harness also rebuilds the index of run
+  records by itself when an entry in it will not read, as a watch session
+  starts, and on every maintenance pass. Nobody has to remove
+  `.run-index.json` by hand.
+
 ## Git maintenance, and the one prune that is still yours
 
 Git prunes worktree registrations as part of its automatic maintenance, and it
@@ -5741,6 +5778,7 @@ they are not the labels a person reads:
 | `heavy-check-kept` | check place kept |
 | `blocked-on-a-human` | blocked on a human |
 | `document-approval` | document waiting for approval |
+| `unreadable-run` | unreadable run |
 
 ### Who owns each kind of entry
 
@@ -5763,7 +5801,7 @@ your hand**, never under **Yours to decide**.
 | `publication` | the harness while it can look up, re-read, re-run, or wait on a red target; the forge while it holds the merge; the development manager for a merge dropped or never asked for |
 | `degraded-service`, `config-mismatch`, `tracker-unanswered`, `factory-stall` | the harness |
 | `failing-task` | the harness for a firing refused before its first turn; for a repeatedly failing pass, the role that resolves its failures, and yours only for a recorded person-only step |
-| `service-copies`, `check-could-not-run`, `heavy-check-kept`, `product-decision` | the development manager |
+| `service-copies`, `check-could-not-run`, `heavy-check-kept`, `product-decision`, `unreadable-run` | the development manager |
 | `hold` | yours for your own pause or intake hold (`own-hold`); for the brake's hold, the development manager, the harness while it carries her decision out, and the Lead Product Manager once it is escalated; the harness for the provider holding every role |
 | `directive` | the Lead Product Manager |
 | `outage` | yours for a lapsed login (`credential`); nobody's for a provider nobody can reach |
@@ -6113,7 +6151,7 @@ sentence about it: its `kind`, from a closed set — `amendment`,
 `outage`, `stall`, `held-work`, `operator-action`, `product-decision`,
 `human-gate`, `untraced-pass`, `factory-stall`, `tracker-unanswered`,
 `check-could-not-run`, `heavy-check-kept`, `blocked-on-a-human`,
-`document-approval` — the `id`
+`document-approval`, `unreadable-run` — the `id`
 of the record it is about (an amendment's, a
 directive's, a run's, a work item's, a service's name, a recurring task's
 name, a human gate's name, which switch a hold is: `operator`, `intake`, or
@@ -6123,7 +6161,7 @@ and for a `tracker-unanswered` the moment listings began failing, and for a
 permit holding the place, and for a `blocked-on-a-human` the work item, or the
 record the entry cites where it names none, and for a `document-approval` the
 conversation and the document's identifier there, as
-`<conversation>/document-<turn>.<n>`), the
+`<conversation>/document-<turn>.<n>`, and for an `unreadable-run` the run), the
 `mover` whose move it is, in the same closed vocabulary the
 page counts by (`operator`, a role such as `architect`,
 `development-manager`, or `program-manager`, `harness`, `forge`, `provider`, `nobody`, or
@@ -7527,7 +7565,9 @@ slowly or not at all`.
    is. It is nobody's move — the limit lifts on the provider's clock, and a
    refusal when it comes is waited out by the harness — so it is not on the
    attention line, and it clears when a reading below the threshold arrives
-   or the reset passes.
+   or the reset passes. So is each
+   [run record that will not read](#one-run-record-that-will-not-read), as an
+   unreadable run: the run, its file, and what refused it.
 8. **Program managers** — each [program manager](designs/program-manager.md)
    instance `standing.program_managers` carries, which is the list `yoyo
    status` prints [under the four lines](#where-the-harness-stands-the-four-lines),

@@ -955,9 +955,36 @@ func (s *Store) load(runID string, tolerateUnknownFields bool) (State, error) {
 // The index chooses the records (runindex.go), so only the runs it names as in
 // flight are read, never every record kept.
 func (s *Store) Incomplete() ([]State, error) {
+	if s.readingPast() {
+		states, unreadable, err := s.IncompleteReadable()
+		s.notePast(unreadable)
+		return states, err
+	}
 	return s.remembered(&s.readingOf().incomplete, func() ([]State, error) {
 		return s.indexed("incomplete", func(entry runIndexEntry) bool { return entry.InFlight }, mayBeGoing, func(state State) bool { return state.Status.InFlight() })
 	}, func(state State) bool { return state.Status.InFlight() })
+}
+
+// IncompleteReadable lists the runs in flight as Incomplete does, except that a
+// record which will not read is skipped rather than refusing the whole listing,
+// and is named in the second list: every record the run index holds as
+// unreadable, whatever its status, so nothing is hidden. It is for a surface
+// that shows the runs in flight — the dashboard's standing, `yoyo status` —
+// where one record nobody can read is a reason to say so beside every other
+// run, not a reason to show none of them.
+//
+// Nothing that acts on runs reads this listing. A skipped record may be a run
+// still going, so a caller that counts slots, chooses work, or settles runs
+// reads Incomplete, which refuses where it cannot say an unreadable run ended
+// rather than treat its absence as the run having finished.
+func (s *Store) IncompleteReadable() ([]State, []Unreadable, error) {
+	if recorded, ok := s.readingOf().recorded.held(); ok {
+		// Every record was read whole for this reading, so none is unreadable.
+		return filterStates(recorded, func(state State) bool { return state.Status.InFlight() }), nil, nil
+	}
+	return s.readingOf().incompleteReadable.once(func() ([]State, []Unreadable, error) {
+		return s.indexedReadable("incomplete", func(entry runIndexEntry) bool { return entry.InFlight }, func(state State) bool { return state.Status.InFlight() })
+	})
 }
 
 // Outstanding lists every recorded run that still owes a step. That is a
@@ -966,6 +993,11 @@ func (s *Store) Incomplete() ([]State, error) {
 // process leaves behind between integrating and cleaning up.
 func (s *Store) Outstanding() ([]State, error) {
 	return s.remembered(&s.readingOf().outstanding, func() ([]State, error) {
+		if s.readingPast() {
+			states, unreadable, err := s.indexedReadable("outstanding", func(entry runIndexEntry) bool { return entry.Outstanding }, func(state State) bool { return state.Outstanding() })
+			s.notePast(unreadable)
+			return states, err
+		}
 		return s.indexed("outstanding", func(entry runIndexEntry) bool { return entry.Outstanding }, mayBeGoing, func(state State) bool { return state.Outstanding() })
 	}, func(state State) bool { return state.Outstanding() })
 }
@@ -980,6 +1012,11 @@ func (s *Store) Outstanding() ([]State, error) {
 func (s *Store) Recorded() ([]State, error) {
 	reading := s.readingOf()
 	return reading.recorded.once(func() ([]State, error) {
+		if s.readingPast() {
+			states, unreadable, err := s.scanning("recorded", func(State) bool { return true }, true)
+			s.notePast(unreadable)
+			return states, err
+		}
 		return s.scan("recorded", func(State) bool { return true })
 	})
 }
@@ -1098,10 +1135,31 @@ func (s *Store) ReviewRounds(workItemID string) (int, error) {
 var ErrNoRecordedRun = errors.New("no run of this work item is recorded")
 
 // Unreadable is one record a listing read past because it would not decode: the
-// record it is, named as its file is, and what refused it.
+// record it is, named as its file is, where that file is, and what refused it.
+// Path is empty only where the record's name could not be made into one.
 type Unreadable struct {
 	Record string
+	Path   string
 	Err    error
+}
+
+// Says is the record, its file, and what refused it, in one sentence.
+func (u Unreadable) Says() string {
+	where := ""
+	if u.Path != "" {
+		where = " (" + u.Path + ")"
+	}
+	reason := "no reason was recorded"
+	if u.Err != nil {
+		reason = u.Err.Error()
+	}
+	return fmt.Sprintf("the run record %s%s could not be read, so it is left out of every listing until it reads: %s", u.Record, where, reason)
+}
+
+// unreadableAt names one record that would not read, with its file.
+func (s *Store) unreadableAt(runID string, err error) Unreadable {
+	path, _ := s.statePath(runID)
+	return Unreadable{Record: runID, Path: path, Err: err}
 }
 
 // RecordedReadable lists every run Recorded does, except that a record which
@@ -1122,6 +1180,11 @@ func (s *Store) itemRuns(id string) ([]State, error) {
 	keep := func(state State) bool { return state.WorkItemID == id }
 	if recorded, ok := s.readingOf().recorded.held(); ok {
 		return filterStates(recorded, keep), nil
+	}
+	if s.readingPast() {
+		states, unreadable, err := s.indexedReadable("recorded", func(entry runIndexEntry) bool { return entry.WorkItemID == id }, keep)
+		s.notePast(unreadable)
+		return states, err
 	}
 	return s.indexed("recorded", func(entry runIndexEntry) bool { return entry.WorkItemID == id }, func(left unreadableRun) bool { return left.mayBelongTo(id) }, keep)
 }
@@ -1158,7 +1221,7 @@ func (s *Store) scanning(label string, keep func(State) bool, readPast bool) ([]
 		}
 		state, err := s.Read(runID)
 		if err != nil && readPast {
-			unreadable = append(unreadable, Unreadable{Record: runID, Err: err})
+			unreadable = append(unreadable, s.unreadableAt(runID, err))
 			continue
 		}
 		if err != nil {

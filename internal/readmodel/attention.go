@@ -71,6 +71,7 @@ const (
 	AttentionKeptHeavyCheck    = ownership.KindKeptHeavyCheck
 	AttentionLaneHumanBlock    = ownership.KindLaneHumanBlock
 	AttentionDocumentApproval  = ownership.KindDocumentApproval
+	AttentionUnreadableRun     = ownership.KindUnreadableRun
 )
 
 // AttentionKinds is the whole vocabulary, so a test that has to cover every
@@ -124,6 +125,7 @@ func (a Attention) Label() string {
 		AttentionKeptHeavyCheck:    "check place kept",
 		AttentionLaneHumanBlock:    "blocked on a human",
 		AttentionDocumentApproval:  "document waiting for approval",
+		AttentionUnreadableRun:     "unreadable run",
 	}[a.Kind]
 }
 
@@ -327,6 +329,9 @@ type Attention struct {
 	// wrote it, and since when, on an AttentionDocumentApproval entry; the
 	// conversation and the document's identifier there are the ID.
 	DocumentApproval *DocumentApproval `json:"document_approval,omitempty"`
+	// UnreadableRun is the run record that would not read, its file, and what
+	// refused it, on an AttentionUnreadableRun entry; the run is the ID.
+	UnreadableRun *UnreadableRun `json:"unreadable_run,omitempty"`
 
 	// titles is what the tracker calls each item, set by the reading that
 	// assembled the entry, so the line a person reads names every item beside
@@ -710,6 +715,10 @@ func (a Attention) What() string {
 		if a.DocumentApproval != nil {
 			return a.DocumentApproval.Says()
 		}
+	case AttentionUnreadableRun:
+		if a.UnreadableRun != nil {
+			return a.UnreadableRun.Says()
+		}
 	}
 	// An entry whose record is missing is still said rather than printed
 	// blank: a blank line on the attention line is the confident emptiness
@@ -898,6 +907,8 @@ func (a Attention) Whose() string {
 		if a.DocumentApproval != nil {
 			return a.DocumentApproval.whose(a.Mover)
 		}
+	case AttentionUnreadableRun:
+		return a.Mover.Possessive() + " — " + unreadableRunWhose
 	case AttentionCapacityDegraded:
 		return a.Mover.Possessive() + " — the limit lifts on the provider's clock at its reset; work carries on until the provider refuses it, the harness waits out a refusal by itself, and a reading below the threshold or the reset passing clears this"
 	}

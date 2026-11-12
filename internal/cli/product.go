@@ -714,7 +714,12 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 	if err != nil {
 		return nil, nil, err
 	}
+	runIndex, err := runstate.NewStore(p.stateRoot, productID)
+	if err != nil {
+		return nil, nil, err
+	}
 	pass := &maintain.Pass{
+		RunIndex:   runIndex,
 		Product:    productID,
 		Every:      maintenance.Every.Duration(),
 		Program:    p.program,

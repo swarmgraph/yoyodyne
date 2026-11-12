@@ -336,6 +336,16 @@ type ScheduleSlotRelease interface {
 	ReleaseSlotsWithNoLiveWorker(ctx context.Context, now time.Time) ([]runstate.ReleasedSlot, error)
 }
 
+// ScheduleRunIndex rebuilds the index of run records from every record
+// (runstate.Store.RebuildRunIndex). A session asks it of its runs where they
+// satisfy it, which *runstate.Store does, once, at its first pull and before
+// anything there counts the runs in flight: a record an older build changed in
+// place during a redeploy is then in the index before any reservation counts
+// it. Runs that do not satisfy it are counted from the index as it stands.
+type ScheduleRunIndex interface {
+	RebuildRunIndex() error
+}
+
 // ScheduleGates is the human gates a person has recorded passing. It is required
 // rather than optional, and it is required of the pull rather than read from the
 // tracker, because it is the one refusal the tracker cannot express: a step
@@ -1423,6 +1433,10 @@ type Schedule struct {
 	// written while doing so; it stops nothing.
 	ReleasedSlots      []runstate.ReleasedSlot `json:"released_slots,omitempty"`
 	SlotReleaseProblem string                  `json:"slot_release_problem,omitempty"`
+	// RunIndexProblem is what stopped the session rebuilding the index of run
+	// records as it started (ScheduleRunIndex). It stops nothing: the next pull
+	// tries again, and the index as it stands is read meanwhile.
+	RunIndexProblem string `json:"run_index_problem,omitempty"`
 	// Landed is the conversation-carried items this pass found landed in the
 	// repository and closed. It is on the schedule for the reason the released
 	// claims are: a pass that closed work somebody would otherwise have closed by
@@ -1640,6 +1654,9 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// session learns one ended is that a pull no longer finds it in flight.
 	elsewhere := map[string]string{}
 	var ended []freedSlot
+	// indexRebuilt is whether this session has rebuilt the index of run records
+	// yet; see ScheduleRunIndex.
+	indexRebuilt := false
 	// cadence is what this pass knows about why a recurring task might not have
 	// fired when it fell due; see recurringWatch.
 	cadence := recurringWatch{opened: s.now(), missed: map[string]time.Time{}, waiting: map[string]recurringHold{}}
@@ -2525,6 +2542,9 @@ pulling:
 		// pull does, so it is also the first thing a scheduler does as it starts:
 		// a worker that vanished with the scheduler before it is found at once
 		// rather than at some later pull.
+		if !indexRebuilt {
+			indexRebuilt = s.rebuildRunIndex(&schedule, pull)
+		}
 		s.releaseSlots(ctx, &schedule, pull)
 		// The bound is read at every pull like everything else, so a session
 		// draining under a bound somebody lengthens moves its deadline at the next
@@ -6433,6 +6453,22 @@ func (s Scheduler) audit(ctx context.Context, schedule *Schedule, pull Pull) ([]
 	return claimed, true, sweep.Died
 }
 
+// rebuildRunIndex rebuilds the index of run records as the session starts, and
+// reports whether that is done: rebuilt, or not something the pull's runs can
+// do. A rebuild that failed is said on the schedule and tried at the next pull.
+func (s Scheduler) rebuildRunIndex(schedule *Schedule, pull Pull) bool {
+	index, ok := pull.Runs.(ScheduleRunIndex)
+	if !ok {
+		return true
+	}
+	if err := index.RebuildRunIndex(); err != nil {
+		schedule.RunIndexProblem = fmt.Sprintf("the index of run records could not be rebuilt as the session started, so a run record changed outside the harness may be missing from the runs in flight until it is; the next pull tries again: %v", err)
+		return false
+	}
+	schedule.RunIndexProblem = ""
+	return true
+}
+
 // releaseSlots frees the developer slots no live worker is behind, before the
 // pull counts what is free, and records what it freed on the schedule. The
 // development manager is told of each from the run's own record: the health
@@ -8376,6 +8412,9 @@ func (s Schedule) Render() string {
 	}
 	for _, released := range s.ReleasedSlots {
 		fmt.Fprintf(&rendered, "run %s of %s: %s\n", released.RunID, released.WorkItemID, released.Release.Says)
+	}
+	if s.RunIndexProblem != "" {
+		fmt.Fprintf(&rendered, "%s\n", s.RunIndexProblem)
 	}
 	if s.SlotReleaseProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.SlotReleaseProblem)
