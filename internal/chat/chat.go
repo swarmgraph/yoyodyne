@@ -329,6 +329,11 @@ type Options struct {
 	// without one refuses a stop rather than recording a decision nothing will
 	// carry out.
 	Stops DecidedStops
+	// QueueHeads is how the development manager's release of the entry at the
+	// head of a merge queue reaches that queue (queuehead.go). It is wired into
+	// her conversation and no other, and a conversation without one refuses the
+	// release rather than appearing to have made it.
+	QueueHeads QueueHeads
 	// Publications is how the development manager's retry or retirement of a
 	// stopped document publication is carried out: such a run has no work item,
 	// so the decision is recorded on the run rather than on an item. It is wired

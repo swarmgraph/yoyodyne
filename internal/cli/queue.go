@@ -22,6 +22,8 @@ import (
 	"io"
 	"strings"
 
+	"github.com/mason-bryant/yoyodyne/internal/chat"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -236,4 +238,57 @@ func actOnStoppedQueueEntry(ctx context.Context, verb string, args []string, std
 	fmt.Fprintf(stdout, "%s: %s, entry %d (%s), is taken up again; the next pass of the queue for %s begins a fresh attempt to land it\n",
 		entry.WorkItemID, entry.WorkItemTitle, entry.Order, entry.EntryID, entry.TargetBranch)
 	return 0
+}
+
+// conversationQueueHeads wires the release of the entry at the head of a merge
+// queue into the development manager's conversation and no other, through the
+// same promoter `yoyo queue hand-back` uses (orchestrator's ReleaseHead).
+func conversationQueueHeads(parts components, role domain.AgentRole) chat.QueueHeads {
+	if role != domain.RoleDevelopmentManager || parts.mergeQueues == nil {
+		return nil
+	}
+	return conversationQueueRelease{parts: parts}
+}
+
+type conversationQueueRelease struct {
+	parts components
+}
+
+// ReleaseHead finds the queue the entry was admitted to and releases it there,
+// and says what became of it in the words her reply carries.
+func (c conversationQueueRelease) ReleaseHead(ctx context.Context, release chat.QueueHeadRelease) (string, error) {
+	key, found, err := queueHolding(c.parts.mergeQueues, release.EntryID)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", fmt.Errorf("no merge queue of this product admits an entry %s, so nothing was released", release.EntryID)
+	}
+	result, err := mergeQueueDriverFrom(c.parts).Promoter.ReleaseHead(ctx, key, orchestrator.MergeQueueRelease{
+		EntryID: release.EntryID, WorkItemID: release.WorkItemID, Landed: release.Landed,
+		Reason: release.Reason, By: release.By,
+	})
+	if errors.Is(err, orchestrator.ErrMergeQueueWorkerBusy) {
+		return "", errors.New("a pass of that merge queue is running right now, so nothing was released; ask again on your next turn, once it ends")
+	}
+	if err != nil {
+		return "", err
+	}
+	return queueReleaseSays(result), nil
+}
+
+// queueReleaseSays is what a release did, said to the role that asked for it.
+func queueReleaseSays(result orchestrator.MergeQueuePromotion) string {
+	entry := result.Entry
+	switch {
+	case result.HandedBack != nil:
+		return fmt.Sprintf("released entry %d (%s) from the head of the merge queue for %s and handed it back to %s: its change is kept on run %s, the item is blocked with your reason, and the next pass goes on to the entry behind it",
+			entry.Order, entry.EntryID, entry.TargetBranch, entry.WorkItemID, entry.RunID)
+	case result.Completed:
+		return fmt.Sprintf("released entry %d (%s) from the head of the merge queue for %s as landed: its approved commit %s is on %s, the landing is recorded on run %s and on %s with your reason, and the next pass goes on to the entry behind it",
+			entry.Order, entry.EntryID, entry.TargetBranch, entry.ApprovedHead, entry.TargetBranch, entry.RunID, entry.WorkItemID)
+	default:
+		return fmt.Sprintf("released entry %d (%s) from the head of the merge queue for %s as landed; recording it on run %s and on %s is not finished, and the next pass of the queue finishes it",
+			entry.Order, entry.EntryID, entry.TargetBranch, entry.RunID, entry.WorkItemID)
+	}
 }

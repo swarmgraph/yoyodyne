@@ -1058,6 +1058,9 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// operator's stop request, made on her behalf and naming her. Wired for
 		// that role alone, so no other conversation can stop a run in her name.
 		Stops: conversationStops(parts, role),
+		// The hand that releases the entry at the head of a merge queue she
+		// decides to release. Wired for that role alone.
+		QueueHeads: conversationQueueHeads(parts, role),
 		// The hand that carries out her retry or retirement of a stopped document
 		// publication, which has no work item to record either on. Wired for that
 		// role alone.

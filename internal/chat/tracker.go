@@ -234,6 +234,15 @@ const (
 	// about 29 batches of design changes he had no reason to decide
 	// (yoyodyne-i92). See amendmentdecision.go.
 	actionAmendment = "amendment"
+	// actionQueue releases the entry at the head of the harness's merge queue,
+	// whatever stopped it there, so the entries behind it go on: "return" hands
+	// it back to its work item with its change kept on its run, and "landed"
+	// records it as landed outside the queue where its approved commit is
+	// already on the target branch. It names the item the entry is for, which is
+	// where the release is recorded, and the entry itself. It exists because a
+	// queue stopped at its head held its own fix behind the stop, and only a
+	// person merging by hand let it out. See queuehead.go.
+	actionQueue = "queue"
 	// handleNeedsOperator is the one value "needs" takes on a handling: the
 	// report asks for a change only the operator can make, and the handling is
 	// a finding for him rather than a decision that closes the report.
@@ -267,6 +276,7 @@ var trackerActionArguments = map[string][]string{
 	actionWithdraw:     {"proposal"},
 	actionDirective:    {"directive", "decision", "became"},
 	actionAmendment:    {"amendment", "decision"},
+	actionQueue:        {"entry", "decision"},
 }
 
 // trackerCapabilities is which authority each operation belongs to. It is the
@@ -324,6 +334,9 @@ var trackerCapabilities = map[string]capability.Capability{
 	// that own documents; which proposals each may decide is asked as the
 	// decision is carried out, from the document's kind.
 	actionAmendment: capability.AmendmentDecide,
+	// Releasing a stopped queue entry is deciding what becomes of work that
+	// stopped moving, which is triage's authority and its holder's alone.
+	actionQueue: capability.WorkTriage,
 }
 
 // laneCapabilities is the lane-scoped name of each operation that has one: the
@@ -355,7 +368,7 @@ var trackerActionNames = []string{
 	actionRead, actionSurvey, actionCreate, actionAttribute, actionUpdate, actionLabel, actionReparent,
 	actionReprioritize, actionPark, actionUnpark, actionLink, actionUnlink, actionRepair,
 	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake, actionWithdraw,
-	actionDirective, actionAmendment,
+	actionDirective, actionAmendment, actionQueue,
 }
 
 // providerPathClause is what every role that writes an item's text is told
@@ -474,6 +487,10 @@ type TrackerAction struct {
 	// Proposal names the undecided proposal a withdrawal takes back, exactly as
 	// it was listed, and is taken by a withdrawal and by nothing else.
 	Proposal string `json:"proposal,omitempty"`
+	// Entry names the merge queue entry a "queue" action releases, exactly as
+	// the status shows it (mqe-...), and is taken by that action and by nothing
+	// else.
+	Entry string `json:"entry,omitempty"`
 	// Amendment names the proposed change an "amendment" action decides, by its
 	// whole id or a prefix of it that names exactly one, and is taken by that
 	// action and by nothing else.
@@ -560,8 +577,8 @@ type TrackerAction struct {
 	// repair, a re-run, and a re-arm each spend a budget, and an escalation
 	// blocks the item — and prose is what "reason" carries beside it. On an
 	// "inflight" it is the Lead Product Manager's decision about the item, from
-	// triage.ProductDecisionVocabulary, and on a "brake" the decision about the
-	// hold.
+	// triage.ProductDecisionVocabulary, on a "brake" the decision about the
+	// hold, and on a "queue" what becomes of the released entry.
 	Decision string `json:"decision,omitempty"`
 	// Budget is the cap a crossing decision crosses, named in the vocabulary the
 	// refusal names. It is taken by that decision and by nothing else: a cap is
@@ -1305,6 +1322,8 @@ func (a TrackerAction) validateArguments() []error {
 				problems = append(problems, err)
 			}
 		}
+	case actionQueue:
+		problems = append(problems, a.queueProblems()...)
 	case actionBrake:
 		switch decision := runstate.IntakeBrakeDecision(strings.TrimSpace(a.Decision)); {
 		case decision == "":
@@ -1468,6 +1487,9 @@ func (a TrackerAction) arguments() []string {
 	}
 	if strings.TrimSpace(a.Proposal) != "" {
 		carried = append(carried, "proposal")
+	}
+	if strings.TrimSpace(a.Entry) != "" {
+		carried = append(carried, "entry")
 	}
 	if strings.TrimSpace(a.Became) != "" {
 		carried = append(carried, "became")
@@ -2337,6 +2359,8 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		s.recordReportHandling(ctx, outcome)
 	case actionBrake:
 		s.decideBrake(outcome)
+	case actionQueue:
+		s.releaseQueueHead(ctx, outcome)
 	case actionWithdraw:
 		s.withdrawProposal(outcome)
 	case actionDirective:
