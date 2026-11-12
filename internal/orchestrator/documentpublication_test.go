@@ -1109,9 +1109,10 @@ func TestCompanionIntentDocumentIsHeldConfirmedRatherThanPutToTheOperator(t *tes
 }
 
 // Two waiting copies of one decision record, written before a decision record
-// had an approval setting, are settled at the next turn with no hand step: the
-// earlier copy is confirmed under approvals.designs and lands through review,
-// and the later one gives its place back.
+// had an approval setting, are settled at the next turn with no hand step:
+// neither had started, so the later revision replaces the earlier one, which
+// gives its place back, and the later one is confirmed under approvals.designs
+// and lands through review.
 func TestWaitingCopiesOfADecisionRecordAreResolvedAtTheNextTurn(t *testing.T) {
 	t.Parallel()
 	repository, _, provider, pipeline, runs := automaticFixture(t)
@@ -1138,8 +1139,8 @@ func TestWaitingCopiesOfADecisionRecordAreResolvedAtTheNextTurn(t *testing.T) {
 	if len(records) != 1 || records[0].Status != runstate.StatusSucceeded || records[0].Integration == nil {
 		t.Fatalf("decision record runs = %+v", records)
 	}
-	if records[0].Document.WriteID != "document-703.1" {
-		t.Fatalf("published %s, want the earlier copy document-703.1", records[0].Document.WriteID)
+	if records[0].Document.WriteID != "document-713.1" {
+		t.Fatalf("published %s, want the later revision document-713.1", records[0].Document.WriteID)
 	}
 	content := publicationGit(t, repository, "show", "main:docs/decisions/authority-by-capability.md")
 	if !strings.Contains(content, "by: harness") || !strings.Contains(content, "policy: approvals.designs") {
@@ -1149,7 +1150,7 @@ func TestWaitingCopiesOfADecisionRecordAreResolvedAtTheNextTurn(t *testing.T) {
 	if len(saved.PendingWrites) != 0 || len(session.Writes()) != 0 {
 		t.Fatalf("documents still waiting: %+v", saved.PendingWrites)
 	}
-	if told := toldArchitect(provider, saved); !strings.Contains(told, "document-713.1 (authority-by-capability) was a second copy of document-703.1") {
+	if told := toldArchitect(provider, saved); !strings.Contains(told, "document-703.1 (authority-by-capability) was an earlier revision of authority-by-capability, and the newer revision document-713.1 replaces it") {
 		t.Fatalf("the architect was not told the copy's place was given back: %q", told)
 	}
 	if len(provider.RequestsForRole(domain.RoleDeveloper)) != 0 {

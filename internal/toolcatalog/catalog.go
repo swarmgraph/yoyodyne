@@ -65,7 +65,7 @@ func Default() (action.Registry[Call], error) {
 		actions = append(actions, declaration(id, "yoyodyne-tracker", action.ToolAct, "Change the tracker in the ways this tool allows.", "Tracker actions; which ones you may take, and how each is checked, is set by the tracker's own list of actions.", scope, "(*Session).performTrackerActions", write))
 	}
 	for _, id := range []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate} {
-		actions = append(actions, declaration(id, strings.TrimPrefix(artifact.WriteFence, "```"), action.ToolAct, "Draft a document through the harness's checked way of writing one.", "Each write is checked for who owns the document, where it is filed, and its shape before it is recorded.", "only the kinds of document your role owns; a write still needs approval, as it always has", "(*Session).recordWrites", write))
+		actions = append(actions, declaration(id, strings.TrimPrefix(artifact.WriteFence, "```"), action.ToolAct, "Draft a document through the harness's checked way of writing one.", "Each write is checked for who owns the document, where it is filed, and its shape before it is recorded. The same block lists your waiting documents, or withdraws one whose run has not started.", "only the kinds of document your role owns, and only your own waiting documents; a write still needs approval, as it always has", "(*Session).recordWrites", write))
 	}
 	descriptor := logread.Descriptor()
 	actions = append(actions, action.Action[Call]{Name: string(descriptor.ID), Summary: "Read one named record the product keeps of its own running.", Wraps: "(*Session).performLogReads", Capabilities: []capability.Capability{capability.LogRead}, Perform: perform, Tool: &descriptor})

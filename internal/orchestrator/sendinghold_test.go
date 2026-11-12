@@ -242,10 +242,11 @@ func (p *slowPublisher) PublishDocument(_ context.Context, publication runstate.
 	return runstate.DocumentDelivery{RunID: "run-" + publication.WriteID}, nil
 }
 
-// Four documents held until one fix closes all lift at the same message. Only
-// as many as there is room for among the documents waiting for publication are
-// let go; the rest stay held and are sent once the first are settled, and no
-// document is ever cut from the saved record.
+// Four documents held until one fix closes all lift at the same message, while
+// other documents already take all but two places among those waiting for
+// publication. Only as many as there is room for are let go; the rest stay held
+// and are sent once the first are settled, and no document is ever cut from the
+// saved record.
 func TestHeldDocumentsLiftingTogetherAreNeverCutFromTheRecord(t *testing.T) {
 	t.Parallel()
 
@@ -263,6 +264,14 @@ func TestHeldDocumentsLiftingTogetherAreNeverCutFromTheRecord(t *testing.T) {
 	prior, err := store.Load(identity)
 	if err != nil {
 		t.Fatal(err)
+	}
+	room := 2
+	waiting := runstate.MaxPendingWrites - room
+	for index := 1; index <= waiting; index++ {
+		prior.PendingWrites = append(prior.PendingWrites, runstate.PendingWrite{
+			ID: fmt.Sprintf("document-%d.1", 10+index), Turn: 10 + index, Action: "create", Artifact: fmt.Sprintf("waiting-design-%d", index),
+			Kind: "design", Title: fmt.Sprintf("Waiting design %d", index), Directory: "docs/designs", Body: "# Waiting\n\nFinished.", Reason: "the architect's finished design",
+		})
 	}
 	for index := 1; index <= runstate.MaxHeldWrites; index++ {
 		prior.PendingWrites = append(prior.PendingWrites, runstate.PendingWrite{
@@ -288,8 +297,8 @@ func TestHeldDocumentsLiftingTogetherAreNeverCutFromTheRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(saved.PendingWrites) != runstate.MaxHeldWrites {
-		t.Fatalf("saved = %+v, want all %d documents still in the record", saved.PendingWrites, runstate.MaxHeldWrites)
+	if len(saved.PendingWrites) != waiting+runstate.MaxHeldWrites {
+		t.Fatalf("saved = %+v, want all %d documents still in the record", saved.PendingWrites, waiting+runstate.MaxHeldWrites)
 	}
 	held := 0
 	for _, write := range saved.PendingWrites {
@@ -297,7 +306,7 @@ func TestHeldDocumentsLiftingTogetherAreNeverCutFromTheRecord(t *testing.T) {
 			held++
 		}
 	}
-	if held != runstate.MaxHeldWrites-runstate.MaxPendingWrites {
+	if held != runstate.MaxHeldWrites-room {
 		t.Fatalf("saved = %+v, want the documents without room still held", saved.PendingWrites)
 	}
 	if told := strings.Join(saved.PendingNotices, "\n") + saved.PendingTrackerResults; !strings.Contains(told, "stays held until one of them is settled") {

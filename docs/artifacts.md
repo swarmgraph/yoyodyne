@@ -357,9 +357,9 @@ the first message in that conversation after the named item closes — a
 recurring pass's message counts — the harness sends it from the kept text, and
 the role does not write it again. A hold naming an item the tracker does not
 hold is refused, because nothing could lift it. A conversation keeps up to four
-held documents beside the two that may wait for a decision or a run, so a role
+held documents beside the eight that may wait for a decision or a run, so a role
 waiting on such a fix goes on finishing designs. A held document is let go only
-while fewer than two are waiting: when several holds lift at once, the rest
+while fewer than eight are waiting: when several holds lift at once, the rest
 stay held, the role is told why, and they are sent as the waiting ones settle. A recurring pass's record says
 an item whose finished document is held is *held for sending*, not ruled; see
 [the status line for recurring passes](operations.md#where-the-harness-stands-the-four-lines).
@@ -370,13 +370,41 @@ content before asking the role to write anything else. Confirmation and the
 complete candidate are saved before the run starts, so a restart continues
 the same run rather than losing the document or landing it twice.
 
-A conversation waits on one copy of a document at a time. A role that writes a
-document its conversation is already waiting on is refused, with the waiting
-copy named, and the second copy takes no place among the documents waiting; it
-writes its change once the first is settled. Where a conversation already holds
-two copies of one document, the next message keeps the copy whose run has
-started, or else the earliest, gives the other's place back, and tells the
-owning role which was kept.
+Each role keeps one waiting revision per document, and at most eight waiting
+documents; a ninth is refused with that reason, and nothing is recorded. A new
+revision of a document already waiting takes that document's place rather than
+another, and where it goes depends on the revision before it:
+
+- If that revision's run has not started — it waits to be confirmed, for you, or
+  for a document landing to free — the new revision replaces it. The earlier one
+  is taken off the wait for a landing, so no queued start can publish it, and
+  the role is told which revision it replaced.
+- If that revision's run is going, the new revision waits behind it and is sent
+  once that run ends.
+- If that revision's run ended without landing it — the independent review
+  refused it, a check failed, or the run stopped short of the target branch —
+  it no longer counts as the document's waiting revision, and the new revision
+  opens a fresh run at once.
+
+Every document a role writes is answered by its next turn: recorded and where it
+waits and why, then confirmed, refused with the reason, or how its run went. A
+write the harness recorded and never answered — a process that stopped between
+the two — is reported as a harness defect when the conversation is next used,
+and answered then.
+
+A role can see and take back its own waiting documents without anybody relaying
+them. In the same block it writes documents with, `"list":true` asks for each of
+its waiting documents — the document, the revision, when it was written, and
+where it stands: waiting to start and why, running with its run named, or handed
+back with what the run said — and for the latest revisions runs handed back.
+`"withdraw":[{"write":"document-12.1","reason":"why"}]` takes back one whose run
+has not started, or one a run handed back, recorded under the role's own
+authority with its reason. A document whose run is going cannot be withdrawn,
+and neither can one written in another role's conversation. Either request may
+stand in the block without a document. Where a conversation still holds two
+revisions of one document from an older build, the next message keeps every
+revision whose run has started and the latest of the rest, gives the others'
+places back, and tells the owning role which was kept.
 
 A policy that is not automatic retains operator confirmation. A document of
 the product's intent — anything governed by `approvals.brief` or
@@ -457,7 +485,7 @@ memory writes continue. The role receives the refusal reason and the identifiers
 and names of any waiting documents in a further round of the same message. If
 that round submits another refused document, its refusal waits in the durable
 conversation for the role's next turn instead of starting another round. The
-limit remains two waiting documents; a refusal confirms none of them.
+limit remains eight waiting documents; a refusal confirms none of them.
 
 A revision is the same action, carrying the document whole — or, for a
 document longer than a role can read, carrying one section. A revision that

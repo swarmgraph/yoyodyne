@@ -311,6 +311,9 @@ type Conversation struct {
 	// asked to carry out.
 	PendingWrites   []PendingWrite `json:"pending_writes,omitempty"`
 	DocumentReturns map[string]int `json:"document_returns,omitempty"`
+	// HandedBack are the latest revisions of this role's documents a reviewed
+	// run handed back without landing; see HandedBackDocument.
+	HandedBack []HandedBackDocument `json:"handed_back,omitempty"`
 	// PendingNotices is the account of harness activity the agent has not been
 	// told about yet, and PendingNoticesDropped says older activity was cut to
 	// keep it bounded. They are durable for the same reason the tracker results
@@ -520,6 +523,51 @@ type PendingWrite struct {
 	// EstablishedBy and Scope are an invariant's own fields; see artifact.Write.
 	EstablishedBy []string  `json:"established_by,omitempty"`
 	Scope         *[]string `json:"scope,omitempty"`
+	// Unanswered says the harness recorded this write and has not yet told its
+	// owning role where it stands. Every write is answered by the end of the
+	// role's next turn — confirmed, refused with the reason, or waiting with
+	// the reason — and one still unanswered when that turn begins is reported
+	// as a harness defect. A record written before it was kept carries false,
+	// which is a write nothing is owed about.
+	Unanswered bool `json:"unanswered,omitempty"`
+}
+
+// HandedBackDocument is one revision a reviewed run handed back to its author
+// without landing it — refused by the independent review, failing a check, or
+// ended without reaching the target branch — as the record keeps it so the
+// owning role can see it among its own documents. It holds no place among the
+// waiting documents: the author's next revision of the same document opens a
+// fresh run at once, and replaces this entry.
+type HandedBackDocument struct {
+	ID       string    `json:"id"`
+	Artifact string    `json:"artifact"`
+	Turn     int       `json:"turn"`
+	Written  time.Time `json:"written_at,omitzero"`
+	RunID    string    `json:"run_id,omitempty"`
+	Reason   string    `json:"reason"`
+	At       time.Time `json:"at"`
+}
+
+// MaxHandedBackDocuments bounds the revisions handed back a conversation keeps
+// for its role to see, and MaxHandedBackReasonBytes the reason each carries.
+// The latest are kept; the role was told of every one as it was handed back.
+const (
+	MaxHandedBackDocuments   = 8
+	MaxHandedBackReasonBytes = 2 << 10
+)
+
+// WaitingDocuments counts the documents MaxPendingWrites bounds: the distinct
+// documents among the writes that are not held for sending. A document whose
+// run is going and a newer revision of it waiting behind that run are one
+// document, holding one place.
+func WaitingDocuments(writes []PendingWrite) int {
+	documents := map[string]bool{}
+	for _, write := range writes {
+		if !write.Held() {
+			documents[strings.TrimSpace(write.Artifact)] = true
+		}
+	}
+	return len(documents)
 }
 
 // Held reports a document kept ready to send under a hold its owner put on
@@ -529,12 +577,14 @@ func (w PendingWrite) Held() bool {
 	return w.Hold != nil && w.Publication == nil
 }
 
-// MaxPendingWrites bounds the undecided documents one conversation carries, and
-// MaxPendingWriteBytes bounds one of them. A document is the largest thing this
-// record holds — a whole Markdown file, not a description of one — so the count
-// is small where the proposals' is twenty: a conversation with two documents
-// waiting on the operator has already asked them for more than anybody answers
-// in one sitting, and the state file has to stay well inside its own limit.
+// MaxPendingWrites bounds the documents a role's conversation keeps waiting —
+// for confirmation, for the operator, or for the reviewed run that lands them —
+// and MaxPendingWriteBytes bounds one of them. It is the architect's ruling on
+// the route documents land by (docs/designs/document-landing-route.md, rule 5):
+// at most eight waiting documents per role, and one waiting revision per
+// document, where a new revision replaces one whose run has not started and
+// otherwise waits behind it (see the chat package's revisionPlace). Eight at
+// the largest a document may be is still well inside what a state file holds.
 //
 // The byte bound matches what the write contract accepts, so a document the
 // harness took from a reply is never one it then cannot write down.
@@ -545,7 +595,7 @@ func (w PendingWrite) Held() bool {
 // documents held for that fix must not stop it writing a third. Held documents
 // carry no publication candidate, so each costs the record its body alone.
 const (
-	MaxPendingWrites     = 2
+	MaxPendingWrites     = artifact.MaxWaitingDocuments
 	MaxHeldWrites        = 4
 	MaxPendingWriteBytes = 64 << 10
 )
@@ -825,9 +875,15 @@ func (c Conversation) Validate() error {
 			held++
 		}
 	}
-	if waiting := len(c.PendingWrites) - held; waiting > MaxPendingWrites {
+	if waiting := WaitingDocuments(c.PendingWrites); waiting > MaxPendingWrites {
 		problems = append(problems, fmt.Errorf("%d undecided documents are recorded, limit is %d",
 			waiting, MaxPendingWrites))
+	}
+	// One revision runs and at most one waits behind it, so a document never
+	// holds more than two records.
+	if waiting := len(c.PendingWrites) - held; waiting > 2*MaxPendingWrites {
+		problems = append(problems, fmt.Errorf("%d undecided revisions are recorded, limit is %d",
+			waiting, 2*MaxPendingWrites))
 	}
 	if held > MaxHeldWrites {
 		problems = append(problems, fmt.Errorf("%d documents held for sending are recorded, limit is %d",
@@ -853,6 +909,19 @@ func (c Conversation) Validate() error {
 		if len(write.Body) > MaxPendingWriteBytes {
 			problems = append(problems, fmt.Errorf("pending_writes[%d] is %d bytes, limit is %d",
 				i, len(write.Body), MaxPendingWriteBytes))
+		}
+	}
+	if len(c.HandedBack) > MaxHandedBackDocuments {
+		problems = append(problems, fmt.Errorf("%d documents handed back are recorded, limit is %d",
+			len(c.HandedBack), MaxHandedBackDocuments))
+	}
+	for i, back := range c.HandedBack {
+		if strings.TrimSpace(back.ID) == "" || strings.TrimSpace(back.Artifact) == "" {
+			problems = append(problems, fmt.Errorf("handed_back[%d] does not name its document", i))
+		}
+		if len(back.Reason) > MaxHandedBackReasonBytes {
+			problems = append(problems, fmt.Errorf("handed_back[%d] reason is %d bytes, limit is %d",
+				i, len(back.Reason), MaxHandedBackReasonBytes))
 		}
 	}
 	for id, returns := range c.DocumentReturns {

@@ -184,7 +184,15 @@ role to save memories first, built by `memorySaveRequest` and
 (`internal/documentcheck`) after the filing checks; a refusal is
 rendered by `renderDocumentRefusal` and handed back to the role with
 `carryResults` in `Send`. Accepted writes become `PendingWrite` through
-`recordWrites`. `documentpublication.go` confirms automatic-policy writes
+`recordWrites`, each answered to the role as it is recorded.
+`waitingdocuments.go` holds the rules on waiting documents: one waiting
+revision per document and at most eight waiting documents per role
+(`placeRevision` decides whether a new revision replaces an unstarted one,
+waits behind a running one, or follows one a run handed back; `takePlace`
+carries that out, reading each run through the publisher's
+`DocumentStanding`), the block's `withdraw` and `list` requests
+(`answerDocumentRequests`, `withdrawWrites`, `renderWaitingDocuments`), and
+`answerUnanswered`, which reports a write never answered as a harness defect. `documentpublication.go` confirms automatic-policy writes
 (`confirmDocument`, which holds a waiting document to `checkDocument` again,
 since it may have been written by a build without the check, and returns a
 refused one to its owner with no run, and with `tellMarkOverruled` tells the
@@ -246,6 +254,7 @@ removes them from the record once a turn has delivered them.
 | `tracker.go` | `TrackerAction`, `extractTrackerActions`, `performTrackerActions`, `applyTrackerAction`, `carryOutTrackerAction`, `TrackerOutcome`, `renderTrackerResults`, refused-block hand-back (`recordRefusedTrackerBlock`) |
 | `role.go` | role authority, `SystemPrompt`, `WithRemit` |
 | `document.go`, `documentpublication.go`, `documentlanded.go` | document writes, policy confirmation, durable publication and returns to the owner; documents found landed by another route, `/landed`, `/drop` |
+| `waitingdocuments.go` | one waiting revision per document, eight waiting documents per role, replacing, withdrawing and listing a role's own, and answering every write |
 | `sendinghold.go` | a hold on sending one document, lifted when its named work item closes; the notes a document leaves on the items it answers |
 | `compact.go`, `memory.go` | session compaction and the role's own memory |
 | `passcontext.go` | what a recurring turn starts from: a provider session of its own, the product intent with other documents left out, bounded to a third of the window, the previous turn's account carried forward, the conversation's session set aside and put back (`EndPass`), and compactions the provider reports |

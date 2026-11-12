@@ -53,6 +53,9 @@ type markOverruler interface {
 // called this goes on; only a failure to record the conversation itself is
 // returned.
 func (s *Session) PublishDocuments(ctx context.Context) error {
+	if err := s.answerUnanswered(); err != nil {
+		return err
+	}
 	if err := s.releaseCopies(); err != nil {
 		return err
 	}
@@ -90,14 +93,24 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 			}
 		}
 		if record.pending.Publication == nil {
+			// One revision of a document is published at a time: a newer one
+			// waits until the run of the one ahead of it ends, which an earlier
+			// pass of this loop may just have settled.
+			if behind, _ := s.waitingBehind(record); behind != nil {
+				continue
+			}
 			_, landsDecided := s.approvedDocumentRoute()
 			confirmed, err := s.confirmDocument(record, publisher.PublishesDocuments(), landsDecided)
 			if err != nil {
 				return err
 			}
 			if !confirmed {
+				if !record.decided {
+					record.waitsFor = "it waits for the operator's decision, because its kind's approval setting, or this project's integration setting, asks him"
+				}
 				continue
 			}
+			record.waitsFor = ""
 		}
 		publishing, release := withoutDeadline(ctx)
 		delivery, err := publisher.PublishDocument(publishing, *record.pending.Publication)
@@ -156,21 +169,11 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 			}
 			continue
 		}
-		record.decided = true
 		// Only a run that judged the document hands it back to its owner, and
 		// only that is counted toward the returns that stop automatic
 		// publication. A document handed to the development manager after
 		// stops that judged nothing is not its owner's to revise.
-		if !delivery.Landed && delivery.Judged {
-			if s.state.DocumentReturns == nil {
-				s.state.DocumentReturns = map[string]int{}
-			}
-			s.state.DocumentReturns[record.pending.Write.ID]++
-			if s.state.DocumentReturns[record.pending.Write.ID] == runstate.MaxDocumentReturns {
-				delivery.Detail += fmt.Sprintf("The %s must revise its plan: automatic publication stopped after %d returned runs for this document in this conversation.\n", s.state.Role.Title(), runstate.MaxDocumentReturns)
-			}
-		}
-		if err := s.carryResults(delivery.Detail); err != nil {
+		if err := s.settleDelivery(record, delivery); err != nil {
 			return err
 		}
 	}
