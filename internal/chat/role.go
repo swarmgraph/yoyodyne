@@ -104,6 +104,10 @@ type Authority struct {
 	// bundles name repository.search.
 	RepositorySearch bool
 	LogReads         bool
+	// MCPCalls is whether this role may ask the harness for MCP calls at all:
+	// whether it holds mcp.read or mcp.act. Which tools it may name is its
+	// agent's own configured list, which the call path checks call by call.
+	MCPCalls bool
 	// RunInspects and RunVerifies are whether this role may be shown one run as
 	// it stands, and check one expected state of it.
 	RunInspects bool
@@ -250,6 +254,7 @@ func authorityFrom(role domain.AgentRole, owns string, holds []capability.Capabi
 		RepositoryReads:  has(capability.RepositoryRead) && has(capability.RepositoryList),
 		RepositorySearch: has(capability.RepositoryRead) && has(capability.RepositoryList) && has(capability.RepositorySearch),
 		LogReads:         has(capability.LogRead),
+		MCPCalls:         has(capability.MCPRead) || has(capability.MCPAct),
 		RunInspects:      has(capability.RunInspect),
 		RunVerifies:      has(capability.RunVerify),
 		RunRecovers:      has(capability.RunRecover),
@@ -425,6 +430,9 @@ func (s *Session) authorize(parsed parsedReply) error {
 			Reason:  "this role holds no repository.search grant, and names the paths it wants read instead",
 		}
 	}
+	if parsed.MCPCarried && !authority.MCPCalls {
+		return &AuthorityError{Role: authority.Role, Refused: "an MCP call to be made", Reason: "this role holds neither the mcp.read nor the mcp.act grant"}
+	}
 	if len(parsed.LogReads) > 0 && !authority.LogReads {
 		return &AuthorityError{Role: authority.Role, Refused: "an operational record to be read", Reason: "this role holds no log.read grant"}
 	}
@@ -559,10 +567,21 @@ func (s *Session) systemPrompt() string {
 	for _, held := range s.grantedTools() {
 		writes = writes || held.Tool.ID == capability.ArtifactDesignMutate || held.Tool.ID == capability.ArtifactProductMutate
 	}
-	if s.options.Capabilities == nil {
+	// The MCP section is the agent's own, from its configured list, and goes
+	// with the generated tools section ahead of the persona. An agent holding
+	// no MCP tool has none, and its prompt is exactly what it was.
+	section := s.mcpInstructions()
+	if s.options.Capabilities == nil && section == "" {
 		return SystemPrompt(s.state.Role, s.options.Admission, s.artifactFiling(), s.options.Persona)
 	}
-	return systemPromptFor(s.authority(), writes, s.options.Admission, s.artifactFiling(), s.options.Persona)
+	authority := s.authority()
+	if s.options.Capabilities == nil {
+		writes = true
+	}
+	if section != "" {
+		authority.Contract += "\n\n" + strings.TrimRight(section, "\n")
+	}
+	return systemPromptFor(authority, writes, s.options.Admission, s.artifactFiling(), s.options.Persona)
 }
 
 func (s *Session) authority() Authority {

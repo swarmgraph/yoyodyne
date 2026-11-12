@@ -19,23 +19,34 @@ import (
 // and reads its credential from the stores, with the one call path beside it
 // that resolves each caller's list and scrubs results of every server's
 // credential. None of them builds a
-// role's launch or its instructions, so a project that declares nothing —
-// whose revision is unchanged too (TestAProjectWithNoMCPSectionIsUnchanged) —
-// launches and instructs every role exactly as it did before the keys existed.
+// role's launch, so a project that declares nothing — whose revision is
+// unchanged too (TestAProjectWithNoMCPSectionIsUnchanged) — launches every
+// role exactly as it did before the keys existed.
+//
+// Three files hand it to a conversation's instructions and its replies:
+// internal/cli/chatmcp.go builds the call path only where the project
+// declares a server, internal/mcpcall/describe.go describes the tools on an
+// agent's own list, and internal/chat/mcp.go puts that description in the
+// instructions of an agent that holds a tool and carries out its block. An
+// agent with an empty list is told nothing, so its instructions are unchanged
+// (TestAConversationWithNoMCPToolsIsToldNothing in internal/chat).
 //
 // A later piece that hands any of this to a launch or a prompt adds its file
 // here, which is where a reviewer sees that it does.
 var mcpReaders = map[string]bool{
-	"internal/config/document.go": true,
-	"internal/config/mcp.go":      true,
-	"internal/config/resolve.go":  true,
-	"internal/cli/cli.go":         true,
-	"internal/cli/mcp.go":         true,
-	"internal/doctor/mcp.go":      true,
-	"internal/mcpcall/command.go": true,
-	"internal/mcpcall/mcpcall.go": true,
-	"internal/mcpcall/path.go":    true,
-	"internal/mcpcall/remote.go":  true,
+	"internal/config/document.go":  true,
+	"internal/config/mcp.go":       true,
+	"internal/config/resolve.go":   true,
+	"internal/cli/cli.go":          true,
+	"internal/cli/mcp.go":          true,
+	"internal/doctor/mcp.go":       true,
+	"internal/cli/chatmcp.go":      true,
+	"internal/chat/mcp.go":         true,
+	"internal/mcpcall/describe.go": true,
+	"internal/mcpcall/command.go":  true,
+	"internal/mcpcall/mcpcall.go":  true,
+	"internal/mcpcall/path.go":     true,
+	"internal/mcpcall/remote.go":   true,
 }
 
 func TestNothingOnTheLaunchOrInstructionPathReadsTheMCPConfiguration(t *testing.T) {

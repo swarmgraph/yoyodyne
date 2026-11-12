@@ -57,7 +57,9 @@ func TestAProjectWithNoMCPSectionIsUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(encoded), "mcp") {
+	// The capability names mcp.read and mcp.act are in a resolved agent's
+	// capabilities whatever the file says; what must not appear is a key.
+	if strings.Contains(string(encoded), `"mcp"`) || strings.Contains(string(encoded), `"mcp_tools"`) {
 		t.Fatalf("a configuration with no mcp section serializes an mcp key: %s", encoded)
 	}
 	empty, err := Decode(strings.NewReader(validBootstrapConfig + "mcp:\n  servers: {}\n"))

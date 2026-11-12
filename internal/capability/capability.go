@@ -320,6 +320,16 @@ const (
 	// itself: the scheduler is what wakes the instance, and the harness the only
 	// invoker.
 	PassRequest Capability = "pass.request"
+	// MCPRead and MCPAct are asking the harness to make an MCP call: MCPRead a
+	// call to a tool the project marks read, which changes nothing outside the
+	// harness, and MCPAct one to a tool it marks act, which may. They are two
+	// names because the design fixes which roles may hold each
+	// (docs/designs/mcp-tools-through-the-harness.md, section 1): a developer and
+	// a program manager hold the read alone, and a reviewer neither. Holding one
+	// reaches nothing by itself; the agent's own list in the configuration names
+	// the exact tools, and internal/mcpcall makes, checks and records every call.
+	MCPRead Capability = "mcp.read"
+	MCPAct  Capability = "mcp.act"
 )
 
 // declared is every capability this repository has, in the order above. It is
@@ -379,6 +389,8 @@ var declared = []Capability{
 	AmendmentDecide,
 	ServiceRequestRestart,
 	PassRequest,
+	MCPRead,
+	MCPAct,
 }
 
 // All is every capability this repository declares, in declaration order.

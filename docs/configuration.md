@@ -7296,9 +7296,11 @@ A project can declare MCP servers and list, for each agent, the exact tools that
 agent may ask the harness to call on its behalf
 ([the design](designs/mcp-tools-through-the-harness.md)). No agent ever holds a
 server, a connection to one, or its credentials: the harness makes every call
-itself. **This build loads, checks and reports these settings, and makes no MCP
-call yet.** A project that says nothing has no servers and no lists, and runs
-exactly as it did before the keys existed.
+itself. **In this build a conversation — the Lead Product Manager, the
+architect, the development manager, or a program manager — can ask for the
+tools on its own agent's list; a developer run cannot ask yet.** A project that
+says nothing has no servers and no lists, and runs exactly as it did before the
+keys existed.
 
 ```yaml
 mcp:
@@ -7350,6 +7352,20 @@ agents:
   server and the command to run. A missing credential stops nothing else.
 - Both keys are yours alone: a role's write to the configuration is refused for
   `mcp` and for any agent's `mcp_tools`.
+- **How a conversation asks.** An agent with tools on its list is told, in its
+  instructions, each tool's name, its class, the parameters the server lists
+  for it, and the server's own description of it, cut at 500 bytes and marked
+  as untrusted text from the server. It asks by ending a reply with a
+  `yoyodyne-mcp` block, and the harness makes the calls and hands back what
+  came of each in the same message: the result marked as untrusted data, or
+  why the call was refused or failed. At most 5 calls a reply, 4 replies with
+  calls a message, 32 KiB returned from one call and 64 KiB from one reply. An
+  agent whose list is empty is told nothing about MCP, and its instructions are
+  unchanged. Each call is kept in the call record under the product's state
+  directory, and recorded on the conversation as `tool.requested`, then
+  `tool.performed` or `tool.refused`, with the tool's name, outcome and size
+  and never its arguments or result. The servers are asked for their listings
+  once each time a conversation is opened.
 
 ## Reading the repository from a conversation
 

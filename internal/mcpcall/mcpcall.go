@@ -44,6 +44,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/mcpcredential"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
 // ProtocolVersions are the MCP protocol versions this client accepts, newest
@@ -444,12 +445,9 @@ func notification(method string, params any) map[string]any {
 	return note
 }
 
-// oneLine is text a server wrote, folded onto one line and cut, for an error.
+// oneLine is text a server wrote, folded onto one line and cut on a rune
+// boundary, for an error. Its words reach a conversation's prompt as the
+// reason a call failed, so it is cut as every line a conversation reads is.
 func oneLine(text string) string {
-	text = strings.Join(strings.Fields(text), " ")
-	const limit = 512
-	if len(text) > limit {
-		text = text[:limit] + "…"
-	}
-	return text
+	return oneline.Fold(text, 512)
 }
