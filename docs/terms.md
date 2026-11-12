@@ -181,13 +181,14 @@ the next change to this register takes the document off the row.
 | Term                | Write instead                                          | Still written in, until its owner amends it                                                                                                    |
 | ------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `cadence`           | how often it repeats, or its schedule                  |                                                                                                                                                |
-| `environmental stop` | what happened, with the cause named as outside the work: *the run was ended by something outside the work*, and what that something was. Every form of the word is covered — `environmental refusal` (*a round refused from outside the work*), `environmental cause` (*a cause outside the work*), `refused environmentally` | `docs/designs/recoverable-and-terminal-failures.md` |
+| `environmental stop` | what happened, with the cause named as outside the work: *the run was ended by something outside the work*, and what that something was. Every form of the word is covered — `environmental refusal` (*a round refused from outside the work*), `environmental cause` (*a cause outside the work*), `refused environmentally` |  |
+| `gate` | the name of the check a change must pass — *its checks*, *the reviewer's approval*, *the protected-path comparison*; for a step only a person can take, *a step only you can take* or *waiting on you*. `gates` and `gated` are the same word | `docs/decisions/entanglement-and-merge-affinity.md` `docs/decisions/invariants/configuration-never-grants-authority.md` `docs/decisions/invariants/harness-is-the-only-role-invoker.md` `docs/decisions/invariants/integration-requires-revision-bound-evidence.md` `docs/designs/architect-loop.md` `docs/designs/claude-execution-and-account-routing.md` `docs/designs/configurable-workflows.md` `docs/designs/forward-progress.md` `docs/designs/fresh-factory-health-and-preserved-run-recovery.md` `docs/designs/integration-through-a-merge-queue.md` `docs/designs/machine-home.md` `docs/designs/management-and-supervision.md` `docs/designs/management-loop-protocol.md` `docs/designs/mcp-tools-through-the-harness.md` `docs/designs/needs-design-gate.md` `docs/designs/ownership-and-the-operator.md` `docs/designs/program-manager.md` `docs/designs/recoverable-and-terminal-failures.md` `docs/designs/repository-confined-writes.md` `docs/designs/slack-reporting-design.md` `docs/designs/stopped-run-recovery.md` `docs/designs/tool-interface.md` `docs/designs/v1-harness-design.md` `docs/product/operating-rules.md` `.yoyodyne/personas/product-manager.md` |
 | `held for a person` | the mover named: waiting on the development manager's decision, waiting on the harness carrying out her decision, waiting on the architect's ruling — *a person* or *a human* only where the mover is the operator |                                                                                                                                                |
 | `idle bound`        | what happened: *the AI session running the developer produced no output for five minutes, so the harness ended the run* |                                                                                                                                                |
 | `in force`          | active, or still applies                               |                                                                                                                                                |
 | `integration target` | the target branch |  |
 | `one pane of glass` | one window                                             |                                                                                                                                                |
-| `operator hold` | the operator's pause, after the command that sets it, `yoyo pause`; *the operator paused all harness activity* | `docs/designs/fresh-factory-health-and-preserved-run-recovery.md` `docs/designs/machine-home.md` `docs/designs/management-and-supervision.md` `docs/designs/observability-and-dashboard.md` `docs/designs/v1-harness-design.md` |
+| `operator hold` | the operator's pause, after the command that sets it, `yoyo pause`; *the operator paused all harness activity* | `docs/designs/machine-home.md` `docs/designs/observability-and-dashboard.md` `docs/designs/v1-harness-design.md` |
 | `posture`           | tool access, meaning the tools a role may use          |                                                                                                                                                |
 | `seam`              | the boundary, named for what attaches to what          |                                                                                                                                                |
 | `sidecar`           | a separate directory outside the repository            |                                                                                                                                                |
@@ -196,7 +197,7 @@ the next change to this register takes the document off the row.
 | `stall continuation` | what happened: *the development manager resumed the run in the same AI session*, after the harness ended it for producing no output |                                                                                                                                                |
 | `supersession pile` | the list of superseded pull requests                   |                                                                                                                                                |
 | `tranche`           | stage, or part 1 of 4                                  |                                                                                                                                                |
-| `usage window` | the provider's usage limit, until it resets at a named time: *paused on the provider's usage limit until 15:00 PDT* | `docs/designs/management-and-supervision.md` `docs/designs/ownership-and-the-operator.md` |
+| `usage window` | the provider's usage limit, until it resets at a named time: *paused on the provider's usage limit until 15:00 PDT* |  |
 | `wedged`            | stuck, or the condition said outright                  |                                                                                                                                                |
 | `whose-move`        | waiting on you — or, of a thing, who it is waiting on  | `docs/designs/observability-and-dashboard.md` `.yoyodyne/personas/development-manager.md`                                                      |
 
@@ -208,6 +209,19 @@ role contracts, the shipped personas, and the pass prompts; the governed
 documents named on their rows are the architect's to amend. The record values
 and identifiers behind them keep their names: the run record's `usage-window`
 cause, the `operator-hold.json` file, and the `integration.target_branch` field.
+`gate` followed on the operator's direction of 2026-11-08, in both its meanings:
+for a check a change must pass, the check is named; for a step only a person can
+take, it is said in those words. It is gone from what the commands print, the
+role contracts, the shipped personas, and the pass prompts, and `gates` and
+`gated` with it. Four names written with it keep their names, because each is
+something a person or a role types or the harness stores and checks rather than
+a sentence: the fixed reason `human-gate` a role gives when only a person can
+take a step, the `human-gate:` line a work item declares that step on, the
+`yoyo gate` command that lists and records those steps, and file paths such as
+`docs/designs/needs-design-gate.md`. The check blanks those four before it looks
+for the word (`terms.KeptNames`). The governed documents on its row are their
+owners' to amend, and the operator guides under `docs/` are not yet read for it.
+
 The rest of the inventory's replacements follow in further parts of that item,
 each listed here as it lands.
 
@@ -310,7 +324,7 @@ only outside test files — a comment is written for whoever reads the code, and
 test names the wording it refuses as often as the wording it wants. A struct
 tag is not read either: it is the key a field is written under in a file or a
 record, and a key keeps its name when the words around it change. Nor is a
-literal with no space in it, for the same reason: `usage-window` is a cause a
+literal with no space in it, in these strings or in a role contract, for the same reason: `usage-window` is a cause a
 run record is filed under and `operator-hold.json` a file name. A wording a
 durable record already carries is excused as that exact literal in the one file
 `internal/terms` lists it for, because a newer build still has to read the

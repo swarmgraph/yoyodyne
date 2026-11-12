@@ -239,7 +239,7 @@ the check that found it collected, which is what refuses a tag in
 `+"`make release`"+`.
 
 One record is written outside both: the run of the workflow itself, under the
-harness's own state root, so what a release was gated on can be read back rather
+harness's own state root, so what a release had to pass can be read back rather
 than only having been printed. Nothing prunes those, and one is written per
 invocation.
 

@@ -188,7 +188,7 @@ func TestApprovalIsRecordedAgainstTheDocumentAndSurvivesReadingItBack(t *testing
 	if code != 0 {
 		t.Fatalf("approve code = %d, stderr = %q", code, stderr)
 	}
-	for _, want := range []string{"approved as it stands", "given by the operator", "no gate moved"} {
+	for _, want := range []string{"approved as it stands", "given by the operator", "nothing held back was let through"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("approve stdout = %q, want it to contain %q", stdout, want)
 		}

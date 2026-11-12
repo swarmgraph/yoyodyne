@@ -153,8 +153,8 @@ func TestArmingAnUnaskedPublicationIsRefusedAtTheLandingGates(t *testing.T) {
 		reading publish.CheckReading
 		want    string
 	}{
-		{name: "head behind target", reading: publish.CheckReading{HeadCommit: rearmedCommit, BehindBy: 3}, want: "head-behind-target gate: pull request 92's head is 3 commit(s) behind main"},
-		{name: "failing check", reading: publish.CheckReading{HeadCommit: rearmedCommit, Failing: []publish.FailedCheck{{Name: "make race"}}}, want: "checks gate: pull request 92 has 1 failing check(s) on its head (make race)"},
+		{name: "head behind target", reading: publish.CheckReading{HeadCommit: rearmedCommit, BehindBy: 3}, want: "the head is behind the target: pull request 92's head is 3 commit(s) behind main"},
+		{name: "failing check", reading: publish.CheckReading{HeadCommit: rearmedCommit, Failing: []publish.FailedCheck{{Name: "make race"}}}, want: "its checks fail: pull request 92 has 1 failing check(s) on its head (make race)"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -350,7 +350,7 @@ func TestTheWatchRecordsARefusedArmingOnTheItem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CarryRearms() error = %v", err)
 	}
-	if len(carried) != 1 || carried[0].Carried || !strings.Contains(carried[0].Problem, "head-behind-target gate") {
+	if len(carried) != 1 || carried[0].Carried || !strings.Contains(carried[0].Problem, "the head is behind the target") {
 		t.Fatalf("carried = %+v, want the arming refused naming the gate", carried)
 	}
 	if len(harness.forge.Requested) != 0 {
@@ -361,7 +361,7 @@ func TestTheWatchRecordsARefusedArmingOnTheItem(t *testing.T) {
 		t.Fatalf("Counters() error = %v", err)
 	}
 	finding, found := counters.CarryOutOf(harness.state.RunID)
-	if !found || finding.Decision != runstate.TriageDecisionRearm || !strings.Contains(finding.Refusal, "head-behind-target gate") {
+	if !found || finding.Decision != runstate.TriageDecisionRearm || !strings.Contains(finding.Refusal, "the head is behind the target") {
 		t.Fatalf("finding = %+v (found %v), want the refusal on the item's triage record", finding, found)
 	}
 	if again, _ := watch.CarryRearms(context.Background(), false); len(again) != 0 || checks.asked != 1 {

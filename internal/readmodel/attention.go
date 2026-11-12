@@ -666,7 +666,7 @@ func (a Attention) What() string {
 				return fmt.Sprintf("%s declares a step only a person can take that nothing could read: %s",
 					a.WorkItemID, singleLine(a.HumanGate.Unreadable, maxRefusalBytes))
 			}
-			return fmt.Sprintf("%s waits on the gate %q: %s", a.WorkItemID, a.HumanGate.Gate,
+			return fmt.Sprintf("%s waits on the step %q, which only a person can take: %s", a.WorkItemID, a.HumanGate.Gate,
 				singleLine(a.HumanGate.Statement, maxRefusalBytes))
 		}
 	case AttentionProductDecision:
@@ -742,7 +742,7 @@ func (a Attention) Whose() string {
 	case AttentionOwedStep:
 		if step := a.OwedStep; step != nil {
 			if step.SchedulingWaitClearFailure != "" {
-				return a.Mover.Possessive() + " — `yoyo reconcile` retries clearing the old scheduling reason; accepted execution continues"
+				return a.Mover.Possessive() + " — the old reason this item had not started could not be removed; the run went ahead and `yoyo reconcile` will remove it"
 			}
 			if len(step.ReconcileFindings) > 0 {
 				return reconcileFindingWhose(a.Mover, step.ReconcileFindings)

@@ -667,7 +667,7 @@ type WatchCheckWait struct {
 // Says is the wait in the words the drain's clause names it in.
 func (w WatchCheckWait) Says() string {
 	if w.Queue != "" {
-		return fmt.Sprintf("the merge queue for %s, checking candidate generation %d, to finish %s, until %s at the latest", w.Queue, w.Generation, w.Check, w.Until.UTC().Format(time.RFC3339))
+		return fmt.Sprintf("the merge queue for %s, checking build %d of the queued change, to finish %s, until %s at the latest", w.Queue, w.Generation, w.Check, w.Until.UTC().Format(time.RFC3339))
 	}
 	run := "run " + w.RunID
 	if w.WorkItemID != "" && w.WorkItemID != w.RunID {

@@ -1242,7 +1242,7 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 func (c CarryOut) continueChecks(ctx context.Context, task CarryOutTask, carried CarriedOut) (account CarriedOut, outcome Outcome, err error) {
 	defer func() {
 		if !account.Carried && account.Problem != "" {
-			clears := "the named gate being resolved; the next pull attempts the same preserved run"
+			clears := "the named condition being resolved; the next pull attempts the same preserved run"
 			switch account.Gate {
 			case runstate.TriageGateIntakeHold:
 				clears = "`yoyo release` lifting the intake hold"
@@ -1564,10 +1564,10 @@ func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried Carrie
 	carried.Gate = gate
 	switch {
 	case carried.ReleasedHold:
-		clears += fmt.Sprintf("; this gate will not clear on its own, so no later pull retries this decision. Run %s left no branch or worktree, so a fresh run of %s would start from the target branch exactly as this re-run would have: the hold this decision placed on the item is released, and the next pull may start it like any other ready item",
+		clears += fmt.Sprintf("; this condition will not clear on its own, so no later pull retries this decision. Run %s left no branch or worktree, so a fresh run of %s would start from the target branch exactly as this re-run would have: the hold this decision placed on the item is released, and the next pull may start it like any other ready item",
 			task.RunID, task.WorkItemID)
 	case carried.Cause != "":
-		clears += "; this gate will not clear on its own, so no later pull retries this decision. The development manager records a re-run or an escalation instead; a missing decision must be recorded again, with an override where the budget requires it"
+		clears += "; this condition will not clear on its own, so no later pull retries this decision. The development manager records a re-run or an escalation instead; a missing decision must be recorded again, with an override where the budget requires it"
 	}
 	carried.Waiting = waiting
 	held := "was refused by"

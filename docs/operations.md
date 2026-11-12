@@ -3332,7 +3332,7 @@ and how long it had run, what the stage had spent across how many checks, and
 what moves it — here on a machine at three times its cores:
 
 ```text
-the check stage reached its 1h30m0s execution.check_stage_timeout bound (the configured 30m0s scaled for a one-minute load average of 48.0 on 16 cores) during make race, which had run for 1h12m0s from when it started; the stage had spent 1h30m0s across 3 check(s) (gate narrowed to: the whole module (the repository root is not a Go module)); narrow the per-run gate to what the change touches with $YOYODYNE_CHANGED_GO_PACKAGES, move the whole suite to landing_checks, or raise the bound
+the check stage reached its 1h30m0s execution.check_stage_timeout bound (the configured 30m0s scaled for a one-minute load average of 48.0 on 16 cores) during make race, which had run for 1h12m0s from when it started; the stage had spent 1h30m0s across 3 check(s) (checks narrowed to: the whole module (the repository root is not a Go module)); narrow the checks each run must pass to what the change touches with $YOYODYNE_CHANGED_GO_PACKAGES, move the whole suite to landing_checks, or raise the bound
 ```
 
 It is a different stoppage from a check reaching its own limit, and it is
@@ -7596,7 +7596,7 @@ reads `nothing spent`. **Spend whose moment could not be read** is on a line of
 its own at the foot, saying it is counted in every window of the box above and
 on no day here, which is the only reason the days and the windows can differ.
 And **records that could not be priced at all** are counted on a last line
-saying every figure here and above is a floor.
+saying every figure here and above is at least what it says.
 
 Nothing in the listing opens anything: a day is not a record this page can show
 more of. It is drawn again on every poll while it is open, from the reading the

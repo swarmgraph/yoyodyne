@@ -3129,7 +3129,7 @@ its bound **ends the run as a stoppage** — `timed_out`, no repair attempt spen
 the change preserved — and what it names is the bound, the configured figure
 and the load that scaled it, the check it stopped and how long that check had
 run, what the stage had spent across how many checks, and the two things that
-move it: narrow the per-run gate to what the change touches, or raise the
+move it: narrow the checks each run must pass to what the change touches, or raise the
 bound. That is a different failure from a check reaching its own budget, and it
 is reported as one, because raising `check_timeout` does nothing for a check the
 stage stopped.
@@ -6683,7 +6683,7 @@ was cancelled, or it went silent past its liveness bound — is **not** a
 conflict, although it leaves the same half-applied state behind. It is told
 apart by how the rebase stopped, abandoned the same way so the worktree is back
 on its branch before anything is recorded. The replay's `git rebase` is given
-a budget bought for what it does: the local Git budget, plus that budget's idle
+a time limit worked out from what it does: the local Git budget, plus that budget's idle
 thirty seconds again for each commit it replays and fifty milliseconds for each
 file it writes, all scaled for load. A replay stopped on time is asked again by
 the harness on its own, up to three times, after waits of one, two, and four
@@ -6853,7 +6853,7 @@ is the order they were approved — through the same action as
 `yoyo triage resume`, and each is admitted to the queue as any approved change
 is; the intake hold and a full harness hold that taking up as they hold any
 resumption. A change already admitted when the requirement appears is not
-landed while it stands: its verified candidate waits with its gate kept, and a
+landed while it stands: its verified candidate waits with its checks and review kept, and a
 target that moves meanwhile is drift as always.
 
 With the switch off nothing of this applies, so a person can remove GitHub's

@@ -987,7 +987,7 @@ func (p Pull) validate(needs pullNeeds) error {
 	// item forever or start past all of them. Refusing here is the only reading
 	// of that which is neither.
 	if p.Gates == nil {
-		problems = append(problems, errors.New("a pull requires the human gates a person has passed"))
+		problems = append(problems, errors.New("a pull requires the steps a person has recorded taking"))
 	}
 	if p.Start == nil {
 		problems = append(problems, errors.New("a pull requires a way to start a run"))
@@ -5889,7 +5889,7 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 		}
 		if gate, stopped := waitingOn[task.WorkItemID]; stopped && closed.stillShut(gate) {
 			if task.Decision == DecisionContinueChecks {
-				pass(task, fmt.Sprintf("the continuation is still waiting on %s; lifting that gate lets the next pull attempt it", gate))
+				pass(task, fmt.Sprintf("the continuation is still waiting on %s; once that clears the next pull attempts it", gate))
 				continue
 			}
 			// Its refusal is on the item already, so it is not passed over for the
@@ -8116,7 +8116,7 @@ func (p Pull) queue(ctx context.Context, claimed []beads.WorkItem, read bool) (p
 	// stops work rather than starting it past somebody's step.
 	discharged, err := p.Gates.DischargedGates()
 	if err != nil {
-		return pulled{}, fmt.Errorf("read the human gates a person has passed: %w", err)
+		return pulled{}, fmt.Errorf("read the steps a person has recorded taking: %w", err)
 	}
 	queue := backlog.Order(admitted, pullable, held, discharged)
 	// Coverage is read one status wider than the backlog. A claimed child has left
