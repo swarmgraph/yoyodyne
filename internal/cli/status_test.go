@@ -1997,3 +1997,33 @@ func TestStatusSaysWhichBranchAChangeLandedOnAndWhichItWaitsToBeMergedInto(t *te
 		t.Fatalf("status does not say the wait (%q):\n%s", want, stdout)
 	}
 }
+
+// Where a team's branch is configured, `yoyo status` says when the target
+// branch was last brought up to date with it, in the record's own words.
+func TestStatusSaysWhenTheTargetBranchWasLastBroughtUpToDateWithTheTeamsBranch(t *testing.T) {
+	// Not parallel: the state root the command addresses is set here.
+	stateRoot := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
+	configPath := writeConfig(t, validConfig+"execution:\n  upstream_branch: main\n")
+	records, err := runstate.NewTeamBranchUpdateStore(stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := runstate.TeamBranchUpdate{
+		SchemaVersion: runstate.TeamBranchUpdateSchemaVersion,
+		TargetBranch:  "staging", UpstreamBranch: "main",
+		Pending: &runstate.TeamBranchUpdateAttempt{TeamCommit: strings.Repeat("a", 40), TargetBase: strings.Repeat("c", 40), StartedAt: time.Now().Add(-2 * time.Hour)},
+	}
+	record.Land(time.Now().Add(-time.Hour), strings.Repeat("b", 40))
+	if err := records.Save(record); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runCLI(t, "status", "--config", configPath)
+	if code != 0 {
+		t.Fatalf("status exited %d: %s", code, stderr)
+	}
+	if want := "staging was last brought up to date with main"; !strings.Contains(stdout, want) || !strings.Contains(stdout, "merge bbbbbbbbbbbb") {
+		t.Fatalf("status does not say the update (%q):\n%s", want, stdout)
+	}
+}

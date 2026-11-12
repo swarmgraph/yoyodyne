@@ -16,7 +16,10 @@ import (
 // the request's head with the target), and reads the reviews and comments on
 // the ones still open (TakeUpFeedback). It also fetches the team's branch for
 // each change waiting for the team's merge (execution.upstream_branch) and
-// closes the item whose landing commit it now carries (SettleTeamMerges). The claim, team pause and records
+// closes the item whose landing commit it now carries (SettleTeamMerges). The
+// command also hosts bringing the target branch up to date with the team's
+// branch (TeamBranchUpdater, teambranchupdate.go), which runs checks and a
+// review and so is not part of CheckForge. The claim, team pause and records
 // references the design adds with team mode are not read: team mode does not
 // exist yet, and the check covers them once it does.
 //

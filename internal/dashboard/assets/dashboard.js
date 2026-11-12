@@ -614,6 +614,35 @@ var standingWarningAgeSeconds = 5 * 60;
       setHidden(banner, true);
     }
     renderTeamMerge(standing);
+    renderTeamBranchUpdate(standing);
+  }
+
+  // renderTeamBranchUpdate says when the target branch was last brought up to
+  // date with the team's branch and any update waiting, one line each in the
+  // words the terminal prints, which the model says
+  // (Standing.TeamBranchUpdateSays). It is made on first need, so a project with
+  // no upstream branch carries nothing for it.
+  function renderTeamBranchUpdate(standing) {
+    var list = document.getElementById("team-branch-update");
+    var said = standing && standing.team_branch_update_says ? standing.team_branch_update_says : [];
+    var problem = standing && standing.team_branch_update_problem ? standing.team_branch_update_problem : "";
+    if (!list) {
+      if (!problem && said.length === 0) {
+        return;
+      }
+      list = el("ul", "team-merge");
+      list.id = "team-branch-update";
+      list.setAttribute("aria-label", "The target branch and the team's branch");
+      banner.parentNode.insertBefore(list, banner.nextSibling);
+    }
+    clear(list);
+    if (problem) {
+      list.appendChild(el("li", null, problem));
+    }
+    said.forEach(function (sentence) {
+      list.appendChild(el("li", null, sentence));
+    });
+    setHidden(list, list.childNodes.length === 0);
   }
 
   // renderTeamMerge lists the items whose change landed on the target branch and

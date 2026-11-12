@@ -192,6 +192,16 @@ func (m *Manager) HoldsCommit(ctx context.Context, commit string) (bool, error) 
 	return result.Status == execution.ProcessSucceeded, nil
 }
 
+// CommitParents lists a commit's parents, the first parent first. A merge the
+// harness built is told by them: the base it was built on, then the head merged
+// onto it.
+func (m *Manager) CommitParents(ctx context.Context, commit string) ([]string, error) {
+	if !commitPattern.MatchString(commit) {
+		return nil, fmt.Errorf("%q is not a full commit id", commit)
+	}
+	return m.parentsOf(ctx, commit)
+}
+
 // CandidateChanges describes what a candidate adds to the base it was built
 // on, as one bounded change for its reviewer.
 func (m *Manager) CandidateChanges(ctx context.Context, baseCommit, candidate string, limits DiffLimits) (BranchChange, error) {
