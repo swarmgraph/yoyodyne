@@ -1391,6 +1391,17 @@ func printRunReasons(writer io.Writer, run runstate.RunSummary) bool {
 		}
 		fmt.Fprintf(writer, "  %s: %s\n", account.label, singleLine(account.text))
 	}
+	// A stop somebody recorded that the run has not reached yet is said while
+	// the run is in flight, with when it was recorded, so nobody reads a run
+	// still working as one that ignored them (runstate.StopRequest.Pending).
+	if run.PendingStop != nil {
+		fmt.Fprintf(writer, "  stop asked for: %s\n", singleLine(run.PendingStop.Pending()))
+		printed = true
+	}
+	if run.LateStop != nil {
+		fmt.Fprintf(writer, "  stop arrived late: %s\n", singleLine(run.LateStop.Says()))
+		printed = true
+	}
 	// An approved change the environment stopped is said beside its reason,
 	// because the reason alone reads as a failed piece of work and sends an
 	// operator to the verbs that each spend something for it. This names the one

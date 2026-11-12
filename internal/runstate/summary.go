@@ -298,6 +298,13 @@ type RunSummary struct {
 	// says what failed, and this says it was not the work and names the one verb
 	// that resumes it at no cost.
 	IntegrationStop *IntegrationStop `json:"integration_stop,omitempty"`
+	// PendingStop is a stop somebody recorded on this run that has not taken
+	// effect yet, read from beside the run, and is set only on a run still in
+	// flight: a run that has ended either honored it or never needed to.
+	PendingStop *StopRequest `json:"pending_stop,omitempty"`
+	// LateStop is a stop that reached this run only after its checks had
+	// passed, so it was not carried out (State.LateStop).
+	LateStop *LateStop `json:"late_stop,omitempty"`
 	// Failure is the run's own reason for ending, and it is the only one of the
 	// four recorded reasons that is about the work itself. The three below
 	// happened around the work rather than to it, and are kept apart here for the
@@ -607,6 +614,18 @@ func (s *Store) summarize(state State) RunSummary {
 	if state.IntegrationStop != nil {
 		stopped := *state.IntegrationStop
 		summary.IntegrationStop = &stopped
+	}
+	if state.LateStop != nil {
+		late := *state.LateStop
+		summary.LateStop = &late
+	}
+	// A stop that cannot be read is left off the listing rather than failing it,
+	// as the conversation's survey leaves it off: the run says the same thing
+	// about itself once it reads the request.
+	if state.Status.InFlight() {
+		if request, requested, err := s.StopRequested(state.RunID); err == nil && requested {
+			summary.PendingStop = &request
+		}
 	}
 	if state.ContextTruncation != nil {
 		truncated := *state.ContextTruncation

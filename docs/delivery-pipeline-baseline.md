@@ -509,7 +509,7 @@ re-closing or re-blocking an item is exactly what a sweep must not do.
 | `usage-limit-pause-exits-resumable-and-a-later-invocation-finishes-it` | The pause, the durable deadline as the instant the provider named, and the resume continuing the same run and session |
 | `server-overload-pause-reissues-the-same-attempt` | An overload told apart from an exhausted account |
 | `provider-stopped-on-time-is-resumable-and-continues-the-same-attempt` | A stop the harness made, owed the rest of an attempt rather than a wait, and never blamed on the developer |
-| `operator-stop-cancels-the-run-and-preserves-its-work` | The `cancelled` terminal, taken at a provider-call boundary before a verdict is bought |
+| `operator-stop-cancels-the-run-and-preserves-its-work` | The `cancelled` terminal, taken at the run's next step, before the checks run or a verdict is bought |
 | `verdict-fields-the-schema-does-not-name-are-recorded-as-drift` | The `review.drift` event, and a verdict acted on without what the schema does not define |
 | `partial-cleanup-leaves-a-succeeded-run-reporting-what-survives` | `cleanup_failure` on a succeeded run, with each artifact reported separately |
 | `outstanding-publication-leaves-a-succeeded-run-naming-it` | `publish_failure` on a succeeded run whose merge the forge could not confirm, and `stop_class` `publish` |

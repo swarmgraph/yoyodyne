@@ -13,10 +13,9 @@ package runstate
 // for the reason a released wait is: the process working on the run holds that
 // run's state under a lease and is the only thing entitled to write it, so the
 // operator states the fact in a file of their own and the run reads it. The run
-// honors it at its next provider-call boundary, exactly where it reads the
-// operator's hold, and ends itself the way a cancelled run ends — terminal,
-// artifacts preserved, the item noted — so what it leaves behind is settled by
-// the same reconciliation that settles everything else.
+// honors it at its next step boundary, and ends itself the way a cancelled run
+// ends — terminal, artifacts preserved, the item noted — so what it leaves
+// behind is settled by the same reconciliation that settles everything else.
 //
 // The development manager asks for a stop too, through the same file. A run
 // whose work she has decided is superseded, narrowed, or mis-launched is one she
@@ -25,12 +24,15 @@ package runstate
 // reason. The run cannot tell the two apart and does not need to: it stops the
 // same way, and only the words it ends on and the docket entry it leaves differ.
 //
-// What it deliberately cannot do is interrupt a provider invocation already
-// streaming. That generation is already paid for, and throwing it away would
-// leave the run needing the same work again, which is the cost that made killing
-// processes the wrong verb in the first place. A stop therefore takes effect at
-// the next boundary rather than instantly, and whoever asked for it is told that
-// it has not landed yet rather than told it has.
+// It does not interrupt a provider invocation the moment it is recorded. That
+// generation is already paid for, and throwing it away would leave the run
+// needing the same work again, which is the cost that made killing processes the
+// wrong verb in the first place. A stop therefore takes effect at the next step
+// boundary rather than instantly, and whoever asked for it is told that it has
+// not landed yet rather than told it has. A step that runs on past
+// StopTakesEffectWithin is cut short all the same, and a stop that reaches a run
+// only after its checks passed keeps the change for its review instead of
+// cancelling it (LateStop, and internal/orchestrator/promptstop.go).
 
 import (
 	"encoding/json"
@@ -213,4 +215,84 @@ func (s *Store) stopPath(runID string) (string, error) {
 		return "", errors.New("run id is invalid")
 	}
 	return filepath.Join(s.root, runID+".stop.json"), nil
+}
+
+// StopTakesEffectWithin is the longest a recorded stop waits for the step a run
+// is in the middle of. A stop is honored at the run's next step boundary, which
+// is usually soon; but a developer attempt or a check stage can run for an hour,
+// and a stop that waited that long reached the run only once its checks had
+// passed, which is the one moment stopping it throws away finished work. So the
+// step in progress is let finish only within this bound of the stop being
+// recorded, and is cut short once it passes.
+const StopTakesEffectWithin = 10 * time.Minute
+
+// TakesEffectBy is the latest moment this stop takes effect on a run that is
+// still working.
+func (r StopRequest) TakesEffectBy() time.Time {
+	return r.RequestedAt.Add(StopTakesEffectWithin)
+}
+
+// Pending says a stop that has been recorded and has not yet taken effect, for
+// the status listing: who asked, when, in the operator's local time with the
+// zone named, and when it will have taken effect at the latest.
+func (r StopRequest) Pending() string {
+	says := fmt.Sprintf("%s asked this run to stop at %s, and it has not taken effect yet; it takes effect at the run's next step, and no later than %s (%s after it was asked for), unless the run's checks have already passed, in which case the change is kept for its review",
+		r.StoppedBy(), LocalStamp(r.RequestedAt), LocalStamp(r.TakesEffectBy()), StopTakesEffectWithin)
+	if reason := strings.TrimSpace(r.Reason); reason != "" {
+		says += ": " + reason
+	}
+	return says
+}
+
+// LateStop is a stop that reached a run only after its checks had passed on the
+// change it holds. Such a stop is not carried out: cancelling there would throw
+// away a change that has just earned its checks, which is the most expensive
+// moment there is to stop a run. The change is kept and goes on to its review,
+// and the run records the stop here so whoever asked for it is told it arrived
+// late rather than finding the run carried on without a word.
+type LateStop struct {
+	RequestedAt time.Time `json:"requested_at"`
+	// RequestedBy is who asked, as StopRequest.StoppedBy says it.
+	RequestedBy string `json:"requested_by"`
+	Reason      string `json:"reason,omitempty"`
+	// ChecksPassedAt is when the checks passed on the change the stop would have
+	// cancelled, and NoticedAt is when the run reached the stop.
+	ChecksPassedAt time.Time `json:"checks_passed_at"`
+	NoticedAt      time.Time `json:"noticed_at"`
+}
+
+// NewLateStop records request as reaching a run whose checks passed at
+// checksPassedAt, noticed at noticedAt.
+func NewLateStop(request StopRequest, checksPassedAt, noticedAt time.Time) LateStop {
+	return LateStop{
+		RequestedAt:    request.RequestedAt.UTC(),
+		RequestedBy:    request.StoppedBy(),
+		Reason:         strings.TrimSpace(request.Reason),
+		ChecksPassedAt: checksPassedAt.UTC(),
+		NoticedAt:      noticedAt.UTC(),
+	}
+}
+
+func (l LateStop) Validate() error {
+	var problems []error
+	if l.RequestedAt.IsZero() {
+		problems = append(problems, errors.New("requested at is required"))
+	}
+	if strings.TrimSpace(l.RequestedBy) == "" {
+		problems = append(problems, errors.New("requested by is required"))
+	}
+	if l.NoticedAt.IsZero() {
+		problems = append(problems, errors.New("noticed at is required"))
+	}
+	return errors.Join(problems...)
+}
+
+// Says is the late stop in a sentence, in the operator's local time.
+func (l LateStop) Says() string {
+	says := fmt.Sprintf("%s asked this run to stop at %s, but the stop reached the run only at %s, after its checks had passed at %s; the change was kept and went on to its review rather than being cancelled",
+		l.RequestedBy, LocalStamp(l.RequestedAt), LocalStamp(l.NoticedAt), LocalStamp(l.ChecksPassedAt))
+	if l.Reason != "" {
+		says += " (the stop's reason: " + l.Reason + ")"
+	}
+	return says
 }

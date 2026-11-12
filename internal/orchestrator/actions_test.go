@@ -1016,6 +1016,8 @@ var notAStep = map[string]string{
 	// reach for exactly that reason: a sequence that could omit one would be a
 	// sequence that could spend through a pause the operator placed.
 	"stopRequested":           "reads whether the operator has asked this run to stop",
+	"honorStop":               "reads whether a stop was asked for, and records one that arrived after the checks passed",
+	"watchForStop":            "watches a step in progress for a stop that has waited its bound",
 	"holdForOperator":         "waits out the operator's hold on spending",
 	"holdForDirective":        "waits out a directive that pauses this work",
 	"holdForDependency":       "waits out work this item was made to depend on",

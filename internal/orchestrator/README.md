@@ -108,7 +108,11 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     `holdFor…`, `record…Pause`, `clear…Pause`, a pause error type, and a
     `pausedFor…` predicate — `directivePause`, `dependencyPause`,
     `trackerPause`, `operatorHoldPause`. Also `operatorHold`, `holdWorkItem`,
-    `holdIntake`, `stopRequested` / `operatorStop`, `holdForOperator`.
+    `holdIntake`, `stopRequested` / `operatorStop`, `holdForOperator`. How a
+    stop reaches a run that is working is `promptstop.go`: `watchForStop`
+    cuts a developer attempt or check stage short once a stop has waited
+    `runstate.StopTakesEffectWithin`, and `honorStop` keeps a change whose
+    checks already passed for its review, recording the stop as late.
 13. **Checks.** `verify` (path gate, review-bound gate — `gateReviewBound`
     and `blockOnReviewBound` in `reviewbound.go` — self-verification gate,
     configured checks), `integrationEarned` (reads the record, compares
