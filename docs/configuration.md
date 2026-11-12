@@ -5472,15 +5472,19 @@ Turning it on is the Lead Product Manager's decision and the development
 manager applies it
 ([working alongside other contributors](designs/working-alongside-other-contributors.md#5-two-factories-and-the-same-work)).
 With it off, the harness works the repository alone: it takes no claim on the
-remote and no start of new work waits on the remote.
+remote, reads no team pause, and no start of new work waits on the remote.
 
 With it on, the harness claims each item on the shared remote before it starts
 it, so two factories never do the same work:
 
 - **Taking.** Before a fresh run claims an item in the tracker, the harness reads
-  the intake hold, fetches the claims from the remote (`execution.remote`), and
-  pushes `refs/yoyodyne/claims/<item id>` with a lease that fails if the
-  reference already exists. The tracker is claimed only after that push
+  the intake hold, fetches the claims and the team pause from the remote
+  (`execution.remote`) in one fetch, and pushes `refs/yoyodyne/claims/<item id>`
+  with a lease that fails if the reference already exists. While the team pause
+  (`refs/yoyodyne/pause`, set and cleared with
+  [`yoyo pause --team`](operations.md#pausing-everything-and-resuming-it)) is
+  set, no item the harness chose is claimed; one the operator named on this
+  machine still is. The tracker is claimed only after that push
   succeeds. An item another factory holds is not started this turn, and the
   schedule says who holds it; it is tried again at the next poll. A remote that
   cannot be reached starts no new work in team mode, because a claim cannot be

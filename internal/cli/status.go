@@ -719,6 +719,7 @@ func standingSources(configPath string) readmodel.Sources {
 	sources.BrakeProbeOverdueAfter = cfg.Execution.BrakeProbeOverdueAfter.Duration()
 	sources.SchedulingWaitProblemAfter = cfg.Execution.SchedulingWaitProblemAfter.Duration()
 	sources.MaxWaitingPullRequests = cfg.Execution.MaxWaitingPullRequests
+	sources.TeamPause = standingTeamPause(resolved)
 	// What each agent asks for and may be served by instead, read against the
 	// refusal log below for the one thing the two say together: whether the
 	// provider is holding every role at once.
