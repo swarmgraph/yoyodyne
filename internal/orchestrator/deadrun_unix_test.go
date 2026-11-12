@@ -503,7 +503,7 @@ func TestTheSweepLeavesATrackerReadParkToThePull(t *testing.T) {
 	}
 }
 
-// A stop reaches a run only up to its last provider-call boundary, so the sweep
+// A stop reaches a run only up to its last step before the promotion, so the sweep
 // honours one only there too: a run already promoting, or with its promotion on
 // the record, is completed from that promotion rather than recorded as stopped
 // with its change already on the target.

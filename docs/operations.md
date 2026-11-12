@@ -4816,16 +4816,20 @@ the edit, and the sweep already writes the whole of it on the next
 
 **A stop asked for on a run with no process behind it is honoured by the sweep,
 at once.** A stop — yours, or one the development manager decided — is read by
-the run's own process at its next provider-call boundary, and a run whose
-process is gone reaches no boundary. So the sweep reads it too, before anything
-else it decides about an in-flight run: a run whose lease it can take and that
-somebody asked to stop is ended there and then, without waiting out the half
+the run's own process at the run's next step, and a run whose process is gone
+reaches no step. So the sweep reads it too, before anything else it decides
+about an in-flight run: a run whose lease it can take and that somebody asked
+to stop is ended there and then, without waiting out the half
 hour, exactly as the run would have ended itself — `cancelled`, its branch and
 worktree left where they are, the stop and who asked for it on the item, and, for
 a stop she decided, the stoppage docketed as settled by her decision. The slot
 is free as the record goes terminal. `yoyo reconcile` says `cancelled` against
 the run, with the stop's own words and that the sweep ended it in the dead
-process's place.
+process's place. The one exception is a run whose checks have already passed on
+the change it holds: cancelling it would throw away a change that has earned
+its checks, so the sweep records the stop as having arrived late, keeps the
+change, and settles the run as it would any run in flight, leaving it for its
+own pipeline to carry on to its review.
 
 **A re-run claim spent on a run that bought nothing goes back by the
 development manager's decision, and nobody edits the claims by hand.** A re-run
