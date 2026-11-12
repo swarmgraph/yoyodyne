@@ -16,7 +16,11 @@ import (
 // the request's head with the target), and reads the reviews and comments on
 // the ones still open (TakeUpFeedback). It also fetches the team's branch for
 // each change waiting for the team's merge (execution.upstream_branch) and
-// closes the item whose landing commit it now carries (SettleTeamMerges). The claim, team pause and records
+// closes the item whose landing commit it now carries (SettleTeamMerges). Before
+// that it reads each pull request into the team's branch that an outside tool
+// carries those changes in, closing the items of one merged, giving back those of
+// one closed without merging, and adding to an open one the items it carries but
+// nobody named (SettleTeamPullRequests). The claim, team pause and records
 // references the design adds with team mode are not read: team mode does not
 // exist yet, and the check covers them once it does.
 //
@@ -50,6 +54,10 @@ type ForgeCheck struct {
 	// TeamMerges is each landed change waiting for the team to merge it into
 	// their branch: still waiting, or found on that branch and its item closed.
 	TeamMerges []TeamMergeSettlement `json:"team_merges"`
+	// TeamPullRequests is each pull request into the team's branch that carries
+	// waiting changes: still open, merged and its items closed, or closed without
+	// merging and its items given back to the Lead Product Manager.
+	TeamPullRequests []TeamPullRequestSettlement `json:"team_pull_requests"`
 	// Feedback is what was said on each of them since the head was pushed, and
 	// what the check did about it.
 	Feedback []FeedbackSettlement `json:"feedback"`
@@ -69,6 +77,16 @@ func (c ForgeCheck) Failures() int {
 			failures++
 		}
 	}
+	for _, settled := range c.TeamPullRequests {
+		if settled.Failure != "" {
+			failures++
+		}
+		for _, item := range settled.Items {
+			if item.Failure != "" {
+				failures++
+			}
+		}
+	}
 	for _, settled := range c.Feedback {
 		if settled.Failure != "" {
 			failures++
@@ -84,9 +102,10 @@ func (c ForgeCheck) Failures() int {
 func (r Reconciler) CheckForge(ctx context.Context) (ForgeCheck, error) {
 	r.RetryAtNextCheck = true
 	var check ForgeCheck
-	var mergeErr, teamErr, feedbackErr error
+	var mergeErr, requestErr, teamErr, feedbackErr error
 	check.PersonMerges, mergeErr = r.SettlePersonMerges(ctx)
+	check.TeamPullRequests, requestErr = r.SettleTeamPullRequests(ctx)
 	check.TeamMerges, teamErr = r.SettleTeamMerges(ctx)
 	check.Feedback, feedbackErr = r.TakeUpFeedback(ctx)
-	return check, errors.Join(mergeErr, teamErr, feedbackErr)
+	return check, errors.Join(mergeErr, requestErr, teamErr, feedbackErr)
 }

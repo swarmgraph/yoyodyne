@@ -812,8 +812,13 @@ check is one [`yoyo forge-check`](configuration.md#publishing-through-pull-reque
 run from the supervisor's own binary. It reads every pull request waiting for a
 person to merge it, and settles one that merged or closed, brings one the
 target branch has moved past up to date, and reads the reviews and comments
-left on the rest. `yoyo reconcile` no longer reads these, so a maintenance pass
-that is slow, or keeps failing at one of its steps, never delays the check: a
+left on the rest. For a project that sets `execution.upstream_branch`, it also
+reads every pull request into the team's branch recorded with
+`yoyo pull-request track`, and closes, gives back, or adds items as that pull
+request merged, closed, or still carries them
+([waiting for the team's branch](configuration.md#waiting-for-the-teams-branch)).
+`yoyo reconcile` no longer reads these, so a maintenance pass that is slow, or
+keeps failing at one of its steps, never delays the check: a
 check falls due every interval whether a pass is under way or not.
 
 Only one check reads at a time. A check that starts a repair round or an update
