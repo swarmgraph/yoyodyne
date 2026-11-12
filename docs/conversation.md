@@ -1013,8 +1013,9 @@ throwing it away would leave the run needing it again; past ten minutes it is
 cut short, and what the developer had written is kept on the run's branch. A run
 whose checks have already passed on its change when the stop reaches it is not
 cancelled at all: the change goes on to its review, and the run says the stop
-arrived late. Until it takes effect, `/status` and `yoyo status` show the stop
-with when it was asked for.
+arrived late. Until it takes effect, `yoyo status` shows the stop with who asked
+for it and when, in your local time with the zone named, and `/status` here says
+that a stop has been asked for on the run.
 
 The development manager can stop a run too, without you. A run whose work she
 decides is superseded, narrowed, or mis-launched is one she records a `stop`

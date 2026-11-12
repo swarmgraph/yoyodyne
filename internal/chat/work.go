@@ -561,7 +561,7 @@ func renderRunSnapshots(theme console.Theme, runs []RunSnapshot) string {
 		fmt.Fprintf(&rendered, "    %s\n", run.chosen())
 		if run.StopRequested {
 			fmt.Fprint(&rendered, theme.State(console.StateFailed,
-				"    you have asked this run to stop; it ends itself at its next step, no later than ten minutes after you asked, and nothing has been thrown away yet; a change whose checks already passed is kept for its review instead\n"))
+				"    a stop has been asked for on this run; it ends itself at its next step, no later than ten minutes after the stop was asked for, and nothing has been thrown away yet; a change whose checks already passed is kept for its review instead\n"))
 		}
 		if run.Detail != "" {
 			fmt.Fprintf(&rendered, "    %s\n", singleLine(run.Detail, maxSurveyTitleBytes*2))
