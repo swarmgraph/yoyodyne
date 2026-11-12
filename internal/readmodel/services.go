@@ -230,8 +230,23 @@ func (s Standing) RenderServices() string {
 	}
 	if record.Deployed != "" {
 		fmt.Fprintf(&rendered, "; the binary on disk is build %s", shortRevision(record.Deployed))
+		if !record.DeployedAt.IsZero() {
+			fmt.Fprintf(&rendered, ", written at %s", localMoment(record.DeployedAt))
+		}
 	}
 	rendered.WriteString("):\n")
+	if services.SupervisorRunning && record.Build != "" && record.Deployed != "" && record.Build != record.Deployed {
+		// The supervisor moves itself last, and nothing else on this list says
+		// where it stands.
+		fmt.Fprintf(&rendered, "  supervisor: on build %s, behind the deployed %s", shortRevision(record.Build), shortRevision(record.Deployed))
+		if !record.DeployedAt.IsZero() {
+			fmt.Fprintf(&rendered, " since %s", localMoment(record.DeployedAt))
+		}
+		if record.TakeUpWait != "" {
+			fmt.Fprintf(&rendered, "; it moves onto it %s", record.TakeUpWait)
+		}
+		rendered.WriteString("\n")
+	}
 	if availability := services.Availability; availability != nil {
 		if !availability.LastSleep.IsZero() {
 			fmt.Fprintf(&rendered, "  last machine sleep: %s\n", localMoment(availability.LastSleep))

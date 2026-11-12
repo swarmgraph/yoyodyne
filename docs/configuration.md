@@ -4698,8 +4698,10 @@ the session that comes back to land it. A run with a check running is left to
 finish that check — up to
 [`check_timeout`](#what-a-whole-check-stage-may-cost) as configured, or the
 shorter limit the check was given, however far the machine's load has scaled
-it or `check_stage_timeout` — and stops before its next check, so a new build
-never makes a check start over; a run waiting for a heavy check's place or
+it or `check_stage_timeout`, or ten minutes past the bound, whichever comes
+first — and stops before its next check, so a check that ends inside that wait
+is not started over on the new build; a check still running ten minutes past
+the bound is stopped and runs again on the new build; a run waiting for a heavy check's place or
 between checks is stopped at the bound. Every check that
 passed before the stop keeps its result, so the session that comes back runs
 only the checks that had not finished — and only when the change is exactly the
@@ -4715,7 +4717,7 @@ session waited two hours on one run's race suite under load, with its second
 seat empty and two recurring passes missed — a wait the restart drain limit
 caps at fifteen minutes by default, independently of load, apart from the one
 check a run is on, which is waited for no longer than `check_timeout` as
-configured. What a run the bound stops loses is the
+configured or ten minutes past the bound, whichever comes first. What a run the bound stops loses is the
 minutes its current phase had spent, and a developer attempt and a review
 resume where they were. Set it longer if that trade is wrong for your project, and never to
 nothing — a drain with no bound is the wait this exists to end, and the
@@ -6922,7 +6924,8 @@ to restart into a new build waits for its passes like its recurring firings, and
 stops them past the drain bound — except a pass whose candidate's checks are
 running, which is let finish them, each check up to its configured
 `check_timeout`, because a candidate's checks count only whole and a stage
-stopped part-way runs every check again. Past the bound no queue starts a new
+stopped part-way runs every check again — and none for more than ten minutes
+past the drain bound, when the pass is stopped and the session restarts. Past the bound no queue starts a new
 check stage; the session that comes back runs it. While the session waits, its
 line names the queue, the candidate's generation, the check, and the latest
 moment that check can run to. A candidate's checks and review write to that

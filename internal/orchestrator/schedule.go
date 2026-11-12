@@ -2425,7 +2425,7 @@ pulling:
 				// A merge queue pass in its candidate's checks is let finish them
 				// rather than having every check in the stage run again on the new
 				// build; every other pass is stopped (queueCheckStages).
-				queuePasses.stopForRestart(s.now())
+				queuePasses.stopForRestart(s.now(), drain.checksCeiling())
 			}
 			// Past the bound the session hosts nothing more. The runs still going
 			// are stopped where they are — each at a phase the session that comes
@@ -2456,7 +2456,7 @@ pulling:
 				// restart.
 				recheckSoon = s.stopHosted(&schedule, &drain, hosted, landings, mine, runs) > 0
 				drain.publishing += publications.active()
-				queueWaits = queuePasses.checkWaits(s.now())
+				queueWaits = queuePasses.checkWaits(s.now(), drain.checksCeiling())
 				drain.checkWaits = append(drain.checkWaits, queueWaits...)
 				for _, wait := range queueWaits {
 					if !slices.Contains(schedule.Drain.QueueChecksWaited, wait.Queue) {
@@ -7027,6 +7027,25 @@ func (d *redeployDrain) arm(limit time.Duration, now time.Time) {
 
 func (d redeployDrain) deadline() time.Time { return d.since.Add(d.limit) }
 
+// redeployCheckWaitCeiling is how long past the drain bound a session waits for
+// checks already running, in its runs and in its merge queues, before it stops
+// them too and restarts. Without it the wait runs to each check's own limit,
+// which can be an hour, and a merge queue's candidate goes on from one check to
+// the next; nothing is pulled once the bound has run out, so every developer
+// slot the drain emptied stays empty for all of it. A check stopped here runs
+// again on the new build, which costs the machine that check's time; ten
+// minutes is long enough for a check that is nearly done to finish and short
+// enough that the scheduler is on a landed build within the drain bound and
+// this of finding the deploy. A promotion and a document landing are still
+// waited for to their end, because stopping either part-way is worse than the
+// wait, and the session's line names each.
+const redeployCheckWaitCeiling = 10 * time.Minute
+
+// checksCeiling is the moment past which no running check holds the restart.
+func (d redeployDrain) checksCeiling() time.Time {
+	return d.deadline().Add(redeployCheckWaitCeiling)
+}
+
 // reached marks the bound as having run out, however that was found.
 func (d *redeployDrain) reached() { d.boundReached = true }
 
@@ -7278,7 +7297,7 @@ func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted m
 				unstopped++
 				continue
 			}
-			if wait, waiting := s.waitForRunningCheck(state, index, landings, stop, now); waiting {
+			if wait, waiting := s.waitForRunningCheck(state, index, landings, stop, now, drain.checksCeiling()); waiting {
 				drain.checkWaits = append(drain.checkWaits, wait)
 				if !slices.Contains(schedule.Drain.ChecksWaited, id) {
 					schedule.Drain.ChecksWaited = append(schedule.Drain.ChecksWaited, id)
@@ -7302,18 +7321,23 @@ func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted m
 // its next check where it is. The wait lasts until the check's own configured
 // limit (runstate.CheckStage.CheckRunningUntil) and checkYieldGrace beyond it,
 // for a check stopped at that limit to be recorded; a run still at that check
-// past then is stopped like any other.
+// past then is stopped like any other. No wait runs past ceiling
+// (redeployCheckWaitCeiling): a run whose check is still going then is stopped,
+// and that check runs again on the new build.
 // A stage with no check launched — waiting for a heavy check's place, or
 // between two checks — has nothing a stop would start over, so it is stopped
 // at once.
-func (s Scheduler) waitForRunningCheck(state runstate.State, index int, landings *hostedLandings, stop RedeployDrain, now time.Time) (runstate.WatchCheckWait, bool) {
+func (s Scheduler) waitForRunningCheck(state runstate.State, index int, landings *hostedLandings, stop RedeployDrain, now, ceiling time.Time) (runstate.WatchCheckWait, bool) {
 	stage := state.CheckStage
-	if stage == nil {
+	if stage == nil || !now.Before(ceiling) {
 		return runstate.WatchCheckWait{}, false
 	}
 	until, running := stage.CheckRunningUntil()
 	if !running || !now.Before(until.Add(checkYieldGrace)) {
 		return runstate.WatchCheckWait{}, false
+	}
+	if until.After(ceiling) {
+		until = ceiling
 	}
 	yield := landings.yieldAt(index)
 	if yield == nil {

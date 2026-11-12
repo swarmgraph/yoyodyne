@@ -366,10 +366,11 @@ func (m *mergeQueuePasses) idle() bool { return len(m.inFlight) == 0 && !m.held 
 // none starts a new check stage from here, each pass whose candidate's checks
 // are running within their limits is left to finish them, and every other pass
 // and the look at the held changes are stopped. It returns the check stages
-// left running, which the restart waits for.
-func (m *mergeQueuePasses) stopForRestart(now time.Time) []runstate.WatchCheckWait {
+// left running, which the restart waits for. Past ceiling nothing is waited
+// for (redeployCheckWaitCeiling), and every pass is stopped.
+func (m *mergeQueuePasses) stopForRestart(now, ceiling time.Time) []runstate.WatchCheckWait {
 	m.checks.close()
-	waiting := m.checks.waiting(now)
+	waiting := m.checks.waiting(now, ceiling)
 	if len(waiting) == 0 {
 		m.cancel()
 		return nil
@@ -379,16 +380,22 @@ func (m *mergeQueuePasses) stopForRestart(now time.Time) []runstate.WatchCheckWa
 			stop()
 		}
 	}
-	return m.checkWaits(now)
+	return m.checkWaits(now, ceiling)
 }
 
 // checkWaits is the check stages of the passes in flight the restart waits
 // for, in the order of their queues, past the drain bound. Reading it closes
 // the passes to new check stages, since only a session past its bound asks.
-func (m *mergeQueuePasses) checkWaits(now time.Time) []runstate.WatchCheckWait {
+// Past ceiling it is nothing, and every pass is stopped, so a candidate going
+// on from one check to the next holds the restart no longer than that.
+func (m *mergeQueuePasses) checkWaits(now, ceiling time.Time) []runstate.WatchCheckWait {
 	m.checks.close()
+	if !now.Before(ceiling) {
+		m.cancel()
+		return nil
+	}
 	var waits []runstate.WatchCheckWait
-	for key, wait := range m.checks.waiting(now) {
+	for key, wait := range m.checks.waiting(now, ceiling) {
 		if m.inFlight[key] {
 			waits = append(waits, wait)
 		}

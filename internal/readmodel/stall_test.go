@@ -139,7 +139,7 @@ func TestASessionRestartingIntoADeployedBuildIsNeitherIdleNorAbsent(t *testing.T
 	checking := drained
 	checking.Draining = &runstate.WatchDrain{Since: since, BoundSeconds: 900, Until: since.Add(15 * time.Minute), Hosting: 1, BoundReached: true, Checking: 1, ChecksUntil: checksUntil}
 	if stall := WhyNothingStarts(Conditions{Sessions: held(checking), Now: checksUntil.Add(-time.Minute)}); stall.Reason != ReasonRedeploying ||
-		!strings.Contains(stall.Says, "waiting out a check stage") || !strings.Contains(stall.Says, checksUntil.UTC().Format(time.RFC3339)) {
+		!strings.Contains(stall.Says, "waiting out a check stage") || !strings.Contains(stall.Says, runstate.LocalStamp(checksUntil)) {
 		t.Fatalf("stall = %+v, want a check stage waited out read as the session restarting, with its end named", stall)
 	}
 	if stall := WhyNothingStarts(Conditions{Sessions: held(checking), Now: checksUntil.Add(RestartGrace + time.Second)}); stall.Reason != ReasonSessionIdle {
@@ -309,7 +309,7 @@ func TestASessionWaitingOutAPromotionPastItsBoundIsNotStuck(t *testing.T) {
 	if stall.Reason != ReasonRedeploying || !stall.Since.Equal(promotingSince) {
 		t.Fatalf("stall = %+v, want the session read as restarting, since the promotion wait began", stall)
 	}
-	for _, want := range []string{"waiting out 1 run(s) it hosts at their promotion", "since " + promotingSince.UTC().Format(time.RFC3339)} {
+	for _, want := range []string{"waiting out 1 run(s) it hosts at their promotion", "since " + runstate.LocalStamp(promotingSince)} {
 		if !strings.Contains(stall.Says, want) {
 			t.Fatalf("says = %q, want %q in it", stall.Says, want)
 		}
