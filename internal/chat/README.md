@@ -154,7 +154,9 @@ message size limit.
 ### How does a pass that forgot its closing report get asked again?
 `roleConversation.Wake` in `internal/cli/recurring.go`: if the reply has no
 report block it sends `sweep.ReportRequest()` once (`RetryReport` /
-`ReportRetried`). Repeated pass failures are written into the next pass's
+`ReportRetried`); if the block was refused, it sends
+`sweep.CorrectionRequest(reason)` once (`CorrectRefused` /
+`RefusalCorrected`). Repeated pass failures are written into the next pass's
 message by `Trigger.PassFailures`; who they go to is
 `ownership.ResolvePassFailureForRole`, and the end of what a failed turn
 printed is `Session.FailureOutput`.

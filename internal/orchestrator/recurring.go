@@ -210,9 +210,13 @@ type RecurringRole interface {
 }
 
 // RecurringTurnOptions selects recovery within the existing conversation path.
-// A report request is allowed once per pass, outside its work-turn bound.
+// A report request is allowed once per pass, outside its work-turn bound, and so
+// is a request to correct an account the harness refused for its shape.
 type RecurringTurnOptions struct {
 	RetryReport bool
+	// CorrectRefused lets the turn hand a refused account's reason back to the
+	// role and read one corrected account in its place.
+	CorrectRefused bool
 	// Stops are the stopped runs a program manager's pass was handed, which are
 	// the only stops its post-mortems may count. See stopcauses.go.
 	Stops       []runstate.StopEvent
@@ -232,10 +236,13 @@ type Turn struct {
 	ConversationID string `json:"conversation_id,omitempty"`
 	// Turns counts answered provider turns, including a recovered report. It
 	// retains the first reply when the report request fails afterwards.
-	Turns         int                                    `json:"turns,omitempty"`
-	ReportRetried bool                                   `json:"report_retried,omitempty"`
-	MissingReport bool                                   `json:"missing_report,omitempty"`
-	Replacement   *runstate.SweepConversationReplacement `json:"conversation_replacement,omitempty"`
+	Turns         int  `json:"turns,omitempty"`
+	ReportRetried bool `json:"report_retried,omitempty"`
+	MissingReport bool `json:"missing_report,omitempty"`
+	// RefusalCorrected records the one request to correct a refused account,
+	// whatever the corrected account came to.
+	RefusalCorrected bool                                   `json:"refusal_corrected,omitempty"`
+	Replacement      *runstate.SweepConversationReplacement `json:"conversation_replacement,omitempty"`
 	// CostUSD is what the provider charged for the turn, as it reported it. It is
 	// carried back because a firing is a spend the caller made rather than one a
 	// run made, so a session counting what it has spent has no other way to see
@@ -1204,7 +1211,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	var merged *sweep.Result
 	var problems []string
 	var pending []triage.WindowPosition
-	options := RecurringTurnOptions{RetryReport: true, Stops: f.stops}
+	options := RecurringTurnOptions{RetryReport: true, CorrectRefused: true, Stops: f.stops}
 	// What stopped the proposals being put to the role is on the record ahead of
 	// the turns, because it is what happened first and it explains an account
 	// that recommends on nothing.
@@ -1320,6 +1327,9 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		if answered.ReportRetried {
 			options.RetryReport = false
 			recorded.ReportRetried = true
+		}
+		if answered.RefusalCorrected {
+			options.CorrectRefused = false
 		}
 		recorded.MissingReport = recorded.MissingReport || answered.MissingReport
 		if answered.Replacement != nil {

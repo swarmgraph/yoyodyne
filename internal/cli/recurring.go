@@ -585,7 +585,10 @@ type roleConversation struct {
 // not signed in, no agent fills the role — are all of that kind.
 //
 // An answer with no sweep block is asked once for the block alone, under the
-// same conversation hold. An unrecovered account fails the pass unless an
+// same conversation hold. An answer whose block the harness refused, for a
+// missing field or any other part of its shape, is handed the refusal's reason
+// and asked once a pass for the corrected block alone, under the same hold, and
+// the corrected block is the turn's account. An unrecovered account fails the pass unless an
 // earlier turn's account is kept (Trigger.run), and so does a request for it
 // the provider failed or was cut off on.
 //
@@ -663,6 +666,9 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 	}
 	turn.Turns = 1
 	turn.Result, turn.ResultProblem = readSweep(role, reply.Text)
+	// latest is the reply whose block is the turn's account: the work's own
+	// reply, or the one the request for a missing block drew.
+	latest := reply.Text
 	_, result, _, extractErr := sweep.Extract(reply.Text)
 	if result == nil && extractErr == nil {
 		turn.MissingReport = true
@@ -671,22 +677,14 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 			// the work and the request for its account.
 			turn.ReportRetried = true
 			recovered, recoveryErr := session.Send(ctx, sweep.ReportRequest())
-			turn.CostUSD += session.TurnCostUSD()
-			turn.Saved = append(turn.Saved, recovered.Saved...)
-			turn.Compactions = append(turn.Compactions, recovered.ProviderCompactions...)
-			turn.Wording = append(turn.Wording, recovered.Wording...)
-			turn.ReportsFiled += len(recovered.Reports)
-			turn.Admitted = append(turn.Admitted, recovered.AdmittedWork()...)
-			turn.ActedOn = append(turn.ActedOn, recovered.ActedOnWork()...)
-			turn.HeldForSending = heldForSending(session)
-			turn.CriticalReports = append(turn.CriticalReports, session.CriticalReportsShown()...)
-			turn.Model = servingModel(session.Evidence())
+			absorbFollowUp(&turn, session, recovered)
 			if recoveryErr != nil {
 				turn.FailureOutput = session.FailureOutput()
 				turn.ProviderFailed = session.ProviderFailed()
 				return turn, fmt.Errorf("the request for the missing closing report failed; the preceding reply's findings remain unrecorded: %w", recoveryErr)
 			}
 			turn.Turns++
+			latest = recovered.Text
 			turn.Result, turn.ResultProblem = readSweep(role, recovered.Text)
 			turn.MissingReport = turn.Result == nil
 			if turn.MissingReport {
@@ -694,6 +692,29 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 			}
 			turn.ResultProblem = appendProblem(turn.ResultProblem, recovered.LaneReport.Refusal())
 		}
+	}
+	// An account refused for its shape is handed back with the refusal's own
+	// words, once a pass, so a role that missed a required field is told which
+	// one rather than failing the same way on every pass.
+	if _, _, _, refusal := sweep.Extract(latest); refusal != nil && options.CorrectRefused {
+		turn.RefusalCorrected = true
+		corrected, correctionErr := session.Send(ctx, sweep.CorrectionRequest(refusal))
+		absorbFollowUp(&turn, session, corrected)
+		if correctionErr != nil {
+			turn.FailureOutput = session.FailureOutput()
+			turn.ProviderFailed = session.ProviderFailed()
+			return turn, fmt.Errorf("the request to correct the refused closing report failed, so the preceding reply's findings remain unrecorded; the report was refused because %v: %w", refusal, correctionErr)
+		}
+		turn.Turns++
+		result, problem := readSweep(role, corrected.Text)
+		turn.Result = result
+		switch {
+		case result == nil:
+			turn.ResultProblem = fmt.Sprintf("the %s's closing report was refused because %v, and the one request to correct it drew no report the harness could accept (%s), so this turn's findings remain unrecorded outside the conversation", role, refusal, problem)
+		default:
+			turn.ResultProblem = appendProblem(fmt.Sprintf("the %s's first closing report was refused because %v; the corrected report it gave on the one request to correct it is the one recorded", role, refusal), problem)
+		}
+		turn.ResultProblem = appendProblem(turn.ResultProblem, corrected.LaneReport.Refusal())
 	}
 	// A question the role put to a role it may not ask was handed back and the
 	// rest of its reply carried out, so it is said beside the account and is
@@ -709,6 +730,22 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 		}
 	}
 	return turn, nil
+}
+
+// absorbFollowUp adds what a request for the turn's account drew to the turn:
+// its cost, and every write, report, admission, and action the reply made,
+// which stand whatever the account it carried comes to.
+func absorbFollowUp(turn *orchestrator.Turn, session *chat.Session, followUp chat.Reply) {
+	turn.CostUSD += session.TurnCostUSD()
+	turn.Saved = append(turn.Saved, followUp.Saved...)
+	turn.Compactions = append(turn.Compactions, followUp.ProviderCompactions...)
+	turn.Wording = append(turn.Wording, followUp.Wording...)
+	turn.ReportsFiled += len(followUp.Reports)
+	turn.Admitted = append(turn.Admitted, followUp.AdmittedWork()...)
+	turn.ActedOn = append(turn.ActedOn, followUp.ActedOnWork()...)
+	turn.HeldForSending = heldForSending(session)
+	turn.CriticalReports = append(turn.CriticalReports, session.CriticalReportsShown()...)
+	turn.Model = servingModel(session.Evidence())
 }
 
 // heldForSending maps each work item a document held for sending answers to
