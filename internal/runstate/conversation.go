@@ -548,7 +548,7 @@ type HandedBackDocument struct {
 	At       time.Time `json:"at"`
 }
 
-// MaxHandedBackDocuments bounds the handed-back revisions a conversation keeps
+// MaxHandedBackDocuments bounds the revisions handed back a conversation keeps
 // for its role to see, and MaxHandedBackReasonBytes the reason each carries.
 // The latest are kept; the role was told of every one as it was handed back.
 const (
@@ -912,7 +912,7 @@ func (c Conversation) Validate() error {
 		}
 	}
 	if len(c.HandedBack) > MaxHandedBackDocuments {
-		problems = append(problems, fmt.Errorf("%d handed-back documents are recorded, limit is %d",
+		problems = append(problems, fmt.Errorf("%d documents handed back are recorded, limit is %d",
 			len(c.HandedBack), MaxHandedBackDocuments))
 	}
 	for i, back := range c.HandedBack {

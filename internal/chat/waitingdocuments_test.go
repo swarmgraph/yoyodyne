@@ -156,7 +156,7 @@ func TestAHandedBackRevisionIsFollowedByANewRevisionThatOpensAFreshRun(t *testin
 			t.Fatalf("%s: handed back decided = %v, new decided = %v", name, refused.decided, fresh.decided)
 		}
 		if behind, _ := session.waitingBehind(fresh); behind != nil {
-			t.Fatalf("%s: the new revision waits behind the handed-back one", name)
+			t.Fatalf("%s: the new revision waits behind the one handed back", name)
 		}
 		if !strings.Contains(told, "document-1.1's run run-1 ended without landing it, so that revision no longer waits and this one opens a fresh run") {
 			t.Fatalf("%s: the role was told %q", name, told)
@@ -165,7 +165,7 @@ func TestAHandedBackRevisionIsFollowedByANewRevisionThatOpensAFreshRun(t *testin
 			t.Fatalf("%s: returns counted = %d, want one only for a run that judged it", name, returns)
 		}
 		if len(session.state.HandedBack) != 0 {
-			t.Fatalf("%s: the handed-back entry outlived the new revision of its document: %#v", name, session.state.HandedBack)
+			t.Fatalf("%s: the entry handed back outlived the new revision of its document: %#v", name, session.state.HandedBack)
 		}
 		if len(publisher.withdrawn) != 0 {
 			t.Fatalf("%s: withdrawn = %v", name, publisher.withdrawn)
@@ -226,7 +226,7 @@ func TestARoleWithdrawsItsOwnUnstartedOrHandedBackDocumentAndNothingElse(t *test
 		}
 	}
 	if !unstarted.decided || started.decided || !back.decided {
-		t.Fatalf("decided = %v, %v, %v; want the unstarted and handed-back ones withdrawn and the running one kept", unstarted.decided, started.decided, back.decided)
+		t.Fatalf("decided = %v, %v, %v; want the unstarted ones and those handed back withdrawn and the running one kept", unstarted.decided, started.decided, back.decided)
 	}
 	if len(publisher.withdrawn) != 2 {
 		t.Fatalf("taken off the wait = %v", publisher.withdrawn)

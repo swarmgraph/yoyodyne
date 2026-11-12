@@ -152,7 +152,7 @@ func (s *Session) takePlace(place *revisionPlace, newID string) ([]string, error
 // settleDelivery settles a waiting document whose run ended, as the run says:
 // only a run that judged the document counts toward the returns that stop
 // automatic publication, and one that ended without landing or passing is kept
-// among the role's handed-back documents with what the run said. The owning
+// among the role's documents handed back, with what the run said. The owning
 // role is told what the run came to.
 func (s *Session) settleDelivery(record *writeRecord, delivery runstate.DocumentDelivery) error {
 	record.decided = true
@@ -171,7 +171,7 @@ func (s *Session) settleDelivery(record *writeRecord, delivery runstate.Document
 	return s.carryResults(delivery.Detail)
 }
 
-// keepHandedBack adds one handed-back revision to what the role can see, in
+// keepHandedBack adds one revision handed back to what the role can see, in
 // place of any earlier one of the same document, keeping the latest.
 func (s *Session) keepHandedBack(record *writeRecord, delivery runstate.DocumentDelivery) {
 	artifactID := strings.TrimSpace(record.pending.Write.ID)
@@ -190,7 +190,7 @@ func (s *Session) keepHandedBack(record *writeRecord, delivery runstate.Document
 	s.state.HandedBack = kept
 }
 
-// forgetHandedBack is the handed-back revisions without any of one document's.
+// forgetHandedBack is the revisions handed back, without any of one document's.
 func (s *Session) forgetHandedBack(artifactID string) []runstate.HandedBackDocument {
 	var kept []runstate.HandedBackDocument
 	for _, back := range s.state.HandedBack {
