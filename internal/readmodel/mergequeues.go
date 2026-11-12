@@ -338,6 +338,14 @@ func placedByLanding(read *QueueEntryStanding, landing runstate.MergeQueueLandin
 	}
 	if handback := landing.Handback; handback != nil {
 		read.Generation = handback.Generation
+		if handback.Continuation == runstate.MergeQueueLandedOutside {
+			read.Landed = handback.TargetBase
+			read.State, read.Why = QueueEntryLanded, handback.Reason
+			if handback.HandedBackAt == nil {
+				read.State, read.Why = QueueEntryRecording, handback.Reason+"; recording the landing on the run and the work item is not finished"
+			}
+			return true
+		}
 		if handback.Continuation == runstate.MergeQueueReleased {
 			read.State, read.Why = QueueEntryReleased, handback.Reason
 			if handback.TransferTo != "" {
