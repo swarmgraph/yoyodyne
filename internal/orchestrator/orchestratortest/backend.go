@@ -45,7 +45,7 @@ type Backend struct {
 }
 
 func (f *Backend) CheckAvailability(context.Context) (backend.Availability, error) {
-	if !f.ReportedAvailability.Installed && !f.ReportedAvailability.Authenticated && f.ReportedAvailability.AuthMethod == "" {
+	if !f.ReportedAvailability.Installed && !f.ReportedAvailability.Authenticated && f.ReportedAvailability.AuthMethod == "" && f.ReportedAvailability.Missing == "" {
 		return backend.Availability{Installed: true, Authenticated: true}, nil
 	}
 	return f.ReportedAvailability, nil

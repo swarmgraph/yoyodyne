@@ -25,6 +25,7 @@ import (
 // cleared. It is satisfied by *runstate.ProviderOutageStore.
 type ProviderOutages interface {
 	Notice(observed runstate.ProviderOutageObservation) (runstate.ProviderOutage, error)
+	Standing() (runstate.ProviderOutage, bool, error)
 	Clear() (runstate.ProviderOutage, bool, error)
 }
 
@@ -49,16 +50,32 @@ func (s *Session) noteProviderOutage(result backend.RunResult, err error) error 
 	if s.options.ProviderOutages == nil {
 		return failed
 	}
-	if _, recordErr := s.options.ProviderOutages.Notice(runstate.ProviderOutageObservation{
+	provider := s.options.Provider
+	if outage.Provider != "" {
+		provider = outage.Provider
+	}
+	recorded, recordErr := s.options.ProviderOutages.Notice(runstate.ProviderOutageObservation{
 		Cause:        outage.Cause,
-		Provider:     s.options.Provider,
+		Provider:     provider,
 		AccountAlias: s.options.AccountAlias,
 		Detail:       outage.Detail,
 		Channel:      outage.Channel,
 		Waiting:      fmt.Sprintf("the %s conversation %s", RoleTitle(s.state.Role), s.state.ConversationID),
 		At:           s.options.clock().Now(),
-	}); recordErr != nil {
+	})
+	if recordErr != nil {
 		return errors.Join(failed, fmt.Errorf("record that the provider is answering nobody: %w", recordErr))
+	}
+	// A turn that opens an outage over a missing program files its one report,
+	// as a run that opened it would (runstate.ProgramMissingReport).
+	if recorded.OpensProgramMissing() && s.options.Reports != nil {
+		reported, err := runstate.ProgramMissingReport(recorded, s.options.Build, s.options.RepositoryID, s.options.clock().Now())
+		if err == nil {
+			err = s.options.Reports.Append(reported)
+		}
+		if err != nil {
+			return errors.Join(failed, fmt.Errorf("report that the provider's program cannot be found: %w", err))
+		}
 	}
 	return failed
 }
@@ -71,6 +88,11 @@ func (s *Session) noteProviderOutage(result backend.RunResult, err error) error 
 // than failing a turn the provider served.
 func (s *Session) noteProviderServed() {
 	if s.options.ProviderOutages == nil {
+		return
+	}
+	// A missing program of another provider is not this turn's to end
+	// (runstate.ProviderOutage.ClearedBy).
+	if standing, found, err := s.options.ProviderOutages.Standing(); err == nil && (!found || !standing.ClearedBy(s.options.Provider)) {
 		return
 	}
 	if _, _, err := s.options.ProviderOutages.Clear(); err != nil {

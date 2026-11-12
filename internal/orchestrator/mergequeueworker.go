@@ -847,7 +847,7 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 	if reviewErr != nil {
 		return generation, false, fmt.Errorf("review generation %d: %w", generation.Number, reviewErr)
 	}
-	if err := p.noticeProviderServed(); err != nil {
+	if err := p.noticeProviderServedBy(p.reviewer().Backend); err != nil {
 		return generation, false, err
 	}
 	return w.moved(ctx, lease, key, generation)

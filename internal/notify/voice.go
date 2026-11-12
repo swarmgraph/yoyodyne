@@ -956,7 +956,7 @@ var nextMoves = map[Kind]string{
 	// in Mover — which cause it is decides whether the move is a login or the
 	// network — so a terminal and a channel name the same move. This is what a
 	// record that carried none would say.
-	KindProviderOutage: "the operator's — log in to the provider, or wait for the network; the harness resumes on its own once it answers, and nothing is released or restarted.",
+	KindProviderOutage: "the operator's — log in to the provider, install its program again, or wait for the network; the harness resumes on its own once it answers, and nothing is released or restarted.",
 	// The provider answering again is nobody's move: the runs resumed by
 	// themselves, which is the whole of what the message is for.
 	KindProviderRestored: "nobody's — the line carried on by itself, and nothing was released or restarted to make it.",

@@ -112,16 +112,18 @@ const (
 )
 
 // ProviderOutageCause is why a provider is answering nobody: the account it is
-// asked under is not logged in, or nothing reaches its API at all. It is the
-// vocabulary every surface that names the wait shares — the adapter contract
-// that classifies the provider's words, the durable record that says the
-// outage is standing, and the lines that tell the operator — and it lives here
-// so that none of them redeclares it.
+// asked under is not logged in, nothing reaches its API at all, or the
+// provider's program cannot be found on this machine. It is the vocabulary
+// every surface that names the wait shares — the adapter contract that
+// classifies the provider's words, the durable record that says the outage is
+// standing, and the lines that tell the operator — and it lives here so that
+// none of them redeclares it.
 //
-// It is closed at two on purpose. Both are a wait no run can end and no reset
-// time bounds: a login is the operator's to renew, and a network is nobody's to
-// hurry. What separates them is only what the operator is told to do, which is
-// the whole reason there are two words rather than one.
+// It is closed on purpose. Each is a wait no run can end and no reset time
+// bounds: a login is the operator's to renew, a network is nobody's to hurry,
+// and a program that moved is back when it is installed again or found in one
+// of the usual install folders. What separates them is only what the operator
+// is told to do, which is the whole reason there are separate words.
 type ProviderOutageCause string
 
 const (
@@ -132,11 +134,17 @@ const (
 	// machine is offline, asleep, or behind a network that is not there. The
 	// remedy is the network coming back, which the harness finds by asking again.
 	ProviderUnreachable ProviderOutageCause = "unreachable"
+	// ProviderProgramMissing is the provider's program found neither where the
+	// configuration names it, nor on the harness's search path, nor in the
+	// usual install folders. Nothing was started, so nothing about the work was
+	// judged. The remedy is installing the program again or naming its full
+	// path in the configuration, and the harness looks again on its own.
+	ProviderProgramMissing ProviderOutageCause = "program-missing"
 )
 
 // ProviderOutageCauses is every cause, in the order they are documented.
 func ProviderOutageCauses() []ProviderOutageCause {
-	return []ProviderOutageCause{ProviderUnauthenticated, ProviderUnreachable}
+	return []ProviderOutageCause{ProviderUnauthenticated, ProviderUnreachable, ProviderProgramMissing}
 }
 
 // Valid reports a cause this harness names.

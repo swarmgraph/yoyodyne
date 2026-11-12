@@ -298,17 +298,24 @@ const (
 // for something a run can do something about, and a login and a network are
 // not. The cause carries which of the two it is because that is what decides
 // what the operator is told to do.
+//
+// A provider's program that cannot be found is the third: nothing was started,
+// nothing judged the work, and what ends it is the program being found again.
 const (
 	PauseProviderUnauthenticated = "provider_unauthenticated"
 	PauseProviderUnreachable     = "provider_unreachable"
+	PauseProviderProgramMissing  = "provider_program_missing"
 )
 
 // PauseCauseForOutage is the pause a run takes on a provider outage of the
 // given cause. It is the one conversion between the domain's vocabulary and the
 // run record's, kept beside the causes it names.
 func PauseCauseForOutage(cause domain.ProviderOutageCause) string {
-	if cause == domain.ProviderUnreachable {
+	switch cause {
+	case domain.ProviderUnreachable:
 		return PauseProviderUnreachable
+	case domain.ProviderProgramMissing:
+		return PauseProviderProgramMissing
 	}
 	return PauseProviderUnauthenticated
 }
@@ -323,6 +330,8 @@ func PausedForProviderOutage(cause string) (domain.ProviderOutageCause, bool) {
 		return domain.ProviderUnauthenticated, true
 	case PauseProviderUnreachable:
 		return domain.ProviderUnreachable, true
+	case PauseProviderProgramMissing:
+		return domain.ProviderProgramMissing, true
 	default:
 		return "", false
 	}
