@@ -105,6 +105,11 @@ func TestReadWorkItemCarriesEveryFieldAndTheRunInFlight(t *testing.T) {
 	if run.RunID != "run-new" || !run.InFlight || run.Preserved || run.Remains != "" || run.Elapsed != 12*time.Minute || run.Phase != runstate.PhaseDeveloping || run.CostUSD != 3.41 || run.Branch == "" {
 		t.Fatalf("the run in flight reads as %+v", run)
 	}
+	// The card says the run in flight holds the item, by the same derivation
+	// every surface says it with.
+	if item.HeldBy.Kind != HeldByRun || item.HeldBy.RunID != "run-new" {
+		t.Fatalf("held by = %+v, want the run in flight", item.HeldBy)
+	}
 }
 
 // A run that ended is said in the run history's words: its outcome, and what
@@ -150,6 +155,9 @@ func TestReadWorkItemSaysWhatTheLatestRunCameTo(t *testing.T) {
 	item, err = ReadWorkItem(context.Background(), WorkItemSources{Tracker: tracker, Runs: never}, "yoyodyne-ifd.1")
 	if err != nil || item.Run != nil || item.RunProblem != "" {
 		t.Fatalf("an item never run reads as run %+v, problem %q, err %v", item.Run, item.RunProblem, err)
+	}
+	if item.HeldBy.Kind != HeldByNobody {
+		t.Fatalf("an item nothing works on and nobody assigned is held by %+v", item.HeldBy)
 	}
 }
 

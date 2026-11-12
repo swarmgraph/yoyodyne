@@ -74,6 +74,7 @@ func TestAWriteThatStallsBeforeLandingIsReadBackThenMadeAgain(t *testing.T) {
 	}
 	var waited []time.Duration
 	client := unwaited(runner, &waited)
+	client.claimRead = unmarkedClaims
 
 	item, _, err := client.Claim(context.Background(), "yoyodyne-1")
 	if err != nil {

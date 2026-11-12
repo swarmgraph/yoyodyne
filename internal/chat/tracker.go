@@ -30,6 +30,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/goal"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/toolcatalog"
@@ -3104,8 +3105,12 @@ func renderWorkItemHead(item beads.WorkItem, goals goal.Set, trim bool) string {
 	if len(item.Labels) > 0 {
 		fmt.Fprintf(&rendered, "labels: %s\n", strings.Join(item.Labels, " "))
 	}
-	if item.Assignee != "" {
-		fmt.Fprintf(&rendered, "assignee: %s\n", singleLine(item.Assignee, maxSurveyTitleBytes))
+	// Who holds the item, rather than the bare assignee: a harness claim sets the
+	// assignee to this machine's Git name, and printed alone it read as a person
+	// having taken the work. This view does not read the run records, so a claimed
+	// item is said to be held by a run on the tracker's word.
+	if holder := readmodel.ItemHolder(item, "", false); holder.Kind != readmodel.HeldByNobody || item.Assignee != "" {
+		fmt.Fprintf(&rendered, "held by: %s\n", singleLine(holder.Says, maxSurveyTitleBytes))
 	}
 	if item.Parent != "" {
 		fmt.Fprintf(&rendered, "parent: %s\n", item.Parent)

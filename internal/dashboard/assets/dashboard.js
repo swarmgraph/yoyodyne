@@ -2081,6 +2081,8 @@ var standingWarningAgeSeconds = 5 * 60;
     fields.appendChild(field("Id", item.id, "card-field-id"));
     fields.appendChild(field("Title", item.title));
     fields.appendChild(field("Status", item.status));
+    // Who holds the item now, in the read model's own words.
+    fields.appendChild(field("Held by", item.held_by ? item.held_by.says : ""));
     fields.appendChild(field("Priority", item.priority === undefined || item.priority === null ? "" : "P" + item.priority + " (0 is the most urgent, 4 the least)"));
     fields.appendChild(field("Labels", (item.labels || []).join(", ")));
     fields.appendChild(field("Relevant goals — goals the change must not break", (item.relevant_goals || []).join("; ") || "none recorded"));

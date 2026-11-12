@@ -97,6 +97,12 @@ type statusOutput struct {
 	// present only when an item was named and some pass record names it.
 	Considered      *readmodel.ItemConsideration `json:"considered,omitempty"`
 	ConsideredError string                       `json:"considered_error,omitempty"`
+	// HeldBy is who holds the named item now — a running run, a person, or
+	// nobody — as the dashboard's card says it. It is read only when an item was
+	// named, and HeldByError says why it is missing where the item could not be
+	// read.
+	HeldBy      *readmodel.Holder `json:"held_by,omitempty"`
+	HeldByError string            `json:"held_by_error,omitempty"`
 	// Watch is where the session that chooses work got to, when one has ever run
 	// for this product. It is the one fact here that is not about a run: a
 	// session choosing nothing has no run to say so with, and its silence and a
@@ -344,11 +350,14 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	var triageFailure string
 	var considered *readmodel.ItemConsideration
 	var consideredFailure string
+	var heldBy *readmodel.Holder
+	var heldByFailure string
 	if workItemID != "" {
 		// When a recurring pass last considered the item, from the same state
 		// root: an item marked for a role's conversation has no runs, and this is
 		// what says whether anything has been reaching it.
 		considered, consideredFailure = readmodel.ReadLastConsidered(store.Sweeps(), workItemID)
+		heldBy, heldByFailure = statusHolder(ctx, *configPath, workItemID)
 		read, err := store.Triage().Counters(workItemID)
 		if err != nil {
 			triageFailure = fmt.Sprintf("the item's triage record could not be read: %v", err)
@@ -414,6 +423,8 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 		output.TriageError = triageFailure
 		output.Considered = considered
 		output.ConsideredError = consideredFailure
+		output.HeldBy = heldBy
+		output.HeldByError = heldByFailure
 		output.WatchError = watchFailure
 		output.StallError = stallFailure
 		return writeJSON(stdout, stderr, output)
@@ -427,6 +438,9 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	printStanding(stdout, standing, summary, *detail)
 	printWatch(stdout, watched)
 	printStalls(stdout, stalls)
+	if heldBy != nil {
+		fmt.Fprintf(stdout, "%s is held by %s\n", workItemID, heldBy.Says)
+	}
 	printRunHistory(stdout, history, workItemID, *failedOnly)
 	if counters != nil {
 		printItemTriage(stdout, *counters, caps.Overridden(counters.Overrides))
@@ -436,6 +450,9 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	}
 	if consideredFailure != "" {
 		fmt.Fprintln(stderr, consideredFailure)
+	}
+	if heldByFailure != "" {
+		fmt.Fprintln(stderr, heldByFailure)
 	}
 	if triageFailure != "" {
 		fmt.Fprintln(stderr, triageFailure)
@@ -450,6 +467,21 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	// command working. An exit status that treated the answer as a failure would
 	// make the surface something a script has to guard against reading.
 	return 0
+}
+
+// statusHolder is who holds the named item now, read through the card's own
+// reading of one item so `yoyo status <item>` and the dashboard say it in the
+// same words. An item that cannot be read costs this line and not the runs.
+func statusHolder(ctx context.Context, configPath, workItemID string) (*readmodel.Holder, string) {
+	sources, err := workItemSources(configPath)
+	if err != nil {
+		return nil, fmt.Sprintf("who holds %s could not be read: %v", workItemID, err)
+	}
+	item, err := readmodel.ReadWorkItem(ctx, sources, workItemID)
+	if err != nil {
+		return nil, fmt.Sprintf("who holds %s could not be read: %v", workItemID, err)
+	}
+	return &item.HeldBy, ""
 }
 
 // printStanding is what is true now, as `yoyo status` opens with it: the

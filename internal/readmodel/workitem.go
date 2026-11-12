@@ -104,6 +104,9 @@ type WorkItem struct {
 	Design             string   `json:"design"`
 	AcceptanceCriteria string   `json:"acceptance_criteria"`
 	Notes              string   `json:"notes"`
+	// HeldBy is who holds the item now: a running run, a person, or nobody, read
+	// from the tracker's assignee and the run beside it (ItemHolder).
+	HeldBy Holder `json:"held_by"`
 
 	// Run is the run the harness last made for this item — the one in flight
 	// on it, or the one whose change is preserved on it, or simply the latest —
@@ -204,6 +207,11 @@ func ReadWorkItem(ctx context.Context, sources WorkItemSources, id string) (Work
 		Notes:              found.Notes,
 	}
 	item.Run, item.RunProblem = readLatestRun(ctx, sources, found.ID, now)
+	running := ""
+	if item.Run != nil && item.Run.InFlight {
+		running = item.Run.RunID
+	}
+	item.HeldBy = ItemHolder(found, running, item.RunProblem == "")
 	item.LastConsidered, item.ConsideredProblem = ReadLastConsidered(sources.Passes, found.ID)
 	return item, nil
 }
