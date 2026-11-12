@@ -439,11 +439,32 @@ type MergeQueueCompletion struct {
 	QueueAt     time.Time             `json:"queue_at"`
 	RunAt       *time.Time            `json:"run_at,omitempty"`
 	WorkItemAt  *time.Time            `json:"work_item_at,omitempty"`
+	// Outside is set where the entry's approved commit reached the target some
+	// way other than this queue's promotion — a person merging its pull request
+	// by hand, most often — and the development manager released the entry from
+	// the head of the queue as landed (MergeQueuePromoter.ReleaseHead in the
+	// orchestrator). Such a completion names no attempt: Landed is the approved
+	// commit and TargetBase the target commit found holding it.
+	Outside *MergeQueueOutsideLanding `json:"outside,omitempty"`
+}
+
+// MergeQueueOutsideLanding is who recorded an entry as landed outside the
+// queue, when, and why.
+type MergeQueueOutsideLanding struct {
+	At     time.Time `json:"at"`
+	By     string    `json:"by"`
+	Reason string    `json:"reason"`
 }
 
 // Whole reports every part of the completion made.
 func (c MergeQueueCompletion) Whole() bool {
 	return c.RunAt != nil && c.WorkItemAt != nil
+}
+
+// LandedOutside reports a completion recorded for a change that reached the
+// target without this queue landing it.
+func (c MergeQueueCompletion) LandedOutside() bool {
+	return c.Outside != nil
 }
 
 // MergeQueueFailureClass is what a candidate that did not earn its gate is
@@ -726,6 +747,9 @@ func (l MergeQueueLanding) Waiting() bool {
 // refused until a withdrawal of it is confirmed; a withdrawal still unsettled
 // is the forge's answer not yet known, and is refused the same way.
 func (l MergeQueueLanding) HeadRewriteRefusal() string {
+	if l.Completion != nil && l.Completion.LandedOutside() {
+		return "the change is recorded as landed outside the merge queue"
+	}
 	if l.Completion != nil {
 		return "the change has landed through the merge queue"
 	}
@@ -805,7 +829,9 @@ func (l MergeQueueLanding) validate(productID domain.ProductID, key MergeQueueKe
 			problems = append(problems, fmt.Errorf("a recovery of attempt %d is not a whole record", recovery.Attempt))
 		}
 	}
-	if c := l.Completion; c != nil {
+	if c := l.Completion; c != nil && c.Outside != nil {
+		problems = append(problems, c.validateOutside(l)...)
+	} else if c != nil {
 		attempt, ok := l.Current()
 		switch {
 		case !ok || attempt.Landed == nil:
@@ -832,6 +858,38 @@ func (l MergeQueueLanding) validate(productID domain.ProductID, key MergeQueueKe
 		}
 	}
 	return errors.Join(problems...)
+}
+
+// validateOutside holds a completion recorded for a change that landed outside
+// the queue to what it can say: no attempt of the queue's landed it, every
+// attempt there was is set aside, and it names the approved commit, the target
+// commit holding it, and who recorded it and why.
+func (c MergeQueueCompletion) validateOutside(l MergeQueueLanding) []error {
+	var problems []error
+	if attempt, ok := l.Current(); ok && (attempt.Landed != nil || attempt.SetAside == nil) {
+		problems = append(problems, fmt.Errorf("a landing outside the queue is recorded with promotion attempt %d still standing or landed", attempt.Number))
+	}
+	if c.Attempt != 0 || c.Path != "" || c.Generation != 0 || c.Binding != "" || c.RemoteMerge != "" {
+		problems = append(problems, errors.New("a landing outside the queue names no attempt, path, or candidate of the queue's"))
+	}
+	for field, value := range map[string]string{"landed commit": c.Landed, "target commit": c.TargetBase} {
+		if !commitPattern.MatchString(value) {
+			problems = append(problems, fmt.Errorf("the landing outside the queue's %s %q is not a full commit id", field, value))
+		}
+	}
+	if c.QueueAt.IsZero() || c.Outside.At.IsZero() {
+		problems = append(problems, errors.New("the landing outside the queue records no time"))
+	}
+	if err := mergeQueueText("who recorded the landing outside the queue", c.Outside.By, true); err != nil {
+		problems = append(problems, err)
+	}
+	if err := mergeQueueText("why the landing outside the queue was recorded", c.Outside.Reason, true); err != nil {
+		problems = append(problems, err)
+	}
+	if err := mergeQueueText("completion pull request", c.PullRequest, false); err != nil {
+		problems = append(problems, err)
+	}
+	return problems
 }
 
 func (a MergeQueuePromotionAttempt) validate(entryID string) error {
@@ -1140,7 +1198,8 @@ func extendsLanding(recorded, revised MergeQueueLanding) error {
 		switch {
 		case now == nil:
 			return conflict("a completion is never withdrawn")
-		case now.Attempt != was.Attempt || now.Landed != was.Landed || now.Binding != was.Binding || !now.QueueAt.Equal(was.QueueAt) || now.PullRequest != was.PullRequest:
+		case now.Attempt != was.Attempt || now.Landed != was.Landed || now.Binding != was.Binding || !now.QueueAt.Equal(was.QueueAt) || now.PullRequest != was.PullRequest ||
+			!sameOutsideLanding(was.Outside, now.Outside):
 			return conflict("a completion is never rewritten")
 		case (was.RunAt != nil && !sameTime(was.RunAt, now.RunAt)) || (was.WorkItemAt != nil && !sameTime(was.WorkItemAt, now.WorkItemAt)):
 			return conflict("a part of a completion, once made, is never withdrawn")
@@ -1160,6 +1219,13 @@ func extendsLanding(recorded, revised MergeQueueLanding) error {
 		}
 	}
 	return nil
+}
+
+func sameOutsideLanding(a, b *MergeQueueOutsideLanding) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.At.Equal(b.At) && a.By == b.By && a.Reason == b.Reason
 }
 
 // sameHandback compares everything a handback fixes when it is written, which

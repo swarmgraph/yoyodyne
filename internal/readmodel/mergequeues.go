@@ -329,9 +329,17 @@ func readQueueEntry(queues MergeQueues, key runstate.MergeQueueKey, entry runsta
 func placedByLanding(read *QueueEntryStanding, landing runstate.MergeQueueLanding) bool {
 	if completion := landing.Completion; completion != nil {
 		read.Landed, read.Generation = completion.Landed, completion.Generation
-		if completion.Whole() {
+		switch {
+		case completion.LandedOutside():
+			read.State, read.Why = QueueEntryLanded, fmt.Sprintf("landed on %s outside the queue (%s is already there); released from the head of the queue by %s: %s",
+				landing.TargetBranch, shortened(completion.Landed), completion.Outside.By, completion.Outside.Reason)
+			if !completion.Whole() {
+				read.State = QueueEntryRecording
+				read.Why += "; recording it on the run and the work item is not finished"
+			}
+		case completion.Whole():
 			read.State, read.Why = QueueEntryLanded, fmt.Sprintf("landed on %s as %s, confirmed on the target", landing.TargetBranch, shortened(completion.Landed))
-		} else {
+		default:
 			read.State, read.Why = QueueEntryRecording, fmt.Sprintf("landed on %s as %s; recording the landing on the run and the work item is not finished", landing.TargetBranch, shortened(completion.Landed))
 		}
 		return true

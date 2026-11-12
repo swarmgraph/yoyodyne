@@ -6910,6 +6910,20 @@ asked the forge for, as a transfer does, and ends the entry's turn with its
 change kept on its run for the development manager, so the entries behind it go
 on.
 
+The development manager can release the entry at the head of a queue herself,
+from her conversation, whatever stopped it there: a push the remote refused, a
+push cut off before it was answered, an approved commit already on the target
+branch, or a candidate that could not be built. Her `queue` action names the
+entry and the item it is for, and either hands the entry back to that item, as
+`hand-back` does, or, where the target branch already holds the entry's approved
+commit, records it as landed outside the queue: the run records the change as
+integrated, and the item is settled as its run's claim says. Either way the
+queue entry and the work item both say who released it and why, and the next
+pass goes on to the entry behind it. Only the head is released, because only the
+head holds the others back, and the release is refused while anything the queue
+asked the forge for could still land the change. `yoyo status` shows an entry
+released as landed as landed outside the queue, with who released it and why.
+
 **Who works the queues.** A `yoyo work` session works every queue with an entry
 in it beside its pulls, one pass per queue at a time, each in its own
 goroutine, and never inside a developer slot. A queue is worked by one process

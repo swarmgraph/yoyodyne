@@ -326,6 +326,11 @@ func (q *queuePromotion) attempt() *runstate.MergeQueuePromotionAttempt {
 const maxMergeQueueBegins = 2
 
 func (q *queuePromotion) promote(ctx context.Context) error {
+	if q.landing.Completion != nil && q.landing.Completion.LandedOutside() {
+		// Recorded as landed outside the queue and not yet on the run or the
+		// item: only those parts are left, and nothing is promoted.
+		return q.recordCompletion(ctx)
+	}
 	begun := 0
 	for {
 		attempt := q.attempt()
@@ -1194,6 +1199,9 @@ func (q *queuePromotion) notMade(ctx context.Context, last runstate.MergeQueueMu
 // recordCompletion follows a confirmed landing onto the local target and
 // records the completion part by part.
 func (q *queuePromotion) recordCompletion(ctx context.Context) error {
+	if q.landing.Completion != nil && q.landing.Completion.LandedOutside() {
+		return q.recordCompletionParts(ctx, nil)
+	}
 	attempt := q.attempt()
 	if attempt.Path.ThroughForge() {
 		// A follow observed not made is asked for again: it is a fast-forward
@@ -1216,6 +1224,13 @@ func (q *queuePromotion) recordCompletion(ctx context.Context) error {
 			return err
 		}
 	}
+	return q.recordCompletionParts(ctx, attempt)
+}
+
+// recordCompletionParts records the completion on the run and then on the work
+// item, each once. The landed attempt is what the forge is tidied after, and a
+// completion recorded outside the queue has none, so nothing is tidied for it.
+func (q *queuePromotion) recordCompletionParts(ctx context.Context, attempt *runstate.MergeQueuePromotionAttempt) error {
 	completion := q.landing.Completion
 	if completion.RunAt == nil {
 		if err := q.p.Completion.RecordRun(ctx, q.entry, *completion); err != nil {
@@ -1233,7 +1248,7 @@ func (q *queuePromotion) recordCompletion(ctx context.Context) error {
 		}
 		// The forge is tidied before the completion is written whole, so a
 		// process that stops between the two tidies again rather than never.
-		if q.p.Retire != nil {
+		if q.p.Retire != nil && attempt != nil {
 			if err := q.p.Retire.Retire(ctx, q.entry, *completion, *attempt); err != nil {
 				q.outcome.Untidied = fmt.Sprintf("the change landed, and the forge was not tidied after it: %v", err)
 			}
@@ -1302,6 +1317,9 @@ func (c MergeQueueRunCompletion) RecordRun(ctx context.Context, entry runstate.M
 	if err != nil {
 		return err
 	}
+	if completion.LandedOutside() {
+		return c.recordRunLandedOutside(ctx, entry, state)
+	}
 	if state.Integration != nil && state.Integration.TargetCommit == completion.Landed &&
 		(state.ChecksPassed == nil || !state.ChecksPassed.WholeLeftToQueue || state.ChecksPassed.WholeBy != "" || mergeQueueWholeBy(entry, completion) == "") {
 		return nil
@@ -1328,6 +1346,36 @@ func (c MergeQueueRunCompletion) RecordRun(ctx context.Context, entry runstate.M
 	return err
 }
 
+// recordRunLandedOutside writes a change that reached the target outside the
+// queue onto its run, as a person's merge of a run's pull request is written
+// (runstate's personmerge.go): the approved head is both the integration's
+// source and its target, moved from the run's base. A run that already records
+// an integration keeps it, and one whose base cannot say where the target
+// moved from records none, since nothing here would be true of it.
+func (c MergeQueueRunCompletion) recordRunLandedOutside(ctx context.Context, entry runstate.MergeQueueEntry, state runstate.State) error {
+	if state.Integration != nil || state.BaseCommit == "" || state.BaseCommit == entry.ApprovedHead {
+		return nil
+	}
+	_, err := c.Store.Update(ctx, entry.RunID, runstate.IntegrationRecorded{
+		Integration: runstate.Integration{
+			TargetBranch:         entry.TargetBranch,
+			SourceCommit:         entry.ApprovedHead,
+			TargetCommit:         entry.ApprovedHead,
+			PreviousTargetCommit: state.BaseCommit,
+		},
+		At: c.now(),
+	})
+	return err
+}
+
+// MergeQueueLandedOutsideNote is what an entry recorded as landed outside the
+// queue writes on its work item: who released it, why, and the commits that
+// show where the change is.
+func MergeQueueLandedOutsideNote(entry runstate.MergeQueueEntry, completion runstate.MergeQueueCompletion) string {
+	return fmt.Sprintf("Released from the head of the merge queue for %s (entry %d, %s) by %s and recorded as landed outside the queue: its approved commit %s is already on %s at %s, so the queue had nothing to build. Why: %s",
+		entry.TargetBranch, entry.Order, entry.EntryID, completion.Outside.By, entry.ApprovedHead, entry.TargetBranch, completion.TargetBase, completion.Outside.Reason)
+}
+
 // RecordWorkItem settles the item on the landing as a run's own settlement
 // does: it is closed only where the change discharges it — the developer's
 // landing claim and the reviewer's approval of the change both saying so, read
@@ -1343,6 +1391,17 @@ func (c MergeQueueRunCompletion) RecordWorkItem(ctx context.Context, entry runst
 	item, err := c.Tracker.Show(ctx, entry.WorkItemID)
 	if err != nil {
 		return err
+	}
+	if completion.LandedOutside() {
+		// Said on the item whatever state it is in, closed included, because who
+		// released the entry and why is the record the release owes the item. It
+		// is written once: a call after a crash finds it already there.
+		note := MergeQueueLandedOutsideNote(entry, completion)
+		if !strings.Contains(item.Notes, note) {
+			if _, err := c.Tracker.RecordOutcome(ctx, entry.WorkItemID, note); err != nil {
+				return err
+			}
+		}
 	}
 	if itemSettled(state, item.Status) {
 		return nil
@@ -1372,7 +1431,10 @@ func (c MergeQueueRunCompletion) RecordWorkItem(ctx context.Context, entry runst
 	}
 	reason := fmt.Sprintf("Reviewed by Yoyodyne run %s and landed on %s through the merge queue as %s, the candidate whose checks and independent review authorized it.",
 		entry.RunID, entry.TargetBranch, completion.Landed)
-	if completion.Path == runstate.MergeQueueLandThroughForgeQueue {
+	if completion.LandedOutside() {
+		reason = fmt.Sprintf("Reviewed by Yoyodyne run %s at %s, which is on %s; it landed outside the merge queue, as the note above records.",
+			entry.RunID, entry.ApprovedHead, entry.TargetBranch)
+	} else if completion.Path == runstate.MergeQueueLandThroughForgeQueue {
 		reason = fmt.Sprintf("Reviewed by Yoyodyne run %s at %s and landed on %s by the forge's merge queue as %s, the combined commit that queue required the project's checks and an independent approval of before landing it.",
 			entry.RunID, entry.ApprovedHead, entry.TargetBranch, completion.Landed)
 	}
