@@ -358,7 +358,7 @@ func (s *DocketStore) records() ([]triage.Entry, error) {
 		if err != nil {
 			return err
 		}
-		if err := s.validate(decoded); err != nil {
+		if err := s.validateRecorded(decoded); err != nil {
 			return err
 		}
 		entries = append(entries, decoded)
@@ -450,9 +450,12 @@ func decodeDocketEntry(data []byte) (triage.Entry, error) {
 	if decoded.StopClass == "" && (decoded.Class == triage.ClassStoppedRun || decoded.Class == triage.ClassUnstartedRun || decoded.Class == triage.ClassEscalation) {
 		decoded.StopClass = StopUnknown.Name()
 	}
-	if decoded.StopClass != "" && !StopClass(decoded.StopClass).Valid() {
-		return triage.Entry{}, UnknownValueError{Field: "stop_class", Value: decoded.StopClass}
-	}
+	// A stop class this build does not know is most often one a newer build
+	// writes. The docket is read to be shown and to be decided, and nothing here
+	// decides from the class, so the entry is kept with the class marked unknown
+	// rather than the whole docket refused for one line; recording an entry still
+	// refuses it (DocketStore.validate).
+	decoded.StopClassUnknown = decoded.StopClass != "" && !StopClass(decoded.StopClass).Valid()
 	if err := decoded.Validate(); err != nil {
 		return triage.Entry{}, err
 	}
@@ -507,10 +510,18 @@ func encodeDocketClosure(closure triage.Closure) ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
+// validate holds an entry about to be recorded to everything this build knows,
+// a stop class among it: a build never writes a value it does not know.
 func (s *DocketStore) validate(entry triage.Entry) error {
 	if entry.StopClass != "" && !StopClass(entry.StopClass).Valid() {
 		return UnknownValueError{Field: "stop_class", Value: entry.StopClass}
 	}
+	return s.validateRecorded(entry)
+}
+
+// validateRecorded is validate for an entry already on the docket, which keeps
+// a stop class this build does not know (decodeDocketEntry).
+func (s *DocketStore) validateRecorded(entry triage.Entry) error {
 	if entry.ProductID != s.productID {
 		return fmt.Errorf("docket entry product %q does not match store product %q", entry.ProductID, s.productID)
 	}

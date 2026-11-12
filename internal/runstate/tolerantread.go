@@ -45,6 +45,13 @@ import (
 //     proceed on a record it can only read part of — a hold, a pausing directive
 //     — whose refusal is the visible failure it is owed.
 //
+// The same split holds for a value rather than a field. A closed set the record
+// draws from — a stop class, a landing outcome — grows when a newer build learns
+// a value, and an older build's validation refuses it. Store.Read keeps a run
+// record whose only problems are such values, leaves each as written, and lists
+// it in State.UnknownValues for the surfaces to show as unknown; Store.Load, and
+// every write, still refuse it, naming the value.
+//
 // decodeStrictly is the second door and decodeTolerating is the first.
 // strictdecode_audit_test.go lists every strict read in the tree and which of
 // those it is, and fails on one it does not list.
@@ -242,6 +249,29 @@ func noteUnknownFields(record string, fields []string) {
 	}
 	notice := fmt.Sprintf("this build does not know %s in a %s, and read the rest of the record without them; the record was written by a different build, so restarting this process on that build is what picks them up",
 		strings.Join(fields, ", "), record)
+	unknownFieldNotices.Lock()
+	defer unknownFieldNotices.Unlock()
+	if unknownFieldNotices.said[notice] {
+		return
+	}
+	unknownFieldNotices.said[notice] = true
+	fmt.Fprintln(unknownFieldNotices.to, notice)
+}
+
+// noteUnknownValues says once, for the life of this process, that a record of
+// one kind held values this build does not know and was kept with them marked
+// unknown, for the reason noteUnknownFields says its notice once.
+func noteUnknownValues(record string, values []UnknownValueError) {
+	if len(values) == 0 {
+		return
+	}
+	named := make([]string, 0, len(values))
+	for _, value := range values {
+		named = append(named, fmt.Sprintf("%s %q", value.Field, value.Value))
+	}
+	sort.Strings(named)
+	notice := fmt.Sprintf("this build does not know %s in a %s, and shows the record with those values as unknown; the record was written by a different build, so restarting this process on that build is what reads them",
+		strings.Join(named, ", "), record)
 	unknownFieldNotices.Lock()
 	defer unknownFieldNotices.Unlock()
 	if unknownFieldNotices.said[notice] {

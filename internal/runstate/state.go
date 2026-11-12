@@ -405,7 +405,7 @@ func (r ReviewBefore) Validate() error {
 		problems = append(problems, errors.New("findings are required"))
 	}
 	if r.Decision != "" && !slices.Contains(reviewDecisions, r.Decision) {
-		problems = append(problems, fmt.Errorf("decision %q must be %s or omitted", r.Decision, quotedAlternatives(reviewDecisions)))
+		problems = append(problems, UnknownValueError{Field: "decision", Value: string(r.Decision)})
 	}
 	if r.ReviewedCommit != "" && !commitPattern.MatchString(r.ReviewedCommit) {
 		problems = append(problems, errors.New("reviewed_commit must be a full commit id"))
@@ -486,7 +486,7 @@ func (v VerificationExecution) Validate() error {
 		problems = append(problems, fmt.Errorf("command is %d bytes, which exceeds the %d byte bound", len(trimmed), MaxVerificationCommandBytes))
 	}
 	if !slices.Contains(verificationOutcomes, v.Outcome) {
-		problems = append(problems, fmt.Errorf("outcome %q is invalid, want %s", v.Outcome, quotedAlternatives(verificationOutcomes)))
+		problems = append(problems, UnknownValueError{Field: "outcome", Value: string(v.Outcome)})
 	}
 	if len(v.Detail) > MaxVerificationDetailBytes {
 		problems = append(problems, fmt.Errorf("detail is %d bytes, which exceeds the %d byte bound", len(v.Detail), MaxVerificationDetailBytes))
@@ -1523,7 +1523,7 @@ func (c StaleBlockClear) Describe() string {
 func (c StaleBlockClear) Validate() error {
 	var problems []error
 	if !c.Outcome.Valid() {
-		problems = append(problems, fmt.Errorf("outcome %q is not one the harness names", c.Outcome))
+		problems = append(problems, UnknownValueError{Field: "outcome", Value: string(c.Outcome)})
 	}
 	if c.Reads < 0 {
 		problems = append(problems, errors.New("reads cannot be negative"))
@@ -1558,10 +1558,14 @@ type Finding struct {
 func (f Finding) Validate() error {
 	var problems []error
 	if !slices.Contains(findingSeverities, f.Severity) {
-		problems = append(problems, fmt.Errorf("severity %q must be %s", f.Severity, quotedAlternatives(findingSeverities)))
+		if f.Severity == "" {
+			problems = append(problems, fmt.Errorf("severity %q must be %s", f.Severity, quotedAlternatives(findingSeverities)))
+		} else {
+			problems = append(problems, UnknownValueError{Field: "severity", Value: string(f.Severity)})
+		}
 	}
 	if f.Disposition != "" && !slices.Contains(findingDispositions, f.Disposition) {
-		problems = append(problems, fmt.Errorf("disposition %q must be %s or omitted", f.Disposition, quotedAlternatives(findingDispositions)))
+		problems = append(problems, UnknownValueError{Field: "disposition", Value: string(f.Disposition)})
 	}
 	if strings.TrimSpace(f.Message) == "" {
 		problems = append(problems, errors.New("message is required"))
@@ -2801,7 +2805,7 @@ func (r RedeployStop) Validate() error {
 		problems = append(problems, errors.New("at is required"))
 	}
 	if !r.Phase.Valid() {
-		problems = append(problems, fmt.Errorf("phase %q is not one a run reaches", r.Phase))
+		problems = append(problems, UnknownValueError{Field: "phase", Value: string(r.Phase)})
 	}
 	if r.BoundSeconds < 0 {
 		problems = append(problems, fmt.Errorf("bound_seconds is %d, which is not a duration", r.BoundSeconds))
@@ -4141,6 +4145,12 @@ type State struct {
 	// delivery remains outstanding even after settlement and cleanup finish.
 	ConfigComparison  *ConfigComparison  `json:"config_comparison,omitempty"`
 	ReconcileFindings []ReconcileFinding `json:"reconcile_findings,omitempty"`
+	// UnknownValues are the values this record holds that this build does not
+	// know, found when it was read for showing (Store.Read): the record is kept
+	// and the values are left as written, so a surface says each one is unknown
+	// beside what was recorded. It is never written, and a record carrying any is
+	// refused by every write (Store.validateState).
+	UnknownValues []UnknownValueError `json:"-"`
 }
 
 var (
@@ -4264,7 +4274,7 @@ func (s State) Validate() error {
 		problems = append(problems, errors.New("work_item_id is required"))
 	}
 	if !s.Backend.Valid() {
-		problems = append(problems, errors.New("backend is invalid"))
+		problems = append(problems, UnknownValueError{Field: "backend", Value: string(s.Backend)})
 	}
 	if !s.Status.Valid() {
 		problems = append(problems, UnknownValueError{Field: "status", Value: string(s.Status)})

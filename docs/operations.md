@@ -7343,11 +7343,24 @@ its token is, its log, and its build:
 dashboard's `url`, `health`, and `token_file`.
 
 **A record its build does not know.** A dashboard reads the same run records
-every other part reads, and a value a newer build wrote is one an older build
-refuses. Validation stays strict: a record that does not validate is refused,
-never skipped or repaired. The refusal says which record, which field, and
-which value, and which builds bear on it — the build reading it, the build on
-disk, and the build that made the record:
+every other part reads, and a newer build can write a value an older build has
+never heard of, such as a new stop cause or landing outcome, or a field it has
+never heard of. A reading that only shows or lists runs keeps such a record:
+the dashboard, `yoyo status`, and the development manager's list of stopped
+runs show the run, with the value said as unknown beside what was recorded —
+`stop cause: unknown to this build (recorded as "process-vanished")` — and the
+process says once in its log which values and fields it did not know. The same
+holds for the file beside a run naming the process that holds it. A run status
+the build does not know is the exception and is still refused, because the
+listings choose which runs are in flight by their status.
+
+Anything that acts on the run reads it strictly: resuming, continuing,
+re-arming, retrying, or settling a run, and every write. A value or field the
+build does not know refuses the record there, so the run is left for the
+development manager rather than continued by a build that cannot read it, and
+no build writes a value it does not know. The refusal says which record, which
+field, and which value, and which builds bear on it — the build reading it, the
+build on disk, and the build that made the record:
 
 ```text
 the record …/runs/run-4f2a….json was refused: invalid run state: stop_class is invalid: "process-vanished" is not a value this build knows. This process runs build 0364141b2c3d, the binary on disk is build 3d3d367a1b2c, the record was made by build 3d3d367a1b2c. This process is older than the build deployed over it, so stop_class "process-vanished" is most likely a value the deployed build writes and this one predates: an incompatibility between builds, not damaged data. Restarting this process onto the deployed build reads it.
