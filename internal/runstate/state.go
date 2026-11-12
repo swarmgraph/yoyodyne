@@ -2422,6 +2422,14 @@ func (s *State) recordedTexts() []recordedText {
 	if s.IntegrationStop != nil {
 		nested("integration_stop.detail", "integration_stop.detail", &s.IntegrationStop.Detail, MaxEnvironmentalDetailBytes)
 	}
+	if s.IdentityStop != nil {
+		nested("identity_stop.detail", "identity_stop.detail", &s.IdentityStop.Detail, MaxEnvironmentalDetailBytes)
+	}
+	for index := range s.IdentityTakeUps {
+		takeUp := &s.IdentityTakeUps[index]
+		nested("identity_take_ups[].reason", at("identity_take_ups", index, "reason"), &takeUp.Reason, MaxSelectionReasonBytes)
+		nested("identity_take_ups[].superseded_failure", at("identity_take_ups", index, "superseded_failure"), &takeUp.SupersededFailure, MaxBlockerBytes)
+	}
 	if s.ReplayConflict != nil {
 		nested("replay_conflict.detail", "replay_conflict.detail", &s.ReplayConflict.Detail, MaxConflictDetailBytes)
 	}
@@ -3772,6 +3780,20 @@ type State struct {
 	// its approval standing and no attempt, round, or grant charged. Absent is
 	// every run nothing resumed, which is nearly all of them.
 	IntegrationResumptions []IntegrationResumption `json:"integration_resumptions,omitempty"`
+	// IdentityStop says the run stopped while publishing its branch only because
+	// the harness could not reach GitHub as itself: a key the remote refused, a
+	// login that is gone, a user the machine does not know. Nothing was wrong with
+	// the change. It is written where the push fails, from the error that ended it.
+	// Absent is every run whose publishing was not refused for that. See
+	// identitystop.go.
+	IdentityStop *IdentityStop `json:"identity_stop,omitempty"`
+	// PublishOwed says the run was taken up again at its checks after such a stop
+	// and still owes the push: it pushes its branch and opens or updates its pull
+	// request once its checks pass and before its review.
+	PublishOwed bool `json:"publish_owed,omitempty"`
+	// IdentityTakeUps records each time the harness took the run up again after
+	// such a stop. Absent is every run nothing took up.
+	IdentityTakeUps []IdentityTakeUp `json:"identity_take_ups,omitempty"`
 	// MergeQueue is this run's approved change admitted to its target branch's
 	// merge queue rather than promoted by the run itself, for a project that
 	// integrates through a merge queue. The run ends succeeded once it is admitted,
@@ -4616,6 +4638,7 @@ func (s State) Validate() error {
 		}
 	}
 	problems = append(problems, s.validateIntegrationResume()...)
+	problems = append(problems, s.validateIdentityStop()...)
 	problems = append(problems, s.validateRecovery()...)
 	problems = append(problems, s.validateSweepContinuations()...)
 	problems = append(problems, s.validateCheckStageContinuations()...)

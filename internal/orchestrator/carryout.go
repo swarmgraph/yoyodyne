@@ -76,6 +76,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/recovery"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -255,7 +256,41 @@ type CarryOut struct {
 	// and a carry-out wired without one is one nothing can pause, which is what
 	// every provider invocation was before the switch existed.
 	Holds OperatorHolds
-	Clock execution.Clock
+	// GitHub asks GitHub, with the identity the harness publishes under, whether
+	// it answers: the call a decision refused because the harness could not reach
+	// GitHub as itself waits on. A decision whose standing refusal is that one is
+	// offered again the moment this returns nil, and not before, whatever the
+	// clock says. Optional: a carry-out wired without it leaves such a refusal to
+	// the ordinary pacing.
+	GitHub func(ctx context.Context) error
+	Clock  execution.Clock
+}
+
+// gitHubIdentityProbeTimeout bounds the one call to GitHub a read of the
+// outstanding decisions may make.
+const gitHubIdentityProbeTimeout = 30 * time.Second
+
+// gitHubIdentityClears is what clears a decision refused because the harness
+// could not reach GitHub as itself, in the words the refusal carries on the item.
+const gitHubIdentityClears = "GitHub accepting the harness's identity again: the SSH key loaded (`ssh-add`, then `ssh -T git@github.com` to check), the machine able to name the user the harness runs as, and the GitHub command-line tool logged in (`gh auth login`). Nothing was spent, and the harness asks GitHub itself and carries the same decision out as soon as GitHub answers, with nobody deciding it again"
+
+// gitHubIdentityAnswers returns a question that asks GitHub at most once however
+// often it is put, so one read of the docket pays for one call. It answers false
+// when no probe is wired or the call fails.
+func (c CarryOut) gitHubIdentityAnswers() func() bool {
+	var asked, answered bool
+	return func() bool {
+		if c.GitHub == nil {
+			return false
+		}
+		if !asked {
+			asked = true
+			ctx, cancel := context.WithTimeout(context.Background(), gitHubIdentityProbeTimeout)
+			defer cancel()
+			answered = c.GitHub(ctx) == nil
+		}
+		return answered
+	}
 }
 
 // CarryOutTask is one recorded decision the harness has not acted on: which
@@ -450,6 +485,7 @@ func (c CarryOut) read() (carryOutReading, error) {
 	var items []string
 	docketed := make(map[string]bool, len(entries))
 	var reading carryOutReading
+	githubAnswers := c.gitHubIdentityAnswers()
 	var problems []error
 	itemFor := func(workItemID string) outstandingItem {
 		item, seen := read[workItemID]
@@ -476,7 +512,7 @@ func (c CarryOut) read() (carryOutReading, error) {
 		}
 		if !outstanding {
 			var held *heldDecision
-			task, outstanding, held, err = item.taskFor(entry, now, history)
+			task, outstanding, held, err = item.taskFor(entry, now, history, githubAnswers, c.GitHub != nil)
 			if err != nil {
 				problems = append(problems, err)
 				return
@@ -855,7 +891,7 @@ func (i outstandingItem) repairOutstanding(workItemID string, history func() ([]
 // decision the harness has already spent. The counters alone cannot answer the
 // second — they are totals nothing clears — which is why the claims and the
 // continuations recorded on the item's runs are read beside them.
-func (i outstandingItem) taskFor(entry triage.Entry, now time.Time, history func() ([]runstate.State, error)) (CarryOutTask, bool, *heldDecision, error) {
+func (i outstandingItem) taskFor(entry triage.Entry, now time.Time, history func() ([]runstate.State, error), github func() bool, githubWired bool) (CarryOutTask, bool, *heldDecision, error) {
 	decision, found := i.counters.DecisionOf(entry.RunID)
 	if !found {
 		// Old budgets predate durable decisions. Offer them only to record the
@@ -936,10 +972,30 @@ func (i outstandingItem) taskFor(entry triage.Entry, now time.Time, history func
 		// makes is one nothing ever asked the forge for or one the forge dropped.
 		return CarryOutTask{}, false, nil, nil
 	}
-	if stopped, refused := i.counters.CarryOutOf(entry.RunID); refused && stopped.BlocksDecision(task.Decision, task.DecidedAt, now) {
+	if i.pacedOut(entry.RunID, task, now, github, githubWired) {
 		return CarryOutTask{}, false, nil, nil
 	}
 	return task, true, nil, nil
+}
+
+// pacedOut reports whether a finding standing about this decision keeps it from
+// being offered now. A decision refused because the harness could not reach
+// GitHub as itself is asked again when GitHub answers, never on a clock: until
+// then the refusal recorded on the item says why and what clears it, and the
+// moment a call with the same identity succeeds the same decision is offered
+// without the development manager deciding it again. Any other finding is paced
+// as before.
+func (i outstandingItem) pacedOut(runID string, task CarryOutTask, now time.Time, github func() bool, githubWired bool) bool {
+	stopped, refused := i.counters.CarryOutOf(runID)
+	if !refused {
+		return false
+	}
+	if githubWired && github != nil && stopped.AboutDecision(task.Decision, task.DecidedAt) &&
+		stopped.Cause == "" && !stopped.Waiting && !stopped.Unattempted &&
+		recovery.AuthenticationRefusedDetail(stopped.Refusal) {
+		return !github()
+	}
+	return stopped.BlocksDecision(task.Decision, task.DecidedAt, now)
 }
 
 // checkStageTask reports a stoppage the check stage bound made that the harness
@@ -1417,6 +1473,13 @@ func carryOutGate(err error) (gate, clears string) {
 	case errors.Is(err, runstate.ErrRerunTaken):
 		return runstate.TriageGateBudget,
 			"the decision being recorded against the stoppage of the item's latest run instead — a run the docket never held, such as a re-run cancelled on its way out, is re-run like any other, from the change it kept where its branch is still there: triage re-runs one stoppage once, so this one's re-run is spent, and a further attempt at it is an escalation rather than a larger budget"
+	// A refusal because the harness could not reach GitHub as itself is the
+	// one refusal read by its words, by recovery's closed reading of them,
+	// because it arrives from `gh` and `git` as what they printed. The harness
+	// asks GitHub on its own and attempts the decision again as soon as GitHub
+	// answers (gitHubIdentityAnswers).
+	case recovery.AuthenticationRefusedDetail(err.Error()):
+		return runstate.TriageGateHarness, gitHubIdentityClears
 	default:
 		return runstate.TriageGateHarness, "what the refusal itself names"
 	}

@@ -640,7 +640,12 @@ would read as a dropped network on its own. Nothing about
 the change is in question, so nothing about it is anybody's to decide. A
 diverged target and a refused credential do need a person — to settle the
 branches, or to load the key or renew the login — but what they settle is the
-environment and not the change, so the approval stands through it. `yoyo triage resume
+environment and not the change, so the approval stands through it. A refused
+credential needs nobody to say it is settled: the harness asks GitHub with the
+same identity on its regular look at held work, never on a clock, and resumes
+the run itself at its promotion the first time GitHub answers (and takes up a
+run that stopped while pushing its branch, before its checks, at its checks
+instead). `yoyo triage resume
 <run-id>` resumes the run at the promotion it stopped short of — replay onto
 where the target now stands, push, merge request — with its approval standing,
 and it charges the item nothing: no review round, no repair grant, no re-run.

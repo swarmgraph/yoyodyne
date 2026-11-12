@@ -1592,6 +1592,9 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 	}
 	return orchestrator.MergeQueueDriver{
 		Held: held,
+		// The same look also takes up runs that stopped only because the harness
+		// could not reach GitHub as itself, once GitHub answers it again.
+		Identity: gitHubIdentityStopsFrom(parts),
 		Worker: orchestrator.MergeQueueWorker{
 			Pipeline: &pipeline, Queue: parts.mergeQueues, Candidates: parts.worktrees,
 			Events:      parts.mergeQueues.AppendEvent,

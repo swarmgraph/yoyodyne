@@ -59,17 +59,36 @@ type MergeQueueDriver struct {
 	// target required the forge's own merge queue (mergequeueheld.go). Nil
 	// takes none up.
 	Held *MergeQueueHeldChanges
+	// Identity takes up the runs that stopped only because the harness could
+	// not reach GitHub as itself, once GitHub answers that identity again
+	// (githubidentity.go). Nil takes none up.
+	Identity *GitHubIdentityStops
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
 }
 
 // TakeHeld takes up the changes the merge queue held whose condition has
-// cleared.
+// cleared. The same look also takes up the runs stopped because GitHub would
+// not accept the harness's identity, once GitHub answers it again, and folds
+// what that found into the pass: its runs count as Held, and those taken up as
+// Resumed.
 func (d MergeQueueDriver) TakeHeld(ctx context.Context) MergeQueueHeldPass {
-	if d.Held == nil {
-		return MergeQueueHeldPass{}
+	var pass MergeQueueHeldPass
+	if d.Held != nil {
+		pass = d.Held.Take(ctx)
 	}
-	return d.Held.Take(ctx)
+	if d.Identity != nil {
+		identity := d.Identity.Take(ctx)
+		pass.Held += identity.Stopped
+		pass.Resumed += identity.TakenUp
+		switch {
+		case pass.Says == "":
+			pass.Says = identity.Says
+		case identity.Says != "":
+			pass.Says += ". " + identity.Says
+		}
+	}
+	return pass
 }
 
 func (d MergeQueueDriver) now() time.Time {
@@ -304,7 +323,9 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 }
 
 // ScheduleMergeQueues is the merge queues a watching session works beside its
-// pulls. It is satisfied by MergeQueueDriver. A pull wired without one works no
+// pulls, and the look at the changes held out of them, which also takes up the
+// runs stopped because GitHub would not accept the harness's identity. It is
+// satisfied by MergeQueueDriver. A pull wired without one works no
 // queue: what is admitted waits until a session that has one is running.
 type ScheduleMergeQueues interface {
 	Pending() ([]runstate.MergeQueueKey, error)
@@ -313,9 +334,10 @@ type ScheduleMergeQueues interface {
 }
 
 // mergeQueueHeldEvery is how often a session looks again at the changes the
-// queue held. Each look asks the forge about every target holding one, so it
-// is paced in minutes rather than at every pull; the first look is at the
-// session's first pull.
+// queue held, and, in the same look, at the runs stopped because GitHub would
+// not accept the harness's identity. Each look asks the forge about every
+// target holding one, so it is paced in minutes rather than at every pull; the
+// first look is at the session's first pull.
 const mergeQueueHeldEvery = 5 * time.Minute
 
 // maxMergeQueuePassesInFlight bounds how many queues a session works at once.

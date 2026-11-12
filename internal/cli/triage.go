@@ -906,6 +906,9 @@ func carryOutFrom(parts components) *orchestrator.CarryOut {
 		// read here rather than left to the pipeline because a repair writes to the
 		// item before it starts anything.
 		Holds: parts.holds,
+		// What a decision refused because the harness could not reach GitHub as
+		// itself waits on: GitHub answering that identity again.
+		GitHub: gitHubAnswersForCarryOut(parts),
 	}
 }
 

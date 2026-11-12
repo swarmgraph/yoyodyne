@@ -1048,6 +1048,7 @@ var notAStep = map[string]string{
 	"recoverProvider":             "waits out a provider death whose class says the next invocation may well succeed",
 	"carrySession":                "keeps the session an ended invocation established, so the next one resumes in it",
 	"recordEnvironmentalRefusal":  "records that the machine, not the work, refused the round",
+	"recordIdentityStop":          "records that the push stopped only because the harness could not reach GitHub as itself",
 	"sendBackForBackgroundWork":   "records why a developer turn that left its own background work running is asked again inside the same develop step; the reissue is the step's own loop, not a step of its own",
 	"acceptDespiteBackgroundWork": "records that a turn sent back once for background work ended the same way again and its reply is taken as it stands; it decides nothing the develop step does not already do",
 
@@ -1118,6 +1119,7 @@ var notAStep = map[string]string{
 	"repair":                     "records one repair attempt and re-enters candidate.develop with the findings",
 	"bringPersonMergeUpToDate":   "replays the change of a pull request waiting for a person to merge it onto a target that moved past it, then re-enters the gate through verifyReviewAndFinish, whose steps are registered",
 	"publishUpdated":             "is candidate.publish for a head brought up to date: it reads the pull request immediately before the push and withholds the push over a merge a person has in progress",
+	"payOwedPublish":             "is candidate.publish for a run taken up at its checks after GitHub refused its identity: the push it still owes, made once the checks pass and before the review",
 	"prepareIntegrationRetry":    "replays a change whose promotion lost its race, so candidate.integrate can be re-earned",
 	"moveOntoTargetForRepair":    "puts a change whose replay conflicted onto the target for its developer to reconcile, which is the setup of the repair candidate.develop then performs",
 	"reconcilingPublishedBranch": "reads whether candidate.develop's publication replaces the published branch rather than extending it",

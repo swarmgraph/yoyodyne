@@ -3821,6 +3821,9 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 			continue
 		}
 		a.observe(ctx, deliveryCheck, "passed")
+		if err := a.payOwedPublish(ctx); err != nil {
+			return err
+		}
 		decision, err := a.reviewChange(ctx)
 		if err != nil {
 			a.observeReviewEnded(ctx, "", err, stillRepairable)
@@ -4400,6 +4403,11 @@ func integrationStopCauseOf(failure error) (runstate.EnvironmentalCause, bool) {
 		return runstate.CauseRemoteAuthRefused, true
 	case errors.Is(failure, ErrMergeQueueHeld):
 		return runstate.CauseMergeQueueHeld, true
+	// The same cause where it did not come through a Git remote command: the
+	// GitHub command-line tool not logged in, or the machine unable to name the
+	// user the harness runs as, in the words recovery reads them by.
+	case recovery.AuthenticationRefusedDetail(failure.Error()):
+		return runstate.CauseRemoteAuthRefused, true
 	case recovery.Recoverable(failure):
 		return runstate.CauseTransportFailure, true
 	default:
@@ -4436,6 +4444,55 @@ func (a *activeRun) recordIntegrationStop(cause error) {
 	}
 	a.state.IntegrationStop = stopped
 	a.outcome.IntegrationStop = stopped
+}
+
+// recordIdentityStop notes on the run that it stopped while publishing only
+// because the harness could not reach GitHub as itself, where that is what the
+// error says: a Git remote that refused the harness's key, or the GitHub tool not
+// logged in, or a machine that cannot name the user it runs as. Any other error
+// records nothing, so a push that failed for a reason in the work is never read
+// as an identity problem.
+//
+// Nothing is saved here. Every caller is a step away from the terminal write that
+// ends the run.
+func (a *activeRun) recordIdentityStop(err error) {
+	if err == nil {
+		return
+	}
+	if !errors.Is(err, gitworktree.ErrRemoteAuthRefused) && !recovery.AuthenticationRefusedDetail(err.Error()) {
+		return
+	}
+	a.state.IdentityStop = &runstate.IdentityStop{
+		Detail:     singleLine(err.Error(), runstate.MaxEnvironmentalDetailBytes),
+		RecordedAt: a.pipeline.clock().Now().UTC(),
+	}
+}
+
+// payOwedPublish pushes the branch and opens or updates the pull request for a
+// run that was taken up again at its checks after an identity stop, once those
+// checks have passed and before the review. It does nothing for any other run.
+//
+// The push waits for the checks because GitHub answering a read is strong
+// evidence the harness has its identity back but not proof a push will succeed,
+// and because skipping the checks to publish sooner would put a change on the
+// forge that the harness never verified. A push that is refused again stops the
+// run as a publish stop exactly as the first one did, with the stop recorded
+// again; one that succeeds clears what was owed and the stop with it.
+func (a *activeRun) payOwedPublish(ctx context.Context) error {
+	if !a.state.PublishOwed {
+		return nil
+	}
+	if err := a.publishAttempt(ctx); err != nil {
+		a.recordIdentityStop(err)
+		return stoppedBy(runstate.StopPublish, fmt.Errorf("publish the change once its checks passed: %w", err))
+	}
+	// The push and its pull request are already on the record: publishAttempt
+	// saved them. What is cleared here is saved with the run's next write, the
+	// review's; a process that ends before then pushes the same commit again,
+	// which the remote already has.
+	a.state.PublishOwed = false
+	a.state.IdentityStop = nil
+	return nil
 }
 
 // refuseDispatchEnvironmentally records, on a run the harness turned away before
@@ -4801,7 +4858,9 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 				a.observeDevelopEnded(ctx, nil)
 				return nil
 			}
-			published := stoppedBy(runstate.StopPublish, a.publishAttempt(ctx))
+			publishErr := a.publishAttempt(ctx)
+			a.recordIdentityStop(publishErr)
+			published := stoppedBy(runstate.StopPublish, publishErr)
 			a.observeDevelopEnded(ctx, published)
 			return published
 		}
@@ -9806,14 +9865,17 @@ func resumableRepair(state runstate.State) bool {
 // execution.check_stage_timeout stopped the stage, either automatically or by
 // a decided repair: running, at the checking phase, with a continuation on its
 // record saying it was put there on purpose, and with the worktree, branch, and
-// developer session its change and its review need. A run at the checks with
-// none is one a process died in, and that is the sweep's to settle rather than
-// this path's to adopt.
+// developer session its change and its review need. A run taken up again after
+// an identity stop is the same shape for the same reason: it is at the checks
+// with the push it still owes (PublishOwed) and the take-up that says the
+// harness put it there. A run at the checks with neither is one a process died
+// in, and that is the sweep's to settle rather than this path's to adopt.
 func continuedAtCheckStage(state runstate.State) bool {
 	if state.Status != runstate.StatusRunning || state.Phase != runstate.PhaseChecking {
 		return false
 	}
-	if len(state.CheckStageContinuations) == 0 && !state.ContinuedCheckStage() {
+	takenUpForPush := state.PublishOwed && len(state.IdentityTakeUps) > 0
+	if len(state.CheckStageContinuations) == 0 && !state.ContinuedCheckStage() && !takenUpForPush {
 		return false
 	}
 	if state.WorktreePath == "" || state.Branch == "" || state.BaseCommit == "" || state.TargetBranch == "" {
