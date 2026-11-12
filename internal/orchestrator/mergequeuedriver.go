@@ -9,9 +9,10 @@ package orchestrator
 // One pass of one queue, in order: a failed candidate is read for what it says
 // and handed back where it is the change's (Recover); an entry whose change
 // already reached the target, or whose pull request was closed, outside the
-// queue leaves it (SettleOutside); the first unfinished entry is landed, or taken up where an earlier pass stopped (Promote); and
-// where nothing is under way the next waiting entry's candidate is built,
-// checked and reviewed (Work). Each of the three takes the queue's worker lease
+// queue leaves it (SettleOutside); the first unfinished entry is landed, or
+// taken up where an earlier pass stopped (Promote); and where nothing is under
+// way the next waiting entry's candidate is built, checked and reviewed
+// (Work). Each of the four takes the queue's worker lease
 // for itself, so one process works a queue at a time however many sessions are
 // watching, and a pass that finds the lease taken does nothing. A pass ends on
 // its own: when the queue has nothing waiting, when what is left waits on
