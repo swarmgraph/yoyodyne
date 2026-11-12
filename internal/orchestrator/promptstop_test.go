@@ -267,3 +267,64 @@ func TestTheSweepKeepsAChangeWhoseChecksPassedWhenAStopArrives(t *testing.T) {
 		t.Fatalf("run = %#v, item closed=%t blocked=%t; want nothing removed and the item untouched", after, tracker.Closed, tracker.Blocked)
 	}
 }
+
+// A stop that reaches a run after its narrowed checks passed is not carried out
+// by the whole pass over the merge candidate that follows the review either,
+// however long it has waited: the whole pass is part of the same attempt, so
+// the stop is recorded as late and the change is integrated rather than
+// cancelled after it was approved.
+func TestAStopFoundAtTheWholeCandidateCheckKeepsTheApprovedChange(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	writeCommitted(t, repository, "go.mod", "module example.com/project\n")
+	writeCommitted(t, repository, "internal/checks/runner.go", "package checks\n")
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		path := filepath.Join(request.WorkingDirectory, "internal", "checks", "narrow.go")
+		return os.WriteFile(path, []byte("package checks\n\nconst narrowed = true\n"), 0o600)
+	}, approveVerdict)
+	told := filepath.Join(t.TempDir(), "told.txt")
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{
+		`printf '%s\n' "$` + checks.ChangedGoPackagesVariable + `" >> ` + told,
+	})
+	pipeline.StopWatchInterval = 10 * time.Millisecond
+	// The stop is recorded while the reviewer works — after the narrowed checks
+	// passed and the run read for a stop before the review — and has waited far
+	// past its bound by the time the whole pass runs, as both of the November 11
+	// stops had.
+	review := provider.Respond
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleReviewer {
+			if err := store.RecordStop(stopWaitedItsBound(request.RunID)); err != nil {
+				return backend.RunResult{}, err
+			}
+		}
+		return review(request)
+	}
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v, want the approved change integrated", err)
+	}
+	if outcome.Status != runstate.StatusSucceeded || outcome.Integration == nil {
+		t.Fatalf("outcome = %#v, want the approved change integrated rather than cancelled", outcome)
+	}
+	read, err := os.ReadFile(told)
+	if err != nil {
+		t.Fatalf("the check did not write what it was told: %v", err)
+	}
+	if got := strings.Fields(string(read)); len(got) != 2 || got[0] != "./internal/checks" || got[1] != "./..." {
+		t.Fatalf("the check was told %q, want the narrowed pass and then the whole pass", got)
+	}
+	saved, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if saved.LateStop == nil || saved.LateStop.RequestedBy != "the development manager" {
+		t.Fatalf("late stop = %#v, want the stop recorded as arriving after the checks passed", saved.LateStop)
+	}
+	if !strings.Contains(tracker.Notes, "Stop arrived late:") {
+		t.Fatalf("the work item was not told the stop arrived late: %q", tracker.Notes)
+	}
+}

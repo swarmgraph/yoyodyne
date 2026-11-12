@@ -112,8 +112,12 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     stop reaches a run that is working is `promptstop.go`: `watchForStop`
     cuts a developer attempt or check stage short once a stop has waited
     `runstate.StopTakesEffectWithin`, and `honorStop` keeps a change whose
-    checks already passed for its review, recording the stop as late; the
-    sweep does the same for a run no process holds
+    checks already passed for its review, recording the stop as late. A stop
+    answered that way carries no weight for the rest of the attempt
+    (`answeredLate`; the whole check of the merge candidate in
+    `checkCandidateWhole` and a watch that starts with the checks passed never
+    cut short), and counts again only at the next developer attempt
+    (`stopRequestedAtNewAttempt`); the sweep does the same for a run no process holds
     (`recordLateStopOnUnheldRun`, asked from `Reconciler.settle` before
     `settleStopRequest`).
 13. **Checks.** `verify` (path gate, review-bound gate — `gateReviewBound`

@@ -3937,8 +3937,17 @@ func (a *activeRun) checkCandidateWhole(ctx context.Context, limit int) (bool, e
 		a.state.ChecksPassed.WholeLeftToQueue = true
 		return false, nil
 	}
+	// The checks have passed on this attempt, so a stop found before or during
+	// the whole pass arrived late: it is recorded as such and keeps the change,
+	// rather than cancelling it after its review approved it (promptstop.go).
+	if err := a.honorStop(); err != nil {
+		return false, err
+	}
 	err := a.verifyCandidate(ctx)
 	if err == nil {
+		if lateErr := a.honorStop(); lateErr != nil {
+			return false, lateErr
+		}
 		return false, nil
 	}
 	if !parksTheRun(err) {
@@ -4585,7 +4594,8 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 	for {
 		// A stop is asked for before the hold, so a run the operator both stopped
 		// and paused stops rather than parking on a hold nothing will lift for it.
-		if err := a.stopRequested(); err != nil {
+		// A stop answered as late counts again here, at a new attempt.
+		if err := a.stopRequestedAtNewAttempt(); err != nil {
 			a.observeDevelopEnded(ctx, err)
 			return err
 		}
@@ -6546,7 +6556,26 @@ const needsDesignOverride = "The item is labelled " + domain.NeedsDesignLabel + 
 // against opposite mistakes: an unreadable hold might be a pause being spent
 // through, while an unreadable stop request would be a run killed on the strength
 // of a file nobody could parse. The failure travels back with the run instead.
+//
+// A stop this run already answered by recording it as late (honorStop) carries
+// no weight here: the change it would have cancelled has passed its checks, and
+// a later step of the same attempt — the whole-candidate check, a wait on the
+// tracker or on an install step — must not cancel it after all. The next
+// developer attempt asks through stopRequestedAtNewAttempt instead, where it
+// counts again.
 func (a *activeRun) stopRequested() error {
+	err := a.stopRequestedAtNewAttempt()
+	var stopped operatorStop
+	if errors.As(err, &stopped) && answeredLate(a.state, stopped.request) {
+		return nil
+	}
+	return err
+}
+
+// stopRequestedAtNewAttempt is stopRequested before a developer attempt, where a
+// stop counts whether or not it was answered as late: a repair handed back is a
+// new attempt, and the change the late stop kept is no longer the one at stake.
+func (a *activeRun) stopRequestedAtNewAttempt() error {
 	request, requested, err := a.pipeline.Store.StopRequested(a.state.RunID)
 	if err != nil {
 		return fmt.Errorf("read whether the operator asked this run to stop: %w", err)

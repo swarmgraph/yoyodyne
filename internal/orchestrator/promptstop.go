@@ -45,6 +45,19 @@ func (a *activeRun) watchForStop(ctx context.Context, step string) (context.Cont
 		interval = stopWatchInterval
 	}
 	runID := a.state.RunID
+	// A stop this run already answered as late is never what cuts a step short.
+	// It is read here, before the step starts, so the watch shares nothing the
+	// step may write.
+	var late *runstate.LateStop
+	if a.state.LateStop != nil {
+		answered := *a.state.LateStop
+		late = &answered
+	}
+	// A step that starts with the checks already passed on the change the run
+	// holds — the whole pass over the merge candidate after narrowed checks —
+	// is never cut short: any stop it would find arrived late, and the caller
+	// records it as late once the step is done (honorStop).
+	_, keepsChange := checksPassedOnHeldChange(a.state)
 	watched, cancel := context.WithCancelCause(ctx)
 	done := make(chan struct{})
 	finished := make(chan struct{})
@@ -67,7 +80,7 @@ func (a *activeRun) watchForStop(ctx context.Context, step string) (context.Cont
 			// A record nobody can read cuts nothing short, for the reason
 			// stopRequested gives; the boundary after the step reports it.
 			request, requested, err := p.Store.StopRequested(runID)
-			if err != nil || !requested {
+			if keepsChange || err != nil || !requested || answeredLateBy(late, request) {
 				continue
 			}
 			now := p.clock().Now()
@@ -90,7 +103,8 @@ func (a *activeRun) watchForStop(ctx context.Context, step string) (context.Cont
 
 // honorStop is stopRequested at a boundary the run can reach after its checks
 // have passed on the change it holds: the top of each round of checks and
-// review, the review itself, and a resumed run. A stop found there before the
+// review, the review itself, a resumed run, either side of the whole pass over
+// the merge candidate, and the waits on the tracker and on an install step. A stop found there before the
 // checks passed is carried out as at any boundary. One found after they passed
 // arrived late: the change is kept and goes on to its review, the stop is
 // recorded on the run as having arrived late, and nothing is cancelled. A
@@ -105,9 +119,6 @@ func (a *activeRun) honorStop() error {
 	passed, kept := checksPassedOnHeldChange(a.state)
 	if !kept {
 		return err
-	}
-	if late := a.state.LateStop; late != nil && late.RequestedAt.Equal(stopped.request.RequestedAt.UTC()) {
-		return nil
 	}
 	now := a.pipeline.clock().Now()
 	late := runstate.NewLateStop(stopped.request, passed.At, now)
@@ -151,7 +162,7 @@ func (r Reconciler) recordLateStopOnUnheldRun(ctx context.Context, state runstat
 	}
 	now := r.clock().Now()
 	late := runstate.NewLateStop(request, passed.At, now)
-	if existing := state.LateStop; existing != nil && existing.RequestedAt.Equal(late.RequestedAt) {
+	if answeredLate(state, request) {
 		return state, true, nil
 	}
 	written, err := r.Store.Update(ctx, state.RunID, runstate.LateStopRecorded{Stop: late, At: now})
@@ -159,4 +170,14 @@ func (r Reconciler) recordLateStopOnUnheldRun(ctx context.Context, state runstat
 		return state, true, fmt.Errorf("record the stop that reached run %s after its checks passed: %w", state.RunID, err)
 	}
 	return written, true, nil
+}
+
+// answeredLate reports request as the stop state already recorded as having
+// arrived late, which the run answered by keeping its change.
+func answeredLate(state runstate.State, request runstate.StopRequest) bool {
+	return answeredLateBy(state.LateStop, request)
+}
+
+func answeredLateBy(late *runstate.LateStop, request runstate.StopRequest) bool {
+	return late != nil && late.RequestedAt.Equal(request.RequestedAt.UTC())
 }
