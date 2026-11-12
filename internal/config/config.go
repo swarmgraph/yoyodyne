@@ -83,6 +83,11 @@ type Config struct {
 	// project names one; omitted from the serialized form while empty, so a
 	// project that says nothing keeps the revision it had before the key existed.
 	MCP MCP `yaml:"mcp,omitempty" json:"mcp,omitzero"`
+	// Intake is the scheduled queries the project declares (intake.go). It is
+	// the operator's, as mcp is, and omitted from the serialized form while
+	// empty, so a project that says nothing keeps the revision it had before the
+	// key existed.
+	Intake Intake `yaml:"intake,omitempty" json:"intake,omitzero"`
 	// Intent says which repository holds the governed documents. It is absent
 	// from a project whose own repository holds them, which is the default.
 	Intent Intent `yaml:"intent,omitempty" json:"intent,omitempty"`
@@ -1431,6 +1436,7 @@ func (c Config) Validate() error {
 	problems = append(problems, c.Research.problems()...)
 	problems = append(problems, c.OutsideFiles.problems()...)
 	problems = append(problems, c.mcpProblems()...)
+	problems = append(problems, c.intakeProblems()...)
 
 	approvalValues := []struct {
 		name string

@@ -31,11 +31,15 @@ import (
 // agent with an empty list is told nothing, so its instructions are unchanged
 // (TestAConversationWithNoMCPToolsIsToldNothing in internal/chat).
 //
+// internal/config/intake.go reads the mcp section only to check that a
+// scheduled query names a tool declared there as read.
+//
 // A later piece that hands any of this to a launch or a prompt adds its file
 // here, which is where a reviewer sees that it does.
 var mcpReaders = map[string]bool{
 	"internal/config/document.go":  true,
 	"internal/config/mcp.go":       true,
+	"internal/config/intake.go":    true,
 	"internal/config/resolve.go":   true,
 	"internal/cli/cli.go":          true,
 	"internal/cli/mcp.go":          true,
