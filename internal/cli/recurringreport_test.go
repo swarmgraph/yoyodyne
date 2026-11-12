@@ -624,3 +624,83 @@ func TestFailedRolePassFindingKeepsTheTerminalDiagnosticAfterPrintedOutput(t *te
 		t.Fatalf("finding = %s", findings[0].Message)
 	}
 }
+
+// settledWithoutAssumptions is an account the harness refuses for its shape: a
+// ruling listed under "settled" that writes down no assumptions.
+const settledWithoutAssumptions = "Ruled on it.\n```yoyodyne-sweep\n" + `{"status":"complete","summary":"ruled on the waiting item","settled":[{"item":"x-1","decision":"the checks wait at review"}]}` + "\n```"
+
+const settledWithAssumptions = "```yoyodyne-sweep\n" + `{"status":"complete","summary":"ruled on the waiting item","settled":[{"item":"x-1","decision":"the checks wait at review","assumptions":["the provider answers within the turn"]}]}` + "\n```"
+
+// An account refused for a missing field is handed back with the refusal's
+// reason in the same pass, and the corrected account is the one recorded.
+func TestARefusedRecurringReportIsCorrectedOnceInTheSamePass(t *testing.T) {
+	t.Parallel()
+	p := newReportRecoveryPass(t, settledWithoutAssumptions, settledWithAssumptions)
+	pass := p.fire(t)
+	requests := p.backend.requests
+	if len(requests) != 2 {
+		t.Fatalf("requests = %d, want the work and one correction", len(requests))
+	}
+	correction := requests[1].Prompt
+	for _, want := range []string{"refused the closing report block", "a decision writes down the assumptions it made", "only request to correct it", "Do not repeat any action", `"assumptions"`, "at least one entry in \"assumptions\""} {
+		if !strings.Contains(correction, want) {
+			t.Errorf("the correction request does not say %q:\n%s", want, correction)
+		}
+	}
+	if requests[1].SessionID == "" {
+		t.Error("the correction was not asked in the same session as the work")
+	}
+	if pass.Failed || pass.Unfinished() || pass.Turns != 2 || pass.Result == nil {
+		t.Fatalf("pass = %+v, want one completed pass with the corrected account", pass)
+	}
+	if settled, found := pass.Result.SettledItem("x-1"); !found || len(settled.Assumptions) != 1 {
+		t.Fatalf("settled = %+v, %v, want the corrected ruling", settled, found)
+	}
+	if math.Abs(pass.CostUSD-0.24) > 1e-9 {
+		t.Errorf("cost = %v, want both replies' cost", pass.CostUSD)
+	}
+	if !strings.Contains(pass.Problem, "first closing report was refused because") || !strings.Contains(pass.Problem, "assumptions") {
+		t.Errorf("the record does not say the first account was refused and why: %s", pass.Problem)
+	}
+}
+
+// A corrected account that is still refused fails the pass, with the reason
+// recorded, after exactly one request to correct it.
+func TestARecurringReportStillRefusedAfterItsCorrectionFailsWithTheReason(t *testing.T) {
+	t.Parallel()
+	p := newReportRecoveryPass(t, settledWithoutAssumptions, settledWithoutAssumptions)
+	pass := p.fire(t)
+	if len(p.backend.requests) != 2 {
+		t.Fatalf("requests = %d, want the work and exactly one correction", len(p.backend.requests))
+	}
+	if !pass.Failed || pass.Result != nil || pass.Turns != 2 {
+		t.Fatalf("pass = %+v, want failed with no account", pass)
+	}
+	for _, want := range []string{"refused because", "a decision writes down the assumptions it made", "one request to correct it"} {
+		if !strings.Contains(pass.Problem, want) {
+			t.Errorf("the record does not say %q: %s", want, pass.Problem)
+		}
+	}
+	if !strings.Contains(renderSweep(pass), "FAILED PASS") {
+		t.Errorf("listing hides the failure: %s", renderSweep(pass))
+	}
+}
+
+// A pass asks for a correction at most once, however many of its turns give a
+// refused account.
+func TestARecurringPassAsksForACorrectionAtMostOnceAcrossWorkTurns(t *testing.T) {
+	t.Parallel()
+	more := "```yoyodyne-sweep\n" + `{"status":"more","summary":"one ruling recorded"}` + "\n```"
+	refused := strings.Replace(settledWithoutAssumptions, `"complete"`, `"more"`, 1)
+	p := newReportRecoveryPass(t, refused, more, settledWithoutAssumptions)
+	task := p.trigger.Tasks["architect-pass"]
+	task.MaxTurns = 3
+	p.trigger.Tasks["architect-pass"] = task
+	pass := p.fire(t)
+	if len(p.backend.requests) != 3 {
+		t.Fatalf("requests = %d, want two work turns and one correction", len(p.backend.requests))
+	}
+	if pass.Failed || pass.Result == nil || pass.Result.Summary != "one ruling recorded" {
+		t.Fatalf("pass = %+v, want the corrected account kept as partial", pass)
+	}
+}

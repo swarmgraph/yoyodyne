@@ -6067,7 +6067,7 @@ held, and its passes are never told to decide it or ask about it; a parked item 
 count is of passes, not of identical reasons, so a role that rewords its reason
 has still left the same item. Once two passes in a row have left it, the next
 pass is told so at its start, with their reasons, and asked to do one of two
-things: decide the item, writing down the assumptions its decision makes, or
+things: decide the item, writing down at least one assumption its decision makes, or
 put one question about it to whoever can answer — another role, or the operator
 only where the decision is his. Its account says which under `settled`, and the
 harness writes on the item what was decided with its assumptions, or the
@@ -8327,6 +8327,17 @@ already recorded remain part of that pass; the request spends no work-item
 budget and is outside the pass's work-turn bound. A reply that already carries
 the block is never asked again, and a pass gets at most one such request, even
 when it takes several work turns.
+
+**A closing report the harness refuses is handed back once to be corrected.**
+Where the block is there but the harness cannot accept it — a required field is
+missing, such as the assumptions a decision under `settled` must write down —
+the harness tells the role, in the same conversation and on the same pass, the
+reason it refused the block, and asks for the corrected block alone, without
+repeating any work. A corrected block it accepts is the pass's account, and the
+record says the first one was refused and why. A corrected block that is still
+refused fails the pass, and the record gives both reasons. A pass gets at most
+one such request however many turns it takes, separate from the one request for
+a missing report, and it is outside the pass's work-turn bound.
 
 Every turn after a pass's first is told again what its closing report must
 hold, whatever sends the pass on. If a later turn still gives no report, and an

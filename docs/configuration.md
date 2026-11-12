@@ -9339,7 +9339,7 @@ and an `architect-pass` is not needed to catch labelled work.
 | `every` | the cadence, measured from the last firing rather than against a wall-clock grid. The shortest accepted is `5m`, which is what keeps `1m` written where `1h` was meant from becoming sixty times the spend. |
 | `enabled` | the switch. It is explicit so a task can be turned off for a week without deleting its prompt and cadence. |
 | `prompt` | what the role is told. It is the task, not a personality. |
-| `max_turns` | how many work turns one firing may take, defaulting to 3 and capped at 10. Two turns are outside this bound: one request for a missing closing report, and one turn sending the pass back to decide or ask about an item its passes keep leaving ([operations](operations.md#where-the-harness-stands-the-four-lines)). |
+| `max_turns` | how many work turns one firing may take, defaulting to 3 and capped at 10. Three turns are outside this bound: one request for a missing closing report, one request to correct a closing report the harness refused, and one turn sending the pass back to decide or ask about an item its passes keep leaving ([operations](operations.md#where-the-harness-stands-the-four-lines)). |
 | `model` | the model this task's turns ask for. Optional: leave it out and the turns ask for the role's own configured `model`, which is what every task did before the key existed. See [a task's own model](#a-tasks-own-model). |
 
 ### A task's own model
@@ -9484,7 +9484,11 @@ left unrecorded. A later turn, or its request for the report, that fails at the
 provider or is cut off keeps the earlier account the same way. If no turn gave a valid report, the pass fails with its
 findings unrecorded. Either way earlier writes and every reply's cost stand.
 This extra request spends no work-item budget and does not consume a work turn
-under `max_turns`. After consecutive passes still omit the report on some turn,
+under `max_turns`. A report the harness refuses for its shape, such as a
+decision under `settled` with no assumptions, is handed back once a pass with
+the reason it was refused, and the corrected report is recorded; one still
+refused fails the pass with both reasons on its record. That request is outside
+`max_turns` too. After consecutive passes still omit the report on some turn,
 whether they failed or kept an earlier account, the next opens a fresh
 conversation with the role's memory and briefing. This bound covers all recurring roles,
 including program manager instances:
