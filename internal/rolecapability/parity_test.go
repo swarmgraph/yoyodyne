@@ -234,10 +234,18 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // each with the architect's recommendation attached, as needing his hand
 // (yoyodyne-i92, under the architect's ruling for yoyodyne-ifd.437.14). It is
 // held under amendment.decide, and a change to the brief or the goals that does not say it is consistent with their intent stays his.
+//
+// The development manager's `queue` releases the entry at the head of the
+// harness's merge queue, handing it back to its item or recording it as landed
+// outside the queue where its approved commit is already on the target. Three
+// times in three days the queue stopped at its head with the fix for that stop
+// queued behind it, and only a person merging by hand let it out
+// (yoyodyne-ifd.429.166). Deciding what becomes of stopped work is triage, so it
+// is held under work.triage.
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
 	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment"},
 	domain.RoleArchitect:          {"amendment"},
-	domain.RoleDevelopmentManager: {"brake", "label"},
+	domain.RoleDevelopmentManager: {"brake", "label", "queue"},
 }
 
 func TestConversationAuthorityDecidesWhatItDecidedBeforeTheConversion(t *testing.T) {
