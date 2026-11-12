@@ -28,6 +28,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/goal"
 	"github.com/mason-bryant/yoyodyne/internal/invariant"
 	"github.com/mason-bryant/yoyodyne/internal/landing"
+	"github.com/mason-bryant/yoyodyne/internal/mcpcall"
 	"github.com/mason-bryant/yoyodyne/internal/outsidefile"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
@@ -582,6 +583,11 @@ type Pipeline struct {
 	// a run that is current.
 	Build        string
 	RedactValues []string
+	// MCP is the one MCP call path, which carries out the block a developer
+	// that holds an MCP tool ends a turn with (mcpask.go). It is optional: a
+	// pipeline wired without one tells no developer of the block and reads
+	// every reply exactly as before.
+	MCP MCPCalls
 }
 
 // AccountChooser picks the provider account the next run is served by. It is an
@@ -2622,6 +2628,10 @@ type activeRun struct {
 	// the same recorded worktree, so there is nothing here for a stored copy to
 	// disagree with.
 	scratch string
+	// asks is the current attempt's MCP asking, nil where the developer holds no
+	// MCP tool (mcpask.go). It is built afresh by each develop, so its rounds
+	// and calls are counted per attempt.
+	asks *developerAsks
 	// claimed records that the tracker holds this item, which is what makes a
 	// failure worth reporting back to it.
 	claimed bool
@@ -4560,6 +4570,9 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 	}
 	reasked := false
 	sentBackForBackground := false
+	// The attempt's MCP asking, counted across every turn this develop resumes
+	// (mcpask.go); nil for a developer that holds no MCP tool.
+	a.asks = a.newDeveloperAsks()
 	for {
 		// A stop is asked for before the hold, so a run the operator both stopped
 		// and paused stops rather than parking on a hold nothing will lift for it.
@@ -4584,7 +4597,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			}
 		}
 		responseStarted := a.pipeline.clock().Now()
-		providerResult, err := a.attemptDevelopment(ctx, prompt, sessionID)
+		providerResult, err := a.attemptDevelopment(ctx, a.withMCPContract(prompt), sessionID)
 		// How a routed attempt ended is recorded before anything below reads
 		// it, with whether its process tree is confirmed stopped.
 		if route != nil {
@@ -4707,6 +4720,37 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 						route.relaunch = true
 					}
 					a.observe(ctx, deliveryDevelop, "reissued")
+					continue
+				}
+			}
+			// A reply that ends asking for MCP calls is not the attempt's answer, and
+			// is never read as one: no landing claim, verification, report or summary
+			// is taken from it (mcpask.go). Only a clean ending asks, and only from a
+			// developer that holds a tool; any other reply is read below exactly as
+			// before. A turn that also left background work running is sent back for
+			// that first, under its own rule, and the block is carried out on the
+			// reply that follows.
+			if a.asks != nil && err == nil && !providerResult.IsError {
+				if ask := mcpcall.ReadAsk(providerResult.FinalText); ask.Found {
+					sessionID = a.carrySession(providerResult.SessionID, sessionID)
+					// The reply is not recorded as the attempt's, so the events the
+					// invocation wrote are counted here, ahead of the harness's own.
+					a.state.LastSequence = max(a.state.LastSequence, providerResult.LastEvent)
+					if background, outlived := outlivedReply(providerResult); outlived {
+						if !sentBackForBackground {
+							sentBackForBackground = true
+							prompt = a.openWithDeveloperRefusals(backgroundWorkPrompt(a.deliveredInvariants().Text(), a.scratch, background, a.pipeline.Config.Checks) + mcpUnreadyNote)
+							a.sendBackForBackgroundWork(ctx, background)
+							continue
+						}
+						a.askDespiteBackgroundWork(background)
+					}
+					answers, askErr := a.carryOutAsk(ctx, ask, sessionID)
+					if askErr != nil {
+						a.observeDevelopEnded(ctx, askErr)
+						return askErr
+					}
+					prompt = a.openWithDeveloperRefusals(answers)
 					continue
 				}
 			}
