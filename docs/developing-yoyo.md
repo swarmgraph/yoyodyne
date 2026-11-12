@@ -1032,8 +1032,8 @@ A release nobody can read is a release nobody adopts, so
 For a release the Lead Product Manager decided, the loop below is the release
 item's reviewed run, not yours. It drafts the notes with
 `scripts/release-notes.sh`, curates them, puts the section
-`yoyo conformance --notes` prints between the readiness markers, and lands the
-file through review. The harness's cut then finds it on `main`
+`yoyo conformance --notes --from-export` prints between the readiness markers,
+and lands the file through review. The harness's cut then finds it on `main`
 ([above](#cutting-a-release)). What follows is the manual cut, which is what a
 project under `approvals.releases: human` runs.
 The cut checks for it before it spends the walkthrough, and a tag with no notes
