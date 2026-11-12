@@ -2059,7 +2059,8 @@ that firing, in the message that wakes her. A
 project that schedules nothing has none of this and its passes are unchanged.
 
 **A pass also wakes a role whose block of tracker actions the harness refused.**
-A block it cannot read is refused whole, so nothing in it happens. Most refusals
+A tracker block it cannot read is refused whole, so nothing in it happens,
+while the rest of the reply is carried out. Most refusals
 never reach a pass: the refusal is
 [handed back inside the message that earned it](conversation.md#the-conversation),
 and the role reissues the block before its reply ends. What reaches a pass is a

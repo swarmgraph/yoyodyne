@@ -9498,9 +9498,13 @@ sweep block per reply, and a role that answers with two — a `more` and then a
 `complete`, which is the shape the slip takes — has slipped rather than failed.
 The last block is recorded as the pass's account, and the record notes beside
 it that more than one was sent, rather than the pass being thrown away over
-the shape of its reply after its decisions were taken. A block that cannot be
-read is still refused wherever it sits, and a reply with one block is recorded
-exactly as before.
+the shape of its reply after its decisions were taken. Everything else the
+reply asked for is carried out as usual, and the role is told at the start of
+its next turn that it wrote more than one, so it writes one next time. A sweep
+block that cannot be read is still refused wherever it sits, and a reply with
+one block is recorded exactly as before. Any other block the harness cannot
+read is refused on its own and named on the pass's record beside what the pass
+decided ([one bad block loses only itself](conversation.md#one-bad-block-loses-only-itself)).
 
 **A firing that failed waits for its next cadence.** It is not retried at once:
 the next pass looks at everything this one would have, and retrying immediately
