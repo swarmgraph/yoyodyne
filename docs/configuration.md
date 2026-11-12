@@ -6765,6 +6765,15 @@ merged onto it. That candidate is what would land, so it is what is judged:
   its item as review spend, is asked whether the change combined with what the
   target now carries still does what the item asks.
 
+The checks and the review start together on that same candidate commit, since
+neither needs the other's answer. A check that fails ends the candidate, so the
+review still under way is stopped, and what that review spent is still charged
+to the run and its item. A review that decides anything but approval ends the
+candidate the same way, and stops the checks still running. A stopped stage is
+recorded as having judged nothing, with the reason it was stopped, and is not
+run again for that candidate. The candidate lands only with every check passed
+and the review approving.
+
 The approval the run earned admitted the change; it authorizes no landing, and
 evidence about one candidate never answers for another. The target moving while
 a candidate is checked or reviewed sets that candidate aside and builds a new

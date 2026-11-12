@@ -272,3 +272,64 @@ func TestAnUnlistableQueueIsSaidBesideTheOthersAndNoQueuePrintsNothing(t *testin
 		t.Fatalf("no queue store rendered as %q, want nothing", rendered)
 	}
 }
+
+// The checks and the review of a candidate run at once, and each can stop the
+// other: an entry whose reviewer refused while its checks were still running
+// is shown as failed by that refusal, not as checks still to finish, and one
+// whose review is still going beside unfinished checks is not said to have
+// passed them.
+func TestAnEntryIsReadFromWhicheverOfItsChecksAndReviewEndedIt(t *testing.T) {
+	t.Parallel()
+
+	key := runstate.MergeQueueKey{Repository: "yoyodyne", TargetBranch: "main"}
+	refused := fixtureEntry(1, "yoyodyne-ifd.1", "Refused while checked", runstate.MergeQueueHarness)
+	going := fixtureEntry(2, "yoyodyne-ifd.2", "Both still going", runstate.MergeQueueHarness)
+	rechecking := fixtureEntry(3, "yoyodyne-ifd.3", "Checks to run again", runstate.MergeQueueHarness)
+
+	stopped := verifiedQueueGeneration(refused)
+	stoppedChecks := *stopped.CheckRun
+	stoppedChecks.Results, stoppedChecks.Problem = nil, `stopped because the independent reviewer decided "repair"`
+	stopped.CheckRun = &stoppedChecks
+	refusal := *stopped.Review
+	refusal.Decision = "repair"
+	stopped.Review = &refusal
+
+	both := verifiedQueueGeneration(going)
+	runningChecks := *both.CheckRun
+	runningChecks.FinishedAt, runningChecks.Results = nil, nil
+	both.CheckRun = &runningChecks
+	runningReview := *both.Review
+	runningReview.FinishedAt, runningReview.Decision, runningReview.SessionID, runningReview.Model = nil, "", "", ""
+	both.Review = &runningReview
+
+	again := verifiedQueueGeneration(rechecking)
+	timedOut := *again.CheckRun
+	timedOut.Problem = "./check.sh was stopped on time, and judged nothing"
+	again.CheckRun = &timedOut
+	again.Review = &runningReview
+
+	queues := fixtureQueues{
+		keys:    []runstate.MergeQueueKey{key},
+		entries: map[string][]runstate.MergeQueueEntry{"main": {refused, going, rechecking}},
+		generations: map[string][]runstate.MergeQueueGeneration{
+			refused.EntryID: {stopped}, going.EntryID: {both}, rechecking.EntryID: {again},
+		},
+	}
+	read, problem := ReadMergeQueues(queues)
+	if problem != "" || len(read) != 1 {
+		t.Fatalf("ReadMergeQueues() = %#v, %q", read, problem)
+	}
+	shown := map[string]QueueEntryStanding{}
+	for _, entry := range read[0].Entries {
+		shown[entry.Title] = entry
+	}
+	if entry := shown["Refused while checked"]; entry.State != QueueEntryFailed || !strings.Contains(entry.Why, `reviewer decided "repair"`) {
+		t.Fatalf("refused entry = %#v, want it failed by the reviewer's refusal", entry)
+	}
+	if entry := shown["Both still going"]; entry.State != QueueEntryVerifying || !strings.Contains(entry.Why, "checks have not finished") {
+		t.Fatalf("entry still being checked = %#v, want it verifying with its checks unfinished", entry)
+	}
+	if entry := shown["Checks to run again"]; entry.State != QueueEntryVerifying || strings.Contains(entry.Why, "passed its checks") {
+		t.Fatalf("entry whose checks judged nothing = %#v, want it verifying and not said to have passed its checks", entry)
+	}
+}

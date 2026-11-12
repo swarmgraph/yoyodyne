@@ -193,6 +193,15 @@ func ClassifyMergeQueueFailure(evidence MergeQueueFailureEvidence) (MergeQueueFa
 		failure.Reason = fmt.Sprintf("generation %d's candidate changes protected paths its work item does not grant (%s)", generation.Number, strings.Join(paths.Refused, ", "))
 		return defect(failure, generation, evidence.SuspectedHeads), true, nil
 	}
+	// The checks and the review run at once, and a review that refuses stops
+	// the checks still running, so an independent refusal is read before the
+	// checks are: it ends the candidate whatever the checks it cut short would
+	// have said. A check that ran to its own end and failed is still read first,
+	// because whether that failure is the change's needs the target's answer.
+	if verdict := generation.Review; reviewRefused(generation) && failedCheck(generation) == "" &&
+		verdict.Binding == generation.Binding() && strings.TrimSpace(verdict.SessionID) != "" && verdict.SessionID != generation.AuthorSession {
+		return defect(refusedBy(failure, generation, verdict), generation, evidence.SuspectedHeads), true, nil
+	}
 	checksRun := generation.CheckRun
 	switch {
 	case checksRun == nil || checksRun.FinishedAt == nil:
@@ -277,9 +286,15 @@ func ClassifyMergeQueueFailure(evidence MergeQueueFailureEvidence) (MergeQueueFa
 		failure.Reason = fmt.Sprintf("generation %d's review is not an independent verdict a failure can be read from", generation.Number)
 		return failure, true, nil
 	}
+	return defect(refusedBy(failure, generation, verdict), generation, evidence.SuspectedHeads), true, nil
+}
+
+// refusedBy is failure said as the independent reviewer's refusal of the
+// generation's candidate.
+func refusedBy(failure MergeQueueFailure, generation runstate.MergeQueueGeneration, verdict *runstate.MergeQueueReviewEvidence) MergeQueueFailure {
 	failure.Reason = fmt.Sprintf("the independent reviewer decided %q on generation %d's candidate, %s at %s with %s merged onto it: %s",
 		verdict.Decision, generation.Number, generation.TargetBranch, generation.TargetBase, strings.Join(generation.Heads, ", "), nonEmpty(verdict.Summary, "no summary was given"))
-	return defect(failure, generation, evidence.SuspectedHeads), true, nil
+	return failure
 }
 
 func waitsOnItem(item string) string {
