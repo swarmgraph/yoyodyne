@@ -3368,9 +3368,13 @@ func TestAReadoptionThePipelineDidNotTakeIsTriedAgainAtTheNextPull(t *testing.T)
 // target branch's lease, and a promotion cancelled part-way is the one boundary
 // durable state cannot describe — so the session waits it out past the bound,
 // and the restart follows it. The wait is the session's ordinary loop rather
-// than a silence: its recurring tasks fire on their cadence, and only new
-// starts are declined, each declined pull saying so. A forge outage can hold a
-// promotion for hours, and those hours must not be the 07:35Z shape again.
+// than a silence: its recurring tasks fire on their cadence, and because the
+// restart is not coming sooner whatever else is stopped, a free seat with work
+// for it is still pulled into rather than left empty for as long as the
+// promotion takes. The run started there is at its developer attempt, left
+// going while the promotion lasts and stopped for the session that comes back
+// once it has ended. A forge outage can hold a promotion for hours, and those
+// hours must not be the 07:35Z shape again, nor hours of an empty seat.
 func TestTheDrainBoundLeavesARunAtItsPromotionToFinishAndKeepsFiring(t *testing.T) {
 	t.Parallel()
 
@@ -3401,7 +3405,23 @@ func TestTheDrainBoundLeavesARunAtItsPromotionToFinishAndKeepsFiring(t *testing.
 		}
 		return RecurringSweep{Fired: []Fired{{Task: "development-manager-sweep", Role: domain.RoleDevelopmentManager, Turns: 1}}}, nil
 	}
+	var secondStarted atomic.Bool
+	var secondStoppedEarly atomic.Bool
+	var promotionDone atomic.Bool
 	harness.hostedRun = func(ctx context.Context, h *scheduleHarness, id string) (Outcome, error) {
+		if id == "yoyodyne-two" {
+			// A developer attempt started past the bound, beside the promotion.
+			secondStarted.Store(true)
+			<-ctx.Done()
+			if !promotionDone.Load() {
+				secondStoppedEarly.Store(true)
+			}
+			outcome, err := pausedAtChecks(ctx, id)
+			if outcome.RedeployStop != nil {
+				outcome.RedeployStop.Phase = runstate.PhaseDeveloping
+			}
+			return outcome, err
+		}
 		deployment.deploy()
 		h.mu.Lock()
 		state := h.inFlight[id]
@@ -3412,14 +3432,15 @@ func TestTheDrainBoundLeavesARunAtItsPromotionToFinishAndKeepsFiring(t *testing.
 		case <-ctx.Done():
 			return Outcome{WorkItemID: id, Status: runstate.StatusCancelled}, nil
 		case <-finished:
+			promotionDone.Store(true)
 			return h.complete(id), nil
 		}
 	}
 	// The promotion finishes on its own clock, once the session has fired its
-	// task past the bound and declined the seat the second item would take.
+	// task past the bound and started the second item in the free seat.
 	go func() {
 		for {
-			if firedPastTheBound.Load() >= 2 {
+			if firedPastTheBound.Load() >= 2 && secondStarted.Load() {
 				close(finished)
 				return
 			}
@@ -3435,31 +3456,38 @@ func TestTheDrainBoundLeavesARunAtItsPromotionToFinishAndKeepsFiring(t *testing.
 	if schedule.Stopped != ScheduleRedeployed {
 		t.Fatalf("stopped = %q, want the restart once the promotion finished: %s", schedule.Stopped, schedule.Render())
 	}
-	// The promotion was carried to its end, and nothing was pulled into the
-	// free seat past the bound: the second item is left for the session that
-	// comes back.
-	if len(schedule.Started) != 1 || schedule.Started[0].WorkItemID != "yoyodyne-one" || schedule.Started[0].Outcome.Status != runstate.StatusSucceeded {
-		t.Fatalf("started = %#v, want the promotion carried to its end rather than cancelled, and nothing started beside it", schedule.Started)
+	// The promotion was carried to its end, and the free seat was pulled into
+	// past the bound rather than left empty while it was waited out.
+	if len(schedule.Started) != 2 || schedule.Started[0].WorkItemID != "yoyodyne-one" || schedule.Started[0].Outcome.Status != runstate.StatusSucceeded || schedule.Started[1].WorkItemID != "yoyodyne-two" {
+		t.Fatalf("started = %#v, want the promotion carried to its end and the second item started beside it", schedule.Started)
 	}
-	if schedule.Drain == nil || !schedule.Drain.BoundReached || len(schedule.Drain.Stopped) != 0 || schedule.Drain.Skipped == 0 {
-		t.Fatalf("drain = %#v, want the bound reached, nothing stopped for it, and the declined pulls counted", schedule.Drain)
+	// The run started beside the promotion was left going while the promotion
+	// lasted, and stopped for the session that comes back once it had ended.
+	if secondStoppedEarly.Load() {
+		t.Fatal("the run started beside the promotion was stopped while the promotion was still going")
+	}
+	if schedule.Drain == nil || !schedule.Drain.BoundReached || !slices.Equal(schedule.Drain.Stopped, []string{"yoyodyne-two"}) {
+		t.Fatalf("drain = %#v, want the bound reached and the run started beside the promotion stopped for the session that comes back", schedule.Drain)
+	}
+	if stop := schedule.Started[1].Outcome.RedeployStop; stop == nil || stop.Phase != runstate.PhaseDeveloping {
+		t.Fatalf("second run outcome = %#v, want it stopped at its developer attempt for the session that comes back", schedule.Started[1].Outcome)
 	}
 	// The recurring task fired past the bound, from the pull the session went
 	// on making while it waited on the promotion.
 	if len(schedule.Fired) < 2 {
 		t.Fatalf("fired = %#v, want the recurring task fired while the promotion was waited out past the bound", schedule.Fired)
 	}
-	// And the declined pull says what it declined for, marked on the drain so
-	// `yoyo status` names the session as restarting rather than idle.
-	declined := false
+	// And the session's line says the seats are still pulled into while the
+	// promotion is waited out.
+	said := false
 	for _, transition := range sessions.recorded() {
-		if transition.state == runstate.WatchIdle && transition.draining != nil && transition.draining.BoundReached && transition.draining.PullSkipped &&
-			strings.Contains(transition.reason, "still going at its promotion") && strings.Contains(transition.reason, "1 free seat(s)") {
-			declined = true
+		if transition.draining != nil && transition.draining.BoundReached && transition.draining.Promoting > 0 &&
+			strings.Contains(transition.draining.Says(), "free seats are still pulled into") {
+			said = true
 		}
 	}
-	if !declined {
-		t.Fatalf("no idle transition said the seat was declined for the promotion being waited out: %#v", sessions.recorded())
+	if !said {
+		t.Fatalf("no line said the free seats are still pulled into while the promotion is waited out: %#v", sessions.recorded())
 	}
 }
 
