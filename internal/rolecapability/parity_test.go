@@ -234,10 +234,14 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // each with the architect's recommendation attached, as needing his hand
 // (yoyodyne-i92, under the architect's ruling for yoyodyne-ifd.437.14). It is
 // held under amendment.decide, and a change to the brief or the goals that does not say it is consistent with their intent stays his.
+//
+// The development manager's `keep_version` records which of two machines'
+// versions of a held item stands, the design's rule that such an item is hers
+// to decide (docs/designs/working-alongside-other-contributors.md, section 5).
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
 	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment"},
 	domain.RoleArchitect:          {"amendment"},
-	domain.RoleDevelopmentManager: {"brake", "label"},
+	domain.RoleDevelopmentManager: {"brake", "keep_version", "label"},
 }
 
 func TestConversationAuthorityDecidesWhatItDecidedBeforeTheConversion(t *testing.T) {

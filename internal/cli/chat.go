@@ -1006,6 +1006,9 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// holding intake is something they can do from the conversation they are
 		// already in rather than from a second tool.
 		Intake: parts.intake,
+		// Where she records which version of an item stands when two machines'
+		// versions of it could not be merged.
+		TrackerMerge: conversationTrackerMerge(parts),
 		// The inter-role ask channel, wired for the roles that are on it. A
 		// question one role cannot answer itself reaches the role that can through
 		// here, rather than through the operator or through a work item.
@@ -2013,4 +2016,20 @@ func artifactHomes(repository string, cfg config.Config, stderr io.Writer) prote
 		fmt.Fprintf(stderr, "warning: the documents the artifact homes own could not be read, so a done-condition naming one by its name rather than its path is not refused at admission: %v\n", err)
 	}
 	return protectedpath.ArtifactHomes(cfg, documents...)
+}
+
+// conversationTrackerMerge is the record of items held because two machines'
+// versions cannot be merged, and nil with team mode off, where no check would
+// carry a decision out, or where it cannot be opened. The decision then says so
+// rather than appearing to have been made. An untyped nil is what the conversation
+// checks for, so a failed open is not returned as a typed one.
+func conversationTrackerMerge(parts components) chat.TrackerMergeDecisions {
+	if !parts.config.Team.Enabled {
+		return nil
+	}
+	store, err := runstate.NewTrackerMergeStore(parts.stateRoot, parts.config.Product.ID)
+	if err != nil {
+		return nil
+	}
+	return store
 }
