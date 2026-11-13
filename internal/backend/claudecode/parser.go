@@ -258,6 +258,8 @@ func (p *streamParser) ParseLine(line string) error {
 		return p.parseResult(envelope)
 	case rateLimitEventType:
 		return p.parseRateLimit(envelope)
+	case toolProgressEventType:
+		return p.parseToolProgress([]byte(line), envelope)
 	default:
 		// An event type this parser has no reading of could carry a tool call in
 		// a shape a newer CLI writes, so it is said as what could not be seen
@@ -623,11 +625,7 @@ func (p *streamParser) parseMessage(messageType string, raw json.RawMessage, par
 				"tool":        block.Name,
 				"input_bytes": len(block.Input),
 			}
-			kind := backend.ClassifyTool(block.Name)
-			if isSubagentTool(block.Name) {
-				kind = backend.ToolKindAgent
-			}
-			p.tools.Start(block.ID, block.Name, kind, parent)
+			p.tools.Start(block.ID, block.Name, toolKind(block.Name), parent)
 			switch {
 			case parent != "":
 				payload["parent_tool_use_id"] = parent
@@ -695,6 +693,93 @@ func (p *streamParser) parseMessage(messageType string, raw json.RawMessage, par
 		}
 	}
 	return nil
+}
+
+// toolProgressEventType is the event Claude Code writes while a tool call is
+// running: a long command's elapsed time, a heartbeat, a sub-agent's retry, or
+// a call a script tool made from inside its own run.
+const toolProgressEventType = "tool_progress"
+
+// toolProgress is what the harness reads off a tool_progress event. The shape
+// is the one Claude Code 2.1.321 declares for the event in its own output
+// schema: every one names the call it reports on (tool_use_id, tool_name) and
+// the call that one was made inside (parent_tool_use_id, null for the
+// session's own). The same executable also writes inner_call on the event it
+// sends for a call a script tool made, which the declared schema does not
+// list; it names a call of its own, made inside the call the event reports on.
+// Everything else on the event -- elapsed time, heartbeat and retry details --
+// says nothing about which tools ran, so it is not decoded, and a field the
+// harness does not need can never make the event unreadable.
+type toolProgress struct {
+	ToolUseID       string `json:"tool_use_id"`
+	ToolName        string `json:"tool_name"`
+	ParentToolUseID string `json:"parent_tool_use_id"`
+	InnerCall       *struct {
+		ToolUseID string `json:"tool_use_id"`
+		ToolName  string `json:"tool_name"`
+	} `json:"inner_call"`
+}
+
+// parseToolProgress reads the tool calls a tool_progress event names.
+//
+// Almost every one reports on a call the stream already showed starting, as a
+// tool_use block, so it carries no call of its own and adds nothing: the tool
+// call log keeps one entry per identifier however often the call is reported.
+// One that names a call the stream has not shown is that call's first sighting,
+// and it is recorded like a start, so it is compared with the session's tool
+// access like any other call. A call a script tool made from inside its run is
+// recorded the same way, inside the script's call.
+//
+// An event whose fields cannot be read, or that names no call, is said as tool
+// use that could not be seen, exactly as an event type the parser has no
+// reading of is, rather than read as carrying none.
+func (p *streamParser) parseToolProgress(line []byte, envelope streamEnvelope) error {
+	var progress toolProgress
+	readable := json.Unmarshal(line, &progress) == nil
+	progress.ToolUseID = p.redactor.Redact(progress.ToolUseID)
+	progress.ToolName = p.redactor.Redact(progress.ToolName)
+	progress.ParentToolUseID = p.redactor.Redact(progress.ParentToolUseID)
+	if readable && (progress.ToolUseID == "" || progress.ToolName == "") {
+		readable = false
+	}
+	if readable && progress.InnerCall != nil {
+		progress.InnerCall.ToolUseID = p.redactor.Redact(progress.InnerCall.ToolUseID)
+		progress.InnerCall.ToolName = p.redactor.Redact(progress.InnerCall.ToolName)
+		if progress.InnerCall.ToolUseID == "" || progress.InnerCall.ToolName == "" {
+			readable = false
+		}
+	}
+	if !readable {
+		p.tools.Gap(fmt.Sprintf("Claude Code wrote a %q event the harness does not read, so a tool call it may carry was not observed", truncate(envelope.Type)))
+		return p.emit(execution.EventProcessOutput, map[string]any{
+			"provider_type":    envelope.Type,
+			"provider_subtype": envelope.Subtype,
+		})
+	}
+	p.tools.Start(progress.ToolUseID, progress.ToolName, toolKind(progress.ToolName), progress.ParentToolUseID)
+	payload := map[string]any{
+		"provider_type": envelope.Type,
+		"tool_use_id":   progress.ToolUseID,
+		"tool":          progress.ToolName,
+	}
+	if progress.ParentToolUseID != "" {
+		payload["parent_tool_use_id"] = progress.ParentToolUseID
+	}
+	if inner := progress.InnerCall; inner != nil {
+		p.tools.Start(inner.ToolUseID, inner.ToolName, toolKind(inner.ToolName), progress.ToolUseID)
+		payload["inner_tool_use_id"] = inner.ToolUseID
+		payload["inner_tool"] = inner.ToolName
+	}
+	return p.emit(execution.EventProcessOutput, payload)
+}
+
+// toolKind is what a Claude Code tool does, with the sub-agent tool read as
+// handing work to an agent whatever the shared table calls it.
+func toolKind(name string) backend.ToolKind {
+	if isSubagentTool(name) {
+		return backend.ToolKindAgent
+	}
+	return backend.ClassifyTool(name)
 }
 
 // carriesNoToolCalls reports a top-level event type Claude Code sends that

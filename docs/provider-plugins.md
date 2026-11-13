@@ -930,11 +930,22 @@ told apart by invocation as well as by id. A call Code Mode makes from the code
 it runs arrives as an item of its own and is checked like any other, but Codex's
 output does not say which block of code made it, so that is not recorded.
 
+Claude Code also writes a `tool_progress` event while a call is running: a long
+command's elapsed time, a heartbeat, or a sub-agent's retry. Each names the call
+it reports on, in the fields the Claude Code 2.1.321 executable declares for the
+event. Progress on a call the stream already showed is that same call and adds
+nothing. Progress naming a call the stream has not shown is recorded as that
+call, once however often it arrives, and checked like any other. A call a
+script tool makes from inside its run, which the event carries as `inner_call`,
+is recorded inside the script's call.
+
 What an adapter could not read is said rather than read as no tool use. A stream
 event or content block the adapter does not recognise, a result for a call whose
 start never arrived, or an adapter that does not read tool calls at all, becomes
 one warning for the invocation beginning `Tool use not fully observed.`, naming
-what could not be seen. On Codex that is any item type outside the list above.
+what could not be seen. On Codex that is any item type outside the list above;
+on Claude Code it includes a `tool_progress` event that names no call or whose
+fields cannot be read.
 
 This is reporting only. It blocks nothing, cancels nothing, retries nothing, and
 changes no permission; the invocation ends exactly as it would have, with the
