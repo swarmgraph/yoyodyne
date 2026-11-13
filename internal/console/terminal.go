@@ -693,6 +693,10 @@ func (t *terminal) Working(phase string) Activity {
 // Theme reports how much this terminal may be dressed.
 func (t *terminal) Theme() Theme { return t.theme }
 
+// ShortensOutput says a terminal can show long output shortened, because
+// Ctrl-O can be read here to show it in full (Shortening).
+func (t *terminal) ShortensOutput() bool { return true }
+
 // Composing says how a message of more than one line is typed on this terminal,
 // which is what it turned out to report rather than what terminals usually do.
 func (t *terminal) Composing() string { return composingHelp(t.keyboard) }
@@ -1029,6 +1033,16 @@ func (t *terminal) consume(data []byte, late bool) (string, bool, []signalKey, e
 				return "", false, raised, err
 			}
 			return "", false, raised, ErrStopTurn
+		}
+		// Ctrl-O asks the caller to show what it shortened. What is being typed
+		// stays exactly as it is, and keys after it wait for the next prompt, as
+		// they do after an interruption.
+		if pressed.code == keyExpand {
+			t.ending = time.Time{}
+			if err := t.redraw(); err != nil {
+				return "", false, raised, err
+			}
+			return "", false, raised, ErrExpand
 		}
 		if pressed.code == keyInterrupt {
 			if err := t.interrupted(); err != nil {

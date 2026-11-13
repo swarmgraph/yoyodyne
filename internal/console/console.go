@@ -64,6 +64,30 @@ func carriedOn(line string) (string, bool) {
 // nothing.
 var ErrInterrupted = errors.New("prompt interrupted")
 
+// ErrExpand reports that Prompt returned because the operator pressed ExpandKey
+// to see the output that was shown shortened in full. Whatever they had typed
+// is kept, as it is for ErrInterrupted, and the next Prompt resumes it.
+var ErrExpand = errors.New("the operator asked to see shortened output in full")
+
+// ExpandKey is the key that shows shortened output in full, named as the
+// operator is told to press it.
+const ExpandKey = "Ctrl-O"
+
+// Shortening is a console that may show a long block of the harness's own
+// output as its first lines, because its Prompt reports ExpandKey as ErrExpand
+// so the whole block can be shown on request. A console that is not one shows
+// everything in full, as a stream always has.
+type Shortening interface {
+	ShortensOutput() bool
+}
+
+// Shortens reports whether long output written to this console may be shown
+// shortened.
+func Shortens(screen Console) bool {
+	shortening, ok := screen.(Shortening)
+	return ok && shortening.ShortensOutput()
+}
+
 // Console is the operator's end of a conversation: everything the harness
 // writes, and the line they are typing, which output never writes into.
 type Console interface {
