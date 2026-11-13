@@ -809,6 +809,10 @@ type Session struct {
 	// shownReply says the answer to the message being handled has already been
 	// read on screen as it formed, so the conversation does not write it again.
 	shownReply bool
+	// shortened holds whole every block of the harness's output that was shown
+	// shortened after the last answer, for the expand key to show (shorten.go).
+	// It is set and read only on the goroutine reading the operator's typing.
+	shortened []string
 	// turn is the turn being answered while the operator can type beside it, and
 	// what the commands they typed would have written (turncommand.go). It is
 	// set and read only on the goroutine reading their typing.
@@ -3876,47 +3880,51 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 			// written a second time.
 			fmt.Fprintf(out, "\nproduct-manager> %s\n\n", s.theme.Reply(s.RenderReply(reply.Text)))
 		}
+		// Each block below is the harness's own account, and on a terminal a long
+		// one is shown shortened, with a key that shows it whole (shorten.go). What
+		// was shortened after an earlier answer is not what that key shows now.
+		s.shortened = nil
 		// What the product manager did to the tracker is reported whether or not
 		// the turn ended well: the changes are already made, and an operator who
 		// is not told about them is reading a queue that moved without them. What
 		// it reported is shown for the same reason, and stays in the pile for
 		// /reports afterwards.
-		s.reportTrackerActions(out, reply)
+		s.harnessBlock(screen, func(w io.Writer) { s.reportTrackerActions(w, reply) })
 		// What it went and looked up is reported beside what it did, because
 		// research spends the operator's money outside this machine and a question
 		// nobody is told about is exactly the spending they cannot see. What it
 		// concluded is reported with it, because an evaluation is durable and an
 		// operator who is not told one was written has no reason to go looking.
-		s.reportResearch(out, reply)
+		s.harnessBlock(screen, func(w io.Writer) { s.reportResearch(w, reply) })
 		// What it read from the repository is reported for the same reason: a
 		// reply that rests on a file is one the operator should be able to hold
 		// against the commit the file was read at.
-		s.reportRepositoryReads(out, reply)
-		s.reportLogReads(out, reply)
-		s.reportMCPCalls(out, reply)
-		s.reportRunReads(out, reply)
-		s.reportHealthReads(out, reply)
-		s.reportRecoveries(out, reply)
+		s.harnessBlock(screen, func(w io.Writer) { s.reportRepositoryReads(w, reply) })
+		s.harnessBlock(screen, func(w io.Writer) { s.reportLogReads(w, reply) })
+		s.harnessBlock(screen, func(w io.Writer) { s.reportMCPCalls(w, reply) })
+		s.harnessBlock(screen, func(w io.Writer) { s.reportRunReads(w, reply) })
+		s.harnessBlock(screen, func(w io.Writer) { s.reportHealthReads(w, reply) })
+		s.harnessBlock(screen, func(w io.Writer) { s.reportRecoveries(w, reply) })
 		// What it put into its own memory, because a memory enters every later turn
 		// and one the operator was never told about is agent state they cannot see.
-		s.reportMemories(out, reply)
-		s.reportCompactionSaves(out, reply)
+		s.harnessBlock(screen, func(w io.Writer) { s.reportMemories(w, reply) })
+		s.harnessBlock(screen, func(w io.Writer) { s.reportCompactionSaves(w, reply) })
 		// What became of its lane report, because a refused one leaves the report
 		// before it standing and the operator reading this has to know which.
-		s.reportLaneReport(out, reply)
+		s.harnessBlock(screen, func(w io.Writer) { s.reportLaneReport(w, reply) })
 		// What it asked the supervisor to restart, because a request is durable
 		// and shown on the standing, and the operator should hear it from here
 		// first rather than find it there.
-		s.reportRestart(out, reply)
+		s.harnessBlock(screen, func(w io.Writer) { s.reportRestart(w, reply) })
 		// What its post-mortems counted and filed, because a report filed for it
 		// is on the pile like any other.
-		s.reportStopCauses(out, reply)
+		s.harnessBlock(screen, func(w io.Writer) { s.reportStopCauses(w, reply) })
 		// What it asked a program manager instance for, because the request is
 		// durable and the pass it asks for runs at the scheduler's next pull.
-		s.reportPassRequest(out, reply)
+		s.harnessBlock(screen, func(w io.Writer) { s.reportPassRequest(w, reply) })
 		// What it wrote down about the operator's own hand, because the record is
 		// of him and he should hear it from here first.
-		s.reportObserved(out, reply)
+		s.harnessBlock(screen, func(w io.Writer) { s.reportObserved(w, reply) })
 		// That the record holds only part of what was just said, because the
 		// operator read it whole and would otherwise take the record to hold it.
 		reportRecordCuts(out, reply)
@@ -3924,12 +3932,12 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// about it, where it did anything: a re-read the operator never asked for
 		// is a re-read they have to be told about, and a re-read that could not be
 		// made is why the reply above carries its own age.
-		s.reportPicture(out, reply)
-		s.reportEvaluation(out, reply)
+		s.harnessBlock(screen, func(w io.Writer) { s.reportPicture(w, reply) })
+		s.harnessBlock(screen, func(w io.Writer) { s.reportEvaluation(w, reply) })
 		// What one role asked another is reported beside it, for the same reason
 		// and one more: an exchange nobody is told about is exactly the side
 		// conversation this channel exists not to be.
-		s.reportExchanges(out, reply)
+		s.harnessBlock(screen, func(w io.Writer) { s.reportExchanges(w, reply) })
 		// That the harness, not the role, ended the answer, because an answer cut
 		// short reads as one the role finished otherwise.
 		if reply.Stopped != "" {
@@ -3939,7 +3947,7 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// it is about to ask about, so the operator reads what already happened
 		// first and is not answering a prompt while unaware of it.
 		s.reportAdmitted(out, reply)
-		reportFiled(out, s.theme, s.state.Role, reply, s.RenderReply)
+		s.harnessBlock(screen, func(w io.Writer) { reportFiled(w, s.theme, s.state.Role, reply, s.RenderReply) })
 		// What the product manager would not propose is put to the operator before
 		// anything else about the turn is settled, including a turn that went on to
 		// fail: a question it declined to answer for itself is the one thing here
@@ -4236,6 +4244,11 @@ func (s *Session) composeDuringTurn(ctx context.Context, screen console.Console,
 			}
 			continue
 		}
+		// Shown at once, beside the turn, as a command typed there is answered.
+		if errors.Is(err, console.ErrExpand) {
+			s.showShortened(screen)
+			continue
+		}
 		if err != nil {
 			// The answer arrived, the input ended, or the conversation was
 			// cancelled. Only the first leaves anything to do, and it is done once
@@ -4436,6 +4449,12 @@ func (s *Session) await(ctx context.Context, screen console.Console, read func(i
 		s.reportFinishedWork(harness)
 		answer, err := read(s.attention())
 		if errors.Is(err, console.ErrInterrupted) {
+			continue
+		}
+		// The operator asked to see what was shortened, and goes on typing what
+		// they were typing once it is shown.
+		if errors.Is(err, console.ErrExpand) {
+			s.showShortened(screen)
 			continue
 		}
 		return answer, err

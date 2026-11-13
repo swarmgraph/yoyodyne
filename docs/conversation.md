@@ -3607,6 +3607,16 @@ arrive as Esc. Ctrl-C is read as a key only while yoyo is reading the keyboard
 interrupts as it always did, so a wait for another process to finish its turn
 still ends on it.
 
+What the harness prints after an answer — the tracker actions it carried out,
+what it read, what the role reported — is shown shortened on a terminal, as
+Claude Code shows a tool's output. A block of more than eight lines is shown as
+its first five and a line such as `… 23 more lines; press Ctrl-O to show them
+in full`. Ctrl-O, at the prompt or while a turn is being answered, writes every
+block shortened after the last answer in full, and leaves what you are typing as
+it was. The answer itself is never shortened, nor is the account of work
+admitted to the queue without asking you, and a conversation held over a stream
+that is not a terminal is printed in full as it always was.
+
 Ctrl-Z still stops the conversation. A terminal that has agreed to report
 shift-return stops raising the signal keys itself, so yoyo raises what it
 reports — to the same process group the terminal would have. The keyboard is handed back exactly as it was
