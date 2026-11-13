@@ -995,3 +995,72 @@ type knownLimit struct{ says string }
 func (k knownLimit) KnownLimited(string, string, time.Time) (KnownLimit, bool, error) {
 	return KnownLimit{Says: k.says}, true, nil
 }
+
+// TestARelaunchedQueueCheckIsHeldToItsConfiguredLimit is a candidate's check
+// that runs out of time, set aside, and launched again on the queue's next
+// pass: the second launch is given the same execution.check_timeout as the
+// first, stopped when it reaches it, and recorded as stopped at its limit in
+// the same words. The check here would run for a minute and its limit is one
+// second, so a launch that escaped its limit would hold the test for the whole
+// minute instead.
+func TestARelaunchedQueueCheckIsHeldToItsConfiguredLimit(t *testing.T) {
+	t.Parallel()
+
+	const limit = time.Second
+	const slow = "sleep 60"
+	f := newQueueFixture(t)
+	f.worker.Pipeline.Config.Checks = []string{queueChecks[0], slow}
+	runner, ok := f.checks.runner.(checks.Runner)
+	if !ok {
+		t.Fatalf("the fixture's check runner is %T, want checks.Runner", f.checks.runner)
+	}
+	runner.Timeout = limit
+	f.checks.runner = runner
+	var mu sync.Mutex
+	var launches []checks.Result
+	f.checks.finished = func(_ int, result checks.Result) {
+		if result.Command == slow {
+			mu.Lock()
+			launches = append(launches, result)
+			mu.Unlock()
+		}
+	}
+	says := "and was stopped at its own 1s execution.check_timeout limit, and judged nothing"
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		began := time.Now()
+		verification, err := f.restart()
+		if err != nil || verification.Verified {
+			t.Fatalf("attempt %d: Work() = %#v, %v; want a check stopped at its limit, which earns nothing", attempt, verification, err)
+		}
+		if took := time.Since(began); took > 30*time.Second {
+			t.Fatalf("attempt %d took %s; a check held to its %s limit ends long before that", attempt, took, limit)
+		}
+		recorded := f.generations()[0]
+		if recorded.CheckRun == nil || !strings.Contains(recorded.CheckRun.Problem, slow) || !strings.Contains(recorded.CheckRun.Problem, says) {
+			t.Fatalf("attempt %d: checks = %#v, want %q recorded as stopped at its limit: %q", attempt, recorded.CheckRun, slow, says)
+		}
+	}
+
+	// The second pass set the first attempt aside and launched only the check
+	// that had not passed, under the same limit.
+	if ran := f.checks.ran(); len(ran) != 2 || !slices.Equal(ran[1], []string{slow}) {
+		t.Fatalf("checks asked for %v, want the whole list and then only %q", ran, slow)
+	}
+	if interrupted := f.generations()[0].Interruptions; len(interrupted) != 1 || !strings.Contains(interrupted[0].Problem, says) {
+		t.Fatalf("interruptions = %#v, want the first launch set aside as stopped at its limit", interrupted)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(launches) != 2 {
+		t.Fatalf("%q launched %d times, want 2", slow, len(launches))
+	}
+	for i, result := range launches {
+		if result.Process.Status != execution.ProcessTimedOut || result.Timeout != limit || result.Limit != limit || result.LimitOf != checks.LimitOfCheck {
+			t.Errorf("launch %d = status %s, timeout %s, limit %s of %q; want stopped at its own %s limit", i+1, result.Process.Status, result.Timeout, result.Limit, result.LimitOf, limit)
+		}
+		if elapsed := result.Elapsed(); elapsed < limit || elapsed > 20*time.Second {
+			t.Errorf("launch %d ran for %s, want it stopped at its %s limit", i+1, elapsed, limit)
+		}
+	}
+}
