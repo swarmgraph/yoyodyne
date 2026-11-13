@@ -1072,6 +1072,10 @@ type Scheduler struct {
 	// injected apart from Sleep because it is raced against the run rather than
 	// waited out whole, and defaults to a timer.
 	Interval func(interval time.Duration) <-chan time.Time
+	// MergeQueueAgain is how long a merge queue pass that ended waiting waits
+	// before it goes round again on its own, without waiting for the next pull
+	// (mergeQueuePasses.work). Zero is mergeQueueAgainEvery; a test shortens it.
+	MergeQueueAgain time.Duration
 	// Now stamps the recorded transitions. It defaults to the wall clock.
 	Now func() time.Time
 	// FollowUps is the check runner, whose round each poll runs before any hold
@@ -1656,6 +1660,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// queuePasses is the merge queue passes in flight, one per queue, worked
 	// beside the pull as the firings are and collected the same way.
 	queuePasses := newMergeQueuePasses(session.passingBeside(ctx))
+	queuePasses.again = s.MergeQueueAgain
 	defer queuePasses.cancel()
 	// tried is every item this pass has already started, against the item as it
 	// read at the time and what became of the start. A drain never looks at that
@@ -2398,6 +2403,9 @@ pulling:
 				}
 			case replaced:
 				drain.begin(s.now())
+				// A pass going round on its own stops at its next turn, so the
+				// restart is not held for a queue waiting on the forge.
+				queuePasses.settle()
 				schedule.Drain = &ScheduleDrain{Since: drain.since, Bound: drain.limit}
 				session.draining(drain.record(running))
 				session.note(drain.found(running), running)
@@ -4026,6 +4034,9 @@ collecting:
 		queuePasses.cancel()
 	}
 	s.collectFirings(&schedule, firings, &cadence, true)
+	// A queue pass going round on its own ends at its next turn rather than
+	// going round for as long as its queue waits.
+	queuePasses.settle()
 	s.collectQueuePasses(&schedule, queuePasses, true)
 	drain.stop()
 	// The last line, and whether it is an ending. A session stopping to be
