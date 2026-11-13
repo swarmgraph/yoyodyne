@@ -99,7 +99,7 @@ printf '%s\n' '{"type":"result","subtype":"success","session_id":"claude-fixture
 						message = "request-fallback"
 					}
 					if scheduled {
-						trigger := roleConversation{open: func(context.Context, domain.AgentRole, string, string, orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
+						trigger := roleConversation{open: func(context.Context, func() context.Context, domain.AgentRole, string, string, orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 							return session, nil, nil, nil
 						}}
 						turn, err := trigger.Wake(context.Background(), role, string(role), "fixture-pass", "", message, orchestrator.RecurringTurnOptions{})
@@ -278,7 +278,7 @@ printf '%s\n' '{"type":"result","subtype":"success","session_id":"claude-fixture
 			runner := &providerFixtureRunner{}
 			session, limits := openFixtureSession(t, cfg, domain.RoleArchitect, runner, t.TempDir())
 			if scheduled {
-				trigger := roleConversation{open: func(context.Context, domain.AgentRole, string, string, orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
+				trigger := roleConversation{open: func(context.Context, func() context.Context, domain.AgentRole, string, string, orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 					return session, nil, nil, nil
 				}}
 				turn, err := trigger.Wake(context.Background(), domain.RoleArchitect, "architect", "fixture-pass", "", "ping", orchestrator.RecurringTurnOptions{})

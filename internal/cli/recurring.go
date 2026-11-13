@@ -565,11 +565,17 @@ type roleConversation struct {
 	stderr io.Writer
 	// open is how the conversation is opened for a turn, and nil for every
 	// trigger but a test's: production prepares and opens the operator's own
-	// conversation with the task's model, waiting for its hold within the bound.
-	open func(ctx context.Context, role domain.AgentRole, agent, model string, options orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error)
-	// timeout is a test's shorter bound; production shares the conversation's
-	// turn bound, including the time spent waiting for its hold.
+	// conversation with the task's model, waiting for its hold within the wait's
+	// bound. ctx bounds the wait; running is called once the hold is taken and
+	// returns the context the rest of the turn runs under, whose time limit
+	// starts then. An opener that never calls it is taken to have begun running
+	// when it returned.
+	open func(ctx context.Context, running func() context.Context, role domain.AgentRole, agent, model string, options orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error)
+	// timeout is a test's shorter bound on a turn's running; production uses
+	// the woken agent's turn limit. wait is a test's shorter bound on the wait
+	// for the conversation; production uses the agent's message limit.
 	timeout time.Duration
+	wait    time.Duration
 	// config is the configuration the trigger was built from, read for the
 	// woken agent's turn limit.
 	config config.Config
@@ -602,13 +608,31 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 	if bound <= 0 {
 		bound = r.turnLimit(role, agent)
 	}
-	ctx, cancel := context.WithTimeout(ctx, bound)
-	defer cancel()
-	session, lease, replacement, err := r.opener()(ctx, role, agent, model, options)
+	waitBound := r.wait
+	if waitBound <= 0 {
+		waitBound = r.waitLimit(role, agent)
+	}
+	// The turn's time limit starts once the turn holds the conversation, not
+	// when it is asked for: a pass queued behind the operator or another
+	// process's turn in the same conversation would otherwise spend its own
+	// limit waiting and fail on its first turn having done nothing. The wait has
+	// a bound of its own, the agent's message limit, which the configuration
+	// holds longer than its turn limit, so a conversation nobody lets go of
+	// still ends the wait, as a missed pass (passNotOpened).
+	asked := time.Now()
+	waitCtx, cancelWait := context.WithTimeout(ctx, waitBound)
+	defer cancelWait()
+	running := startRunning(ctx, bound, asked)
+	defer func() { running.stop() }()
+	session, lease, replacement, err := r.opener()(waitCtx, running.begin, role, agent, model, options)
 	if err != nil {
-		return orchestrator.Turn{}, passNotOpened(err)
+		running.begin()
+		return orchestrator.Turn{Waited: running.waited}, passNotOpened(err)
 	}
 	defer lease.Release()
+	// An opener that never said when its wait ended — a test's — started
+	// running when it returned.
+	ctx = running.begin()
 	session.ForPass(pass)
 	// The stopped runs the pass was handed are the only ones its post-mortems
 	// may count.
@@ -628,6 +652,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 	// and the provider charged for it exactly as it charges for one that answered.
 	evidence := session.Evidence()
 	turn := orchestrator.Turn{
+		Waited:            running.waited,
 		FailureOutput:     session.FailureOutput(),
 		Replacement:       replacement,
 		ConversationID:    evidence.ConversationID,
@@ -802,6 +827,34 @@ func passNotOpened(err error) error {
 	return &orchestrator.NotStartedError{Cause: runstate.PreTurnConversationUnopened, Err: unreachable}
 }
 
+// turnRunning is one turn's running time: the context its work runs under,
+// whose time limit starts the first time begin is called, and how long the
+// turn waited before that. begin is called once the turn holds its
+// conversation, and again by Wake for an opener that never called it; every
+// call after the first returns the same context.
+type turnRunning struct {
+	begin  func() context.Context
+	stop   func()
+	waited time.Duration
+}
+
+// startRunning is a turn's running time, asked for at asked and bounded by
+// bound from whenever begin is first called.
+func startRunning(parent context.Context, bound time.Duration, asked time.Time) *turnRunning {
+	running := &turnRunning{stop: func() {}}
+	var ctx context.Context
+	running.begin = func() context.Context {
+		if ctx == nil {
+			running.waited = max(time.Since(asked), 0)
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(parent, bound)
+			running.stop = cancel
+		}
+		return ctx
+	}
+	return running
+}
+
 // turnLimit is the woken agent's configured turn limit, which is the harness's
 // figure for an agent that states none and for one the configuration does not
 // name, whose opening is refused on its own account.
@@ -812,11 +865,23 @@ func (r roleConversation) turnLimit(role domain.AgentRole, agent string) time.Du
 	return chat.DefaultTurnTimeout
 }
 
-func (r roleConversation) opener() func(context.Context, domain.AgentRole, string, string, orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
+// waitLimit bounds how long a woken agent's turn may wait for its conversation
+// to be free: the agent's message limit, which the configuration refuses unless
+// it is longer than the turn limit, so a pass can wait out a whole turn of
+// somebody else's and still be taken. It is the harness's figure for an agent
+// the configuration does not name.
+func (r roleConversation) waitLimit(role domain.AgentRole, agent string) time.Duration {
+	if _, configured, err := conversationAgent(r.config, role, agent); err == nil {
+		return configured.TimeLimits.MessageLimit()
+	}
+	return config.DefaultMessageTimeLimit
+}
+
+func (r roleConversation) opener() func(context.Context, func() context.Context, domain.AgentRole, string, string, orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 	if r.open != nil {
 		return r.open
 	}
-	return func(ctx context.Context, role domain.AgentRole, agent, model string, options orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
+	return func(ctx context.Context, running func() context.Context, role domain.AgentRole, agent, model string, options orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 		prepared, err := prepareChat(ctx, role, agent, r.configPath, r.errors())
 		if err != nil {
 			return nil, nil, nil, err
@@ -831,6 +896,8 @@ func (r roleConversation) opener() func(context.Context, domain.AgentRole, strin
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		// The conversation is held, so the turn's time limit starts here.
+		ctx = running()
 		replacement, err := recurringReplacement(prepared.store, prepared.identity, options)
 		if err != nil {
 			return nil, nil, nil, errors.Join(err, hold.Release())
@@ -1068,6 +1135,12 @@ func renderSweep(recorded runstate.Sweep) string {
 	if waited, known := recorded.Waited(); known && recorded.Missed == nil {
 		fmt.Fprintf(&rendered, "  fell due at %s and waited %s before it was taken\n",
 			recorded.DueAt.UTC().Format(time.RFC3339), waited.Round(time.Second))
+	}
+	// And, apart from that, how long it waited for its conversation once taken
+	// and how long it ran: only the running counts against a turn's time limit.
+	if recorded.ConversationWait > 0 || recorded.Ran > 0 {
+		fmt.Fprintf(&rendered, "  waited %s for its conversation to be free, then ran %s\n",
+			recorded.ConversationWait.Round(time.Second), recorded.Ran.Round(time.Second))
 	}
 	// A summoned pass is said as one before anything it found: it is the pass
 	// that ran because the line stopped, and a reader scanning the log for why

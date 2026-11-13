@@ -8399,6 +8399,16 @@ so a wait of more than a poll or two on a busy cadence is the thing to look at.
 A task's first pass, a summoned pass, and one recorded before passes carried it
 say nothing about waiting.
 
+Once taken, a pass may still wait for its role's conversation to be free — the
+operator mid-turn in it, or another process taking a turn there. The pass says
+that wait and its running time as two figures —
+`waited 16m0s for its conversation to be free, then ran 9m12s` — and `--json`
+carries them as `conversation_wait` and `ran`, in nanoseconds. A turn's time
+limit starts once the turn holds the conversation, so only the running counts
+against it; the wait is bounded by the agent's message limit instead, and a
+pass whose wait reaches that is recorded as missed rather than failed. A pass recorded
+before passes carried these says neither.
+
 A pass handed the work waiting in its role's conversation says under its header
 what it was handed, in the order it was handed it, with each item's priority and
 whether it was taken — `handed 4 items of the work waiting in the architect's

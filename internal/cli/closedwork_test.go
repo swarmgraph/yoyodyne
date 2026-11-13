@@ -123,7 +123,7 @@ func TestASweepOverClosedWorkThatBreaksAStandingGoalAdmitsAPriorityZeroCorrectio
 		Statement: plainLanguageGoal, ArtifactID: "v1-goals", Path: "docs/product/goals/v1-goals.md",
 		InForce: true, Approval: artifact.ApprovalApproved,
 	}}}
-	open := func(_ context.Context, role domain.AgentRole, _, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
+	open := func(_ context.Context, _ func() context.Context, role domain.AgentRole, _, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 		session, err := chat.Open(chat.Options{
 			Role:         role,
 			Agent:        "product-manager",

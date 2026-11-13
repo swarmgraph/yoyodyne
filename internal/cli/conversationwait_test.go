@@ -114,7 +114,7 @@ func TestAProviderWaitLetsAScheduledPassRunAndPreservesItsTurn(t *testing.T) {
 			trigger := orchestrator.Trigger{
 				Tasks:  map[string]config.RecurringTask{"manager-pass": {Role: identity.Role, Every: config.Duration(time.Hour), Enabled: true, Prompt: "look at the docket"}},
 				Claims: sweeps, Reports: sweeps, Clock: clock,
-				Roles: roleConversation{open: func(ctx context.Context, _ domain.AgentRole, _, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
+				Roles: roleConversation{open: func(ctx context.Context, _ func() context.Context, _ domain.AgentRole, _, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 					passHold, err := conversations.Claim(ctx, identity)
 					if err != nil {
 						return nil, nil, nil, err
@@ -265,7 +265,7 @@ func TestAScheduledPassBehindAHeldConversationIsMissedRatherThanFailed(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			roles := roleConversation{timeout: 10 * time.Millisecond, open: func(ctx context.Context, _ domain.AgentRole, _, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
+			roles := roleConversation{timeout: time.Minute, wait: 10 * time.Millisecond, open: func(ctx context.Context, _ func() context.Context, _ domain.AgentRole, _, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 				_, err := store.Claim(ctx, identity)
 				return nil, nil, nil, err
 			}}
@@ -309,5 +309,111 @@ func TestAScheduledPassBehindAHeldConversationIsMissedRatherThanFailed(t *testin
 				t.Fatalf("a program manager's miss read the forge: calls=%d, pass=%+v", forge.calls, pass)
 			}
 		})
+	}
+}
+
+// timedBackend answers one turn with a complete pass, after checking the turn
+// was handed a context with the whole of its time limit still ahead of it.
+type timedBackend struct {
+	limit     time.Duration
+	remaining time.Duration
+}
+
+func (b *timedBackend) Run(ctx context.Context, request backendapi.RunRequest) (backendapi.RunResult, error) {
+	if deadline, bounded := ctx.Deadline(); bounded {
+		b.remaining = time.Until(deadline)
+	}
+	if err := ctx.Err(); err != nil {
+		return backendapi.RunResult{}, err
+	}
+	result := backendapi.RunResult{SessionID: "session-pass", Backend: domain.BackendClaudeCode,
+		FinalText: "```yoyodyne-sweep\n" + `{"status":"complete","summary":"looked at the docket"}` + "\n```"}
+	result.Process.Status = execution.ProcessSucceeded
+	result.LastEvent = request.LastSequence + 1
+	event, err := execution.NewEvent(request.RunID, result.LastEvent, time.Now(), execution.EventAgentMessage,
+		"provider.test", map[string]any{"text": result.FinalText})
+	if err != nil {
+		return result, err
+	}
+	if request.EventSink != nil {
+		if err := request.EventSink(event); err != nil {
+			return result, err
+		}
+	}
+	return result, nil
+}
+
+// A pass that waits behind another turn in its conversation for longer than
+// its own time limit is not timed out by the wait: its limit starts once it
+// holds the conversation, so it completes, and its record says how long it
+// waited and how long it ran as two figures.
+func TestAPassThatWaitsLongerThanItsTimeLimitStillCompletes(t *testing.T) {
+	t.Parallel()
+	const limit = 2 * time.Second
+	const held = limit + limit/4
+	root := t.TempDir()
+	conversations, err := runstate.NewConversationStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := runstate.ConversationIdentity{Agent: "development-manager", Role: domain.RoleDevelopmentManager}
+	// Another turn holds the conversation for longer than the pass's limit.
+	other, err := conversations.Claim(context.Background(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := time.AfterFunc(held, func() { other.Release() })
+	defer released.Stop()
+	defer other.Release()
+	sweeps, err := runstate.NewSweepStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &timedBackend{limit: limit}
+	roles := roleConversation{timeout: limit, wait: time.Minute, open: func(ctx context.Context, running func() context.Context, _ domain.AgentRole, _, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
+		hold, err := conversations.Claim(ctx, identity)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		running()
+		session, err := chat.Open(chat.Options{
+			Role: identity.Role, Agent: identity.Agent, Backend: provider, Provider: domain.BackendClaudeCode,
+			AccountAlias: config.DefaultAccountAlias, Store: conversations, Hold: hold, Model: "fable",
+			Repository: root, ProductID: "yoyodyne", RepositoryID: "yoyodyne",
+			Briefing: chat.Briefing{Text: "A software delivery harness.", GatheredAt: time.Now()},
+		})
+		if err != nil {
+			return nil, nil, nil, errors.Join(err, hold.Release())
+		}
+		return session, hold, nil, nil
+	}}
+	trigger := orchestrator.Trigger{
+		Tasks:  map[string]config.RecurringTask{"manager-pass": {Role: identity.Role, Every: config.Duration(time.Hour), Enabled: true, Prompt: "look at the docket"}},
+		Claims: sweeps, Reports: sweeps, Roles: roles,
+	}
+	fired, err := trigger.Fire(context.Background())
+	if err != nil || len(fired.Fired) != 1 || fired.Fired[0].Turns != 1 {
+		t.Fatalf("Fire() = %+v, %v", fired, err)
+	}
+	recorded, unreadable, err := sweeps.List()
+	if err != nil || len(recorded) != 1 || len(unreadable) != 0 {
+		t.Fatalf("List() = %+v, unreadable=%+v, %v", recorded, unreadable, err)
+	}
+	pass := recorded[0]
+	if pass.Failed || pass.Missed != nil || pass.NotStarted != "" || pass.Result == nil || pass.Result.Status != "complete" {
+		t.Fatalf("a pass that waited behind another turn was not recorded as completed: %+v", pass)
+	}
+	// The provider was handed nearly the whole limit, not what the wait left.
+	if provider.remaining < limit/2 {
+		t.Fatalf("the turn was handed %s of its %s limit after waiting", provider.remaining, limit)
+	}
+	if pass.ConversationWait < held-held/10 || pass.ConversationWait > pass.EndedAt.Sub(pass.StartedAt) {
+		t.Fatalf("the record says the pass waited %s, want about %s", pass.ConversationWait, held)
+	}
+	if pass.Ran <= 0 || pass.Ran >= limit || pass.Ran+pass.ConversationWait != pass.EndedAt.Sub(pass.StartedAt) {
+		t.Fatalf("the record says the pass ran %s after waiting %s, over %s in all", pass.Ran, pass.ConversationWait, pass.EndedAt.Sub(pass.StartedAt))
+	}
+	if rendered := renderSweep(pass); !strings.Contains(rendered, "for its conversation to be free, then ran") {
+		t.Fatalf("the listing does not say the wait and the running apart: %s", rendered)
 	}
 }
