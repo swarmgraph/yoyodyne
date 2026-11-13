@@ -61,7 +61,11 @@ binary at `../CodexCLI.app/Contents/MacOS/codex` (SHA-256
   `file_change`, and so on, with `item.started` beside them). None is recorded
   here. The parser reads the tool items by the names, fields, and statuses the
   codex-cli 0.164.0 executable declares for them (`../../parser.go`), so a
-  recording is what would confirm those shapes. An item of any other type is
+  recording is what would confirm those shapes. Among them is where a finished
+  command carries its output (`aggregated_output`), which the parser reports as
+  the size of what the command returned; a command whose item leaves it out is
+  reported with no size, and a review counts that read as unmeasured rather
+  than empty (`internal/review/reads.go`). An item of any other type is
   named as unrecognized and otherwise recorded and carried past, which matters to
   the turn's outcome only if the stream then ends with no terminal, and it is
   reported as tool use the harness could not see (`internal/tooluse`).
