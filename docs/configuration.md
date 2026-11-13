@@ -3873,9 +3873,13 @@ thirteen in the same order, and a test fails when the two lists differ:
    readable, and only the architect's removal of the label releases it; a run
    already going on the item carries on, and one you name is not held.
 7. **A hold** withholds an item whose stopped run left its change on a branch,
-   or whose publication did not finish, until the development manager's
-   decision is carried out, the escalation is answered, or `yoyo reconcile`
-   settles the publication.
+   or whose publication did not finish, or whose approved change is still in
+   the merge queue, until the development manager's decision is carried out,
+   the escalation is answered, `yoyo reconcile` settles the publication, or the
+   queue lands the change or records handing it back on the run. A queue entry
+   that was released but whose hand-back the run does not record still holds
+   the item, so its blocked status is never cleared as left over and no fresh
+   run starts beside the approved change.
 8. **A step only a person can take** withholds an item that declares a
    `human-gate:` nobody has recorded taking, and only a person's
    `yoyo gate record <name> --for <item>` releases it; closing an item never does.
