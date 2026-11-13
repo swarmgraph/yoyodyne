@@ -99,6 +99,11 @@ type Options struct {
 	// assembled without one reports and does not steer, and every reply on its
 	// connection is acknowledged to Slack and read no further.
 	Directives Directives
+	// SharedDirectives records a directive where the team's other factories also
+	// find it, and is set in team mode only. When it is set, a reply is recorded
+	// through it in place of Directives.Record, and is acknowledged once it is
+	// known whether the directive reached them.
+	SharedDirectives SharedDirectives
 	// Standing is where the harness stands, as the read model derives it. The
 	// sink reads it for two things the feed does not: answering somebody who
 	// asked, in the channel, where things stand, and — for a reply settling what a

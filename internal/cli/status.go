@@ -775,6 +775,11 @@ func standingSources(configPath string) readmodel.Sources {
 	if store, err := runstate.NewReportStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Reports = store
 	}
+	// How many records are waiting to reach the team's shared remote, which only
+	// team mode writes.
+	if store, err := runstate.NewSharedRecordsStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.SharedRecords = store
+	}
 	// The record of hand steps and messages, for the count of the operator's
 	// interventions printed under the four lines.
 	if store, err := runstate.NewInterventionStore(stateRoot, cfg.Product.ID); err == nil {
