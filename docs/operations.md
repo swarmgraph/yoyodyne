@@ -819,7 +819,8 @@ target branch has moved past up to date, and reads the reviews and comments
 left on the rest. For a project that sets `execution.upstream_branch`, it also
 reads every pull request into the team's branch recorded with
 `yoyo pull-request track`, and closes, gives back, or adds items as that pull
-request merged, closed, or still carries them
+request merged, closed, or still carries them, and puts what people asked for on
+one still open on the development manager's list without starting anything
 ([waiting for the team's branch](configuration.md#waiting-for-the-teams-branch)).
 `yoyo reconcile` no longer reads these, so a maintenance pass that is slow, or
 keeps failing at one of its steps, never delays the check: a

@@ -989,6 +989,10 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		Feedback:    forge,
 		Reports:     reportsOf(parts),
 		RepairLimit: parts.config.Execution.RepairAttemptsBeforeReplan,
+		// A line comment on a tracked pull request into the team's branch names
+		// the items whose landing commits touched its file, read from the
+		// repository.
+		LandingPaths: parts.worktrees,
 	}
 }
 
