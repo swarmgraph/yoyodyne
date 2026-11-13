@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-11-10T06:56:57.220875Z
       reason: 'yoyodyne-ifd.435.59: adds section 8 on signing in to a remote server with OAuth: sign_in stated per url server, client id from configuration or self-registration only where offered, PKCE, a 127.0.0.1 listener for one answer, tokens stored only on success, where each token may go, renewal under a lock, a refused renewal told once under the credential reason, the command shown on status, doctor and the dashboard, and Slack''s case (the operator''s own internal app; the Claude Code Slack client as a stopgap declined). Section 1 names sign_in, section 5 drops the word the operating rule retires, build pieces 10 and 11 are added. Written from a read at main 78786b3a.'
+    - action: amended
+      by: architect
+      at: 2026-11-13T09:38:35.945083Z
+      reason: 'yoyodyne-ifd.435.64: Mason directed on November 9 that Slack calls post as him and that he register no Slack app. Slack gives a desktop client a user token only through a registered app, so while he has none, section 8 routes each Slack call through one Claude Code session the harness starts on his account''s approved Slack connector, for one call already checked and recorded, in an empty directory with only that tool on, posting only the harness''s own wording, with its output checked against the decided call. Declared as sign_in: connector, Slack only. Narrows the no-MCP-server invariant in that one way; the route (yoyodyne-ifd.435.60) is not integrated until the invariant''s own revision lands. Replaces the declined-alternative paragraph and line, the adapter line under what is enforced, and piece 10''s Slack check; adds piece 12. Written from a whole read at main ba7e1114.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -34,6 +38,11 @@ approvals:
       by: harness
       at: 2026-11-10T06:56:57.220875Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2551, for document-2551.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-13T09:38:35.945083Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2751, for document-2751.1 under the automatic approval policy
 ---
 # MCP tools through the harness
 
@@ -50,17 +59,19 @@ Mason's rule, kept whole:
 - an agent asks, and the harness checks the ask, makes the call, records who asked, what, and what came back, and hands the result back as data, never as instructions;
 - what an agent may use is set once in configuration, and no call is put to the operator.
 
+Section 8 narrows the first point in one way, for Slack only, and says why.
+
 ## What it rests on, and what was not read
 
-Read at commit 88bff330: [the tool interface](tool-interface.md), [portable agent configuration](portable-agent-configuration.md), the invariant [configuration never grants authority](../decisions/invariants/configuration-never-grants-authority.md), the guides on operators and on writing a configuration, and `go.mod`. Read as delivered in this conversation's briefing: [developer sub-agents](developer-sub-agents.md), [pinned outside files](pinned-outside-files.md), [project dependencies in runs](project-dependencies-in-runs.md), and the provider guide's section on unexpected tool calls. Read at commit 52f8379d, for the changes it asks of this design: [scheduled message intake](scheduled-message-intake.md). This design itself was read whole at commit 78786b3a before section 8 was added.
+Read at commit 88bff330: [the tool interface](tool-interface.md), [portable agent configuration](portable-agent-configuration.md), the invariant [configuration never grants authority](../decisions/invariants/configuration-never-grants-authority.md), the guides on operators and on writing a configuration, and `go.mod`. Read as delivered in this conversation's briefing: [developer sub-agents](developer-sub-agents.md), [pinned outside files](pinned-outside-files.md), [project dependencies in runs](project-dependencies-in-runs.md), and the provider guide's section on unexpected tool calls. Read at commit 52f8379d, for the changes it asks of this design: [scheduled message intake](scheduled-message-intake.md). This design itself was read whole at commit 78786b3a before section 8 was added, and at commit ba7e1114 before section 8's route for Slack was added.
 
 No code was read: not the conversation loop, the code that resumes a developer session, the adapters, or the secret stores. The official Go SDK for MCP was not read either. A build piece reads the code it changes first. Where that code does something this design does not account for, the piece stops and asks the architect.
 
-Section 8's facts about Slack were not read from Slack's documentation by the architect. They come from what the Lead Product Manager reported from that documentation on November 9, 2026: Slack offers no way for an app to register itself, and gives a user token to a desktop client only through an app registered with the workspace, with PKCE turned on. Build piece 10 confirms them first.
+Section 8's facts about Slack were not read from Slack's documentation by the architect. They come from what the Lead Product Manager reported from that documentation on November 9, 2026: Slack offers no way for an app to register itself, and gives a user token to a desktop client only through an app registered with the workspace, with PKCE turned on. Mason directed the same day that Slack calls post as him and that he register no Slack app. How a Claude Code session started from the command line reaches the Claude account's connectors, and how it can be limited to one tool, was not read either. Build piece 12 reads both first.
 
 ## The decision in one paragraph
 
-One package, `internal/mcpcall`, is the only code that speaks MCP. Everything reaches it through one function that takes a caller, a tool, and arguments. It checks the caller's list, records the ask, makes the call in the harness's own process, scrubs and bounds the result, records the outcome, and returns the result as untrusted data. A conversation role asks with a block in its reply. A developer asks by ending its turn with the same block and is resumed in the same session. A recurring task can be a caller too. No provider session ever sees a server. Where a remote server wants a person to sign in, the operator does it once at his own terminal, and the harness keeps and renews the tokens itself.
+One package, `internal/mcpcall`, is the only code that speaks MCP. Everything reaches it through one function that takes a caller, a tool, and arguments. It checks the caller's list, records the ask, makes the call in the harness's own process, scrubs and bounds the result, records the outcome, and returns the result as untrusted data. A conversation role asks with a block in its reply. A developer asks by ending its turn with the same block and is resumed in the same session. A recurring task can be a caller too. No role's provider session ever sees a server. The one exception is Slack while the operator has no Slack app: section 8 has the harness start a session of its own for one call it has already checked and recorded, limited to that one tool. Where a remote server wants a person to sign in, the operator does it once at his own terminal, and the harness keeps and renews the tokens itself.
 
 ## 1. The configuration
 
@@ -76,7 +87,7 @@ mcp:
         send: act
     tickets:
       url: https://mcp.example.com/  # a remote server
-      sign_in: token                 # or oauth; see section 8
+      sign_in: token                 # or oauth or connector; see section 8
       credential: file               # or keychain; never a path
       tools:
         list_open: read
@@ -87,7 +98,7 @@ agents:
 ```
 
 - **A server** has exactly one of `command` or `url`. A `url` must be https. Redirects stay on the same host, at most five, and a credential is never sent to any other host.
-- **A server with a `url` states `sign_in`,** either `token`, where the operator puts a token in the store himself, or `oauth`, where the harness signs in as section 8 says. One that states neither is refused when the configuration loads.
+- **A server with a `url` states `sign_in`,** one of `token`, where the operator puts a token in the store himself, `oauth`, where the harness signs in as section 8 says, or `connector`, where calls go through the Claude account's own connector for that service, as section 8 says for Slack. `connector` is accepted only for Slack's address in the first build, and such a server names no `credential`. One that states none of these is refused when the configuration loads.
 - **`tools` names every tool of that server the project will ever use, each marked `read` or `act`.** `read` means the call changes nothing outside the harness; `act` means it may. The project states this, because what a server says about its own tools is untrusted. A tool the server offers and this list does not name cannot be called by anyone.
 - **`agents.<name>.mcp_tools` lists exact names, written as server and tool.** There are no wildcards, and the default is empty, so a project that says nothing has no MCP calls at all.
 - **Credentials are named by store and never by path.** `credential` is `keychain`, the item `yoyo-mcp.<product id>.<server>` under the account `yoyo`, or `file`, `<server>.token` under the project's state directory in `mcp/`, readable only by the user the harness runs as. This follows `dashboard_token`. A free path was rejected because one line of configuration could then send any file on the machine to a remote server.
@@ -207,11 +218,11 @@ The reviewer holds no MCP tools. A call could change something, and a second cal
 ## 6. Grants and the unexpected tool use check
 
 - `mcp.read` and `mcp.act` are rows in the role bundles, the authority inventory, and the tool registry. `yoyo config show` reports each agent's `mcp_tools` beside its capabilities.
-- Calls the harness makes appear in no provider stream, so the check on unexpected tool use neither sees nor counts them. They are recorded as tools are, with `tool.requested`, then `tool.performed` or `tool.refused`, on the conversation, the pass, or the run.
-- An MCP call seen in a provider's own stream stays what it is today: access no role was launched with, filed as a critical report. That report now means the rule below was broken.
+- Calls the harness makes appear in no role's provider stream, so the check on unexpected tool use neither sees nor counts them. They are recorded as tools are, with `tool.requested`, then `tool.performed` or `tool.refused`, on the conversation, the pass, or the run.
+- An MCP call seen in a role's own provider stream stays what it is today: access no role was launched with, filed as a critical report. That report now means the rule below was broken. The session section 8 starts for Slack is not a role's session; its one call is checked as section 8 says.
 - Every adapter launches every role with no MCP server, whatever the `mcp` section says. A test launches each role on each provider with servers configured and credentials stored, and finds no server, connector or credential in its arguments, environment or home. That test depends on the Codex developer fix (yoyodyne-ifd.435.39).
 
-**An invariant is warranted.** A correct change to an adapter could turn a server on and break this rule from outside this design. It is recorded separately, as: no agent session holds an MCP server, a connector, or its credentials, and every MCP call is made by the harness's one package, checked against the caller's configured list and recorded.
+**An invariant is warranted.** A correct change to an adapter could turn a server on and break this rule from outside this design. It is recorded separately, as: no agent session holds an MCP server, a connector, or its credentials, and every MCP call is made by the harness's one package, checked against the caller's configured list and recorded. Section 8's route for Slack narrows it, and the invariant's own revision says so before that route is integrated.
 
 ## 7. A call on a schedule
 
@@ -227,7 +238,7 @@ Many remote servers want a person to sign in through a web page rather than be h
 
 - `client_id`: the identity of an app the operator registered with the service. A client id is public, so it may be written in configuration. A client secret is never used and never written there.
 - `scopes`: the permissions asked for. Where absent, the server's published default is asked for.
-- `redirect_port`: a fixed port on this machine where the answer arrives, for services that check that address exactly, as Slack does. Where absent, the system picks a free port.
+- `redirect_port`: a fixed port on this machine where the answer arrives, for services that check that address exactly. Where absent, the system picks a free port.
 
 ```yaml
 mcp:
@@ -262,9 +273,20 @@ mcp:
 
 **Telling the operator.** `yoyo status`, `yoyo doctor` and the dashboard show a server that needs signing in, with the one command to run. The dashboard offers it as a button that starts the same signing in on this machine. Slack never carries a link for signing in, because a link there can be followed from another machine, or by another person.
 
-**Slack.** Slack offers no way for an app to register itself, and gives a user token to a desktop client only through an app registered with the workspace, with PKCE turned on. So for Slack the operator registers one internal app, once: it asks for user permissions only, has PKCE turned on, and has one fixed address on this machine for the answer. Its client id goes in the configuration. Until his workspace approves the app, calls to Slack are refused under the reason `credential`, and status says what is missing; nothing else stops.
+**Slack.** Slack offers no way for an app to register itself, and gives a user token to a desktop client only through an app registered with the workspace, with PKCE turned on. Mason directed on November 9, 2026 that calls to Slack post as him and that he register no Slack app. With no app there is no token the harness can hold for him, so the harness cannot call Slack as section 4 calls every other server. For as long as he has no app, Slack takes one route of its own, declared with `sign_in: connector`:
 
-Using Claude Code's own Slack client in the meantime was considered and declined. It would put a model between the call the harness decided on and the call actually made, cost a provider call for every Slack call, and break the rule that no agent session holds an MCP server, the rule Mason's direction of November 6 exists to keep. If the workspace refuses the app outright, rather than taking time, that choice is weighed again as a change to that rule with an end date, never as a quiet exception.
+- The harness starts one Claude Code session for each Slack call, on the operator's Claude account, whose Slack connector his workspace has already approved. No role asks for this session, and it is no role's session.
+- The call has already passed every check in sections 1 to 4 and been recorded, as any call is, before the session starts. The session makes the call `internal/mcpcall` decided, and nothing else.
+- The session runs in an empty directory, with no repository and no files, and with every tool and connector off but the one Slack tool the call names.
+- Its instructions are fixed in code. The call's arguments are passed to it as data, never as instructions.
+- A call that posts carries only wording the harness wrote, with links. No model writes what is posted.
+- The harness reads the session's output. Unless it shows exactly the decided call, with the decided arguments and no other call, the call is recorded as failed and a critical report is filed naming it.
+- Where the harness cannot tell whether a posting call happened, the outcome is unknown and the call is never made again, as section 4 says of every `act` call.
+- Each call costs one provider call, counted to the caller like any other.
+
+This narrows the first point of Mason's rule of November 6, and the invariant that keeps it, [no agent session holds an MCP server](../decisions/invariants/no-agent-session-holds-an-mcp-server.md), in this one way only: a session the harness starts, for one call it has already decided and recorded, limited to that one tool. It is narrowed because his direction of November 9 leaves no other way to post as him. The invariant's own revision says so, and the route (yoyodyne-ifd.435.60) is not integrated until that revision has landed.
+
+If Mason later registers a Slack app, Slack is signed in to with `sign_in: oauth` as above, the app's client id goes in the configuration, and this route is removed.
 
 ## Risks accepted, stated plainly
 
@@ -272,8 +294,9 @@ Using Claude Code's own Slack client in the meantime was considered and declined
 - **A result goes to the AI provider** serving that role, and is kept in that conversation's or run's records.
 - **Text in a result can try to steer an agent.** Framing it as data lowers this and cannot remove it. Read tools alone for developers and scheduled callers are what limit the harm.
 - **A role could copy a private result into the tracker,** whose export is in the repository. Role instructions say never to. The harness cannot tell, so this is left to instruction and is not enforced.
-- **The claude.ai account's connectors are not reused.** Each service needs its own server and login, set up once.
+- **The claude.ai account's connectors are not reused,** except Slack's, through section 8's route. Each other service needs its own server and login, set up once.
 - **A stored refresh token is a lasting key to the service.** It sits in the keychain or a file only the harness's user can read, as every credential here does. Anyone who can act as that user can use it.
+- **A model stands between the decided Slack call and the call made.** Section 8 limits the session to one tool and checks its output against the decided call, so a different call is caught and recorded as failed; it is not prevented before it happens.
 
 ## Alternatives rejected
 
@@ -286,12 +309,14 @@ Using Claude Code's own Slack client in the meantime was considered and declined
 - **Asking the operator before each `act` call.** Mason ruled it out, and the autonomy goal does too.
 - **Assuming every service lets a client register itself.** Slack does not, and a design that assumed it would leave the operator with an error and no setting to fix it.
 - **Sending a link for signing in by Slack.** It could be followed from another machine, where nothing is listening, or by somebody else.
-- **Claude Code's own Slack client until an app is approved.** See section 8.
+- **A Slack app registered for the harness, so it holds a token itself.** Mason ruled it out on November 9. It stays the route to return to if he registers one, as section 8 says.
+- **A role's own session using its Slack connector.** The model would choose what is called and what is posted. Section 8's route keeps both with the harness and checks that the session made exactly that call.
 
 ## Documents this changes
 
 - [The tool interface](tool-interface.md): its deferred line on operator tools gains this design as the answer for MCP, with the command coming from the operator's own file, as research's does.
 - [Portable agent configuration](portable-agent-configuration.md): section 6's refused list names `mcp` and `mcp_tools`.
+- The invariant [no agent session holds an MCP server](../decisions/invariants/no-agent-session-holds-an-mcp-server.md): narrowed for section 8's Slack route, in its own revision, before piece 12 is integrated.
 - The operator's guides gain the setup, under build piece 7, and signing in, under build piece 11.
 
 ## Build pieces, for the Lead Product Manager to admit
@@ -304,16 +329,17 @@ Using Claude Code's own Slack client in the meantime was considered and declined
 6. **The reviewer's evidence.** The call records in the review, within their share. Needs 5.
 7. **Surfaces and guides.** `yoyo mcp calls`, counts through the read model on `yoyo status` and the dashboard with no content, the note on a changed listing, and the setup guide. Needs 3.
 8. **Containment.** The test across every role and provider in section 6. Needs yoyodyne-ifd.435.39.
-9. **The first real server.** The development manager tries one read tool end to end from a conversation and from a developer run, and records what happened. The operator's only part is the login, once.
-10. **Signing in and keeping the tokens.** `sign_in` and its refusal at load, `client_id`, `scopes` and `redirect_port`, registering with the service only where its published details allow it, the 127.0.0.1 listener with its one answer and ten minutes, the state check, writing tokens only on success, and where each token may be sent, tested against a fake service in the repository that issues tokens. It first confirms, from Slack's documentation and one real attempt by the operator, that Slack accepts an answer address on 127.0.0.1 at a fixed port; where it does not, the piece stops and asks the architect. Needs 1 and 2.
+9. **The first real server.** The development manager tries one read tool end to end from a conversation and from a developer run, and records what happened. The operator's only part is the login, once. It may use Slack's search through section 8's route once piece 12 has landed.
+10. **Signing in and keeping the tokens.** `sign_in` and its refusal at load, `client_id`, `scopes` and `redirect_port`, registering with the service only where its published details allow it, the 127.0.0.1 listener with its one answer and ten minutes, the state check, writing tokens only on success, and where each token may be sent, tested against a fake service in the repository that issues tokens. Needs 1 and 2.
 11. **Renewal and what the surfaces show.** Renewal under a lock, refresh tokens issued anew on each renewal, tokens that never expire, a refused renewal told once under the reason `credential`, a network failure naming nobody, the command on `yoyo status`, `yoyo doctor` and the dashboard with the dashboard's button, and the guide on signing in. Needs 10 and 7.
+12. **The Slack route.** `sign_in: connector`, accepted only for Slack's address; one Claude Code session on the operator's account for each checked and recorded call, in an empty directory, with only the named Slack tool on, fixed instructions and the arguments as data; posting only the harness's own wording and links; reading the session's output, and recording a failure and filing a critical report where it shows anything but the decided call; never repeating a call whose outcome is unknown; counting the provider call. It first reads how a Claude Code session started from the command line reaches the account's connectors and how it is limited to one tool; where it cannot be limited as section 8 says, it stops and asks the architect. Built under yoyodyne-ifd.435.60. Needs 3, and is not integrated until the invariant's revision has landed.
 
-Pieces 1 and 2 can start at once and side by side. Pieces 4, 5 and 7 can go side by side after 3, and 10 can go beside them. The two exceptions in section 4, the message reader's row, and launching a run started from a message with no MCP tools are built under the intake design's own pieces.
+Pieces 1 and 2 can start at once and side by side. Pieces 4, 5 and 7 can go side by side after 3, and 10 and 12 can go beside them. The two exceptions in section 4, the message reader's row, and launching a run started from a message with no MCP tools are built under the intake design's own pieces.
 
 ## What is enforced in code
 
 - Only `internal/mcpcall` speaks MCP.
-- No adapter gives a session a server, a connector, or a credential.
+- No adapter gives a role's session a server, a connector, or a credential. The one session section 8 starts for a Slack call has only the Slack tool that call names on.
 - Every call passes the caller's list, and no list names a tool whose class the caller may not hold.
 - A run of an item started from a message is launched with no MCP tools.
 - The class of a tool comes from the project's declaration, never from the server.
@@ -321,10 +347,11 @@ Pieces 1 and 2 can start at once and side by side. Pieces 4, 5 and 7 can go side
 - A record is written before each call and completed after it, and only ever added to.
 - An `act` call is never retried, and a repeat with the same `id` calls nothing.
 - Results are scrubbed, bounded, and framed as untrusted before they reach a prompt.
-- A server with a `url` that states no `sign_in` is refused at load.
+- A server with a `url` that states no `sign_in` is refused at load, and `sign_in: connector` for any address but Slack's is refused at load.
 - Signing in listens on 127.0.0.1 only, accepts one answer whose state value matches, and writes tokens only once the exchange succeeds.
 - The access token goes only to the server's host, and the refresh token only to the recorded https address that issues tokens.
 - Renewal holds a lock, and no link for signing in is sent to Slack.
+- A Slack call whose session's output shows anything but the decided call, with the decided arguments, is recorded as failed, and a critical report is filed.
 
 Left to role instructions: what to ask for, and not copying a private result into the tracker.
 
@@ -338,13 +365,14 @@ Left to role instructions: what to ask for, and not copying a private result int
 - A developer's ask spends no repair attempt, resumes the same session, and stops at its bounds.
 - A developer run of an item started from a message has no MCP tools, even where the agent's list names some.
 - A killed process leaves an `act` entry that reads as unknown, and calling again with that `id` calls nothing.
-- An MCP call in a provider's own stream files the critical report.
+- An MCP call in a role's own provider stream files the critical report.
 - The reviewer's evidence holds the record of each call, and its cuts are declared.
 - A scheduled caller makes a read call and is refused an `act` call.
 - An intake query's call appears on `yoyo mcp calls` with its size and digest and no content.
-- A server with a `url` and no `sign_in` is refused at load.
+- A server with a `url` and no `sign_in` is refused at load, and so is `sign_in: connector` for an address that is not Slack's.
 - With no `client_id` and no self-registration offered, signing in stops under the reason `credential`, naming the setting.
 - Signing in that is interrupted, times out, or receives a wrong state value stores nothing and leaves earlier tokens untouched.
 - Two calls that find an expired token at once renew it once.
 - A refused renewal refuses calls to that server under the reason `credential`, tells the operator once, and stops nothing else.
 - No Slack message the harness sends carries a link for signing in.
+- A Slack call is made only after its record is written, through a session started in an empty directory with only the named Slack tool on; it posts only the harness's own wording and links; and a session whose output shows another call, or other arguments, records a failure and files the critical report.
