@@ -62,9 +62,9 @@ func TestTheVerbsThatRecordAPersonsDecisionRefuseAnAgentsProcess(t *testing.T) {
 		{[]string{"release", "--config", configPath}, "a person releases intake"},
 		{[]string{"role", "activate", "specialist", "--config", configPath}, "a person activates a role definition"},
 		{[]string{"artifact", "approve", "--config", configPath, "v1-goals", "--reason", "approved by a shell"}, "a person approves an artifact"},
-		{[]string{"gate", "record", "soak-reviewed", "--for", "yoyodyne-ifd.209.7", "--by", "Mason", "--did", "read the soak", "--config", configPath}, "a person records gates"},
-		{[]string{"gate", "record", "soak-reviewed", "--for", "yoyodyne-ifd.209.7", "--did", "read the soak", "--config", configPath}, "a person records gates"},
-		{[]string{"gate", "record", "soak-reviewed", "--for", "yoyodyne-ifd.209.7", "--did", "read the soak", "--config", filepath.Join(project, "missing.yaml")}, "a person records gates"},
+		{[]string{"gate", "record", "soak-reviewed", "--for", "yoyodyne-ifd.209.7", "--by", "Mason", "--did", "read the soak", "--config", configPath}, "a person records the steps only a person can take"},
+		{[]string{"gate", "record", "soak-reviewed", "--for", "yoyodyne-ifd.209.7", "--did", "read the soak", "--config", configPath}, "a person records the steps only a person can take"},
+		{[]string{"gate", "record", "soak-reviewed", "--for", "yoyodyne-ifd.209.7", "--did", "read the soak", "--config", filepath.Join(project, "missing.yaml")}, "a person records the steps only a person can take"},
 	} {
 		stdout, stderr, code := runCLI(t, verb.args...)
 		if code != 1 {
@@ -204,7 +204,7 @@ func TestGateRecordLaunchedFromADevelopersEnvironmentIsRefused(t *testing.T) {
 	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
 		t.Fatalf("gate record from a developer's environment err = %v, stdout = %q, stderr = %q, want exit 1", err, stdout.String(), stderr.String())
 	}
-	for _, want := range []string{"yoyo gate record is refused from a process the harness launched for the developer", "a person records gates"} {
+	for _, want := range []string{"yoyo gate record is refused from a process the harness launched for the developer", "a person records the steps only a person can take"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("gate record stderr = %q, want it to say %q", stderr.String(), want)
 		}

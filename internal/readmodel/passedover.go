@@ -452,7 +452,7 @@ var passedOverOwned = map[runstate.PassedOverClass]struct {
 	runstate.PassedOverWaitingOnDesign:   {ownership.KindHeldWork, ownership.Record{NeedsDesign: true}, "an item labelled needs-design is passed over at every pull until she removes the label"},
 	runstate.PassedOverAwaitingDecision:  {ownership.KindHeldWork, ownership.Record{}, "nothing pulls a stopped item until she decides what happens to it"},
 	runstate.PassedOverAwaitingCarryOut:  {ownership.KindHeldWork, ownership.Record{AwaitingCarryOut: true}, "the decisions are recorded, and what is outstanding is the harness acting on them"},
-	runstate.PassedOverWaitingOnAPerson:  {ownership.KindHumanGate, ownership.Record{}, "the item declares a human gate, and `yoyo gate record` is the only thing that passes it"},
+	runstate.PassedOverWaitingOnAPerson:  {ownership.KindHumanGate, ownership.Record{}, "the item declares a step only a person can take, and `yoyo gate record` is the only thing that records it"},
 	runstate.PassedOverPausedByDirective: {ownership.KindDirective, ownership.Record{}, "the work stays paused until the directive is resolved; she ends it, or carries it into a document or a work item"},
 }
 

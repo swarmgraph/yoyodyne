@@ -487,9 +487,9 @@ func (q *queuePromotion) forgeQueueRequired(ctx context.Context) string {
 	observed, err := q.p.Forge.QueueCapabilities(ctx, q.key.TargetBranch)
 	switch {
 	case err != nil:
-		return fmt.Sprintf("the protection of %s could not be read, so whether it requires the forge's own merge queue is not known, and the verified candidate waits with its gate kept: %v", q.key.TargetBranch, err)
+		return fmt.Sprintf("the protection of %s could not be read, so whether it requires the forge's own merge queue is not known, and the verified candidate waits with its checks and review kept: %v", q.key.TargetBranch, err)
 	case observed.QueueRequired:
-		return fmt.Sprintf("%s requires the forge's own merge queue, which would land a commit of its own rather than the candidate the harness checked and reviewed, so the verified candidate waits with its gate kept until a person removes that requirement from the branch's protection rules", q.key.TargetBranch)
+		return fmt.Sprintf("%s requires the forge's own merge queue, which would land a commit of its own rather than the candidate the harness checked and reviewed, so the verified candidate waits with its checks and review kept until a person removes that requirement from the branch's protection rules", q.key.TargetBranch)
 	}
 	return ""
 }

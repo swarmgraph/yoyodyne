@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
@@ -229,33 +231,176 @@ func (m *Manager) cutCandidateCheckout(ctx context.Context, entry, commit string
 	return m.cutCheckout(ctx, queueCandidateDirectoryName(entry), commit)
 }
 
+// ErrQueueCheckoutNotMade is a merge queue checkout Git would not make: the
+// `git worktree add` ran and refused. Nothing about the change decides whether
+// a commit can be checked out, so it is a failure outside the change, and the
+// half-made checkout has already been removed when it is reported. A checkout
+// the harness stopped at its time limit is QueueCheckoutStopped instead.
+var ErrQueueCheckoutNotMade = errors.New("the merge queue checkout could not be made")
+
+// QueueCheckoutStopped is a merge queue checkout this harness stopped at its
+// time limit, rather than Git refusing it: the count of files that sizes the
+// limit, or the `git worktree add` itself. It is ErrCheckoutKilled, the same
+// machine-too-busy stop a run's worktree creation can meet, and says in its own
+// words what was stopped, at what limit, and how far the checkout had got. The
+// half-made checkout has already been removed when it is reported.
+type QueueCheckoutStopped struct {
+	// Limit is the time limit the stopped command ran under.
+	Limit time.Duration
+	// Counting is the count of files being what was stopped, so the checkout
+	// itself never started.
+	Counting bool
+	// Files is the size of the tree the limit was set for, and Counted whether
+	// that size was read rather than assumed.
+	Files   int
+	Counted bool
+	// Written and Total are the last progress Git reported, and zero where it
+	// reported none before it was stopped.
+	Written int
+	Total   int
+}
+
+func (s *QueueCheckoutStopped) Error() string {
+	limit := s.Limit.Round(time.Second)
+	if limit == 0 {
+		limit = s.Limit
+	}
+	if s.Counting {
+		return fmt.Sprintf("counting the files to check out was stopped at its time limit of %s, so the checkout never started", limit)
+	}
+	if s.Total > 0 {
+		return fmt.Sprintf("the checkout was stopped at its time limit of %s, %d%% of the way through (%d of %d files written)",
+			limit, s.Written*100/s.Total, s.Written, s.Total)
+	}
+	return fmt.Sprintf("%s was stopped at its time limit of %s before Git reported writing any of it", describeCheckout(s.Files, s.Counted), limit)
+}
+
+func (s *QueueCheckoutStopped) Unwrap() error { return ErrCheckoutKilled }
+
+// QueueCheckoutRetryable reports a merge queue checkout that failed for a
+// cause outside the change — stopped at its time limit, or refused by Git —
+// so asking for it again, cleared, is worth doing at once.
+func QueueCheckoutRetryable(err error) bool {
+	return errors.Is(err, ErrCheckoutKilled) || errors.Is(err, ErrQueueCheckoutNotMade)
+}
+
+// maxQueueCheckoutDoublings caps how many times a retried merge queue
+// checkout's time limit is doubled, and maxQueueCheckoutRetryLimit caps the
+// doubled limit on a manager left to the default, though never below what
+// the first attempt was given.
+const (
+	maxQueueCheckoutDoublings  = 2
+	maxQueueCheckoutRetryLimit = 30 * time.Minute
+)
+
+// queueCheckoutRetryKey is the context key WithQueueCheckoutRetry's count
+// travels under.
+type queueCheckoutRetryKey struct{}
+
+// WithQueueCheckoutRetry marks a merge queue checkout as the caller's retry
+// number retry of one that failed outside the change, so its time limit is
+// doubled that many times, up to maxQueueCheckoutDoublings: a checkout stopped
+// at its limit met a machine too busy for it, and the same limit would most
+// likely meet the same machine.
+func WithQueueCheckoutRetry(ctx context.Context, retry int) context.Context {
+	return context.WithValue(ctx, queueCheckoutRetryKey{}, retry)
+}
+
+func queueCheckoutRetry(ctx context.Context) int {
+	if retry, ok := ctx.Value(queueCheckoutRetryKey{}).(int); ok && retry > 0 {
+		return retry
+	}
+	return 0
+}
+
+// queueCheckoutTimeout is the time limit a merge queue checkout's `git
+// worktree add` gets: the one a run's worktree creation gets, sized for the
+// whole tree and the machine's load (checkoutTimeout), doubled for each retry.
+func (m *Manager) queueCheckoutTimeout(files int, counted bool, retry int) time.Duration {
+	first := m.checkoutTimeout(files, counted)
+	limit := first << min(max(retry, 0), maxQueueCheckoutDoublings)
+	if m.timeout == 0 && limit > maxQueueCheckoutRetryLimit {
+		limit = max(first, maxQueueCheckoutRetryLimit)
+	}
+	return limit
+}
+
+// checkoutProgressPattern is the progress `git worktree add` reports as it
+// writes the tree, such as "Updating files:   1% (37/2671)".
+var checkoutProgressPattern = regexp.MustCompile(`Updating files:\s+\d+% \((\d+)/(\d+)\)`)
+
+// checkoutProgress is the last progress a checkout reported: the files written
+// and the files there were to write, and ok false where it reported none.
+func checkoutProgress(output string) (written, total int, ok bool) {
+	matches := checkoutProgressPattern.FindAllStringSubmatch(output, -1)
+	if len(matches) == 0 {
+		return 0, 0, false
+	}
+	last := matches[len(matches)-1]
+	written, err := strconv.Atoi(last[1])
+	if err != nil {
+		return 0, 0, false
+	}
+	total, err = strconv.Atoi(last[2])
+	if err != nil || total <= 0 {
+		return 0, 0, false
+	}
+	return written, total, true
+}
+
 // cutCheckout cuts a detached checkout of commit under the worktree root,
 // replacing whatever an earlier worker left under the same name.
+//
+// The `git worktree add` runs under the time limit a run's worktree creation
+// gets, sized for writing the whole tree on a machine as busy as this one is,
+// rather than the limit for one small Git command: a merge queue checkout is
+// the whole repository, cut while developer runs' checks are loading the
+// machine. A checkout that fails, whether stopped at that limit or refused by
+// Git, is removed before the failure is reported, so nothing half-made is left
+// registered for the next attempt to trip over.
 func (m *Manager) cutCheckout(ctx context.Context, name, commit string) (string, error) {
 	if err := os.MkdirAll(m.worktreeRoot, 0o700); err != nil {
 		return "", fmt.Errorf("create worktree root: %w", err)
 	}
 	path := filepath.Join(m.worktreeRoot, name)
+	// Counted before the lease is taken, as a run's worktree creation counts,
+	// because the count reads only the commit.
+	files, counted, countStopped := m.countCheckout(ctx, commit)
+	if countStopped > 0 {
+		return "", &QueueCheckoutStopped{Limit: countStopped, Counting: true}
+	}
 	ctx, lease, err := m.leaseRegistry(ctx)
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = lease.release() }()
-	if _, err := os.Lstat(path); err == nil {
-		if err := m.removeCheckout(ctx, path); err != nil {
-			return "", fmt.Errorf("remove the candidate checkout a previous worker left at %s: %w", path, err)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("inspect candidate checkout path: %w", err)
+	// Cleared whether or not the directory stands: a removal or an add ended
+	// part-way can leave the registration behind with no directory, and Git
+	// refuses an add at a path still registered. Where nothing stands, Git
+	// refuses the removal and the directory removal behind it finds nothing.
+	if err := m.removeCheckout(ctx, path); err != nil {
+		return "", fmt.Errorf("remove the candidate checkout a previous worker left at %s: %w", path, err)
 	}
-	result, err := m.run(ctx, "-C", m.repositoryRoot, "worktree", "add", "--detach", path, commit)
+	limit := m.queueCheckoutTimeout(files, counted, queueCheckoutRetry(ctx))
+	result, err := m.runBounded(ctx, nil, limit, "-C", m.repositoryRoot, "worktree", "add", "--detach", path, commit)
 	if err != nil {
 		return "", err
 	}
-	if result.Status != execution.ProcessSucceeded {
-		return "", fmt.Errorf("create candidate checkout failed with exit code %d: %s", result.ExitCode, strings.TrimSpace(result.Stderr))
+	if result.Status == execution.ProcessSucceeded {
+		return path, nil
 	}
-	return path, nil
+	var failed error
+	if killedCheckout(result) {
+		stopped := &QueueCheckoutStopped{Limit: limit, Files: files, Counted: counted}
+		stopped.Written, stopped.Total, _ = checkoutProgress(result.Stderr)
+		failed = stopped
+	} else {
+		failed = fmt.Errorf("%w: create candidate checkout failed with exit code %d: %s", ErrQueueCheckoutNotMade, result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
+	if err := m.removeCheckout(ctx, path); err != nil {
+		return "", errors.Join(failed, fmt.Errorf("remove the half-made checkout at %s: %w", path, err))
+	}
+	return "", failed
 }
 
 // mergeHeads merges each head onto the checkout in order and reads back what

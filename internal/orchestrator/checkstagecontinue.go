@@ -359,7 +359,7 @@ func (c CheckStageContinuer) NoteWaiting(ctx context.Context, runID, why, clears
 	if !prior.HarnessContinuesCheckStage() || prior.CompletedAt == nil || c.now().Before(prior.CompletedAt.Add(runstate.CheckStageContinuationWait)) {
 		return nil
 	}
-	note := singleLine(fmt.Sprintf("The check-stage continuation of run %s has waited at least 30 minutes since it became eligible. Remaining gate: %s. What clears it: %s. No check has been counted as passed by waiting.", runID, why, clears), runstate.MaxBlockerBytes)
+	note := singleLine(fmt.Sprintf("The check-stage continuation of run %s has waited at least 30 minutes since it became eligible. What it still waits on: %s. What clears it: %s. No check has been counted as passed by waiting.", runID, why, clears), runstate.MaxBlockerBytes)
 	if prior.CheckStageContinuationWaitNoted == note {
 		return nil
 	}

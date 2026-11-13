@@ -203,7 +203,7 @@ func ClassifyMergeQueueFailure(evidence MergeQueueFailureEvidence) (MergeQueueFa
 		return failure, true, nil
 	case checksRun.Problem != "":
 		failure.Class = runstate.MergeQueueInfrastructureFailure
-		failure.Reason = fmt.Sprintf("generation %d's checks judged nothing (%s); they are run again on the same candidate, and nothing is charged for it", generation.Number, checksRun.Problem)
+		failure.Reason = fmt.Sprintf("generation %d's checks judged nothing (%s); the checks that had not passed are run again on the same candidate, and nothing is charged for it", generation.Number, checksRun.Problem)
 		return failure, true, nil
 	}
 	for index, result := range checksRun.Results {

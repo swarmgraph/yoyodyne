@@ -122,6 +122,9 @@ type BacklogItem struct {
 	// Parked is why the item is deliberately not to be pulled, and empty for
 	// work that is not parked.
 	Parked string `json:"parked,omitempty"`
+	// PlacedFirst is the line saying the Lead Product Manager placed the item
+	// first among work of its priority, and empty where no placement orders it.
+	PlacedFirst string `json:"placed_first,omitempty"`
 	// Origin is who filed the item, as the admission recorded it.
 	Origin BacklogOrigin `json:"origin"`
 }
@@ -261,7 +264,13 @@ func backlogItem(item beads.WorkItem, entries map[string]backlogReadiness) Backl
 		DoneBy:   doneBy(item.Executor),
 		Executor: item.Executor,
 		Parked:   item.Parking.Reason(),
-		Origin:   backlogOrigin(item.Origin),
+		PlacedFirst: func() string {
+			if placement := item.PlacedFirst(); placement != nil {
+				return placement.Line()
+			}
+			return ""
+		}(),
+		Origin: backlogOrigin(item.Origin),
 	}
 	switch {
 	case item.Status == "closed":

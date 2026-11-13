@@ -612,7 +612,7 @@ was cancelled, or it went silent past its liveness bound — is **not** a
 conflict, although it leaves the same half-applied state behind. It is told
 apart by how the rebase stopped, abandoned the same way so the worktree is back
 on its branch before anything is recorded. The replay's `git rebase` is given
-a budget bought for what it does: the local Git budget, plus that budget's idle
+a time limit worked out from what it does: the local Git budget, plus that budget's idle
 thirty seconds again for each commit it replays and fifty milliseconds for each
 file it writes, all scaled for load. A replay stopped on time is asked again by
 the harness on its own, up to three times, after waits of one, two, and four
