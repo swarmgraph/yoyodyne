@@ -429,6 +429,10 @@ type MergeQueueStore struct {
 	// leaseWait is the grace a worker lease that looks held is waited out for,
 	// as a run's is; see leaseGrace.
 	leaseWait time.Duration
+	// signalGroup sends signal 0 to a stage's recorded process group. It is a
+	// field only so a test can say what each look at the group finds; nil is
+	// the real signal.
+	signalGroup func(int) error
 }
 
 func NewMergeQueueStore(root string, productID domain.ProductID) (*MergeQueueStore, error) {
