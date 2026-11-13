@@ -795,6 +795,16 @@ question waits for your answer before the conversation moves on, what you say
 reaches it on your next message, and a question you leave unanswered is named
 when the conversation ends rather than passing for agreement.
 
+A conflict or a judgement names the goal it is about, and that goal is checked
+before you are asked anything. The Lead Product Manager names it the way it
+names the goal work serves: by its identifier, such as `[nearly-autonomous]`,
+or in the full words its goals document states it in, on one line of at most
+400 bytes, which is the bound every goal statement is held to. A question
+naming a goal the goals documents do not state never reaches you: the harness
+refuses the whole concern block, hands the refusal back to the Lead Product
+Manager saying which goal it could not find, and carries out the rest of the
+reply, so it can raise the question again naming the goal as it is recorded.
+
 Where the answer is one of a few, the question arrives as those few. The answers
 are listed under it and you pick one with the cursor keys, and the last of them
 is always your own words — for the answer nobody listed, or for the question you
