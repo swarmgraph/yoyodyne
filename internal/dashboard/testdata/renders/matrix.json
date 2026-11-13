@@ -81,6 +81,48 @@
       "decide": "closed"
     }
   },
+  "mcp-calls": {
+    "page": "ready",
+    "sections": {
+      "summary": "ready",
+      "band": "empty",
+      "spend": "empty",
+      "live": "empty",
+      "pipeline": "empty",
+      "throughput": "empty",
+      "capacity": "empty",
+      "factory": "empty",
+      "managers": "empty",
+      "mcp": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
+  "mcp-calls-unreadable": {
+    "page": "ready",
+    "sections": {
+      "summary": "ready",
+      "band": "empty",
+      "spend": "empty",
+      "live": "empty",
+      "pipeline": "empty",
+      "throughput": "empty",
+      "capacity": "empty",
+      "factory": "empty",
+      "managers": "empty",
+      "mcp": "error"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
   "run-steps": {
     "page": "ready",
     "sections": {

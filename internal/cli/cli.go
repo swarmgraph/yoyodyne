@@ -952,6 +952,7 @@ Commands:
   slack             report what the harness is doing into a Slack channel
   doctor            check this installation, and say what would fix what is wrong
   mcp login         log a declared MCP server in on this machine, at your terminal
+  mcp calls         list the MCP calls the harness made, from its record
   dashboard         serve the read model to a browser on this machine, read-only
   state-root        rebind a state-root marker that names a root no longer on disk
   project           bind a repository to its project, rename a project, and list them

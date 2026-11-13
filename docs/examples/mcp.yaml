@@ -1,0 +1,56 @@
+# AN EXAMPLE TO COPY AND ADAPT. Yoyodyne never loads this file.
+#
+# It is the worked example docs/mcp.md walks through: one MCP (Model Context
+# Protocol) server, declared once, and a list of the tools each role's agent may
+# ask the harness to call. The server, its program and its tools are made up;
+# which servers and tools your project uses, and what they do, are yours to
+# choose. Nothing here is a default, and a project that copies none of it has
+# no MCP servers at all.
+#
+# To use it, copy the `mcp:` section into your .yoyodyne/config.yaml as it
+# stands, then add each `mcp_tools:` line below to the agent of the same name
+# in your file's `agents:` section, and change both to your own server. A test
+# under `make test` loads this example into the configuration `yoyo init`
+# writes, so it stays an example the harness accepts.
+
+mcp:
+  servers:
+    mail:
+      # A program the harness starts on this machine for each batch of calls
+      # and stops afterwards. It runs with the server's own folder under the
+      # state directory as its working directory and its home.
+      command: [example-mail-mcp, --stdio]
+      # What `yoyo mcp login mail` runs at your terminal, once per machine. Its
+      # files land in that same folder, where the server finds them and no
+      # agent can read them.
+      login: [example-mail-mcp, login]
+      # Every tool of the server your project will ever use, each marked by
+      # you: `read` changes nothing outside the harness, `act` may. A tool the
+      # server offers and this list leaves out cannot be called by anyone.
+      tools:
+        search: read
+        read_message: read
+        draft_reply: act
+        send: act
+
+agents:
+  # The Lead Product Manager, the architect and the development manager may
+  # hold read and act tools.
+  product-manager:
+    mcp_tools: [mail.search, mail.read_message, mail.draft_reply]
+  architect:
+    mcp_tools: [mail.search, mail.read_message]
+  development-manager:
+    mcp_tools: [mail.search, mail.read_message, mail.send]
+  # A developer holds read tools only: an act taken during a run would happen
+  # before review, and could not be undone if review then refused the change.
+  developer:
+    mcp_tools: [mail.search]
+  # A program manager holds read tools only. `yoyo init` configures none; this
+  # is the line for an instance you configure yourself, under its own name.
+  program-manager:
+    mcp_tools: [mail.search]
+  # A reviewer holds no MCP tools, so its list stays empty: a list naming any
+  # tool for it is refused when the configuration loads.
+  reviewer:
+    mcp_tools: []
