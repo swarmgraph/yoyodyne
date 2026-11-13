@@ -494,8 +494,18 @@ forty-three minutes. `internal/orchestrator` is what needs it: with a second
 check stage running beside it, the package took 1,439 seconds under `make race`
 and up to 1,170 seconds under `make test`
 ([the record](diagnoses/yoyodyne-ifd-429-69-orchestrator-test-limit.md)), and
-on a busier machine `make race` has needed about 26.5 minutes. The figure
-stays under
+on a busier machine `make race` has needed about 26.5 minutes, and later 40 to
+46 minutes at load averages of 25 to 45, past the limit. So `make race` splits
+that package's tests into `RACE_PARTS` parts, three by default, each its own
+`go test -race` under the limit, run side by side with one `go test` for every
+other package ([`scripts/race-run.sh`](../scripts/race-run.sh)). Each part but
+the last runs the test names dealt to it, and the last runs everything the
+others do not name, so every test still runs exactly once with the race
+detector on; `scripts/race-run-test.sh` holds the script to that. On November
+11, 2026 the package as one binary took 1,395 seconds at one-minute load
+averages of 10 to 50, and split in three its parts took 839, 940 and 963
+seconds at load averages of 10 to 319. `RACE_PARTS=1` is the single run. The
+figure stays under
 [`execution.check_timeout`](configuration.md#how-long-a-check-may-take), which
 load only ever lengthens, so a hang is still reported by `go test` with its dump
 of every goroutine before the harness ends the check. This project's
