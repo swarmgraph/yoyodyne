@@ -675,6 +675,8 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		RedactValues: redactValues,
 	}
 
+	mcpCalls, mcpRecords := runMCPCalls(parts)
+
 	return orchestrator.Pipeline{
 		Availability: machineAvailability(parts),
 		Tracker:      parts.tracker(),
@@ -852,8 +854,11 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		RedactValues: redactValues,
 		// The one MCP call path, through which a developer holding an MCP tool
 		// asks for a call by ending its turn with the block; nil for a project
-		// that declares no server.
-		MCP: runMCPCalls(parts),
+		// that declares no server. The review reads the record the path writes, so
+		// the reviewer is shown the calls a run's developer made; nil for the same
+		// project.
+		MCP:        mcpCalls,
+		MCPRecords: mcpRecords,
 	}
 }
 

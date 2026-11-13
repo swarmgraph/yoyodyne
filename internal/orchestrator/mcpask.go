@@ -17,10 +17,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/mcpcall"
+	"github.com/mason-bryant/yoyodyne/internal/review"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -28,6 +30,30 @@ import (
 // one the harness has; nil wires none, and no developer is told of the block.
 type MCPCalls interface {
 	Do(ctx context.Context, caller mcpcall.Caller, requests []mcpcall.Request) ([]mcpcall.Answer, error)
+}
+
+// MCPCallRecords is the record of MCP calls as the review reads it back.
+// *mcpcall.Records is the one the harness has. It is optional: nil where the
+// project declares no MCP server, and the review then shows nothing about MCP.
+type MCPCallRecords interface {
+	ForRun(run string, since time.Time) ([]mcpcall.Record, int, error)
+}
+
+// reviewedMCPCalls is what the reviewer is shown of the MCP calls this run's
+// developer asked for, across every attempt: the record read back, with how
+// many lines could not be read and why a read failed, so a record that could
+// not be read is never mistaken for a run that made no call. Where no record is
+// kept it is the empty evidence, which the review renders as nothing.
+func (a *activeRun) reviewedMCPCalls() review.MCPCallEvidence {
+	if a.pipeline.MCPRecords == nil {
+		return review.MCPCallEvidence{}
+	}
+	calls, unreadable, err := a.pipeline.MCPRecords.ForRun(a.state.RunID, a.state.StartedAt)
+	evidence := review.MCPCallEvidence{Read: true, Calls: calls, Unreadable: unreadable}
+	if err != nil {
+		evidence.Problem = err.Error()
+	}
+	return evidence
 }
 
 // developerAsks is one attempt's MCP asking: the caller, built once per attempt

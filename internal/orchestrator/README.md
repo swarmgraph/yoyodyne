@@ -165,7 +165,8 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     provider refuses that resume — `review.ResumeRefusedError`),
     `attemptReview` (builds `review.Request`, calls `Reviewer.Review`,
     records the verdict), `recordReviewVerdict`, `reviewedContext`,
-    `developerSummaryForReview`, `clearReviewEvidence`, `carryReviewEvidence`,
+    `developerSummaryForReview`, `reviewedMCPCalls` (the MCP call records of
+    the run, `mcpask.go`), `clearReviewEvidence`, `carryReviewEvidence`,
     `durableFindings` / `reportedFindings`, and the resume predicates
     `resumableRepair`, `continuedAtCheckStage`, `resumableIntegration`.
 18. **Stop classes.** `phaseError`, `classifiedStop`, `stoppedBy`,
@@ -223,7 +224,9 @@ once, then `finish`.
 `attemptReview` builds the `review.Request`: diff from
 `Worktrees.UnifiedChanges`, context from `reviewedContext`, invariants from
 `reviewedInvariants`, the developer's summary from
-`developerSummaryForReview`, account from `account`. It saves the verdict,
+`developerSummaryForReview`, the MCP calls the developer asked for from
+`reviewedMCPCalls` (read from `Pipeline.MCPRecords`; nothing where it is nil),
+account from `account`. It saves the verdict,
 model and effort (`ReviewEffort`) on the state before returning.
 `recordReviewVerdict` charges the item's triage counters.
 `validateIndependentInvocations` refuses promotion if developer and reviewer
