@@ -426,13 +426,22 @@ Each pass takes eleven steps, in this order, and each is recorded:
   The cleanup deletes no work item, note, or history: listings, items, and
   `bd history` read the same after it as before. It is due once the store has
   grown `grown_megabytes` since the last cleanup left it, or `every` has passed
-  since that cleanup, whichever is first; a store the harness has never
-  cleaned up is cleaned up at the first pass. It runs after reconcile, so the
-  pass's own tracker calls are over; it does not start while any other process
-  has the store open, and says which; and it is stopped once it has held the
-  store for `max_hold`, so a call waiting behind it still answers inside its
-  own two minutes. A store in use, or a cleanup stopped at its hold, is a
-  skip rather than a failure, and the next pass tries again. Nothing before the
+  since that cleanup, whichever is first; a store past
+  `tracker_limits.store_megabytes` is also cleaned up every four hours however
+  little it has grown; and a store the harness has never cleaned up is cleaned
+  up at the first pass. It runs after reconcile, so the pass's own tracker
+  calls are over. While another process has the store open, a due cleanup is
+  put off and the pass says which process; once it has waited an hour from
+  when it fell due or was first put off, it starts beside them, because with
+  every developer slot busy the store may never be free. bd's lock orders it
+  among their calls: one already under way finishes first, and one that
+  arrives during the cleanup waits for it and is then made as it would have
+  been, so no run's write is lost or fails for it. Together these start a
+  cleanup of a store past its bound within six hours of the last, however busy
+  the slots are. It is stopped once it has held the store for `max_hold`, so a
+  call waiting behind it still answers inside its own two minutes. A cleanup
+  put off, or stopped at its hold, is a skip rather than a failure, and the
+  next pass tries again. Nothing before the
   cleanup, or while it holds the store, lists or counts work items: on a large
   store a listing of every item runs past its limit, and a cleanup that waited
   on one would never run on exactly the store that needs it. Whether one is
@@ -440,9 +449,15 @@ Each pass takes eleven steps, in this order, and each is recorded:
   counts the store's work items, closed ones included; a count that cannot be
   taken is recorded as unknown, with why, and does not fail the cleanup.
   Each cleanup that ran is recorded under the product's state in
-  `tracker-store-cleanups/`, and the maintenance line in `yoyo status` says the
-  latest: `the tracker's store was last cleaned up at 2026-11-02 05:41 PST, from
-  885 MB to 526 MB in 9.0 seconds, 1483 work items after it`. A cleanup
+  `tracker-store-cleanups/`, with how long it held the store and which
+  processes it started beside, if any; each pass that put a due cleanup off is
+  recorded in `tracker-store-cleanup-postponements/`, with when, the store's size,
+  why it was due, and why it was put off. The maintenance line in `yoyo status`
+  says the latest cleanup, the store's size at the last pass, and since when a
+  cleanup has been put off, if one has: `the tracker's store was last cleaned
+  up at 2026-11-02 05:41 PST, from 885 MB to 526 MB, holding the store for 9.0
+  seconds, 1483 work items after it; the tracker's store measured 530 MB at
+  2026-11-02 05:50 PST`. A cleanup
   that fails is a failure of the pass, in bd's own words, recorded, and not tried
   again until the next cleanup is due. Cleanups recorded before November 2026
   counted the items before the cleanup as well; where one of those found an item
@@ -629,8 +644,12 @@ A release is decided by the Lead Product Manager. Her sweep admits a release
 item titled for its version, such as `Cut v0.6.0: …`, and that item is the
 decision. Its own reviewed run does the preparation: it drafts and curates
 `docs/releases/<version>.md`, stamps the readiness result into it with
-`yoyo conformance --notes`, and lands both on `main` through review like any
-other change. What remains is the cut and the tag push, and who does them is
+`yoyo conformance --notes --from-export`, and lands both on `main` through
+review like any other change. `--from-export` is there because a developer run
+can open neither the tracker nor the harness's state: the run reads the work
+items from the tracker's export in its worktree, and the result says so. The
+cut always takes its own reading through the tracker and refuses a stamp whose
+verdict or definition that reading does not match. What remains is the cut and the tag push, and who does them is
 `approvals.releases`:
 
 ```yaml
@@ -812,8 +831,13 @@ check is one [`yoyo forge-check`](configuration.md#publishing-through-pull-reque
 run from the supervisor's own binary. It reads every pull request waiting for a
 person to merge it, and settles one that merged or closed, brings one the
 target branch has moved past up to date, and reads the reviews and comments
-left on the rest. `yoyo reconcile` no longer reads these, so a maintenance pass
-that is slow, or keeps failing at one of its steps, never delays the check: a
+left on the rest. For a project that sets `execution.upstream_branch`, it also
+reads every pull request into the team's branch recorded with
+`yoyo pull-request track`, and closes, gives back, or adds items as that pull
+request merged, closed, or still carries them
+([waiting for the team's branch](configuration.md#waiting-for-the-teams-branch)).
+`yoyo reconcile` no longer reads these, so a maintenance pass that is slow, or
+keeps failing at one of its steps, never delays the check: a
 check falls due every interval whether a pass is under way or not.
 
 Only one check reads at a time. A check that starts a repair round or an update
@@ -3332,7 +3356,7 @@ and how long it had run, what the stage had spent across how many checks, and
 what moves it — here on a machine at three times its cores:
 
 ```text
-the check stage reached its 1h30m0s execution.check_stage_timeout bound (the configured 30m0s scaled for a one-minute load average of 48.0 on 16 cores) during make race, which had run for 1h12m0s from when it started; the stage had spent 1h30m0s across 3 check(s) (gate narrowed to: the whole module (the repository root is not a Go module)); narrow the per-run gate to what the change touches with $YOYODYNE_CHANGED_GO_PACKAGES, move the whole suite to landing_checks, or raise the bound
+the check stage reached its 1h30m0s execution.check_stage_timeout bound (the configured 30m0s scaled for a one-minute load average of 48.0 on 16 cores) during make race, which had run for 1h12m0s from when it started; the stage had spent 1h30m0s across 3 check(s) (checks narrowed to: the whole module (the repository root is not a Go module)); narrow the checks each run must pass to what the change touches with $YOYODYNE_CHANGED_GO_PACKAGES, move the whole suite to landing_checks, or raise the bound
 ```
 
 It is a different stoppage from a check reaching its own limit, and it is
@@ -3635,10 +3659,17 @@ recording its verdict is still hosted past the bound:
   ordinary loop too, so pulls and recurring tasks continue.
 - A merge queue pass whose candidate's checks are running is let finish
   them, each check up to its configured `execution.check_timeout`, and then
-  stopped; a candidate's checks count only whole, so a stage stopped part-way
-  would run every check again. Every other queue pass is stopped at the bound,
-  and past it no queue starts a new check stage. The session's line names the
-  queue, the candidate's generation, the check, and until when.
+  stopped. Each of a candidate's checks is recorded as it passes, so a stage
+  stopped part-way keeps the checks that had already passed: the session that
+  comes back runs only the others, the one cut off included, as long as the
+  candidate's commit and its list of checks are unchanged. The check cut off is
+  recorded on the candidate as cut off by the restart, not as a failure, and
+  nothing is charged to the change for it. Where the record of the stopped
+  attempt cannot say which checks passed on that same candidate, every check
+  runs again and the candidate's record says why. Every other queue pass is
+  stopped at the bound, and past it no queue starts a new check stage. The
+  session's line names the queue, the candidate's generation, the check, and
+  until when.
 - A document landing run — a confirmed document a role wrote, landed through
   its reviewed run — is never stopped for a restart, at any step: its checks,
   its review, or its promotion. It is short and bounded by its own checks' and
@@ -6002,7 +6033,8 @@ Recurring passes over conversation work (1):
 ```
 
 A pass is handed that work in the Lead Product Manager's order, highest
-priority first and then oldest admitted, so the first item is the one the role
+priority first, then the items she placed first among their priority, and then
+oldest admitted, so the first item is the one the role
 was asked to reach first. The line names it, says whether the last pass that
 answered with its account took it, and gives the role's reason where it did
 not, or `no reason given`. Where a later firing of the task gave no account —
@@ -7596,7 +7628,7 @@ reads `nothing spent`. **Spend whose moment could not be read** is on a line of
 its own at the foot, saying it is counted in every window of the box above and
 on no day here, which is the only reason the days and the windows can differ.
 And **records that could not be priced at all** are counted on a last line
-saying every figure here and above is a floor.
+saying every figure here and above is at least what it says.
 
 Nothing in the listing opens anything: a day is not a record this page can show
 more of. It is drawn again on every poll while it is open, from the reading the

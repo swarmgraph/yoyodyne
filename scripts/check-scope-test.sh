@@ -7,8 +7,8 @@
 #   bash scripts/check-scope-test.sh
 #
 # Each case builds a scratch repository holding a copy of this repository's
-# Makefile, scripts/check-scope.sh and scripts/race-skip.sh, two Go packages
-# with testdata, documents inside and outside them, and the tracker's export,
+# Makefile, scripts/check-scope.sh, scripts/race-skip.sh and scripts/race-run.sh,
+# two Go packages with testdata, documents inside and outside them, and the tracker's export,
 # all committed on main. It then makes one change on a branch and runs the
 # target with a stub Go command that records the packages the suite was asked
 # to run over, so what is checked is the target's decision and the line it
@@ -92,6 +92,7 @@ fabricate() {
 	cp "$source_root/Makefile" "$repo/Makefile"
 	cp "$source_root/scripts/check-scope.sh" "$repo/scripts/check-scope.sh"
 	cp "$source_root/scripts/race-skip.sh" "$repo/scripts/race-skip.sh"
+	cp "$source_root/scripts/race-run.sh" "$repo/scripts/race-run.sh"
 	printf 'module example.com/fabricated\n\ngo 1.22\n' >"$repo/go.mod"
 	printf 'package pkg\n' >"$repo/pkg/pkg.go"
 	printf 'fixture\n' >"$repo/pkg/testdata/input.txt"

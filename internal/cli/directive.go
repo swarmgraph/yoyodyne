@@ -155,7 +155,7 @@ func recordDirective(args []string, stdout, stderr io.Writer) int {
 		// A directive that pauses work is the whole reason this is enforced rather
 		// than filed, so the command says what it just stopped rather than leaving
 		// the operator to notice work going quiet.
-		fmt.Fprintln(stdout, "the work this affects is paused: a run in flight for it stops at its next gate, and nothing new starts on it.")
+		fmt.Fprintln(stdout, "the work this affects is paused: a run in flight for it stops before its next step, and nothing new starts on it.")
 		fmt.Fprintf(stdout, "`yoyo directive resolve %s` settles it and lets that work carry on.\n", recorded.ID)
 	} else {
 		fmt.Fprintln(stdout, "this directive is in effect from now; nothing is paused by it.")

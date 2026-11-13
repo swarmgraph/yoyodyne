@@ -850,6 +850,10 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// this empty, which reads as a comparison nobody can make.
 		Build:        buildinfo.Commit(),
 		RedactValues: redactValues,
+		// The one MCP call path, through which a developer holding an MCP tool
+		// asks for a call by ending its turn with the block; nil for a project
+		// that declares no server.
+		MCP: runMCPCalls(parts),
 	}
 }
 

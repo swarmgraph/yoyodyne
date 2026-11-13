@@ -253,3 +253,36 @@ func TestAHandbackNeverNamesTheOperatorAndReadsTheBudgetAsItStood(t *testing.T) 
 		}
 	}
 }
+
+func TestAnEntryThatLandedOutsideTheQueueNamesTheCommitCarryingIt(t *testing.T) {
+	t.Parallel()
+
+	outside := MergeQueueHandback{
+		At: time.Date(2026, 11, 11, 23, 50, 0, 0, time.UTC), Continuation: MergeQueueLandedOutside, Mover: ownership.MoverHarness,
+		Reason:     "pull request #1759 was merged on the forge outside the merge queue",
+		TargetBase: strings.Repeat("a", 40), ApprovedHead: strings.Repeat("f", 40),
+	}
+	if problems := outside.validate(); len(problems) != 0 {
+		t.Fatalf("a whole landing outside the queue = %v", problems)
+	}
+	// It is not a change handed back to its run: its landing is recorded on the
+	// run instead, and that is what HandedBackAt says was done.
+	recorded := outside
+	at := time.Now()
+	recorded.HandedBackAt = &at
+	if problems := recorded.validate(); len(problems) != 0 || recorded.GoesToRun() {
+		t.Fatalf("a recorded landing outside the queue = %v, goes to run %t", problems, recorded.GoesToRun())
+	}
+	for name, revise := range map[string]func(*MergeQueueHandback){
+		"no commit carrying it": func(h *MergeQueueHandback) { h.TargetBase = "" },
+		"a failure class":       func(h *MergeQueueHandback) { h.Class = MergeQueueCandidateDefect },
+		"a transfer":            func(h *MergeQueueHandback) { h.TransferTo = MergeQueueForge },
+		"the operator moves":    func(h *MergeQueueHandback) { h.Mover = ownership.MoverOperator },
+	} {
+		revised := outside
+		revise(&revised)
+		if problems := revised.validate(); len(problems) == 0 {
+			t.Errorf("a landing outside the queue with %s validated", name)
+		}
+	}
+}

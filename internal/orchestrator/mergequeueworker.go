@@ -27,7 +27,12 @@ package orchestrator
 // it is waiting on. Only once it has stopped is the stage written down as
 // interrupted, earning nothing, and run again on the candidate restored from
 // its commit rather than rebuilt, so what was recorded against it still
-// describes it.
+// describes it. The checks are recorded one by one as each passes, so a check
+// stage cut off part-way — by the watch session restarting onto a new build,
+// or by the process working the queue ending — keeps the results of the checks
+// that had passed on the same candidate and check list, and runs only the
+// others, the one cut off included (keptQueueChecks). A cut-off check is an
+// interruption, never a failure, and nothing is charged for it.
 //
 // The protected-path gate is asked of the candidate before anything runs on
 // it: it is a string comparison over the paths the candidate changes, and a
@@ -52,6 +57,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -288,7 +294,7 @@ func (w MergeQueueWorker) validate() error {
 			problems = append(problems, errors.New("the merge queue worker needs a check runner, a reviewer, a run store, a tracker, and the operator's pause on harness activity"))
 		}
 		if len(w.Pipeline.Config.Checks) == 0 {
-			problems = append(problems, errors.New("the project configures no checks, so no merge queue candidate can earn its gate"))
+			problems = append(problems, errors.New("the project configures no checks, so no merge queue candidate can pass its checks"))
 		}
 	}
 	if w.Queue == nil || w.Candidates == nil {
@@ -646,9 +652,41 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 		return generation, false, err
 	}
 	defer hold.Close()
-	generation.CheckRun = &runstate.MergeQueueCheckEvidence{Binding: generation.Binding(), StartedAt: w.now()}
+	// Checks that passed on this same generation before an earlier attempt was
+	// set aside keep their results, and only the others run (keptQueueChecks).
+	kept, runWhole := keptQueueChecks(generation)
+	remaining := make([]string, 0, len(generation.Checks.Commands))
+	keptNames := make([]string, 0, len(kept))
+	for _, result := range kept {
+		keptNames = append(keptNames, result.Command)
+	}
+	for _, command := range generation.Checks.Commands {
+		if !slices.Contains(keptNames, command) {
+			remaining = append(remaining, command)
+		}
+	}
+	generation.CheckRun = &runstate.MergeQueueCheckEvidence{
+		Binding: generation.Binding(), StartedAt: w.now(),
+		Results: slices.Clone(kept), RunWhole: runWhole,
+	}
+	if len(keptNames) > 0 {
+		generation.CheckRun.Kept = keptNames
+	}
 	if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
 		return generation, false, fmt.Errorf("record that generation %d's checks began: %w", generation.Number, err)
+	}
+	if len(remaining) == 0 {
+		// Every check had passed before the attempt was cut off; only its
+		// record was lost.
+		finished := w.now()
+		evidence := *generation.CheckRun
+		evidence.FinishedAt = &finished
+		evidence.Results = orderedQueueResults(generation.Checks.Commands, kept, nil, nil, false)
+		generation.CheckRun = &evidence
+		if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
+			return generation, false, fmt.Errorf("record generation %d's checks: %w", generation.Number, err)
+		}
+		return w.moved(ctx, lease, key, generation)
 	}
 	launched := launches{worker: w, lease: lease, key: key, generation: &generation, hold: hold, stage: runstate.MergeQueueStageChecks}
 	// The project's dependencies are put in the candidate's checkout first where
@@ -671,7 +709,7 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 	results, lastSequence, runErr := p.Checks.Run(ctx, checks.Request{
 		RunID:        generation.EventStream(),
 		Directory:    generation.Checkout,
-		Commands:     generation.Checks.Commands,
+		Commands:     remaining,
 		LastSequence: generation.LastSequence,
 		// The candidate is checked whole: it is what would land, and nothing
 		// narrows what a landing has to answer for.
@@ -684,6 +722,19 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 			stages.launched(key, p.checkTimeout(), w.now())
 			return 0
 		},
+		// Each check that passes goes on the record as it passes, so a stage
+		// cut off after it does not cost it. The save is best effort: one that
+		// does not land costs the next attempt this one check, and the stage
+		// writes its whole record when it ends either way.
+		Finished: func(result checks.Result) {
+			if !result.Passed || result.CouldNotRun != "" || generation.CheckRun == nil {
+				return
+			}
+			evidence := *generation.CheckRun
+			evidence.Results = append(slices.Clone(evidence.Results), queueCheckResult(result))
+			generation.CheckRun = &evidence
+			_ = w.Queue.RecordGeneration(lease, key, generation)
+		},
 		// A candidate is checked for a landing, so its heavy checks are let
 		// start ahead of every run's gate (heavychecks.go).
 		Permit: checks.PermitRequest{Priority: domain.HeavyCheckForLanding},
@@ -694,26 +745,28 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 	}
 	evidence := *generation.CheckRun
 	evidence.FinishedAt = &finished
+	ran := make([]runstate.MergeQueueCheckResult, 0, len(results))
 	for _, result := range results {
-		evidence.Results = append(evidence.Results, runstate.MergeQueueCheckResult{
-			Command:     result.Command,
-			Passed:      result.Passed,
-			ExitCode:    result.Process.ExitCode,
-			Status:      string(result.Process.Status),
-			CouldNotRun: boundedEvidence(result.CouldNotRun),
-		})
+		ran = append(ran, queueCheckResult(result))
 		// A check stopped on time or cancelled judged nothing about the
 		// candidate, so the run of them is incomplete rather than failed.
-		switch result.Process.Status {
-		case execution.ProcessTimedOut:
+		switch {
+		case result.Process.Status == execution.ProcessTimedOut:
 			evidence.Problem = boundedEvidence(checkStopSays(result, "execution.check_timeout", runstate.CheckStage{}) + ", and judged nothing")
-		case execution.ProcessCancelled, execution.ProcessStalled:
+		case (result.Process.Status == execution.ProcessCancelled || result.Process.Status == execution.ProcessStalled) && stages.restarting():
+			evidence.Problem = boundedEvidence(fmt.Sprintf("%s was cut off by the restart of the watch session working this queue, and judged nothing; the checks that had passed keep their results", result.Command))
+		case result.Process.Status == execution.ProcessCancelled || result.Process.Status == execution.ProcessStalled:
 			evidence.Problem = boundedEvidence(fmt.Sprintf("%s was %s and judged nothing", result.Command, result.Process.Status))
 		}
 	}
 	if runErr != nil {
 		evidence.Problem = boundedEvidence("the checks could not be run: " + runErr.Error())
 	}
+	// A record that judged the candidate answers its checks in their order and
+	// stops at the first without a result, which is what the gate and recovery
+	// read by position. One that judged nothing keeps every passed result,
+	// gaps and all, for the attempt after it.
+	evidence.Results = orderedQueueResults(generation.Checks.Commands, kept, remaining, ran, evidence.Problem != "")
 	generation.CheckRun = &evidence
 	if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
 		return generation, false, fmt.Errorf("record generation %d's checks: %w", generation.Number, err)
@@ -725,16 +778,110 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 }
 
 // setAside clears an attempt at a stage that earned nothing, keeping it among
-// the generation's interruptions, so the stage runs again from nothing.
+// the generation's interruptions, so the stage runs again. An attempt at the
+// checks keeps on its interruption the checks that had passed on it, and the
+// next attempt on the same generation runs only the others (keptQueueChecks).
 func setAside(generation runstate.MergeQueueGeneration, stage runstate.MergeQueueStage, started time.Time, problem string, found time.Time) runstate.MergeQueueGeneration {
-	generation.Interruptions = append(append([]runstate.MergeQueueInterruption(nil), generation.Interruptions...),
-		runstate.MergeQueueInterruption{Stage: stage, StartedAt: started, FoundAt: found, Problem: problem})
+	interruption := runstate.MergeQueueInterruption{Stage: stage, StartedAt: started, FoundAt: found, Problem: problem}
+	if stage == runstate.MergeQueueStageChecks && generation.CheckRun != nil {
+		interruption.Binding = generation.CheckRun.Binding
+		for _, result := range generation.CheckRun.Results {
+			if result.Passed && result.CouldNotRun == "" && slices.Contains(generation.Checks.Commands, result.Command) &&
+				!slices.ContainsFunc(interruption.Passed, func(kept runstate.MergeQueueCheckResult) bool { return kept.Command == result.Command }) {
+				interruption.Passed = append(interruption.Passed, result)
+			}
+		}
+	}
+	generation.Interruptions = append(append([]runstate.MergeQueueInterruption(nil), generation.Interruptions...), interruption)
 	if stage == runstate.MergeQueueStageChecks {
 		generation.CheckRun = nil
 	} else {
 		generation.Review = nil
 	}
 	return generation
+}
+
+// keptQueueChecks is the results an attempt at a generation's checks keeps
+// from the attempt set aside before it, in the order the checks are
+// configured, or why it keeps none although an attempt was set aside.
+//
+// A result is kept only where the record of the attempt it passed on names
+// this generation — its exact candidate and check list, which is what the
+// binding covers — and names only checks this generation configures. A
+// generation whose candidate or checks changed is a new generation and keeps
+// nothing (current). A check that said it could not run, or failed, is never
+// kept, so it runs again.
+func keptQueueChecks(generation runstate.MergeQueueGeneration) ([]runstate.MergeQueueCheckResult, string) {
+	var last *runstate.MergeQueueInterruption
+	for index := len(generation.Interruptions) - 1; index >= 0; index-- {
+		if generation.Interruptions[index].Stage == runstate.MergeQueueStageChecks {
+			last = &generation.Interruptions[index]
+			break
+		}
+	}
+	if last == nil {
+		return nil, ""
+	}
+	cut := last.StartedAt.Local().Format("2006-01-02 15:04 MST")
+	switch {
+	case last.Binding == "":
+		return nil, fmt.Sprintf("the record of the attempt begun %s does not say which checks had passed on it, so every check runs again", cut)
+	case last.Binding != generation.Binding():
+		return nil, fmt.Sprintf("the record of the attempt begun %s names another candidate or check list, so none of its results is kept and every check runs again", cut)
+	}
+	passed := map[string]runstate.MergeQueueCheckResult{}
+	for _, result := range last.Passed {
+		if !slices.Contains(generation.Checks.Commands, result.Command) || !result.Passed || result.CouldNotRun != "" {
+			return nil, fmt.Sprintf("the record of the attempt begun %s keeps a result for %q that this candidate's checks cannot use, so every check runs again", cut, result.Command)
+		}
+		passed[result.Command] = result
+	}
+	var kept []runstate.MergeQueueCheckResult
+	for _, command := range generation.Checks.Commands {
+		if result, ok := passed[command]; ok {
+			kept = append(kept, result)
+			delete(passed, command)
+		}
+	}
+	return kept, ""
+}
+
+// queueCheckResult is one check's result as a candidate's record keeps it.
+func queueCheckResult(result checks.Result) runstate.MergeQueueCheckResult {
+	return runstate.MergeQueueCheckResult{
+		Command:     result.Command,
+		Passed:      result.Passed,
+		ExitCode:    result.Process.ExitCode,
+		Status:      string(result.Process.Status),
+		CouldNotRun: boundedEvidence(result.CouldNotRun),
+	}
+}
+
+// orderedQueueResults puts the kept results and those of the checks run now
+// in the order the checks are configured. ran answers remaining position by
+// position, and may stop short of it where the stage did. Without gaps the
+// results stop at the first check that has none, so a result never sits at
+// the position of a check it does not answer.
+func orderedQueueResults(commands []string, kept []runstate.MergeQueueCheckResult, remaining []string, ran []runstate.MergeQueueCheckResult, gaps bool) []runstate.MergeQueueCheckResult {
+	results := make([]runstate.MergeQueueCheckResult, 0, len(commands))
+	next := 0
+	for _, command := range commands {
+		if index := slices.IndexFunc(kept, func(result runstate.MergeQueueCheckResult) bool { return result.Command == command }); index >= 0 {
+			results = append(results, kept[index])
+			continue
+		}
+		answered := next < len(remaining) && remaining[next] == command && next < len(ran)
+		if answered {
+			results = append(results, ran[next])
+		}
+		if next < len(remaining) && remaining[next] == command {
+			next++
+		}
+		if !answered && !gaps {
+			break
+		}
+	}
+	return results
 }
 
 func checksPassed(generation runstate.MergeQueueGeneration) bool {

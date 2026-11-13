@@ -92,7 +92,7 @@ func runGate(args []string, stdout, stderr io.Writer) int {
 	case "record":
 		return recordGate(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "unknown gate command %q\n\n", args[0])
+		fmt.Fprintf(stderr, "unknown yoyo gate command %q\n\n", args[0])
 		printGateUsage(stderr)
 		return 2
 	}
@@ -154,7 +154,7 @@ func listGates(args []string, stdout, stderr io.Writer) int {
 		return writeJSON(stdout, stderr, gateOutput{Gates: entries, Unreadable: unreadable, Unread: unread})
 	}
 	if unread != "" {
-		fmt.Fprintf(stdout, "the admitted work could not be listed, so a gate declared and not yet recorded is missing from this: %s\n", unread)
+		fmt.Fprintf(stdout, "the admitted work could not be listed, so a step declared and not yet recorded is missing from this: %s\n", unread)
 	}
 	if len(entries) == 0 && len(unreadable) == 0 {
 		fmt.Fprintln(stdout, "no work declares a step only a person can take, and no act is recorded")
@@ -176,7 +176,7 @@ func listGates(args []string, stdout, stderr io.Writer) int {
 	for _, broken := range unreadable {
 		fmt.Fprintf(stdout, "%s  declares a step nothing could read, and is held by it\n", broken.WorkItemID)
 		fmt.Fprintf(stdout, "    %s\n", broken.Problem)
-		fmt.Fprintln(stdout, "    no act records this one: correct the declaration on the item, and it becomes a gate somebody can pass")
+		fmt.Fprintln(stdout, "    no act records this one: correct the declaration on the item, and it becomes a step somebody can record")
 	}
 	return 0
 }
@@ -190,20 +190,20 @@ func recordGate(args []string, stdout, stderr io.Writer) int {
 	configPath := flags.String("config", "", "configuration file path (default: the nearest project configuration)")
 	by := flags.String("by", "", "who took the step (default: the operating-system user)")
 	did := flags.String("did", "", "what you did, in your own words (required)")
-	subject := flags.String("for", "", "the work item or workflow instance that declared the gate (required)")
+	subject := flags.String("for", "", "the work item or workflow instance that declared the step (required)")
 	jsonOutput := flags.Bool("json", false, "emit machine-readable JSON")
 	positional, err := parseArguments(flags, args)
 	if err != nil {
 		return 2
 	}
 	if len(positional) != 1 {
-		fmt.Fprintln(stderr, "gate record takes exactly one gate name")
+		fmt.Fprintln(stderr, "yoyo gate record takes exactly one step name")
 		printGateUsage(stderr)
 		return 2
 	}
 	// A shell an agent opened cannot record the step reserved for a person.
 	// Refuse before opening the configuration or any store.
-	if err := refusedToAgentProcess("yoyo gate record", "a person records gates"); err != nil {
+	if err := refusedToAgentProcess("yoyo gate record", "a person records the steps only a person can take"); err != nil {
 		return reportGateError(stdout, stderr, *jsonOutput, err)
 	}
 	gate := positional[0]
@@ -213,12 +213,12 @@ func recordGate(args []string, stdout, stderr io.Writer) int {
 	// recur, so an act with no subject would pass every later declaration of that
 	// word — the next release's sign-off satisfied by the last one's.
 	if strings.TrimSpace(*subject) == "" {
-		fmt.Fprintln(stderr, "gate record requires --for: an act passes the gate on the work item or workflow instance that declared it, and a name alone would pass every later declaration of that name")
+		fmt.Fprintln(stderr, "yoyo gate record requires --for: an act records the step on the work item or workflow instance that declared it, and a name alone would record every later declaration of that name")
 		printGateUsage(stderr)
 		return 2
 	}
 	if strings.TrimSpace(*did) == "" {
-		fmt.Fprintln(stderr, "gate record requires --did: a gate passed with no account of what was done is a signature on a blank page")
+		fmt.Fprintln(stderr, "yoyo gate record requires --did: a step recorded with no account of what was done is a signature on a blank page")
 		printGateUsage(stderr)
 		return 2
 	}
@@ -230,7 +230,7 @@ func recordGate(args []string, stdout, stderr io.Writer) int {
 		person = os.Getenv("USER")
 	}
 	if person == "" {
-		fmt.Fprintln(stderr, "gate record requires --by: the record says which person passed the gate, and nothing here could work out who you are")
+		fmt.Fprintln(stderr, "yoyo gate record requires --by: the record says which person took the step, and nothing here could work out who you are")
 		return 2
 	}
 
@@ -253,12 +253,12 @@ func recordGate(args []string, stdout, stderr io.Writer) int {
 	if *jsonOutput {
 		return writeJSON(stdout, stderr, gateOutput{Recorded: &act})
 	}
-	fmt.Fprintf(stdout, "recorded that %s passed the gate %q on %s at %s\n", act.Person, act.Gate, act.Subject,
+	fmt.Fprintf(stdout, "recorded that %s took the step %q on %s at %s\n", act.Person, act.Gate, act.Subject,
 		act.RecordedAt.Format(time.RFC3339))
 	fmt.Fprintf(stdout, "what you recorded: %s\n", act.Statement)
-	fmt.Fprintln(stdout, "work that was held by this gate is pullable at the next reading of the queue; a workflow standing at it steps when it is next stepped")
-	fmt.Fprintln(stdout, "it passes this gate on this subject and nowhere else: the same name declared by other work is a step somebody still has to take")
-	fmt.Fprintln(stdout, "the record is not replaceable: it says who passed the gate, and a second write would change whose it was")
+	fmt.Fprintln(stdout, "work that was waiting on this step is pullable at the next reading of the queue; a workflow standing at it moves on when it is next stepped")
+	fmt.Fprintln(stdout, "it records this step on this subject and nowhere else: the same name declared by other work is a step somebody still has to take")
+	fmt.Fprintln(stdout, "the record is not replaceable: it says who took the step, and a second write would change whose it was")
 	return 0
 }
 
@@ -328,7 +328,7 @@ func reportGateError(stdout, stderr io.Writer, jsonOutput bool, err error) int {
 func printGateUsage(writer io.Writer) {
 	fmt.Fprintln(writer, `Usage: yoyo gate <list|record> [options] [name]
 
-A human gate is a step only a person can take. It is declared on the work it
+A step only a person can take is declared on the work it
 holds -- a work item, or a state in a workflow definition -- by naming it after
 `+"`"+humangate.DeclareMarker+"`"+` on its own line:
 
@@ -340,26 +340,26 @@ really reads "a person has to sign this off first" used to have only one
 encoding available, an item somebody closes, and machinery closes items. This is
 the encoding that does not have that hole.
 
-An act is recorded against the thing that declared the gate, and passes it there
+An act is recorded against the thing that declared the step, and counts there
 and nowhere else. That is what makes a name safe to reuse: the useful names
 recur -- release-signed is a step taken once per release, not once ever -- and
-if the name alone were the identity, the first act would pass every later
+if the name alone were the identity, the first act would count for every later
 declaration of that word, with nobody having taken the step. So --for is
 required, and naming a different item is a different step to take.
 
-gate list shows every gate the admitted work declares, on which item, which of
-them a person has passed and when, and what is still waiting. What is waiting is
+yoyo gate list shows every such step the admitted work declares, on which item,
+which of them a person has taken and when, and what is still waiting. What is waiting is
 read off the same queue `+"`yoyo status`"+` reads, so the two cannot disagree
 about who has to move.
 
-gate record writes one person's act, and is the only thing that passes a gate.
-It says who took the step and what they did, because a gate passed by nobody in
-particular and described by nothing is the flag this replaced. A gate already
-passed on that subject is refused rather than overwritten: the record says whose
+yoyo gate record writes one person's act, and is the only thing that records the
+step. It says who took the step and what they did, because a step recorded by
+nobody in particular and described by nothing is the flag this replaced. A step
+already recorded on that subject is refused rather than overwritten: the record says whose
 act it was.
 A process the harness launched for a role -- including a command run from an
 agent's shell, marked by YOYODYNE_AGENT_ROLE -- is refused it and told that a
-person records gates.
+person records these steps.
 
   yoyo gate record release-signed --for yoyodyne-ifd.400 --by you --did "read the release notes and signed v0.4.0 off"
 
@@ -367,7 +367,7 @@ Options:
   --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)
   --json            emit machine-readable JSON
 
-gate record options:
+yoyo gate record options:
   --for <subject>   the work item or workflow instance that declared it (required)
   --by <person>     who took the step (default: $USER)
   --did <text>      what you did, in your own words (required)`)

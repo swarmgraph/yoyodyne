@@ -2577,6 +2577,7 @@ release](developing-yoyo.md#cutting-a-release) gates on.
 yoyo conformance          # what a release is tagged behind
 yoyo conformance --json   # machine-readable
 yoyo conformance --notes  # the Markdown section a release's notes carry
+yoyo conformance --notes --from-export  # the same, read from the tracker's export, inside a developer run
 ```
 
 The order the checks run in is not code. It is a **workflow definition**: a
@@ -3129,7 +3130,7 @@ its bound **ends the run as a stoppage** — `timed_out`, no repair attempt spen
 the change preserved — and what it names is the bound, the configured figure
 and the load that scaled it, the check it stopped and how long that check had
 run, what the stage had spent across how many checks, and the two things that
-move it: narrow the per-run gate to what the change touches, or raise the
+move it: narrow the checks each run must pass to what the change touches, or raise the
 bound. That is a different failure from a check reaching its own budget, and it
 is reported as one, because raising `check_timeout` does nothing for a check the
 stage stopped.
@@ -4147,7 +4148,8 @@ The order a freed dedicated slot takes work in is:
 1. work on a change a run has already written and kept, carrying its label;
 2. such work carrying any other label, or none;
 3. fresh ready work carrying its label, in the Lead Product Manager's order —
-   highest priority first, then oldest admitted;
+   highest priority first, then, within one priority, the items she placed
+   first (earliest placement first), then oldest admitted;
 4. the ordinary order every other slot uses.
 
 The first two are the operating rule that work on a change a run already wrote
@@ -4809,7 +4811,25 @@ made by the forge check, every `execution.forge_check_interval`, which runs
 for a project that sets this key even if it publishes nothing. `yoyo status`
 and the dashboard list each waiting item with the branch it landed on and the
 branch it waits to be merged into. Setting it is the development manager's
-decision. The reasoning is in
+decision.
+
+An outside tool that opens its own pull request into the team's branch for a
+batch of waiting items tells the harness with
+`yoyo pull-request track <number> --item <id>...`, and takes it back with
+`yoyo pull-request untrack <number>`. The harness reads the pull request first
+and refuses, in plain words, one that goes into another branch, one closed
+without being merged, an item that is not waiting for the team's merge on this
+target branch, and an item whose landing commit is not among the pull request's
+commits, unless `--unverified` is given for a batch built from new commits, such
+as a squash. An item is carried by one pull request at a time, so tracking it on
+a second moves it. Each forge check reads every tracked pull request. One merged
+closes every item it carries with the merge commit recorded, so a squash merge
+closes them too. One closed without merging gives each item back to the Lead
+Product Manager, parked, with a note naming who closed it and when; the change
+stays on the target branch. While one is open, a waiting item whose landing
+commit appears among its commits is added to it, with a note. `yoyo status` and
+the dashboard say which pull request carries each waiting item, or that none
+does yet. The reasoning is in
 [integrating to a local branch](designs/integrating-to-a-local-branch.md).
 
 ### When a configuration change takes effect
@@ -6686,7 +6706,7 @@ was cancelled, or it went silent past its liveness bound — is **not** a
 conflict, although it leaves the same half-applied state behind. It is told
 apart by how the rebase stopped, abandoned the same way so the worktree is back
 on its branch before anything is recorded. The replay's `git rebase` is given
-a budget bought for what it does: the local Git budget, plus that budget's idle
+a time limit worked out from what it does: the local Git budget, plus that budget's idle
 thirty seconds again for each commit it replays and fifty milliseconds for each
 file it writes, all scaled for load. A replay stopped on time is asked again by
 the harness on its own, up to three times, after waits of one, two, and four
@@ -6856,7 +6876,7 @@ is the order they were approved — through the same action as
 `yoyo triage resume`, and each is admitted to the queue as any approved change
 is; the intake hold and a full harness hold that taking up as they hold any
 resumption. A change already admitted when the requirement appears is not
-landed while it stands: its verified candidate waits with its gate kept, and a
+landed while it stands: its verified candidate waits with its checks and review kept, and a
 target that moves meanwhile is drift as always.
 
 With the switch off nothing of this applies, so a person can remove GitHub's
@@ -6924,8 +6944,13 @@ forge, or when it stops on something that needs a look — and a session drainin
 to restart into a new build waits for its passes like its recurring firings, and
 stops them past the drain bound — except a pass whose candidate's checks are
 running, which is let finish them, each check up to its configured
-`check_timeout`, because a candidate's checks count only whole and a stage
-stopped part-way runs every check again. Past the bound no queue starts a new
+`check_timeout`, so the check under way is not thrown away. A stage stopped
+part-way keeps the checks that had already passed, as long as the candidate's
+commit and its list of checks are unchanged, and the session that comes back
+runs only the others, the one cut off included; the cut-off check is recorded
+as cut off by the restart, not as a failure, and nothing is charged for it.
+Where the record of the stopped attempt cannot say which checks passed on that
+candidate, every check runs again and the candidate's record says why. Past the bound no queue starts a new
 check stage; the session that comes back runs it. While the session waits, its
 line names the queue, the candidate's generation, the check, and the latest
 moment that check can run to. A candidate's checks and review write to that
@@ -9221,7 +9246,11 @@ last cleanup left it, or `every` (a day by default, an hour at the shortest)
 has passed since then, whichever is first. The growth is measured from what
 the last cleanup left rather than as a size the store may not pass, because a
 cleanup keeps the whole history, and a store whose history alone outgrew a
-fixed size would be cleaned up on every pass and shrink by nothing.
+fixed size would be cleaned up on every pass and shrink by nothing. A store
+past `tracker_limits.store_megabytes` is cleaned up every four hours as well,
+and a due cleanup that has waited an hour for other processes to let the
+store go starts beside them, so a store past its bound is cleaned up within
+six hours however busy the developer slots keep it; neither is a setting.
 `max_hold` (15 seconds by default, between one second and 20) is the longest
 one cleanup holds the store; every tracker call waits behind it, so it is
 stopped when this runs out and the next pass finishes the work, and its
@@ -9289,8 +9318,9 @@ says what the pass is handed and how a violation is corrected.
 
 Every recurring task turn also receives the live work assigned to that role's
 conversation, with each item's priority shown. The harness lists it in backlog
-order: highest priority first (P0 before P1), then oldest admitted within each
-priority, using the same order as a developer pull. Parked and finished items
+order: highest priority first (P0 before P1), then within each priority the
+items the Lead Product Manager placed first, then oldest admitted, using the
+same order as a developer pull. Parked and finished items
 are excluded. This list is read again for each turn, so an architect's pass
 receives a newer P0 design before an older P2 without relying on the prompt to
 reorder an old briefing. The role reads each item in full before deciding.

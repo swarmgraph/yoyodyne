@@ -28,6 +28,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/goal"
 	"github.com/mason-bryant/yoyodyne/internal/invariant"
 	"github.com/mason-bryant/yoyodyne/internal/landing"
+	"github.com/mason-bryant/yoyodyne/internal/mcpcall"
 	"github.com/mason-bryant/yoyodyne/internal/outsidefile"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
@@ -582,6 +583,11 @@ type Pipeline struct {
 	// a run that is current.
 	Build        string
 	RedactValues []string
+	// MCP is the one MCP call path, which carries out the block a developer
+	// that holds an MCP tool ends a turn with (mcpask.go). It is optional: a
+	// pipeline wired without one tells no developer of the block and reads
+	// every reply exactly as before.
+	MCP MCPCalls
 }
 
 // AccountChooser picks the provider account the next run is served by. It is an
@@ -2622,6 +2628,10 @@ type activeRun struct {
 	// the same recorded worktree, so there is nothing here for a stored copy to
 	// disagree with.
 	scratch string
+	// asks is the current attempt's MCP asking, nil where the developer holds no
+	// MCP tool (mcpask.go). It is built afresh by each develop, so its rounds
+	// and calls are counted per attempt.
+	asks *developerAsks
 	// claimed records that the tracker holds this item, which is what makes a
 	// failure worth reporting back to it.
 	claimed bool
@@ -4560,6 +4570,9 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 	}
 	reasked := false
 	sentBackForBackground := false
+	// The attempt's MCP asking, counted across every turn this develop resumes
+	// (mcpask.go); nil for a developer that holds no MCP tool.
+	a.asks = a.newDeveloperAsks()
 	for {
 		// A stop is asked for before the hold, so a run the operator both stopped
 		// and paused stops rather than parking on a hold nothing will lift for it.
@@ -4584,7 +4597,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			}
 		}
 		responseStarted := a.pipeline.clock().Now()
-		providerResult, err := a.attemptDevelopment(ctx, prompt, sessionID)
+		providerResult, err := a.attemptDevelopment(ctx, a.withMCPContract(prompt), sessionID)
 		// How a routed attempt ended is recorded before anything below reads
 		// it, with whether its process tree is confirmed stopped.
 		if route != nil {
@@ -4707,6 +4720,37 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 						route.relaunch = true
 					}
 					a.observe(ctx, deliveryDevelop, "reissued")
+					continue
+				}
+			}
+			// A reply that ends asking for MCP calls is not the attempt's answer, and
+			// is never read as one: no landing claim, verification, report or summary
+			// is taken from it (mcpask.go). Only a clean ending asks, and only from a
+			// developer that holds a tool; any other reply is read below exactly as
+			// before. A turn that also left background work running is sent back for
+			// that first, under its own rule, and the block is carried out on the
+			// reply that follows.
+			if a.asks != nil && err == nil && !providerResult.IsError {
+				if ask := mcpcall.ReadAsk(providerResult.FinalText); ask.Found {
+					sessionID = a.carrySession(providerResult.SessionID, sessionID)
+					// The reply is not recorded as the attempt's, so the events the
+					// invocation wrote are counted here, ahead of the harness's own.
+					a.state.LastSequence = max(a.state.LastSequence, providerResult.LastEvent)
+					if background, outlived := outlivedReply(providerResult); outlived {
+						if !sentBackForBackground {
+							sentBackForBackground = true
+							prompt = a.openWithDeveloperRefusals(backgroundWorkPrompt(a.deliveredInvariants().Text(), a.scratch, background, a.pipeline.Config.Checks) + mcpUnreadyNote)
+							a.sendBackForBackgroundWork(ctx, background)
+							continue
+						}
+						a.askDespiteBackgroundWork(background)
+					}
+					answers, askErr := a.carryOutAsk(ctx, ask, sessionID)
+					if askErr != nil {
+						a.observeDevelopEnded(ctx, askErr)
+						return askErr
+					}
+					prompt = a.openWithDeveloperRefusals(answers)
 					continue
 				}
 			}
@@ -6992,7 +7036,7 @@ func (a *activeRun) verify(ctx context.Context) error {
 				said = checkStopSays(check, "execution.check_timeout", *stage)
 			}
 			cause = fmt.Errorf(
-				"%s; the stage had spent %s across %d check(s) (gate narrowed to: %s); narrow the per-run gate to what the change touches with $%s, move the whole suite to landing_checks, or raise the bound",
+				"%s; the stage had spent %s across %d check(s) (checks narrowed to: %s); narrow the checks each run must pass to what the change touches with $%s, move the whole suite to landing_checks, or raise the bound",
 				said, stage.Elapsed().Round(time.Second), len(checkResults), stage.Narrowed, checks.ChangedGoPackagesVariable)
 			a.recordEnvironmentalRefusal(runstate.CauseCheckStageBound, cause.Error(), ranAnyway)
 			a.state.ChecksPassed = nil
@@ -7067,7 +7111,7 @@ func (a *activeRun) verify(ctx context.Context) error {
 // approving verdict. It never fires on the ordinary path, where the repair loop
 // re-earns the whole gate before every promotion; it is here for every other
 // route into the promotion, which is the code that will never mention it.
-var ErrIntegrationUnearned = errors.New("integration refused: the record does not show the change passed its gate")
+var ErrIntegrationUnearned = errors.New("integration refused: the record does not show the change passed its checks and review")
 
 // lastingRefusal marks an ErrIntegrationUnearned refusal that says something
 // about how the change was put through its gate rather than about the moment of
@@ -7940,7 +7984,7 @@ func (a *activeRun) fileRedLanding(ctx context.Context, landed *runstate.Landing
 	// check printed — text a change can shape — goes in the notes, which the gate
 	// deliberately never reads.
 	description := fmt.Sprintf("Red landing on %s at %s, after %s (%s) integrated: %s.\n\n"+
-		"The per-run gate passed on the change and the reviewer approved it; the landing checks then ran the whole suite over the integrated commit and this one failed. "+
+		"The checks each run must pass passed on the change, narrowed to what it touched, and the reviewer approved it; the landing checks then ran the whole suite over the integrated commit and this one failed. "+
 		"So %s is red at %s, and every run cut from it starts on a red base until this is fixed or the landing is shown to have been the suite's fault. "+
 		"Reproduce with `%s` at %s. What the check said is in this item's notes.",
 		target, commit, a.state.WorkItemID, a.state.WorkItemTitle, what, target, commit, failing.Command, landed.Commit)
@@ -10265,7 +10309,7 @@ Each attempt's summary stands on its own. When you are handed your change back f
 
 That boundary is enforced rather than trusted. The project's configuration directory and the homes its product artifacts, designs, and decision records live in are refused in your change: the harness compares what you touched against them before any check runs and before any reviewer sees the work, and hands the change back to you if it touches one of them. The only exception is a path this work item grants, on a line beginning ` + "`" + protectedpath.GrantMarker + "`" + ` in its title, description, design guidance, or acceptance criteria. Nothing you write grants a path, and neither does anything written into the item's notes, which is where a run's own record goes. If your work genuinely needs one, leave it alone and say so — the refusal you would get names the same thing this does.
 
-The same gate refuses the work tracker's export where your worktree carries one. The harness copies it in from the checkout your worktree was cut from, so you read the work around your own rather than the copy your base commit carried, and holds it out of your change: it is derived from a store outside Git that nothing you write reaches, and every run is given its own copy, so the same file in two changes is a merge conflict between runs rather than a contribution. Read it and leave it alone. A change containing it is handed back to you whatever became of the bit that holds it.
+The same comparison refuses the work tracker's export where your worktree carries one. The harness copies it in from the checkout your worktree was cut from, so you read the work around your own rather than the copy your base commit carried, and holds it out of your change: it is derived from a store outside Git that nothing you write reaches, and every run is given its own copy, so the same file in two changes is a merge conflict between runs rather than a contribution. Read it and leave it alone. A change containing it is handed back to you whatever became of the bit that holds it.
 
 A grant lifts the harness's refusal and never somebody else's. Claude Code refuses your writes to ".claude/settings.json" and ".claude/settings.local.json" above anything this harness permits: the editing tools are denied there however this run is configured, and the shell sandbox names the file and cannot be disabled. No grant reaches those paths, and an item that tries to grant one is refused before a run starts, so the case you can actually meet is work that needs one of them changed and says so in prose. Those files are the operator's to change by hand. Do the rest of the work, say in your summary exactly what has to go into the file and that a person has to put it there, and do not spend attempts finding another way in — there is not one. The same holds of this harness's own ".yoyodyne/roles/": a role definition says what a role may do, so the harness refuses a change touching that directory whatever the work item grants, and refuses an item whose text grants it before a run starts. A person changes a role definition and the operator activates it; say in your summary what it should say.
 
@@ -10432,7 +10476,7 @@ func pathRefusalRepairPrompt(invariants, scratchDirectory string, checks []strin
 	if len(protectedpath.RoleDefinitionsAmong(refusal.Paths)) > 0 {
 		prompt.WriteString("\n" + protectedpath.RoleInstruction + "\n")
 	}
-	prompt.WriteString("\nRestore each refused path to what it held before your change, finish the work you were assigned within the paths that are yours, and finish with a concise summary of what you changed. The harness applies this gate again afterwards; the checks, review, and integration stay out of reach until the change touches nothing it was not granted.")
+	prompt.WriteString("\nRestore each refused path to what it held before your change, finish the work you were assigned within the paths that are yours, and finish with a concise summary of what you changed. The harness compares your change against those paths again afterwards; the checks, review, and integration stay out of reach until the change touches nothing it was not granted.")
 	return prompt.String()
 }
 
@@ -11279,7 +11323,7 @@ func renderCheckNotes(outcome Outcome) []string {
 			line += fmt.Sprintf(", %s stopped unfinished after %s from when it started, before it reached its own execution.check_timeout limit", stage.Command, time.Duration(stage.CheckElapsedSeconds)*time.Second)
 		}
 		if stage.Narrowed != "" {
-			line += " (gate narrowed to: " + stage.Narrowed + ")"
+			line += " (checks narrowed to: " + stage.Narrowed + ")"
 		}
 		lines = append(lines, line)
 	}

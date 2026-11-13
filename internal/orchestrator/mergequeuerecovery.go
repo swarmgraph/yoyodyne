@@ -203,7 +203,7 @@ func ClassifyMergeQueueFailure(evidence MergeQueueFailureEvidence) (MergeQueueFa
 		return failure, true, nil
 	case checksRun.Problem != "":
 		failure.Class = runstate.MergeQueueInfrastructureFailure
-		failure.Reason = fmt.Sprintf("generation %d's checks judged nothing (%s); they are run again on the same candidate, and nothing is charged for it", generation.Number, checksRun.Problem)
+		failure.Reason = fmt.Sprintf("generation %d's checks judged nothing (%s); the checks that had not passed are run again on the same candidate, and nothing is charged for it", generation.Number, checksRun.Problem)
 		return failure, true, nil
 	}
 	for index, result := range checksRun.Results {
@@ -672,9 +672,6 @@ type pendingHandback struct {
 // been given it yet: a process that stopped between the two writes, or a
 // handback that could not be given. Entries in passedOver are skipped.
 func (p MergeQueuePromoter) pendingHandback(key runstate.MergeQueueKey, passedOver map[string]bool) (pendingHandback, bool, error) {
-	if p.Repair == nil {
-		return pendingHandback{}, false, nil
-	}
 	entries, err := p.Queue.Entries(key)
 	if err != nil {
 		return pendingHandback{}, false, err
@@ -687,7 +684,10 @@ func (p MergeQueuePromoter) pendingHandback(key runstate.MergeQueueKey, passedOv
 		if err != nil {
 			return pendingHandback{}, false, err
 		}
-		if found && landing.Handback != nil && handbackOwed(*landing.Handback) {
+		// A landing outside the queue is recorded by the queue itself; every
+		// other handback waits for something to give it to.
+		if found && landing.Handback != nil && handbackOwed(*landing.Handback) &&
+			(p.Repair != nil || landing.Handback.Continuation == runstate.MergeQueueLandedOutside) {
 			return pendingHandback{entry: entry, landing: landing}, true, nil
 		}
 	}
@@ -758,7 +758,7 @@ func (q *queuePromotion) decide(failure MergeQueueFailure) *runstate.MergeQueueH
 // handbackOwed reports a handback not yet given to whoever takes it up: its
 // run, or the development manager's docket where no single run can.
 func handbackOwed(handback runstate.MergeQueueHandback) bool {
-	return (handback.GoesToRun() && handback.HandedBackAt == nil) ||
+	return ((handback.GoesToRun() || handback.Continuation == runstate.MergeQueueLandedOutside) && handback.HandedBackAt == nil) ||
 		(handback.Continuation.Reported() && handback.ReportedAt == nil)
 }
 
@@ -781,7 +781,13 @@ func (e MergeQueueHandbackUndelivered) Unwrap() error { return e.Err }
 // the queue meets is written only to the queue's own record.
 func (q *queuePromotion) handBack(ctx context.Context) error {
 	handback := q.landing.Handback
-	if handback == nil || q.p.Repair == nil || !handbackOwed(*handback) {
+	if handback == nil || !handbackOwed(*handback) {
+		return nil
+	}
+	if handback.Continuation == runstate.MergeQueueLandedOutside {
+		return q.recordLandedOutside(ctx)
+	}
+	if q.p.Repair == nil {
 		return nil
 	}
 	at := q.now()

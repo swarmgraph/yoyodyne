@@ -176,7 +176,7 @@ func escalationMessage(entry triage.Entry) string {
 	return strings.Join([]string{
 		fmt.Sprintf("Run %s of %s stopped: independent review still required repair after every permitted attempt, and the change it made is preserved.", entry.RunID, item),
 		"The harness delivered this to you because the run stopped, and for no other reason: nothing has been decided about it, and nothing happens until you record a decision.",
-		"Recording one is what causes it. A decision you record here that asks for work is carried out by the harness itself on a later scheduling pass, under the gates that already bound it, with nobody typing anything — so record what you want to happen rather than what you would ask somebody for.",
+		"Recording one is what causes it. A decision you record here that asks for work is carried out by the harness itself on a later scheduling pass, under the checks and limits that already bound it, with nobody typing anything — so record what you want to happen rather than what you would ask somebody for.",
 		"Its entry is on the triage docket above, with the reviewer's findings, what the run preserved, and what the item has already spent against its caps.",
 		fmt.Sprintf("What becomes of it is yours to judge. Record a triage decision naming run %s, or say what you are waiting on and leave it where it is.", entry.RunID),
 	}, "\n")

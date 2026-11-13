@@ -7,10 +7,12 @@ package orchestrator
 // more it can do now.
 //
 // One pass of one queue, in order: a failed candidate is read for what it says
-// and handed back where it is the change's (Recover); the first unfinished
-// entry is landed, or taken up where an earlier pass stopped (Promote); and
-// where nothing is under way the next waiting entry's candidate is built,
-// checked and reviewed (Work). Each of the three takes the queue's worker lease
+// and handed back where it is the change's (Recover); an entry whose change
+// already reached the target, or whose pull request was closed, outside the
+// queue leaves it (SettleOutside); the first unfinished entry is landed, or
+// taken up where an earlier pass stopped (Promote); and where nothing is under
+// way the next waiting entry's candidate is built, checked and reviewed
+// (Work). Each of the four takes the queue's worker lease
 // for itself, so one process works a queue at a time however many sessions are
 // watching, and a pass that finds the lease taken does nothing. A pass ends on
 // its own: when the queue has nothing waiting, when what is left waits on
@@ -198,6 +200,9 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 		return true
 	}
 	repeated := ""
+	// looked is the entries this pass has looked at for a change that reached
+	// the target outside the queue, each asked about once a pass.
+	looked := map[string]bool{}
 	for step := 0; step < maxMergeQueuePassSteps; step++ {
 		if ctx.Err() != nil {
 			return done(runstate.MergeQueuePassWaiting, runstate.MergeQueueEntry{}, "the session working the queue stopped; the next pass carries on from the records")
@@ -210,7 +215,29 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			return stopped(recovered.Entry, err)
 		}
 		if recovered.Handback != nil {
-			handedBack++
+			if recovered.Handback.Continuation == runstate.MergeQueueLandedOutside {
+				landed++
+			} else {
+				handedBack++
+			}
+			continue
+		}
+		// An entry whose change already reached the target, or whose pull request
+		// was closed, outside the queue leaves it before anything is built for it
+		// (mergequeueoutside.go).
+		outside, err := d.Promoter.settleOutside(ctx, key, looked)
+		if passOver(err) {
+			continue
+		}
+		if err != nil {
+			return stopped(outside.Entry, err)
+		}
+		if outside.Handback != nil {
+			if outside.Handback.Continuation == runstate.MergeQueueLandedOutside {
+				landed++
+			} else {
+				handedBack++
+			}
 			continue
 		}
 		promoted, err := d.Promoter.Promote(ctx, key)
