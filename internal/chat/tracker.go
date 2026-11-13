@@ -174,8 +174,17 @@ const (
 	// words twice.
 	actionPark   = "park"
 	actionUnpark = "unpark"
-	actionLink   = "link"
-	actionUnlink = "unlink"
+	// actionPlace puts an item first among work of its own priority, and
+	// actionUnplace takes that placement away. They exist because within one
+	// priority work was pulled oldest admitted first and nothing a role could
+	// do changed that, so an order the Lead Product Manager promised was kept
+	// only in a conversation the scheduler never reads
+	// (docs/designs/placing-an-item-first.md). Like a park, neither takes an
+	// argument: the action's "reason" is what the placement records.
+	actionPlace   = "place"
+	actionUnplace = "unplace"
+	actionLink    = "link"
+	actionUnlink  = "unlink"
 	// actionRepair corrects backlog state the records have made stale: a status
 	// of blocked with nothing unfinished behind it, a dependency on work that
 	// closed, an attribution the goals no longer state. It is not an update with
@@ -255,6 +264,8 @@ var trackerActionArguments = map[string][]string{
 	actionReprioritize: {"priority"},
 	actionPark:         {},
 	actionUnpark:       {},
+	actionPlace:        {},
+	actionUnplace:      {},
 	actionLink:         {"depends_on"},
 	actionUnlink:       {"depends_on"},
 	actionRepair:       {"state", "depends_on", "goal"},
@@ -299,12 +310,17 @@ var trackerCapabilities = map[string]capability.Capability{
 	actionReprioritize: capability.BacklogOrder,
 	actionPark:         capability.BacklogOrder,
 	actionUnpark:       capability.BacklogOrder,
-	actionLink:         capability.WorkDecompose,
-	actionUnlink:       capability.WorkDecompose,
-	actionRepair:       capability.WorkItemRepairState,
-	actionClose:        capability.BacklogAdmit,
-	actionRetire:       capability.BacklogAdmit,
-	actionTriage:       capability.WorkTriage,
+	// Placing an item first is ordering, and the design gives it to the Lead
+	// Product Manager alone, so it has no lane-scoped name below: a program
+	// manager reorders inside its lane by priority and asks her for a placement.
+	actionPlace:   capability.BacklogOrder,
+	actionUnplace: capability.BacklogOrder,
+	actionLink:    capability.WorkDecompose,
+	actionUnlink:  capability.WorkDecompose,
+	actionRepair:  capability.WorkItemRepairState,
+	actionClose:   capability.BacklogAdmit,
+	actionRetire:  capability.BacklogAdmit,
+	actionTriage:  capability.WorkTriage,
 	// Deciding that admitted work is superseded, narrowed, or to be retired is
 	// admission run backwards, as closing and retiring are; what it decides about
 	// the run in flight is nothing, which is the development manager's.
@@ -353,7 +369,7 @@ var laneCapabilities = map[string]capability.Capability{
 // so a refusal names exactly what was available.
 var trackerActionNames = []string{
 	actionRead, actionSurvey, actionCreate, actionAttribute, actionUpdate, actionLabel, actionReparent,
-	actionReprioritize, actionPark, actionUnpark, actionLink, actionUnlink, actionRepair,
+	actionReprioritize, actionPark, actionUnpark, actionPlace, actionUnplace, actionLink, actionUnlink, actionRepair,
 	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake, actionWithdraw,
 	actionDirective, actionAmendment,
 }
@@ -1258,6 +1274,14 @@ func (a TrackerAction) validateArguments() []error {
 		// here changes nothing, which is the right end to refuse it at: a parking
 		// the tracker silently shortened is a decision recorded as half of itself.
 		problems = append(problems, parkingProblem("reason", domain.WorkItemParking(a.Reason)))
+	case actionPlace:
+		// The reason is what the placement keeps and every listing shows, so it
+		// is held to what a placement can hold, as a parking's reason is.
+		if reason := strings.TrimSpace(a.Reason); len(reason) > beads.MaxPlacementReasonBytes {
+			problems = append(problems, fmt.Errorf("reason is the placement's reason at %d bytes, limit is %d", len(reason), beads.MaxPlacementReasonBytes))
+		} else if strings.ContainsAny(reason, "\r\n") {
+			problems = append(problems, errors.New("reason is the placement's reason and must be one line"))
+		}
 	case actionLink, actionUnlink:
 		if strings.TrimSpace(a.DependsOn) == "" {
 			problems = append(problems, fmt.Errorf("%s requires \"depends_on\", the item this one waits for", a.Action))
@@ -1879,6 +1903,10 @@ func refuseWhenClosed(action, id, status string) string {
 		// would report work put back into a queue it is no longer in, and the
 		// product manager would go on expecting it to be pulled.
 		return fmt.Sprintf("%s is closed and has left the backlog, so releasing it would put it back into nothing; its parking was left as it is", id)
+	case actionPlace:
+		return fmt.Sprintf("%s is closed and has left the backlog, so there is no work of its priority for it to go before; nothing was placed", id)
+	case actionUnplace:
+		return fmt.Sprintf("%s is closed, and closing it already ended any placement it had; nothing was changed", id)
 	case actionClose:
 		return fmt.Sprintf("%s is already closed, so there was nothing to close", id)
 	case actionRetire:
@@ -2250,11 +2278,20 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			Priority:    &priority,
 			AppendNotes: s.trackerProvenance(fmt.Sprintf("Reprioritized from priority %d to %d", outcome.target.Priority, priority), action.Reason),
 		}
+		// A placement was a promise about the item's place among its old
+		// priority, so a change of priority ends it, in the same write and with
+		// the ending recorded beside the change that caused it.
+		ended := ""
+		if placement := outcome.target.PlacedFirst(); placement != nil && priority != outcome.target.Priority {
+			change.Placement = &beads.Placement{}
+			change.AppendNotes += "\n\n" + placementEndedByPriority(*placement, priority)
+			ended = fmt.Sprintf("; its placement first among priority %d ended with the change", placement.Priority)
+		}
 		if _, err := s.options.Tracker.Update(ctx, id, change); err != nil {
 			outcome.fail(err)
 			return
 		}
-		outcome.applied("set %s to priority %d", id, priority)
+		outcome.applied("set %s to priority %d%s", id, priority, ended)
 	case actionPark:
 		// The reason is the parking, and it is also appended to the notes. The
 		// marker is what selection reads and the note is what somebody reading the
@@ -2289,6 +2326,10 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			return
 		}
 		outcome.applied("released %s back into the queue, where it is selected in the order its priority puts it%s", id, ended)
+	case actionPlace:
+		s.placeFirst(ctx, outcome)
+	case actionUnplace:
+		s.removePlacement(ctx, outcome)
 	case actionLink:
 		dependsOn := strings.TrimSpace(action.DependsOn)
 		// A parent made to wait on work broken out of it waits for ever; see
@@ -2785,7 +2826,7 @@ func renderOpenQueueEvidence(items []beads.WorkItem, goals goal.Set) string {
 	ordered := append([]beads.WorkItem(nil), items...)
 	backlog.Sort(ordered)
 	var rendered strings.Builder
-	fmt.Fprintf(&rendered, "%d open work item(s), in backlog order: highest priority first, which is the order work is pulled in. Items at the same priority are oldest-admitted first, which is the harness's tie-break: nothing has decided which of those comes first.\n", len(items))
+	fmt.Fprintf(&rendered, "%d open work item(s), in backlog order: highest priority first, which is the order work is pulled in. Within one priority, items the Lead Product Manager placed first come first, earliest placement first, and each says so; the rest are oldest-admitted first, which is the harness's tie-break: nothing has decided which of those comes first.\n", len(items))
 	// What the queue is for goes above the listing rather than after it, because
 	// a survey of a long queue is cut at its end: an account of the queue's
 	// traceability that the cut removed would be reported as a queue with nothing
@@ -2812,6 +2853,9 @@ func renderOpenQueueEvidence(items []beads.WorkItem, goals goal.Set) string {
 		fmt.Fprintf(&rendered, "- %s [%s, p%d, %s%s%s%s] %s\n",
 			item.ID, item.Status, item.Priority, item.IssueType, executorLabel(item.Executor), labelsLabel(item.Labels), originLabel(item.Origin),
 			singleLine(item.Title, maxTrackerTitleBytes))
+		if placement := item.PlacedFirst(); placement != nil {
+			fmt.Fprintf(&rendered, "    %s\n", placement.Line())
+		}
 		fmt.Fprintf(&rendered, "    relevant goals: %s\n", goals.DescribeRelevant(item.RelevantGoals))
 	}
 	if len(items) > len(listed) {
@@ -3098,6 +3142,11 @@ func renderWorkItemHead(item beads.WorkItem, goals goal.Set, trim bool) string {
 	if item.Parking.Parked() {
 		fmt.Fprintf(&rendered, "parked: %s — no pull selects it however far the queue drains, until it is released\n",
 			singleLine(item.Parking.Reason(), domain.MaxWorkItemParkingBytes))
+	}
+	// A placement first among the item's priority, said only where one still
+	// orders it, in the words every listing of the queue uses.
+	if placement := item.PlacedFirst(); placement != nil {
+		fmt.Fprintf(&rendered, "%s\n", placement.Line())
 	}
 	// The labels, said only where there are any: an item that says nothing here
 	// carries none, and printing that on every item would bury the ones that do.
