@@ -810,3 +810,31 @@ func TestAProgramRemovedAfterTheSchedulerStartedIsReportedMissing(t *testing.T) 
 		}
 	}
 }
+
+// A developer slot the scheduler left empty while ready work waited is a
+// condition needing an action, with the scheduler's reason, since when, and
+// the owner the registry names; the observation is then never healthy.
+func TestAnEmptySlotWithReadyWorkWaitingIsAProblemWithItsReason(t *testing.T) {
+	t.Parallel()
+
+	observer, _ := whole(t)
+	since := observedAt.Add(-98 * time.Minute)
+	observer = withStanding(observer, readmodel.Standing{ObservedAt: observedAt, EmptySlots: &readmodel.EmptySlots{
+		EmptySlots: runstate.EmptySlots{Cause: ownership.EmptySlotRule, Reason: "a rule keeps yoyodyne-h0ou out: it overlaps run-c030729a",
+			Slots: []int{3}, Ready: 2, Since: since, At: since},
+		Owner: ownership.Resolve(ownership.KindEmptySlot, ownership.Record{EmptySlot: ownership.EmptySlotRule}),
+	}})
+	observation := observer.Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+	empty := find(t, observation, "yoyodyne/-/empty-slot:"+string(ownership.EmptySlotRule))
+	if empty.Classification != ClassEmptySlot || !empty.Actionable || empty.Owner != ownership.MoverHarness || empty.Needs == "" {
+		t.Fatalf("empty slot = %+v, want an actionable condition the harness moves", empty)
+	}
+	for _, want := range []string{"developer slot 3", "yoyodyne-h0ou", "run-c030729a", "since"} {
+		if !strings.Contains(empty.Says, want) {
+			t.Fatalf("empty slot says %q, want it to contain %q", empty.Says, want)
+		}
+	}
+	if strings.Contains(observation.Says, "no condition was found") {
+		t.Fatalf("observation says %q, want an empty slot never read as healthy", observation.Says)
+	}
+}

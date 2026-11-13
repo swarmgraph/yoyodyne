@@ -788,6 +788,13 @@ type Standing struct {
 	// taken. SlotHoldersProblem is why it could not be read.
 	SlotHolders        []runstate.SlotHolder `json:"slot_holders,omitempty"`
 	SlotHoldersProblem string                `json:"slot_holders_problem,omitempty"`
+	// EmptySlots is the scheduler's account of the developer slots it left
+	// empty while ready work waited, where one stands (emptyslots.go): the
+	// reason in its words, the slots, the ready items it passed over and why,
+	// since when, and who moves it. The running line says it as a problem.
+	// EmptySlotsProblem is why the watch log could not be read for it.
+	EmptySlots        *EmptySlots `json:"empty_slots,omitempty"`
+	EmptySlotsProblem string      `json:"empty_slots_problem,omitempty"`
 	// HeldLine is the brake's hold on new work with what it is costing, and nil
 	// where the brake holds nothing. It is what every pass of the development
 	// manager's is shown while the hold stands (heldline.go).
@@ -1097,6 +1104,20 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		standing.NotStartableForOperator = ForOperator(waits.groups)
 	}
 	standing.NotStartableProblem = notStartableProblem
+	slots := emptySlotsReading{free: -1, startable: standing.Startable, intake: switches.intake, held: switches.intakeHeld}
+	if notStartableProblem != "" {
+		slots.startable = -1
+	}
+	if runningProblem == "" && sources.Capacity > 0 {
+		busy := len(standing.Dispatching)
+		for _, run := range running {
+			if !run.documentLanding && run.HoldsNoSlot == "" {
+				busy++
+			}
+		}
+		slots.free = max(sources.Capacity-busy, 0)
+	}
+	standing.EmptySlots, standing.EmptySlotsProblem = readEmptySlots(sources, slots)
 	// The provider's usage window is read out of the same stall the refusals are
 	// worded from, rather than derived a second time here: one reading of one
 	// silence, said in two places, is the rule this whole package holds.

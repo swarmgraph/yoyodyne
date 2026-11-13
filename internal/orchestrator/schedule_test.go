@@ -4490,6 +4490,8 @@ type recordedTransition struct {
 	draining *runstate.WatchDrain
 	// pass is the recurring pass a note says the session has begun.
 	pass *runstate.WatchPass
+	// emptySlots is the account of empty developer slots a note carries.
+	emptySlots *runstate.EmptySlots
 }
 
 func (r *recordedSessions) Record(transition SessionState) error {
@@ -4513,6 +4515,7 @@ func (r *recordedSessions) Record(transition SessionState) error {
 		passedOver:     transition.PassedOver,
 		draining:       transition.Draining,
 		pass:           transition.RecurringPass,
+		emptySlots:     transition.EmptySlots,
 	})
 	return nil
 }
@@ -4545,6 +4548,11 @@ func (r *recordedSessions) states() []runstate.WatchState {
 	defer r.mu.Unlock()
 	states := make([]runstate.WatchState, 0, len(r.transitions))
 	for _, transition := range r.transitions {
+		// An account of empty slots is a note about the slots rather than a
+		// state the session entered, as every fold of the real log reads it.
+		if transition.emptySlots != nil {
+			continue
+		}
 		states = append(states, transition.state)
 	}
 	return states
