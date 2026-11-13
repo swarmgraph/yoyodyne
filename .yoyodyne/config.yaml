@@ -510,6 +510,12 @@ agents:
     persona:
       version: v2
       path: personas/product-manager.md
+    # 45m turns, 60m messages, by the Lead Product Manager's decision of
+    # 2026-11-06: her recurring pass kept running out of time at the 15-minute
+    # turn default before finishing. The message stays longer than the turn.
+    time_limits:
+      turn: 45m
+      message: 60m
   reviewer:
     role: reviewer
     # Opus, from Codex Sol, at the operator's direction of 2026-10-05.
