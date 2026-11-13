@@ -365,37 +365,8 @@ func newFeedback(state runstate.State, reading publish.FeedbackReading) []runsta
 		}
 		items = append(items, boundedFeedback(item))
 	}
-	for _, review := range reading.Reviews {
-		item := runstate.ForgeFeedbackItem{ID: runstate.FeedbackID("review", review.ID), Author: review.Author, At: review.At, Body: review.Body, URL: review.URL}
-		switch review.State {
-		case publish.ReviewChangesRequested:
-			item.Kind = runstate.FeedbackChangesRequested
-		case publish.ReviewApproved:
-			item.Kind = runstate.FeedbackApproval
-		case publish.ReviewCommented:
-			// A review that only commented carries its line comments separately,
-			// read below; its own body, where it has one, is a comment on the
-			// request.
-			if strings.TrimSpace(review.Body) == "" {
-				continue
-			}
-			item.Kind = runstate.FeedbackComment
-		default:
-			// A dismissed or pending review says nothing anybody stands behind.
-			continue
-		}
+	for _, item := range feedbackItemsOf(reading) {
 		keep(item)
-	}
-	for _, comment := range reading.LineComments {
-		keep(runstate.ForgeFeedbackItem{ID: runstate.FeedbackID("line-comment", comment.ID), Kind: runstate.FeedbackLineComment,
-			Author: comment.Author, At: comment.At, Body: comment.Body, Path: comment.Path, Line: comment.Line, URL: comment.URL})
-	}
-	for _, comment := range reading.Comments {
-		if strings.TrimSpace(comment.Body) == "" {
-			continue
-		}
-		keep(runstate.ForgeFeedbackItem{ID: runstate.FeedbackID("comment", comment.ID), Kind: runstate.FeedbackComment,
-			Author: comment.Author, At: comment.At, Body: comment.Body, URL: comment.URL})
 	}
 	sort.SliceStable(items, func(i, j int) bool {
 		if !items[i].At.Equal(items[j].At) {

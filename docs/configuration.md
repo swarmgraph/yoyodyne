@@ -4824,9 +4824,18 @@ closes every item it carries with the merge commit recorded, so a squash merge
 closes them too. One closed without merging gives each item back to the Lead
 Product Manager, parked, with a note naming who closed it and when; the change
 stays on the target branch. While one is open, a waiting item whose landing
-commit appears among its commits is added to it, with a note. `yoyo status` and
-the dashboard say which pull request carries each waiting item, or that none
-does yet. The reasoning is in
+commit appears among its commits is added to it, with a note. What people say
+on an open tracked pull request is read the way feedback on the harness's own
+pull requests is, leaving out what this product's harness wrote, but it never
+starts a run by itself: a review that requests changes, or a comment on a line,
+goes on the development manager's list naming the items whose landed changes
+touched that file (every item, for a review that names no file); an ordinary
+comment goes on her list naming no item; and an approval is noted on each item as
+information only. A repair of a landed item cannot yet be started from that
+feedback; where it calls for a change, the development manager asks the Lead
+Product Manager to admit a work item for it.
+`yoyo status` and the dashboard say which pull request carries each waiting
+item, or that none does yet. The reasoning is in
 [integrating to a local branch](designs/integrating-to-a-local-branch.md).
 
 ### When a configuration change takes effect

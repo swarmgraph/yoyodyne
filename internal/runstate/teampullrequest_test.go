@@ -191,3 +191,47 @@ func TestWaitingForTeamMergeItemSaysWhichPullRequestCarriesIt(t *testing.T) {
 		t.Errorf("Says() = %q, want %q", got, want)
 	}
 }
+
+func TestTeamPullRequestFeedbackReadMovesTheCursorAndKeepsIt(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	run := waitingForTeamRun(t)
+	if err := store.Create(run); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	ctx := context.Background()
+	landing := run.TeamMerge.LandingCommit
+	at := updateAt
+	said := trackedAt.Add(time.Hour)
+	approval := ForgeFeedbackItem{ID: FeedbackID("review", 1), Kind: FeedbackApproval, Author: "ada", At: said, Body: "Fine."}
+	asks := ForgeFeedbackItem{ID: FeedbackID("line-comment", 2), Kind: FeedbackLineComment, Author: "ada", At: said, Body: "Fix.", Path: "a.go", Line: 1}
+
+	if _, err := store.Update(ctx, run.RunID, TeamPullRequestFeedbackRead{LandingCommit: landing, Number: 4, Read: []ForgeFeedbackItem{asks}, At: at}); err == nil {
+		t.Fatal("feedback was recorded on a run no pull request carries")
+	}
+	if _, err := store.Update(ctx, run.RunID, TeamPullRequestTracked{LandingCommit: landing, PullRequest: trackedRequest(4), At: at}); err != nil {
+		t.Fatalf("track: %v", err)
+	}
+	if _, err := store.Update(ctx, run.RunID, TeamPullRequestFeedbackRead{LandingCommit: landing, Number: 5, Read: []ForgeFeedbackItem{asks}, At: at}); err == nil {
+		t.Fatal("feedback on another pull request was recorded")
+	}
+	written, err := store.Update(ctx, run.RunID, TeamPullRequestFeedbackRead{LandingCommit: landing, Number: 4, Read: []ForgeFeedbackItem{approval, asks}, At: at})
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	cursor := load(t, store, run.RunID).TeamMerge.PullRequest.Feedback
+	if cursor == nil || !cursor.Handled(asks) || !cursor.Handled(approval) || len(cursor.Approvals) != 1 || cursor.Approvals[0].ID != approval.ID {
+		t.Fatalf("cursor = %+v, want both handled and the approval kept", cursor)
+	}
+	// Recording the same request again, unverified, keeps what was read of it.
+	unverified := trackedRequest(4)
+	unverified.Unverified = true
+	if changed, err := (TeamPullRequestTracked{LandingCommit: landing, PullRequest: unverified, At: at}).apply(&written); err != nil || !changed ||
+		written.TeamMerge.PullRequest.Feedback == nil || !written.TeamMerge.PullRequest.Feedback.Handled(asks) {
+		t.Fatalf("re-track = %t, %v, %+v; want the cursor kept", changed, err, written.TeamMerge.PullRequest)
+	}
+	// Moving to another request starts its reading afresh.
+	if changed, err := (TeamPullRequestTracked{LandingCommit: landing, PullRequest: trackedRequest(5), At: at}).apply(&written); err != nil || !changed || written.TeamMerge.PullRequest.Feedback != nil {
+		t.Fatalf("move = %t, %v, %+v; want no cursor carried to another request", changed, err, written.TeamMerge.PullRequest)
+	}
+}
