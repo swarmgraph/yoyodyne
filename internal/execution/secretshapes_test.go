@@ -311,6 +311,82 @@ func TestRedactorKeepsAProviderStreamLineValidJSON(t *testing.T) {
 	}
 }
 
+// A credential name followed by an escaped line break or tab, as in a YAML file
+// a session reads where "authorization:" or "password:" ends its line, has the
+// value after the break removed, and the stream line still decodes: the
+// backslash of the escape is never taken without the letter after it, which
+// would leave `\[REDACTED]`, not a JSON escape, and fail the whole provider call.
+// An escaped quote after the name still has the value removed too.
+func TestRedactorMasksAValueAfterAnEscapedLineBreakAndKeepsTheLineJSON(t *testing.T) {
+	t.Parallel()
+
+	secret := sampleKey("", "TGluZUJyZWFr", 24)
+	streamLine := func(t *testing.T, text string) string {
+		t.Helper()
+		line, err := json.Marshal(map[string]any{
+			"type":    "user",
+			"message": map[string]any{"content": []map[string]any{{"type": "tool_result", "content": text}}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(line)
+	}
+
+	type textCase struct {
+		name string
+		text string
+		// masked says the secret is in the text and has to be gone afterwards.
+		masked bool
+	}
+	var cases []textCase
+	for _, key := range []string{"authorization", "Proxy-Authorization", "password", "token", "api_key", "OPENAI_API_KEY", "client_secret"} {
+		for _, brk := range []string{"\n", "\t", "\r", "\r\n", "\n    ", " \n\t"} {
+			cases = append(cases,
+				textCase{name: key + " then a break before the value", text: "headers:\n  " + key + ":" + brk + secret + "\nnext: line", masked: true},
+				textCase{name: key + " then a break and a quoted value", text: key + ":" + brk + `"` + secret + `"`, masked: true},
+				textCase{name: key + " ending its line before a list", text: "auth:\n  " + key + ":" + brk + "  - name: x\n  - y", masked: false},
+				textCase{name: key + " ending the text", text: key + ":" + brk, masked: false},
+			)
+		}
+	}
+	cases = append(cases,
+		textCase{name: "authorization header with an escaped quote", text: `authorization: "Bearer ` + secret + `"`, masked: true},
+		textCase{name: "quoted authorization name and value", text: `{"authorization": "Bearer ` + secret + `"}`, masked: true},
+		textCase{name: "quoted password name and value", text: `{"password":"` + secret + `"}`, masked: true},
+		textCase{name: "authorization scheme then a break", text: "authorization: Bearer\n" + secret, masked: true},
+		textCase{name: "escaped backslash after the name", text: `token:\` + secret, masked: false},
+		textCase{name: "escaped backslash then n after the name", text: `password:\n` + secret, masked: false},
+	)
+
+	for _, test := range cases {
+		line := streamLine(t, test.text)
+		got := NewRedactor().WithSecretShapes().Redact(line)
+		if !json.Valid([]byte(got)) {
+			t.Errorf("%s: redaction left a stream line that is not JSON:\n before %s\n  after %s", test.name, line, got)
+			continue
+		}
+		var decoded struct {
+			Message struct {
+				Content []struct {
+					Content string `json:"content"`
+				} `json:"content"`
+			} `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(got), &decoded); err != nil {
+			t.Errorf("%s: %v", test.name, err)
+			continue
+		}
+		text := decoded.Message.Content[0].Content
+		if test.masked && strings.Contains(text, secret) {
+			t.Errorf("%s: the secret survived redaction:\n%s", test.name, text)
+		}
+		if test.masked && !strings.Contains(text, redactedMarker) {
+			t.Errorf("%s: nothing says a secret was removed:\n%s", test.name, text)
+		}
+	}
+}
+
 // A redactor that did not ask for the shapes, such as the empty one Git and the
 // tracker run with, leaves secret-shaped text exactly as it was: what they print
 // is data the harness reads back, and a rewritten file, diff, or note is no

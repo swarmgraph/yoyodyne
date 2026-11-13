@@ -32,6 +32,13 @@ type secretShape struct {
 // an escaped quote with it would leave the line unreadable JSON, which fails the
 // whole provider call. A name may be followed by an escaped quote for the same
 // reason, so a field quoted inside a JSON string is still recognized.
+//
+// For the same reason a backslash is only ever taken as the whole of an escape:
+// one before a quote, or an escaped line break or tab (\n, \r, \t) between a
+// name and its value, as in a YAML file a session reads where "password:" ends
+// its line. Taking a backslash alone would leave it before the marker, and
+// `\[` is not a JSON escape. Skipping escaped line breaks also means a value on
+// the line after its name is still found and removed.
 var secretShapes = []secretShape{
 	// An authorization header, in any of the forms a client prints one: HTTP,
 	// JSON, a JavaScript object, or an environment-style assignment. The scheme
@@ -39,7 +46,7 @@ var secretShapes = []secretShape{
 	// and a value already replaced is matched as itself so the scheme is not
 	// taken for the value.
 	{
-		pattern: regexp.MustCompile(`(?i)((?:proxy-)?authorization\\?["']?\s*[:=]\s*\\?["']?(?:(?:bearer|basic|token|digest)\s+)?)(?:\[REDACTED\]|[^\s"',;\\\[\]]+)`),
+		pattern: regexp.MustCompile(`(?i)((?:proxy-)?authorization(?:\\?["'])?\s*[:=](?:\s|\\[nrt])*(?:\\?["'])?(?:(?:bearer|basic|token|digest)(?:\s|\\[nrt])+)?)(?:\[REDACTED\]|[^\s"',;\\\[\]]+)`),
 		keep:    "${1}" + redactedMarker,
 	},
 	// A bearer token wherever it appears without its header.
@@ -53,7 +60,7 @@ var secretShapes = []secretShape{
 	// kept; a value shorter than eight characters, such as null or a count, is
 	// not a credential and is left.
 	{
-		pattern: regexp.MustCompile(`(?i)((?:^|[^A-Za-z0-9])(?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|secret|password|passwd|credentials?|session[_-]?key|cookie|account[_-]?id)\\?["']?\s*[:=]\s*\\?["']?)[^\s"',;&\\\[\]]{8,}`),
+		pattern: regexp.MustCompile(`(?i)((?:^|[^A-Za-z0-9])(?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|secret|password|passwd|credentials?|session[_-]?key|cookie|account[_-]?id)(?:\\?["'])?\s*[:=](?:\s|\\[nrt])*(?:\\?["'])?)[^\s"',;&\\\[\]]{8,}`),
 		keep:    "${1}" + redactedMarker,
 	},
 	// Anthropic keys and tokens: API keys (sk-ant-api03-), OAuth access and
