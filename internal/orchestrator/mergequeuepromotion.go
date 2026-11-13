@@ -1336,6 +1336,19 @@ func (c MergeQueueRunCompletion) RecordRun(ctx context.Context, entry runstate.M
 // about whether the change finishes the item. An item already where the run
 // calls for is left alone.
 func (c MergeQueueRunCompletion) RecordWorkItem(ctx context.Context, entry runstate.MergeQueueEntry, completion runstate.MergeQueueCompletion) error {
+	reason := fmt.Sprintf("Reviewed by Yoyodyne run %s and landed on %s through the merge queue as %s, the candidate whose checks and independent review authorized it.",
+		entry.RunID, entry.TargetBranch, completion.Landed)
+	if completion.Path == runstate.MergeQueueLandThroughForgeQueue {
+		reason = fmt.Sprintf("Reviewed by Yoyodyne run %s at %s and landed on %s by the forge's merge queue as %s, the combined commit that queue required the project's checks and an independent approval of before landing it.",
+			entry.RunID, entry.ApprovedHead, entry.TargetBranch, completion.Landed)
+	}
+	return c.settleLandedItem(ctx, entry, completion.Landed, reason)
+}
+
+// settleLandedItem settles the item of a change that landed as landed, and
+// closes it with reason, where the run's landing claim and approval discharge
+// it (RecordWorkItem).
+func (c MergeQueueRunCompletion) settleLandedItem(ctx context.Context, entry runstate.MergeQueueEntry, landed, reason string) error {
 	state, err := c.Store.Load(entry.RunID)
 	if err != nil {
 		return err
@@ -1361,7 +1374,7 @@ func (c MergeQueueRunCompletion) RecordWorkItem(ctx context.Context, entry runst
 	if awaitsTeamMerge(state) {
 		// Landed on the target branch, not yet on the team's: the item stays
 		// claimed and the run records the wait (teammerge.go).
-		if err := recordTeamMergeWait(ctx, c.Tracker, &state, completion.Landed, c.now()); err != nil {
+		if err := recordTeamMergeWait(ctx, c.Tracker, &state, landed, c.now()); err != nil {
 			return err
 		}
 		if state.TeamMerge == nil {
@@ -1369,12 +1382,6 @@ func (c MergeQueueRunCompletion) RecordWorkItem(ctx context.Context, entry runst
 		}
 		_, err := c.Store.Update(ctx, entry.RunID, runstate.TeamMergeAwaited{Wait: *state.TeamMerge, At: c.now()})
 		return err
-	}
-	reason := fmt.Sprintf("Reviewed by Yoyodyne run %s and landed on %s through the merge queue as %s, the candidate whose checks and independent review authorized it.",
-		entry.RunID, entry.TargetBranch, completion.Landed)
-	if completion.Path == runstate.MergeQueueLandThroughForgeQueue {
-		reason = fmt.Sprintf("Reviewed by Yoyodyne run %s at %s and landed on %s by the forge's merge queue as %s, the combined commit that queue required the project's checks and an independent approval of before landing it.",
-			entry.RunID, entry.ApprovedHead, entry.TargetBranch, completion.Landed)
 	}
 	_, err = c.Tracker.Complete(ctx, entry.WorkItemID, reason)
 	return err
