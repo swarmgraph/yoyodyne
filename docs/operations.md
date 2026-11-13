@@ -6553,8 +6553,8 @@ after an evidence landing, clearing a stale block — clears an assignee so
 marked. An assignee a person set by hand is never marked, so nothing the harness
 does clears it. If the clear after a give-back fails, the give-back still
 stands, and the name stays marked as the claim's, so every surface below says
-it was left by an ended run's claim rather than set by a person; the next
-claim on the item, or `yoyo tracker unassign`, clears it.
+it was left by an ended run's claim rather than set by a person. The next run
+on the item keeps the mark, and its own give-back clears the name.
 
 Nobody reads the assignee to decide anything; it is there for people reading
 the tracker. The dashboard's card on an item and `yoyo status <item>` say who
@@ -6566,17 +6566,21 @@ roles read does not read the run records, so a name nothing marks is said there
 only to be the assignee and not recorded as set by a run's claim.
 
 Claims made before they recorded their name left it on every item they
-touched. The scheduler clears those names by itself, once, on its first pass
-after this change: it clears the assignee on every unfinished item a recorded
-run claimed and no run is working on now, appending a note to each, and leaves
-the name where no run ever claimed the item (so a person set it) and where a
-run holds the item. That pass prints one line saying how many it cleared and
-left, and the whole list is kept in `assignee-cleanup.json` in the product's
-state directory, beside the run records; that file is also what stops the
-clean-up running again. A pass that cannot read the tracker or write the file
-says so and the next pass tries again. `yoyo tracker unassign` runs the same
-clean-up by hand whenever you want it again, and `--dry-run` lists what it
-would clear and changes nothing.
+touched. The scheduler clears those names by itself, on its first pass after
+this change: it clears the assignee on every unfinished item a recorded run
+claimed and no run is working on now, appending a note to each, and leaves the
+name where no run ever claimed the item, because a person set it. It does not
+clear a name from under a run that holds the item; where a recorded run's
+claim set that name, it marks it as the claim's instead, so the give-back that
+ends the hold clears it like any other. That pass prints one line saying how
+many it cleared and left, and the whole list is kept in `assignee-cleanup.json`
+in the product's state directory, beside the run records; that file is also
+what stops the clean-up running again. A pass that cannot read the tracker,
+that the tracker refuses a clear or a mark in, or that cannot write the file
+writes no record and says so, and the next pass runs the clean-up again, so
+nothing here waits on a person. `yoyo tracker unassign` runs the same clean-up
+by hand whenever you want it again, and `--dry-run` lists what it would do and
+changes nothing.
 
 ## Conversation-carried work that has landed
 

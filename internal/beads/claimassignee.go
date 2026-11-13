@@ -136,3 +136,23 @@ func (c Client) givenBack(ctx context.Context, item WorkItem) WorkItem {
 	}
 	return cleared
 }
+
+// MarkClaimAssignee records that the item's assignee was set by a harness
+// claim, without clearing it. It is for an item a run holds now whose name a
+// claim set before claims marked theirs: the clean-up cannot clear the name
+// from under a run, so it marks it, and the run's own give-back clears it then
+// (givenBack). A later claim on the item keeps the mark (claimMarks).
+func (c Client) MarkClaimAssignee(ctx context.Context, id string) (WorkItem, error) {
+	if err := validateIssueID(id); err != nil {
+		return WorkItem{}, err
+	}
+	item, err := c.writeItem(ctx, id, func(item WorkItem) bool { return item.ClaimAssignee },
+		"update", id, "--set-metadata="+claimAssigneeKey+"=true", "--json")
+	if err != nil {
+		return WorkItem{}, err
+	}
+	if !item.ClaimAssignee {
+		return WorkItem{}, errors.New("work item " + id + " does not carry the claim's mark after it was written")
+	}
+	return item, nil
+}

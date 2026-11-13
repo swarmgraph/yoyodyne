@@ -33,6 +33,7 @@ import (
 type AssigneeTracker interface {
 	ListStatuses(ctx context.Context, statuses []string) ([]beads.WorkItem, error)
 	ClearLeftoverAssignee(ctx context.Context, id, note string) (beads.WorkItem, error)
+	MarkClaimAssignee(ctx context.Context, id string) (beads.WorkItem, error)
 }
 
 // AssigneeRuns is every run the harness has recorded, read for which items a
@@ -105,15 +106,34 @@ func (c AssigneeCleanup) Sweep(ctx context.Context, apply bool) (AssigneeSweep, 
 			continue
 		}
 		entry := LeftoverAssignee{WorkItemID: item.ID, Title: item.Title, Status: item.Status, Assignee: assignee}
+		held := ""
 		switch {
 		case working[item.ID] != "":
-			entry.Because = fmt.Sprintf("run %s is working on it now", working[item.ID])
-			sweep.Held = append(sweep.Held, entry)
-			continue
+			held = fmt.Sprintf("run %s is working on it now", working[item.ID])
 		case item.Status == "in_progress":
-			entry.Because = "the tracker has it claimed with no run working on it; the claim audit gives it back"
+			held = "the tracker has it claimed with no run working on it; the claim audit gives it back"
+		}
+		if held != "" {
+			// The name is not cleared from under the run that holds the item. Where
+			// a recorded run's claim set it before claims marked theirs, it is
+			// marked as the claim's instead, so the give-back that ends the hold
+			// clears it (beads.Client.MarkClaimAssignee) and nobody has to.
+			if claimed[item.ID] && !item.ClaimAssignee {
+				held += "; the name is now marked as a run's claim, so giving the item back clears it"
+				if apply {
+					if _, err := c.Tracker.MarkClaimAssignee(ctx, item.ID); err != nil {
+						sweep.Problems = append(sweep.Problems, fmt.Sprintf("%s still names %s with nothing saying a run's claim set it, because marking it failed: %v", item.ID, assignee, err))
+						continue
+					}
+				}
+			} else if item.ClaimAssignee {
+				held += "; the name is marked as a run's claim, so giving the item back clears it"
+			}
+			entry.Because = held
 			sweep.Held = append(sweep.Held, entry)
 			continue
+		}
+		switch {
 		case !item.ClaimAssignee && !claimed[item.ID]:
 			entry.Because = "no run has ever claimed it, so a person set the assignee"
 			sweep.ByPerson = append(sweep.ByPerson, entry)
@@ -157,8 +177,8 @@ type OnceAssigneeCleanup struct {
 
 // RunOnce clears the names, records what it did, and answers with the record;
 // it answers nil where the record says the clean-up has already run. A sweep
-// that could not read the tracker or the runs records nothing, so the next
-// pass tries again; one that ran records its refused clears among the rest.
+// that could not read the tracker or the runs, or that the tracker refused a
+// clear or a mark in, records nothing, so the next pass tries again.
 func (o OnceAssigneeCleanup) RunOnce(ctx context.Context) (*runstate.AssigneeCleanupRecord, error) {
 	if o.Records == nil {
 		return nil, errors.New("the clean-up of assignees runs left has nowhere to record that it ran")
@@ -173,6 +193,14 @@ func (o OnceAssigneeCleanup) RunOnce(ctx context.Context) (*runstate.AssigneeCle
 	sweep, err := o.Cleanup.Sweep(ctx, true)
 	if err != nil {
 		return nil, err
+	}
+	// A sweep the tracker refused a write in is not recorded, so the next pass
+	// runs it again: an item it could not clear or mark would otherwise keep a
+	// name nothing ever clears. Everything that did land is not written twice,
+	// because a cleared item no longer has a name and a marked one is left as it is.
+	if len(sweep.Problems) > 0 {
+		return nil, fmt.Errorf("%d item(s) could not be cleared or marked, so the next pass tries again: %s",
+			len(sweep.Problems), strings.Join(sweep.Problems, "; "))
 	}
 	now := time.Now
 	if o.Now != nil {
@@ -199,10 +227,7 @@ func (o OnceAssigneeCleanup) RunOnce(ctx context.Context) (*runstate.AssigneeCle
 // DescribeAssigneeCleanup is what a pass prints about a clean-up it ran: the counts, and where
 // the whole list is kept.
 func DescribeAssigneeCleanup(record runstate.AssigneeCleanupRecord, path string) string {
-	said := fmt.Sprintf("cleared the assignee on %d unfinished item(s) where an ended run's claim had left it; left %d a person set and %d a run holds now",
+	said := fmt.Sprintf("cleared the assignee on %d unfinished item(s) where an ended run's claim had left it; left %d a person set and %d a run holds now, each of which has its name cleared when it is given back if a run's claim set it",
 		len(record.Cleared), len(record.ByPerson), len(record.Held))
-	if len(record.Problems) > 0 {
-		said += fmt.Sprintf("; %d could not be cleared (yoyo tracker unassign tries them again)", len(record.Problems))
-	}
 	return said + "; every item is listed in " + path
 }

@@ -238,3 +238,57 @@ func TestClaimAssigneeConformance(t *testing.T) {
 		t.Fatalf("after closing the item names %q, want the person's assignment left", shown.Assignee)
 	}
 }
+
+// Marking an old claim's name writes only the marker and leaves the name, so
+// the run that holds the item clears it when it gives the item back.
+func TestMarkClaimAssigneeLeavesTheNameAndMarksIt(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{responses: []string{assignedItemJSON("in_progress", "", "Mason Bryant", true)}}
+	item, err := (Client{Runner: runner}).MarkClaimAssignee(context.Background(), "yoyodyne-1")
+	if err != nil {
+		t.Fatalf("MarkClaimAssignee() error = %v", err)
+	}
+	if item.Assignee != "Mason Bryant" || !item.HeldByClaimAssignee() {
+		t.Fatalf("MarkClaimAssignee() = %#v, want the name kept and marked", item)
+	}
+	want := [][]string{{"update", "yoyodyne-1", "--set-metadata=yoyodyne_claim_assignee=true", "--json"}}
+	if !reflect.DeepEqual(runner.args, want) {
+		t.Fatalf("bd args = %#v, want %#v", runner.args, want)
+	}
+	unmarked := &fakeRunner{responses: []string{assignedItemJSON("in_progress", "", "Mason Bryant", false)}}
+	if _, err := (Client{Runner: unmarked}).MarkClaimAssignee(context.Background(), "yoyodyne-1"); err == nil {
+		t.Fatal("MarkClaimAssignee() that did not take error = nil")
+	}
+}
+
+// Against the installed bd: a name an old claim left unmarked on an item a run
+// still holds is marked by the clean-up, and the run's give-back then clears
+// it, with nothing run by hand.
+func TestAnOldClaimsNameMarkedLaterIsClearedOnGiveBackConformance(t *testing.T) {
+	t.Parallel()
+
+	project := newTracker(t)
+	client := Client{Runner: execution.OSProcessRunner{}, Dir: project, Timeout: conformanceTimeout}
+	ctx := context.Background()
+
+	created, err := client.Create(ctx, NewWorkItem{Title: "Claimed before claims marked their name", Description: "An old claim.", Type: "task"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	// A claim made the way every claim was made before claims marked theirs.
+	runCommand(t, project, "bd", "update", created.ID, "--claim")
+	if _, err := client.MarkClaimAssignee(ctx, created.ID); err != nil {
+		t.Fatalf("MarkClaimAssignee() error = %v", err)
+	}
+	if _, err := client.Release(ctx, created.ID, "the run ended"); err != nil {
+		t.Fatalf("Release() error = %v", err)
+	}
+	shown, err := client.Show(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Show() error = %v", err)
+	}
+	if shown.Assignee != "" || shown.ClaimAssignee {
+		t.Fatalf("after the give-back the item names %q (marked %v), want nobody", shown.Assignee, shown.ClaimAssignee)
+	}
+}

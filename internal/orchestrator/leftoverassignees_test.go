@@ -15,6 +15,15 @@ type assigneeTrackerFake struct {
 	items   []beads.WorkItem
 	refuse  map[string]bool
 	cleared []string
+	marked  []string
+}
+
+func (f *assigneeTrackerFake) MarkClaimAssignee(_ context.Context, id string) (beads.WorkItem, error) {
+	if f.refuse[id] {
+		return beads.WorkItem{}, errors.New("database is locked")
+	}
+	f.marked = append(f.marked, id)
+	return beads.WorkItem{ID: id, ClaimAssignee: true}, nil
 }
 
 func (f *assigneeTrackerFake) ListStatuses(context.Context, []string) ([]beads.WorkItem, error) {
@@ -85,6 +94,17 @@ func TestAssigneeCleanupClearsOnlyWhatClaimsLeft(t *testing.T) {
 	if want := []string{"yoyodyne-running", "yoyodyne-stuck"}; !reflect.DeepEqual(ids(sweep.Held), want) {
 		t.Fatalf("left as held %v, want %v", ids(sweep.Held), want)
 	}
+	// The held item whose name an earlier run's claim set, unmarked, is marked
+	// rather than cleared from under its run, so the give-back that ends the
+	// hold clears it (beads.TestEveryGiveBackClearsTheClaimsAssigneeAndNoPersons,
+	// beads.TestAnOldClaimsNameMarkedLaterIsClearedOnGiveBackConformance). The
+	// one already marked is not written again.
+	if want := []string{"yoyodyne-running"}; !reflect.DeepEqual(tracker.marked, want) {
+		t.Fatalf("marked %v, want %v", tracker.marked, want)
+	}
+	if len(reporting.marked) != 0 {
+		t.Fatalf("a report-only sweep marked %v", reporting.marked)
+	}
 
 	// A clear the tracker refuses is reported and the rest go on.
 	refusing := &assigneeTrackerFake{items: items, refuse: map[string]bool{"yoyodyne-ran": true}}
@@ -94,6 +114,12 @@ func TestAssigneeCleanupClearsOnlyWhatClaimsLeft(t *testing.T) {
 	}
 	if len(sweep.Problems) != 1 || !reflect.DeepEqual(refusing.cleared, []string{"yoyodyne-marked"}) {
 		t.Fatalf("a refused clear: problems %v, cleared %v", sweep.Problems, refusing.cleared)
+	}
+	// A refused mark is a problem too, and nothing else stops.
+	unmarkable := &assigneeTrackerFake{items: items, refuse: map[string]bool{"yoyodyne-running": true}}
+	sweep, err = AssigneeCleanup{Tracker: unmarkable, Runs: runs}.Sweep(context.Background(), true)
+	if err != nil || len(sweep.Problems) != 1 || len(unmarkable.cleared) != 2 {
+		t.Fatalf("a refused mark: problems %v, cleared %v, error %v", sweep.Problems, unmarkable.cleared, err)
 	}
 }
 
@@ -147,6 +173,26 @@ func TestTheSchedulerClearsLeftoverAssigneesOnce(t *testing.T) {
 	clearLeftoverAssignees(context.Background(), &second, Pull{Assignees: once})
 	if len(tracker.cleared) != 1 || records.records != 1 || second.AssigneeCleanup != "" || second.AssigneeCleanupProblem != "" {
 		t.Fatalf("a later pass ran the clean-up again: cleared %v, recorded %d time(s), said %q", tracker.cleared, records.records, second.AssigneeCleanup)
+	}
+
+	// A sweep the tracker refused a write in is not recorded, so a later pass
+	// runs it again and finishes the item, with nobody running anything by hand.
+	flaky := &assigneeTrackerFake{
+		items:  []beads.WorkItem{{ID: "yoyodyne-ran", Status: "open", Assignee: "Mason Bryant"}},
+		refuse: map[string]bool{"yoyodyne-ran": true},
+	}
+	flakyRecords := &assigneeRecordsFake{}
+	retried := OnceAssigneeCleanup{Cleanup: AssigneeCleanup{Tracker: flaky, Runs: runs}, Records: flakyRecords, ProductID: "yoyodyne"}
+	var refused Schedule
+	clearLeftoverAssignees(context.Background(), &refused, Pull{Assignees: retried})
+	if flakyRecords.records != 0 || !strings.Contains(refused.AssigneeCleanupProblem, "the next pass tries again") {
+		t.Fatalf("a sweep with a refused clear was recorded %d time(s) and said %q", flakyRecords.records, refused.AssigneeCleanupProblem)
+	}
+	flaky.refuse = nil
+	var later Schedule
+	clearLeftoverAssignees(context.Background(), &later, Pull{Assignees: retried})
+	if !reflect.DeepEqual(flaky.cleared, []string{"yoyodyne-ran"}) || flakyRecords.records != 1 || later.AssigneeCleanupProblem != "" {
+		t.Fatalf("the pass after a refused clear cleared %v, recorded %d time(s), said %q", flaky.cleared, flakyRecords.records, later.AssigneeCleanupProblem)
 	}
 
 	unrecorded := OnceAssigneeCleanup{

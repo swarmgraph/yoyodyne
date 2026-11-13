@@ -218,7 +218,9 @@ tracker nothing.
 unassign clears the assignee on every unfinished item where a run's
 claim set it and no run is working on the item now, and says what it cleared
 and what it left: an assignee on an item no run ever claimed was set by a
-person and is left, and so is any item a run holds. Every run now clears its
+person and is left. An item a run holds keeps its name until the run gives it
+back; where a run's claim set that name it is marked as the claim's, so the
+give-back clears it. Every run now clears its
 own claim's assignee when it gives the item back, and the scheduler runs this
 clean-up once by itself for the names left from before; this runs it again by
 hand, and is safe to run any number of times. --dry-run says what it would

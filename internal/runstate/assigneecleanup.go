@@ -62,8 +62,9 @@ type AssigneeCleanupRecord struct {
 	Cleared       []LeftoverAssignee `json:"cleared"`
 	ByPerson      []LeftoverAssignee `json:"left_set_by_a_person"`
 	Held          []LeftoverAssignee `json:"left_held_by_a_run"`
-	// Problems are the clears the tracker refused; each item named still
-	// carries its name, and `yoyo tracker unassign` tries it again.
+	// Problems are the clears and marks the tracker refused. The scheduler
+	// writes no record over a sweep that has any, so it is empty on every
+	// record the scheduler keeps.
 	Problems []string `json:"problems,omitempty"`
 }
 
