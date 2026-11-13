@@ -295,11 +295,15 @@ a reset past the maximum wait ends the run through `stopOnUsageWindow`. Login
 and outage refusals: `provideroutage.go`.
 
 ### Which in-flight runs does a new dispatch pick up?
-`Pipeline.Run` calls `Store.Adopt`; the long condition after it lists every
-resumable shape (`pausedForUsageLimit`, `pausedForDirective`, ...,
+`Pipeline.Run` calls `Store.Adopt` and asks `resumable` (`resumable.go`),
+which checks the run against `resumeShapes`, the one list of every resumable
+shape (`pausedForUsageLimit`, `pausedForDirective`, ...,
 `stoppedForRedeployIsResumable`, `continuedAtCheckStage`, `resumableRepair`,
-and `recoveryContinuationDue` for a run the development manager asked to have
-continued through `run.recover`). Anything else is `ExistingRunError`. `resumeRun` then picks the step.
+`recoveryContinuationDue` for a run the development manager asked to have
+continued through `run.recover`, and `updateLostItsHost`). A new pause kind is
+added there; `resumable_test.go` fails on a pause field of `runstate.State` or a
+`pausedFor…` predicate the list does not account for. Anything else is
+`ExistingRunError`. `resumeRun` then picks the step.
 `Pipeline.Continue` is the narrower door used when the development manager
 decided a repair (`repaircontinue.go`) or a check-stage continuation
 (`checkstagecontinue.go`).
@@ -345,6 +349,7 @@ context bundle come from `internal/contextbundle`.
 | `subagents.go` | `settleSubagents`, the sub-agent setting a developer run records before its first launch; `subagentsFor`, what one developer invocation is allowed, and why it goes without them on a provider that does not offer them; `instructSubagents`, which gives an invocation that has them the built-in instruction `developer-sub-agents.md` after its persona and notes it on the run's record |
 | `redeploydrain.go` | `RedeployDrain`, `drainedForRedeploy`, `pauseForRedeploy`; `stoppedChecks`, what a stop at a run's checks did to them, which the stop and pick-up notes read; `hostedContext`, the context a session hosts a run under; `checkYield` and `yieldBetweenChecks`, how a run with a check running is stopped before its next check rather than part-way through one; `passPublications`, the document landing runs a session's recurring passes have going, which a restart waits for; `queueCheckStages`, the merge queue check stages a session's queue passes have going, which a restart lets finish (`mergeQueuePasses.stopForRestart` in `mergequeuedriver.go`) |
 | `recoveryrequest.go` | what the work session does with the development manager's `run.recover` requests (`internal/runrecover`): `RecoveryContinuable`, `RecoveryFinishable` and `RecoveryWaitable`, the rules a request is accepted on (a merge the forge dropped, `runstate.State.MergeDropped`, is named as unfinished by `droppedMergeUnfinished` and left to the re-arm), and `integrationOwed`, which keeps a run whose integration is begun or done off any wait; `recoveryContinuationDue`, which `Pipeline.Run`'s adoption and the scheduler's re-adoption read; `RecoveredIntegrations` and `CarryOut.finishMergeTask` / `finishMerge`, which fire a finished merge through the integration resumer and write a wait or a refusal onto the request and the item; `supersedesFinishMerge`, which triage decision recorded after a request sets it aside; `BlockingDependencies` |
+| `resumable.go` | `resumable` and `resumeShapes`: the one list of in-flight run shapes `Pipeline.Run` takes up again when it adopts a run; `resumable_test.go` fails on a pause kind the list does not account for |
 | `runretirement.go` | `RunRetirer.Retire` — retire a run whose item closed on a confirmed merge |
 | `documentpublication.go` | `PublishDocument`, exact-file gate, independent review without a developer (`consistentMarkReview` tells that reviewer to test a consistent-with-intent mark on a product-intent document the operator did not approve), returns to the owning conversation, retries of a run that judged nothing and the hand-over to the development manager once they are spent, or at once where the target's copy of the document changed after the text was written (`documentConflict`, recorded as `runstate.DocumentConflict`, never retried); `documentRouteRefusal` (only a change inside the artifact homes lands as a document), `documentChecks` and `documentCheckSet` (the declared document checks and the digest the evidence is bound to); a document run is reserved against `execution.document_landings`, never a developer slot (`reserveRun`), `waitForSlot` records a document every landing refused (`runstate.DocumentWait`), and `PublishWaitingDocument` is the scheduler starting one |
 | `documentdocket.go` | which stopped document runs are the development manager's to decide (`documentCopies.docketable`): every attempt spent, or a pull request left open that its conversation will not land; `documentEntry` and `joinDocuments` name the document, its pull request, and its newer or landed copies on the entry |

@@ -1374,18 +1374,9 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	switch {
 	case err == nil:
 		defer lease.Release()
-		// A usage-limit pause, a provider the harness stopped on time, a run held
-		// up by a directive, one waiting on work its item depends on, and one the
-		// operator parked are all resumable whatever the approval policy, because
-		// none of them depends on the repair loop: the first has not had its
-		// attempt served yet, the second is owed the rest of an attempt it was
-		// making, and the rest are owed the rest of the step they stopped short of.
-		// Nothing reaches here while the hold or the dependency is still in force,
-		// so a run carrying one is a run whose reason to wait has gone.
-		// A run the development manager asked to have continued through
-		// run.recover is resumable on the same terms that request was accepted on
-		// (recoveryrequest.go).
-		if !pausedForUsageLimit(inFlight) && !pausedForDirective(inFlight) && !pausedForDependency(inFlight) && !pausedForTracker(inFlight) && !pausedForOperatorHold(inFlight) && !stoppedProviderIsResumable(inFlight) && !stoppedForRedeployIsResumable(inFlight) && !continuedAtCheckStage(inFlight) && !resumableRepair(inFlight) && !recoveryContinuationDue(inFlight) && !updateLostItsHost(inFlight) {
+		// Which shapes of run are taken up again is decided in one place
+		// (resumable.go); anything else is reported as already existing.
+		if !resumable(inFlight) {
 			return Outcome{}, ExistingRunError{State: inFlight}
 		}
 		inFlight, err = p.reclaimSlot(ctx, inFlight)
