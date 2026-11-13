@@ -203,6 +203,7 @@ type Host interface {
 	Deployed() string
 	Moving() string
 	TakeUp(into string) error
+	AwaitTakeUp(why string)
 	RestartOnRequest(ctx context.Context, name config.ServiceName, now time.Time) string
 }
 
@@ -415,6 +416,7 @@ func (p *Pass) Look(ctx context.Context, now time.Time) {
 		return
 	}
 	if !p.due(now) {
+		p.takeUpPromptly()
 		return
 	}
 	claimed, err := p.Claims.Claim(ctx, config.MaintenanceTaskName, p.every(), now)
@@ -1023,23 +1025,71 @@ func (p *Pass) redeploy() (runstate.SweepStep, string) {
 		return step, ""
 	}
 	behind := fmt.Sprintf("the supervisor is on build %s, behind the deployed %s", short(running), short(deployed))
-	if p.releasing != nil {
-		parts = append([]string{fmt.Sprintf("%s, and it is taken up at a later pass, once the release cut under way since %s has finished", behind, p.releasing.started.UTC().Format(time.RFC3339))}, parts...)
-		step.Outcome, step.Detail = runstate.StepSkipped, strings.Join(parts, "; ")
-		return step, ""
-	}
-	if held := p.hold(); held != "" {
-		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("%s, and nothing is restarted while %s", behind, held)
-		return step, ""
-	}
-	if moving := p.Host.Moving(); moving != "" {
-		parts = append([]string{fmt.Sprintf("%s, and it is taken up at a later pass, once the %s has settled", behind, moving)}, parts...)
+	if wait := p.takeUpWait(); wait != "" {
+		p.Host.AwaitTakeUp(wait)
+		parts = append([]string{fmt.Sprintf("%s, and it moves onto it %s", behind, wait)}, parts...)
 		step.Outcome, step.Detail = runstate.StepSkipped, strings.Join(parts, "; ")
 		return step, ""
 	}
 	parts = append([]string{behind + "; it re-executes into the deployed build once this pass is recorded, leaving every part running to be reattached"}, parts...)
 	step.Outcome, step.Detail = runstate.StepRan, strings.Join(parts, "; ")
 	return step, deployed
+}
+
+// takeUpWait is what holds the supervisor back from re-executing into the
+// deployed build, in words that finish "it moves onto it", and nothing where
+// nothing does: a release cut under way beside the passes, the provider guard,
+// or a part the supervisor is itself moving or starting again.
+func (p *Pass) takeUpWait() string {
+	if p.releasing != nil {
+		// A cut that has finished holds nothing back; what it came to is kept for
+		// the next pass to record.
+		select {
+		case released := <-p.releasing.done:
+			p.releasing, p.released = nil, &released
+		default:
+		}
+	}
+	if p.releasing != nil {
+		return fmt.Sprintf("once the release cut under way since %s has finished", runstate.LocalStamp(p.releasing.started))
+	}
+	if p.released != nil {
+		// A finished cut not yet recorded would be lost from the pass log by a
+		// re-execution now; the next pass records it and takes the build up.
+		return "once the next maintenance pass has recorded the release cut that has finished"
+	}
+	if held := p.hold(); held != "" {
+		return "once nothing holds restarts back; nothing is restarted while " + held
+	}
+	if moving := p.Host.Moving(); moving != "" {
+		return fmt.Sprintf("once the %s has settled", moving)
+	}
+	return ""
+}
+
+// takeUpPromptly is the supervisor's own move onto a deployed build, made at the
+// first look nothing holds it back rather than at the end of the next pass,
+// which is up to the pass's cadence away and then as long as the pass takes.
+// It is taken only between passes, so no pass is left half-done by the
+// re-execution; a pass that is due takes the build up itself once it is
+// recorded. Where something holds it back, what that is goes on the
+// supervisor's record, which is how `yoyo status` says it.
+func (p *Pass) takeUpPromptly() {
+	deployed, running := p.Host.Deployed(), p.Host.RunningBuild()
+	if deployed == "" || running == "" || deployed == running {
+		p.Host.AwaitTakeUp("")
+		return
+	}
+	wait := p.takeUpWait()
+	p.Host.AwaitTakeUp(wait)
+	if wait != "" {
+		return
+	}
+	if err := p.Host.TakeUp(deployed); err != nil {
+		p.Host.AwaitTakeUp(fmt.Sprintf("once it can; it was refused at its last look: %v", err))
+		return
+	}
+	p.log("the supervisor is on build %s, behind the deployed %s, and nothing holds it back, so it re-executes into the deployed build now rather than at the end of the next maintenance pass", short(running), short(deployed))
 }
 
 // slack is where the sink stands: `yoyo slack ensure`, which the supervisor's

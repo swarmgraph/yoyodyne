@@ -42,7 +42,7 @@ func waitedOnCheck(sessions *recordedSessions) (recordedTransition, bool) {
 // A check already running when a build is deployed is not started over
 // because of it, however many builds follow: the session's drain bound runs
 // out, a second build lands, and the run's 45-minute check goes on past both
-// until it ends by itself. The run is then stopped before its next check, at
+// until it ends by itself, inside the ceiling on that wait. The run is then stopped before its next check, at
 // its checks, so the session that comes back keeps what it passed. Meanwhile
 // the session's own record says what it is waiting on: which run, which check,
 // and until when.
@@ -87,7 +87,7 @@ func TestARestartLetsACheckRunningAcrossTwoNewBuildsFinish(t *testing.T) {
 			if _, said := waitedOnCheck(sessions); said {
 				deploy()
 				h.mu.Lock()
-				h.now = began.Add(40 * time.Minute)
+				h.now = began.Add(h.drainLimit + redeployCheckWaitCeiling/2)
 				h.mu.Unlock()
 				stage.Store(2)
 			}
@@ -155,7 +155,9 @@ func TestARestartLetsACheckRunningAcrossTwoNewBuildsFinish(t *testing.T) {
 	if !said {
 		t.Fatal("no line the session wrote said it was waiting on the running check")
 	}
-	want := runstate.WatchCheckWait{RunID: "run-" + id, WorkItemID: id, Check: "make race", Until: launched.Add(limit)}
+	// The check's own limit is past the ceiling on the wait, so the ceiling is
+	// the latest the line says it waits to.
+	want := runstate.WatchCheckWait{RunID: "run-" + id, WorkItemID: id, Check: "make race", Until: began.Add(harness.drainLimit + redeployCheckWaitCeiling)}
 	if drain := waited.draining; len(drain.CheckWaits) != 1 || drain.CheckWaits[0] != want || drain.Checking != 1 || !drain.ChecksUntil.Equal(want.Until) {
 		t.Fatalf("draining = %#v, want the wait on %#v", drain, want)
 	}
@@ -223,6 +225,80 @@ func TestARestartStopsACheckStillRunningPastItsOwnLimit(t *testing.T) {
 	}
 	if len(schedule.Drain.ChecksWaited) != 0 {
 		t.Fatalf("checks waited = %v, want no wait on a check past its own limit", schedule.Drain.ChecksWaited)
+	}
+}
+
+// The wait on a running check past the drain bound has a ceiling of its own: a
+// 45-minute check still going redeployCheckWaitCeiling past the bound is
+// stopped like any other run, so the session restarts rather than holding every
+// slot the drain emptied for as long as the check's limit allows.
+func TestARestartStopsARunningCheckOnceItsWaitReachesTheCeiling(t *testing.T) {
+	t.Parallel()
+
+	const id = "yoyodyne-long-check"
+	harness := newScheduleHarness(readyItems(id)...)
+	harness.drainLimit = 15 * time.Minute
+	harness.poll = 5 * time.Millisecond
+	deployment := &deployedOver{}
+	sessions := &recordedSessions{}
+	began := harness.clock()
+	launched := began
+	running := make(chan struct{}, 1)
+	var waited atomic.Bool
+	harness.onPull = func(h *scheduleHarness, pulls int) {
+		switch {
+		case pulls == 0:
+			return
+		case pulls == 1:
+			<-running
+			return
+		}
+		// The clock only ever moves forward, and a minute past each mark: the
+		// bound and the ceiling are reckoned from the moment the session found the
+		// deploy, which can be a few polls after began, and a clock set back to
+		// exactly began plus the bound at every pull would never reach them.
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if _, said := waitedOnCheck(sessions); !said {
+			h.now = latest(h.now, began.Add(h.drainLimit+time.Minute))
+			return
+		}
+		waited.Store(true)
+		h.now = latest(h.now, began.Add(h.drainLimit+redeployCheckWaitCeiling+time.Minute))
+	}
+	harness.hostedRun = func(ctx context.Context, h *scheduleHarness, id string) (Outcome, error) {
+		h.mu.Lock()
+		state := h.inFlight[id]
+		state.Phase = runstate.PhaseChecking
+		state.CheckStage = &runstate.CheckStage{StartedAt: launched, BoundSeconds: int64((5 * time.Hour) / time.Second), Command: "make test", CheckLimitSeconds: int64((45 * time.Minute) / time.Second), CheckStartedAt: &launched}
+		h.inFlight[id] = state
+		h.mu.Unlock()
+		deployment.deploy()
+		running <- struct{}{}
+		<-ctx.Done()
+		return pausedAtChecks(ctx, id)
+	}
+
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Now: harness.clock, Sessions: sessions, SessionID: "watch-drain", Deployment: deployment}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if !waited.Load() {
+		t.Fatal("the session never said it was waiting on the running check, so the ceiling was never what ended the wait")
+	}
+	if schedule.Stopped != ScheduleRedeployed || !sessions.restarted() {
+		t.Fatalf("stopped = %q, want the session restarted at the ceiling: %s", schedule.Stopped, schedule.Render())
+	}
+	if got := schedule.Drain.Stopped; len(got) != 1 || got[0] != id {
+		t.Fatalf("drain stopped = %v, want the run whose check outlasted the ceiling stopped", got)
+	}
+	if elapsed := harness.clock().Sub(began); elapsed > harness.drainLimit+redeployCheckWaitCeiling+2*time.Minute {
+		t.Fatalf("session restarted %s after the deploy, want it at the ceiling, %s past the bound", elapsed, redeployCheckWaitCeiling)
+	}
+	started := schedule.Started[0]
+	if !started.Outcome.Paused || started.Outcome.RedeployStop == nil || started.Outcome.RedeployStop.Phase != runstate.PhaseChecking {
+		t.Fatalf("started = %#v, want the run stopped at its checks and preserved for the session that comes back", started)
 	}
 }
 
@@ -745,4 +821,89 @@ func TestARestartLetsAMergeQueueCandidatesChecksFinish(t *testing.T) {
 	if closed.begin(queues.checking, 4, began) {
 		t.Fatal("a check stage started past the restart limit")
 	}
+}
+
+// A merge queue candidate whose checks are still running when the wait past the
+// drain bound reaches its ceiling is stopped, and the session restarts: a
+// candidate going on from one check to the next does not hold every part of the
+// product on the old build until its last check ends.
+func TestARestartStopsAMergeQueueCandidatesChecksAtTheCeiling(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness()
+	harness.drainLimit = 15 * time.Minute
+	harness.poll = 5 * time.Millisecond
+	deployment := &deployedOver{}
+	sessions := &recordedSessions{}
+	began := harness.clock()
+	queues := &restartQueues{
+		checking:  runstate.MergeQueueKey{Repository: "yoyodyne", TargetBranch: "main"},
+		reviewing: runstate.MergeQueueKey{Repository: "yoyodyne", TargetBranch: "release"},
+		started:   make(chan struct{}),
+		release:   make(chan struct{}),
+		at:        harness.clock,
+	}
+	harness.onSleep = func(*scheduleHarness, int) bool { return true }
+	var stage atomic.Int32
+	harness.onPull = func(h *scheduleHarness, pulls int) {
+		switch stage.Load() {
+		case 0:
+			if pulls == 0 {
+				return
+			}
+			<-queues.started
+			deployment.deploy()
+			stage.Store(1)
+		case 1:
+			h.mu.Lock()
+			h.now = began.Add(h.drainLimit)
+			h.mu.Unlock()
+			stage.Store(2)
+		case 2:
+			if queues.checkStopped.Load() {
+				t.Error("the candidate's checks were stopped before the ceiling")
+			}
+			// A minute past the ceiling, which is reckoned from the moment the
+			// session found the deploy rather than from began.
+			h.mu.Lock()
+			h.now = latest(h.now, began.Add(h.drainLimit+redeployCheckWaitCeiling+time.Minute))
+			h.mu.Unlock()
+			stage.Store(3)
+		}
+	}
+	open := func(ctx context.Context) (Pull, error) {
+		pull, err := harness.open(ctx)
+		pull.MergeQueues = queues
+		return pull, err
+	}
+	scheduler := Scheduler{Open: open, Watching: true, Sleep: harness.sleep, Now: harness.clock, Sessions: sessions, SessionID: "watch-drain", Deployment: deployment}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if schedule.Stopped != ScheduleRedeployed || !sessions.restarted() {
+		t.Fatalf("stopped = %q, want the session restarted at the ceiling: %s", schedule.Stopped, schedule.Render())
+	}
+	if !queues.checkStopped.Load() {
+		t.Fatal("the candidate's checks were left running past the ceiling")
+	}
+	for _, transition := range sessions.recorded() {
+		if drain := transition.draining; drain != nil {
+			for _, wait := range drain.CheckWaits {
+				// The ceiling is reckoned from the moment the session found the deploy,
+				// which the test's clock puts a poll or two after began.
+				if wait.Until.After(began.Add(harness.drainLimit + redeployCheckWaitCeiling + time.Second)) {
+					t.Fatalf("the session said it waits on %#v, past the ceiling", wait)
+				}
+			}
+		}
+	}
+}
+
+// latest is the later of two moments, so a test moves its clock only forward.
+func latest(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
