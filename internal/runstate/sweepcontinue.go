@@ -39,7 +39,7 @@ const MaxSweepContinuations = 64
 // typed `yoyo run` for it.
 type SweepContinuation struct {
 	// Cause is the pause the run had exited on, one of PauseUsageLimit or
-	// PauseServerOverload. The two outage causes never appear here: an outage
+	// PauseServerOverload. The outage causes never appear here: an outage
 	// wait has no in-process bound, so a run in one is not left behind by its
 	// process the way this record describes.
 	Cause string `json:"cause"`

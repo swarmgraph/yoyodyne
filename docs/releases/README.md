@@ -102,8 +102,11 @@ upstream left unanswered downstream — so a published release says what was
 true of the tree it names rather than only that its tests passed.
 
 For a release the Lead Product Manager decided, the release item's reviewed run
-writes it: it puts the section `yoyo conformance --notes` prints between those
-markers and lands it with the notes. For a release a person cuts with
+writes it: it puts the section `yoyo conformance --notes --from-export` prints
+between those markers and lands it with the notes. The run reads the work items
+from the tracker's export, `.beads/issues.jsonl`, because its sandbox cannot
+open the tracker, and the section says so; the cut takes its own reading through
+the tracker before it tags. For a release a person cuts with
 `make release`, the cut writes it. The cut does not write it to `main` itself:
 it commits the stamped notes on a branch and opens a pull request, which is how
 the result reaches this file, and the cut after the merge tags. The harness's

@@ -201,7 +201,7 @@ and is not worth retrying. Anything it could not do -- a flag it does not have, 
 positional argument, a report it could not write -- exits 2 instead, says why on
 standard error, and reports nothing. A warning is not a small problem: it is
 something about an installation that works. Every reporting finding is one,
-because reporting is an observation and never a gate -- a sink nobody started
+because reporting is an observation and nothing waits on it -- a sink nobody started
 leaves every run exactly as it was. It is still named in full, with the command
 that ends it.
 

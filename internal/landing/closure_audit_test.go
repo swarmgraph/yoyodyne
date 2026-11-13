@@ -141,9 +141,9 @@ var auditedClosures = []closureSite{
 		Why: "the forge check settling a run whose pull request a person merged. The merge settles where the work is and not whether it discharges the item, so the developer's claim and the reviewer's approval are read back from the run's durable record, and an undischarged change goes to settleUndischarged instead of closing.",
 	},
 	{
-		File: "internal/orchestrator/teammergesettle.go", Declaration: "(Reconciler) settleTeamMerge", Calls: 1,
+		File: "internal/orchestrator/teammergesettle.go", Declaration: "(Reconciler) closeOnTeamMerge", Calls: 1,
 		ConsultsDischarge: true, Kind: kindSettlement,
-		Why: "the forge check closing an item whose change landed on the target branch once the team's branch carries its landing commit. A wait is recorded only for a change that discharges its item, and the check reads that back from the run's durable record before closing, leaving the item claimed where it no longer says so.",
+		Why: "the forge check closing an item whose change landed on the target branch once the team's branch carries its landing commit, or once the tracked pull request into the team's branch that carries it merges. A wait is recorded only for a change that discharges its item, and the closing reads that back from the run's durable record first, leaving the item claimed where it no longer says so.",
 	},
 	{
 		File: "internal/orchestrator/reconcile.go", Declaration: "(Reconciler) completeIntegrated", Calls: 1,

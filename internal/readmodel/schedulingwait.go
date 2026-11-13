@@ -65,7 +65,7 @@ func SchedulingWaitWhose(wait beads.SchedulingWait) string {
 }
 
 func waitingWorkRef(entry backlog.Entry) WorkItemRef {
-	ref := WorkItemRef{WorkItemID: entry.ID, Title: entry.Title, SchedulingWait: keptWait(entry)}
+	ref := WorkItemRef{WorkItemID: entry.ID, Title: entry.Title, SchedulingWait: keptWait(entry), PlacedFirst: entry.PlacementLine()}
 	if ref.SchedulingWait != nil {
 		ref.WaitReason = SchedulingWaitSays(*ref.SchedulingWait)
 	}

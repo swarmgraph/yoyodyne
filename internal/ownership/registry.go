@@ -453,8 +453,15 @@ func directiveRule(Record) (Answer, bool) {
 func outageRule(r Record) (Answer, bool) {
 	// A record that names no cause is read as the login, as the outage's own
 	// sentence reads it (runstate.ProviderOutage.Says).
-	if r.OutageCause == domain.ProviderUnreachable {
+	switch r.OutageCause {
+	case domain.ProviderUnreachable:
 		return owned(MoverNobody, "nothing: the harness resumes once the provider answers", "")
+	case domain.ProviderProgramMissing:
+		// Installing a program into the operator's own account on the machine
+		// the harness runs on is something only the holder of that account can
+		// do; the harness already looks in the usual install folders, so what is
+		// left is a program that is not installed anywhere it can find.
+		return operator(OperatorCredential, "install the provider's program again, or set providers.<provider>.binary to its full path", "the provider's installation in the operator's account")
 	}
 	return operator(OperatorCredential, "log in to the provider again", "the provider's login")
 }

@@ -904,6 +904,7 @@ alongside.
 ./bin/yoyo conformance          # what the release cut runs before it tags
 ./bin/yoyo conformance --json   # machine-readable
 ./bin/yoyo conformance --notes  # the Markdown section a release's notes carry
+./bin/yoyo conformance --notes --from-export  # the same, inside a developer run
 ```
 
 It writes nothing to the checkout or to the tracker — a gate must not be what
@@ -912,6 +913,14 @@ mismatch the check that found it collected. One record is written outside both:
 the run of the workflow itself, under the harness's own state root, so what a
 release was gated on can be read back. Nothing prunes those, and one is written
 per invocation.
+
+A developer run can open neither the tracker nor that state root, and the
+release item's run stamps its notes all the same. `--from-export` is for it:
+the admitted work items are read from the tracker's export in the checkout,
+`.beads/issues.jsonl`, the goals check's notes say so, and the workflow's record
+is kept in a temporary directory removed when the command ends. The harness's
+cut never passes it: it reads the tracker, and refuses a stamp whose verdict or
+definition its own reading does not match.
 
 Staleness is reported and never refuses, for the reason
 [stale is not cancelled](#what-a-change-upstream-leaves-stale); work naming no

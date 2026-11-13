@@ -22,12 +22,20 @@ the top of that order rather than choosing for itself. A role that disagrees
 with the ordering proposes a change to it exactly as it would propose a change
 to a goal; none of them reorders it or admits work to it. The order is written
 down as Beads priority — 0 first, 4 last — so there is one place it lives rather
-than a second copy that could disagree with the tracker, and items left at the
-same priority are in no order anybody decided: the harness takes them
-oldest-admitted first, so an item already waiting is not passed over for one
+than a second copy that could disagree with the tracker. Within one priority, the
+Lead Product Manager can put an item first with `place`, which records on the
+item who placed it, when, and why: placed items are taken before the rest of
+their priority, the one placed earliest first, and every listing of the queue
+says so beside the item. At most three items are placed in one priority at a
+time, `unplace` takes a placement back, and a placement ends by itself when the
+item closes or its priority changes. A placement never lifts an item above a
+higher priority, never starts one that is parked or otherwise held, and never
+goes ahead of work on a change a run has already written. Items at the same
+priority that nobody placed are in no order anybody decided: the harness takes
+them oldest-admitted first, so an item already waiting is not passed over for one
 admitted after it while it can start — one that is held, unready, or waiting for
 a slot that prefers another label still is — and the Lead Product Manager says
-which comes first by giving it a higher one. Admitting work says where it goes as part
+which comes first by giving it a higher priority or placing it. Admitting work says where it goes as part
 of admitting it, because a new item has no identifier until the tracker answers
 and an ordering left for a later step is an item sitting at the tracker's
 default in the meantime — including for an item you approved from a proposal,
@@ -114,8 +122,8 @@ and [research](#bringing-it-an-idea-rather-than-a-work-item) where you have
 configured a source. The first is the work tracker,
 through a fixed set of named operations the harness carries
 out for it — read an item in full, survey the open queue, create, attribute to a
-goal, update, label and unlabel, reparent, reprioritize, park and unpark, link
-and unlink a dependency, repair state the records have made stale, close, and
+goal, update, label and unlabel, reparent, reprioritize, park and unpark, place
+an item first among its priority and take that back, link and unlink a dependency, repair state the records have made stale, close, and
 retire. Three further operations are about none of that: `handle` records
 what became of a report another role filed, which is how the pile it is shown
 [stops being asked about](reporting.md#who-reads-them-and-what-became-of-each-one),
@@ -1234,7 +1242,7 @@ unless it names what is unresolved: a pause nobody can name a reason for is a
 pause nobody can lift.
 
 A pause is not a cancellation. Work already under way keeps its claim, its
-branch, its worktree, and its developer session, and stops at its next gate —
+branch, its worktree, and its developer session, and stops before its next step —
 the point before its change could be checked, judged, or promoted. Work that has
 not started does not start. `yoyo reconcile` reports such a run as resumable and
 leaves it exactly where it is, so nothing settles it out from under you, and the
@@ -2537,8 +2545,8 @@ decision is recorded, however the harness was stopped carrying that decision
 out. Among the undecided, critical entries come first: an item a role raised as
 unmeetable, and a Lead Product Manager's decision about a run still in flight.
 After them come the oldest stoppages. The decided entries come last, where
-there is room: first those stopped by a gate that will not clear on its own,
-then those waiting on a gate that will. The fixed size is shared among the
+there is room: first those stopped by a condition that will not clear on its own,
+then those waiting on a condition that will. The fixed size is shared among the
 entries listed, so the window lists 25 whenever the docket holds more than 25.
 An entry longer than its share is cut, and says where. The window says how many
 live entries it did not list, how many of those are already decided, how long

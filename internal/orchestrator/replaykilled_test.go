@@ -44,7 +44,7 @@ func (w *timingOutReplays) RebaseOntoTarget(ctx context.Context, worktree gitwor
 			HeadCommit:         worktree.HarnessCommit,
 			PreviousBaseCommit: worktree.BaseCommit,
 			PreviousHeadCommit: worktree.HarnessCommit,
-		}, fmt.Errorf("%w: replay %s onto %s at 0123abcd timed out; its budget was 1m0s, bought for replaying 1 commit(s) that write 2 file(s)",
+		}, fmt.Errorf("%w: replay %s onto %s at 0123abcd timed out; its budget was 1m0s, allowed for replaying 1 commit(s) that write 2 file(s)",
 			gitworktree.ErrReplayKilled, worktree.Branch, worktree.TargetBranch)
 }
 

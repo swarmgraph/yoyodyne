@@ -148,6 +148,9 @@ func StallWhose(reason StallReason, cause domain.ProviderOutageCause) string {
 		return "the operator's for a hold he placed; for one the brake placed, the development manager's while she decides, the harness's while it carries out her decision, and the Lead Product Manager's once it is escalated — nothing new is chosen until it is released, and `yoyo release` lifts either"
 	}
 	answer := Resolve(KindStall, Record{Stall: reason, OutageCause: cause})
+	if reason == StallProviderAway && cause == domain.ProviderProgramMissing {
+		return answer.Owner.Possessive() + " — install the provider's program again, or set providers.<provider>.binary in .yoyodyne/config.yaml to its full path; the harness looks for it again on its own, on the search path and in the usual install folders, and carries on once it is back, and nothing is released or restarted"
+	}
 	settles := reason.settles(answer)
 	if settles == "" {
 		return ""

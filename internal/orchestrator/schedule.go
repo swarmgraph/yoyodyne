@@ -160,6 +160,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"reflect"
 	"slices"
@@ -986,7 +987,7 @@ func (p Pull) validate(needs pullNeeds) error {
 	// item forever or start past all of them. Refusing here is the only reading
 	// of that which is neither.
 	if p.Gates == nil {
-		problems = append(problems, errors.New("a pull requires the human gates a person has passed"))
+		problems = append(problems, errors.New("a pull requires the steps a person has recorded taking"))
 	}
 	if p.Start == nil {
 		problems = append(problems, errors.New("a pull requires a way to start a run"))
@@ -2646,7 +2647,22 @@ pulling:
 		// the session chooses nothing and says why, and it is the session that
 		// finds the login renewed — which is what makes re-authentication resume
 		// the line without anybody releasing anything.
-		if outage, away := s.providerAway(ctx, &schedule, pull); away {
+		outage, away, resumed := s.providerAway(ctx, &schedule, pull)
+		if resumed != "" {
+			// The provider's program was found again: the session chooses work
+			// again at once, and says so where the operator reads its state.
+			s.release(&schedule, session, resumed)
+		}
+		// A missing program holds back only the work that would start on its
+		// provider, as a launch-settings hold does: where some slot starts on
+		// another provider, the pull carries on and that provider's slots are
+		// passed over below. Only when every slot is on it does the session stop
+		// choosing.
+		var missingProvider domain.Backend
+		if away && outage.Cause == domain.ProviderProgramMissing && outage.Provider != "" && !pull.everySlotOn(outage.Provider) {
+			missingProvider, away = outage.Provider, false
+		}
+		if away {
 			if !s.Watching {
 				schedule.Stopped = ScheduleProviderAway
 				break
@@ -2733,7 +2749,7 @@ pulling:
 		// The hold is on one provider. Where some developer slot dispatches onto
 		// another, the pull carries on and only the held provider's slots are
 		// passed over below; it stops whole only when every slot is on it.
-		var heldProvider domain.Backend
+		heldProvider := missingProvider
 		if held, standing := s.launchSettingsHeld(&schedule, pull); standing && !pull.everySlotOn(held.Provider) {
 			heldProvider = held.Provider
 		} else if standing {
@@ -4915,24 +4931,48 @@ func probeReason(hold runstate.IntakeHold, selected string) string {
 // a provider nobody can reach is left the probe interval and then pulled into
 // again: the dispatch is the probe, and a run it starts waits on its own if the
 // answer is still no.
-func (s Scheduler) providerAway(ctx context.Context, schedule *Schedule, pull Pull) (runstate.ProviderOutage, bool) {
+//
+// A provider's program that cannot be found is asked about at every pull too,
+// as cheaply: the availability check looks for the program again, on the
+// search path and in the usual install folders, and runs its version check.
+// The moment it is found the outage is cleared and the third value says so in
+// a sentence the session records, so work resumes without a restart and the
+// status line says why.
+func (s Scheduler) providerAway(ctx context.Context, schedule *Schedule, pull Pull) (runstate.ProviderOutage, bool, string) {
 	if pull.Outages == nil {
-		return runstate.ProviderOutage{}, false
+		return runstate.ProviderOutage{}, false, ""
 	}
 	outage, standing, err := pull.Outages.Standing()
 	if err != nil {
 		schedule.OutageProblem = fmt.Sprintf("whether the provider is answering could not be read, so the pull was made as though it were: %v", err)
-		return runstate.ProviderOutage{}, false
+		return runstate.ProviderOutage{}, false, ""
 	}
 	if !standing {
 		schedule.ProviderOutage = nil
-		return runstate.ProviderOutage{}, false
+		return runstate.ProviderOutage{}, false, ""
+	}
+	// Only the provider the pull can ask is asked: the developer's. A missing
+	// program of another provider is never cleared on the developer's program
+	// being found; it is left the probe interval, below, and the next attempt
+	// that needs it finds it or confirms it missing.
+	asksMissing := outage.Provider == "" || pull.DeveloperProvider == "" || outage.Provider == pull.DeveloperProvider
+	if outage.Cause == domain.ProviderProgramMissing && pull.Provider != nil && asksMissing {
+		availability, err := pull.Provider.CheckAvailability(ctx)
+		if err == nil && availability.Installed {
+			if _, _, err := pull.Outages.Clear(); err != nil {
+				schedule.OutageProblem = fmt.Sprintf("the provider's program was found again and the outage could not be cleared: %v", err)
+			}
+			schedule.ProviderOutage = nil
+			return runstate.ProviderOutage{}, false, programFound(outage, availability, s.now())
+		}
+		schedule.ProviderOutage = &outage
+		return outage, true, ""
 	}
 	// A lapsed login the check runner can ask about is its to re-check: the
 	// outage waits on its follow-up and asks the provider nothing itself.
 	if waiting, followed := s.loginFollowUp(schedule, outage, pull); followed {
 		schedule.ProviderOutage = &outage
-		return waiting, true
+		return waiting, true, ""
 	}
 	if outage.Cause == domain.ProviderUnauthenticated && pull.Provider != nil {
 		if loginAskedWithoutARunner(ctx, pull.Provider) {
@@ -4940,20 +4980,36 @@ func (s Scheduler) providerAway(ctx context.Context, schedule *Schedule, pull Pu
 				schedule.OutageProblem = fmt.Sprintf("the provider is logged in again and the outage could not be cleared: %v", err)
 			}
 			schedule.ProviderOutage = nil
-			return runstate.ProviderOutage{}, false
+			return runstate.ProviderOutage{}, false, ""
 		}
 		schedule.ProviderOutage = &outage
-		return outage, true
+		return outage, true, ""
 	}
 	// A provider nobody can reach, or a login nothing here can ask about: the
 	// pull is the probe, once the interval has passed since the provider was
 	// last met refusing.
 	if !s.now().Before(outage.LastSeen.Add(pull.OutageProbe)) {
 		schedule.ProviderOutage = nil
-		return runstate.ProviderOutage{}, false
+		return runstate.ProviderOutage{}, false, ""
 	}
 	schedule.ProviderOutage = &outage
-	return outage, true
+	return outage, true, ""
+}
+
+// programFound is the sentence the session records when a provider's program
+// that could not be found is found again: which program, where, and that work
+// is being started again.
+func programFound(outage runstate.ProviderOutage, availability backend.Availability, now time.Time) string {
+	program := "the provider's program"
+	if outage.Provider != "" {
+		program = "the " + string(outage.Provider) + " program"
+	}
+	where := ""
+	if path := strings.TrimSpace(availability.Path); path != "" {
+		where = " at " + path
+	}
+	return fmt.Sprintf("runs are being started again: the harness found %s%s at %s, after it could not be found since %s",
+		program, where, localTime(now), localTime(outage.Since))
 }
 
 // recordedWindow is a usage window the durable record says is closed over
@@ -5726,6 +5782,13 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 	if pull.CarryOut == nil {
 		return nil, nil, nil, false
 	}
+	// Which of this session's starts had already ended is read before the
+	// decisions are, never after. A start that ends between the two reads ended
+	// after the list was taken, so the list can still show the decision that
+	// start carried out; read afterwards, that start would count as ended and its
+	// decision would be carried out a second time. Taken first, it is still busy
+	// on this pull and its item is passed over until the next one.
+	endedBefore := handedBack.snapshot()
 	outstanding, err := pull.CarryOut.Outstanding()
 	// Kept apart from what a gate said about the attempt this pass then makes.
 	// Reading part of the record and firing what could be read are compatible, and
@@ -5811,7 +5874,7 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 		// it failed, or came back without reserving, and nothing more will come of
 		// it, so the decision goes ahead exactly as it would once the session has
 		// collected that ending.
-		leftover := ours && state.RunID == "" && handedBack.has(index)
+		leftover := ours && state.RunID == "" && endedBefore[index]
 		if busy && !leftover && (!reusesSlot || ours) {
 			var earlier *Started
 			if ours && index >= 0 && index < len(schedule.Started) {
@@ -5826,7 +5889,7 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 		}
 		if gate, stopped := waitingOn[task.WorkItemID]; stopped && closed.stillShut(gate) {
 			if task.Decision == DecisionContinueChecks {
-				pass(task, fmt.Sprintf("the continuation is still waiting on %s; lifting that gate lets the next pull attempt it", gate))
+				pass(task, fmt.Sprintf("the continuation is still waiting on %s; once that clears the next pull attempts it", gate))
 				continue
 			}
 			// Its refusal is on the item already, so it is not passed over for the
@@ -7524,6 +7587,17 @@ func (h *startsHandedBack) forget(index int) {
 	delete(h.indices, index)
 }
 
+// snapshot is the starts handed back so far, as they stand now. A nil
+// collection has none.
+func (h *startsHandedBack) snapshot() map[int]bool {
+	if h == nil {
+		return nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return maps.Clone(h.indices)
+}
+
 func (h *startsHandedBack) has(index int) bool {
 	if h == nil {
 		return false
@@ -8042,7 +8116,7 @@ func (p Pull) queue(ctx context.Context, claimed []beads.WorkItem, read bool) (p
 	// stops work rather than starting it past somebody's step.
 	discharged, err := p.Gates.DischargedGates()
 	if err != nil {
-		return pulled{}, fmt.Errorf("read the human gates a person has passed: %w", err)
+		return pulled{}, fmt.Errorf("read the steps a person has recorded taking: %w", err)
 	}
 	queue := backlog.Order(admitted, pullable, held, discharged)
 	// Coverage is read one status wider than the backlog. A claimed child has left

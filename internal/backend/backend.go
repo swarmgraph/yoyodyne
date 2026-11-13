@@ -40,6 +40,13 @@ type Availability struct {
 	// executable's name, discovery failure and setup remedy. It is empty whenever
 	// Installed is true, and for an adapter that does not say.
 	Missing string `json:"missing,omitempty"`
+	// ProgramMissing is set when Installed is false because the program was
+	// found nowhere it was looked for, rather than found and unable to run.
+	// It is what makes a dispatch a wait for the program rather than a failure.
+	ProgramMissing bool `json:"program_missing,omitempty"`
+	// Path is the program the version check ran, where the adapter resolved
+	// one, so a diagnosis says which installation it asked.
+	Path string `json:"path,omitempty"`
 }
 
 // RunRequest is one provider invocation the harness asks for.
@@ -325,6 +332,10 @@ type ProviderOutage struct {
 	// on — the wait is the same either way — and it is what lets a reader of a
 	// run that waited tell which of the two shapes the provider produced.
 	Channel domain.ProviderChannel
+	// Provider is the provider whose program could not be found, set only for
+	// a missing program, where the refusal names the provider rather than
+	// coming from it. Empty is the provider the invocation was made on.
+	Provider domain.Backend
 }
 
 // RunResult is what one provider invocation is worth: the invocation's own
