@@ -57,7 +57,7 @@ func TestARecurringTaskFailingBeforeItsFirstTurnTwiceIsRaisedOnTheAttentionLineA
 		t.Fatalf("NewConversationStore() error = %v", err)
 	}
 	provider := &modelRecordingBackend{}
-	open := func(_ context.Context, role domain.AgentRole, _, model string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
+	open := func(_ context.Context, _ func() context.Context, role domain.AgentRole, _, model string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 		session, err := chat.Open(chat.Options{
 			Role:         role,
 			Agent:        "development-manager",

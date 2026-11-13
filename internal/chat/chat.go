@@ -128,8 +128,10 @@ const (
 	maxNoticeBytes    = 512
 )
 
-// DefaultTurnTimeout bounds a provider turn and a scheduled turn's wait to
-// acquire its conversation. A caller's earlier deadline still takes precedence.
+// DefaultTurnTimeout bounds a provider turn, and a scheduled turn from when it
+// holds its conversation; its wait to take the conversation is bounded
+// separately (roleConversation.Wake in internal/cli). A caller's earlier
+// deadline still takes precedence.
 const DefaultTurnTimeout = 15 * time.Minute
 
 // quietHoldWait is how long taking the conversation back may take before the

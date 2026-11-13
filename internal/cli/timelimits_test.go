@@ -66,8 +66,9 @@ func TestAnExchangeAnswerAndASideTurnTakeTheAnsweringAgentsOwnLimits(t *testing.
 	}
 }
 
-// A recurring pass waits for its conversation and takes its turn within the
-// woken agent's own turn limit, and an agent stating none keeps the default.
+// A recurring pass takes its turn within the woken agent's own turn limit and
+// waits for its conversation within the agent's message limit, and an agent
+// stating neither keeps the defaults.
 func TestARecurringPassIsBoundedByTheWokenAgentsTurnLimit(t *testing.T) {
 	t.Parallel()
 
@@ -84,5 +85,14 @@ func TestARecurringPassIsBoundedByTheWokenAgentsTurnLimit(t *testing.T) {
 	}
 	if got := roles.turnLimit(domain.RoleArchitect, "nobody"); got != chat.DefaultTurnTimeout {
 		t.Errorf("an unconfigured agent's pass bound = %s, want the default", got)
+	}
+	if got := roles.waitLimit(domain.RoleProgramManager, "technical-health-pm"); got != time.Hour {
+		t.Errorf("program manager pass wait = %s, want its configured message limit of 1h", got)
+	}
+	if got := roles.waitLimit(domain.RoleProductManager, ""); got != config.DefaultMessageTimeLimit {
+		t.Errorf("product manager pass wait = %s, want the default %s", got, config.DefaultMessageTimeLimit)
+	}
+	if got := roles.waitLimit(domain.RoleArchitect, "nobody"); got != config.DefaultMessageTimeLimit {
+		t.Errorf("an unconfigured agent's pass wait = %s, want the default", got)
 	}
 }

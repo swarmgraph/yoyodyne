@@ -43,7 +43,7 @@ func firePassOfProgramManager(t *testing.T, reply string) (runstate.Sweep, *runs
 	if err != nil {
 		t.Fatalf("NewLaneReportStore() error = %v", err)
 	}
-	open := func(_ context.Context, role domain.AgentRole, _, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
+	open := func(_ context.Context, _ func() context.Context, role domain.AgentRole, _, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 		session, err := chat.Open(chat.Options{
 			Role:         role,
 			Agent:        "factory",
@@ -159,7 +159,7 @@ func TestAPassThatFailsAfterSavingKeepsItsWritesAndTheNextPassIsToldOfThem(t *te
 		// The pass run after it completes.
 		"The rest of the line." + laneReportSweep,
 	}}
-	open := func(_ context.Context, role domain.AgentRole, _, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
+	open := func(_ context.Context, _ func() context.Context, role domain.AgentRole, _, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 		session, err := chat.Open(chat.Options{
 			Role:         role,
 			Agent:        "factory",

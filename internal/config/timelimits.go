@@ -69,12 +69,14 @@ const (
 // ProviderCall is the developer's; a limit stated on an agent of another role is
 // refused when the configuration is read, since nothing would apply it.
 type TimeLimits struct {
-	// Turn bounds one provider turn in the agent's conversation, including the
-	// wait for its conversation's hold when a recurring pass wakes it, and is
-	// the provider invocation's own total time.
+	// Turn bounds one provider turn in the agent's conversation, and is the
+	// provider invocation's own total time. A recurring pass's turn starts
+	// counting it once the turn holds the conversation, so time spent waiting
+	// for it to be free is not counted.
 	Turn Duration `yaml:"turn,omitempty" json:"turn,omitempty"`
 	// Message bounds the elapsed time of one message, however many turns
-	// answering it takes. It has to be longer than Turn.
+	// answering it takes, and how long a recurring pass's turn may wait for the
+	// conversation to be free. It has to be longer than Turn.
 	Message Duration `yaml:"message,omitempty" json:"message,omitempty"`
 	// MessageTurns bounds how many provider turns one message may take.
 	MessageTurns int `yaml:"message_turns,omitempty" json:"message_turns,omitempty"`

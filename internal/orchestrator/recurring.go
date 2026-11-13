@@ -230,6 +230,11 @@ type Turn struct {
 	// gave. Where an earlier turn of the pass gave its account, the pass keeps it.
 	ProviderFailed bool   `json:"provider_failed,omitempty"`
 	ConversationID string `json:"conversation_id,omitempty"`
+	// Waited is how long the turn waited for the role's conversation to be free
+	// before it was allowed to start, which its time limit does not count. It is
+	// carried on a turn whose wait ended unanswered as well, so the pass's record
+	// says how long it waited either way (runstate.Sweep.ConversationWait).
+	Waited time.Duration `json:"waited,omitempty"`
 	// Turns counts answered provider turns, including a recovered report. It
 	// retains the first reply when the report request fails afterwards.
 	Turns         int                                    `json:"turns,omitempty"`
@@ -1311,6 +1316,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			message = strings.Join(docketLines(docket.Window()), "\n") + "\n" + message
 		}
 		answered, err := t.Roles.Wake(ctx, task.Role, f.agent, pass, task.ModelSelector(), message, options)
+		recorded.ConversationWait += max(answered.Waited, 0)
 		if err != nil {
 			recorded.FailureOutput = runstate.FailureOutputTail(answered.FailureOutput)
 		}
@@ -1575,6 +1581,11 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		problems = append(problems, describeSavedBeforeFailing(name, recorded.Saved))
 	}
 	recorded.EndedAt = t.now()
+	// The wait and the running are said apart, because only the running counts
+	// against a turn's time limit. The wait was measured on the process's own
+	// clock and the span on the trigger's, so the wait is held to the span.
+	recorded.ConversationWait = min(recorded.ConversationWait, max(recorded.EndedAt.Sub(recorded.StartedAt), 0))
+	recorded.Ran = max(recorded.EndedAt.Sub(recorded.StartedAt)-recorded.ConversationWait, 0)
 	if failed && t.Availability != nil {
 		if cause := t.Availability(recorded.StartedAt, recorded.EndedAt, name); cause.Why != "" {
 			problems = append(problems, "observations during the stopped response: "+cause.Why)

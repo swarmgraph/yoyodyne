@@ -68,7 +68,7 @@ func TestARecurringTaskRunsOnItsOwnModelAndDecisionTurnsStayOnTheRoles(t *testin
 	// open is openChatOnModel's model resolution over a fake provider: the agent
 	// the role resolves to, the task's model laid over it, and the session opened
 	// on what that resolution asks for.
-	open := func(_ context.Context, role domain.AgentRole, _, model string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
+	open := func(_ context.Context, _ func() context.Context, role domain.AgentRole, _, model string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 		prepared := preparedChat{
 			parts:    components{config: cfg},
 			name:     "development-manager",
@@ -129,7 +129,7 @@ func TestARecurringTaskRunsOnItsOwnModelAndDecisionTurnsStayOnTheRoles(t *testin
 
 	// The operator's next message into the same conversation is a decision turn
 	// the task does not cover, so it asks for the role's own model.
-	session, _, _, err := open(context.Background(), domain.RoleDevelopmentManager, "", "", orchestrator.RecurringTurnOptions{})
+	session, _, _, err := open(context.Background(), context.Background, domain.RoleDevelopmentManager, "", "", orchestrator.RecurringTurnOptions{})
 	if err != nil {
 		t.Fatalf("open() error = %v", err)
 	}
