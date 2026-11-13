@@ -216,9 +216,16 @@ func callMessage(request backend.RunRequest, result backend.RunResult, call back
 	if call.Parent != "" {
 		identity += fmt.Sprintf(", made inside call %s", call.Parent)
 	}
-	return fmt.Sprintf("%s The %s %s %s (%s) on %s%s, though it was launched with %s. "+
-		"This is reported only: the invocation carried on and its outcome is unchanged, so somebody has to read its event log to see why the tool was used.",
-		ErrorLabel, roleWords(request.Role), outcomeWords(call.Outcome), tool, kindWords(call.Kind), invocation, identity, policyWords(result, request))
+	consequence := "This is reported only: the invocation carried on and its outcome is unchanged, so somebody has to read its event log to see why the tool was used."
+	if call.Kind == backend.ToolKindExternal {
+		// Every adapter launches every role with no MCP server or connector, and
+		// the harness's own MCP calls never appear in a provider's stream
+		// (docs/designs/mcp-tools-through-the-harness.md, section 6), so a call
+		// of this kind means an adapter let a server reach the session.
+		consequence = "Every role is launched with no MCP server or connector, so this means one reached the session; the invocation carried on and its outcome is unchanged, and somebody has to find how the server got there."
+	}
+	return fmt.Sprintf("%s The %s %s %s (%s) on %s%s, though it was launched with %s. %s",
+		ErrorLabel, roleWords(request.Role), outcomeWords(call.Outcome), tool, kindWords(call.Kind), invocation, identity, policyWords(result, request), consequence)
 }
 
 // gapMessage is the two sentences an invocation's unobserved tool use is
