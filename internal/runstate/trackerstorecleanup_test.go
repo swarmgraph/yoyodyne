@@ -40,7 +40,7 @@ func TestTrackerStoreCleanupsAreRecordedAndReadInOrder(t *testing.T) {
 	if !found || !finished.StartedAt.Equal(first.StartedAt) || finished.SizeAfter != 526<<20 || finished.ProductID != "calc" {
 		t.Errorf("LastFinished() = %+v, %t, want the first, finished one", finished, found)
 	}
-	if said := finished.Says(); !strings.Contains(said, "from 885 MB to 526 MB in 9.0 seconds") {
+	if said := finished.Says(); !strings.Contains(said, "from 885 MB to 526 MB, holding the store for 9.0 seconds") {
 		t.Errorf("Says() = %q, want the sizes and how long in words", said)
 	}
 	if latest, _ := cleanups.Latest(); !strings.Contains(latest.Says(), "stopped before it finished") {
@@ -132,5 +132,54 @@ func TestSizesAreSaidInWords(t *testing.T) {
 		if said := SayBytes(size); said != want {
 			t.Errorf("SayBytes(%d) = %q, want %q", size, said, want)
 		}
+	}
+}
+
+// A postponement is recorded apart from the cleanups, so the cleanups read as they
+// did, and read back from a moment on, oldest first, each with when, the
+// store's size, and why in words.
+func TestTrackerStoreCleanupPutOffsAreRecordedApartAndReadFromAMoment(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	store, err := NewTrackerStoreCleanupStore(root, "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if putOffs, err := store.PutOffsSince(time.Time{}); err != nil || len(putOffs) != 0 {
+		t.Fatalf("PutOffsSince() of nothing = %+v, %v, want nothing", putOffs, err)
+	}
+	if err := store.RecordPutOff(TrackerStoreCleanupPutOff{}); err == nil {
+		t.Error("RecordPutOff() with no time recorded one")
+	}
+	base := time.Date(2026, 11, 11, 2, 0, 0, 0, time.UTC)
+	for index, busy := range []bool{false, true, true} {
+		if err := store.RecordPutOff(TrackerStoreCleanupPutOff{At: base.Add(time.Duration(index) * 10 * time.Minute), SizeBefore: 1400 << 20, SizeAfter: 1400 << 20, Reason: "it is past its bound", Why: "another process had the store open: process 4242", Busy: busy}); err != nil {
+			t.Fatalf("RecordPutOff() error = %v", err)
+		}
+	}
+	if cleanups, err := store.Read(); err != nil || len(cleanups) != 0 {
+		t.Errorf("Read() = %+v, %v, want the postponements kept out of the cleanups", cleanups, err)
+	}
+	all, err := store.PutOffsSince(time.Time{})
+	if err != nil || len(all) != 3 || !all[0].At.Equal(base) {
+		t.Fatalf("PutOffsSince(zero) = %+v, %v, want all three oldest first", all, err)
+	}
+	first, found := all.FirstBusy()
+	if !found || !first.At.Equal(base.Add(10*time.Minute)) {
+		t.Errorf("FirstBusy() = %+v, %t, want the second", first, found)
+	}
+	later, err := store.PutOffsSince(base.Add(10 * time.Minute))
+	if err != nil || len(later) != 1 || !later[0].At.Equal(base.Add(20*time.Minute)) {
+		t.Errorf("PutOffsSince(the second) = %+v, %v, want only the third", later, err)
+	}
+	if said := all[2].Says(); !strings.Contains(said, "put off at ") || !strings.Contains(said, "with the store at 1400 MB: another process had the store open") {
+		t.Errorf("Says() = %q, want when, the size, and why", said)
+	}
+	other, err := NewTrackerStoreCleanupStore(root, "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if putOffs, err := other.PutOffsSince(time.Time{}); err != nil || len(putOffs) != 0 {
+		t.Errorf("another product's PutOffsSince() = %+v, %v, want nothing", putOffs, err)
 	}
 }

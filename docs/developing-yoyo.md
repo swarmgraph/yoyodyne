@@ -36,14 +36,16 @@ unset-only default is what makes those lines safe to run outside the harness —
 the probe and the evidence a developer records in its worktree, or your own
 hand — where the variable is not set and the whole module is what should run.
 [`scripts/check-scope.sh`](../scripts/check-scope.sh) decides what a named list
-becomes: the listed packages when the change, read from Git since its merge
-base with `main`, touches nothing else the target reads, and the whole module
-when it touches anything else outside every package — the Makefile, a script,
-the configuration — or a package the list leaves out, or cannot be read.
-Markdown outside every directory holding Go source widens neither target. For
-`make race` it is left out, and an empty list over a change made only of such
-Markdown runs the race detector over nothing and says so. For `make test` it
-adds the tests that read documents, which `DOCUMENT_TESTS` in the `Makefile`
+becomes: the listed packages and only those, with any package the change,
+read from Git since its merge base with `main`, touches that the list leaves
+out added to them. A file outside every package — the Makefile, a script, the
+configuration, a document — widens neither target; only a change Git cannot
+read runs the whole module. An empty list runs the whole module when the change
+touches such a file other than Markdown, because there are no packages to stand
+in for it. For `make race` a file outside every package is left out, and an
+empty list over a change made only of Markdown outside every directory holding
+Go source runs the race detector over nothing and says so. For `make test` it
+adds the tests that read this checkout, which `DOCUMENT_TESTS` in the `Makefile`
 names: the doccheck list [below](#what-a-document-landing-runs-make-doccheck)
 and every other test that reaches this checkout — the personas, the guides, the
 coined-term register, and the Go source some audits read — each by name, so a
@@ -160,6 +162,36 @@ bind --replace` and `yoyo project rename` with a committed id that does not
 read the new name, and its check 6, the supervisor moving the state by itself,
 with `moving.json`, the drain limit, a supervisor stopped before or during the
 move, and a failing step undone.
+
+`scripts/twofactory/validate.sh` is the validation for working alongside other
+contributors ([the design](designs/working-alongside-other-contributors.md),
+build item 14). [The script](../scripts/twofactory/validate.sh)
+sets up two harness homes on one machine, each with a machine identity of
+its own and its own clone of one throwaway bare remote, inside a temporary root
+it removes on exit, with `HOME` pointed there so the real `~/.yoyodyne` is never
+read or written. The checks are the Go test in
+[`scripts/twofactory`](../scripts/twofactory/twofactory_test.go), which drives
+the harness's own claims, pipeline, scheduler, forge check and status line, with
+the stand-in forge the harness's own tests use in place of GitHub. It prints
+each check's number and name as it passes or fails: an item waiting for a person
+names its pull request, closes on merge and goes to the Lead Product Manager
+when closed unmerged; requested changes start a repair round and an ordinary
+comment reaches the development manager's list; each run records the target it
+started from and whether it was fetched; a conflict while bringing a pull
+request up to date is a repair round under its own limit; at the limit on
+waiting pull requests no new work starts and the status line names them; two
+factories racing for one item, exactly one claim push succeeds; a claim
+unrenewed for two hours is taken over naming the earlier holder; and, once their
+pieces land, reports and their handling travelling between factories, one
+directive from one Slack reply, repair budgets shared across factories, a spend
+whose push fails not acted on, and the team pause. A check whose piece has not
+landed is reported as not yet built, naming the work it waits on, and counted
+neither passed nor failed; when that piece lands, its check is written in
+`scripts/twofactory` and the line naming what it waits on goes. It exits
+non-zero when any check fails. Run any other way, the Go test skips, so
+`make test` keeps it compiling without running it. It stays out of `check`
+because it takes a minute or two and vouches for the team-mode work only, and
+CI does not run it yet.
 
 ## What a document landing runs: `make doccheck`
 
@@ -464,8 +496,18 @@ forty-three minutes. `internal/orchestrator` is what needs it: with a second
 check stage running beside it, the package took 1,439 seconds under `make race`
 and up to 1,170 seconds under `make test`
 ([the record](diagnoses/yoyodyne-ifd-429-69-orchestrator-test-limit.md)), and
-on a busier machine `make race` has needed about 26.5 minutes. The figure
-stays under
+on a busier machine `make race` has needed about 26.5 minutes, and later 40 to
+46 minutes at load averages of 25 to 45, past the limit. So `make race` splits
+that package's tests into `RACE_PARTS` parts, three by default, each its own
+`go test -race` under the limit, run side by side with one `go test` for every
+other package ([`scripts/race-run.sh`](../scripts/race-run.sh)). Each part but
+the last runs the test names dealt to it, and the last runs everything the
+others do not name, so every test still runs exactly once with the race
+detector on; `scripts/race-run-test.sh` holds the script to that. On November
+11, 2026 the package as one binary took 1,395 seconds at one-minute load
+averages of 10 to 50, and split in three its parts took 839, 940 and 963
+seconds at load averages of 10 to 319. `RACE_PARTS=1` is the single run. The
+figure stays under
 [`execution.check_timeout`](configuration.md#how-long-a-check-may-take), which
 load only ever lengthens, so a hang is still reported by `go test` with its dump
 of every goroutine before the harness ends the check. This project's

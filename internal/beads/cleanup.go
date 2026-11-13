@@ -29,9 +29,11 @@ import (
 //
 // The cleanup takes bd's exclusive lock on the store like every other call,
 // and every call that arrives meanwhile waits behind it. Two things keep that
-// wait inside the limit those calls are given. It does not start while any
-// other process has the store open, so it never begins in the middle of
-// somebody else's call; and it is given a hold far shorter than a call's limit
+// wait inside the limit those calls are given. Ordinarily it does not start
+// while any other process has the store open, so it never begins in the middle
+// of somebody else's call; once the maintenance pass has put it off for as
+// long as it waits, it starts beside them (CleanUpStoreBeside), and bd's lock
+// orders it among their calls. And it is given a hold far shorter than a call's limit
 // and stopped when the hold runs out, so a call that arrives the moment it
 // starts still has most of its limit left once it is stopped. Being stopped
 // leaves the store whole: Dolt's collection writes what it keeps to new files
@@ -57,6 +59,9 @@ type StoreCleanup struct {
 	// Busy is the processes that had the store open, where they stopped the
 	// cleanup from starting. Nothing ran, and the sizes are the one reading.
 	Busy []StoreHolder
+	// Beside is the processes that had the store open when a cleanup started
+	// regardless of them (CleanUpStoreBeside).
+	Beside []StoreHolder
 	// StartedAt is when bd was started, and Took how long it ran.
 	StartedAt time.Time
 	Took      time.Duration
@@ -107,6 +112,25 @@ func (c Client) StoreSize() (string, int64, error) {
 // that fails is returned with what was measured of it and the error; its
 // StartedAt says it ran.
 func (c Client) CleanUpStore(ctx context.Context, hold time.Duration) (StoreCleanup, error) {
+	return c.cleanUpStore(ctx, hold, false)
+}
+
+// CleanUpStoreBeside is CleanUpStore started whoever has the store open. It is
+// for a cleanup the maintenance pass has put off for as long as it waits: on a
+// store every developer run keeps busy there may never be a moment with no
+// other process in it. The processes that had it open are named in Beside.
+//
+// What keeps their calls whole is bd's own lock, which is why nothing here
+// needs to. A call already under way holds the lock, and bd's cleanup waits
+// for it before it starts; a call that arrives meanwhile waits behind the
+// cleanup, for at most hold, and then runs as it would have. No write is
+// dropped or redone: it is made once, after the cleanup lets the store go
+// (TestAWriteDuringAStoreCleanupIsKeptConformance).
+func (c Client) CleanUpStoreBeside(ctx context.Context, hold time.Duration) (StoreCleanup, error) {
+	return c.cleanUpStore(ctx, hold, true)
+}
+
+func (c Client) cleanUpStore(ctx context.Context, hold time.Duration, beside bool) (StoreCleanup, error) {
 	if hold <= 0 {
 		return StoreCleanup{}, errors.New("a cleanup of the tracker's store needs a hold longer than zero")
 	}
@@ -119,8 +143,11 @@ func (c Client) CleanUpStore(ctx context.Context, hold time.Duration) (StoreClea
 	holders, holdersErr := c.holdersFinder().Holders(lookup, store)
 	cancel()
 	if holdersErr == nil && len(holders) > 0 {
-		cleanup.Busy, cleanup.SizeAfter = holders, before
-		return cleanup, nil
+		if !beside {
+			cleanup.Busy, cleanup.SizeAfter = holders, before
+			return cleanup, nil
+		}
+		cleanup.Beside = holders
 	}
 	cleanup.StartedAt = time.Now()
 	_, runErr := c.runWithin(ctx, hold, "gc", "--skip-decay", "--force")

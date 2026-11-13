@@ -23,9 +23,19 @@ PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64
 # With a second check stage running beside it, the package took 1,439 seconds
 # (24 minutes) under `make race` and 870 seconds under `make test`; the
 # harness's own `make test` has reached 1,170 seconds, and on a busier machine
-# `make race` has needed about 26.5 minutes.
+# `make race` has needed about 26.5 minutes, and later about 40 to 46 minutes at
+# load averages of 25 to 45, past this limit.
 # docs/diagnoses/yoyodyne-ifd-429-69-orchestrator-test-limit.md has the first
 # figures and the load they were taken at.
+#
+# So `make race` now splits that package into RACE_PARTS parts run side by side
+# (scripts/race-run.sh), each its own `go test` under this limit. Measured on
+# November 11, 2026: the package as one binary took 1,395 seconds at one-minute
+# load averages of 10 to 50; split in three, the parts took 839, 940 and 963
+# seconds, 969 in all, at load averages of 10 to 319 -- each part about 37% of
+# 43 minutes. Moving the tests that touch no internals out of the package
+# (yoyodyne-ifd.429.14) is still the lasting fix; the split keeps any one binary
+# well inside the limit until then.
 #
 # The figure is set by the check's limit rather than by those measurements,
 # because what the bound buys is a dump of every goroutine instead of a hang,
@@ -195,15 +205,15 @@ test: cachecheck
 # than reading an unset variable as "nothing to test" and passing on that.
 #
 # What the harness names is only where the changed Go files are, so
-# scripts/check-scope.sh reads the change from Git and runs the whole module
-# instead whenever the change touches a file outside every package that the
-# check reads, a package the list does not name, or cannot be read at all.
-# Markdown outside every package is not one of those: the race check leaves it
-# out, and `make test` runs DOCUMENT_TESTS beside the packages for it. Set and
-# empty is the harness saying the change touches no Go package: where the
-# change is only such Markdown, the race check then runs over nothing and
-# `make test` over DOCUMENT_TESTS alone, each saying so, and the whole module
-# runs otherwise. That script says what it compares and why. Left undefined, as
+# scripts/check-scope.sh reads the change from Git. A list runs those packages
+# and only those: a package the change touches that the list leaves out is
+# added to them, and a file outside every package -- the Makefile, a script,
+# the configuration, a document -- leaves the race check as it is and has
+# `make test` run DOCUMENT_TESTS beside the packages. Only a change Git cannot
+# read runs the whole module. Set and empty is the harness saying the change
+# touches no Go package: where the change is only Markdown outside every
+# package, the race check then runs over nothing and `make test` over
+# DOCUMENT_TESTS alone, each saying so, and the whole module runs otherwise. That script says what it compares and why. Left undefined, as
 # `make check`, CI, and a person's own run leave it, `make test` is the whole
 # module.
 #
@@ -218,6 +228,14 @@ test: cachecheck
 # not know what the change touches.
 RACE_PACKAGES ?= ./...
 
+# Whichever packages that leaves, scripts/race-run.sh runs them, and where
+# internal/orchestrator is among them it splits that package's tests into
+# RACE_PARTS parts, each its own `go test -race` under TEST_TIMEOUT, run side by
+# side with one `go test` for the other packages. Every test still runs, once,
+# with the race detector on; the script says how it makes sure. RACE_PARTS=1 is
+# the single run it replaces.
+RACE_PARTS ?= 3
+
 race: cachecheck
 	@if [ "$(origin RACE_PACKAGES)" != file ]; then \
 		packages='$(RACE_PACKAGES)'; \
@@ -230,8 +248,7 @@ race: cachecheck
 		packages=./...; \
 	fi; \
 	if [ -n "$$packages" ]; then \
-		echo "$(GO) test -race -timeout $(TEST_TIMEOUT) $$packages"; \
-		$(GO) test -race -timeout $(TEST_TIMEOUT) $$packages; \
+		sh scripts/race-run.sh '$(GO)' '$(TEST_TIMEOUT)' '$(RACE_PARTS)' $$packages; \
 	fi
 
 vet: cachecheck
@@ -295,7 +312,7 @@ DOCUMENT_TESTS = $(DOCCHECK_TESTS) \
 	./internal/authority='^(TestThisRepositoryOwnAuthorityChecksAreListed)$$' \
 	./internal/chat='^(TestADecodedLaneReportAndDigestCarryCorrectionsToTheirPass|TestAnInteractiveConversationFlagsADigestAsSoonAsItIsFiled|TestConversationPostMortemsAreFlaggedWhetherStreamedOrHeld|TestStreamingFlagsTheWordsShownBeforeATurnIsCutOff|TestTheConversationReportsListingFlagsADigestsWords|TestTheReleaseNotesReadTheAdmissionsThisPackageWrites)$$' \
 	./internal/checks='^(TestTheAdoptionWalksListCoversTheReadmeAndTheProgram)$$' \
-	./internal/cli='^(TestAFailedOneShotTurnStillFlagsItsCollectedDigest|TestAOneShotConversationFlagsADigestAsSoonAsItIsFiled|TestAReleasesNotesSayWhatLanded|TestChatResolvesTheConfiguredProductManager|TestEveryConversationOpensThroughTheCallThatCarriesTheDefinitionsToolSet|TestEveryHarnessOpeningIsWrittenByTheHarness|TestEveryReaderOfAgentsLoadsThroughTheActivationRecord|TestNothingOpensTheStateRootUnguarded|TestPipelineGivesChecksTheConfiguredBudget|TestPipelineIsWiredToLandAndToFileARedLanding|TestRepositoryConfigurationEnforcesAutomaticIntegration|TestTheAccountScriptRefusesWithoutAYoyoToAsk|TestTheAccountScriptSignsInWhereTheHarnessReadsTheAccount|TestTheChecksNarrowOnlyToWhatTheChangeCanReach|TestTheRaceCheckSkipsOnlyChangesThatCannotReachGo|TestTheReleaseVerbExcusesOnlyExportsARunAllows|TestTheReleaseVerbRefusesWhatItShould|TestTheReleaseWorkflowPublishesTheCuratedNotesAlone|TestTheReportsCommandFlagsWordsInADigestAndItsHandling|TestTheSetupSkillExampleIsAReportThisBuildCouldHaveProduced|TestTheSetupSkillIsWrittenAgainstTheSchemaThisBuildEmits|TestTheSetupSkillNamesEveryFieldOfTheReportsItActsOn|TestTheSweepListingFlagsTheSummaryQuestionsAndFindings|TestThisRepositoryOwnOperatorsBindTheirNamespaces|TestThisRepositorySlackAllowListDerivesFromItsGrants)$$' \
+	./internal/cli='^(TestAFailedOneShotTurnStillFlagsItsCollectedDigest|TestAOneShotConversationFlagsADigestAsSoonAsItIsFiled|TestAReleasesNotesSayWhatLanded|TestChatResolvesTheConfiguredProductManager|TestEveryConversationOpensThroughTheCallThatCarriesTheDefinitionsToolSet|TestEveryHarnessOpeningIsWrittenByTheHarness|TestEveryReaderOfAgentsLoadsThroughTheActivationRecord|TestNothingOpensTheStateRootUnguarded|TestPipelineGivesChecksTheConfiguredBudget|TestPipelineIsWiredToLandAndToFileARedLanding|TestRepositoryConfigurationEnforcesAutomaticIntegration|TestTheAccountScriptRefusesWithoutAYoyoToAsk|TestTheAccountScriptSignsInWhereTheHarnessReadsTheAccount|TestTheChecksNarrowOnlyToWhatTheChangeCanReach|TestTheRaceCheckRunsEveryOrchestratorTestOnceWhenSplit|TestTheRaceCheckSkipsOnlyChangesThatCannotReachGo|TestTheReleaseVerbExcusesOnlyExportsARunAllows|TestTheReleaseVerbRefusesWhatItShould|TestTheReleaseWorkflowPublishesTheCuratedNotesAlone|TestTheReportsCommandFlagsWordsInADigestAndItsHandling|TestTheSetupSkillExampleIsAReportThisBuildCouldHaveProduced|TestTheSetupSkillIsWrittenAgainstTheSchemaThisBuildEmits|TestTheSetupSkillNamesEveryFieldOfTheReportsItActsOn|TestTheSweepListingFlagsTheSummaryQuestionsAndFindings|TestThisRepositoryOwnOperatorsBindTheirNamespaces|TestThisRepositorySlackAllowListDerivesFromItsGrants)$$' \
 	./internal/composition='^(TestEveryShellFileInThisRepositoryParses|TestEveryStructuredFileInThisRepositoryDecodes|TestEveryTestThatReadsThisCheckoutIsAmongTheDocumentTests|TestEveryTestTheDoccheckTargetNamesExists|TestEveryTestTheDocumentTestsNameExists|TestEveryWorkflowInThisRepositoryIsShapedLikeOne|TestEveryWorkflowInThisRepositoryPinsWhatItInstalls|TestFmtcheck|TestTheAdoptionWalkthroughRefusesAScratchRootInsideARepository|TestTheCodexResumeCheckRunsOnlyForTheCodexAdapter|TestTheCodexResumeTargetSaysWhenItCouldNotRun|TestTheDoccheckTargetRunsEveryEntryAndFailsIfAnyFails|TestTheDocumentChecksAreTheDoccheckTarget|TestTheInstallScriptDoesWhatItSaysOnAMachineThatHasNothing|TestTheSessionInstructionFilesAreOneFile|TestTheSessionInstructionsCarryNoGeneratedTrackerSection|TestTheSessionInstructionsSayWhoseTheyAre)$$' \
 	./internal/config='^(TestEveryPersonaNamesTheReasonsTheResolverAccepts|TestNothingButTheMigrationNamesTheEarlierConfigurationsHome|TestNothingOnTheLaunchOrInstructionPathReadsTheMCPConfiguration|TestPersonasAndPassPromptsApplyStandingGoals|TestPersonasPassPromptsAndRemitWriteForAPerson|TestRemitsApplyStandingGoals|TestReviewerPersonaJudgesEveryChangeAgainstStandingGoals|TestSchemaKeysReadEveryKeyTheTemplateAndThisProjectWrite|TestThisProjectsArchitectPassUsesPriorityThenAgeEvery45Minutes|TestThisRepositorysPersonasCarryEveryTemplatePassage)$$' \
 	./internal/contextbundle='^(TestTheHarnessRecognizesThisRepository)$$' \

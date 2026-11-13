@@ -7,8 +7,8 @@
 #   bash scripts/check-scope-test.sh
 #
 # Each case builds a scratch repository holding a copy of this repository's
-# Makefile, scripts/check-scope.sh and scripts/race-skip.sh, two Go packages
-# with testdata, documents inside and outside them, and the tracker's export,
+# Makefile, scripts/check-scope.sh, scripts/race-skip.sh and scripts/race-run.sh,
+# two Go packages with testdata, documents inside and outside them, and the tracker's export,
 # all committed on main. It then makes one change on a branch and runs the
 # target with a stub Go command that records the packages the suite was asked
 # to run over, so what is checked is the target's decision and the line it
@@ -92,6 +92,7 @@ fabricate() {
 	cp "$source_root/Makefile" "$repo/Makefile"
 	cp "$source_root/scripts/check-scope.sh" "$repo/scripts/check-scope.sh"
 	cp "$source_root/scripts/race-skip.sh" "$repo/scripts/race-skip.sh"
+	cp "$source_root/scripts/race-run.sh" "$repo/scripts/race-run.sh"
 	printf 'module example.com/fabricated\n\ngo 1.22\n' >"$repo/go.mod"
 	printf 'package pkg\n' >"$repo/pkg/pkg.go"
 	printf 'fixture\n' >"$repo/pkg/testdata/input.txt"
@@ -180,7 +181,7 @@ printf 'package pkg\n\nvar X = 1\n' >"$repo/pkg/pkg.go"
 printf '# Guide, revised\n' >"$repo/docs/guide.md"
 expect_named "a document outside every package tests the package and the tests that read documents" test "./pkg ./reader" \
 	"^(TestReadsTheGuide|TestReadsTheReadme)\$ ./other" \
-	"test: runs over ./pkg, the packages holding the 2 files this change touches since its merge base with main, and the tests that read documents, for the 1 documents it touches outside every package" CHANGED_GO_PACKAGES=./pkg
+	"test: runs over ./pkg, the packages holding the 2 files this change touches since its merge base with main, and the tests that read this checkout, for the 1 files it touches outside every package" CHANGED_GO_PACKAGES=./pkg
 expect "a document outside every package races only the package" race ./pkg \
 	"race: runs over ./pkg, the packages holding the 2 files" CHANGED_GO_PACKAGES=./pkg
 
@@ -204,20 +205,41 @@ next
 printf '# Guide, revised\n' >"$repo/docs/guide.md"
 printf 'package other\n\nvar Y = 1\n' >"$repo/other/other.go"
 printf '\n' >>"$repo/scripts/check-scope.sh"
-expect "a document beside a script outside every package tests the whole module" test ./... \
-	"test: the change touches scripts/check-scope.sh, outside every Go package, which the checks read, so the whole module runs" CHANGED_GO_PACKAGES=./other
+expect_named "a document beside a script outside every package tests the package and the tests that read the checkout" test "./other ./reader" \
+	"^(TestReadsTheNotes)\$ ./pkg" \
+	"test: runs over ./other, the packages holding the 3 files this change touches since its merge base with main; it also touches scripts/check-scope.sh outside every Go package, which the whole module's check of the merge candidate judges, and the tests that read this checkout, for the 2 files it touches outside every package" CHANGED_GO_PACKAGES=./other
 
 next
 printf '\n' >>"$repo/Makefile"
 expect "an empty scope over the Makefile races the whole module" race ./... \
-	"race: the change touches Makefile, outside every Go package, which the checks read, so the whole module runs" CHANGED_GO_PACKAGES=
-expect "a scope beside a Makefile change tests the whole module" test ./... \
-	"test: the change touches Makefile, outside every Go package, which the checks read, so the whole module runs" CHANGED_GO_PACKAGES=./pkg
+	"race: the change touches Makefile, outside every Go package, which the checks read, and the change names no Go package to run them over, so the whole module runs" CHANGED_GO_PACKAGES=
+expect "an empty scope over the Makefile tests the whole module" test ./... \
+	"test: the change touches Makefile, outside every Go package, which the checks read, and the change names no Go package to run them over, so the whole module runs" CHANGED_GO_PACKAGES=
+expect_named "a scope beside a Makefile change tests only that package and the tests that read the checkout" test "./pkg ./reader" \
+	"^(TestReadsTheGuide|TestReadsTheReadme)\$ ./other" \
+	"test: runs over ./pkg, the packages holding the 1 files this change touches since its merge base with main; it also touches Makefile outside every Go package" CHANGED_GO_PACKAGES=./pkg
+expect "a scope beside a Makefile change races only that package" race ./pkg \
+	"race: runs over ./pkg, the packages holding the 1 files this change touches since its merge base with main; it also touches Makefile outside every Go package" CHANGED_GO_PACKAGES=./pkg
 
 next
 printf 'package pkg\n\nvar X = 1\n' >"$repo/pkg/pkg.go"
-expect "a scope that leaves out a changed package runs the whole module" race ./... \
-	"race: the change touches pkg/pkg.go, in ./pkg, which the packages it was given (./other) do not name, so the whole module runs" CHANGED_GO_PACKAGES=./other
+printf 'package other\n\nvar Y = 1\n' >"$repo/other/other.go"
+printf '\n' >>"$repo/Makefile"
+printf '\n' >>"$repo/scripts/race-skip.sh"
+mkdir -p "$repo/.yoyodyne"
+printf 'checks: []\n' >"$repo/.yoyodyne/config.yaml"
+git -C "$repo" add -A
+git -C "$repo" commit -q -m mixed
+expect_named "two packages beside the Makefile, a script and the configuration test only those packages" test "./other ./pkg ./reader" \
+	"none" \
+	"test: runs over ./other ./pkg, the packages holding the 5 files" CHANGED_GO_PACKAGES="./other ./pkg"
+expect "two packages beside the Makefile, a script and the configuration race only those packages" race "./other ./pkg" \
+	"race: runs over ./other ./pkg, the packages holding the 5 files" CHANGED_GO_PACKAGES="./other ./pkg"
+
+next
+printf 'package pkg\n\nvar X = 1\n' >"$repo/pkg/pkg.go"
+expect "a scope that leaves out a changed package adds that package" race "./other ./pkg" \
+	"race: runs over ./other ./pkg, the packages holding the 1 files this change touches since its merge base with main, with ./pkg, which the packages it was given (./other) do not name" CHANGED_GO_PACKAGES=./other
 
 next
 printf 'package pkg\n\nvar X = 1\n' >"$repo/pkg/pkg.go"
