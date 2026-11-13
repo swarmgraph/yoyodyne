@@ -337,3 +337,122 @@ func TestTimeoutHolderConformance(t *testing.T) {
 		t.Errorf("Show() error = %q, want it to say since when the holder had been running, or why that could not be read", err)
 	}
 }
+
+// TestAWriteDuringAStoreCleanupIsKeptConformance makes a real write to an item
+// while a cleanup started beside another process holds the store and runs
+// past its hold, and holds the write to what a developer run needs of it: it
+// answers without error inside its own limit, having waited for the cleanup,
+// and the note it appended is in the item afterwards. A write that failed, or
+// was dropped, would be a run's tracker write lost to maintenance.
+//
+// The cleanup is this test binary standing in for bd, as in
+// TestCallsDuringAStoreCleanupConformance, so that the write is certain to
+// arrive while the store is held. The write and the read after it are real bd.
+func TestAWriteDuringAStoreCleanupIsKeptConformance(t *testing.T) {
+	project, _, ids := trackerWithHistory(t)
+	held := filepath.Join(t.TempDir(), "held")
+	t.Setenv(storeHolderVariable, doltLock(t, project))
+	t.Setenv(storeHeldVariable, held)
+
+	const hold = 4 * time.Second
+	cleaner := Client{Runner: execution.OSProcessRunner{}, Binary: os.Args[0], Dir: project,
+		Holders: fixedHolders{holders: []StoreHolder{{PID: 4242, Command: "bd update"}}}}
+	type ended struct {
+		cleanup StoreCleanup
+		err     error
+	}
+	cleanedUp := make(chan ended, 1)
+	go func() {
+		cleanup, err := cleaner.CleanUpStoreBeside(context.Background(), hold)
+		cleanedUp <- ended{cleanup, err}
+	}()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if _, err := os.Stat(held); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the stand-in cleanup never took the store's lock")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	writer := Client{Runner: execution.OSProcessRunner{}, Dir: project, Timeout: DefaultTimeout}
+	const note = "Written while the store was being cleaned up."
+	started := time.Now()
+	_, err := writer.Update(context.Background(), ids[1], WorkItemChange{AppendNotes: note})
+	took := time.Since(started)
+	if err != nil {
+		t.Fatalf("Update() during a cleanup error = %v, want the write made once the cleanup let the store go", err)
+	}
+	if took < time.Second {
+		t.Errorf("Update() during a cleanup took %s, so it did not wait on the cleanup and nothing here held a write made during one", took)
+	}
+	if took >= DefaultTimeout {
+		t.Errorf("Update() during a cleanup took %s, past its own %s limit", took, DefaultTimeout)
+	}
+	stopped := <-cleanedUp
+	if stopped.err != nil || !stopped.cleanup.Stopped || len(stopped.cleanup.Beside) != 1 || len(stopped.cleanup.Busy) != 0 {
+		t.Errorf("CleanUpStoreBeside() = %+v, %v, want it started beside the holder and stopped at its %s hold", stopped.cleanup, stopped.err, hold)
+	}
+
+	shown, err := writer.Show(context.Background(), ids[1])
+	if err != nil {
+		t.Fatalf("Show() after the cleanup error = %v", err)
+	}
+	if !strings.Contains(shown.Notes, note) {
+		t.Errorf("notes of %s after the cleanup = %q, want the note written during it", ids[1], shown.Notes)
+	}
+}
+
+// TestWritesBesideARealStoreCleanupAreKeptConformance runs bd's own cleanup,
+// started beside another process, while real writes are made to the store,
+// and holds every write to being in its item afterwards and the store to
+// reading as it did otherwise.
+func TestWritesBesideARealStoreCleanupAreKeptConformance(t *testing.T) {
+	t.Parallel()
+	_, client, ids := trackerWithHistory(t)
+	client.Holders = fixedHolders{holders: []StoreHolder{{PID: 4242}}}
+
+	var wrote sync.WaitGroup
+	errs := make(chan error, len(ids))
+	notes := map[string]string{}
+	for _, id := range ids {
+		notes[id] = "Written beside a cleanup of " + id + "."
+	}
+	cleaned := make(chan error, 1)
+	go func() {
+		cleanup, err := client.CleanUpStoreBeside(context.Background(), conformanceTimeout)
+		if err == nil && (!cleanup.Ran() || len(cleanup.Beside) != 1) {
+			err = fmt.Errorf("CleanUpStoreBeside() = %+v, want a cleanup started beside the holder", cleanup)
+		}
+		cleaned <- err
+	}()
+	for _, id := range ids {
+		wrote.Add(1)
+		go func() {
+			defer wrote.Done()
+			_, err := client.Update(context.Background(), id, WorkItemChange{AppendNotes: notes[id]})
+			errs <- err
+		}()
+	}
+	wrote.Wait()
+	close(errs)
+	if err := <-cleaned; err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+	for err := range errs {
+		if err != nil {
+			t.Errorf("Update() beside a cleanup error = %v", err)
+		}
+	}
+	for _, id := range ids {
+		shown, err := client.Show(context.Background(), id)
+		if err != nil {
+			t.Fatalf("Show(%s) error = %v", id, err)
+		}
+		if !strings.Contains(shown.Notes, notes[id]) {
+			t.Errorf("notes of %s = %q, want the note written beside the cleanup", id, shown.Notes)
+		}
+	}
+}

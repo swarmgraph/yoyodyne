@@ -9243,7 +9243,11 @@ last cleanup left it, or `every` (a day by default, an hour at the shortest)
 has passed since then, whichever is first. The growth is measured from what
 the last cleanup left rather than as a size the store may not pass, because a
 cleanup keeps the whole history, and a store whose history alone outgrew a
-fixed size would be cleaned up on every pass and shrink by nothing.
+fixed size would be cleaned up on every pass and shrink by nothing. A store
+past `tracker_limits.store_megabytes` is cleaned up every four hours as well,
+and a due cleanup that has waited an hour for other processes to let the
+store go starts beside them, so a store past its bound is cleaned up within
+six hours however busy the developer slots keep it; neither is a setting.
 `max_hold` (15 seconds by default, between one second and 20) is the longest
 one cleanup holds the store; every tracker call waits behind it, so it is
 stopped when this runs out and the next pass finishes the work, and its
