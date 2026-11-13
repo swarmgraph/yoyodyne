@@ -168,6 +168,8 @@ func (f *Tracker) Block(_ context.Context, _ string, reason string) (beads.WorkI
 	f.Blocked = true
 	f.BlockReason = reason
 	f.Item.Status = "blocked"
+	// bd appends a blocker's reason to the item's notes, so a read-back finds it.
+	f.Item.Notes += reason
 	return f.Item, nil
 }
 
