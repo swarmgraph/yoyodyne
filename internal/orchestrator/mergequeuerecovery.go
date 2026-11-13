@@ -74,6 +74,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
@@ -102,7 +103,8 @@ type MergeQueueRepair interface {
 	// Report puts a handback no single run can take up — a candidate no one
 	// head answers for, or a run that no longer has what a repair continues
 	// from — on the development manager's docket, once however often it is
-	// asked.
+	// asked. A handback its run's record refused (IsSetAside) is reported the
+	// same way, saying why it was set aside.
 	Report(ctx context.Context, entry runstate.MergeQueueEntry, handback runstate.MergeQueueHandback) error
 }
 
@@ -756,9 +758,10 @@ func (q *queuePromotion) decide(failure MergeQueueFailure) *runstate.MergeQueueH
 }
 
 // handbackOwed reports a handback not yet given to whoever takes it up: its
-// run, or the development manager's docket where no single run can.
+// run, or the development manager's docket where no single run can. One its
+// run's record refused is set aside and owed to nobody further.
 func handbackOwed(handback runstate.MergeQueueHandback) bool {
-	return ((handback.GoesToRun() || handback.Continuation == runstate.MergeQueueLandedOutside) && handback.HandedBackAt == nil) ||
+	return ((handback.GoesToRun() || handback.Continuation == runstate.MergeQueueLandedOutside) && handback.HandedBackAt == nil && !handback.IsSetAside()) ||
 		(handback.Continuation.Reported() && handback.ReportedAt == nil)
 }
 
@@ -775,10 +778,31 @@ type MergeQueueHandbackUndelivered struct {
 func (e MergeQueueHandbackUndelivered) Error() string { return e.Err.Error() }
 func (e MergeQueueHandbackUndelivered) Unwrap() error { return e.Err }
 
+// MergeQueueHandbackRefusedError is a hand-back its run's own record refused:
+// the run store would not save what it writes (runstate.RefusedStateError), so
+// writing it again is refused again. Nothing has been written to the run or its
+// item.
+type MergeQueueHandbackRefusedError struct {
+	RunID   string
+	Problem error
+}
+
+func (e MergeQueueHandbackRefusedError) Error() string {
+	return fmt.Sprintf("run %s's record refuses the hand-back: %v", e.RunID, e.Problem)
+}
+
+func (e MergeQueueHandbackRefusedError) Unwrap() error { return e.Problem }
+
 // handBack gives a handback to whoever takes it up, once, and writes down that
 // it was given: a repair or an exhausted budget to the run, and a handback no
 // single run can take up to the development manager's docket, so no failure
 // the queue meets is written only to the queue's own record.
+//
+// A hand-back the run's record refuses never stops the queue: the entry is set
+// aside with the refusal on the landing, put on the development manager's
+// docket with its change kept, and the entries behind it go on. Any other
+// failure — a tracker or a store that could not be reached — is returned, and
+// the next pass tries the same hand-back again.
 func (q *queuePromotion) handBack(ctx context.Context) error {
 	handback := q.landing.Handback
 	if handback == nil || !handbackOwed(*handback) {
@@ -798,7 +822,19 @@ func (q *queuePromotion) handBack(ctx context.Context) error {
 		handback.ReportedAt = &at
 		return q.save()
 	}
-	if err := q.p.Repair.HandBack(ctx, q.entry, *handback); err != nil {
+	err := q.p.Repair.HandBack(ctx, q.entry, *handback)
+	var refused MergeQueueHandbackRefusedError
+	switch {
+	case errors.As(err, &refused):
+		handback.SetAside = oneline.Fold(fmt.Sprintf("the merge queue could not hand this change back to run %s, because its record would not take what the hand-back writes (%v); the change is kept on its branch for the development manager, and the entries behind it go on",
+			q.entry.RunID, refused.Problem), 1500)
+		handback.SetAsideAt = &at
+		if err := q.p.Repair.Report(ctx, q.entry, *handback); err != nil {
+			handback.SetAside, handback.SetAsideAt = "", nil
+			return MergeQueueHandbackUndelivered{Entry: q.entry, Err: fmt.Errorf("put merge queue entry %d, which its run's record refused, on the development manager's docket: %w", q.entry.Order, err)}
+		}
+		return q.save()
+	case err != nil:
 		return MergeQueueHandbackUndelivered{Entry: q.entry, Err: fmt.Errorf("hand merge queue entry %d back to run %s for repair: %w", q.entry.Order, q.entry.RunID, err)}
 	}
 	handback.HandedBackAt = &at
@@ -893,33 +929,25 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 		return fmt.Errorf("read run %s: %w", entry.RunID, err)
 	}
 	marker := mergeQueueHandbackMarker(entry, handback)
-	if failure := state.CheckFailure; failure != nil && strings.Contains(failure.Output, marker) && strings.TrimSpace(state.Blocker) != "" {
-		return h.docket(state)
-	}
-	if conflict := state.ReplayConflict; conflict != nil && strings.Contains(conflict.Detail, marker) && strings.TrimSpace(state.Blocker) != "" {
-		return h.docket(state)
-	}
-	item, err := h.Tracker.Show(ctx, entry.WorkItemID)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", entry.WorkItemID, err)
-	}
 	notes := fmt.Sprintf("The merge queue handed this change back. %s\n%s\nRun %s keeps its branch %s and its approved head %s.",
 		handback.Reason, marker, entry.RunID, nonEmpty(handback.Branch, "(none recorded)"), handback.ApprovedHead)
 	if handback.Continuation == runstate.MergeQueueBudgetExhausted {
 		notes += fmt.Sprintf(" It has spent %d of its %d repair attempts, so what follows is the development manager's decision.", handback.RepairAttempts, handback.RepairBudget)
 	}
-	// The note goes on the item before the run records the hand-back, so a
-	// hand-back whose run record could not be written is tried again with the
-	// note already there; it is written once, and the item blocked once.
-	switch {
-	case item.Status == "blocked" && strings.Contains(item.Notes, notes):
-	case item.Status == "blocked":
-		_, err = h.Tracker.RecordOutcome(ctx, entry.WorkItemID, notes)
-	default:
-		_, err = h.Tracker.Block(ctx, entry.WorkItemID, notes)
-	}
+	// The item is read before the run's record changes, because a harness
+	// run's item takes its status from that record (HarnessRunItems). The run's
+	// record is written first and the item's note after it, so a record that is
+	// refused leaves no note behind, and a hand-back already on the run only
+	// writes the note a stop between the two left unwritten.
+	item, err := h.Tracker.Show(ctx, entry.WorkItemID)
 	if err != nil {
-		return fmt.Errorf("block %s on the merge queue's hand-back: %w", entry.WorkItemID, err)
+		return fmt.Errorf("read %s: %w", entry.WorkItemID, err)
+	}
+	if failure := state.CheckFailure; failure != nil && strings.Contains(failure.Output, marker) && strings.TrimSpace(state.Blocker) != "" {
+		return h.noteAndDocket(ctx, entry, item, state, marker, notes)
+	}
+	if conflict := state.ReplayConflict; conflict != nil && strings.Contains(conflict.Detail, marker) && strings.TrimSpace(state.Blocker) != "" {
+		return h.noteAndDocket(ctx, entry, item, state, marker, notes)
 	}
 	command := "the merge queue candidate's review"
 	if handback.Continuation == runstate.MergeQueueReleased {
@@ -938,9 +966,12 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 			Phase:  runstate.PhaseIntegrating, RecordedAt: h.now().UTC(),
 		}
 	} else {
+		// The failure is the answer for the current attempt now, whoever wrote
+		// the change and whatever handed it back, so the checks it passed before
+		// it was queued no longer are: a run's record never says both, and a
+		// repair earns its checks again, as a red queued merge's does
+		// (handBackRedMergeWithCheck).
 		state.CheckFailure = &runstate.CheckFailure{Command: command, ExitCode: 1, Output: boundedTail(marker+"\n"+handback.Reason, runstate.MaxCheckOutputBytes)}
-		// A run record cannot hold both answers about one attempt, and the run's
-		// checks passed before it was admitted; a repair earns them again.
 		state.ChecksPassed = nil
 	}
 	state.Blocker = runstate.RecordBlocker(notes)
@@ -975,7 +1006,30 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 	}
 	state.UpdatedAt = now
 	if err := h.Store.Save(state); err != nil {
+		var refused runstate.RefusedStateError
+		if errors.As(err, &refused) {
+			return MergeQueueHandbackRefusedError{RunID: entry.RunID, Problem: err}
+		}
 		return fmt.Errorf("record the hand-back on run %s: %w", entry.RunID, err)
+	}
+	return h.noteAndDocket(ctx, entry, item, state, marker, notes)
+}
+
+// noteAndDocket says on the item, as it was read before the run changed, that
+// the change was handed back, unless its notes already carry this hand-back's
+// marker, and dockets the stopped run. It runs only once the hand-back is
+// saved on the run.
+func (h MergeQueueRunHandback) noteAndDocket(ctx context.Context, entry runstate.MergeQueueEntry, item beads.WorkItem, state runstate.State, marker, notes string) error {
+	var err error
+	if !strings.Contains(item.Notes, marker) {
+		if item.Status == "blocked" {
+			_, err = h.Tracker.RecordOutcome(ctx, entry.WorkItemID, notes)
+		} else {
+			_, err = h.Tracker.Block(ctx, entry.WorkItemID, notes)
+		}
+		if err != nil {
+			return fmt.Errorf("block %s on the merge queue's hand-back: %w", entry.WorkItemID, err)
+		}
 	}
 	return h.docket(state)
 }
@@ -988,6 +1042,9 @@ func (h MergeQueueRunHandback) Report(ctx context.Context, entry runstate.MergeQ
 		return errors.New("reporting a merge queue handback needs the tracker")
 	}
 	failure := fmt.Sprintf("The merge queue handed this change back and no single run can take it up (%s): %s", handback.Continuation, handback.Reason)
+	if handback.IsSetAside() {
+		failure = fmt.Sprintf("The merge queue set this change aside: %s. It had come back from the queue because %s", handback.SetAside, handback.Reason)
+	}
 	if h.Docket != nil {
 		if _, err := h.Docket.RecordUnstartedAttempt(UnstartedAttempt{
 			WorkItemID: entry.WorkItemID, WorkItemTitle: entry.WorkItemTitle,
