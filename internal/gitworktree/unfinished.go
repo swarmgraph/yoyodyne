@@ -294,6 +294,62 @@ func lastWritten(directory string) time.Time {
 	return newest
 }
 
+// clearUnfinishedRegistrationFor clears the registration an add the caller ran
+// itself left unfinished at path, and nothing else. It is for an add killed so
+// early that its checkout directory never got the .git file `git worktree
+// remove` finds a worktree by, so the removal refuses the path and the
+// registration, still locked as initializing, is one `git worktree prune`
+// skips. No grace applies, unlike settleRegistrations: the caller holds the
+// registry lease and the add that registered path was its own and has ended, so
+// nothing can still be writing the entry. A registration that is finished, or
+// names another path, is left alone.
+func (m *Manager) clearUnfinishedRegistrationFor(ctx context.Context, path string) error {
+	directory, err := m.commonGitDirectory(ctx)
+	if err != nil {
+		return err
+	}
+	root, err := repowrite.NewRoot(directory)
+	if err != nil {
+		return fmt.Errorf("resolve the common Git directory: %w", err)
+	}
+	registrations, err := os.ReadDir(filepath.Join(root.Path(), worktreeRegistrations))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read the worktree registrations: %w", err)
+	}
+	wanted := map[string]bool{filepath.Clean(path): true}
+	if parent, err := filepath.EvalSymlinks(filepath.Dir(path)); err == nil {
+		wanted[filepath.Join(parent, filepath.Base(path))] = true
+	}
+	for _, registration := range registrations {
+		if !registration.IsDir() {
+			continue
+		}
+		entry := filepath.Join(root.Path(), worktreeRegistrations, registration.Name())
+		gitdir, written := readWritten(filepath.Join(entry, "gitdir"))
+		if !written {
+			continue
+		}
+		named := filepath.Dir(gitdir)
+		if !filepath.IsAbs(named) {
+			named = filepath.Clean(filepath.Join(entry, named))
+		}
+		if !wanted[named] {
+			continue
+		}
+		if _, unfinished := unfinishedReason(entry); !unfinished {
+			continue
+		}
+		heldRegistry(ctx).forgetListing()
+		if err := clearRegistration(root, registration.Name()); err != nil {
+			return fmt.Errorf("clear the unfinished worktree registration %s: %w", registration.Name(), err)
+		}
+	}
+	return nil
+}
+
 // clearRegistration removes one registration directory, and nothing that is not
 // one. The name came from reading worktrees/ itself, and the removal goes
 // through the one primitive that decides confinement against the filesystem —

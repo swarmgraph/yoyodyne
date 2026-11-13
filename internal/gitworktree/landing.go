@@ -141,6 +141,11 @@ func (m *Manager) removeCheckout(ctx context.Context, path string) error {
 		if err := os.RemoveAll(path); err != nil {
 			return fmt.Errorf("remove landing checkout failed with exit code %d: %s; and removing the directory failed: %w", removed.ExitCode, strings.TrimSpace(removed.Stderr), err)
 		}
+		// An add killed before it wrote the checkout's .git file leaves a
+		// registration Git's removal cannot find by the path and its prune skips.
+		if err := m.clearUnfinishedRegistrationFor(ctx, path); err != nil {
+			return fmt.Errorf("remove landing checkout failed with exit code %d: %s; and %w", removed.ExitCode, strings.TrimSpace(removed.Stderr), err)
+		}
 	}
 	return nil
 }
