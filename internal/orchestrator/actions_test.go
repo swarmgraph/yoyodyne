@@ -1085,6 +1085,9 @@ var notAStep = map[string]string{
 	// Cutting the worktree is the same, and waiting out the export it is given is
 	// part of cutting it: nothing has been delivered until it returns.
 	"createWorktree": "cuts the run's worktree, waiting out a tracker export that did not answer while it was prepared",
+	// A document's or an outside file's run cuts its checkout the same way, tried
+	// once more where the first try failed on something that usually passes.
+	"cutOwnCheckout": "cuts the checkout of a run with no developer, trying it once more after a failure that usually passes",
 
 	// After the delivery. The landing checks run once the run is terminal, its
 	// item settled and its artifacts gone, over the target branch rather than
