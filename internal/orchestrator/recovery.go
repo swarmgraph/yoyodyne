@@ -107,6 +107,17 @@ func recoveringTrackerWrite[T any](ctx context.Context, a *activeRun, landed fun
 		return attempt(ctx)
 	}
 	value, err := recoveringValue(ctx, a, runstate.RetryTrackerWrite, ask)
+	if err != nil && !recovery.Recoverable(err) && ctx.Err() == nil {
+		// A write the window does not take — one that waited out another write's
+		// lock on the item past the tracker's limit — is tried once more, read back
+		// first as every later attempt is, before it ends the run.
+		err = a.againAfter(ctx, runstate.RetryTrackerWrite, err, func(ctx context.Context) error {
+			var askErr error
+			value, askErr = ask(ctx)
+			return askErr
+		})
+		return value, err
+	}
 	var spent runstate.StopError
 	if err == nil || !errors.As(err, &spent) || spent.Class != runstate.StopRecoveryWindow || ctx.Err() != nil {
 		return value, err
@@ -170,6 +181,60 @@ func waitOnTracker[T any](ctx context.Context, a *activeRun, spent error, ask fu
 	}
 }
 
+// onceMoreWait is how long a harness step that failed on something that usually
+// passes waits before it is tried once more. It is long enough for a tracker
+// call that held the store to finish, and short enough that a step which fails
+// for good stops the run about as soon as it used to.
+const onceMoreWait = 5 * time.Second
+
+// passingFailure reports a failure of one of the harness's own steps that says
+// nothing about the work and that a second attempt may well not meet: anything
+// internal/recovery waits out, a tracker call that did not answer in time
+// (beads.Unanswered), and a Git command of a checkout stopped at its time limit
+// (gitworktree.ErrCheckoutKilled). Anything else is an answer, and asking again
+// earns the same one.
+func passingFailure(err error) bool {
+	return recovery.Recoverable(err) || beads.Unanswered(err) || errors.Is(err, gitworktree.ErrCheckoutKilled)
+}
+
+// onceMore runs one of the harness's own steps around a run, and tries it once
+// more where it fails on something that usually passes (passingFailure).
+//
+// It is the narrow rule for the steps that have no recovery window of their own:
+// one more try, recorded on the run before it is taken, and then the run stops
+// as it always did. A failure about the work, or any failure this does not
+// recognise, is returned at once exactly as the step produced it.
+func (a *activeRun) onceMore(ctx context.Context, step string, attempt func(context.Context) error) error {
+	err := attempt(ctx)
+	if err == nil {
+		return nil
+	}
+	return a.againAfter(ctx, step, err, attempt)
+}
+
+// againAfter is onceMore given the failure the step's first try already met. A
+// second failure that usually passes is returned naming the step and saying it
+// was tried twice; any other second answer is returned as the step gave it.
+func (a *activeRun) againAfter(ctx context.Context, step string, failed error, attempt func(context.Context) error) error {
+	if !passingFailure(failed) || ctx.Err() != nil {
+		return failed
+	}
+	if err := a.recordRetry(step, a.state.RetryAttempts(step)+1, onceMoreWait, failed); err != nil {
+		return withFailedRecord(failed, err)
+	}
+	if err := a.pipeline.sleep(ctx, onceMoreWait); err != nil {
+		// The run is over, so the step is left as it failed rather than asked
+		// again under a context that has already ended.
+		return failed
+	}
+	second := attempt(ctx)
+	if second == nil || !passingFailure(second) {
+		return second
+	}
+	return fmt.Errorf("%s failed on something that usually passes, was tried once more %s later, and failed again, so the run stopped: %w",
+		step, onceMoreWait, second)
+}
+
 // itemLanded is the landed question for a write to one item: the item read
 // back, and whether it carries what the write made.
 func itemLanded(tracker WorkTracker, id string, carries func(beads.WorkItem) bool) func(context.Context) (beads.WorkItem, bool, error) {
@@ -226,6 +291,26 @@ func (a *activeRun) createWorktree(ctx context.Context, request gitworktree.Crea
 			made = worktree
 		}
 		if !errors.Is(err, gitworktree.ErrExportsUnprepared) || !exportUnanswered(err) {
+			if made.Path != "" {
+				a.recordWorktree(made)
+			}
+			// Any other failure that usually passes — a checkout command stopped at
+			// its time limit, a network that dropped — is tried once more as a
+			// resumed creation before it stops the run (onceMore).
+			request.ResumeCreation = true
+			err = a.againAfter(ctx, runstate.RetryCheckout, err, func(ctx context.Context) error {
+				again, againErr := a.pipeline.Worktrees.Create(ctx, request)
+				if againErr == nil || again.Path != "" {
+					worktree = again
+				}
+				return againErr
+			})
+			if err == nil {
+				return worktree, nil
+			}
+			if worktree.Path != "" {
+				made = worktree
+			}
 			return made, err
 		}
 		// On the record before the wait, so a process that dies in it leaves a run
@@ -242,6 +327,21 @@ func (a *activeRun) createWorktree(ctx context.Context, request gitworktree.Crea
 		}
 		request.ResumeCreation = true
 	}
+}
+
+// cutOwnCheckout cuts the checkout of a run that has no developer — a
+// document's publication, or a pinned outside file brought in — trying it once
+// more where the first try failed on something that usually passes (onceMore).
+// The request asks to resume a creation, so the second try adopts a worktree the
+// first one left unchanged at its base rather than refusing it.
+func (a *activeRun) cutOwnCheckout(ctx context.Context, request gitworktree.CreateRequest) (gitworktree.Worktree, error) {
+	var worktree gitworktree.Worktree
+	err := a.onceMore(ctx, runstate.RetryCheckout, func(ctx context.Context) error {
+		var createErr error
+		worktree, createErr = a.pipeline.Worktrees.Create(ctx, request)
+		return createErr
+	})
+	return worktree, err
 }
 
 // exportUnanswered reports an export failure that answered nothing about the

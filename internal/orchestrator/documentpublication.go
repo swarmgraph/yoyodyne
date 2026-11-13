@@ -645,8 +645,9 @@ func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.
 	} else {
 		if state.WorktreePath == "" {
 			// A checkout that cannot be cut ends this attempt like any other stop
-			// that judged nothing, rather than leaving a pending run behind it.
-			worktree, createErr := p.Worktrees.Create(ctx, gitworktree.CreateRequest{ResumeCreation: true, RunID: state.RunID, WorkItemID: item.ID, BaseRef: state.TargetBranch, TargetBranch: state.TargetBranch})
+			// that judged nothing, rather than leaving a pending run behind it — once
+			// it has been tried a second time where the first failure usually passes.
+			worktree, createErr := a.cutOwnCheckout(ctx, gitworktree.CreateRequest{ResumeCreation: true, RunID: state.RunID, WorkItemID: item.ID, BaseRef: state.TargetBranch, TargetBranch: state.TargetBranch})
 			if createErr != nil {
 				_, err = a.fail(fmt.Errorf("cut the checkout for the document run: %w", createErr), runstate.StatusFailed)
 				return p.settledDocumentAttempt(ctx, state.RunID, started, record, err)
