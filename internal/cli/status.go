@@ -841,6 +841,11 @@ func standingSources(configPath string) readmodel.Sources {
 	if err == nil {
 		sources.TrackerListings = listings
 	}
+	// Whether the supervisor's forge checks are failing on the system
+	// certificate store, so that is said once rather than in its log alone.
+	if store, err := runstate.NewForgeCertificateStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.ForgeCertificates = store
+	}
 	// The one reading of the tracker every status reading on the machine shares,
 	// so this one, the dashboard's, Slack's, and the passes' do not each hold the
 	// tracker's store for the same two listings (runstate, trackerreading.go).

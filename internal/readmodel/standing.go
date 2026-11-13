@@ -436,6 +436,10 @@ type Sources struct {
 	// TrackerListings is how the tracker's listings stand, as every listing the
 	// harness's tracker client makes records it. Nil says nothing about them.
 	TrackerListings TrackerListingRecord
+	// ForgeCertificates is whether the supervisor's forge checks are failing on
+	// the system certificate store, as its forge check records it. Nil says
+	// nothing about them.
+	ForgeCertificates ForgeCertificateRecord
 	// HeavyChecks is the record of places for the machine's heavy checks, which
 	// every product under the state root shares. Nil says nothing about them.
 	HeavyChecks HeavyCheckPlaces
@@ -1285,6 +1289,15 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	copies := standing.Services.CopiesAttention()
 	standing.FactoryProblems = append(standing.FactoryProblems, copies...)
 	needs = append(needs, copies...)
+	// A supervisor whose forge checks all fail on the system certificate store
+	// cannot reach GitHub at all, which is a problem with the whole factory.
+	if failure, problem := ReadForgeCertificate(sources, standing.Services); failure != nil {
+		entry := forgeCertificateAttention(*failure)
+		standing.FactoryProblems = append(standing.FactoryProblems, entry)
+		needs = append(needs, entry)
+	} else if problem != "" {
+		standing.FactoryProblemsProblem = joinProblems(standing.FactoryProblemsProblem, problem)
+	}
 	// A usage window past the configured share is degraded capacity. It is a
 	// factory problem and nobody's move, so it is not on the attention line:
 	// the window lifts on the provider's clock, and a refusal when it comes is

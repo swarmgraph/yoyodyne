@@ -66,6 +66,7 @@ const (
 	AttentionUntracedPass      = ownership.KindUntracedPass
 	AttentionFactoryStall      = ownership.KindFactoryStall
 	AttentionTrackerUnanswered = ownership.KindTrackerUnanswered
+	AttentionForgeCertificate  = ownership.KindForgeCertificate
 	AttentionUnrunCheck        = ownership.KindUnrunCheck
 	AttentionCapacityDegraded  = ownership.KindCapacityDegraded
 	AttentionKeptHeavyCheck    = ownership.KindKeptHeavyCheck
@@ -122,6 +123,7 @@ func (a Attention) Label() string {
 		AttentionUntracedPass:      "findings not recorded",
 		AttentionFactoryStall:      "nothing completing",
 		AttentionTrackerUnanswered: "tracker not answering",
+		AttentionForgeCertificate:  "GitHub unreachable from the supervisor's shell",
 		AttentionUnrunCheck:        "check not running",
 		AttentionCapacityDegraded:  "provider capacity degraded",
 		AttentionKeptHeavyCheck:    "check place kept",
@@ -313,6 +315,10 @@ type Attention struct {
 	// AttentionTrackerUnanswered entry: since when they have failed, how many,
 	// and what the latest said.
 	TrackerListings *runstate.TrackerListings `json:"tracker_listings,omitempty"`
+	// ForgeCertificate is the supervisor whose forge checks all fail on the
+	// system certificate store, since when, how many, and what the latest said,
+	// on an AttentionForgeCertificate entry.
+	ForgeCertificate *runstate.ForgeCertificateFailure `json:"forge_certificate,omitempty"`
 	// UnrunCheck is the check, how many changes in a row it could not run on,
 	// since when, and its latest reason, on an AttentionUnrunCheck entry; the
 	// check's command is the ID.
@@ -710,6 +716,10 @@ func (a Attention) What() string {
 			said.Latest = singleLine(said.Latest, maxRefusalBytes)
 			return said.Says()
 		}
+	case AttentionForgeCertificate:
+		if a.ForgeCertificate != nil {
+			return a.ForgeCertificate.Says()
+		}
 	case AttentionUnrunCheck:
 		if a.UnrunCheck != nil {
 			return a.UnrunCheck.Says()
@@ -906,6 +916,8 @@ func (a Attention) Whose() string {
 		return a.Mover.Possessive() + " — every pass it attempts is failing, so no role is looking at anything; the critical report filed when it began names the failures, and the first pull or successful pass clears this and files the recovery"
 	case AttentionTrackerUnanswered:
 		return a.Mover.Possessive() + " — each listing its time limit killed is asked again, twice, before it is given up on, a pass carries on with what it could read and names what it could not, and the first listing that answers clears this"
+	case AttentionForgeCertificate:
+		return a.Mover.Possessive() + " — " + runstate.ForgeCertificateRemedy
 	case AttentionUnrunCheck:
 		return a.Mover.Possessive() + " — nothing the check would catch is being caught; give it what it lacks where the harness runs its checks, or change the check, and the first change it runs on clears this"
 	case AttentionKeptHeavyCheck:
