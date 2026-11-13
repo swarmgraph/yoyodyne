@@ -49,7 +49,10 @@ type fakeHost struct {
 
 	restarts []config.ServiceName
 	takenUp  string
+	awaiting string
 }
+
+func (h *fakeHost) AwaitTakeUp(why string) { h.awaiting = why }
 
 func (h *fakeHost) ChildState(name config.ServiceName) (runstate.SupervisedChild, bool) {
 	state, known := h.states[name]
@@ -354,6 +357,81 @@ func TestTheSupervisorTakesADeployedBuildUpOnceNothingIsMoving(t *testing.T) {
 	}
 	if logged, _, err := f.sweeps.List(); err != nil || len(logged) != 2 {
 		t.Errorf("sweep log holds %d passes (%v), want the take-up recorded before it happens", len(logged), err)
+	}
+}
+
+// Between passes the supervisor takes a deployed build up at the first look
+// nothing holds it back, rather than waiting for the next pass: while a part is
+// being moved it says what it waits for, and once nothing is moving it takes the
+// build up without a pass being taken.
+func TestTheSupervisorTakesADeployedBuildUpBetweenPasses(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.pass1(t)
+
+	f.host.deployed = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	f.host.moving = "dashboard"
+	f.now = f.now.Add(time.Minute)
+	f.pass.Look(context.Background(), f.now)
+	if f.host.takenUp != "" || f.host.awaiting != "once the dashboard has settled" {
+		t.Fatalf("took up %q, awaiting %q; want the supervisor waiting on the dashboard and saying so", f.host.takenUp, f.host.awaiting)
+	}
+
+	f.host.moving = ""
+	f.now = f.now.Add(5 * time.Second)
+	f.pass.Look(context.Background(), f.now)
+	if f.host.takenUp != f.host.deployed || f.host.awaiting != "" {
+		t.Fatalf("took up %q, awaiting %q; want the deployed build taken up at the look nothing held it back", f.host.takenUp, f.host.awaiting)
+	}
+	if logged, _, err := f.sweeps.List(); err != nil || len(logged) != 1 {
+		t.Fatalf("sweep log holds %d passes (%v), want the take-up made without a pass", len(logged), err)
+	}
+
+	// Held by the provider guard, it says so rather than taking the build up.
+	g := newFixture(t)
+	g.pass1(t)
+	g.host.deployed = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	if _, err := g.outages.Notice(runstate.ProviderOutageObservation{Cause: domain.ProviderUnauthenticated, Detail: "Invalid API key · Please run /login", At: g.now}); err != nil {
+		t.Fatal(err)
+	}
+	g.now = g.now.Add(time.Minute)
+	g.pass.Look(context.Background(), g.now)
+	if g.host.takenUp != "" || !strings.Contains(g.host.awaiting, "nothing is restarted while") {
+		t.Fatalf("took up %q, awaiting %q; want the take-up held while the provider is out, and said", g.host.takenUp, g.host.awaiting)
+	}
+}
+
+// A release cut that finishes between passes holds the supervisor's own move
+// until the next pass has recorded what the cut came to, so the re-execution
+// never loses that line from the pass log; that pass then takes the build up.
+func TestAFinishedReleaseCutIsRecordedBeforeTheSupervisorMoves(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	cut := &gatedRelease{release: make(chan struct{}), said: runstate.SweepStep{Name: StepRelease, Outcome: runstate.StepRan, Detail: "pushed v0.6.0 on 0123456789ab"}}
+	f.pass.Release = cut
+	f.pass.Look(context.Background(), f.now)
+	done := <-f.pass.running.done
+	f.pass.finish(context.Background(), done)
+
+	f.host.deployed = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	close(cut.release)
+	// Waited for on the cut's own result, which is put straight back for the
+	// look to find, so the look sees a cut that has finished.
+	finished := <-f.pass.releasing.done
+	f.pass.releasing.done <- finished
+	f.now = f.now.Add(time.Minute)
+	f.pass.Look(context.Background(), f.now)
+	if f.host.takenUp != "" || !strings.Contains(f.host.awaiting, "recorded the release cut") {
+		t.Fatalf("took up %q, awaiting %q; want the move held until the finished cut is recorded", f.host.takenUp, f.host.awaiting)
+	}
+
+	f.now = f.now.Add(10 * time.Minute)
+	recorded := f.pass1(t)
+	if step := stepNamed(t, recorded, StepRelease); step.Outcome != runstate.StepRan || !strings.Contains(step.Detail, "pushed v0.6.0") {
+		t.Fatalf("release step = %+v, want the finished cut recorded", step)
+	}
+	if f.host.takenUp != f.host.deployed {
+		t.Fatalf("took up %q, want the pass that recorded the cut to take the build up", f.host.takenUp)
 	}
 }
 

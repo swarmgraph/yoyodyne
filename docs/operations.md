@@ -587,9 +587,17 @@ Each pass takes eleven steps, in this order, and each is recorded:
   on the request with what was done (above).
 - **redeploy** — the deployed build taken up. The parts are moved onto it by the
   supervisor's own looks, one at a time; what this step adds is the supervisor
-  itself, which re-executes into the new build once the pass is recorded,
-  leaving every part running to be reattached. It waits a pass where a part is
-  still being moved.
+  itself, which re-executes into the new build, leaving every part running to
+  be reattached. Between passes it does so at the first look nothing holds it
+  back — a part it is itself moving or starting again, a release cut under
+  way, or the provider guard — rather than waiting for the next pass; a pass
+  that falls due first takes it up once the pass is recorded. A scheduler
+  draining its runs to restart itself does not hold the supervisor back, since
+  the supervisor that follows reattaches it; only the moment it lets its lease
+  go to re-execute does. While the supervisor is behind, `yoyo status` prints a
+  `supervisor:` line under Services naming its build, since when it has been
+  behind (the time the deployed binary was written, in local time), and what
+  it waits for.
 - **slack** — where the sink stands: `yoyo slack ensure`, which the supervisor's
   own look at the sink already takes every few seconds.
 - **release** — a release the Lead Product Manager decided, cut and its tag
@@ -3631,19 +3639,28 @@ recording its verdict is still hosted past the bound:
   forge outage can hold a promotion for hours, and those hours cost the
   scheduler nothing but the seat the promotion holds.
 - A run with a check running is left to finish that check, and only that
-  check: a new build never makes a check start over. The session asks the run
+  check, so a check that ends within the wait is not started over on the new
+  build. The session asks the run
   to stop before its next check, and the run stops there by itself — between
   two checks, or once its last check has passed — at its checks, preserved like
   any stopped run. The wait is bounded by the running check's own configured
   limit, `execution.check_timeout`, or the shorter limit the check was given,
   plus five minutes for a check stopped at that limit to be recorded; a run
-  still at that check past then is stopped. Load can scale a check's limit, and
+  still at that check past then is stopped. And no wait on a running check, in
+  a run or in a merge queue, lasts more than ten minutes past the drain bound:
+  a check still going then is stopped and runs again on the new build, because
+  nothing is pulled into a free seat while the session waits, and a check limit
+  of an hour would leave every seat the drain emptied empty for that hour. So
+  the scheduler is on a deployed build within `execution.redeploy_drain_limit`
+  and ten minutes of finding it, except while a promotion or a document landing
+  run is waited out, which the session's line names with since when. Load can scale a check's limit, and
   the check stage's `execution.check_stage_timeout`, to hours, and neither is
   waited for in full: a check the load has let run past its configured limit
   is stopped there and runs again in the session that comes back. A run
   waiting for a heavy check's place, or between two checks, has nothing
   running and is stopped at the bound. However many builds are deployed while
-  the check runs, it runs once. Each check that passed before the
+  the check runs, it runs once, unless it is still running ten minutes past
+  the bound. Each check that passed before the
   stop keeps its result: the session that comes back runs only the checks that
   had not finished, and only when the change is exactly the one they passed on
   — same content, same commit, same repair attempt. A changed change runs every
@@ -3713,8 +3730,9 @@ recording its verdict is still hosted past the bound:
 
 What a stopped run loses is the minutes its current phase had spent: a
 developer attempt resumes in the session it was making, and a review is asked
-for again. No check is started over: the running one finishes first, and only
-the checks that had not run are run when the run is re-adopted. The bound stops
+for again. No check is started over unless it is still running ten minutes past
+the bound: the running one finishes first, and only the checks that had not
+run are run when the run is re-adopted. The bound stops
 a developer attempt and a review; a promotion, a running check, and a document
 landing run are waited out past it. An already-finished check
 stage gets up to a minute's grace to record its verdict and move to the next
@@ -3731,7 +3749,8 @@ back on its own — rather than reporting an idle session or no session, either
 of which would send you to start one that is already on its way back. While
 the session is waiting past the bound for a check running in a run it hosts,
 its line names each such run, the check, and the latest moment that check can
-run to under its own limit, and the not-startable line reads the session as
+run to under its own limit or the ten minutes past the bound, whichever comes
+first, every moment in the machine's local time with the zone named, and the not-startable line reads the session as
 restarting until two minutes past that moment; it is said again whenever the
 runs it waits on change, and every ten minutes while they do not. While it is
 waiting for a document landing run, its line says how many, and is said again

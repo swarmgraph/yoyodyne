@@ -2282,8 +2282,9 @@ hosts, so nothing it stopped holds the restart back, and a recurring pass still
 taking its turns is stopped too, not recorded as failed, and tried again at
 the first pull of the session that comes back. A run with a
 check running is the exception: it finishes that check, up to the check's own
-configured limit, and stops before its next one, so a new build never makes a
-check start over however many arrive while it runs. Each check that passed before
+configured limit or ten minutes past the bound, whichever comes first, and
+stops before its next one; a check still running ten minutes past the bound is
+stopped and runs again on the new build. Each check that passed before
 the stop keeps its result: the session that comes back runs only the checks
 that had not finished, and only when the change is exactly the one they passed
 on — a changed change runs every check again. A stage that has already finished gets a brief grace
