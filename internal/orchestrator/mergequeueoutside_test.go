@@ -8,6 +8,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,7 @@ type handActedForge struct {
 	PullRequests
 	mu     sync.Mutex
 	answer publish.PullRequest
+	err    error
 	asked  []string
 }
 
@@ -29,7 +31,7 @@ func (f *handActedForge) State(_ context.Context, head string) (publish.PullRequ
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.asked = append(f.asked, head)
-	return f.answer, nil
+	return f.answer, f.err
 }
 
 // publishedBy gives the admitted run the pull request a person then acts on,
@@ -162,5 +164,31 @@ func TestAnOpenPullRequestLeavesTheEntryToBeBuilt(t *testing.T) {
 	}
 	if landing := f.landing(); landing.Handback != nil || landing.Completion == nil {
 		t.Fatalf("landing = %#v, want it landed through the queue's own candidate", landing)
+	}
+}
+
+func TestAForgeWhoseCertificateCannotBeVerifiedIsNotReadAsAnUnmergedPullRequest(t *testing.T) {
+	t.Parallel()
+
+	f := newPromotionFixture(t, landLocally)
+	forge := f.publishedBy(publish.PullRequest{})
+	forge.err = errors.New(`gh pr list failed with exit code 1: Post "https://api.github.com/graphql": tls: failed to verify certificate: x509: OSStatus -26276`)
+	base := f.local("main")
+
+	pass := f.pass(queueKey)
+	if pass.Outcome != runstate.MergeQueuePassStopped {
+		t.Fatalf("Pass() = %#v, want the pass stopped on a forge it cannot verify", pass)
+	}
+	for _, want := range []string{"could not verify GitHub's certificate", "pull request #1759", "x509: OSStatus -26276"} {
+		if !strings.Contains(pass.Says, want) {
+			t.Fatalf("the pass says %q, want it to name %q", pass.Says, want)
+		}
+	}
+	f.assertBuiltNothing()
+	if landing := f.landing(); landing.Handback != nil || landing.Completion != nil {
+		t.Fatalf("landing = %#v, want the entry left waiting for the forge to be read", landing)
+	}
+	if f.local("main") != base {
+		t.Fatal("the target moved while the forge could not be read")
 	}
 }
