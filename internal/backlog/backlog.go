@@ -17,6 +17,7 @@ package backlog
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -317,6 +318,11 @@ type Entry struct {
 	// be started until the architect's design for it is readable. It is on the
 	// entry for the reason the parking is, and holds the item as a parking does.
 	NeedsDesign bool `json:"needs_design,omitempty"`
+	// NeedsDesignSince is when the harness first saw the item carrying the
+	// label, and zero where that is not known: the queue is ordered from the
+	// tracker, which keeps no such time, and a caller holding the harness's
+	// record of it adds it with WithNeedsDesignSince.
+	NeedsDesignSince time.Time `json:"needs_design_since,omitzero"`
 	// Landing is the revision the harness already closed this item on, where it
 	// did and somebody has since reopened it, and is empty for everything else.
 	// It is on the entry because the sweep that closes conversation-carried work
@@ -944,6 +950,36 @@ const (
 // reads the same refusal wherever she meets it.
 const NeedsDesignHold = "labelled " + domain.NeedsDesignLabel + ", so nothing the harness chooses starts it until the architect's design for it is readable — written into the item's design field, or landed in docs/designs naming the item — and the architect removes the label. A run already going on it carries on, and a run the operator names is not held"
 
+// NeedsDesignHoldSince is NeedsDesignHold saying since when the item has
+// waited on the architect's design, in local time with the zone, where that is
+// known; it is NeedsDesignHold itself where it is not.
+func NeedsDesignHoldSince(since time.Time) string {
+	if since.IsZero() {
+		return NeedsDesignHold
+	}
+	return strings.Replace(NeedsDesignHold, "labelled "+domain.NeedsDesignLabel+",",
+		"labelled "+domain.NeedsDesignLabel+" since "+since.Local().Format("2006-01-02 15:04 MST")+",", 1)
+}
+
+// WithNeedsDesignSince is the queue with each entry carrying the needs-design
+// label given since when it has carried it, as since answers for its id.
+func (q Queue) WithNeedsDesignSince(since func(id string) (time.Time, bool)) Queue {
+	if since == nil {
+		return q
+	}
+	entries := slices.Clone(q.Entries)
+	for index, entry := range entries {
+		if !entry.NeedsDesign {
+			continue
+		}
+		if at, known := since(entry.ID); known {
+			entries[index].NeedsDesignSince = at
+		}
+	}
+	q.Entries = entries
+	return q
+}
+
 // HoldKind is the kind of the refusal Hold returns, from the same reading.
 func (e Entry) HoldKind() HoldKind {
 	kind, _ := e.hold()
@@ -959,7 +995,7 @@ func (e Entry) hold() (HoldKind, string) {
 	case e.Parking.Parked():
 		return HeldParked, "parked, so no pull selects it however far the queue drains: " + e.Parking.Reason()
 	case e.NeedsDesign:
-		return HeldForDesign, NeedsDesignHold
+		return HeldForDesign, NeedsDesignHoldSince(e.NeedsDesignSince)
 	case e.Awaiting != "" && e.AwaitingLanding:
 		// A wait rather than a hold for a person: nobody decides anything, and it
 		// clears as the parent's change lands.

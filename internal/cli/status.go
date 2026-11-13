@@ -769,6 +769,11 @@ func standingSources(configPath string) readmodel.Sources {
 	if store, err := runstate.NewLandingHoldStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.LandingHolds = store
 	}
+	// Since when each item has carried the needs-design label, so an item waiting
+	// on the architect's design is shown with its age.
+	if store, err := runstate.NewNeedsDesignLabelledStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.NeedsDesignLabelled = store
+	}
 	if store, err := runstate.NewWatchStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Sessions = store
 	}
