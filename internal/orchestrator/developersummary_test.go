@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -322,14 +323,21 @@ func TestASecondAttemptReviewCarriesEveryAttemptsSummary(t *testing.T) {
 	}
 }
 
-func TestReviewReceivesAVisiblyBoundedDeveloperSummary(t *testing.T) {
+// On the merge-queue fix (yoyodyne-fo4v) the harness cut the developer's
+// summary at 4 KiB, before its answers to two done-conditions, and the reviewer
+// sent a sound change back twice for answers it was never shown. A summary past
+// that old bound reaches the reviewer whole, with no cut declared.
+func TestReviewReceivesASummaryPastTheOldBoundWhole(t *testing.T) {
 	t.Parallel()
 	repository := pipelineRepository(t)
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, approveVerdict)
-	provider.DeveloperFinalText = "Implemented and checked compatibility. " + strings.Repeat("é", runstate.MaxRecordedTextBytes)
+	provider.DeveloperFinalText = "Condition 1 is met. " + strings.Repeat("Detail of the change. ", 500) + "Condition 6 is met: the last answer."
+	if len(provider.DeveloperFinalText) <= 4<<10 || len(provider.DeveloperFinalText) > runstate.MaxDeveloperSummaryBytes {
+		t.Fatalf("test summary is %d bytes, want it between the old bound and the new one", len(provider.DeveloperFinalText))
+	}
 	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 	if err != nil {
@@ -339,11 +347,57 @@ func TestReviewReceivesAVisiblyBoundedDeveloperSummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := runstate.RecordDeveloperSummary(provider.DeveloperFinalText)
-	if state.DeveloperSummary == nil || state.DeveloperSummary.Text != want {
-		t.Fatalf("recorded summary = %#v, want a bounded account", state.DeveloperSummary)
+	if state.DeveloperSummary == nil || state.DeveloperSummary.Text != provider.DeveloperFinalText || state.DeveloperSummary.WholeBytes != 0 {
+		t.Fatalf("recorded summary was not kept whole: %#v", state.DeveloperSummary)
 	}
-	if !strings.Contains(provider.RequestsForRole(domain.RoleReviewer)[0].Prompt, want) {
-		t.Fatal("review lost the summary's visible truncation marker")
+	prompt := provider.RequestsForRole(domain.RoleReviewer)[0].Prompt
+	if !strings.Contains(prompt, provider.DeveloperFinalText) {
+		t.Fatal("review was not given the whole summary")
+	}
+	if strings.Contains(prompt, "The harness cut this summary") {
+		t.Fatal("review was told a summary kept whole had been cut")
+	}
+}
+
+// A summary past even the new bound reaches the reviewer cut, and the reviewer
+// is told the harness cut it and how large it was.
+func TestReviewIsToldTheHarnessCutASummaryPastTheBound(t *testing.T) {
+	t.Parallel()
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	provider.DeveloperFinalText = "Implemented and checked compatibility. " + strings.Repeat("é", runstate.MaxDeveloperSummaryBytes)
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := runstate.RecordDeveloperSummary(provider.DeveloperFinalText, "", 0)
+	if state.DeveloperSummary == nil || state.DeveloperSummary.Text != want.Text || state.DeveloperSummary.WholeBytes != len(provider.DeveloperFinalText) {
+		t.Fatalf("recorded summary = %#v, want it cut with its whole size", state.DeveloperSummary)
+	}
+	prompt := provider.RequestsForRole(domain.RoleReviewer)[0].Prompt
+	if !strings.Contains(prompt, want.Text) {
+		t.Fatal("review lost the summary's visible cut")
+	}
+	declared := fmt.Sprintf("The harness cut this summary when it recorded it: the developer's summary was %d bytes", len(provider.DeveloperFinalText))
+	if !strings.Contains(prompt, declared) {
+		t.Fatalf("review was not told the harness cut the summary and how large it was:\n%s", prompt[:min(len(prompt), 4000)])
+	}
+}
+
+// The developer is told the size its summary is kept to, in the same figure the
+// record keeps it to.
+func TestTheDeveloperIsToldTheSizeItsSummaryIsKeptTo(t *testing.T) {
+	t.Parallel()
+	contract := developerContract(scratchForTest, nil)
+	if want := fmt.Sprintf("keeps at most %d KiB of your final summary", runstate.MaxDeveloperSummaryBytes>>10); !strings.Contains(contract, want) {
+		t.Fatalf("the developer contract does not say %q", want)
 	}
 }
