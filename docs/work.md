@@ -307,6 +307,20 @@ used to judge an extraction. The review's start event records the candidate
 commit, the listing's omission count, and which file contents were supplied or
 unavailable.
 
+Where the project declares an MCP server, the reviewer is also shown the
+harness's own record of every MCP call the run's developer asked for, across all
+its attempts: the tool, the arguments with secrets removed, and the result the
+developer was handed back, labelled as outside data the harness fetched and
+nobody verified. This lets the reviewer hold the developer's account of a call
+against what the call returned. The record takes at most 64 KiB of the review
+input; small calls keep their whole text, the larger ones share what is left,
+and every cut is declared in the text, including later calls left out when even
+their headings do not fit. The reviewer holds no MCP tool of its own, so this
+record is all it has of a call. A call result counts as no check: it satisfies no
+configured check and is not evidence that a required check passed. A project
+with no MCP server sees none of this, and the review's start event records how
+many calls were shown and whether any were cut.
+
 The patch is bounded, and the bound is spent whole file by whole file rather
 than cutting the patch at a byte count: a patch cut tail-first keeps whichever
 files Git rendered first and loses the rest without naming them, so a reviewer

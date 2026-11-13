@@ -144,6 +144,14 @@ type Request struct {
 	// It is untrusted developer testimony, separate from the harness's checks.
 	DeveloperSummary        string
 	DeveloperSummaryContext string
+	// MCPCalls is the harness's record of the MCP calls this run's developer
+	// asked it to make: tool, arguments, and the result the developer received.
+	// It is shown labelled as outside data nobody verified, takes at most
+	// MaxMCPCallEvidenceBytes of the review input, and says every cut. A call
+	// result satisfies no configured check. The zero value, Read false, is a
+	// project with no MCP server, and the prompt then carries nothing about MCP.
+	// It is shown at work-item scope only.
+	MCPCalls MCPCallEvidence
 	// EarlierDeveloperSummaries are the accounts earlier attempts of the run
 	// ended on, oldest first, shown before the latest one so the newest is last.
 	// A repair's account can lean on what an earlier attempt said, and a
@@ -396,6 +404,13 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	started["checks"] = len(request.Checks)
 	started["patch_bytes"] = len(request.Changes.Patch)
 	started["truncated"] = request.Changes.Truncated
+	// Whether the review was shown MCP calls, and whether the bound cut any of
+	// them, only where the harness keeps a record for this project.
+	if request.MCPCalls.Read {
+		_, cut := renderMCPCallsCounted(request.MCPCalls)
+		started["mcp_calls"] = len(request.MCPCalls.Calls)
+		started["mcp_calls_cut"] = cut
+	}
 	// A second asking says so, and which session it continued, so a run's record
 	// tells the review that was asked again from the one that was asked first.
 	if request.Reask != nil {
@@ -1208,6 +1223,11 @@ func reviewEvidencePrompt(request Request) string {
 			}
 		}
 		prompt.WriteString("\n")
+		// The harness's record of the MCP calls the developer's session asked for
+		// follows the account that may lean on them. It is part of this prompt, so
+		// the room the repository evidence is given (Review) already has it taken
+		// out.
+		prompt.WriteString(renderMCPCalls(request.MCPCalls))
 		prompt.WriteString("\n# The whole change under review\n\n")
 	}
 	prompt.WriteString(renderChanges(request.Changes, request.evidenceLocation()))

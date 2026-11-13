@@ -806,6 +806,9 @@ func (d *doing) settle(item *pending) {
 		record.ResultBytes, record.ResultDigest = len(scrubbed), digest([]byte(scrubbed))
 		record.Result = cutUTF8(scrubbed, maxRecordedResultBytes)
 		record.ResultCut = len(record.Result) < len(scrubbed)
+		// What reached the caller is the start of the result, so the record can
+		// say which part of it that was without keeping it twice.
+		record.ShownBytes = min(len(item.shown), len(record.Result))
 		answer.Result, answer.Cut = item.shown, item.cut
 		answer.ResultBytes, answer.Dropped, answer.ToolError = len(scrubbed), dropped, item.result.IsError
 	case item.err != nil:

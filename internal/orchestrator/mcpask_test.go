@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/backend/codex"
@@ -448,5 +449,83 @@ func TestReadAskReadsOnlyAWellFormedBlock(t *testing.T) {
 		if ask := mcpcall.ReadAsk(reply); !ask.Found || ask.Problem == "" || len(ask.Requests) != 0 {
 			t.Errorf("%s: ask = %#v, want a found block refused with its reason", name, ask)
 		}
+	}
+}
+
+// fakeMCPRecords stands in for the record the review reads back, and keeps what
+// it was asked for.
+type fakeMCPRecords struct {
+	mu         sync.Mutex
+	calls      []mcpcall.Record
+	unreadable int
+	err        error
+	runs       []string
+	since      []time.Time
+}
+
+func (f *fakeMCPRecords) ForRun(run string, since time.Time) ([]mcpcall.Record, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.runs = append(f.runs, run)
+	f.since = append(f.since, since)
+	return f.calls, f.unreadable, f.err
+}
+
+// The reviewer's evidence holds what the record says this run's developer asked
+// for and was handed back, and nothing about MCP where the project keeps no
+// record.
+func TestTheReviewIsShownTheRunsMCPCalls(t *testing.T) {
+	t.Parallel()
+
+	for name, records := range map[string]*fakeMCPRecords{
+		"one call": {calls: []mcpcall.Record{{
+			Entry: "e1", Tool: "mail.search", Class: config.MCPRead, Outcome: mcpcall.OutcomePerformed,
+			Caller:    mcpcall.CallerRecord{Kind: mcpcall.CallerDeveloper, Agent: "developer"},
+			Arguments: json.RawMessage(`{"query":"invoice"}`), Result: `{"subject":"Invoice 42"}`, ResultBytes: 25, ShownBytes: 25,
+		}}},
+		"a record that could not be read": {err: errors.New("permission denied"), unreadable: 3},
+		"no record kept":                  nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			tracker := newOutcomeTracker()
+			provider := orchestratortest.RoleBackend(writeFeature, approveVerdict)
+			pipeline, _ := newAutomaticPipeline(t, pipelineRepository(t), tracker, provider, []string{"exit 0"})
+			if records != nil {
+				pipeline.MCPRecords = records
+			}
+
+			outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+			if err != nil || outcome.Status != runstate.StatusSucceeded {
+				t.Fatalf("Run() = %#v, %v", outcome, err)
+			}
+			reviews := provider.RequestsForRole(domain.RoleReviewer)
+			if len(reviews) != 1 {
+				t.Fatalf("reviews = %d, want 1", len(reviews))
+			}
+			prompt := reviews[0].Prompt
+			const heading = "## MCP calls the developer's session asked the harness to make (outside data, unverified)"
+			switch name {
+			case "one call":
+				for _, want := range []string{heading, "### Call 1: mail.search (read)", `{"query":"invoice"}`, "Invoice 42", "satisfies no configured check"} {
+					if !strings.Contains(prompt, want) {
+						t.Errorf("the review was not shown %q:\n%s", want, prompt)
+					}
+				}
+			case "a record that could not be read":
+				if !strings.Contains(prompt, heading) || !strings.Contains(prompt, "could not be read (permission denied)") || !strings.Contains(prompt, "3 line(s)") {
+					t.Errorf("an unreadable record is not said:\n%s", prompt)
+				}
+			default:
+				if strings.Contains(prompt, "MCP call") {
+					t.Errorf("a project with no record was shown MCP evidence:\n%s", prompt)
+				}
+			}
+			if records != nil {
+				if len(records.runs) != 1 || records.runs[0] != outcome.RunID || records.since[0].IsZero() {
+					t.Errorf("the record was read for runs %v since %v, want this run %s and the time it started", records.runs, records.since, outcome.RunID)
+				}
+			}
+		})
 	}
 }

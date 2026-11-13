@@ -391,3 +391,18 @@ func refuse(t *testing.T, described []Bundle, harness []Held) string {
 	t.Fatal("New() built a registry it should have refused")
 	return ""
 }
+
+// The reviewer is shown the harness's record of the developer's MCP calls
+// (docs/designs/mcp-tools-through-the-harness.md, section 5) and holds no MCP
+// tool of its own, read or act: it cannot check a call's claim against the
+// outside system, so what it holds is the record.
+func TestTheReviewerHoldsNoMCPTool(t *testing.T) {
+	t.Parallel()
+
+	registry := mustBuild(t)
+	for _, held := range []capability.Capability{capability.MCPRead, capability.MCPAct} {
+		if registry.Holds(domain.RoleReviewer, held) {
+			t.Errorf("the reviewer holds %q", held)
+		}
+	}
+}

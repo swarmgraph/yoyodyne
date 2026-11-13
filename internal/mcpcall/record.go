@@ -150,6 +150,13 @@ type Record struct {
 	ResultDigest string `json:"result_digest,omitempty"`
 	// ResultCut says the record kept only part of the result.
 	ResultCut bool `json:"result_cut,omitempty"`
+	// ShownBytes is how many bytes of Result reached the caller: what was handed
+	// back after the caller's per-call and per-reply cuts. What reached the
+	// caller is always the start of Result, so Result[:ShownBytes] is what it was
+	// shown. A line written before this field existed reads as 0, which is also
+	// what a result with nothing shown reads as; the schema version stays 1
+	// because the field only adds.
+	ShownBytes int `json:"shown_bytes,omitempty"`
 	// Dropped is each item of content dropped because it was not text or JSON.
 	Dropped []Dropped `json:"dropped,omitempty"`
 	// ToolError is the server saying the tool itself failed.
@@ -224,6 +231,23 @@ var recordFile = regexp.MustCompile(`^\d{8}-\d+\.jsonl$`)
 // call was never settled reads as unknown for an act and failed for a read
 // (unsettled).
 func (r *Records) Read() ([]Record, int, error) {
+	return r.read(time.Time{}, func(Record) bool { return true })
+}
+
+// ForRun returns the calls the developer of one run asked for, in the order
+// they started, with the same reading of an unsettled entry as Read. A file's
+// name carries the UTC day its lines were written, so a file of a day before
+// since's UTC day is not opened: nothing in it can belong to a run that started
+// at since. A zero since reads every file.
+func (r *Records) ForRun(run string, since time.Time) ([]Record, int, error) {
+	return r.read(since, func(record Record) bool {
+		return record.Caller.Kind == CallerDeveloper && record.Caller.Run == run
+	})
+}
+
+// read is the one reading of the record: the entries keep says yes to, from the
+// files written on or after since's day.
+func (r *Records) read(since time.Time, keep func(Record) bool) ([]Record, int, error) {
 	directory := r.Directory()
 	entries, err := os.ReadDir(directory)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -232,11 +256,18 @@ func (r *Records) Read() ([]Record, int, error) {
 	if err != nil {
 		return nil, 0, fmt.Errorf("read the MCP call record in %s: %w", directory, err)
 	}
+	earliest := ""
+	if !since.IsZero() {
+		earliest = since.UTC().Format("20060102")
+	}
 	latest := map[string]Record{}
 	var order []string
 	unreadable := 0
 	for _, entry := range entries {
 		if !recordFile.MatchString(entry.Name()) || !entry.Type().IsRegular() {
+			continue
+		}
+		if earliest != "" && entry.Name()[:8] < earliest {
 			continue
 		}
 		data, err := readBounded(filepath.Join(directory, entry.Name()))
@@ -255,6 +286,9 @@ func (r *Records) Read() ([]Record, int, error) {
 				// A line a killed process left half written, or one written by a
 				// schema this build does not know.
 				unreadable++
+				continue
+			}
+			if !keep(record) {
 				continue
 			}
 			previous, seen := latest[record.Entry]

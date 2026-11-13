@@ -588,6 +588,11 @@ type Pipeline struct {
 	// pipeline wired without one tells no developer of the block and reads
 	// every reply exactly as before.
 	MCP MCPCalls
+	// MCPRecords is the record of the MCP calls made, read back so the reviewer
+	// is shown the calls this run's developer asked for (reviewedMCPCalls). It is
+	// optional: nil where the project declares no MCP server, and the review then
+	// shows nothing about MCP.
+	MCPRecords MCPCallRecords
 }
 
 // AccountChooser picks the provider account the next run is served by. It is an
@@ -9598,6 +9603,10 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		Changes:                          changes,
 		Repository:                       reviewedRepository(ctx, p.Worktrees, changes.HeadCommit, a.item, changes),
 		Checks:                           a.outcome.Checks,
+		// The harness's record of the MCP calls the developer asked for, labelled
+		// as outside data. It sits apart from the checks, and is evidence for none
+		// of them.
+		MCPCalls: a.reviewedMCPCalls(),
 		// What the item's done-conditions quote, so every line of a check's
 		// output carrying one reaches the reviewer beside the check's result.
 		CheckPatterns: review.CriterionPatterns(a.item.Description, a.item.AcceptanceCriteria),
