@@ -208,3 +208,61 @@ func TestADecidedRerunWaitsForAnEarlierStartStillOnItsWayToReserving(t *testing.
 		t.Fatalf("fired = %v; want the second decision carried out once the first start had ended", fired)
 	}
 }
+
+// endingDuringTheRead is a carry-out whose earlier start ends while the
+// decisions are being read: the list it returns was taken before that start
+// recorded the decision carried out, so it still shows it, and the start is
+// handed back before the read returns.
+type endingDuringTheRead struct {
+	task       CarryOutTask
+	handedBack *startsHandedBack
+	index      int
+}
+
+func (e endingDuringTheRead) Outstanding() ([]CarryOutTask, error) {
+	e.handedBack.note(e.index)
+	return []CarryOutTask{e.task}, nil
+}
+
+func (endingDuringTheRead) Carry(context.Context, CarryOutTask) (CarriedOut, Outcome, error) {
+	return CarriedOut{}, Outcome{}, errors.New("nothing is carried out here")
+}
+
+func (endingDuringTheRead) RecordUnattempted(context.Context, time.Duration, map[string]string) ([]CarriedOut, error) {
+	return nil, nil
+}
+
+// A start that ends while the decisions are being read carried out a decision
+// the reading may still show, so the pull leaves that decision for the next
+// one, which reads it after the start ended. Counted as ended because it had
+// ended by the time the item was looked at, it was started a second time: the
+// decided repair of the brake's test run, a check stage's continuation, and a
+// decided re-run were each seen started twice that way.
+func TestADecisionWhoseStartEndsWhileTheDecisionsAreReadIsNotStartedAgain(t *testing.T) {
+	t.Parallel()
+
+	task := decidedTask("yoyodyne-ifd.346")
+	handedBack := &startsHandedBack{}
+	const index = 0
+	schedule := Schedule{Started: []Started{{WorkItemID: task.WorkItemID, Reason: carryingOutReason(task)}}}
+	pull := Pull{Capacity: 2, CarryOut: endingDuringTheRead{task: task, handedBack: handedBack, index: index}}
+	occupied := map[string]runstate.State{task.WorkItemID: {WorkItemID: task.WorkItemID}}
+	mine := map[string]int{task.WorkItemID: index}
+
+	chosen, passed, _, _ := Scheduler{}.nextCarryOutsExcept(&schedule, pull, occupied, mine, handedBack, nil, closedGates{}, 1, 0, nil, nil, nil)
+	if len(chosen) != 0 {
+		t.Fatalf("chosen = %#v, want the decision its own start was carrying out left for the next pull", chosen)
+	}
+	if why := passed[task.RunID]; !strings.Contains(why, unreservedRefusal) {
+		t.Fatalf("passed over = %q, want it said to wait for the start this session made", why)
+	}
+
+	// The next pull reads the decisions after the start ended, so a decision it
+	// still shows is one that start did not carry out, and it goes ahead.
+	again := endingDuringTheRead{task: task, handedBack: handedBack, index: index}
+	pull.CarryOut = again
+	chosen, _, _, _ = Scheduler{}.nextCarryOutsExcept(&schedule, pull, occupied, mine, handedBack, nil, closedGates{}, 1, 0, nil, nil, nil)
+	if len(chosen) != 1 || chosen[0].RunID != task.RunID {
+		t.Fatalf("chosen = %#v, want the decision carried out once its earlier start had ended before the reading", chosen)
+	}
+}
