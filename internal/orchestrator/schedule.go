@@ -7598,15 +7598,6 @@ func (h *startsHandedBack) snapshot() map[int]bool {
 	return maps.Clone(h.indices)
 }
 
-func (h *startsHandedBack) has(index int) bool {
-	if h == nil {
-		return false
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.indices[index]
-}
-
 // forgetStart takes one collected start off mine, where it is still the start mine
 // holds for its item. A decided recovery started beside a start that had
 // already ended (startsHandedBack) holds the item by then, and collecting the
