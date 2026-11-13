@@ -338,6 +338,9 @@ func StopSays(class StopClass) string {
 	if cause := EnvironmentalCause(class); cause.Valid() {
 		return cause.Title()
 	}
+	if class != "" && !class.Valid() {
+		return "a " + StopCauseShown(class)
+	}
 	return string(class)
 }
 

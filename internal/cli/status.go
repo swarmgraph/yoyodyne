@@ -1373,7 +1373,19 @@ func printRunReasons(writer io.Writer, run runstate.RunSummary) bool {
 		recorded(shortBuild(run.Build), "a build the record does not name"))
 	printed := true
 	if class := run.RecordedStopClass(); class != "" {
-		fmt.Fprintf(writer, "  stop cause: %s\n", class)
+		shown := string(class)
+		if !class.Valid() {
+			shown = runstate.UnknownValueShown(shown)
+		}
+		fmt.Fprintf(writer, "  stop cause: %s\n", shown)
+	}
+	// A value a newer build wrote is said as unknown beside what was recorded,
+	// rather than the run being left out of the listing for it.
+	for _, unknown := range run.UnknownValues {
+		if unknown.Field == "stop_class" {
+			continue
+		}
+		fmt.Fprintf(writer, "  %s: %s\n", strings.ReplaceAll(unknown.Field, "_", " "), unknown.Shown())
 	}
 	// The reason leads with the class that stopped the run, so which gate stopped
 	// it is read off the record rather than inferred from whichever evidence is

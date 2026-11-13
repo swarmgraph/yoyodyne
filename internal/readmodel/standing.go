@@ -488,6 +488,10 @@ type RunningRun struct {
 	// say. See runstate.State.SubagentsSays.
 	Subagents string         `json:"subagents,omitempty"`
 	Phase     runstate.Phase `json:"phase,omitempty"`
+	// Phase is the run's phase as a surface prints it (runstate.PhaseShown): a
+	// phase this build does not know arrives said as unknown with what the record
+	// holds, so no surface prints it as though it knew it.
+	//
 	// Stage is the phase folded onto the three parts of a run a pipeline shows,
 	// derived here so no surface keeps its own list of which phase is which.
 	Stage Stage `json:"stage"`
@@ -1522,7 +1526,7 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 			EffortDescription:   state.ProviderEffortDescription,
 			Account:             state.AccountAlias,
 			Subagents:           state.SubagentsSays(),
-			Phase:               state.Phase,
+			Phase:               runstate.PhaseShown(state.Phase),
 			Stage:               StageOf(state.Phase),
 			ResumingIntegration: state.ResumingIntegration(),
 			Checks:              checksOf(state, now),
@@ -1757,19 +1761,25 @@ const (
 	// StageIntegrating is everything after an approval: the promotion and what
 	// settles it.
 	StageIntegrating Stage = "integrating"
+	// StageUnknown is a run whose phase this build does not know, most often one
+	// a newer build wrote: it may belong to any of the three, so it is shown on
+	// its own rather than filed under one it may not be in.
+	StageUnknown Stage = "unknown"
 )
 
-// StageOf folds a phase onto its stage. A phase this does not know is the
-// harness's, because every phase before the review is named above.
+// StageOf folds a phase onto its stage. Every phase this build knows after the
+// review is the harness's; a phase it does not know is StageUnknown.
 func StageOf(phase runstate.Phase) Stage {
 	switch phase {
 	case runstate.PhaseDeveloping, runstate.PhaseChecking, "":
 		return StageDeveloping
 	case runstate.PhaseReviewing:
 		return StageReviewing
-	default:
-		return StageIntegrating
 	}
+	if !phase.Valid() {
+		return StageUnknown
+	}
+	return StageIntegrating
 }
 
 // modelOf is the model a record says an invocation ran on: the identifier the

@@ -235,7 +235,7 @@ func readLatestRun(ctx context.Context, sources WorkItemSources, id string, now 
 	run := &ItemRun{
 		RunID:               latest.RunID,
 		Outcome:             latest.Outcome,
-		Phase:               latest.Phase,
+		Phase:               runstate.PhaseShown(latest.Phase),
 		ResumingIntegration: latest.ResumingIntegration,
 		InFlight:            latest.Status.InFlight(),
 		Branch:              latest.Branch,

@@ -20,7 +20,6 @@ package runstate
 // (docs/diagnoses/yoyodyne-ifd-428-49-dead-run-held-its-slot.md).
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -86,13 +85,15 @@ type RunPresence struct {
 }
 
 // Held observes the process holding a run, including a finished run whose
-// landing checks are still executing. It never takes the run's lease.
+// landing checks are still executing. It never takes the run's lease, and reads
+// the stamp for showing (readRunHolder): whoever then acts on the run takes its
+// lease, which is what decides.
 func (s *Store) Held(runID string) (bool, error) {
 	path, err := s.holderPath(runID)
 	if err != nil {
 		return false, err
 	}
-	holder, err := readRunHolder(path)
+	holder, err := readRunHolder(path, true)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -114,7 +115,15 @@ func (s *Store) Held(runID string) (bool, error) {
 // has written to, record or event log, for quiet is reported as having no
 // process, and one written to more recently is given the benefit of the doubt.
 // A run that is not in flight has no process to find and reports found.
+//
+// It reads the stamp for showing (readRunHolder), which is what every surface
+// asks it for; the slot release, which acts on the answer, asks presence with
+// the stamp read strictly.
 func (s *Store) Presence(state State, quiet time.Duration, now time.Time) (RunPresence, error) {
+	return s.presence(state, quiet, now, true)
+}
+
+func (s *Store) presence(state State, quiet time.Duration, now time.Time, forShowing bool) (RunPresence, error) {
 	if !state.Status.InFlight() {
 		return RunPresence{Found: true}, nil
 	}
@@ -127,7 +136,7 @@ func (s *Store) Presence(state State, quiet time.Duration, now time.Time) (RunPr
 	if err != nil {
 		return RunPresence{Found: true}, err
 	}
-	holder, err := readRunHolder(path)
+	holder, err := readRunHolder(path, forShowing)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		if now.Sub(lastMoved) < quiet {
@@ -238,19 +247,33 @@ func (s *Store) stampRunHolder(path string, worker WorkerIdentity) error {
 // readRunHolder is one stamp as it sits on disk. A stamp that will not decode is
 // a failure to answer rather than an absence, because a reader that guessed at
 // it would be inventing whether anybody is working on the run.
-func readRunHolder(path string) (runHolder, error) {
+//
+// A stamp is written whole by the process taking the lease and never written
+// back by a reader, and a newer build can add a field to it. So a reading for
+// showing — a surface asking whether anything is behind a run — keeps the fields
+// this build knows and steps over the rest (tolerantread.go), and is answered
+// from them exactly as a stamp from a build that never wrote the new field would
+// be. A reading that acts on what the stamp says — releasing a lease an earlier
+// program left, releasing a developer slot — reads it strictly, and a field this
+// build does not know refuses it, naming the field.
+func readRunHolder(path string, forShowing bool) (runHolder, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return runHolder{}, err
 	}
 	defer file.Close()
-	decoder := json.NewDecoder(io.LimitReader(file, maxEncodedStateBytes))
-	decoder.DisallowUnknownFields()
-	var holder runHolder
-	if err := decoder.Decode(&holder); err != nil {
-		return runHolder{}, fmt.Errorf("decode run holder %s: %w", filepath.Base(path), err)
+	encoded, err := io.ReadAll(io.LimitReader(file, maxEncodedStateBytes))
+	if err != nil {
+		return runHolder{}, fmt.Errorf("read run holder %s: %w", filepath.Base(path), err)
 	}
-	if err := ensureJSONEOF(decoder); err != nil {
+	var holder runHolder
+	if forShowing {
+		unknown, err := decodeTolerating(encoded, &holder)
+		if err != nil {
+			return runHolder{}, fmt.Errorf("decode run holder %s: %w", filepath.Base(path), err)
+		}
+		noteUnknownFields("run holder", unknown)
+	} else if err := decodeStrictly(encoded, &holder); err != nil {
 		return runHolder{}, fmt.Errorf("decode run holder %s: %w", filepath.Base(path), err)
 	}
 	if holder.PID <= 0 {

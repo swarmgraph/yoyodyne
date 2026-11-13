@@ -430,6 +430,11 @@ func walkRecord(t *testing.T, value reflect.Value, key string, visit func(key st
 		for index := 0; index < value.NumField(); index++ {
 			field := value.Type().Field(index)
 			name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+			// A field the record never carries holds nothing written to it, so there
+			// is no recorded string in it to bound. State.UnknownValues is the one.
+			if name == "-" && key == "" && field.Name == "UnknownValues" {
+				continue
+			}
 			if name == "" || name == "-" {
 				t.Errorf("%s.%s carries no JSON name, so this test cannot say where it is in the record", key, field.Name)
 				continue

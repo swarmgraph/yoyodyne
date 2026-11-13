@@ -278,7 +278,7 @@ func capacityBlockedRun(run runstate.State) (CapacityBlockedRun, bool) {
 	entry := CapacityBlockedRun{
 		RunID:         run.RunID,
 		WorkItemID:    run.WorkItemID,
-		Phase:         run.Phase,
+		Phase:         runstate.PhaseShown(run.Phase),
 		RefusedBy:     runstate.DescribePause(run.PauseCause, run.UsageLimitKind),
 		Since:         run.UpdatedAt.UTC(),
 		WaitedSeconds: run.UsageLimitPausedSeconds,
@@ -319,7 +319,7 @@ func usageWindowRun(run runstate.State, refused runstate.EnvironmentalRefusal) C
 	entry := CapacityBlockedRun{
 		RunID:         run.RunID,
 		WorkItemID:    run.WorkItemID,
-		Phase:         run.Phase,
+		Phase:         runstate.PhaseShown(run.Phase),
 		State:         CapacityStateBlocked,
 		RefusedBy:     runstate.DescribePause(runstate.PauseUsageLimit, run.UsageLimitKind),
 		Since:         run.UpdatedAt.UTC(),

@@ -211,13 +211,19 @@ func (s *Store) workerToWrite(runID string, stored *WorkerIdentity) *WorkerIdent
 	return stored
 }
 
-// Holder is the stamp beside a run's lease, or nil where nothing holds it.
+// Holder is the stamp beside a run's lease, or nil where nothing holds it, read
+// for showing (readRunHolder). Worker, which the slot release acts on, reads it
+// strictly.
 func (s *Store) Holder(runID string) (*LeaseHolder, error) {
+	return s.holder(runID, true)
+}
+
+func (s *Store) holder(runID string, forShowing bool) (*LeaseHolder, error) {
 	path, err := s.holderPath(runID)
 	if err != nil {
 		return nil, err
 	}
-	holder, err := readRunHolder(path)
+	holder, err := readRunHolder(path, forShowing)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -241,7 +247,7 @@ func (s *Store) Holder(runID string) (*LeaseHolder, error) {
 // worker the record does, and a program the rule cannot name is never live.
 func (s *Store) Worker(state State, now time.Time) WorkerReading {
 	reading := WorkerReading{Recorded: state.Worker, ObservedAt: now.UTC()}
-	holder, holderErr := s.Holder(state.RunID)
+	holder, holderErr := s.holder(state.RunID, false)
 	reading.Holder = holder
 	uncertain := func(says string) WorkerReading {
 		reading.Liveness, reading.Says = WorkerUncertain, says

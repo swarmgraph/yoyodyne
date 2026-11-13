@@ -162,7 +162,7 @@ func (s *Store) releaseEarlierProgram() error {
 			continue
 		}
 		path := filepath.Join(s.root, entry.Name())
-		holder, err := readRunHolder(path)
+		holder, err := readRunHolder(path, false)
 		if err != nil || holder.PID != os.Getpid() {
 			continue
 		}

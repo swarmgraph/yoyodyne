@@ -884,7 +884,10 @@ func (s *Store) Load(runID string) (State, error) {
 // Read reads one run record for a reader that will not write it back — a
 // listing, or a surface that fetches one run by id to say something about it —
 // which is the tolerant door: a field this build does not know is stepped over
-// and named rather than refusing the whole record. Nothing decided from it is
+// and named rather than refusing the whole record, and a value of one of the
+// record's closed sets this build does not know (a stop class, a landing
+// outcome) is kept as written and listed in State.UnknownValues, so a surface
+// shows it as unknown rather than losing the run. Nothing decided from it is
 // written back — every caller that acts re-reads through Load, under the run's
 // lease — so the field this steps over is one nothing here could have saved
 // anyway.
@@ -937,6 +940,24 @@ func (s *Store) load(runID string, tolerateUnknownFields bool) (State, error) {
 	// refusing one old file is a whole history nobody can list.
 	state.boundRecordedTexts()
 	if err := s.validateState(state); err != nil {
+		// A reading for showing keeps a record whose only problems are values this
+		// build does not know, and marks them unknown: such a value is most often
+		// one a newer build writes, and refusing it is what blanked the dashboard's
+		// running, waiting and blocked panels. Nothing read here is written back
+		// (Read's comment), and a caller about to act on the run reads it through
+		// Load, which still refuses it below.
+		//
+		// The run's status is the exception. The listings choose runs by it — which
+		// are in flight, which hold a developer slot — so a status this build does
+		// not know would drop a live run out of them unseen; it stays a refusal,
+		// which the index already treats as a run that may still be going.
+		if tolerateUnknownFields {
+			if unknown, only := onlyUnknownValues(err); only && !namesStatus(unknown) {
+				state.UnknownValues = unknown
+				noteUnknownValues("run record", unknown)
+				return state, nil
+			}
+		}
 		// Named with the record, the field and value that refused it, and the
 		// builds that bear on whose value it is (refusedrecord.go); the refusal
 		// itself is unchanged and still unwraps to RefusedStateError.
@@ -945,6 +966,17 @@ func (s *Store) load(runID string, tolerateUnknownFields bool) (State, error) {
 		return State{}, RefusedRecordError{Record: path, Problem: err, Builds: builds}
 	}
 	return state, nil
+}
+
+// namesStatus reports whether a run's own status is among the values a reading
+// found this build does not know.
+func namesStatus(unknown []UnknownValueError) bool {
+	for _, value := range unknown {
+		if value.Field == "status" {
+			return true
+		}
+	}
+	return false
 }
 
 // Incomplete lists every run still in flight, in the one sense Status.InFlight
@@ -1289,6 +1321,11 @@ func (e RefusedStateError) Error() string { return e.Problem.Error() }
 func (e RefusedStateError) Unwrap() error { return e.Problem }
 
 func (s *Store) validateState(state State) error {
+	// A record read for showing that held values this build does not know is
+	// never written back, whatever has been done to the copy since.
+	if len(state.UnknownValues) > 0 {
+		return RefusedStateError{Problem: fmt.Errorf("run %s was read holding a value this build does not know and is never written back from that reading: %w", state.RunID, state.UnknownValues[0])}
+	}
 	if state.ProductID != s.productID {
 		return RefusedStateError{Problem: fmt.Errorf("run product %q does not match store product %q", state.ProductID, s.productID)}
 	}
