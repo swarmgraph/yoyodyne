@@ -7,11 +7,12 @@
 #   bash scripts/race-skip-test.sh
 #
 # Each case builds a scratch repository holding a copy of this repository's
-# Makefile and scripts/race-skip.sh, a Go package with testdata, documents
-# inside and outside it, and the tracker's export, all committed on main. It
-# then makes one change on a branch and runs `make race` with a stub Go command
-# that records whether the race detector was asked for, so what is checked is
-# the target's decision and the line it prints, and no Go is compiled.
+# Makefile, scripts/race-skip.sh and scripts/race-run.sh, a Go package with
+# testdata, documents inside and outside it, and the tracker's export, all
+# committed on main. It then makes one change on a branch and runs `make race`
+# with a stub Go command that records whether the race detector was asked for,
+# so what is checked is the target's decision and the line it prints, and no
+# Go is compiled.
 #
 # Everything lives under one temporary root that is removed on exit. Nothing
 # outside that root is written.
@@ -60,6 +61,7 @@ fabricate() {
 	mkdir -p "$repo/scripts" "$repo/pkg/testdata" "$repo/docs" "$repo/.beads"
 	cp "$source_root/Makefile" "$repo/Makefile"
 	cp "$source_root/scripts/race-skip.sh" "$repo/scripts/race-skip.sh"
+	cp "$source_root/scripts/race-run.sh" "$repo/scripts/race-run.sh"
 	printf 'module example.com/fabricated\n\ngo 1.22\n' >"$repo/go.mod"
 	printf 'package pkg\n' >"$repo/pkg/pkg.go"
 	printf 'fixture\n' >"$repo/pkg/testdata/input.txt"
