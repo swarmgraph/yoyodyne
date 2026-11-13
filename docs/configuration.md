@@ -4830,7 +4830,9 @@ starts a run by itself: a review that requests changes, or a comment on a line,
 goes on the development manager's list naming the items whose landed changes
 touched that file (every item, for a review that names no file); an ordinary
 comment goes on her list naming no item; and an approval is noted on each item as
-information only. Whether a repair follows, and of which item, is her decision.
+information only. A repair of a landed item cannot yet be started from that
+feedback; where it calls for a change, the development manager asks the Lead
+Product Manager to admit a work item for it.
 `yoyo status` and the dashboard say which pull request carries each waiting
 item, or that none does yet. The reasoning is in
 [integrating to a local branch](designs/integrating-to-a-local-branch.md).

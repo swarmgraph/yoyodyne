@@ -18,7 +18,10 @@ package orchestrator
 //   - A person's approval is recorded on each item as information, and never
 //     stands in for the independent review its change already passed.
 //
-// Whether the feedback calls for a repair, and of which item, is her decision.
+// Whether the feedback calls for a change is her decision. A repair of a landed
+// item cannot yet be started from here, because her decisions today attach
+// only to a stopped run and an item waiting for the team's merge has none, so
+// the report tells her to ask for a work item to be admitted instead.
 //
 // The cursor that keeps a piece of feedback from being acted on twice is kept
 // on every run the request carries (runstate.TeamPullRequest.Feedback), and a
@@ -390,20 +393,42 @@ func teamFeedbackMessage(runs []runstate.State, number int, url string, item run
 	var about string
 	switch {
 	case unread:
-		about = fmt.Sprintf(" Which landed changes touched %s could not be read, so every item the pull request carries is named: %s.", item.Path, strings.Join(named, ", "))
+		about = fmt.Sprintf(" Which landed changes touched %s could not be read, so every item the pull request carries is named: %s.", item.Path, describeTeamItems(runs, named))
 	case item.Path == "":
-		about = fmt.Sprintf(" It names no file, so every item the pull request carries is named: %s.", strings.Join(named, ", "))
+		about = fmt.Sprintf(" It names no file, so every item the pull request carries is named: %s.", describeTeamItems(runs, named))
 	case len(named) == 0:
-		about = fmt.Sprintf(" No landed change the pull request carries touched %s; it carries %s.", item.Path, strings.Join(teamFeedbackItems(runs), ", "))
+		about = fmt.Sprintf(" No landed change the pull request carries touched %s; it carries %s.", item.Path, describeTeamItems(runs, teamFeedbackItems(runs)))
 	default:
-		about = fmt.Sprintf(" The landed changes that touched %s are those of %s.", item.Path, strings.Join(named, ", "))
+		about = fmt.Sprintf(" The landed changes that touched %s are those of %s.", item.Path, describeTeamItems(runs, named))
 	}
 	workItem := ""
 	if len(named) == 1 {
 		workItem = named[0]
 	}
-	return said + about + " Nothing was started. Whether it calls for a repair, and of which one item, is yours to decide; a repair runs that item again on " +
-		wait.TargetBranch + ", with this feedback given to the developer as evidence, through the configured checks and an independent review.", report.SeverityWarning, workItem
+	return said + about + " Nothing was started, and a repair of a landed item cannot yet be started from feedback on a tracked pull request. " +
+		"If the feedback calls for a change, ask the Lead Product Manager to admit a work item for it, naming this pull request and quoting the feedback; " +
+		"that work runs on " + wait.TargetBranch + " through the configured checks and an independent review like any other.", report.SeverityWarning, workItem
+}
+
+// describeTeamItems names each item by its title with its identifier after
+// it, as the run that landed it recorded them, or by its identifier alone
+// where no title was recorded.
+func describeTeamItems(runs []runstate.State, ids []string) string {
+	titles := map[string]string{}
+	for _, state := range runs {
+		if state.WorkItemTitle != "" {
+			titles[state.WorkItemID] = oneline.Bound(state.WorkItemTitle, 200)
+		}
+	}
+	named := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if title := titles[id]; title != "" {
+			named = append(named, fmt.Sprintf("%s (%s)", title, id))
+			continue
+		}
+		named = append(named, id)
+	}
+	return strings.Join(named, "; ")
 }
 
 func renderTeamApprovalNotes(state runstate.State, number int, approvals []runstate.ForgeFeedbackItem) string {

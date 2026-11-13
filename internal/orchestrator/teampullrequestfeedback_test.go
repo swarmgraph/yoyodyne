@@ -123,12 +123,25 @@ func TestTakeUpTeamFeedbackListsRequestedChangesWithTheItemsThatTouchedTheFile(t
 			t.Fatalf("message = %q, want the pull request named, nothing started, and the harness's own words left out", reported.Message)
 		}
 	}
-	review, line := reports.reported[0], reports.reported[1]
-	if !strings.Contains(review.Message, "names no file, so every item the pull request carries is named: yoyodyne-a, yoyodyne-b, yoyodyne-first") {
-		t.Fatalf("review message = %q, want every carried item named", review.Message)
+	named := func(item string) string {
+		title := before[item].WorkItemTitle
+		if title == "" {
+			t.Fatalf("run of %s records no title, so the test cannot check items are named by what they are", item)
+		}
+		return fmt.Sprintf("%s (%s)", title, item)
 	}
-	if !strings.Contains(line.Message, "The landed changes that touched internal/a.go are those of yoyodyne-a.") || strings.Contains(line.Message, "yoyodyne-b") || line.WorkItemID != "yoyodyne-a" {
-		t.Fatalf("line comment report = %#v, want only yoyodyne-a named and attributed", line)
+	review, line := reports.reported[0], reports.reported[1]
+	if want := "names no file, so every item the pull request carries is named: " + named("yoyodyne-a") + "; " + named("yoyodyne-b") + "; " + named("yoyodyne-first") + "."; !strings.Contains(review.Message, want) {
+		t.Fatalf("review message = %q, want every carried item named by title and identifier: %q", review.Message, want)
+	}
+	if want := "The landed changes that touched internal/a.go are those of " + named("yoyodyne-a") + "."; !strings.Contains(line.Message, want) || strings.Contains(line.Message, "yoyodyne-b") || line.WorkItemID != "yoyodyne-a" {
+		t.Fatalf("line comment report = %#v, want only yoyodyne-a named, as %q, and attributed", line, want)
+	}
+	for _, reported := range []report.Report{review, line} {
+		if !strings.Contains(reported.Message, "cannot yet be started from feedback on a tracked pull request") ||
+			!strings.Contains(reported.Message, "ask the Lead Product Manager to admit a work item") || strings.Contains(reported.Message, "is yours to decide; a repair runs") {
+			t.Fatalf("message = %q, want it to say a repair cannot yet be started and what she can do instead", reported.Message)
+		}
 	}
 	assertNothingStarted(t, f, before)
 	for item := range f.runs {
