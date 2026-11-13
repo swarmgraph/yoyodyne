@@ -97,7 +97,12 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     failed attempt is recorded as ending on), `carrySession`, `mayRelaunch`,
     `diedTransiently`,
     `recordRelaunch`, `blockOnSpentRelaunchBudget`, `account`,
-    `developerModel`, `developerEffort`.
+    `developerModel`, `developerEffort`. A developer holding an MCP tool is
+    told of the `yoyodyne-mcp` block (`withMCPContract`), and a clean reply
+    ending in one is carried out through `Pipeline.MCP` and the same session
+    resumed within the attempt rather than read as the account (`carryOutAsk`,
+    `mcpask.go`); a turn that also left background work running is sent back
+    for that first.
 11. **Provider refusals and pauses.** `refusedForUsageLimit`,
     `refusedForServerOverload`, `providerStopReason`, `providerStop`,
     `recordProviderStop`, `stoppedProviderIsResumable`, `pauseForUsageLimit`,
