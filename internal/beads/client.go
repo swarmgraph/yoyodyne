@@ -1421,9 +1421,9 @@ var staleBlockedRefusal = regexp.MustCompile(`(?i)not claimable: status blocked`
 //
 // What this deliberately does not ask is the other half of the backlog's answer:
 // a governance hold — a stoppage whose change is still on a branch, an escalation
-// nobody has decided. A hold is the harness's own durable record rather than
-// anything the tracker holds, so it is read where work is selected and cannot be
-// read from here. That is the right seam and not a gap: every caller of this has
+// nobody has decided, an approved change still in the merge queue. A hold is the
+// harness's own durable record rather than anything the tracker holds, so it is
+// read where work is selected and cannot be read from here. That is the right seam and not a gap: every caller of this has
 // already answered it. The scheduler consults the holds before it chooses; a
 // re-run is a decision the development manager recorded about that exact
 // stoppage; and an operator naming an item is the operator deciding.
