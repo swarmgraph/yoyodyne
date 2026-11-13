@@ -2054,6 +2054,15 @@ found, and a missing configuration file are each a condition. So is each
 maintenance pass failure since your last pass that no finding has carried to a
 role yet; the ones a finding carries are listed as delivered.
 
+A developer slot the scheduler left empty while ready work waited is a
+condition too, needing an action: it carries the reason the scheduler recorded
+— a hold on new work and who placed it, a rule keeping work out and which item
+it kept out, a slot still counted as taken and for what, no eligible item and
+why the first ready items were passed over, or that the reason is not known —
+with since when and who moves it. Its identity is the reason's kind, so the same
+reason recurs across passes and a different one is a new condition.
+[The running line](operations.md#where-the-harness-stands-the-four-lines) says the same.
+
 At most twenty conditions are rendered. The totals are exact whatever is
 rendered, the identities left out are named, and a cursor is handed back;
 `health.follow` with the observation and that cursor returns the next twenty.

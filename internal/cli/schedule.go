@@ -746,6 +746,9 @@ func (w watchSessionLog) Record(transition orchestrator.SessionState) error {
 		// schedule that can only fire there, inside it — where it is what the
 		// session is doing, and not pulling, until its next line.
 		RecurringPass: transition.RecurringPass,
+		// Why a developer slot stands empty while ready work waits, written when
+		// the session's account of it changes.
+		EmptySlots: transition.EmptySlots,
 		// The drain and its bound, on every line the session writes while it
 		// waits out its runs to restart, so a reader is told what stops the wait
 		// rather than left to time it.

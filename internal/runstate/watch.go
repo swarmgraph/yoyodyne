@@ -439,6 +439,13 @@ type WatchTransition struct {
 	// session idle over an empty queue as one choosing work. It is written as a
 	// watching entry for the same reason too.
 	RecurringPass *WatchPass `json:"recurring_pass,omitempty"`
+	// EmptySlots is the session's account of the developer slots it left empty
+	// while ready work waited, written when that account changes and cleared
+	// once no slot is left so (emptyslots.go). It is a note rather than a
+	// transition, for the reason a dispatch wait is: the session is doing what
+	// its last line said, and the account is about its slots rather than its
+	// state. It is written as a watching entry for the same reason too.
+	EmptySlots *EmptySlots `json:"empty_slots,omitempty"`
 
 	// Draining marks a session that has found a build deployed over it and is
 	// waiting out the runs it hosts before it restarts — bounded, so that the wait
@@ -473,7 +480,7 @@ func (t WatchTransition) RetryingRead() bool {
 // the session's latest word would report a session idle over an empty queue as
 // one still choosing, for as long as nothing else it did was news.
 func (t WatchTransition) Note() bool {
-	return t.DispatchWait != nil || t.WorktreeCrossing != nil || t.RecurringPass != nil
+	return t.DispatchWait != nil || t.WorktreeCrossing != nil || t.RecurringPass != nil || t.EmptySlots != nil
 }
 
 // WatchPass is one recurring pass a watch session has begun: which task or
@@ -918,6 +925,19 @@ func (t WatchTransition) Validate() error {
 			problems = append(problems, errors.New("an entry carries a recurring pass beside another note, and a note is one thing"))
 		}
 		if err := t.RecurringPass.validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	// An empty slot account is written only as a watching entry, and is one note
+	// on its own, for the reasons the three above are.
+	if t.EmptySlots != nil {
+		if t.State != WatchWatching {
+			problems = append(problems, fmt.Errorf("a %s entry cannot carry an account of empty slots, which is written only as a watching one", t.State))
+		}
+		if t.DispatchWait != nil || t.WorktreeCrossing != nil || t.RecurringPass != nil {
+			problems = append(problems, errors.New("an entry carries an account of empty slots beside another note, and a note is one thing"))
+		}
+		if err := t.EmptySlots.validate(); err != nil {
 			problems = append(problems, err)
 		}
 	}
