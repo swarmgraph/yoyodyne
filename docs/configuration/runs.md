@@ -1154,7 +1154,8 @@ The order a freed dedicated slot takes work in is:
 1. work on a change a run has already written and kept, carrying its label;
 2. such work carrying any other label, or none;
 3. fresh ready work carrying its label, in the Lead Product Manager's order —
-   highest priority first, then oldest admitted;
+   highest priority first, then, within one priority, the items she placed
+   first (earliest placement first), then oldest admitted;
 4. the ordinary order every other slot uses.
 
 The first two are the operating rule that work on a change a run already wrote

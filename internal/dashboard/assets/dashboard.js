@@ -1722,11 +1722,16 @@ var standingWarningAgeSeconds = 5 * 60;
       );
     }
     var refused = standing.not_startable_problem ? [] : standing.not_startable;
+    // An item placed first among its priority says so before why it has not
+    // started; an item with no placement reads as it always did.
+    var queuedDetail = function (item) {
+      return [item.placed_first || "", item.wait_reason || ""].filter(function (part) { return part !== ""; }).join("; ");
+    };
     var withReason = function (item) { return { id: item.work_item_id, title: item.title, detail: heldSince(item, standing) + item.reason }; };
     switch (kind) {
       case "admitted":
         return listing("Admitted", "every admitted item, in the Lead Product Manager's order", standing.not_startable_problem, whatToDoAboutTheQueue(), "No work item is admitted.",
-          (standing.admitted_items || []).map(function (item) { return { id: item.work_item_id, title: item.title, detail: item.wait_reason || "" }; }));
+          (standing.admitted_items || []).map(function (item) { return { id: item.work_item_id, title: item.title, detail: queuedDetail(item) }; }));
       case "held":
         return listing("Held back", "admitted items not startable now, each with the refusal that stops it", standing.not_startable_problem, whatToDoAboutTheQueue(), "No admitted item is held back.", refused.map(withReason));
       case "pile":
@@ -1740,7 +1745,7 @@ var standingWarningAgeSeconds = 5 * 60;
         return listing("Startable", stalled.length > 0 ? "the harness is choosing nothing: " + stalled[0].reason
           : (standing.waiting_for_slot ? standing.waiting_for_slot.says + "; the harness pulls them in this order as slots free" : "the admitted items nothing refuses, which the harness pulls next in this order"),
           standing.not_startable_problem, whatToDoAboutTheQueue(), "No admitted item is startable.",
-          (standing.startable_items || []).map(function (item) { return { id: item.work_item_id, title: item.title, detail: item.wait_reason || "" }; }));
+          (standing.startable_items || []).map(function (item) { return { id: item.work_item_id, title: item.title, detail: queuedDetail(item) }; }));
       default:
         return listing(key, "", "the page asked for a grouping it does not have", "", "", []);
     }
