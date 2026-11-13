@@ -36,14 +36,16 @@ unset-only default is what makes those lines safe to run outside the harness —
 the probe and the evidence a developer records in its worktree, or your own
 hand — where the variable is not set and the whole module is what should run.
 [`scripts/check-scope.sh`](../scripts/check-scope.sh) decides what a named list
-becomes: the listed packages when the change, read from Git since its merge
-base with `main`, touches nothing else the target reads, and the whole module
-when it touches anything else outside every package — the Makefile, a script,
-the configuration — or a package the list leaves out, or cannot be read.
-Markdown outside every directory holding Go source widens neither target. For
-`make race` it is left out, and an empty list over a change made only of such
-Markdown runs the race detector over nothing and says so. For `make test` it
-adds the tests that read documents, which `DOCUMENT_TESTS` in the `Makefile`
+becomes: the listed packages and only those, with any package the change,
+read from Git since its merge base with `main`, touches that the list leaves
+out added to them. A file outside every package — the Makefile, a script, the
+configuration, a document — widens neither target; only a change Git cannot
+read runs the whole module. An empty list runs the whole module when the change
+touches such a file other than Markdown, because there are no packages to stand
+in for it. For `make race` a file outside every package is left out, and an
+empty list over a change made only of Markdown outside every directory holding
+Go source runs the race detector over nothing and says so. For `make test` it
+adds the tests that read this checkout, which `DOCUMENT_TESTS` in the `Makefile`
 names: the doccheck list [below](#what-a-document-landing-runs-make-doccheck)
 and every other test that reaches this checkout — the personas, the guides, the
 coined-term register, and the Go source some audits read — each by name, so a
@@ -494,8 +496,18 @@ forty-three minutes. `internal/orchestrator` is what needs it: with a second
 check stage running beside it, the package took 1,439 seconds under `make race`
 and up to 1,170 seconds under `make test`
 ([the record](diagnoses/yoyodyne-ifd-429-69-orchestrator-test-limit.md)), and
-on a busier machine `make race` has needed about 26.5 minutes. The figure
-stays under
+on a busier machine `make race` has needed about 26.5 minutes, and later 40 to
+46 minutes at load averages of 25 to 45, past the limit. So `make race` splits
+that package's tests into `RACE_PARTS` parts, three by default, each its own
+`go test -race` under the limit, run side by side with one `go test` for every
+other package ([`scripts/race-run.sh`](../scripts/race-run.sh)). Each part but
+the last runs the test names dealt to it, and the last runs everything the
+others do not name, so every test still runs exactly once with the race
+detector on; `scripts/race-run-test.sh` holds the script to that. On November
+11, 2026 the package as one binary took 1,395 seconds at one-minute load
+averages of 10 to 50, and split in three its parts took 839, 940 and 963
+seconds at load averages of 10 to 319. `RACE_PARTS=1` is the single run. The
+figure stays under
 [`execution.check_timeout`](configuration.md#how-long-a-check-may-take), which
 load only ever lengthens, so a hang is still reported by `go test` with its dump
 of every goroutine before the harness ends the check. This project's
