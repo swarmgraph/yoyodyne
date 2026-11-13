@@ -3016,6 +3016,15 @@ const (
 	// writes nothing to the store, and its copy is published only whole
 	// (gitworktree.ErrExportsUnprepared).
 	RetryTrackerExport = "exporting the tracker for the run's worktree"
+	// RetryCheckout is the checkout a run that has no developer cuts for itself —
+	// a document's publication, or a pinned outside file brought in. It is not
+	// waited out on the recovery window: a failure there that usually passes, such
+	// as the tracker's export stopped at its time limit or a network that dropped,
+	// is tried once more, and a second failure stops the run as the first one
+	// used to (onceMore in the orchestrator). Asking again is safe because the
+	// creation is asked with ResumeCreation and adopts a worktree the first
+	// attempt left unchanged at its base.
+	RetryCheckout = "preparing the run's checkout"
 	// RetryReplay is an approved change's replay onto a moved target that the
 	// harness stopped on its own budget, with the worktree put back on its
 	// branch (gitworktree.ErrReplayKilled). It is not a transport failure and is
