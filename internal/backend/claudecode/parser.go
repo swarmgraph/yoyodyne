@@ -204,13 +204,24 @@ func (p *streamParser) ParseLine(line string) error {
 		return nil
 	}
 	var envelope streamEnvelope
+	var repairedFrom error
 	if err := json.Unmarshal([]byte(line), &envelope); err != nil {
-		return p.plainLine(line, fmt.Errorf("decode stream event: %w", err))
+		repaired, ok := repairInvalidEscapes(line)
+		envelope = streamEnvelope{}
+		if !ok || json.Unmarshal([]byte(repaired), &envelope) != nil {
+			return p.plainLine(line, fmt.Errorf("decode stream event: %w", err))
+		}
+		repairedFrom = err
 	}
 	if envelope.Type == "" {
 		return p.plainLine(line, errors.New("decode stream event: type is required"))
 	}
 	p.sawEnvelope = true
+	if repairedFrom != nil {
+		if err := p.recordRepairedLine(line, repairedFrom); err != nil {
+			return err
+		}
+	}
 	if err := p.redactEnvelope(&envelope); err != nil {
 		return err
 	}
@@ -400,6 +411,54 @@ func (p *streamParser) RecordTruncatedLine(output execution.Output) error {
 		"anomaly": truncatedStreamLine,
 		"text":    truncate(p.redactor.Redact(output.Text)),
 	})
+}
+
+// repairedStreamLine names a provider line that was not valid JSON only because
+// a string in it held a backslash before a character JSON cannot escape, such
+// as `\[` from Markdown-escaped text in a tool result. Unlike a cut line nothing
+// is lost: the line is read with each such backslash kept as text.
+const repairedStreamLine = "repaired_stream_line"
+
+// recordRepairedLine says in the event log that a line was read only after
+// repair, with the decode error it first earned.
+func (p *streamParser) recordRepairedLine(line string, decodeErr error) error {
+	return p.emit(execution.EventProcessOutput, map[string]any{
+		"stream":  execution.StreamStdout,
+		"anomaly": repairedStreamLine,
+		"error":   truncate(decodeErr.Error()),
+		"text":    truncate(p.redactor.Redact(line)),
+	})
+}
+
+// repairInvalidEscapes doubles every backslash inside a JSON string that does
+// not begin a valid escape, so `\[` reads as the two characters it was meant to
+// be. It reports false when there was nothing to repair, leaving any other
+// malformation to fail the way it always has.
+func repairInvalidEscapes(line string) (string, bool) {
+	var out strings.Builder
+	repaired := false
+	inString := false
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case c == '"':
+			inString = !inString
+		case c == '\\' && inString:
+			if i+1 < len(line) && strings.IndexByte(`"\/bfnrtu`, line[i+1]) >= 0 {
+				out.WriteByte(c)
+				out.WriteByte(line[i+1])
+				i++
+				continue
+			}
+			out.WriteByte('\\')
+			repaired = true
+		}
+		out.WriteByte(c)
+	}
+	if !repaired {
+		return line, false
+	}
+	return out.String(), true
 }
 
 func (p *streamParser) parseSystem(envelope streamEnvelope) error {
