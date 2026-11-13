@@ -3109,7 +3109,7 @@ func renderWorkItemHead(item beads.WorkItem, goals goal.Set, trim bool) string {
 	// assignee to this machine's Git name, and printed alone it read as a person
 	// having taken the work. This view does not read the run records, so a claimed
 	// item is said to be held by a run on the tracker's word.
-	if holder := readmodel.ItemHolder(item, "", false); holder.Kind != readmodel.HeldByNobody || item.Assignee != "" {
+	if holder := readmodel.ItemHolder(item, readmodel.HolderRuns{}); holder.Kind != readmodel.HeldByNobody || item.Assignee != "" {
 		fmt.Fprintf(&rendered, "held by: %s\n", singleLine(holder.Says, maxSurveyTitleBytes))
 	}
 	if item.Parent != "" {

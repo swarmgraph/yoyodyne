@@ -219,10 +219,30 @@ unassign clears the assignee on every unfinished item where a run's
 claim set it and no run is working on the item now, and says what it cleared
 and what it left: an assignee on an item no run ever claimed was set by a
 person and is left, and so is any item a run holds. Every run now clears its
-own claim's assignee when it gives the item back; this clears the ones left
-from before it did, and is safe to run again. --dry-run says what it would
+own claim's assignee when it gives the item back, and the scheduler runs this
+clean-up once by itself for the names left from before; this runs it again by
+hand, and is safe to run any number of times. --dry-run says what it would
 clear and changes nothing.
 
 Options for export:
   --dir <path>      the checkout whose export is taken (default: this directory)`))
+}
+
+// scheduleAssignees is the one-time clearing of the assignees ended runs'
+// claims left on unfinished items, as the scheduler's pass runs it. A record
+// store that cannot be opened leaves it unwired, and the pass says nothing
+// about it; `yoyo tracker unassign` still clears the names by hand.
+func scheduleAssignees(parts components, tracker beads.Client) orchestrator.ScheduleAssignees {
+	if parts.store == nil {
+		return nil
+	}
+	records, err := runstate.NewAssigneeCleanupStore(parts.stateRoot, parts.config.Product.ID)
+	if err != nil {
+		return nil
+	}
+	return orchestrator.OnceAssigneeCleanup{
+		Cleanup:   orchestrator.AssigneeCleanup{Tracker: tracker, Runs: parts.store},
+		Records:   records,
+		ProductID: parts.config.Product.ID,
+	}
 }

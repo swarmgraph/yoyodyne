@@ -151,6 +151,18 @@ func TestReadWorkItemSaysWhatTheLatestRunCameTo(t *testing.T) {
 		t.Fatalf("a landed run reads as %+v", item.Run)
 	}
 
+	// An item a run has claimed before, whose name no claim marked, is never
+	// said to be held by a person: the name is most likely the earlier claim's.
+	assigned := &fakeItemTracker{items: map[string]beads.WorkItem{"yoyodyne-ifd.1": {ID: "yoyodyne-ifd.1", Title: "t", Status: "open", Assignee: "Mason Bryant"}}}
+	item, err = ReadWorkItem(context.Background(), WorkItemSources{Tracker: assigned, Runs: removed}, "yoyodyne-ifd.1")
+	if err != nil || item.HeldBy.Kind != HeldByNobody || !strings.Contains(item.HeldBy.Says, "earlier run's claim") {
+		t.Fatalf("an unmarked name on an item a run claimed is held by %+v (err %v)", item.HeldBy, err)
+	}
+	item, err = ReadWorkItem(context.Background(), WorkItemSources{Tracker: assigned, Runs: &fakeHistories{}}, "yoyodyne-ifd.1")
+	if err != nil || item.HeldBy.Kind != HeldByPerson {
+		t.Fatalf("an unmarked name on an item no run claimed is held by %+v (err %v)", item.HeldBy, err)
+	}
+
 	never := &fakeHistories{}
 	item, err = ReadWorkItem(context.Background(), WorkItemSources{Tracker: tracker, Runs: never}, "yoyodyne-ifd.1")
 	if err != nil || item.Run != nil || item.RunProblem != "" {

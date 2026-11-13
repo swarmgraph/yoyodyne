@@ -870,6 +870,9 @@ type Pull struct {
 	// TeamClaims keeps the claims this machine holds on the shared remote. It is
 	// nil unless the project has team mode on; see ScheduleTeamClaims.
 	TeamClaims ScheduleTeamClaims
+	// Assignees clears, once, the assignees ended runs' claims left on
+	// unfinished items (leftoverassignees.go). Optional; see ScheduleAssignees.
+	Assignees ScheduleAssignees
 	// Landings closes conversation-carried work whose landing is in the
 	// repository. Optional; see ScheduleLandings. It is re-read at every pull
 	// like everything else here, so an item whose design lands is closed at the
@@ -1417,6 +1420,12 @@ type Schedule struct {
 	// again on the next pass and stops nothing.
 	TeamClaims       *teamclaim.Upkeep `json:"team_claims,omitempty"`
 	TeamClaimProblem string            `json:"team_claim_problem,omitempty"`
+	// AssigneeCleanup is what this pass said about the one-time clearing of the
+	// assignees ended runs' claims left on unfinished items, on the pass that
+	// ran it; AssigneeCleanupProblem is why it could not run or be recorded,
+	// which the next pass tries again.
+	AssigneeCleanup        string `json:"assignee_cleanup,omitempty"`
+	AssigneeCleanupProblem string `json:"assignee_cleanup_problem,omitempty"`
 	// ReleasedSlots is the developer slots this pass let go because no live
 	// worker was behind the run counting in them (ScheduleSlotRelease), each as
 	// it was recorded on its run. SlotReleaseProblem is what could not be read or
@@ -2626,6 +2635,10 @@ pulling:
 		// runs whose claims lapse in two hours if nobody renews them
 		// (teamclaims.go).
 		s.tendTeamClaims(ctx, &schedule, pull)
+		// The names ended runs' claims left on unfinished items are cleared once,
+		// here beside the audit that gives dead claims back, so it is the harness
+		// and never a person that does it.
+		clearLeftoverAssignees(ctx, &schedule, pull)
 		// The runs this audit ended because the process carrying them died count
 		// toward the hold on new work, and count once however many there are: a
 		// machine restart ends every run it was carrying, and the first audit of
@@ -6433,6 +6446,40 @@ func (s Scheduler) audit(ctx context.Context, schedule *Schedule, pull Pull) ([]
 	return claimed, true, sweep.Died
 }
 
+// ScheduleAssignees clears the assignees ended runs' claims left on
+// unfinished items, once: RunOnce answers nil where it has already run. It is
+// satisfied by OnceAssigneeCleanup.
+type ScheduleAssignees interface {
+	RunOnce(ctx context.Context) (*runstate.AssigneeCleanupRecord, error)
+	Path() string
+}
+
+// Path is where the clean-up's record, with every item it cleared or left, is
+// kept.
+func (o OnceAssigneeCleanup) Path() string {
+	if o.Records == nil {
+		return ""
+	}
+	return o.Records.Path()
+}
+
+// clearLeftoverAssignees runs the one-time clean-up and says on the schedule
+// what it did. Like the audit, nothing here stops the pass: a clean-up that
+// failed is tried again on the next one.
+func clearLeftoverAssignees(ctx context.Context, schedule *Schedule, pull Pull) {
+	if pull.Assignees == nil {
+		return
+	}
+	record, err := pull.Assignees.RunOnce(ctx)
+	if err != nil {
+		schedule.AssigneeCleanupProblem = fmt.Sprintf("the assignees ended runs' claims left on unfinished items were not cleared, and the next pass tries again: %v", err)
+		return
+	}
+	if record != nil {
+		schedule.AssigneeCleanup = "The harness " + DescribeAssigneeCleanup(*record, pull.Assignees.Path()) + "."
+	}
+}
+
 // releaseSlots frees the developer slots no live worker is behind, before the
 // pull counts what is free, and records what it freed on the schedule. The
 // development manager is told of each from the run's own record: the health
@@ -8373,6 +8420,12 @@ func (s Schedule) Render() string {
 	}
 	if s.TeamClaimProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.TeamClaimProblem)
+	}
+	if s.AssigneeCleanup != "" {
+		fmt.Fprintf(&rendered, "%s\n", s.AssigneeCleanup)
+	}
+	if s.AssigneeCleanupProblem != "" {
+		fmt.Fprintf(&rendered, "%s\n", s.AssigneeCleanupProblem)
 	}
 	for _, released := range s.ReleasedSlots {
 		fmt.Fprintf(&rendered, "run %s of %s: %s\n", released.RunID, released.WorkItemID, released.Release.Says)

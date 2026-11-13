@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
@@ -93,5 +94,69 @@ func TestAssigneeCleanupClearsOnlyWhatClaimsLeft(t *testing.T) {
 	}
 	if len(sweep.Problems) != 1 || !reflect.DeepEqual(refusing.cleared, []string{"yoyodyne-marked"}) {
 		t.Fatalf("a refused clear: problems %v, cleared %v", sweep.Problems, refusing.cleared)
+	}
+}
+
+type assigneeRecordsFake struct {
+	kept    *runstate.AssigneeCleanupRecord
+	refuse  error
+	records int
+}
+
+func (f *assigneeRecordsFake) Load() (*runstate.AssigneeCleanupRecord, error) { return f.kept, nil }
+func (f *assigneeRecordsFake) Path() string                                   { return "/state/assignee-cleanup.json" }
+func (f *assigneeRecordsFake) Record(record runstate.AssigneeCleanupRecord) error {
+	f.records++
+	if f.refuse != nil {
+		return f.refuse
+	}
+	f.kept = &record
+	return nil
+}
+
+// The scheduler's pass clears the names by itself on its first pass, records
+// what it did and says so on the schedule, and on every later pass does
+// nothing; a pass that could not record it says so and the next one tries
+// again.
+func TestTheSchedulerClearsLeftoverAssigneesOnce(t *testing.T) {
+	t.Parallel()
+
+	tracker := &assigneeTrackerFake{items: []beads.WorkItem{
+		{ID: "yoyodyne-ran", Status: "open", Assignee: "Mason Bryant"},
+		{ID: "yoyodyne-byhand", Status: "open", Assignee: "Ada"},
+	}}
+	runs := assigneeRunsFake{{RunID: "run-old", WorkItemID: "yoyodyne-ran", Status: runstate.StatusCancelled}}
+	records := &assigneeRecordsFake{}
+	once := OnceAssigneeCleanup{
+		Cleanup:   AssigneeCleanup{Tracker: tracker, Runs: runs},
+		Records:   records,
+		ProductID: "yoyodyne",
+	}
+
+	var first Schedule
+	clearLeftoverAssignees(context.Background(), &first, Pull{Assignees: once})
+	if !reflect.DeepEqual(tracker.cleared, []string{"yoyodyne-ran"}) || records.records != 1 || records.kept == nil {
+		t.Fatalf("the first pass cleared %v and recorded %d time(s)", tracker.cleared, records.records)
+	}
+	if first.AssigneeCleanupProblem != "" || !strings.Contains(first.AssigneeCleanup, "cleared the assignee on 1 unfinished item(s)") ||
+		!strings.Contains(first.AssigneeCleanup, "left 1 a person set") || !strings.Contains(first.AssigneeCleanup, "/state/assignee-cleanup.json") {
+		t.Fatalf("the first pass said %q (problem %q)", first.AssigneeCleanup, first.AssigneeCleanupProblem)
+	}
+
+	var second Schedule
+	clearLeftoverAssignees(context.Background(), &second, Pull{Assignees: once})
+	if len(tracker.cleared) != 1 || records.records != 1 || second.AssigneeCleanup != "" || second.AssigneeCleanupProblem != "" {
+		t.Fatalf("a later pass ran the clean-up again: cleared %v, recorded %d time(s), said %q", tracker.cleared, records.records, second.AssigneeCleanup)
+	}
+
+	unrecorded := OnceAssigneeCleanup{
+		Cleanup:   AssigneeCleanup{Tracker: &assigneeTrackerFake{}, Runs: runs},
+		Records:   &assigneeRecordsFake{refuse: errors.New("disk full")},
+		ProductID: "yoyodyne",
+	}
+	var failed Schedule
+	clearLeftoverAssignees(context.Background(), &failed, Pull{Assignees: unrecorded})
+	if !strings.Contains(failed.AssigneeCleanupProblem, "the next pass tries again") || failed.AssigneeCleanup != "" {
+		t.Fatalf("a pass that could not record the clean-up said %q / %q", failed.AssigneeCleanup, failed.AssigneeCleanupProblem)
 	}
 }

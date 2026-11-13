@@ -207,11 +207,11 @@ func ReadWorkItem(ctx context.Context, sources WorkItemSources, id string) (Work
 		Notes:              found.Notes,
 	}
 	item.Run, item.RunProblem = readLatestRun(ctx, sources, found.ID, now)
-	running := ""
+	runs := HolderRuns{Read: item.RunProblem == "", Claimed: item.Run != nil}
 	if item.Run != nil && item.Run.InFlight {
-		running = item.Run.RunID
+		runs.Running = item.Run.RunID
 	}
-	item.HeldBy = ItemHolder(found, running, item.RunProblem == "")
+	item.HeldBy = ItemHolder(found, runs)
 	item.LastConsidered, item.ConsideredProblem = ReadLastConsidered(sources.Passes, found.ID)
 	return item, nil
 }

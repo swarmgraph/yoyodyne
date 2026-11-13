@@ -915,6 +915,9 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 			// says on the item, in the words the hold uses about the same run.
 			Remains: remainsOf(parts),
 		},
+		// The one-time clearing of the assignees ended runs' claims left on
+		// unfinished items, run by the pass so no person has to.
+		Assignees: scheduleAssignees(parts, tracker),
 		// In team mode, the renewal and release of the claims this machine holds
 		// on the shared remote, kept by the watch loop for the reason the audit
 		// is; nil with team mode off.

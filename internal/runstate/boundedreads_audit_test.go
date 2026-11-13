@@ -55,7 +55,7 @@ var everyRecordListings = []string{"scan", "scanning"}
 var everyRecordReadersAllowed = map[everyRecordSite]string{
 	{"internal/orchestrator/testharness/outcome.go", "OnlyRecordedRun"}:       "test support: the orchestrator's tests read what a run left behind through it, and nothing the harness runs calls it",
 	{"internal/runstate/homemigrate.go", "RewriteMigratedWorktrees"}:          "moves every run's recorded worktree path once, when the state home is moved; it is maintenance, run by the move and never by a routine pass",
-	{"internal/orchestrator/leftoverassignees.go", "(AssigneeCleanup).Sweep"}: "clears the assignees claims left on unfinished items, from `yoyo tracker unassign` run by hand; it needs every item any run ever claimed, which the index does not hold, and no routine pass calls it",
+	{"internal/orchestrator/leftoverassignees.go", "(AssigneeCleanup).Sweep"}: "clears the assignees claims left on unfinished items: once by the scheduler's pass, which records that it ran and never reads the records again, and from `yoyo tracker unassign`; it needs every item any run ever claimed, which the index does not hold",
 }
 
 // everyRecordSite is one top-level function that reads every run record.

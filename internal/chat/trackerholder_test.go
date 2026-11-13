@@ -20,8 +20,10 @@ func TestTheTrackerViewSaysWhoHoldsAnItem(t *testing.T) {
 	}{
 		{"a claim's name left behind", beads.WorkItem{ID: "yoyodyne-1", Status: "open", Assignee: "Mason Bryant", ClaimAssignee: true},
 			"held by: nobody; the assignee Mason Bryant was left by a run's claim that has ended\n"},
-		{"a person", beads.WorkItem{ID: "yoyodyne-1", Status: "open", Assignee: "Ada"},
-			"held by: a person, Ada, who set the assignee by hand\n"},
+		// This view reads no run records, so a name nothing marks is never said
+		// to be set by hand: it may be one an earlier run's claim left.
+		{"an unmarked name", beads.WorkItem{ID: "yoyodyne-1", Status: "open", Assignee: "Mason Bryant"},
+			"held by: the assignee Mason Bryant, which no run's claim recorded setting\n"},
 		{"a run's claim", beads.WorkItem{ID: "yoyodyne-1", Status: "in_progress", Assignee: "Mason Bryant", ClaimAssignee: true},
 			"held by: a run the harness started; the tracker has the item claimed for it\n"},
 	} {

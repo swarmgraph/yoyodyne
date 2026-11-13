@@ -20,8 +20,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -47,15 +49,9 @@ type AssigneeCleanup struct {
 }
 
 // LeftoverAssignee is one unfinished item that carries an assignee, and what
-// the clean-up made of it.
-type LeftoverAssignee struct {
-	WorkItemID string `json:"work_item_id"`
-	Title      string `json:"title"`
-	Status     string `json:"status"`
-	Assignee   string `json:"assignee"`
-	// Because is why the clean-up cleared it or left it, in a reader's words.
-	Because string `json:"because"`
-}
+// the clean-up made of it. It is the record's own type, so the sweep and the
+// record of the harness's one run of it say each item the same way.
+type LeftoverAssignee = runstate.LeftoverAssignee
 
 // AssigneeSweep is what one clean-up found: the assignees it cleared, or would
 // clear when it is only reporting, the ones it left because a person set them,
@@ -137,4 +133,76 @@ func (c AssigneeCleanup) Sweep(ctx context.Context, apply bool) (AssigneeSweep, 
 		sweep.Cleared = append(sweep.Cleared, entry)
 	}
 	return sweep, nil
+}
+
+// AssigneeCleanupRecords is where the harness records that it has run the
+// clean-up. It is satisfied by *runstate.AssigneeCleanupStore.
+type AssigneeCleanupRecords interface {
+	Load() (*runstate.AssigneeCleanupRecord, error)
+	Record(runstate.AssigneeCleanupRecord) error
+	Path() string
+}
+
+// OnceAssigneeCleanup is the clean-up as the scheduler runs it: once, by
+// itself, on its first pass after claims began recording their assignee, so
+// clearing the names older claims left is never a step left for a person.
+// What it did is kept in the record, which is also what stops it running
+// again; `yoyo tracker unassign` runs it again by hand where that is wanted.
+type OnceAssigneeCleanup struct {
+	Cleanup   AssigneeCleanup
+	Records   AssigneeCleanupRecords
+	ProductID domain.ProductID
+	Now       func() time.Time
+}
+
+// RunOnce clears the names, records what it did, and answers with the record;
+// it answers nil where the record says the clean-up has already run. A sweep
+// that could not read the tracker or the runs records nothing, so the next
+// pass tries again; one that ran records its refused clears among the rest.
+func (o OnceAssigneeCleanup) RunOnce(ctx context.Context) (*runstate.AssigneeCleanupRecord, error) {
+	if o.Records == nil {
+		return nil, errors.New("the clean-up of assignees runs left has nowhere to record that it ran")
+	}
+	done, err := o.Records.Load()
+	if err != nil {
+		return nil, err
+	}
+	if done != nil {
+		return nil, nil
+	}
+	sweep, err := o.Cleanup.Sweep(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now
+	if o.Now != nil {
+		now = o.Now
+	}
+	record := runstate.AssigneeCleanupRecord{
+		SchemaVersion: runstate.AssigneeCleanupSchemaVersion,
+		ProductID:     o.ProductID,
+		RanAt:         now().UTC(),
+		Cleared:       sweep.Cleared,
+		ByPerson:      sweep.ByPerson,
+		Held:          sweep.Held,
+		Problems:      sweep.Problems,
+	}
+	if err := o.Records.Record(record); err != nil {
+		if errors.Is(err, runstate.ErrAssigneeCleanupRecorded) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("the assignees runs left were cleared and what was done could not be recorded, so the next pass runs the clean-up again: %w", err)
+	}
+	return &record, nil
+}
+
+// DescribeAssigneeCleanup is what a pass prints about a clean-up it ran: the counts, and where
+// the whole list is kept.
+func DescribeAssigneeCleanup(record runstate.AssigneeCleanupRecord, path string) string {
+	said := fmt.Sprintf("cleared the assignee on %d unfinished item(s) where an ended run's claim had left it; left %d a person set and %d a run holds now",
+		len(record.Cleared), len(record.ByPerson), len(record.Held))
+	if len(record.Problems) > 0 {
+		said += fmt.Sprintf("; %d could not be cleared (yoyo tracker unassign tries them again)", len(record.Problems))
+	}
+	return said + "; every item is listed in " + path
 }
