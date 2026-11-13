@@ -462,6 +462,46 @@ func (s State) UpdatingQueuedHead() bool {
 	return cause == CauseQueuedHeadBehind || cause == CausePersonMergeBehind
 }
 
+// PutBackToCatchUpWithMergeQueue is a run that ended waiting on the harness's
+// merge queue, put back live at its developer attempt because the queue could
+// not merge its change onto a target that moved under it
+// (CauseMergeQueueBehind). The conflict is recorded as the run's one
+// reconciliation attempt before any developer is invoked, so an interrupted
+// attempt is still the one the run had: it becomes the run's only repair
+// input, the checks the change passed before the target moved are cleared,
+// and no repair attempt is counted. The caller saves it through
+// Store.ReserveLive, which takes the run's developer slot in the same act.
+func (s State) PutBackToCatchUpWithMergeQueue(conflict ReplayConflict, reason string, at time.Time) State {
+	resumed := s
+	conflict.Reconciliation = true
+	conflict.Moved = false
+	resumed.CheckFailure = nil
+	resumed.PathRefusal = nil
+	resumed.ChecksPassed = nil
+	resumed.ReplayConflict = &conflict
+	resumed.Reconciliation = &Reconciliation{
+		TargetBranch: conflict.TargetBranch, TargetCommit: conflict.TargetCommit,
+		Paths: append([]string(nil), conflict.Paths...), Omitted: conflict.Omitted,
+		UsedAt: at.UTC(),
+	}
+	resumed.IntegrationResumptions = append(append([]IntegrationResumption{}, s.IntegrationResumptions...),
+		IntegrationResumption{
+			Cause:             CauseMergeQueueBehind,
+			Reason:            reason,
+			ResumedAt:         at,
+			SupersededFailure: s.Failure,
+			SupersededBlocker: s.Blocker,
+		})
+	resumed.Failure = ""
+	resumed.Blocker = ""
+	resumed.Status = StatusRunning
+	resumed.Phase = PhaseDeveloping
+	resumed.CompletedAt = nil
+	resumed.SettledQuietSince = nil
+	resumed.UpdatedAt = at
+	return resumed
+}
+
 // CatchingUpWithMergeQueueTarget reports a run the harness's merge queue handed
 // back because the target moved under its change, which the queue put back
 // live for its one reconciliation attempt (CauseMergeQueueBehind), and which

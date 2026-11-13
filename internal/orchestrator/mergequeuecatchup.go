@@ -172,7 +172,9 @@ func (h MergeQueueRunHandback) catchUp(ctx context.Context, entry runstate.Merge
 
 // catchUpState is the run put back live at its developer attempt with the
 // conflict recorded as its one reconciliation, ahead of any developer being
-// invoked, so an interrupted attempt is still the one the run had.
+// invoked, so an interrupted attempt is still the one the run had. The move
+// itself is the run store's (runstate.State.PutBackToCatchUpWithMergeQueue);
+// this says what the conflict was and why.
 func catchUpState(state runstate.State, entry runstate.MergeQueueEntry, handback runstate.MergeQueueHandback, marker string, now time.Time) runstate.State {
 	conflict := handback.Conflict
 	paths := append([]string(nil), conflict.Paths...)
@@ -181,39 +183,14 @@ func catchUpState(state runstate.State, entry runstate.MergeQueueEntry, handback
 		omitted = len(paths) - runstate.MaxConflictedPaths
 		paths = paths[:runstate.MaxConflictedPaths]
 	}
-	live := state
-	// The conflict is the run's one repair input, and the checks it passed
-	// described the change before the target moved.
-	live.CheckFailure = nil
-	live.PathRefusal = nil
-	live.ChecksPassed = nil
-	live.ReplayConflict = &runstate.ReplayConflict{
+	recorded := runstate.ReplayConflict{
 		TargetBranch: entry.TargetBranch, TargetCommit: conflict.TargetBase, Paths: paths, Omitted: omitted,
 		Detail: boundedTail(marker+"\n"+conflict.Detail, runstate.MaxConflictDetailBytes),
-		Phase:  runstate.PhaseIntegrating, RecordedAt: now.UTC(), Reconciliation: true,
-	}
-	live.Reconciliation = &runstate.Reconciliation{
-		TargetBranch: entry.TargetBranch, TargetCommit: conflict.TargetBase, Paths: paths, Omitted: omitted,
-		UsedAt: now.UTC(),
+		Phase:  runstate.PhaseIntegrating, RecordedAt: now.UTC(),
 	}
 	reason := fmt.Sprintf("the merge queue could not merge entry %d onto %s at %s because %s moved under it (conflicting: %s), so the run was put back for its one attempt to bring the change up to date, checked and reviewed again, and admitted to the queue again; it is not a repair attempt and not a fresh run",
 		entry.Order, entry.TargetBranch, shortCommit(conflict.TargetBase), entry.TargetBranch, nonEmpty(strings.Join(paths, ", "), "no paths named"))
-	live.IntegrationResumptions = append(append([]runstate.IntegrationResumption{}, state.IntegrationResumptions...),
-		runstate.IntegrationResumption{
-			Cause:             runstate.CauseMergeQueueBehind,
-			Reason:            boundedReason(reason),
-			ResumedAt:         now,
-			SupersededFailure: state.Failure,
-			SupersededBlocker: state.Blocker,
-		})
-	live.Failure = ""
-	live.Blocker = ""
-	live.Status = runstate.StatusRunning
-	live.Phase = runstate.PhaseDeveloping
-	live.CompletedAt = nil
-	live.SettledQuietSince = nil
-	live.UpdatedAt = now
-	return live
+	return state.PutBackToCatchUpWithMergeQueue(recorded, boundedReason(reason), now)
 }
 
 // noteCatchUp tells the item once that its run is catching up with the target.
