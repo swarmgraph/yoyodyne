@@ -1570,7 +1570,10 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 			CheckConfiguration: runstate.NewMergeQueueCheckConfiguration(parts.config.Checks).Digest,
 		},
 		Completion: orchestrator.MergeQueueRunCompletion{Store: parts.store, Tracker: pipeline.Tracker},
-		Repair:     orchestrator.MergeQueueRunHandback{Store: parts.store, Tracker: pipeline.Tracker, Docket: docketerFrom(parts)},
+		Repair: orchestrator.MergeQueueRunHandback{
+			Store: parts.store, Tracker: pipeline.Tracker, Docket: docketerFrom(parts),
+			CatchUp: parts.store, Capacity: parts.config.Execution.MaxConcurrentDevelopers,
+		},
 	}
 	// What takes up the changes the queue held because the target required the
 	// forge's own merge queue: resumed at their promotion, through the same

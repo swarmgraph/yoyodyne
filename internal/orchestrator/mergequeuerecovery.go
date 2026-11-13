@@ -873,6 +873,13 @@ type MergeQueueRunHandback struct {
 	Docket *Docketer
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+	// CatchUp and Capacity are what give a change handed back only because its
+	// target moved under it its run's one attempt to catch up, in place of a
+	// stop (mergequeuecatchup.go); Capacity is
+	// execution.max_concurrent_developers. Nil, or a capacity below one, gives
+	// every such hand-back the stop instead.
+	CatchUp  MergeQueueCatchUpRuns
+	Capacity int
 }
 
 var _ MergeQueueRepair = MergeQueueRunHandback{}
@@ -899,12 +906,21 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 	if conflict := state.ReplayConflict; conflict != nil && strings.Contains(conflict.Detail, marker) && strings.TrimSpace(state.Blocker) != "" {
 		return h.docket(state)
 	}
+	// A head that would not merge only because the target moved under it is
+	// first given the run's one attempt to catch up, in place of this stop.
+	caught, notCaught, err := h.catchUp(ctx, entry, handback, state, marker)
+	if caught || err != nil {
+		return err
+	}
 	item, err := h.Tracker.Show(ctx, entry.WorkItemID)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", entry.WorkItemID, err)
 	}
 	notes := fmt.Sprintf("The merge queue handed this change back. %s\n%s\nRun %s keeps its branch %s and its approved head %s.",
 		handback.Reason, marker, entry.RunID, nonEmpty(handback.Branch, "(none recorded)"), handback.ApprovedHead)
+	if notCaught != "" {
+		notes += fmt.Sprintf(" It was not given an attempt to bring the change up to date with %s by itself, because %s.", entry.TargetBranch, notCaught)
+	}
 	if handback.Continuation == runstate.MergeQueueBudgetExhausted {
 		notes += fmt.Sprintf(" It has spent %d of its %d repair attempts, so what follows is the development manager's decision.", handback.RepairAttempts, handback.RepairBudget)
 	}

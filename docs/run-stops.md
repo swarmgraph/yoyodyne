@@ -93,13 +93,13 @@ records it yet. The failure-storm brake leaves all four out of its count, with
 other causes in this section (`runstate.StopKeptOutOfHold`); `integration-budget`
 and `provider-budget` still count.
 
-The set of causes outside the work currently has nineteen values. A named cause alone does not forgive a
+The set of causes outside the work currently has twenty-one values. A named cause alone does not forgive a
 round: normally the settlement must also find an empty delivery. With a change
 present it spends as an ordinary round does. `usage-window`,
 `check-stage-bound`, `check-time-limit`, `no-check-ran`, `install-unavailable`, and `install-never-worked` are the exceptions: they stopped before judgment, so they
 settle without treating the preserved change as delivery. A round charged by a
 previous process is not returned by this process; a return that could not be
-written is reported explicitly. These causes are classifications, not nineteen
+written is reported explicitly. These causes are classifications, not twenty-one
 more timers. Stops keep what remains of the branch and checkout; the table says
 when a usable checkout may never have existed.
 
@@ -118,6 +118,7 @@ when a usable checkout may never have existed.
 | `remote-auth-refused` | SSH or forge refused or lacked the required credential. | Integration stops with approval retained; no transport backoff on a credential refusal. A person renews the credential. Normal empty-delivery accounting. |
 | `queued-head-behind` | A queued merge fell behind its target and failed checks outside the change. | Sweep withdraws the queued merge and resumes promotion, replaying and earning fresh checks/review on the new base. It is not a finding against the old change. The update is hosted by the sweep's or forge check's own process; if a restart onto a new build or that process's time limit ends it part-way through the checks or review, the next sweep or forge check carries the update on from that step, keeping checks that already passed and charging no repair attempt. |
 | `person-merge-behind` | The target moved past a pull request waiting for a person to merge it. | The forge check withdraws the request's merge authority and resumes promotion, replaying and earning fresh checks/review on the new base before pushing to the same request. It is not a finding against the change; a replay conflict is a round under its own limit of three, not a repair attempt. Like `queued-head-behind`, an update whose hosting process ends part-way through is carried on by the next forge check from the step it reached. |
+| `merge-queue-behind` | The target moved while an approved change waited in the harness's merge queue, and the change no longer merged onto it. | The first time, the queue hands the change back to its own run for the run's one reconciliation attempt instead of stopping it: the run is put back live at its developer attempt, the reconciling sweep hosts it, the developer reconciles the conflict on top of the target, and the change earns its checks and review again and rejoins the queue by itself. No repair attempt and no fresh run is spent, and the item is told rather than blocked. A later failing check or review goes round the repair loop as any run's does. A second conflict, or a run that cannot take the attempt, is handed back as before, and the stop says why it got no attempt. While every developer slot is taken the hand-back waits for a later queue pass. |
 | `check-stage-bound` | All checks together reached the load-scaled stage limit without a verdict. | Timed out; owed current round/grant returned regardless of diff, with at most two reruns of the checks per candidate, shared with `check-time-limit`. |
 | `check-time-limit` | One check reached its own load-scaled limit without a verdict. | Timed out, the check unfinished; owed current round/grant returned regardless of diff. The checks are run again within the bounds shared with `check-stage-bound`: two reruns per candidate, within three times the check's limit; once spent, the development manager decides and the record says the cause is unresolved. |
 | `developer-settings-not-applied` | A resumed run's developer provider did not apply the sandbox, the notes guard, or the settings that keep personal configuration out. | Recorded on the run before any developer is relaunched; nothing ran, nothing is charged, and the run stays as it was, resumable once the hold on the provider lifts. A fresh dispatch refused the same way has no run to record it on; see the developer settings check below. |
@@ -354,6 +355,7 @@ describes the pass that applies those rules.
 | `internal/runstate/environmental.go` | `CauseRemoteAuthRefused` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/environmental.go` | `CauseQueuedHeadBehind` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/environmental.go` | `CausePersonMergeBehind` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
+| `internal/runstate/environmental.go` | `CauseMergeQueueBehind` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/environmental.go` | `CauseCheckStageBound` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/environmental.go` | `CauseDeveloperSettingsNotApplied` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/environmental.go` | `CauseCheckTimeLimit` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
@@ -426,6 +428,7 @@ describes the pass that applies those rules.
 | `internal/orchestrator/pipeline.go` | `(*activeRun).pauseForTracker` | `status-write` | 1 | Reports the pause as running, with change and session preserved; no terminal ending. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).pauseForOperatorHold` | `status-write` | 1 | Reports the pause as running, with change and session preserved; no terminal ending. |
 | `internal/orchestrator/queuedchecks.go` | `(Reconciler).updateQueuedHead` | `status-write` | 1 | Resumes promotion after a queued head fell behind with running status. |
+| `internal/orchestrator/mergequeuecatchup.go` | `catchUpState` | `status-write` | 1 | Puts a run whose change the harness's merge queue handed back only because the target moved under it back live at its developer attempt, for its one attempt to catch up with the target; no terminal outcome. |
 | `internal/orchestrator/recurring.go` | `(Trigger).run` | `call:finish` | 1 | Finishes a recurring firing or sets its sweep account to more; no developer run ends. |
 | `internal/orchestrator/recurring.go` | `(Trigger).run` | `status-write` | 7 | Sets a sweep account to more for unhandled critical reports, docket entries not yet delivered, a turn the provider compacted twice, a later turn that gave no closing account or that the provider failed on so the earlier turns' account is kept, or a pass stopped for a restart into a new build that keeps that account and is tried again, including at the pass's ending; no developer run ends. |
 | `internal/orchestrator/redeploydrain.go` | `(*activeRun).pauseForRedeploy` | `status-write` | 1 | Reports the pause as running, with change and session preserved; no terminal ending. |

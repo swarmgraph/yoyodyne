@@ -2692,8 +2692,14 @@ What can happen to a queued change instead:
   target's: the item a red landing files for that check is found or filed, the
   change is charged nothing, and it waits for the target to move while the
   changes behind it — the fix among them — go ahead.
-- **The change will not merge onto the target.** It is handed back as a replay
-  conflict is, so a repair moves it onto the target and asks its developer to
+- **The change will not merge onto the target.** The target moved while it
+  waited, so the first time this happens the change is handed back to its own
+  run for the run's one attempt to catch up: the run is put back to work by
+  itself, its developer reconciles the conflict on top of the target, and the
+  change is checked and reviewed again and rejoins the queue. The item is told,
+  not blocked, and no repair attempt or fresh run is spent. If the run already
+  used that attempt, it is handed back as a replay conflict is, with the item
+  saying why, so a repair moves it onto the target and asks its developer to
   reconcile it.
 - **The candidate touches a protected path its item does not grant.** It is
   handed back before any check runs on it.

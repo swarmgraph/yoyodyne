@@ -6822,8 +6822,16 @@ Where the base fails it too, the failure is the target's: the item a red landing
 files for that check on that branch is found or filed, nothing is charged to the
 change, and the entry steps aside for the entries behind it — one of which may
 be the fix — and is built afresh once the target moves. A head that will not
-merge onto the target at all is handed back the way a replay conflict is, so the
-repair continuation moves the change onto the target and asks its developer to
+merge onto the target at all, because the target moved while it waited, is
+first given its run's one reconciliation attempt rather than a stop: the run is
+put back live at its developer attempt, the reconciling sweep hosts it, its
+developer reconciles the conflict on top of the target, and the change is
+checked and reviewed again and rejoins the queue by itself, charged no repair
+attempt and no fresh run (`merge-queue-behind` in
+[run stops](run-stops.md)); while every developer slot is taken, the queue
+gives it at a later pass. A run that already used that attempt, or cannot take
+it, is handed back the way a replay conflict is, saying why, so the repair
+continuation moves the change onto the target and asks its developer to
 reconcile it. A handback no single run can take up goes on the development
 manager's docket. While the forge holds a candidate's merge, a check on the
 candidate's pull request that ended without judging the change — cancelled by

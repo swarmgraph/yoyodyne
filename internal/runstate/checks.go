@@ -462,6 +462,20 @@ func (s State) UpdatingQueuedHead() bool {
 	return cause == CauseQueuedHeadBehind || cause == CausePersonMergeBehind
 }
 
+// CatchingUpWithMergeQueueTarget reports a run the harness's merge queue handed
+// back because the target moved under its change, which the queue put back
+// live for its one reconciliation attempt (CauseMergeQueueBehind), and which
+// is still in flight on that attempt or on the checks and review after it. It
+// is a pending continuation in the claim audit's sense for the reason
+// UpdatingQueuedHead is: the reconciling sweep hosts it, and a record gone
+// still before a process takes it up is owed that, not given back.
+func (s State) CatchingUpWithMergeQueueTarget() bool {
+	if !s.Status.InFlight() || s.Integration != nil || len(s.IntegrationResumptions) == 0 {
+		return false
+	}
+	return s.IntegrationResumptions[len(s.IntegrationResumptions)-1].Cause == CauseMergeQueueBehind
+}
+
 // MaxRecordedQueuedCheckAccounts bounds the failing checks on a queued merge
 // whose account — the failing step and the end of its output — the record
 // keeps, because each one is a log read and kilobytes of record. The rest are
