@@ -3382,16 +3382,19 @@ checks:
 
 The variable says only where the changed Go files are, and this repository's
 tests also read its documents, scripts, Makefile, and configuration, so
-[`scripts/check-scope.sh`](../scripts/check-scope.sh) reads the change from Git
-and widens a target to the whole module whenever the change touches a file
-outside every package that the target reads, a package the variable does not
-name, or cannot be read at all. Markdown outside every package does not widen
-either target: it cannot change what the race detector finds, and `make test`
-runs the tests that read documents, which the Makefile's `DOCUMENT_TESTS` names,
-beside the packages instead. So a change made only of such Markdown runs the
-race check over nothing and `make test` over those tests alone, each saying so,
-and a change to code and a guide runs its packages and those tests rather than
-the whole module. A test that reads a document and is missing from that list is
+[`scripts/check-scope.sh`](../scripts/check-scope.sh) reads the change from Git.
+A named list runs those packages and only those: a package the change touches
+that the variable leaves out is added to them, and a file outside every
+package -- the Makefile, a script, the configuration, a document -- does not
+widen either target. It cannot change what the race detector finds in the
+listed packages, and `make test` runs the tests that read this checkout, which
+the Makefile's `DOCUMENT_TESTS` names, beside the packages instead. Only a
+change Git cannot read runs the whole module. An empty variable over a change
+made only of Markdown outside every package runs the race check over nothing
+and `make test` over those tests alone, each saying so; an empty variable over
+any other file outside every package runs the whole module, because there are
+no packages to stand in for it. A package that depends on a changed one, or a
+test that reads a file outside every package and is missing from that list, is
 still run by the whole check of the merge candidate before anything is
 promoted. This project names no `landing_checks`: the whole
 check of the merge candidate is the whole suite on this machine, and CI's
@@ -3568,8 +3571,8 @@ check stage says it where the check ran inside that stage, which covers the
 merge candidate's checks, and any other older run is counted as not recorded
 rather than guessed. What is counted is what the harness told the check: a
 project's own check may still run the whole module for a reason of its own —
-this repository's `scripts/check-scope.sh` does for a change to the Makefile —
-and only the check's output says so. `--json` carries the same figures.
+this repository's `scripts/check-scope.sh` does for a change to the Makefile
+that touches no Go package — and only the check's output says so. `--json` carries the same figures.
 
 What the measurements do not see: a suite run under a name `heavy_checks` does
 not give — `make check`, which runs the race suite among the others — is not in

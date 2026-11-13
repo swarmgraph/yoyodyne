@@ -36,14 +36,16 @@ unset-only default is what makes those lines safe to run outside the harness —
 the probe and the evidence a developer records in its worktree, or your own
 hand — where the variable is not set and the whole module is what should run.
 [`scripts/check-scope.sh`](../scripts/check-scope.sh) decides what a named list
-becomes: the listed packages when the change, read from Git since its merge
-base with `main`, touches nothing else the target reads, and the whole module
-when it touches anything else outside every package — the Makefile, a script,
-the configuration — or a package the list leaves out, or cannot be read.
-Markdown outside every directory holding Go source widens neither target. For
-`make race` it is left out, and an empty list over a change made only of such
-Markdown runs the race detector over nothing and says so. For `make test` it
-adds the tests that read documents, which `DOCUMENT_TESTS` in the `Makefile`
+becomes: the listed packages and only those, with any package the change,
+read from Git since its merge base with `main`, touches that the list leaves
+out added to them. A file outside every package — the Makefile, a script, the
+configuration, a document — widens neither target; only a change Git cannot
+read runs the whole module. An empty list runs the whole module when the change
+touches such a file other than Markdown, because there are no packages to stand
+in for it. For `make race` a file outside every package is left out, and an
+empty list over a change made only of Markdown outside every directory holding
+Go source runs the race detector over nothing and says so. For `make test` it
+adds the tests that read this checkout, which `DOCUMENT_TESTS` in the `Makefile`
 names: the doccheck list [below](#what-a-document-landing-runs-make-doccheck)
 and every other test that reaches this checkout — the personas, the guides, the
 coined-term register, and the Go source some audits read — each by name, so a
