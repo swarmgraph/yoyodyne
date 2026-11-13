@@ -6834,7 +6834,11 @@ never make because such a check ended that way again after being run again, or
 could not be run again, with nothing else still running, is withdrawn by the
 queue's own pass, and once the forge confirms the withdrawal the entry leaves
 the queue and the change is handed back to its run, kept, for the development
-manager to decide on. An entry that has left the queue holds up nothing behind
+manager to decide on. That limit counts from when the harness asked the forge
+for the merge, which it does only once the entry reaches the head of the queue,
+so time spent waiting behind other entries never counts toward it; the
+withdrawal says how long the forge held the merge and how long the entry was in
+the queue before that. An entry that has left the queue holds up nothing behind
 it: if its run cannot be told, the pass says so, works the entries behind it,
 and tries again on the next pass.
 
