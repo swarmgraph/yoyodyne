@@ -2683,6 +2683,21 @@ approval discharge the item, put back otherwise — and the run's own pull reque
 is closed and its branch and the queue's candidate branch are deleted from the
 remote.
 
+**The next change is checked while the current one is.** Where a candidate lands
+as exactly its own commit — a project that does not publish, whose target the
+harness moves itself — the queue builds the next waiting change's candidate on
+top of the current candidate, as if it lands, and runs its protected-path check,
+checks and independent review beside the current one's. It checks at most one
+change ahead. That candidate is a commit of its own with its own base and its
+own evidence, and it lands only if, when the promotion takes its turn, the
+target is exactly the commit it was built on. Where the change before it fails,
+is withdrawn or handed back, or lands as any other commit, what was checked
+ahead is thrown away and the change is built again on the target as it stands,
+and nobody is charged for it. A project that publishes lands every candidate
+through a pull request, which the forge lands as a merge commit of its own
+rather than as the candidate, so nothing is checked ahead there and the queue
+works one change at a time.
+
 What can happen to a queued change instead:
 
 - **The target moves under its candidate.** The candidate is built again on the

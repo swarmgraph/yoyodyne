@@ -306,6 +306,9 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 		}
 		verified, err := d.Worker.Work(ctx, key)
 		retried = append(retried, verified.CheckoutRetries...)
+		if verified.Ahead != nil {
+			retried = append(retried, verified.Ahead.CheckoutRetries...)
+		}
 		if err != nil {
 			return stopped(verified.Entry, err)
 		}

@@ -158,3 +158,40 @@ func TestAHeadTheTargetAlreadyHoldsIsNoCandidate(t *testing.T) {
 		t.Fatalf("BuildQueueCandidate() error = %v, want ErrQueueCandidateEmpty", err)
 	}
 }
+
+func TestACandidateCanBeBuiltOnAGivenCommitRatherThanTheTarget(t *testing.T) {
+	t.Parallel()
+
+	repository, head := queueRepository(t)
+	manager := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+	ctx := context.Background()
+	target := gitLine(t, repository, "rev-parse", "main")
+	// The base is a commit the target has not become: the candidate of the
+	// entry ahead, in the queue, is one.
+	runGit(t, repository, "switch", "-c", "ahead", "main")
+	writeFile(t, repository, "ahead.txt", "the change ahead\n")
+	runGit(t, repository, "add", "ahead.txt")
+	runGit(t, repository, "commit", "-m", "the candidate ahead")
+	base := gitLine(t, repository, "rev-parse", "HEAD")
+	runGit(t, repository, "switch", "main")
+
+	candidate, err := manager.BuildQueueCandidate(ctx, QueueCandidateRequest{Entry: testQueueEntry, TargetBranch: "main", Base: base, Heads: []string{head}})
+	if err != nil {
+		t.Fatalf("BuildQueueCandidate() error = %v", err)
+	}
+	if candidate.BaseCommit != base {
+		t.Fatalf("candidate base = %s, want the given commit %s", candidate.BaseCommit, base)
+	}
+	if parents := gitLine(t, repository, "rev-list", "--parents", "-n", "1", candidate.Commit); parents != candidate.Commit+" "+base+" "+head {
+		t.Fatalf("candidate parents = %q, want the given base then the approved head", parents)
+	}
+	if readFile(t, candidate.Path, "ahead.txt") != "the change ahead\n" || readFile(t, candidate.Path, "change.txt") != "the change\n" {
+		t.Fatal("the candidate does not hold both the base it was given and the change")
+	}
+	if now := gitLine(t, repository, "rev-parse", "main"); now != target {
+		t.Fatalf("main moved to %s", now)
+	}
+	if _, err := manager.BuildQueueCandidate(ctx, QueueCandidateRequest{Entry: testQueueEntry, TargetBranch: "main", Base: "ahead", Heads: []string{head}}); err == nil {
+		t.Fatal("BuildQueueCandidate() took a base that is not a full commit id")
+	}
+}

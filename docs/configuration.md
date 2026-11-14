@@ -6809,6 +6809,24 @@ candidate branch are deleted from the remote on the commit the harness last put
 there, so neither is left open; a failure to tidy them is said on the queue's
 pass and holds the landing up in nothing.
 
+**The next entry is checked while the first one is.** On a target the harness
+moves itself, in a project that does not publish, a candidate lands as exactly
+its own commit, so the queue builds the next waiting entry's candidate on top
+of the first entry's candidate, as if it lands, and runs its protected-path
+check, checks and review beside the first one's. It checks at most one entry
+ahead, and the pass lands the first entry once both are done. The candidate
+checked ahead is a commit of its own with its own recorded base, and its
+evidence is bound to it alone; it lands only if, as the promotion lease is
+taken, the target is exactly the commit it was built on. Where the entry before
+it fails, is withdrawn or handed back, or lands as any other commit, the
+candidate checked ahead is thrown away — recorded as `base_not_landed` — and
+built again on the target as it stands, and nothing is charged to its change;
+nothing found on it is handed back on its own account, and a check that fails
+on it is run on its base only once that base is the target. A project that
+publishes lands every candidate through a pull request, and the forge lands
+that with a merge commit of its own above the candidate, so the target never
+becomes the candidate: nothing is checked ahead there.
+
 **The candidate's checks and review pass the doors a run's do.** Nothing starts
 while the operator has paused harness activity (`yoyo pause`), and the review
 also waits out a provider nobody can reach, a usage limit already known for its

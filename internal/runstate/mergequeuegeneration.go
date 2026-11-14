@@ -140,6 +140,14 @@ type MergeQueueGeneration struct {
 	// ran on it.
 	CreatedAt time.Time `json:"created_at"`
 
+	// BuiltAhead is set on a candidate the worker built and checked while the
+	// entry ahead of it was still being verified: its TargetBase is that
+	// entry's candidate, not a commit the target has held. It can land only
+	// once the target is exactly that commit. It is fixed when the generation
+	// is recorded; it is not part of the binding because TargetBase already
+	// is.
+	BuiltAhead *MergeQueueAhead `json:"built_ahead,omitempty"`
+
 	// Checkout is where the candidate was checked out for its checks. It is
 	// where the candidate is, not what it is, so it is not part of the binding.
 	Checkout string `json:"checkout,omitempty"`
@@ -196,6 +204,43 @@ func (g MergeQueueGeneration) Binding() string {
 	writeBound(sum, g.Checks.Digest)
 	writeBound(sum, g.AuthorSession)
 	return hex.EncodeToString(sum.Sum(nil))
+}
+
+// MergeQueueAhead is the candidate a generation was built on while that
+// candidate's own entry was still being verified, and where the target stood
+// then. While the target is still at OnTarget the candidate ahead may yet land;
+// once the target is at the candidate itself it has landed as that commit; at
+// anything else it did not, and the generation built on it can never land.
+type MergeQueueAhead struct {
+	EntryID    string `json:"entry_id"`
+	Generation uint64 `json:"generation"`
+	Candidate  string `json:"candidate"`
+	OnTarget   string `json:"on_target"`
+}
+
+func (a *MergeQueueAhead) validate(base string) error {
+	var problems []error
+	if !mergeQueueEntryIDPattern.MatchString(a.EntryID) || a.Generation == 0 {
+		problems = append(problems, errors.New("the candidate it was built ahead on names no generation of an entry"))
+	}
+	if a.Candidate != base {
+		problems = append(problems, fmt.Errorf("it was built ahead on %q, and its base is %q", a.Candidate, base))
+	}
+	if !commitPattern.MatchString(a.OnTarget) {
+		problems = append(problems, fmt.Errorf("the target it was built ahead from, %q, is not a full commit id", a.OnTarget))
+	}
+	return errors.Join(problems...)
+}
+
+// MovedOffReason is why the generation stops being promotable when the target
+// is found off its base: a candidate built ahead on another entry's candidate
+// stops because that candidate did not land as itself, and any other because
+// the target moved.
+func (g MergeQueueGeneration) MovedOffReason() MergeQueueInvalidationReason {
+	if g.BuiltAhead != nil {
+		return MergeQueueBaseNotLanded
+	}
+	return MergeQueueTargetMoved
 }
 
 // EventStream names the generation's own event stream: what its checks and
@@ -381,10 +426,16 @@ const (
 	// MergeQueueCandidateLost is a candidate commit the repository no longer
 	// holds, so nothing could be checked or promoted from it.
 	MergeQueueCandidateLost MergeQueueInvalidationReason = "candidate_lost"
+	// MergeQueueBaseNotLanded is a candidate built ahead on another entry's
+	// candidate (MergeQueueAhead) whose base did not land as that commit: the
+	// entry ahead failed, was withdrawn or handed back, or landed as another
+	// commit, or the target moved some other way. Like a moved target it says
+	// nothing about the change and is never charged to it.
+	MergeQueueBaseNotLanded MergeQueueInvalidationReason = "base_not_landed"
 )
 
 func (r MergeQueueInvalidationReason) valid() bool {
-	return r == MergeQueueTargetMoved || r == MergeQueueChecksChanged || r == MergeQueueCandidateLost
+	return r == MergeQueueTargetMoved || r == MergeQueueChecksChanged || r == MergeQueueCandidateLost || r == MergeQueueBaseNotLanded
 }
 
 // MergeQueueInvalidation is when and why a generation stopped being
@@ -525,6 +576,11 @@ func (g MergeQueueGeneration) validateBinding() error {
 	}
 	if g.CreatedAt.IsZero() {
 		problems = append(problems, errors.New("creation time is required"))
+	}
+	if g.BuiltAhead != nil {
+		if err := g.BuiltAhead.validate(g.TargetBase); err != nil {
+			problems = append(problems, err)
+		}
 	}
 	return errors.Join(problems...)
 }
@@ -814,6 +870,9 @@ func revisable(recorded, revised MergeQueueGeneration) error {
 	}
 	if recorded.Binding() != revised.Binding() || !recorded.CreatedAt.Equal(revised.CreatedAt) {
 		return conflict("its binding is fixed when it is recorded")
+	}
+	if (recorded.BuiltAhead == nil) != (revised.BuiltAhead == nil) || (recorded.BuiltAhead != nil && *recorded.BuiltAhead != *revised.BuiltAhead) {
+		return conflict("what it was built ahead on is fixed when it is recorded")
 	}
 	if recorded.Invalidated != nil && (revised.Invalidated == nil || *revised.Invalidated != *recorded.Invalidated) {
 		return conflict("an invalidation is never withdrawn or rewritten")
