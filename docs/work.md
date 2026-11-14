@@ -451,7 +451,11 @@ treated the same way. The reviewer is asked to check callers, tests, and
 documentation, so one whose every read was refused or failed — or which wrote
 its tool calls into its reply as text, which runs nothing — judged only from
 what it was handed. A read that ran and printed nothing, such as `git status`
-on a clean worktree, counts as answered. Its verdict is kept on the run's record but not counted as a judged
+on a clean worktree, counts as answered. So does a read whose size the
+provider's stream did not report, as a Codex command can leave its output out:
+it is counted as unmeasured, never as empty, and `review.completed` and
+`review.unread` both say how many reads were tried, how many were answered, and
+how many of those were unmeasured. Its verdict is kept on the run's record but not counted as a judged
 review: the record carries `review.unread`, saying what was tried and what came
 back, in place of `review.completed`, and the review is asked for once more on
 the same budget. A second like it ends the run with that cause, and the stopped
