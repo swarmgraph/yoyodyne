@@ -640,9 +640,8 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 		unread.Verdict, _, _ = Decode([]byte(strings.TrimSpace(answer)))
 		account := UnreadRepositoryError{Attempted: reads.attempted, WrittenAsText: reads.writtenAsText}
 		recorded := request.subject()
-		recorded["attempted_reads"] = reads.attempted
+		reads.record(recorded)
 		recorded["reads_written_as_text"] = reads.writtenAsText
-		recorded["answered_reads"] = 0
 		recorded["reason"] = account.Error()
 		if unread.Verdict.Decision != "" {
 			recorded["unjudged_decision"] = unread.Verdict.Decision
@@ -737,6 +736,7 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	completed := request.subject()
 	completed["decision"] = decision
 	completed["findings"] = len(verdict.Findings)
+	reads.record(completed)
 	// Which fixtures the verdict accounted for, so what an approval covered is
 	// read back from the record rather than from the reviewer's summary prose.
 	if len(verdict.Fixtures) > 0 {

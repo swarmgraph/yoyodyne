@@ -148,11 +148,13 @@ type streamItem struct {
 	Text string `json:"text"`
 	// A tool item's status, and what each kind names about itself. Arguments
 	// and output are read only to tell a refusal from a failure, never kept.
-	Status           string `json:"status"`
-	ExitCode         *int   `json:"exit_code"`
-	AggregatedOutput string `json:"aggregated_output"`
-	Server           string `json:"server"`
-	Tool             string `json:"tool"`
+	Status   string `json:"status"`
+	ExitCode *int   `json:"exit_code"`
+	// AggregatedOutput is nil when the item carried no output field at all,
+	// which is a size the stream did not report rather than an empty output.
+	AggregatedOutput *string `json:"aggregated_output"`
+	Server           string  `json:"server"`
+	Tool             string  `json:"tool"`
 }
 
 // turnUsage is what a turn.completed reports the turn read and wrote, as
@@ -277,15 +279,19 @@ type providerMessage struct {
 	LastAgentMessage string `json:"last_agent_message"`
 	// The shell, MCP, and patch calls each identify themselves with a call id and
 	// report how they ended.
-	CallID   string          `json:"call_id"`
-	Command  []string        `json:"command"`
-	Server   string          `json:"server"`
-	Tool     string          `json:"tool"`
-	ExitCode *int            `json:"exit_code"`
-	Stdout   string          `json:"stdout"`
-	Stderr   string          `json:"stderr"`
-	Success  *bool           `json:"success"`
-	Changes  json.RawMessage `json:"changes"`
+	CallID  string   `json:"call_id"`
+	Command []string `json:"command"`
+	Server  string   `json:"server"`
+	Tool    string   `json:"tool"`
+	// The output fields are nil when the event left them out, so a call whose
+	// output the stream did not report is told apart from one that printed
+	// nothing (outputBytes).
+	ExitCode         *int            `json:"exit_code"`
+	Stdout           *string         `json:"stdout"`
+	Stderr           *string         `json:"stderr"`
+	AggregatedOutput *string         `json:"aggregated_output"`
+	Success          *bool           `json:"success"`
+	Changes          json.RawMessage `json:"changes"`
 	// token_count reports what the invocation has read and written so far, in
 	// either of the two shapes the provider has used for it.
 	Info              json.RawMessage `json:"info"`
@@ -490,16 +496,19 @@ func (p *streamParser) ParseLine(line string) error {
 		outcome := backend.ToolExecuted
 		if callFailed(message) {
 			outcome = backend.ToolFailed
-			if sandboxRefused(message.Stdout + "\n" + message.Stderr) {
+			if sandboxRefused(text(message.Stdout) + "\n" + text(message.Stderr)) {
 				outcome = backend.ToolDenied
 			}
 		}
 		p.tools.Finish(message.CallID, outcome)
-		return p.emit(execution.EventCommandCompleted, map[string]any{
-			"tool_use_id":   message.CallID,
-			"is_error":      callFailed(message),
-			"content_bytes": len(message.Stdout) + len(message.Stderr),
-		})
+		completed := map[string]any{
+			"tool_use_id": message.CallID,
+			"is_error":    callFailed(message),
+		}
+		if size, measured := commandOutputBytes(message); measured {
+			completed["content_bytes"] = size
+		}
+		return p.emit(execution.EventCommandCompleted, completed)
 	case eventTokenCount:
 		return p.parseTokenCount(message)
 	case eventContextCompacted:
@@ -784,6 +793,16 @@ func (p *streamParser) parseToolItem(eventType string, item streamItem, kind bac
 	outcome := itemOutcome(item)
 	p.tools.Finish(id, outcome)
 	payload["outcome"] = outcome
+	// The same two figures the older vocabulary's end event and the Claude Code
+	// adapter carry, so a review counts a read the same way on either
+	// (internal/review/reads.go). A call that was refused or failed answered
+	// nothing. The size is written only when the item carried its output: an
+	// item without it is a read whose size is unknown, which a review counts as
+	// unmeasured and never as empty.
+	payload["is_error"] = outcome == backend.ToolFailed || outcome == backend.ToolDenied
+	if size, measured := outputBytes(item.AggregatedOutput); measured {
+		payload["content_bytes"] = size
+	}
 	return p.emit(execution.EventCommandCompleted, payload)
 }
 
@@ -796,7 +815,7 @@ func itemOutcome(item streamItem) backend.ToolOutcome {
 	case item.Status == itemDeclined:
 		return backend.ToolDenied
 	case item.Status == itemFailed || (item.ExitCode != nil && *item.ExitCode != 0):
-		if sandboxRefused(item.AggregatedOutput) {
+		if sandboxRefused(text(item.AggregatedOutput)) {
 			return backend.ToolDenied
 		}
 		return backend.ToolFailed
@@ -997,8 +1016,9 @@ func (p *streamParser) redactMessage(message *providerMessage) {
 	message.CallID = p.redactor.Redact(message.CallID)
 	message.Server = p.redactor.Redact(message.Server)
 	message.Tool = p.redactor.Redact(message.Tool)
-	message.Stdout = p.redactor.Redact(message.Stdout)
-	message.Stderr = p.redactor.Redact(message.Stderr)
+	message.Stdout = p.redactPresent(message.Stdout)
+	message.Stderr = p.redactPresent(message.Stderr)
+	message.AggregatedOutput = p.redactPresent(message.AggregatedOutput)
 	for index := range message.Command {
 		message.Command[index] = p.redactor.Redact(message.Command[index])
 	}
@@ -1114,6 +1134,49 @@ func callFailed(message providerMessage) bool {
 	default:
 		return false
 	}
+}
+
+// outputBytes is how much output a finished call returned, over whichever of
+// the given fields the event carried, and false when it carried none of them.
+// An MCP call's end event reports its result in a field of its own and an item
+// may leave its output out, and neither is a call that printed nothing.
+func outputBytes(fields ...*string) (int, bool) {
+	total, measured := 0, false
+	for _, field := range fields {
+		if field != nil {
+			total += len(*field)
+			measured = true
+		}
+	}
+	return total, measured
+}
+
+// commandOutputBytes is how much an older-vocabulary end event says its call
+// returned. Where it carries the aggregated output, that already holds both
+// streams, so it is counted alone rather than beside them.
+func commandOutputBytes(message providerMessage) (int, bool) {
+	if message.AggregatedOutput != nil {
+		return outputBytes(message.AggregatedOutput)
+	}
+	return outputBytes(message.Stdout, message.Stderr)
+}
+
+// text is a field's value, empty when the event left it out.
+func text(field *string) string {
+	if field == nil {
+		return ""
+	}
+	return *field
+}
+
+// redactPresent redacts a field the event carried and keeps an absent one
+// absent.
+func (p *streamParser) redactPresent(field *string) *string {
+	if field == nil {
+		return nil
+	}
+	redacted := p.redactor.Redact(*field)
+	return &redacted
 }
 
 // rawOrNil keeps an absent usage object absent in the event payload rather than
