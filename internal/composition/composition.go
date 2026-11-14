@@ -99,7 +99,7 @@ var Classes = []Class{
 		ID:         ShellClass,
 		Extensions: []string{".sh"},
 		Checks:     []string{"make test"},
-		Exercised:  "parsed by a shell in composition's own repository test, so no shell file reaches a reviewer unparsed; executed where it has a suite — the release verb, the notes writer and the release page body, and the install script — each run from a Go test rather than from a CI step after integration, and the adoption walkthrough for the one refusal of it that needs no tracker; and read by internal/doclink for the documentation fragments it cites.",
+		Exercised:  "parsed by a shell in composition's own repository test, so no shell file reaches a reviewer unparsed; executed where it has a suite — the release verb, the notes writer and the release page body, and the install script — each run from a Go test rather than from a CI step after integration, and the getting-started walkthrough for the one refusal of it that needs no tracker; and read by internal/doclink for the documentation fragments it cites.",
 	},
 	{
 		ID:        "makefile",
@@ -129,7 +129,7 @@ var Classes = []Class{
 		ID:         "path-list",
 		Extensions: []string{".paths"},
 		Checks:     []string{"make test"},
-		Exercised:  "the lists of what a path check vouches for, which the harness reads to decide whether a change runs that check. internal/checks reads this repository's own through the same parser the harness uses, so a line that is not a pattern fails there rather than at the check stage of whatever run touches it, and holds the adoption walk's list to covering the README and the program it documents and to leaving out what is neither.",
+		Exercised:  "the lists of what a path check vouches for, which the harness reads to decide whether a change runs that check. internal/checks reads this repository's own through the same parser the harness uses, so a line that is not a pattern fails there rather than at the check stage of whatever run touches it, and holds the getting-started walk's list to covering the README and the program it documents and to leaving out what is neither.",
 	},
 	{
 		ID:          "jsonl",

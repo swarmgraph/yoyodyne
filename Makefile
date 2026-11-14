@@ -55,7 +55,7 @@ PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64
 # outgrows it is a package to split.
 TEST_TIMEOUT ?= 43m
 
-.PHONY: build test race vet fmt fmtcheck cachecheck check doccheck adoption validate-machine-home codex-resume dist dist-verify clean-dist release release-notes
+.PHONY: build test race vet fmt fmtcheck cachecheck check doccheck getting-started adoption validate-machine-home codex-resume dist dist-verify clean-dist release release-notes
 .NOTPARALLEL: check
 
 # Every Go command below writes what it compiles to the build cache before it
@@ -311,9 +311,9 @@ DOCCHECK_TESTS = \
 DOCUMENT_TESTS = $(DOCCHECK_TESTS) \
 	./internal/authority='^(TestThisRepositoryOwnAuthorityChecksAreListed)$$' \
 	./internal/chat='^(TestADecodedLaneReportAndDigestCarryCorrectionsToTheirPass|TestAnInteractiveConversationFlagsADigestAsSoonAsItIsFiled|TestConversationPostMortemsAreFlaggedWhetherStreamedOrHeld|TestStreamingFlagsTheWordsShownBeforeATurnIsCutOff|TestTheConversationReportsListingFlagsADigestsWords|TestTheReleaseNotesReadTheAdmissionsThisPackageWrites)$$' \
-	./internal/checks='^(TestTheAdoptionWalksListCoversTheReadmeAndTheProgram)$$' \
+	./internal/checks='^(TestTheGettingStartedWalksListCoversTheReadmeAndTheProgram)$$' \
 	./internal/cli='^(TestAFailedOneShotTurnStillFlagsItsCollectedDigest|TestAOneShotConversationFlagsADigestAsSoonAsItIsFiled|TestAReleasesNotesSayWhatLanded|TestChatResolvesTheConfiguredProductManager|TestEveryConversationOpensThroughTheCallThatCarriesTheDefinitionsToolSet|TestEveryHarnessOpeningIsWrittenByTheHarness|TestEveryReaderOfAgentsLoadsThroughTheActivationRecord|TestNothingOpensTheStateRootUnguarded|TestPipelineGivesChecksTheConfiguredBudget|TestPipelineIsWiredToLandAndToFileARedLanding|TestRepositoryConfigurationEnforcesAutomaticIntegration|TestTheAccountScriptRefusesWithoutAYoyoToAsk|TestTheAccountScriptSignsInWhereTheHarnessReadsTheAccount|TestTheChecksNarrowOnlyToWhatTheChangeCanReach|TestTheRaceCheckRunsEveryOrchestratorTestOnceWhenSplit|TestTheRaceCheckSkipsOnlyChangesThatCannotReachGo|TestTheReleaseVerbExcusesOnlyExportsARunAllows|TestTheReleaseVerbRefusesWhatItShould|TestTheReleaseWorkflowPublishesTheCuratedNotesAlone|TestTheReportsCommandFlagsWordsInADigestAndItsHandling|TestTheSetupSkillExampleIsAReportThisBuildCouldHaveProduced|TestTheSetupSkillIsWrittenAgainstTheSchemaThisBuildEmits|TestTheSetupSkillNamesEveryFieldOfTheReportsItActsOn|TestTheSweepListingFlagsTheSummaryQuestionsAndFindings|TestThisRepositoryOwnOperatorsBindTheirNamespaces|TestThisRepositorySlackAllowListDerivesFromItsGrants)$$' \
-	./internal/composition='^(TestEveryShellFileInThisRepositoryParses|TestEveryStructuredFileInThisRepositoryDecodes|TestEveryTestThatReadsThisCheckoutIsAmongTheDocumentTests|TestEveryTestTheDoccheckTargetNamesExists|TestEveryTestTheDocumentTestsNameExists|TestEveryWorkflowInThisRepositoryIsShapedLikeOne|TestEveryWorkflowInThisRepositoryPinsWhatItInstalls|TestFmtcheck|TestTheAdoptionWalkthroughRefusesAScratchRootInsideARepository|TestTheCodexResumeCheckRunsOnlyForTheCodexAdapter|TestTheCodexResumeTargetSaysWhenItCouldNotRun|TestTheDoccheckTargetRunsEveryEntryAndFailsIfAnyFails|TestTheDocumentChecksAreTheDoccheckTarget|TestTheInstallScriptDoesWhatItSaysOnAMachineThatHasNothing|TestTheSessionInstructionFilesAreOneFile|TestTheSessionInstructionsCarryNoGeneratedTrackerSection|TestTheSessionInstructionsSayWhoseTheyAre)$$' \
+	./internal/composition='^(TestEveryShellFileInThisRepositoryParses|TestEveryStructuredFileInThisRepositoryDecodes|TestEveryTestThatReadsThisCheckoutIsAmongTheDocumentTests|TestEveryTestTheDoccheckTargetNamesExists|TestEveryTestTheDocumentTestsNameExists|TestEveryWorkflowInThisRepositoryIsShapedLikeOne|TestEveryWorkflowInThisRepositoryPinsWhatItInstalls|TestFmtcheck|TestTheGettingStartedWalkthroughRefusesAScratchRootInsideARepository|TestTheCodexResumeCheckRunsOnlyForTheCodexAdapter|TestTheCodexResumeTargetSaysWhenItCouldNotRun|TestTheDoccheckTargetRunsEveryEntryAndFailsIfAnyFails|TestTheDocumentChecksAreTheDoccheckTarget|TestTheInstallScriptDoesWhatItSaysOnAMachineThatHasNothing|TestTheSessionInstructionFilesAreOneFile|TestTheSessionInstructionsCarryNoGeneratedTrackerSection|TestTheSessionInstructionsSayWhoseTheyAre)$$' \
 	./internal/config='^(TestEveryPersonaNamesTheReasonsTheResolverAccepts|TestNothingButTheMigrationNamesTheEarlierConfigurationsHome|TestNothingOnTheLaunchOrInstructionPathReadsTheMCPConfiguration|TestPersonasAndPassPromptsApplyStandingGoals|TestPersonasPassPromptsAndRemitWriteForAPerson|TestRemitsApplyStandingGoals|TestReviewerPersonaJudgesEveryChangeAgainstStandingGoals|TestSchemaKeysReadEveryKeyTheTemplateAndThisProjectWrite|TestThisProjectsArchitectPassUsesPriorityThenAgeEvery45Minutes|TestThisRepositorysPersonasCarryEveryTemplatePassage)$$' \
 	./internal/contextbundle='^(TestTheHarnessRecognizesThisRepository)$$' \
 	./internal/directive='^(TestEveryReadOfADirectiveDispositionIsAudited)$$' \
@@ -348,7 +348,7 @@ doccheck: cachecheck
 # The README's "Getting started" executed against a throwaway project that is
 # neither this one nor written in Go, so that section is verified rather than
 # asserted. It is the gate on a change to the README's install or
-# getting-started sections, and CI runs it on every change: the `adoption` job
+# getting-started sections, and CI runs it on every change: the `getting-started` job
 # in .github/workflows/ci.yml installs `bd` and calls this target, so the gate
 # is enforced rather than left to somebody remembering it.
 #
@@ -358,10 +358,17 @@ doccheck: cachecheck
 # for a change touching a path scripts/walk-adoption.paths lists;
 # docs/developing-yoyo.md says when.
 #
-#   make adoption                    every step that needs no provider
-#   WALK_PROVIDER=1 make adoption    also hand an item to a developer agent
-adoption:
-	scripts/walk-adoption.sh
+#   make getting-started                    every step that needs no provider
+#   WALK_PROVIDER=1 make getting-started    also hand an item to a developer agent
+getting-started:
+	scripts/walk-getting-started.sh
+
+# `adoption` is this walk's old name. It stays only because
+# .yoyodyne/config.yaml names `make adoption` and scripts/walk-adoption.paths
+# under `path_checks`, and that file is changed by hand; once it names
+# `make getting-started` and scripts/walk-getting-started.paths, this target
+# goes and the paths file takes the new name.
+adoption: getting-started
 
 # The validation project: fresh repositories holding none of the harness's
 # files, each under a home directory of its own, held to the seven checks the
@@ -369,7 +376,7 @@ adoption:
 # October 13, and the first-use measurements. The machine home design's own
 # validation section numbers and scopes its checks differently;
 # docs/developing-yoyo.md names what of it this does not cover. It fails when any of checks 1 to 6 does; check 7
-# waits on the contributor-mode work. Like `adoption` it stays out of `check`,
+# waits on the contributor-mode work. Like `getting-started` it stays out of `check`,
 # and docs/developing-yoyo.md says why CI does not run it yet.
 validate-machine-home:
 	scripts/validate-machine-home.sh
@@ -462,7 +469,7 @@ dist-verify: dist
 
 # Cutting one release, gate included. `dist` is what a release consists of;
 # this is the one invocation around it that makes a daily cadence cheap enough
-# to keep and safe enough to trust: the adoption walkthrough and `check` green
+# to keep and safe enough to trust: the getting-started walkthrough and `check` green
 # first, then the archives and checksums for the tag, then the tag itself, on
 # the commit origin's default branch already holds -- the cut writes nothing to
 # that branch. A red gate refuses the cut, names what was red, and writes

@@ -73,13 +73,14 @@ the machine's load;
 is the arithmetic, and [where the whole suite runs](configuration.md#where-the-whole-suite-runs)
 is the arrangement.
 
-`make adoption` is the fifth thing and deliberately not one of them. It runs
-[`scripts/walk-adoption.sh`](../scripts/walk-adoption.sh), which executes the
+`make getting-started` is the fifth thing and deliberately not one of them. It
+runs [`scripts/walk-getting-started.sh`](../scripts/walk-getting-started.sh),
+which executes the
 README's "Getting started" against a throwaway Python project — its own scratch
 repository and state directory, removed when it exits — and asserts what each
 step is documented to do. It is the gate on a change to the README's install or
 getting-started sections, and it is a merge gate rather than a habit: the
-`adoption` job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
+`getting-started` job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 installs `bd` — at [a pinned version this repository
 owns](#the-tracker-version-ci-pins) — and runs this target on every pull
 request. On a machine with no `bd` at all, the walk fetches that same pinned
@@ -92,9 +93,15 @@ The harness runs it too, for the changes that can break it, once
 
 ```yaml
 path_checks:
-  - command: make adoption
+  - command: make getting-started
     paths: scripts/walk-adoption.paths
 ```
+
+The walk was called `adoption` until it was renamed for the README section it
+walks. This repository's own `.yoyodyne/config.yaml` still names it
+`make adoption`, which the Makefile keeps as another name for
+`make getting-started` until a person changes that file, and the paths list
+keeps its old name, `scripts/walk-adoption.paths`, for the same reason.
 
 It stays out of
 `check`, which every run applies to every change, because most changes touch
@@ -104,7 +111,7 @@ every time. Instead it is a [path check](configuration.md#checks-a-change-runs-o
 place the paths it vouches for are declared — the README, the walk itself, the
 Makefile and module files, and the program under `cmd` and `internal` less its
 tests and test fixtures — and a run whose change touches any of them runs
-`make adoption` after the four declared checks, as a fifth check whose result
+the walk after the four declared checks, as a fifth check whose result
 the review is shown. A change touching none of them, a document elsewhere or a
 test, does not pay for it, and a change that edits the list runs the walk
 whatever the edited list says. With that entry in the configuration, this closes
@@ -123,7 +130,7 @@ to clone it over the network. A `TMPDIR` pointing into a repository — an agent
 run's scratch directory under `.git/worktrees` is the case this came from — is
 refused up front, naming the enclosing repository, rather than dying at the
 tracker step with nothing in the log.
-[`scripts/walk-adoption-output.md`](../scripts/walk-adoption-output.md) is the
+[`scripts/walk-getting-started-output.md`](../scripts/walk-getting-started-output.md) is the
 last recorded walk, kept from the README split as a readable record of what the
 walkthrough actually prints; CI is what re-runs it now, so the file is a
 snapshot rather than the evidence anything rests on.
@@ -154,7 +161,7 @@ holds through the harness's own run store, for at most two minutes. Like the
 walk it needs a scratch root outside every Git repository. CI does not run it
 yet, because checks 1, 5 and 6 fail on behaviour the harness does not have yet,
 and a job that failed on every pull request would stop every change; the job
-joins `adoption` in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
+joins `getting-started` in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 once those checks pass. [The machine home design's own
 validation](designs/machine-home.md#validation) numbers and scopes its checks
 differently, and two of them are not covered here: its check 5, `yoyo project
@@ -236,8 +243,8 @@ added to that list in the same change**, and to the table above. A test missing
 from it still runs in every ordinary run's `make test`, so it is found, but only
 after a document that breaks it has landed. Everything else GitHub runs on a
 pull request — the build, the release archives, the release and install
-scripts' suites, and the adoption walk — works on this repository's code or on
-scratch projects of its own, so a document landing that passes `make doccheck`
+scripts' suites, and the getting-started walk — works on this repository's code
+or on scratch projects of its own, so a document landing that passes `make doccheck`
 does not then fail there on account of its document.
 
 ## What a checkout needs besides Go
@@ -298,14 +305,14 @@ it wrote.
 
 ## The tracker version CI pins
 
-The `adoption` job installs `bd` from a prebuilt upstream release at a pinned
+The `getting-started` job installs `bd` from a prebuilt upstream release at a pinned
 version: `BD_VERSION` in
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), one line, used both
 to build the download URL and to check that the binary which arrived is the one
 that was asked for. Nothing in CI follows the upstream's release schedule, and
 that is the whole point of the line: on 2026-09-05 an unpinned
 `go install …@latest` moved and turned every pull request here red at a step
-nobody had changed, where it read as a broken adoption walkthrough rather than
+nobody had changed, where it read as a broken getting-started walkthrough rather than
 as somebody else's release.
 
 The pin is this repository's, not the upstream's. There is nobody to ask and
@@ -316,7 +323,7 @@ version that needs bumping.
 
 To bump it deliberately:
 
-1. Edit `BD_VERSION` in the `adoption` job. It is the only place the version is
+1. Edit `BD_VERSION` in the `getting-started` job. It is the only place the version is
    written; the URL and the check on the installed binary both read it.
 2. Install that version locally and run the checks that pin what the harness
    assumes of `bd`:
@@ -330,7 +337,7 @@ To bump it deliberately:
    on this repository's inputs rather than on which `bd` answered, so a rerun
    after installing a different version can otherwise replay the old pass.
 3. Open the change. CI runs those same checks against the pinned binary, before
-   it walks the adoption path.
+   it walks the README's getting-started steps.
 
 That third step is what a bad bump fails, and it fails naming the assumption the
 new version broke rather than the walkthrough — the walkthrough never runs. A
@@ -729,7 +736,7 @@ Go check has ever run a line of bash.
 | A claim in the release verb's own suite, [`scripts/cut-release-test.sh`](../scripts/cut-release-test.sh), that no longer holds | `internal/cli` (`release_repository_test.go`) | Read the claim it named and fix `scripts/cut-release.sh`. The verb is shell, so no other check here executes it, and its value is entirely in cuts it refuses — a refusal first exercised on the day it was needed is one nobody had. |
 | A claim in the notes writer's own suite, [`scripts/release-notes-test.sh`](../scripts/release-notes-test.sh), that no longer holds | `internal/cli` (`release_repository_test.go`) | Read the claim it named and fix `scripts/release-notes.sh` or `scripts/release-body.sh`. The same argument as the row above, for the other half of the release path: what a release page publishes would otherwise first execute during a publication. |
 | The release verb excusing from its clean-tree check a derived export that a run does not declare as churn the primary checkout may acquire | `internal/cli` (`release_repository_test.go`) | Either declare the path in `AllowedPrimaryChanges` as well, or take it back out of `derived_exports`. The containment is one-way on purpose: a run may come to tolerate a path the cut has no business leaving dirty under a tag, so widening the run's list alone is fine and widening the cut's alone is not. |
-| A shell file a shell will not parse — every `.sh` here, the tools in `bin`, and the hooks the tracker installs | `internal/composition` | Fix the syntax. Parsing is `bash -n`, which reads a script and runs none of it, so it is safe to point at the release verb and the adoption walkthrough. It is the floor rather than the gate: shell with a suite gets executed as well. |
+| A shell file a shell will not parse — every `.sh` here, the tools in `bin`, and the hooks the tracker installs | `internal/composition` | Fix the syntax. Parsing is `bash -n`, which reads a script and runs none of it, so it is safe to point at the release verb and the getting-started walkthrough. It is the floor rather than the gate: shell with a suite gets executed as well. |
 | A claim in the install script's own suite, [`scripts/install-test.sh`](../scripts/install-test.sh), that no longer holds — including the `dist` target and [`scripts/install.sh`](../scripts/install.sh) disagreeing about the platforms a release covers, the archive's name, what it holds, or how `checksums.txt` is written | `internal/composition` | Read the claim it named and fix `scripts/install.sh`, or the Makefile line it drifted from. The script is the README's first line and the one part of the install path that is not the binary, because it is the part that fetches the binary; the suite runs it against a fabricated release and a fabricated machine — `curl` and `uname` are stubs on `PATH`, the releases are files under a temporary root — so a platform with no release binary, a download that does not match the published checksums, a `PATH` the binary is not on, and a missing prerequisite are executed rather than asserted, with no network and no published release. The fixtures are packaged the way the installer unpacks, so they cannot disagree with it; the Makefile is the one place the two can drift, and the last block of the suite compares them directly. |
 | A YAML or JSON file that does not decode | `internal/composition` | Fix the file. What each one means belongs to whatever reads it — Claude Code, Codex, the tracker, the harness — but one that nothing can parse is this repository's defect whoever owns the schema, and it is not a defect a reviewer reading a diff reliably sees. |
 | A workflow that is not shaped like one — no trigger, no jobs, or a job with no runner or no steps | `internal/composition` | Fix the workflow. Decoding is not enough for these: the release workflow is triggered by a tag push, so what is wrong with it would otherwise first misbehave during a real publication. |
@@ -943,7 +950,7 @@ git push origin v0.3.0
 
 It gates on [this release's notes](releases/README.md), on [release
 readiness](#release-readiness) and on that result being in the notes `main`
-holds, walks [the documented adoption path](../scripts/walk-adoption.sh), runs
+holds, walks [the README's getting-started steps](../scripts/walk-getting-started.sh), runs
 `check`, builds and verifies the archives for `<tag>`, then tags the commit
 they were built from — in that order, so a red gate refuses the cut, names what
 was red, and leaves nothing to undo. It also refuses a tag that is not
