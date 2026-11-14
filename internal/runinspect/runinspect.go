@@ -33,7 +33,11 @@ const Fence = "```yoyodyne-run"
 const (
 	// MaxRecordBytes is where an inspected run record is cut, with the cut
 	// declared and the whole size named.
-	MaxRecordBytes      = 48 << 10
+	MaxRecordBytes = 48 << 10
+	// MaxStopReasonBytes is where the stop reason given beside the record is
+	// cut, with the cut declared. The record keeps each of its texts within a
+	// few KiB, so a reason the record holds is given whole.
+	MaxStopReasonBytes  = 16 << 10
 	MaxRequestsPerReply = 4
 	MaxRoundsPerMessage = 2
 	// MaxInspectionBytes bounds one inspection as it is handed back. The record
@@ -174,7 +178,7 @@ const (
 // InspectDescriptor and VerifyDescriptor are the two tools' descriptors.
 func InspectDescriptor() action.Tool {
 	return action.Tool{ID: capability.RunInspect, Block: strings.TrimPrefix(Fence, "```"), Class: action.ToolRead,
-		Parameters: `JSON such as {"requests":[{"action":"inspect","run":"run-1a2b3c4d"}]}, one run per request. It returns the run record cut at 48 KiB with the cut and the whole size declared; the stamp of the process holding the run's lease; the worker's identity (process number, start time, build, run and attempt) and whether it is live, absent, or uncertain; whether the branch and the worktree exist; whether the run still reserves its work item and a slot; any wait and what releases it; and the last continuation and the last refusal to continue. Unknown fields and invalid requests refuse the whole block.`,
+		Parameters: `JSON such as {"requests":[{"action":"inspect","run":"run-1a2b3c4d"}]}, one run per request. It returns the run record cut at 48 KiB with the cut and the whole size declared; for a run that stopped, the whole reason it stopped as stop_reason, apart from the record so the record's cut never cuts it; the stamp of the process holding the run's lease; the worker's identity (process number, start time, build, run and attempt) and whether it is live, absent, or uncertain; whether the branch and the worktree exist; whether the run still reserves its work item and a slot; any wait and what releases it; and the last continuation and the last refusal to continue. Unknown fields and invalid requests refuse the whole block.`,
 		Bounds:     action.ToolBounds{RequestsPerReply: MaxRequestsPerReply, RoundsPerMessage: MaxRoundsPerMessage, BytesPerRequest: MaxInspectionBytes, BytesPerReply: MaxBytesPerReply},
 		Scope:      scope, Gates: gates, Framing: framing}
 }
