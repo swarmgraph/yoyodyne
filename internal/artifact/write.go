@@ -339,25 +339,100 @@ func Owned(role domain.AgentRole) []Kind {
 // the same reason a report's does: the reply is the role's actual output, and a
 // block the harness could not read must not cost the operator the answer.
 func ExtractWrites(reply string) (string, []Write, error) {
+	rest, block, err := ExtractDocumentBlock(reply)
+	return rest, block.Writes, err
+}
+
+// ExtractDocumentBlock is ExtractWrites for the whole of what the block may ask:
+// documents to write, the role's own waiting documents to withdraw, and a list
+// of them to be shown.
+func ExtractDocumentBlock(reply string) (string, DocumentBlock, error) {
 	block, err := fenced.Split(reply, WriteFence, "artifact")
 	if err != nil {
-		return block.Before, nil, err
+		return block.Before, DocumentBlock{}, err
 	}
 	if !block.Found {
-		return block.Before, nil, nil
+		return block.Before, DocumentBlock{}, nil
 	}
-	writes, err := DecodeWrites(block.Payload)
+	decoded, err := DecodeDocumentBlock(block.Payload)
 	if err != nil {
-		return block.Before, nil, err
+		return block.Before, DocumentBlock{}, err
 	}
-	return block.Rest, writes, nil
+	return block.Rest, decoded, nil
 }
 
 // writeDocument is the payload shape of the fenced block. It carries a list
 // even though only one is accepted, so the block reads as the others do and a
 // role that sends two is told the bound rather than silently having one written.
+//
+// Withdraw and List are the block's other two requests, both about the role's
+// own documents still waiting in its conversation: withdraw takes back one whose
+// run has not started, and list asks for every one of them and where it stands.
 type writeDocument struct {
-	Documents []Write `json:"documents"`
+	Documents []Write      `json:"documents,omitempty"`
+	Withdraw  []Withdrawal `json:"withdraw,omitempty"`
+	List      bool         `json:"list,omitempty"`
+}
+
+// Withdrawal is a role taking back one of its own waiting documents: which
+// write, by the identifier the harness gave it (document-turn.position), and
+// why. The reason is required, because it is what the operator reads.
+type Withdrawal struct {
+	Write  string `json:"write"`
+	Reason string `json:"reason"`
+}
+
+// MaxWaitingDocuments is how many documents one role may keep waiting, under
+// the ruling on the route documents land by
+// (docs/designs/document-landing-route.md, rule 5); runstate.MaxPendingWrites
+// is the same number, where the conversation's record enforces it.
+// MaxWithdrawalsPerReply bounds one block's withdrawals at that number, so one
+// block can clear all of them.
+const (
+	MaxWaitingDocuments    = 8
+	MaxWithdrawalsPerReply = MaxWaitingDocuments
+)
+
+// DocumentBlock is one decoded artifact block.
+type DocumentBlock struct {
+	Writes   []Write
+	Withdraw []Withdrawal
+	List     bool
+}
+
+// Empty reports a block that asks for nothing, which is the same as no block.
+func (b DocumentBlock) Empty() bool {
+	return len(b.Writes) == 0 && len(b.Withdraw) == 0 && !b.List
+}
+
+// DecodeDocumentBlock strictly decodes the block payload, as DecodeWrites does,
+// and accepts a block carrying no document where it withdraws or lists instead.
+func DecodeDocumentBlock(payload string) (DocumentBlock, error) {
+	decoded, err := decodeWriteDocument(payload)
+	if err != nil {
+		return DocumentBlock{}, err
+	}
+	if len(decoded.Withdraw) > MaxWithdrawalsPerReply {
+		return DocumentBlock{}, fmt.Errorf("decode artifact writes: %d withdrawals in one reply, limit is %d", len(decoded.Withdraw), MaxWithdrawalsPerReply)
+	}
+	var problems []error
+	for index, withdrawal := range decoded.Withdraw {
+		if strings.TrimSpace(withdrawal.Write) == "" {
+			problems = append(problems, fmt.Errorf("withdraw[%d]: write is required, as the document's identifier in this conversation (document-turn.position)", index))
+		}
+		if strings.TrimSpace(withdrawal.Reason) == "" {
+			problems = append(problems, fmt.Errorf("withdraw[%d]: reason is required", index))
+		}
+	}
+	if len(problems) > 0 {
+		return DocumentBlock{}, fmt.Errorf("invalid artifact withdrawals: %w", errors.Join(problems...))
+	}
+	block := DocumentBlock{Withdraw: decoded.Withdraw, List: decoded.List}
+	if len(decoded.Documents) == 0 && !block.Empty() {
+		return block, nil
+	}
+	block.Writes, err = checkWrites(decoded)
+	return block, err
 }
 
 // DecodeWrites strictly decodes the block payload. Unknown fields, trailing
@@ -365,24 +440,42 @@ type writeDocument struct {
 // operator is asked to approve, and what is then written into the repository,
 // has to be exactly what the role wrote.
 func DecodeWrites(payload string) ([]Write, error) {
+	decoded, err := decodeWriteDocument(payload)
+	if err != nil {
+		return nil, err
+	}
+	if len(decoded.Withdraw) > 0 || decoded.List {
+		return nil, errors.New("decode artifact writes: this block may carry only documents")
+	}
+	return checkWrites(decoded)
+}
+
+// decodeWriteDocument is the strict decoding both readers of the block share.
+func decodeWriteDocument(payload string) (writeDocument, error) {
 	trimmed := strings.TrimSpace(payload)
 	if trimmed == "" {
-		return nil, errors.New("decode artifact writes: the artifact block is empty")
+		return writeDocument{}, errors.New("decode artifact writes: the artifact block is empty")
 	}
 	if len(trimmed) > MaxWriteBlockBytes {
-		return nil, fmt.Errorf("decode artifact writes: block is %d bytes, limit is %d", len(trimmed), MaxWriteBlockBytes)
+		return writeDocument{}, fmt.Errorf("decode artifact writes: block is %d bytes, limit is %d", len(trimmed), MaxWriteBlockBytes)
 	}
 	decoder := json.NewDecoder(bytes.NewReader([]byte(trimmed)))
 	decoder.DisallowUnknownFields()
 	var decoded writeDocument
 	if err := decoder.Decode(&decoded); err != nil {
-		return nil, fmt.Errorf("decode artifact writes: %w", err)
+		return writeDocument{}, fmt.Errorf("decode artifact writes: %w", err)
 	}
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return nil, errors.New("decode artifact writes: unexpected trailing content after the documents")
+		return writeDocument{}, errors.New("decode artifact writes: unexpected trailing content after the documents")
 	}
+	return decoded, nil
+}
+
+// checkWrites holds a decoded block's documents to the bound on one reply and
+// to each document's own shape.
+func checkWrites(decoded writeDocument) ([]Write, error) {
 	if len(decoded.Documents) == 0 {
-		return nil, errors.New("decode artifact writes: an artifact block must carry at least one document")
+		return nil, errors.New("decode artifact writes: an artifact block must carry at least one document, or a withdrawal or a list of your waiting documents")
 	}
 	if len(decoded.Documents) > MaxWritesPerReply {
 		return nil, fmt.Errorf("decode artifact writes: %d documents in one reply, limit is %d",
@@ -683,7 +776,9 @@ The kinds you may write, and where this project files each of them, are ` + stri
 ` + invariants + `
 When you write it, the body is checked for a coined word or compound the project's register of terms does not define, and for a link to a file or heading that is not there. Either refuses the document back to you in the same message, naming each one and its line in the body; reword or register it, mend the link, and write the document again.
 
-Automatic publication leaves no uncommitted document in the primary checkout. If checks fail, review refuses it, or target changes conflict, the findings return to this conversation for you to revise; no developer rewrites it and no operator decision is requested. A revision opens a fresh run. After three returned runs for one document in this conversation, automatic publication stops and you must revise your plan. A document the operator approves lands the same way, through its own reviewed run with the operator's approval recorded in it, wherever the project integrates automatically from its own repository. Never claim that a document landed until the harness reports it.
+Automatic publication leaves no uncommitted document in the primary checkout. If checks fail, review refuses it, or target changes conflict, the findings return to this conversation for you to revise; no developer rewrites it and no operator decision is requested. A revision opens a fresh run. After three returned runs for one document in this conversation, automatic publication stops and you must revise your plan.
+
+Each document keeps one waiting revision, and you keep at most ` + fmt.Sprintf("%d", MaxWaitingDocuments) + ` waiting documents; a ninth is refused with the reason. A new revision of a document whose run has not started replaces the one waiting, and the harness says which it replaced. A new revision of a document whose run is going waits behind that run and is sent once it ends. A revision a run handed back to you — refused by the review, failing a check, or ended without landing — no longer waits, so your next revision of it opens a fresh run at once. Every document you write is answered by your next turn: confirmed, refused with the reason, or waiting with the reason. To see your waiting documents and where each stands, put ` + "`" + `"list":true` + "`" + ` in the block; to take one back whose run has not started, or one a run handed back, put ` + "`" + `"withdraw":[{"write":"document-12.1","reason":"why"}]` + "`" + ` in it, naming the write as the harness named it. Either may stand in the block without a document. A document whose run is going cannot be withdrawn, and neither can another role's. A document the operator approves lands the same way, through its own reviewed run with the operator's approval recorded in it, wherever the project integrates automatically from its own repository. Never claim that a document landed until the harness reports it.
 
 Where a document is the design or ruling for work items, name them: ` + "`" + `"answers":["work-item-id"]` + "`" + `, at most ` + fmt.Sprintf("%d", MaxWriteAnswers) + `. The harness writes the document into each item's notes as soon as it is written, so a developer can start from it before it is published. Where sending a document has to wait — for a fix to publication itself, say — finish the document anyway and put the wait on it: ` + "`" + `"hold":{"until_closed":"work-item-id","reason":"why sending waits for it"}` + "`" + `. A hold delays only the sending. The harness keeps the document ready to send, tells you it is held and why, and sends it at the first message after that work item closes; you do not write it again. Never hold back the design or ruling itself because sending is held, and never report an item as ruled while its document is unfinished: an item whose finished document is held is held for sending, not ruled.
 

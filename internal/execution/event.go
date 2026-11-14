@@ -114,6 +114,11 @@ const (
 	// be confirmed, which a decline cannot.
 	EventDocumentLanded  EventType = "document.landed"
 	EventDocumentDropped EventType = "document.dropped"
+	// A waiting document its owning role took back, under its own authority,
+	// and one a newer revision of the same document replaced before its run
+	// started. Neither is a decline: nobody judged the document.
+	EventDocumentWithdrawn EventType = "document.withdrawn"
+	EventDocumentReplaced  EventType = "document.replaced"
 	// A concern is work the product manager judged against the goals and put to
 	// the operator as a question instead of proposing. What it raised and what
 	// it was told are separate events for the same reason a proposal and its

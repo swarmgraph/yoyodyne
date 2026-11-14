@@ -15,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/documentcheck"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
@@ -633,13 +634,13 @@ func TestARepeatedDocumentRefusalSurvivesALaterTrackerRound(t *testing.T) {
 	}
 }
 
-func TestASecondCopyOfAWaitingDocumentIsRefusedAndTakesNoPlace(t *testing.T) {
+func TestANewRevisionReplacesAWaitingOneWhoseRunHasNotStarted(t *testing.T) {
 	t.Parallel()
 
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", ResolvedModel: "claude-opus-5", FinalText: documentReply("create", "v2-goals", "goals", "docs/product", "# Goals\\n\\nShip the thing.")},
-		{SessionID: "session-1", FinalText: documentReply("create", "v2-goals", "goals", "docs/product", "# Goals\\n\\nShip the thing.")},
-		{SessionID: "session-1", FinalText: "Understood; the first copy stands."},
+		{SessionID: "session-1", FinalText: documentReply("create", "v2-goals", "goals", "docs/product", "# Goals\\n\\nShip the better thing.")},
+		{SessionID: "session-1", FinalText: "Understood; the new revision stands."},
 	}}
 	options, _ := documentOptions(t, provider)
 	session := openTestSession(t, options)
@@ -648,21 +649,27 @@ func TestASecondCopyOfAWaitingDocumentIsRefusedAndTakesNoPlace(t *testing.T) {
 	if err != nil || len(first.Writes) != 1 {
 		t.Fatalf("Send() = %#v, %v", first, err)
 	}
-	waiting := first.Writes[0].ID
+	replaced := first.Writes[0].ID
 	again, err := session.Send(context.Background(), "Write them up again.")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(again.DocumentRefusals) != 1 || !strings.Contains(again.DocumentRefusals[0], "already waiting in this conversation as "+waiting) || !strings.Contains(again.DocumentRefusals[0], "takes no place") {
-		t.Fatalf("refusals = %#v, want the second copy refused naming %s", again.DocumentRefusals, waiting)
+	if len(again.DocumentRefusals) != 0 {
+		t.Fatalf("refusals = %#v, want the new revision accepted", again.DocumentRefusals)
 	}
-	if held := session.Writes(); len(held) != 1 || held[0].ID != waiting {
-		t.Fatalf("waiting = %#v, want only %s", held, waiting)
+	held := session.Writes()
+	if len(held) != 1 || held[0].ID == replaced || !strings.Contains(held[0].Write.Body, "better thing") {
+		t.Fatalf("waiting = %#v, want only the new revision", held)
 	}
-
+	if told := session.state.PendingTrackerResults + provider.requests[len(provider.requests)-1].Prompt; !strings.Contains(told, "it replaces "+replaced+", whose run had not started") {
+		t.Fatalf("the role was not told what the revision replaced: %q", told)
+	}
+	if events := landedEvents(t, session, execution.EventDocumentReplaced); len(events) != 1 || !strings.Contains(string(events[0].Payload), held[0].ID) {
+		t.Fatalf("replaced events = %#v", events)
+	}
 }
 
-func TestACopyAlreadyWaitingGivesItsPlaceBackAtTheNextTurn(t *testing.T) {
+func TestAnEarlierRevisionAlreadyWaitingGivesItsPlaceBackAtTheNextTurn(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -677,17 +684,18 @@ func TestACopyAlreadyWaitingGivesItsPlaceBackAtTheNextTurn(t *testing.T) {
 	if err != nil || len(reply.Writes) != 1 {
 		t.Fatalf("Send() = %#v, %v", reply, err)
 	}
-	kept := reply.Writes[0].ID
+	earlier := reply.Writes[0].ID
 
-	// A conversation that waited from before copies were refused holds two.
+	// A conversation that waited from before a new revision replaced the one
+	// waiting holds two.
 	identity := runstate.ConversationIdentity{Agent: string(domain.RoleProductManager), Role: domain.RoleProductManager}
 	recorded, err := options.Store.Load(identity)
 	if err != nil {
 		t.Fatal(err)
 	}
-	duplicate := recorded.PendingWrites[0]
-	duplicate.ID, duplicate.Turn = "document-9.1", 9
-	recorded.PendingWrites = append(recorded.PendingWrites, duplicate)
+	newer := recorded.PendingWrites[0]
+	newer.ID, newer.Turn = "document-9.1", 9
+	recorded.PendingWrites = append(recorded.PendingWrites, newer)
 	if err := options.Store.Save(recorded); err != nil {
 		t.Fatal(err)
 	}
@@ -699,17 +707,17 @@ func TestACopyAlreadyWaitingGivesItsPlaceBackAtTheNextTurn(t *testing.T) {
 	if err := resumed.PublishDocuments(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if held := resumed.Writes(); len(held) != 1 || held[0].ID != kept {
-		t.Fatalf("waiting = %#v, want only %s", held, kept)
+	if held := resumed.Writes(); len(held) != 1 || held[0].ID != "document-9.1" {
+		t.Fatalf("waiting = %#v, want only document-9.1", held)
 	}
 	saved, err := newTestStore(t, root).Load(identity)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(saved.PendingWrites) != 1 || saved.PendingWrites[0].ID != kept {
-		t.Fatalf("recorded waiting = %#v, want only %s", saved.PendingWrites, kept)
+	if len(saved.PendingWrites) != 1 || saved.PendingWrites[0].ID != "document-9.1" {
+		t.Fatalf("recorded waiting = %#v, want only document-9.1", saved.PendingWrites)
 	}
-	if !strings.Contains(saved.PendingTrackerResults, "document-9.1 (v2-goals) was a second copy of "+kept) {
+	if !strings.Contains(saved.PendingTrackerResults, earlier+" (v2-goals) was an earlier revision of v2-goals, and the newer revision document-9.1 replaces it") {
 		t.Fatalf("the role was not told: %q", saved.PendingTrackerResults)
 	}
 }

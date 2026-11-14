@@ -436,8 +436,13 @@ func (t *documentPassTracker) Show(_ context.Context, id string) (beads.WorkItem
 func TestARecurringDocumentRefusalKeepsTheOtherActionsAndDoesNotFailThePass(t *testing.T) {
 	t.Parallel()
 	tracker := &documentPassTracker{}
+	// The third design is refused for being filed outside the designs home.
 	document := func(id string) string {
-		return artifact.WriteFence + "\n" + `{"documents":[{"action":"create","id":"` + id + `","kind":"design","title":"` + id + `","directory":"docs/designs","body":"# Design","reason":"record the design"}]}` + "\n```\n"
+		directory := "docs/designs"
+		if id == "refused-design" {
+			directory = "docs/product"
+		}
+		return artifact.WriteFence + "\n" + `{"documents":[{"action":"create","id":"` + id + `","kind":"design","title":"` + id + `","directory":"` + directory + `","body":"# Design","reason":"record the design"}]}` + "\n```\n"
 	}
 	p := newReportRecoveryPassWithOptions(t, func(o *chat.Options) {
 		if err := os.MkdirAll(o.Repository, 0o755); err != nil {
@@ -464,7 +469,7 @@ func TestARecurringDocumentRefusalKeepsTheOtherActionsAndDoesNotFailThePass(t *t
 		t.Fatalf("requests = %d", len(p.backend.requests))
 	}
 	prompt := p.backend.requests[3].Prompt
-	for _, want := range []string{"Document submission refused", "limit is 2", "document-1.1", "first-design", "document-2.1", "second-design", "example-1", "review-wait"} {
+	for _, want := range []string{"Document submission refused", "docs/product", "document-1.1", "first-design", "document-2.1", "second-design", "example-1", "review-wait"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("refusal prompt lacks %q: %s", want, prompt)
 		}
