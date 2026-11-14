@@ -2338,6 +2338,17 @@ var standingWarningAgeSeconds = 5 * 60;
         add("Latest", dayAndClock(listings.latest_at));
         add("What it said", listings.latest, "card-field-prose");
         break;
+      case "forge-certificate":
+        var certificate = entry.forge_certificate;
+        if (!certificate) {
+          break;
+        }
+        add("Supervisor", "pid " + String(certificate.supervisor_pid || 0));
+        add("Failing since", dayAndClock(certificate.since));
+        add("Checks failed", String(certificate.checks || 0));
+        add("Latest", dayAndClock(certificate.latest_at));
+        add("What it said", certificate.latest, "card-field-prose");
+        break;
       case "hold":
         var hold = entry.operator_hold || entry.intake_hold || entry.capacity_hold;
         add("Switch", entry.id);

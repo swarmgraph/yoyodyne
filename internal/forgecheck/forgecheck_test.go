@@ -2,6 +2,8 @@ package forgecheck_test
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,6 +25,7 @@ type machine struct {
 	checks      int
 	reconciles  int
 	failCheck   bool
+	failText    string
 	holdCheck   chan struct{}
 	releaseMain chan struct{}
 }
@@ -41,11 +44,13 @@ func (m *machine) Run(ctx context.Context, command execution.Command, observer e
 	case "forge-check":
 		m.mu.Lock()
 		m.checks++
-		fail, hold := m.failCheck, m.holdCheck
+		fail, hold, text := m.failCheck, m.holdCheck, m.failText
 		m.mu.Unlock()
 		if fail {
-			return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1,
-				Stderr: "pull request #7 of yoyodyne-task not settled: ask the forge: dial tcp: lookup api.github.com: no such host"}, nil
+			if text == "" {
+				text = "pull request #7 of yoyodyne-task not settled: ask the forge: dial tcp: lookup api.github.com: no such host"
+			}
+			return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: text}, nil
 		}
 		if observer != nil {
 			observer(execution.Output{Stream: execution.StreamStderr, Text: readLine})
@@ -193,5 +198,84 @@ func TestACheckHostingARunDoesNotHoldTheNextCheckBack(t *testing.T) {
 	check.Wait(ctx)
 	if _, found := check.Last(); !found {
 		t.Fatal("no check was recorded once the hosting ones ended")
+	}
+}
+
+const certificateText = `Get "https://api.github.com/graphql": tls: failed to verify certificate: x509: OSStatus -26276`
+
+func TestCertificateStoreFailureMatchesOnlyTheUnreadableStore(t *testing.T) {
+	t.Parallel()
+	if line, ok := forgecheck.CertificateStoreFailure("noise\n  " + certificateText + "  \nmore"); !ok || line != certificateText {
+		t.Fatalf("CertificateStoreFailure = %q, %t", line, ok)
+	}
+	for _, text := range []string{
+		"dial tcp: lookup api.github.com: no such host",
+		"tls: failed to verify certificate: x509: certificate signed by unknown authority",
+	} {
+		if line, ok := forgecheck.CertificateStoreFailure(text); ok {
+			t.Fatalf("CertificateStoreFailure(%q) = %q, true; want false", text, line)
+		}
+	}
+}
+
+type certificateRecord struct {
+	failed, cleared int
+	pid             int
+}
+
+func (r *certificateRecord) Failed(pid int, _ time.Time, _ string) error {
+	r.failed++
+	r.pid = pid
+	return nil
+}
+
+func (r *certificateRecord) Cleared() error { r.cleared++; return nil }
+
+// Checks failing on the certificate store are recorded each time and said once
+// at the onset; a clean check clears the record and says so once.
+func TestChecksFailingOnTheCertificateStoreAreRecordedAndSaidOnce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	m := &machine{failCheck: true, failText: certificateText}
+	record := &certificateRecord{}
+	var logged []string
+	check := newCheck(m)
+	check.Certificates, check.SupervisorPID = record, 4242
+	check.Log = func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }
+	start := time.Date(2026, 11, 3, 16, 0, 0, 0, time.UTC)
+	count := func(part string) int {
+		n := 0
+		for _, line := range logged {
+			if strings.Contains(line, part) {
+				n++
+			}
+		}
+		return n
+	}
+
+	check.Look(ctx, start)
+	check.Wait(ctx)
+	check.Look(ctx, start.Add(5*time.Minute))
+	check.Wait(ctx)
+	if last, _ := check.Last(); !last.CertificateStore || !strings.Contains(last.Detail, "x509: OSStatus -26276") {
+		t.Fatalf("last = %+v, want it marked as failing on the certificate store", last)
+	}
+	if record.failed != 2 || record.pid != 4242 || record.cleared != 0 {
+		t.Fatalf("record = %+v, want two failures by pid 4242", record)
+	}
+	if n := count("failing on the system certificate store"); n != 1 {
+		t.Fatalf("onset said %d times, want once: %q", n, logged)
+	}
+
+	m.mu.Lock()
+	m.failCheck = false
+	m.mu.Unlock()
+	check.Look(ctx, start.Add(10*time.Minute))
+	check.Wait(ctx)
+	if record.cleared != 1 {
+		t.Fatalf("cleared %d times, want once", record.cleared)
+	}
+	if n := count("is cleared"); n != 1 {
+		t.Fatalf("cleared line said %d times, want once: %q", n, logged)
 	}
 }

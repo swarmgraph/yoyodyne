@@ -194,6 +194,7 @@ var registry = map[Kind]Rule{
 	KindUntracedPass:      untracedPassRule,
 	KindFactoryStall:      factoryStallRule,
 	KindTrackerUnanswered: trackerUnansweredRule,
+	KindForgeCertificate:  forgeCertificateRule,
 	KindUnrunCheck:        unrunCheckRule,
 	KindCapacityDegraded:  capacityDegradedRule,
 	KindKeptHeavyCheck:    keptHeavyCheckRule,
@@ -586,6 +587,10 @@ func factoryStallRule(Record) (Answer, bool) {
 
 func trackerUnansweredRule(Record) (Answer, bool) {
 	return owned(MoverHarness, "ask the tracker again until it answers", "")
+}
+
+func forgeCertificateRule(Record) (Answer, bool) {
+	return owned(MoverHarness, "start the supervisor again outside the shell that cannot read the certificate store", "yoyo stop and yoyo start from an ordinary terminal")
 }
 
 func unrunCheckRule(Record) (Answer, bool) {

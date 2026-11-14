@@ -169,6 +169,19 @@ rm ~/Library/LaunchAgents/com.yoyodyne.supervisor.<product>.plist
 On a platform without launchd, the step says so and `yoyo start` is typed after
 each restart.
 
+**`yoyo start` checks that GitHub can be reached from the shell it ran in.** On
+macOS, when the product publishes automatically or sets
+`execution.upstream_branch`, `yoyo start` first makes one connection to GitHub.
+Where the system certificate store cannot be read in that shell, as inside an AI
+session's sandbox (Go reports `x509: OSStatus -26276`), a supervisor started
+there could never notice a merged pull request. So it starts the supervisor
+through the installed launch agent, which launchd runs outside the calling
+shell, or, with no launch agent installed for this checkout, refuses and names
+the command to run from an ordinary terminal: `yoyo setup --launch-agent`. Any
+other failure of the connection, such as no network, changes nothing and the
+supervisor starts as usual. `yoyo status` shows a running supervisor whose forge
+checks all fail on the certificate store.
+
 **Starting the supervisor retires the operator's old maintenance job.** Before
 the supervisor, a launchd job of the operator's own, `com.yoyodyne.maintenance`,
 ran a script every ten minutes that started and restarted the scheduler,
@@ -3045,6 +3058,14 @@ store is a person's to settle while it lasts. A store that goes on refusing for
 hours is a different thing, and the item-level remedies above are still where it
 shows first.
 
+A supervisor whose forge checks (its GitHub checks) all fail on the system
+certificate store, because it was started from a shell that cannot read it, is
+said once, as an entry of kind `forge-certificate` (record under
+`forge_certificate`) on the attention line and among the dashboard's factory
+problems, with the cause and the fix: run `yoyo stop` and `yoyo start` from an
+ordinary terminal. It is shown only while the supervisor that failed is the one
+running, and the first forge check that finishes cleanly clears it.
+
 **What this does not cover** is a machine that sleeps. The twelve-hour stall
 from 21:53 PDT on 2026-09-29 was the laptop's lid being closed on battery, not
 the tracker: a recurring pass that was in flight when the machine went to sleep
@@ -5777,6 +5798,7 @@ they are not the labels a person reads:
 | `untraced-pass` | findings not recorded |
 | `factory-stall` | nothing completing |
 | `tracker-unanswered` | tracker not answering |
+| `forge-certificate` | GitHub unreachable from the supervisor's shell |
 | `check-could-not-run` | check not running |
 | `heavy-check-kept` | check place kept |
 | `blocked-on-a-human` | blocked on a human |
@@ -5801,7 +5823,7 @@ your hand**, never under **Yours to decide**.
 | `addressed-report` | the role the report is addressed to |
 | `owed-step` | the harness; the development manager where reconcile cannot settle it without her deciding what becomes of the run's work |
 | `publication` | the harness while it can look up, re-read, re-run, or wait on a red target; the forge while it holds the merge; the development manager for a merge dropped or never asked for |
-| `degraded-service`, `config-mismatch`, `tracker-unanswered`, `factory-stall` | the harness |
+| `degraded-service`, `config-mismatch`, `tracker-unanswered`, `forge-certificate`, `factory-stall` | the harness |
 | `failing-task` | the harness for a firing refused before its first turn; for a repeatedly failing pass, the role that resolves its failures, and yours only for a recorded person-only step |
 | `service-copies`, `check-could-not-run`, `heavy-check-kept`, `product-decision` | the development manager |
 | `hold` | yours for your own pause or intake hold (`own-hold`); for the brake's hold, the development manager, the harness while it carries her decision out, and the Lead Product Manager once it is escalated; the harness for the provider holding every role |
@@ -6152,7 +6174,7 @@ sentence about it: its `kind`, from a closed set — `amendment`,
 `conversation-carried-item`, `report`, `amendment-queue`, `owed-step`,
 `publication`, `degraded-service`, `failing-task`, `config-mismatch`, `service-copies`, `hold`, `directive`,
 `outage`, `stall`, `held-work`, `operator-action`, `product-decision`,
-`human-gate`, `untraced-pass`, `factory-stall`, `tracker-unanswered`,
+`human-gate`, `untraced-pass`, `factory-stall`, `tracker-unanswered`, `forge-certificate`,
 `check-could-not-run`, `heavy-check-kept`, `blocked-on-a-human`,
 `document-approval` — the `id`
 of the record it is about (an amendment's, a
@@ -6160,6 +6182,7 @@ directive's, a run's, a work item's, a service's name, a recurring task's
 name, a human gate's name, which switch a hold is: `operator`, `intake`, or
 `capacity`, and for a `factory-stall` the moment the factory last did anything
 and for a `tracker-unanswered` the moment listings began failing, and for a
+`forge-certificate` the supervisor's pid and the moment its checks began failing, and for a
 `check-could-not-run` the check's command, and for a `heavy-check-kept` the
 permit holding the place, and for a `blocked-on-a-human` the work item, or the
 record the entry cites where it names none, and for a `document-approval` the

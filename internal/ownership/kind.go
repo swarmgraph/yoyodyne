@@ -88,6 +88,10 @@ const (
 	// KindTrackerUnanswered is the tracker failing listings after their
 	// retries, since the moment the first of them failed. That moment is the ID.
 	KindTrackerUnanswered Kind = "tracker-unanswered"
+	// KindForgeCertificate is the supervisor's forge checks all failing on the
+	// system certificate store, because it was started from a shell that cannot
+	// read it. The supervisor's pid and the moment the failing began are the ID.
+	KindForgeCertificate Kind = "forge-certificate"
 	// KindUnrunCheck is a configured check that said it could not run on
 	// several changes in a row. The check's command is the ID.
 	KindUnrunCheck Kind = "check-could-not-run"
@@ -153,6 +157,7 @@ func AttentionKinds() []Kind {
 		KindUntracedPass,
 		KindFactoryStall,
 		KindTrackerUnanswered,
+		KindForgeCertificate,
 		KindUnrunCheck,
 		KindCapacityDegraded,
 		KindKeptHeavyCheck,

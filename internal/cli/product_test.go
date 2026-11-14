@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/home/hometest"
+	"github.com/mason-bryant/yoyodyne/internal/launchd"
 	"github.com/mason-bryant/yoyodyne/internal/logread"
 	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -81,6 +83,8 @@ func runCLITests(m *testing.M) int {
 	if err := os.Setenv("YOYODYNE_STATE_HOME", root); err != nil {
 		panic(err)
 	}
+	// No test reaches the network: the probe `yoyo start` makes of GitHub succeeds.
+	reachGitHub = func(context.Context) error { return nil }
 	code := m.Run()
 	// Direct supervisor and installer tests must use their product's own
 	// store, rather than leaking records into even the suite's default.
@@ -775,5 +779,203 @@ func TestAForegroundSupervisorRefusedByAnotherExitsCleanly(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "start refused") {
 		t.Errorf("stderr = %q, want the refusal said", stderr.String())
+	}
+}
+
+// The probe error a shell inside an AI session's sandbox gets from GitHub.
+var sandboxCertificateError = errors.New(`Head "https://api.github.com": tls: failed to verify certificate: x509: OSStatus -26276`)
+
+// agentMachine is a machine whose launch agent is installed and not loaded: a
+// bootstrap loads it, which starts a supervisor in this process against the
+// product's store, as launchd would start one outside the calling shell.
+type agentMachine struct {
+	mu        sync.Mutex
+	asked     []string
+	launcher  *recordingLauncher
+	bootstrap error
+}
+
+func (m *agentMachine) Run(_ context.Context, command execution.Command, _ execution.OutputObserver) (execution.ProcessResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	joined := strings.Join(append([]string{command.Name}, command.Args...), " ")
+	m.asked = append(m.asked, joined)
+	switch {
+	case strings.HasPrefix(joined, "launchctl print "):
+		return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 113}, nil
+	case strings.HasPrefix(joined, "launchctl bootstrap "):
+		if m.bootstrap != nil {
+			return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 5, Stderr: m.bootstrap.Error()}, nil
+		}
+		// The launcher records the launch for its own use; the test reads
+		// whether anything was launched detached from the product's launcher.
+		m.launcher.Launch(slack.Launch{})
+		return execution.ProcessResult{Status: execution.ProcessSucceeded}, nil
+	}
+	return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "not a command this machine answers"}, nil
+}
+
+// forgeProduct is a product by hand whose supervisor checks the forge and whose
+// GitHub probe fails with the given error.
+func forgeProduct(t *testing.T, probe error, automatic bool) (*product, *recordingLauncher, *int) {
+	t.Helper()
+	stateRoot := t.TempDir()
+	store, err := runstate.NewSupervisionStore(stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := config.LoadResolved(writeConfig(t, validConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if automatic {
+		resolved.Config.Approvals.Publishing = domain.ApprovalAutomatic
+	}
+	launcher := &recordingLauncher{store: store}
+	probed := 0
+	p := &product{
+		resolved:  resolved,
+		stateRoot: stateRoot,
+		store:     store,
+		program:   "/opt/yoyo/bin/yoyo",
+		launcher:  launcher,
+		now:       time.Now,
+		reachForge: func(context.Context) error {
+			probed++
+			return probe
+		},
+	}
+	return p, launcher, &probed
+}
+
+func stopRecordingLauncher(launcher *recordingLauncher) {
+	if launcher.cancel != nil {
+		launcher.cancel()
+		<-launcher.done
+	}
+}
+
+func TestStartRefusesWithoutALaunchAgentWhereTheCertificateStoreFails(t *testing.T) {
+	t.Parallel()
+
+	p, launcher, _ := forgeProduct(t, sandboxCertificateError, true)
+	defer stopRecordingLauncher(launcher)
+	var stdout, stderr strings.Builder
+	if code := p.start(context.Background(), &stdout, &stderr, false); code != 1 {
+		t.Fatalf("start code = %d, want 1; stdout %q stderr %q", code, stdout.String(), stderr.String())
+	}
+	if len(launcher.launched) != 0 {
+		t.Fatalf("launched %d processes, want none", len(launcher.launched))
+	}
+	for _, want := range []string{"system certificate store", "x509: OSStatus -26276", "yoyo setup --launch-agent --directory ", "start refused"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("start said %q, want %q in it", stderr.String(), want)
+		}
+	}
+	if want := startRefusal(p.resolved.Path, "x", "", ""); !strings.Contains(want, setupLaunchAgentCommand(p.resolved.Path)) {
+		t.Errorf("the refusal %q does not carry the command", want)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := p.start(context.Background(), &stdout, &stderr, true); code != 1 {
+		t.Fatalf("json start code = %d, want 1", code)
+	}
+	var report startReport
+	if err := json.Unmarshal([]byte(stdout.String()), &report); err != nil {
+		t.Fatalf("start wrote %q, want JSON: %v", stdout.String(), err)
+	}
+	if report.Started || !strings.Contains(report.Refused, "system certificate store") || !strings.Contains(report.Refused, "yoyo setup --launch-agent") {
+		t.Errorf("report = %+v, want a refusal naming the store and the command", report)
+	}
+	if len(launcher.launched) != 0 {
+		t.Fatalf("launched %d processes after the json start, want none", len(launcher.launched))
+	}
+}
+
+func TestStartThroughTheInstalledAgentWhereTheCertificateStoreFails(t *testing.T) {
+	t.Parallel()
+
+	p, launcher, _ := forgeProduct(t, sandboxCertificateError, false)
+	p.resolved.Config.Execution.UpstreamBranch = "main"
+	defer stopRecordingLauncher(launcher)
+	// The agent is installed for this configuration and not loaded.
+	home := t.TempDir()
+	machine := &agentMachine{launcher: &recordingLauncher{store: p.store}}
+	defer stopRecordingLauncher(machine.launcher)
+	p.agent = launchd.AgentFor("yoyodyne", launchd.Controller{Runner: machine, UserHomeDir: func() (string, error) { return home, nil }, Getuid: func() int { return 501 }})
+	plist := launchd.Render(launchd.Spec{Label: p.agent.Label, Program: "/opt/yoyo/bin/yoyo", Args: []string{"start", "--foreground", "--config", p.resolved.Path}})
+	if err := p.agent.Install(plist); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr strings.Builder
+	if code := p.start(context.Background(), &stdout, &stderr, false); code != 0 {
+		t.Fatalf("start code = %d, stdout %q stderr %q", code, stdout.String(), stderr.String())
+	}
+	if len(launcher.launched) != 0 {
+		t.Fatalf("launched %d processes detached, want none", len(launcher.launched))
+	}
+	machine.mu.Lock()
+	asked := strings.Join(machine.asked, "\n")
+	machine.mu.Unlock()
+	if !strings.Contains(asked, "launchctl bootstrap gui/501 ") {
+		t.Errorf("launchctl was asked %q, want a bootstrap", asked)
+	}
+	for _, want := range []string{p.agent.Label, "system certificate store"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("start said %q, want %q in it", stdout.String(), want)
+		}
+	}
+}
+
+func TestStartRefusesWhenTheInstalledAgentCannotBeLoadedFromHere(t *testing.T) {
+	t.Parallel()
+
+	p, launcher, _ := forgeProduct(t, sandboxCertificateError, true)
+	home := t.TempDir()
+	machine := &agentMachine{launcher: launcher, bootstrap: errors.New("Operation not permitted")}
+	p.agent = launchd.AgentFor("yoyodyne", launchd.Controller{Runner: machine, UserHomeDir: func() (string, error) { return home, nil }, Getuid: func() int { return 501 }})
+	if err := p.agent.Install(launchd.Render(launchd.Spec{Label: p.agent.Label, Program: "/opt/yoyo/bin/yoyo", Args: []string{"start", "--foreground", "--config", p.resolved.Path}})); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr strings.Builder
+	if code := p.start(context.Background(), &stdout, &stderr, false); code != 1 {
+		t.Fatalf("start code = %d, want 1", code)
+	}
+	if len(launcher.launched) != 0 {
+		t.Fatalf("launched %d processes, want none", len(launcher.launched))
+	}
+	for _, want := range []string{"Operation not permitted", p.agent.BootstrapCommand()} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("start said %q, want %q in it", stderr.String(), want)
+		}
+	}
+}
+
+func TestStartProceedsWhereTheProbeFailsForAnotherReason(t *testing.T) {
+	t.Parallel()
+
+	p, launcher, probed := forgeProduct(t, errors.New(`Head "https://api.github.com": dial tcp: lookup api.github.com: no such host`), true)
+	defer stopRecordingLauncher(launcher)
+	var stdout, stderr strings.Builder
+	if code := p.start(context.Background(), &stdout, &stderr, false); code != 0 {
+		t.Fatalf("start code = %d, stderr %q", code, stderr.String())
+	}
+	if *probed != 1 || len(launcher.launched) != 1 {
+		t.Fatalf("probed %d times and launched %d, want one of each", *probed, len(launcher.launched))
+	}
+}
+
+func TestStartProbesNothingWhereTheSupervisorChecksNoForge(t *testing.T) {
+	t.Parallel()
+
+	p, launcher, probed := forgeProduct(t, sandboxCertificateError, false)
+	defer stopRecordingLauncher(launcher)
+	var stdout, stderr strings.Builder
+	if code := p.start(context.Background(), &stdout, &stderr, false); code != 0 {
+		t.Fatalf("start code = %d, stderr %q", code, stderr.String())
+	}
+	if *probed != 0 || len(launcher.launched) != 1 {
+		t.Fatalf("probed %d times and launched %d, want no probe and one launch", *probed, len(launcher.launched))
 	}
 }

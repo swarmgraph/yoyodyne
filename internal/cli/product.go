@@ -106,6 +106,9 @@ type product struct {
 	// agent is this product's launch agent on a machine with launchd, and nil
 	// elsewhere and in a product assembled by a test.
 	agent *launchd.Agent
+	// reachForge asks whether a connection to GitHub can be made from this
+	// shell. It is nil in a product assembled by a test, where nothing is probed.
+	reachForge func(ctx context.Context) error
 }
 
 func runStart(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -200,6 +203,8 @@ func openProduct(configPath string) (*product, error) {
 	}
 	if runtime.GOOS == "darwin" {
 		p.agent = launchd.AgentFor(resolved.Config.Product.ID, launchd.Controller{Runner: execution.OSProcessRunner{}, UserHomeDir: os.UserHomeDir, Getuid: os.Getuid})
+		// The certificate store failure is a macOS one.
+		p.reachForge = reachGitHub
 	}
 	p.children = p.realChildren
 	return p, nil
@@ -226,6 +231,11 @@ type startReport struct {
 	// supervisor was installed, and RetireProblem why it could not be.
 	Retired       string `json:"retired,omitempty"`
 	RetireProblem string `json:"retire_problem,omitempty"`
+	// OutsideShell says the supervisor was started through the launch agent
+	// because this shell cannot reach GitHub, and Refused why nothing was
+	// started for the same reason.
+	OutsideShell string `json:"outside_shell,omitempty"`
+	Refused      string `json:"refused,omitempty"`
 }
 
 // start starts the supervisor detached, unless one is running, and reports
@@ -263,6 +273,11 @@ func (p *product) start(ctx context.Context, stdout, stderr io.Writer, jsonOutpu
 	// launched rather than two.
 	if started, handled := p.startThroughAgent(ctx, stdout, stderr, jsonOutput, logRoot, logPath, retired, retireProblem); handled {
 		return started
+	}
+	// A shell whose GitHub connections fail on the certificate store starts no
+	// supervisor of its own (forgereach.go).
+	if code, handled := p.startUnreachableForge(ctx, stdout, stderr, jsonOutput, logRoot, logPath, retired, retireProblem); handled {
+		return code
 	}
 	pid, err := p.launcher.Launch(slack.Launch{
 		Program: p.program,
@@ -328,6 +343,12 @@ func (p *product) startThroughAgent(ctx context.Context, stdout, stderr io.Write
 		Retired:       retired,
 		RetireProblem: retireProblem,
 	}
+	return p.reportAgentStart(ctx, stdout, stderr, jsonOutput, asked, report), true
+}
+
+// reportAgentStart waits for the supervisor the launch agent was asked to start
+// to record the parts, and reports it.
+func (p *product) reportAgentStart(ctx context.Context, stdout, stderr io.Writer, jsonOutput bool, asked time.Time, report startReport) int {
 	recorded, found := p.awaitRecordSince(ctx, asked)
 	if found {
 		report.Recorded = &recorded
@@ -335,7 +356,7 @@ func (p *product) startThroughAgent(ctx context.Context, stdout, stderr io.Write
 	} else {
 		report.Pending = fmt.Sprintf("the launch agent %s was asked to start the supervisor and it has not recorded the parts yet; `yoyo status` says how they stand, and its log says what it is doing", p.agent.Label)
 	}
-	return p.reportStart(stdout, stderr, jsonOutput, report), true
+	return p.reportStart(stdout, stderr, jsonOutput, report)
 }
 
 // awaitRecordSince waits, bounded, for a supervisor started at or after a
@@ -399,6 +420,9 @@ func (p *product) reportStart(stdout, stderr io.Writer, jsonOutput bool, report 
 		fmt.Fprintf(stdout, "the product %s is already running: its supervisor is pid %d; nothing was started\n", report.Product, report.PID)
 	default:
 		fmt.Fprintf(stdout, "the product %s is already running; nothing was started\n", report.Product)
+	}
+	if report.OutsideShell != "" {
+		fmt.Fprintf(stdout, "%s\n", report.OutsideShell)
 	}
 	if report.Recorded != nil {
 		for _, child := range report.Recorded.Children {
@@ -803,20 +827,30 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 // item.
 func (p *product) forgeCheck(repository string, log func(format string, args ...any)) (*forgecheck.Check, bool) {
 	cfg := p.resolved.Config
-	if p.runner == nil || (cfg.Approvals.Publishing != domain.ApprovalAutomatic && strings.TrimSpace(cfg.Execution.UpstreamBranch) == "") {
+	if p.runner == nil || !forgeChecked(cfg) {
 		return nil, false
 	}
-	return &forgecheck.Check{
-		Every:      cfg.Execution.ForgeCheckEvery(),
-		Program:    p.program,
-		Config:     p.resolved.Path,
-		Repository: repository,
-		Environ:    slack.WithoutSecrets(p.environ),
-		ReadLine:   ForgeCheckReadLine,
-		Runner:     p.runner,
-		Now:        p.now,
-		Log:        log,
-	}, true
+	// A record that cannot be made costs the status its line, never the check.
+	certificates, err := runstate.NewForgeCertificateStore(p.stateRoot, cfg.Product.ID)
+	if err != nil {
+		log("the forge check cannot record a failure on the certificate store: %v", err)
+	}
+	check := &forgecheck.Check{
+		Every:         cfg.Execution.ForgeCheckEvery(),
+		Program:       p.program,
+		Config:        p.resolved.Path,
+		Repository:    repository,
+		Environ:       slack.WithoutSecrets(p.environ),
+		ReadLine:      ForgeCheckReadLine,
+		Runner:        p.runner,
+		Now:           p.now,
+		Log:           log,
+		SupervisorPID: os.Getpid(),
+	}
+	if err == nil {
+		check.Certificates = certificates
+	}
+	return check, true
 }
 
 // releaseCutter is the maintenance pass's release step: a release the Lead
@@ -1241,6 +1275,12 @@ next `+"`yoyo start`"+` finds them by their leases and takes them back rather th
 starting them again.
 
 A second start while the product is running says so and does nothing.
+
+On macOS, start first checks that GitHub can be reached from this shell. Where
+the system certificate store cannot be read here (inside an AI session's sandbox),
+it starts the supervisor through the installed launch agent, so launchd runs it
+outside this shell; with no launch agent installed it refuses and names
+`+"`yoyo setup --launch-agent`"+`, to be run from an ordinary terminal.
 
 The maintenance pass is the supervisor's own, run as often as
 services.maintenance.every says: `+"`yoyo reconcile`"+`, the restarts program managers

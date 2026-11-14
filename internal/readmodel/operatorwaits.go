@@ -101,6 +101,10 @@ func (a Attention) Since() time.Time {
 		if a.TrackerListings != nil {
 			return a.TrackerListings.FailingSince
 		}
+	case AttentionForgeCertificate:
+		if a.ForgeCertificate != nil {
+			return a.ForgeCertificate.Since
+		}
 	case AttentionUnrunCheck:
 		if a.UnrunCheck != nil {
 			return a.UnrunCheck.Since
