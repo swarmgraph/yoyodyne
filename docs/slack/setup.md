@@ -1368,8 +1368,9 @@ arrived; the thread is told when it has been, and the answer follows there as
 usual. The queue is kept in the sink's own state directory, so a sink restarted
 meanwhile delivers it once it is running again. A queued message the
 conversation keeps refusing for some other reason — an exhausted usage limit,
-say — is tried three times and then taken off the queue, with the reason said
-once in its thread.
+say — is tried three times, ten seconds apart, and then taken off the queue,
+with the reason said once in its thread. While another client's turn holds the
+conversation, the sink checks every ten seconds whether it has ended.
 
 **The wait is bounded.** A turn gets ten minutes, or what the Lead Product
 Manager's agent sets as `time_limits.slack_turn`

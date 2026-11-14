@@ -236,6 +236,13 @@ func (s *steering) call(ctx context.Context, message inboundMessage, said string
 		// still running is queued behind it instead of being sent to contend for a
 		// conversation it cannot have.
 		defer stop()
+		// A turn carried straight from the channel may have had messages queued
+		// behind it, so once it has given the turn back the queue is woken to pass
+		// them on at once. The queue's own tries do not wake it, so a try that has
+		// to wait waits for the retry interval rather than running again at once.
+		if requeue {
+			defer s.nudge()
+		}
 		defer s.finish()
 		answer, err := s.conversation.Say(bounded, said)
 		came := spoken{answer: answer, err: err}
@@ -371,13 +378,13 @@ func (s *steering) begin() bool {
 	return true
 }
 
-// finish gives it back, and wakes the queue so a message waiting on this turn
-// is passed on at once.
+// finish gives it back. It does not wake the queue: the queue's own tries end
+// here too, and a try that woke the queue would be followed by another at once,
+// forever. A turn carried straight from the channel wakes it instead, in call.
 func (s *steering) finish() {
 	s.turn.Lock()
+	defer s.turn.Unlock()
 	s.taking = false
-	s.turn.Unlock()
-	s.nudge()
 }
 
 // settle waits for a turn the connection set off to finish. A sink that returned

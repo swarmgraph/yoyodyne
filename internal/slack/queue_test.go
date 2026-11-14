@@ -184,6 +184,86 @@ func TestAQueuedMessageThatCannotBeDeliveredIsReportedOnceWithTheReason(t *testi
 	}
 }
 
+// A try that has to wait does not set off another try at once. A queue that
+// woke itself after every try would read its file and open the conversation
+// over and over with no pause for as long as a terminal held the turn, and use
+// up its tries against a refusal in moments. So after a try that waits, and
+// after a look at an empty queue, nothing is left to wake the queue before the
+// retry interval; only a turn carried straight from the channel wakes it.
+func TestATryThatHasToWaitDoesNotWakeTheQueueAgain(t *testing.T) {
+	t.Parallel()
+
+	talker := &turnHeldConversation{held: true}
+	sink, _ := newConversingSink(t, talker)
+
+	sink.steering.drain(context.Background())
+	if woken := len(sink.steering.wake); woken != 0 {
+		t.Fatalf("looking at an empty queue left %d wake(s), want none", woken)
+	}
+	if attempts := talker.attempts(); attempts != 0 {
+		t.Fatalf("an empty queue offered the conversation %d message(s)", attempts)
+	}
+
+	// A message carried straight from the channel finds the turn held and is
+	// queued; that turn ending wakes the queue, once.
+	say(sink, topLevel(testOperator, "<@"+testApp+"> what should we build next?", "1750000001.000100"))
+	if woken := len(sink.steering.wake); woken != 1 {
+		t.Fatalf("a turn from the channel ending left %d wake(s), want one", woken)
+	}
+	<-sink.steering.wake
+
+	for try := 1; try <= 3; try++ {
+		sink.steering.drain(context.Background())
+		if attempts := talker.attempts(); attempts != 1+try {
+			t.Fatalf("drain %d offered the conversation %d message(s) in all, want one more each time", try, attempts)
+		}
+		if woken := len(sink.steering.wake); woken != 0 {
+			t.Fatalf("a try that had to wait left %d wake(s), want none, so the next try waits for the retry interval", woken)
+		}
+	}
+
+	talker.failWith(errors.New("usage limit reached"))
+	sink.steering.drain(context.Background())
+	if woken := len(sink.steering.wake); woken != 0 {
+		t.Fatalf("a failed try left %d wake(s), want none, so the tries against a refusal are spread out", woken)
+	}
+	if waiting := queuedMessages(t, sink); len(waiting) != 1 || waiting[0].Failures != 1 {
+		t.Fatalf("queue = %+v, want one failure counted per try", waiting)
+	}
+}
+
+// The case the operator described: a message sent straight on finds a
+// `yoyo chat` answering at a terminal. It goes back at the front of the queue,
+// ahead of a message that arrived while it was being tried, and is delivered
+// first once the terminal's turn ends.
+func TestAMessageThatFindsATerminalTurnGoesBackInFrontAndIsDeliveredFirst(t *testing.T) {
+	t.Parallel()
+
+	talker := &turnHeldConversation{held: true, gate: make(chan struct{}), running: make(chan struct{})}
+	sink, posts := newConversingSink(t, talker)
+	sink.steering.handle(context.Background(), topLevel(testOperator, "<@"+testApp+"> first", "1750000001.000100"))
+	<-talker.running
+	// The first is still being tried, so the second is queued behind it.
+	sink.steering.handle(context.Background(), topLevel(testOperator, "<@"+testApp+"> second", "1750000002.000100"))
+	close(talker.gate)
+	sink.steering.settle()
+
+	waiting := queuedMessages(t, sink)
+	if len(waiting) != 2 || waiting[0].Said != "first" || waiting[1].Said != "second" {
+		t.Fatalf("queue = %+v, want the first put back in front of the second", waiting)
+	}
+	if len(posts.requests) != 2 {
+		t.Fatalf("posts = %#v, want each message told it is queued", posts.requests)
+	}
+
+	talker.release()
+	sink.steering.drain(context.Background())
+
+	if said := talker.delivered(); len(said) != 2 || said[0] != "first" || said[1] != "second" {
+		t.Fatalf("delivered = %q, want first then second", said)
+	}
+}
+
 // queuedMessages is what is waiting in a sink's queue, read from its state.
 func queuedMessages(t *testing.T, sink *Sink) []Queued {
 	t.Helper()
@@ -197,6 +277,10 @@ func queuedMessages(t *testing.T, sink *Sink) []Queued {
 // turnHeldConversation is a conversation another turn holds until released,
 // and that then answers whatever it is told, or fails with a set reason.
 type turnHeldConversation struct {
+	// gate, where set, holds the first call until it is closed, and running is
+	// closed as that call starts, so a second message can arrive mid-call.
+	gate    chan struct{}
+	running chan struct{}
 	mu      sync.Mutex
 	held    bool
 	fail    error
@@ -206,8 +290,15 @@ type turnHeldConversation struct {
 
 func (c *turnHeldConversation) Say(_ context.Context, said string) (Answer, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.offered++
+	first := c.offered == 1
+	c.mu.Unlock()
+	if first && c.gate != nil {
+		close(c.running)
+		<-c.gate
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.held {
 		return Answer{}, fmt.Errorf("the product-manager conversation is %w", runstate.ErrConversationHeld)
 	}
