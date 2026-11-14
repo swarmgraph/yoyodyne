@@ -213,12 +213,9 @@ func TestTheWaitIsBoundedEvenWhenTheConversationNeverObservesCancellation(t *tes
 
 // A turn abandoned by the wait keeps the door shut behind it. It is still
 // holding the durable conversation, so a message arriving in the meantime is
-// told the product manager is busy rather than sent to contend for a lease it
-// cannot win. The terminal is not shut the same way — `yoyo chat` queues behind
-// the turn rather than being refused — which is why the overdue answer above
-// says it waits, and why this door says busy rather than sending the second
-// asker there.
-func TestAMessageArrivingWhileAnAbandonedTurnRunsIsToldItIsBusy(t *testing.T) {
+// queued behind it and told so, rather than sent to contend for a lease it
+// cannot win.
+func TestAMessageArrivingWhileAnAbandonedTurnRunsIsQueuedBehindIt(t *testing.T) {
 	t.Parallel()
 
 	deaf := make(chan struct{})
@@ -237,11 +234,14 @@ func TestAMessageArrivingWhileAnAbandonedTurnRunsIsToldItIsBusy(t *testing.T) {
 	if len(posts.requests) != 2 {
 		t.Fatalf("posts = %#v, want the wait running out and then the second message answered", posts.requests)
 	}
-	if !strings.Contains(posts.requests[1].Text, conversationBusy) {
-		t.Fatalf("answer = %q, want the second asker told the product manager is still answering", posts.requests[1].Text)
+	if !strings.Contains(posts.requests[1].Text, conversationQueued) {
+		t.Fatalf("answer = %q, want the second asker told the message is queued behind the turn", posts.requests[1].Text)
 	}
 	if talker.turns() != 1 {
 		t.Fatalf("the conversation was called %d time(s), want the abandoned turn to keep the door shut", talker.turns())
+	}
+	if waiting := queuedMessages(t, sink); len(waiting) != 1 || waiting[0].Said != "and what after that?" {
+		t.Fatalf("queue = %+v, want the second message waiting", waiting)
 	}
 }
 
@@ -264,11 +264,9 @@ func TestATurnRefusedForCapacityIsSaidToWhoeverAskedFor(t *testing.T) {
 
 // The conversation admits one holder, and what a holder holds is a turn: the
 // operator's own `yoyo chat` answering, or the harness delivering something.
-// That is a different thing from a failure and has a different answer, so it is
-// told apart and said in words — and the words say a turn rather than a window,
-// because a `yoyo chat` waiting at its prompt holds nothing and closing it would
-// change nothing.
-func TestAConversationHeldElsewhereIsSaidAsHeldRatherThanAsAFailure(t *testing.T) {
+// That is not a failure, so the message is queued and the thread told so in
+// words, rather than asking the operator to say it again later.
+func TestAConversationHeldElsewhereQueuesTheMessageRatherThanRefusingIt(t *testing.T) {
 	t.Parallel()
 
 	talker := &scriptedConversation{err: fmt.Errorf("the product-manager conversation is %w", runstate.ErrConversationHeld)}
@@ -276,14 +274,14 @@ func TestAConversationHeldElsewhereIsSaidAsHeldRatherThanAsAFailure(t *testing.T
 	say(sink, topLevel(testOperator, "<@"+testApp+"> what should we build next?", "1750000001.000100"))
 
 	answer := onlyPost(t, posts)
-	if !strings.Contains(answer.Text, conversationHeld) {
-		t.Fatalf("answer = %q, want the conversation being held elsewhere said as itself", answer.Text)
+	if !strings.Contains(answer.Text, conversationQueued) {
+		t.Fatalf("answer = %q, want the message said to be queued", answer.Text)
 	}
-	if !strings.Contains(answer.Text, "mid-turn") || !strings.Contains(answer.Text, "once that turn lands") {
-		t.Fatalf("answer = %q, want it to say a turn is what is held and its landing is what ends that", answer.Text)
+	if strings.Contains(strings.ToLower(answer.Text), "say it again") {
+		t.Fatalf("answer = %q, want no request to say it again", answer.Text)
 	}
-	if strings.Contains(answer.Text, "closed") {
-		t.Fatalf("answer = %q, want no advice to close a window that holds nothing", answer.Text)
+	if waiting := queuedMessages(t, sink); len(waiting) != 1 {
+		t.Fatalf("queue = %+v, want the message kept", waiting)
 	}
 }
 
@@ -328,10 +326,9 @@ func TestADecisionTheHarnessCouldNotCarryOutIsNotBlamedOnTheProductManager(t *te
 	}
 }
 
-// One turn at a time, and the second asker told so. The durable conversation
-// would refuse the second turn anyway; this refuses it a moment earlier and with
-// somebody actually told, rather than a message that vanishes.
-func TestASecondMessageWhileATurnIsRunningIsToldSoRatherThanDropped(t *testing.T) {
+// One turn at a time, and the second asker told theirs is queued rather than
+// dropped or refused.
+func TestASecondMessageWhileATurnIsRunningIsQueuedRatherThanRefused(t *testing.T) {
 	t.Parallel()
 
 	talker := &scriptedConversation{
@@ -349,13 +346,16 @@ func TestASecondMessageWhileATurnIsRunningIsToldSoRatherThanDropped(t *testing.T
 	sink.steering.settle()
 
 	if len(posts.requests) != 2 {
-		t.Fatalf("posts = %#v, want both messages answered", posts.requests)
+		t.Fatalf("posts = %#v, want the queued line and then the first answer", posts.requests)
 	}
-	if !strings.Contains(posts.requests[0].Text, conversationBusy) {
-		t.Fatalf("answer = %q, want the second asker told a turn is already running", posts.requests[0].Text)
+	if !strings.Contains(posts.requests[0].Text, conversationQueued) {
+		t.Fatalf("answer = %q, want the second asker told the message is queued", posts.requests[0].Text)
 	}
 	if talker.turns() != 1 {
 		t.Fatalf("the conversation took %d turn(s) at once, want one", talker.turns())
+	}
+	if waiting := queuedMessages(t, sink); len(waiting) != 1 {
+		t.Fatalf("queue = %+v, want the second message waiting", waiting)
 	}
 }
 
@@ -428,8 +428,14 @@ func say(sink *Sink, envelope socketEnvelope) {
 // arrives.
 func newConversingSink(t *testing.T, talker Conversation) (*Sink, *recordedPosts) {
 	t.Helper()
+	return newConversingSinkAt(t, t.TempDir(), talker)
+}
 
-	root := t.TempDir()
+// newConversingSinkAt is newConversingSink on a state directory the caller
+// names, so a second sink on the same directory is the first one restarted.
+func newConversingSinkAt(t *testing.T, root string, talker Conversation) (*Sink, *recordedPosts) {
+	t.Helper()
+
 	store, err := NewStore(root, testProduct)
 	if err != nil {
 		t.Fatalf("NewStore() error = %v", err)

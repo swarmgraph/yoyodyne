@@ -150,6 +150,12 @@ type steering struct {
 	turn         sync.Mutex
 	taking       bool
 	turns        sync.WaitGroup
+	// queueMu guards the queue of messages waiting for a turn in progress, wake
+	// is how a turn ending tells the queue to try again at once, and retry is how
+	// often it tries anyway. All three are queue.go's.
+	queueMu sync.Mutex
+	wake    chan struct{}
+	retry   time.Duration
 	// operators is the allow-list, by Slack member id. It is derived from the
 	// project's operator mapping — the humans granted direct-work who bound a
 	// member id — and an empty one is a product nobody may steer from Slack,
@@ -189,6 +195,8 @@ func newSteering(sink *Sink, options Options) *steering {
 		directives:   options.Directives,
 		conversation: options.Conversation,
 		deadline:     deadline,
+		wake:         make(chan struct{}, 1),
+		retry:        DefaultQueueRetry,
 		operators:    membership(options.Operators),
 		recognized:   membership(options.Recognized),
 		contacts:     options.Contacts,
@@ -302,10 +310,11 @@ func (s *steering) handle(ctx context.Context, envelope socketEnvelope) {
 	s.answer(ctx, threads, message.user, answered)
 	// A question goes to the product manager only once its receipt is in the
 	// thread, so the answer follows the line that promised it rather than racing
-	// it. The turn marks the reply settled when the answer lands, or refused when
-	// nothing could be said, which is conversation.go's.
+	// it — or, where a turn is already running, the line saying it is queued
+	// behind that turn. The turn marks the reply settled when the answer lands, or
+	// refused when nothing could be said, which is conversation.go's.
 	if question != "" {
-		s.carry(ctx, message, question)
+		s.send(ctx, message, question)
 		return
 	}
 	// Only a disposition that has already landed is marked here. Recording a
@@ -366,9 +375,9 @@ func disposition(answer notify.Notification) (notify.Receipt, bool) {
 //
 // The second value is the one thing a reply can ask for beyond its
 // acknowledgment: a question to carry to the product manager, framed for her,
-// once the receipt is posted. It is empty for everything else, and it is only
-// ever returned with the turn already taken, so whoever posts the receipt owes
-// the conversation exactly one carry.
+// once the receipt is posted. It is empty for everything else, and whoever posts
+// the receipt owes the conversation exactly one send, which carries it now or
+// queues it behind a turn in progress.
 func (s *steering) act(ctx context.Context, topic notify.Topic, message inboundMessage, at time.Time) (notify.Notification, string) {
 	// Authority first, and before the reply is even read: what an unlisted person
 	// typed is not something the harness should be parsing, let alone recording —
@@ -459,17 +468,13 @@ const askedBack = "that reads as either a question or an instruction, so nothing
 // it back would restate the very phrase they may be asking about, which is the
 // second defect in the screenshot this exists for.
 //
-// The turn is taken here and not in the carry, so a question that cannot be
-// answered gets its refusal as its whole answer rather than a receipt promising
-// an answer followed by a line taking the promise back. Every refusal says where
-// the question can be asked instead: a sink with no conversation behind it, and
-// a product manager already mid-turn, both point at `yoyo chat`.
+// A sink with no conversation behind it refuses, and says to ask at `yoyo chat`
+// instead. A product manager already mid-turn is not a refusal: the question is
+// queued behind that turn by whoever posts the receipt, so the promise of an
+// answer still holds.
 func (s *steering) ask(topic notify.Topic, message inboundMessage, question string, at time.Time) (notify.Notification, string) {
 	if s.conversation == nil {
 		return refused(topic, at, "that reads as a question, and this sink was started without the Lead Product Manager's conversation to carry it to; nothing was recorded, and `yoyo chat` is where to ask it"), ""
-	}
-	if !s.begin() {
-		return refused(topic, at, "that reads as a question, and the Lead Product Manager is already answering something else; nothing was recorded — say it again once that lands, or ask at `yoyo chat`"), ""
 	}
 	s.sink.log("a question arrived in the thread of %s from %s, saying %q, and is being taken to the Lead Product Manager rather than recorded",
 		topic.Key(), message.user, singleLine(message.text, maxAskedBytes))

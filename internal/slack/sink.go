@@ -439,8 +439,19 @@ func (s *Sink) Run(ctx context.Context) error {
 		s.connection.run(ctx)
 	}()
 
+	// Messages queued for the Lead Product Manager, including any this sink kept
+	// from before it last stopped, are passed on as the conversation comes free.
+	queued := make(chan struct{})
+	go func() {
+		defer close(queued)
+		if s.steering != nil && s.steering.conversation != nil {
+			s.steering.serveQueue(ctx)
+		}
+	}()
+
 	err = s.deliver(ctx)
 	<-connected
+	<-queued
 	// A turn the connection set off outlives the read loop that started it, so it
 	// is waited for rather than left running past the process. Its own context is
 	// already ended by here, so the wait is what it takes the turn to notice and

@@ -694,22 +694,19 @@ type productManagerConversation struct {
 func (c productManagerConversation) Say(ctx context.Context, said string) (slack.Answer, error) {
 	// A command is refused before anything is opened, because opening is not free
 	// and its cost falls on the operator: a turn is exclusive, so a `/backlog`
-	// typed while a `yoyo chat` is mid-turn would be answered "mid-turn with
-	// another client" rather than with where to type it — which is both the wrong
-	// answer and a command contending for the operator's own lease to get it.
+	// typed while a `yoyo chat` is mid-turn would otherwise contend for the
+	// operator's own lease, or wait in the sink's queue behind that turn, only to
+	// be told where to type it.
 	if answer, refused := refuseCommand(said); refused {
 		return answer, nil
 	}
 	// The warnings openChat writes go into the sink's own log, which is the
 	// operator's window onto this process; there is no terminal to write them to.
 	//
-	// A turn already in flight is refused rather than queued behind, which is the
-	// background delivery's answer and not the terminal's. The terminal waits
-	// because the operator has already typed and a turn ends on its own; this
-	// client's wait is bounded by a deadline the operator never chose, and a
-	// message that spent that bound queueing would then be reported as a turn
-	// that ran out when nothing was ever said. Refusing at once is the same fact
-	// with the person told, and what they do about it is say it again.
+	// A turn already in flight is not waited on here: opening refuses at once, and
+	// the sink keeps the message in its own queue and offers it again once the
+	// turn has ended (internal/slack/queue.go). Waiting here would spend the
+	// time limit the sink gives one answer on somebody else's turn.
 	session, lease, err := openChat(ctx, domain.RoleProductManager, "", c.configPath, false, false, logWriter{log: c.log})
 	if err != nil {
 		return slack.Answer{}, err
