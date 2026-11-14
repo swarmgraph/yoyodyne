@@ -45,6 +45,7 @@ const (
 	SteerMapSchemaVersion    = 1
 	RefusalMapSchemaVersion  = 1
 	DecisionMapSchemaVersion = 1
+	QueueSchemaVersion       = 1
 	// maxRecordBytes bounds any of them. A thread map is one line per topic, a
 	// cursor set one line per stream, a steer map one line per directive somebody
 	// typed into a thread, and a decision map one line per operator asked about
@@ -807,6 +808,7 @@ func (s *Store) steerPath() string  { return filepath.Join(s.root, "steers.json"
 
 func (s *Store) refusalPath() string  { return filepath.Join(s.root, "refusals.json") }
 func (s *Store) decisionPath() string { return filepath.Join(s.root, "decisions.json") }
+func (s *Store) queuePath() string    { return filepath.Join(s.root, "queue.json") }
 
 // write replaces one record atomically: a sink killed mid-write leaves the
 // previous file rather than half of the new one, which for the thread map is the

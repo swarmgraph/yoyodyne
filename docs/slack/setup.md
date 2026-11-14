@@ -1357,14 +1357,19 @@ when you ask something and releases it as soon as the answer is in hand — the
 same span a `yoyo chat` holds it for, which puts the conversation down whenever
 it is waiting at its prompt. So a `yoyo chat` you leave open is never locked out
 for longer than one turn, and never locks the channel out at all while it is
-idle. If the Lead Product Manager is mid-turn with another client when your message
-arrives — your terminal answering, or the harness delivering something — the
-thread says so rather than failing quietly, nothing is said, and you say it again
-once that turn lands. Closing a `yoyo chat` changes nothing here: what holds the
-conversation is a turn, and a turn ends on its own.
+idle. Closing a `yoyo chat` changes nothing here: what holds the conversation
+is a turn, and a turn ends on its own.
 
-**One at a time.** A second message that arrives while a turn is running is told
-so in its own thread rather than queued or dropped.
+**One at a time, and the rest queued.** A message that arrives while a turn is
+running — the channel answering something else, your terminal answering, or the
+harness delivering something — is queued rather than refused, and its thread
+says so. It is passed on as soon as that turn ends, in the order such messages
+arrived; the thread is told when it has been, and the answer follows there as
+usual. The queue is kept in the sink's own state directory, so a sink restarted
+meanwhile delivers it once it is running again. A queued message the
+conversation keeps refusing for some other reason — an exhausted usage limit,
+say — is tried three times and then taken off the queue, with the reason said
+once in its thread.
 
 **The wait is bounded.** A turn gets ten minutes, or what the Lead Product
 Manager's agent sets as `time_limits.slack_turn`
@@ -1548,10 +1553,12 @@ read the full record from the command line whenever the digest is not enough.
 | A message is answered `I don't know you` | Your member id is bound to nobody in the `operators` mapping. An entry with a `slack_member_id` and no grants is enough to be recognized; `direct-work` is the separate grant that lets you steer. |
 | A reply is answered `Heard as a question rather than an instruction` | You ended it with a question mark, so nothing was recorded and it went to the Lead Product Manager; the answer follows in the same thread. If you meant it as an instruction, say it as one. |
 | A reply is answered `that reads as either a question or an instruction` | It opened like a question and ended with no mark, or asked something and went on. Nothing was recorded and nothing was asked. End it with a question mark to ask the Lead Product Manager, or say it as an instruction to record it. |
-| A reply is answered `that reads as a question, and` … | It was a question and nobody could answer it from here — this sink was started without the Lead Product Manager's conversation, or the Lead Product Manager was mid-turn. Nothing was recorded. `yoyo chat` is where to ask it, or say it again once that turn lands. |
+| A reply is answered `that reads as a question, and` … | It was a question and nobody could answer it from here — this sink was started without the Lead Product Manager's conversation. Nothing was recorded. `yoyo chat` is where to ask it. |
 | A reply gets no answer at all | It was not in a thread this sink opened, or it was not a reply — a message at the top of the channel addresses no work item. Reply inside the item's thread. It is also what a second message gets from somebody this project does not know: they are told once per thread, and read after that. In a direct message it is a thread the sink never asked in, or an ask old enough to have been forgotten; `yoyo directive record` at the terminal records the direction either way. |
 | A message to the app is answered `Where things stand is what I can tell you` | You are recognized and do not hold `direct-work`, which is what talking to the Lead Product Manager takes. Asking where things stand still works. Step 4 is where the grant is written. |
-| A message to the app is answered `The Lead Product Manager is mid-turn with another client` | Another client was taking a turn at that moment — a `yoyo chat` answering at a terminal, or the harness delivering something to the Lead Product Manager. Nothing was said; say it again once that turn lands. A `yoyo chat` waiting at its prompt holds nothing, so closing one changes nothing, and the channel itself only ever holds the conversation for the length of one answer. |
+| A message to the app is answered `The Lead Product Manager is in the middle of another turn` … `queued` | Another turn held the conversation at that moment — this app answering something else, a `yoyo chat` answering at a terminal, or the harness delivering something. Nothing needs doing: the message is passed on once that turn ends, the thread says so, and the answer follows. A `yoyo chat` waiting at its prompt holds nothing, so closing one changes nothing. |
+| A message to the app is answered `Your queued message could not be passed to the Lead Product Manager` | The conversation refused it three times for a reason other than being busy, and the reason follows the colon. It is off the queue and was never said; say it again once the reason has passed, or carry on at `yoyo chat`. |
+| A message to the app is answered `your message could not be queued` | The sink could not write its queue in its state directory, and the reason follows the colon. Nothing was said; say it again once that turn ends. |
 | A message to the app is answered `I waited 10m0s for the Lead Product Manager` | The turn did not finish inside the channel's bound. A turn waiting out a provider usage window releases the conversation during each wait, so other messages can reach the Lead Product Manager; `yoyo status` names the wait and its cause. While a provider is actively answering, the turn holds the conversation. `yoyo chat` queues behind that active turn, says so, and continues from where it lands. `yoyo agent list` says whether the Lead Product Manager is mid-turn without waiting on it. |
 | A message to the app is answered `The Lead Product Manager could not answer:` | The provider's own reason follows the colon. An exhausted usage limit says so there, and also reaches this channel as a warning through the ordinary reporting. |
 | A message to the app is answered `That decision could not be carried out, and the Lead Product Manager was not asked:` | You approved or declined a proposal from here and the harness could not carry it out whole — the tracker refused the item, or the proposal was already decided or no longer held. The harness's own reason follows the colon, and it says whether any part landed; what did land is posted just above it. No turn was spent. |

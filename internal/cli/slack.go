@@ -703,13 +703,10 @@ func (c productManagerConversation) Say(ctx context.Context, said string) (slack
 	// The warnings openChat writes go into the sink's own log, which is the
 	// operator's window onto this process; there is no terminal to write them to.
 	//
-	// A turn already in flight is refused rather than queued behind, which is the
-	// background delivery's answer and not the terminal's. The terminal waits
-	// because the operator has already typed and a turn ends on its own; this
-	// client's wait is bounded by a deadline the operator never chose, and a
-	// message that spent that bound queueing would then be reported as a turn
-	// that ran out when nothing was ever said. Refusing at once is the same fact
-	// with the person told, and what they do about it is say it again.
+	// A turn already in flight is not waited on here: opening refuses at once, and
+	// the sink keeps the message in its own queue and offers it again once the
+	// turn has ended (internal/slack/queue.go). Waiting here would spend the
+	// time limit the sink gives one answer on somebody else's turn.
 	session, lease, err := openChat(ctx, domain.RoleProductManager, "", c.configPath, false, false, logWriter{log: c.log})
 	if err != nil {
 		return slack.Answer{}, err
