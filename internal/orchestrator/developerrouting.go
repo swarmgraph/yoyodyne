@@ -12,7 +12,9 @@ package orchestrator
 // run taking a slot changes nothing about a run already going. A slot with no
 // pair, and every project that configures none, takes none of this beyond the
 // slot number a run the scheduler pulled into it records: its runs are invoked
-// exactly as they always were.
+// exactly as they always were. A run that started before its project configured
+// pairs is given its slot's pair at its next repair or continuation
+// (adoptDeveloperRouting), and is routed from then on as if it had started on it.
 //
 // The work a routed run asks of its developer is divided into logical
 // operations: the first attempt at the item is one, and each repair answering
@@ -59,6 +61,13 @@ type RoutingStore interface {
 	UpdateRouting(ctx context.Context, held runstate.State, change func(*runstate.RunRouting) (bool, error)) (runstate.State, error)
 	BeginLaunch(ctx context.Context, runID, operationID, attemptID string) (*runstate.AttemptLaunch, error)
 	ReconcileLaunch(ctx context.Context, runID, operationID string, recovery runstate.LaunchRecovery) (runstate.LaunchReconciliation, error)
+}
+
+// RoutingMigrator establishes routing for a run recorded without a pair. It is
+// satisfied by *runstate.Store (MigrateRouting), and a store without it leaves
+// such a run as it is (adoptDeveloperRouting).
+type RoutingMigrator interface {
+	MigrateRouting(ctx context.Context, held runstate.State, capacity int, snapshotFor func(slot int) (runstate.RoutingSnapshot, error), operation *runstate.OperationRequest, at time.Time) (runstate.State, error)
 }
 
 // EndpointLimits says whether an account and model are already known to have
@@ -345,6 +354,117 @@ func (a *activeRun) pinDeveloperRouting(ctx context.Context) error {
 		return fmt.Errorf("save the endpoint developer slot %d starts this run on: %w", slot, err)
 	}
 	return nil
+}
+
+// adoptDeveloperRouting gives a run that holds no endpoint pair, in a project
+// that now configures pairs, the slot it runs in and that slot's pair, at its
+// next developer invocation — the repair or continuation after the project
+// configured them. It is the design's migration of a run recorded before
+// routing (runstate's MigrateRouting): the slot the record already names is
+// kept; a run recording none takes the slot the scheduler pulled it into where
+// that is free, and otherwise the lowest free one. The pair is the slot's as
+// resolved now, recorded once with the migrated origin, and from then on the run
+// reads it off its record exactly as a run started on a pair does, so a later
+// reload, label change, or restart chooses nothing new.
+//
+// The round the developer is asked for decides the operation's allowance. A
+// genuine new round — a repair this process began, or a decided repair not yet
+// answered — is opened later as any operation is, with its own switch. Any
+// other round was already under way before the pair was recorded, so it is
+// recorded now as the run's unfinished operation with its history unknown and
+// no switch, as the design requires of a migrated run; it still runs on the
+// pair's primary. Nothing here touches the repair or review counters.
+//
+// A run whose slot has no pair, a project with none, a harness-authored run,
+// and a store that cannot record routing all keep the run exactly as it was.
+// So does a run that records no slot when none is free: it is not made a
+// developer beyond capacity, and the next invocation asks again.
+func (a *activeRun) adoptDeveloperRouting(ctx context.Context) error {
+	p := a.pipeline
+	if a.routedDeveloper() || a.state.HarnessAuthored() || !p.routesDeveloperSlots() {
+		return nil
+	}
+	store, ok := p.routingStore()
+	if !ok {
+		return nil
+	}
+	now := p.clock().Now()
+	capacity := p.Config.Execution.MaxConcurrentDevelopers
+	if a.state.RecordedSlot() == 0 && developerSlotOf(ctx) != 0 {
+		claimed, _, err := claimDeveloperSlot(ctx, store, a.state, developerSlotOf(ctx), capacity, now)
+		if err == nil {
+			a.state.Routing = claimed.Routing
+		}
+	}
+	if slot := a.state.RecordedSlot(); slot != 0 {
+		if _, explicit, err := p.slotPair(slot, a.state.WorkItemLabels); err != nil || !explicit {
+			return err
+		}
+	}
+	migrator, ok := p.Store.(RoutingMigrator)
+	if !ok {
+		return nil
+	}
+	errNoPair := errors.New("the slot has no endpoint pair")
+	snapshotFor := func(slot int) (runstate.RoutingSnapshot, error) {
+		pair, explicit, err := p.slotPair(slot, a.state.WorkItemLabels)
+		if err != nil {
+			return runstate.RoutingSnapshot{}, err
+		}
+		if !explicit {
+			return runstate.RoutingSnapshot{}, errNoPair
+		}
+		return runstate.RoutingSnapshotOf(pair, runstate.RoutingMigrated, now), nil
+	}
+	var unfinished *runstate.OperationRequest
+	if !a.genuineDeveloperRound() {
+		request := a.developerRound()
+		minted, err := runstate.NewRoutingID("op")
+		if err != nil {
+			return err
+		}
+		request.ID = minted
+		unfinished = &request
+	}
+	migrated, err := migrator.MigrateRouting(ctx, a.state, capacity, snapshotFor, unfinished, now)
+	var full runstate.CapacityError
+	switch {
+	case errors.Is(err, errNoPair), errors.As(err, &full):
+		return nil
+	case err != nil:
+		return fmt.Errorf("give this run its developer slot's endpoint pair: %w", err)
+	}
+	a.state.Routing = migrated.Routing
+	a.applyDeveloperEndpoint(runstate.EndpointPrimary, migrated.Routing.Developer.Primary)
+	a.state.UpdatedAt = now
+	if err := p.Store.Save(a.state); err != nil {
+		return fmt.Errorf("save the endpoint developer slot %d gives this run: %w", a.state.RecordedSlot(), err)
+	}
+	return nil
+}
+
+// genuineDeveloperRound reports a developer round nobody has yet been asked
+// for: a repair this process began (repair), or a decided repair whose
+// continuation returned a new failure and which no developer has answered yet.
+// The first attempt at the item, a stalled round resumed, and anything the
+// record cannot vouch for are not.
+func (a *activeRun) genuineDeveloperRound() bool {
+	repairs := a.state.RepairAttempts
+	if repairs == 0 {
+		return false
+	}
+	if a.repairBegunHere == repairs {
+		return true
+	}
+	continuations := a.state.RepairContinuations
+	if len(continuations) == 0 {
+		return false
+	}
+	latest := continuations[len(continuations)-1]
+	if latest.Stall || latest.CheckStage || latest.ByHarness {
+		return false
+	}
+	return a.state.DeveloperSummary == nil || a.state.DeveloperSummary.Attempt < repairs
 }
 
 // routedDeveloper reports a run pinned to an explicit endpoint pair.
