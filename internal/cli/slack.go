@@ -694,9 +694,9 @@ type productManagerConversation struct {
 func (c productManagerConversation) Say(ctx context.Context, said string) (slack.Answer, error) {
 	// A command is refused before anything is opened, because opening is not free
 	// and its cost falls on the operator: a turn is exclusive, so a `/backlog`
-	// typed while a `yoyo chat` is mid-turn would be answered "mid-turn with
-	// another client" rather than with where to type it — which is both the wrong
-	// answer and a command contending for the operator's own lease to get it.
+	// typed while a `yoyo chat` is mid-turn would otherwise contend for the
+	// operator's own lease, or wait in the sink's queue behind that turn, only to
+	// be told where to type it.
 	if answer, refused := refuseCommand(said); refused {
 		return answer, nil
 	}

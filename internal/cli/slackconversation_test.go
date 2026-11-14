@@ -222,10 +222,9 @@ func TestAFailedTurnStillCarriesBackWhatItManagedToSay(t *testing.T) {
 // defect `yoyo chat --message` already had once: a confused answer bought with a
 // turn the operator paid for.
 // It is settled before the conversation is opened, which is the other half of
-// the rule. A turn is exclusive, so a command decided after opening would be
-// answered "mid-turn with another client" whenever a `yoyo chat` is answering
-// — the wrong answer, reached by making a command contend for the operator's
-// own lease to get it.
+// the rule. A turn is exclusive, so a command decided after opening would
+// contend for the operator's own lease whenever a `yoyo chat` is answering, or
+// wait in the sink's queue behind that turn, only to be told where to type it.
 func TestACommandFromSlackIsRefusedRatherThanSaidToTheProductManager(t *testing.T) {
 	t.Parallel()
 

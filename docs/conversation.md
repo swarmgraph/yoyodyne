@@ -3466,15 +3466,16 @@ and that is what the two rules around it are for. The channel takes the
 conversation when you say something and gives it back as soon as the answer is
 in hand — the same span your own window holds it for, so neither client is ever
 locked out for longer than one turn, and a `yoyo chat` waiting at its prompt
-holds nothing against the channel at all. Where the Lead Product Manager is mid-turn
-with another client when your message arrives — your terminal answering, or the
-harness delivering something to it — the thread says so rather than failing
-quietly, and rather than queueing behind it: nothing was said, and you say it
-again once that turn lands. And the channel's wait is bounded, at ten minutes
-unless the Lead Product Manager's `time_limits.slack_turn` says otherwise,
-after which the thread is told what happened: the wait running out, the
-conversation mid-turn elsewhere, or the provider's own reason, which for an
-exhausted usage limit is that limit in its own words. A turn that steers work
+holds nothing against the channel at all. Where another turn holds the
+conversation when your message arrives — the channel answering something else,
+your terminal answering, or the harness delivering something to it — the message
+is queued rather than refused, and the thread says so. It is passed on as soon
+as that turn ends, in the order such messages arrived, even if the Slack app
+restarts in between; the thread is told when it has been, and the answer follows
+there as usual. And the channel's wait is bounded, at ten minutes unless the
+Lead Product Manager's `time_limits.slack_turn` says otherwise, after which the
+thread is told what happened: the wait running out, or the provider's own
+reason, which for an exhausted usage limit is that limit in its own words. A turn that steers work
 can wait on capacity for hours, and that is a thing you choose at a terminal
 rather than something a channel does to you while you watch a thread.
 

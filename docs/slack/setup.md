@@ -1186,9 +1186,10 @@ Seven things are refused, visibly:
   back in one line rather than guessed at. End it with a question mark to ask,
   or say it as an instruction to record it.
 - **a question with nobody to answer it** — a sink started without the Lead Product
-  Manager's conversation, or the Lead Product Manager already mid-turn. Nothing is
-  recorded either way, and the refusal says to ask at `yoyo chat`, or to say it
-  again once that turn lands.
+  Manager's conversation. Nothing is recorded, and the refusal says to ask at
+  `yoyo chat`. A question that arrives while the Lead Product Manager is in the
+  middle of another turn is not refused: it is queued behind that turn and
+  answered in the thread once the turn ends.
 - **a reply from somebody the `operators` mapping does not name at all**, which
   is refused differently: they are told once in that thread that this app does
   not know them and who to reach out to instead, and everything they say in it
@@ -1375,9 +1376,8 @@ conversation, the sink checks every ten seconds whether it has ended.
 **The wait is bounded.** A turn gets ten minutes, or what the Lead Product
 Manager's agent sets as `time_limits.slack_turn`
 ([configuration](../configuration.md#how-long-an-agents-turns-and-calls-may-take)), and then the thread is told what
-happened — the wait running out, the conversation mid-turn elsewhere, or the
-provider's own reason, which for an exhausted usage limit is that limit in its
-own words. Nothing hangs silently; a run steered from a conversation can wait on
+happened — the wait running out, or the provider's own reason, which for an
+exhausted usage limit is that limit in its own words. Nothing hangs silently; a run steered from a conversation can wait on
 capacity for hours, and that is a choice you make at a terminal rather than
 something a channel does to you.
 
