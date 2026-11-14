@@ -288,12 +288,19 @@ func (c Conductor) Put(ctx context.Context, ask Ask, asker Party) (Exchange, err
 		Asker:     recorded.Asker,
 		Answerer:  recorded.Answerer,
 	})
+	// A reference naming no revision, a work item's above all, is stamped with
+	// when the harness read it for this round, so the state the answer stood on
+	// can still be found once the record has changed.
+	refers := stampReadAt(ask.Refers, evidence)
+	if len(recorded.Rounds) == 0 {
+		recorded.Refers = refers
+	}
 	asked := c.now()
 	recorded.Rounds = append(recorded.Rounds, Round{
 		Number:   recorded.Spent() + 1,
 		Question: strings.TrimSpace(ask.Question),
 		Context:  strings.TrimSpace(ask.Context),
-		Refers:   ask.Refers,
+		Refers:   refers,
 		Evidence: evidence,
 		// The process taking the round is named on it before the provider is
 		// reached, for the same reason the round itself is written first: what a

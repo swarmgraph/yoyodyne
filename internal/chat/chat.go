@@ -1138,9 +1138,10 @@ type Reply struct {
 	// ConcernRefusals are concern blocks refused for naming a goal nothing
 	// records, returned to the role as results without failing the turn.
 	ConcernRefusals []string `json:"concern_refusals,omitempty"`
-	// RefusedAsks are questions put to a role the asker may not ask, said in
-	// ordinary words. Each was handed back to the asking role, and the rest of
-	// the reply that carried it was carried out.
+	// RefusedAsks are questions put to a role the asker may not ask, and
+	// questions the harness could not read, said in ordinary words. Each was
+	// handed back to the asking role, and the rest of the reply that carried it
+	// was carried out.
 	RefusedAsks []string `json:"refused_asks,omitempty"`
 	// Reports are what the product manager noticed and filed for the operator
 	// while it answered. They are collected rather than acted on: a report
@@ -2141,6 +2142,24 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			continuation += askRefused(askRefusal)
 			owed += askRefused(askRefusal)
 		}
+		// An ask the harness could not read is handed back the same way, with the
+		// reason, so the role can correct it and send it again in this message.
+		// Everything else in the reply has already been carried out above.
+		if parsed.AskProblem != nil {
+			said := unreadableAskSays(s.state.Role, parsed.AskProblem.Err)
+			reply.RefusedAsks = append(reply.RefusedAsks, said)
+			reply.Exchanges = append(reply.Exchanges, s.refuseUnreadableAsk(ctx, parsed.AskProblem))
+			if asksTaken >= s.options.askRounds() {
+				reply.ResultsCarriedOver = true
+				if err := s.carryResults(undelivered + askUnreadable(parsed.AskProblem.Err)); err != nil {
+					return reply, err
+				}
+				break
+			}
+			asksTaken++
+			continuation += askUnreadable(parsed.AskProblem.Err)
+			owed += askUnreadable(parsed.AskProblem.Err)
+		}
 		if parsed.Ask != nil {
 			if asksTaken >= s.options.askRounds() {
 				// One message has asked as much as it may. The exchange itself is
@@ -3069,6 +3088,10 @@ type parsedReply struct {
 	// Ask is the one question this reply puts to another role, where it puts
 	// one. Most replies put none, which is not an empty ask.
 	Ask *exchange.Ask
+	// AskProblem is why an ask block this reply carried could not be read. It
+	// never fails the turn: the question is handed back to the role that asked,
+	// and the rest of the reply is carried out as if the block were not there.
+	AskProblem *AskError
 	// Memories are what this reply asked to be remembered, revised, or retired
 	// in the agent's own memory. Most replies ask for none.
 	Memories []MemoryWrite
@@ -3115,7 +3138,8 @@ type parsedReply struct {
 // carried out or recorded, and the answer itself is still the operator's to
 // read. The report block is the exception at both ends: it is taken out first,
 // and one that cannot be read leaves everything else to be taken apart exactly
-// as it would have been.
+// as it would have been. The ask block is the same: one that cannot be read is
+// carried as AskProblem and everything else is taken apart as before.
 func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	rest, reports, reportErr := report.Extract(answer)
 	parsed := parsedReply{Reports: reports, ReportProblem: reportErr}
@@ -3176,10 +3200,15 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 		parsed.Prose = rest
 		return parsed, fmt.Errorf("recover block refused: %w", err)
 	}
-	prose, ask, err := exchange.Extract(prose)
-	if err != nil {
-		parsed.Prose = rest
-		return parsed, &AskError{Err: err}
+	// An ask the harness cannot read is carried as its own problem, like the
+	// report block: the question is handed back to the role that asked with the
+	// reason, and everything else in the reply is taken apart and carried out as
+	// it would have been without it. Nothing else in a reply depends on its
+	// question, so losing the memory writes and actions beside it for a mistake
+	// in the ask would be losing work nobody was told about.
+	prose, ask, askErr := exchange.Extract(prose)
+	if askErr != nil {
+		parsed.AskProblem = &AskError{Err: askErr}
 	}
 	prose, memories, err := extractMemoryWrites(prose)
 	if err != nil {

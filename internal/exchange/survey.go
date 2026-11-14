@@ -40,6 +40,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
@@ -78,14 +79,37 @@ type Reference struct {
 	ID   string `json:"id"`
 	// Revision is what that thing was at when it was read. Anything the producer
 	// can compare for equality serves: a revision timestamp, a content hash, a
-	// tracker's own version. It is optional: a reference naming none is attached
-	// as the record is now, and its staleness cannot be judged.
+	// tracker's own version. A goal or a design is versioned, so a reference to
+	// one has to name it (RequiresRevision). Anything else may name none, a work
+	// item above all, which carries no revision at all: it is attached as the
+	// record is now, and ReadAt says when that was.
 	Revision string `json:"revision,omitempty"`
+	// ReadAt is when the harness read the record for the round that named it,
+	// recorded on a reference that names no revision. It is the harness's to
+	// write: the conductor sets it from the round's own read and replaces
+	// whatever an asker put there. It is what lets an answer given against an
+	// older state of a work item be found later, by comparing it with when the
+	// item last changed. It is absent on a reference recorded before it was kept.
+	ReadAt *time.Time `json:"read_at,omitempty"`
 }
 
 // Key names the thing referred to without the revision. It is how a reference is
 // looked up against what is current now.
 func (r Reference) Key() string { return r.What + "/" + r.ID }
+
+// revisionedKinds are the kinds of record a reference has to name a revision
+// of. A goal and a design are documents with numbered revisions, so a question
+// put against one without saying which revision was read could never be told
+// apart from one asked against wording that has since changed. "goal" and
+// "design" are accepted as names beside "document" because a role says them;
+// the evidence the harness attaches knows them only as documents.
+var revisionedKinds = map[string]bool{"document": true, "goal": true, "design": true}
+
+// RequiresRevision reports whether a reference to this kind of record has to
+// name the revision the asker read.
+func RequiresRevision(what string) bool {
+	return revisionedKinds[strings.ToLower(strings.TrimSpace(what))]
+}
 
 func (r Reference) validate(what string) error {
 	return errors.Join(
@@ -93,6 +117,40 @@ func (r Reference) validate(what string) error {
 		boundedText(what+" id", r.ID, MaxReferenceBytes, true),
 		boundedText(what+" revision", r.Revision, MaxReferenceBytes, false),
 	)
+}
+
+// requireRevisions refuses an ask's reference to a goal or a design that names
+// no revision. It is held of the ask and not of the record, so an exchange
+// written before the rule still loads. The refusal says what to name, because
+// the role reading it corrects the block and sends it again.
+func requireRevisions(field string, references []Reference) error {
+	var problems []error
+	for i, reference := range references {
+		if RequiresRevision(reference.What) && strings.TrimSpace(reference.Revision) == "" {
+			problems = append(problems, fmt.Errorf("%s[%d] revision is required for a %s: name the revision you read, such as \"revision 3\"; a work item, a run, a report, an amendment and a turn need none",
+				field, i, strings.ToLower(strings.TrimSpace(reference.What))))
+		}
+	}
+	return errors.Join(problems...)
+}
+
+// stampReadAt is the references a round names, each one naming no revision
+// stamped with when the harness read it for that round. The attachments are
+// the round's read of them, one for each reference in the order named.
+func stampReadAt(refers []Reference, attachments []Attachment) []Reference {
+	if len(refers) == 0 {
+		return refers
+	}
+	stamped := make([]Reference, len(refers))
+	for i, reference := range refers {
+		reference.ReadAt = nil
+		if strings.TrimSpace(reference.Revision) == "" && i < len(attachments) && !attachments[i].ObservedAt.IsZero() {
+			at := attachments[i].ObservedAt
+			reference.ReadAt = &at
+		}
+		stamped[i] = reference
+	}
+	return stamped
 }
 
 // validateReferences holds one list of references to the bounds above.
