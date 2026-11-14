@@ -19,8 +19,11 @@ package orchestrator
 //
 // Either ends the entry's turn, and the queue goes on to the entry behind it.
 // A forge or a target that cannot be read holds nothing up: the entry is built
-// as it would have been. An entry with a promotion under way is the
-// promoter's, and is not looked at here.
+// as it would have been. The exception is a forge whose certificate this
+// process cannot verify (internal/forgetrust): that is not an answer about the
+// request, and every request it would build after it is asked the same way, so
+// the pass stops and says why rather than reading it as not merged. An entry
+// with a promotion under way is the promoter's, and is not looked at here.
 
 import (
 	"context"
@@ -29,6 +32,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/forgetrust"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -124,6 +128,15 @@ func (q *queuePromotion) settleOutside(ctx context.Context) error {
 		// The branch is the handle the run keeps on its request, so a request the
 		// forge answers about under another number is not the run's.
 		observed, err := q.p.Pipeline.Publisher.State(ctx, published.Branch)
+		if forgetrust.Failure(err) {
+			// A forge this process cannot verify has not said the request is
+			// unmerged, and building a candidate as if it had would check and
+			// review a change the target may already carry. The pass stops on it
+			// and says so; nothing is recorded on the entry, so the next pass asks
+			// again.
+			return fmt.Errorf("the merge queue's check of GitHub for whether pull request #%d (merge queue entry %d) was merged outside the queue could not verify GitHub's certificate, so nothing was built for it: %w",
+				published.Number, q.entry.Order, err)
+		}
 		if err == nil && observed.Number == published.Number {
 			switch {
 			case observed.Merged:

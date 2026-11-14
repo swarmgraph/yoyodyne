@@ -138,6 +138,11 @@ func TestTheProductStartsOnceStopsOnceAndASecondStartDoesNothing(t *testing.T) {
 	defaultWait := startWait
 	startWait = supervisorRecordBound
 	t.Cleanup(func() { startWait = defaultWait })
+	// The test may itself run where certificates cannot be verified, which is
+	// not what it is about (TestStartRefusesToDetachASupervisorThatCannotVerifyGitHub is).
+	defaultProbe := forgeTrustProbe
+	forgeTrustProbe = func() error { return nil }
+	t.Cleanup(func() { forgeTrustProbe = defaultProbe })
 	store, err := runstate.NewSupervisionStore(stateRoot, "yoyodyne")
 	if err != nil {
 		t.Fatal(err)
