@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # cut-release.sh - cut one release: gate on its notes, on the system matching
-# what it records about itself, on the adoption walkthrough and on the checks,
+# what it records about itself, on the getting-started walkthrough and on the checks,
 # build the archives and their checksums for the tag, then tag the commit they
 # were built from -- which is the commit origin's default branch already holds.
 #
@@ -75,7 +75,7 @@
 set -euo pipefail
 
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-walkthrough="$repository/scripts/walk-adoption.sh"
+walkthrough="$repository/scripts/walk-getting-started.sh"
 notes_writer="$repository/scripts/release-notes.sh"
 # Where a release's notes live, versioned beside the code they describe and
 # named for the tag, so the release page and the repository tell one story.
@@ -100,7 +100,7 @@ dist_directory="$repository/${DIST:-dist}"
 tag_pattern='^v[0-9]+\.[0-9]+\.[0-9]+$'
 # The tracker's derived exports. Beads keeps the issues in a local database and
 # writes these out as a passive dump, so they change whenever anything touches
-# the tracker -- including the adoption walkthrough this gate runs itself, and
+# the tracker -- including the getting-started walkthrough this gate runs itself, and
 # a harness running beside the cut, which rewrites them continuously. The
 # archives a release ships are not built from them, and the notes are drafted
 # from the issues export and committed before the cut, so they are excluded
@@ -490,7 +490,7 @@ if [ "$stamp_current" != "1" ]; then
 fi
 printf 'docs/releases/%s.md carries this reading, so %s names a commit whose notes say what was true of it\n' "$tag" "$tag"
 
-step "gate: the adoption walkthrough"
+step "gate: the getting-started walkthrough"
 printf 'A release is what the install path consumes, so the documented first hour\n'
 printf 'is walked before the tag exists rather than after it is published.\n\n'
 walk_log="$(mktemp "${TMPDIR:-/tmp}/cut-release-walk.XXXXXX")"
@@ -501,7 +501,7 @@ if ! bash "$walkthrough" 2>&1 | tee "$walk_log"; then
   else
     printf '\nthe walkthrough did not finish:\n%s\n' "$(tail -5 "$walk_log")" >&2
   fi
-  refuse "the adoption walkthrough is red, so $tag was not cut and nothing was written"
+  refuse "the getting-started walkthrough is red, so $tag was not cut and nothing was written"
 fi
 
 step "gate: make check"

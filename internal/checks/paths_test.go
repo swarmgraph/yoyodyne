@@ -33,7 +33,7 @@ func TestAPathListCoversWhatItsPatternsName(t *testing.T) {
 		{path: "cmd/yoyo/main.go", want: true},
 		{path: "tools/cmd/main.go", want: true},
 		{path: "docs/developing-yoyo.md", want: false},
-		{path: "scripts/walk-adoption.sh", want: false},
+		{path: "scripts/walk-getting-started.sh", want: false},
 	} {
 		touched, ok := Touching(patterns, []string{test.path})
 		if ok != test.want {
@@ -92,10 +92,10 @@ func TestReadingAPathListRefusesALineThatIsNotAPattern(t *testing.T) {
 	}
 }
 
-// This repository's own list for the adoption walk parses, covers the README
+// This repository's own list for the getting-started walk parses, covers the README
 // and the program it documents, and leaves out what the walk never builds or
 // reads — which is what makes a change to a document elsewhere cost nothing.
-func TestTheAdoptionWalksListCoversTheReadmeAndTheProgram(t *testing.T) {
+func TestTheGettingStartedWalksListCoversTheReadmeAndTheProgram(t *testing.T) {
 	t.Parallel()
 
 	patterns, err := ReadPathPatterns("../..", "scripts/walk-adoption.paths")
@@ -104,7 +104,7 @@ func TestTheAdoptionWalksListCoversTheReadmeAndTheProgram(t *testing.T) {
 	}
 	for _, covered := range []string{
 		"README.md",
-		"scripts/walk-adoption.sh",
+		"scripts/walk-getting-started.sh",
 		"scripts/walk-adoption.paths",
 		"Makefile",
 		"go.mod",
@@ -113,7 +113,7 @@ func TestTheAdoptionWalksListCoversTheReadmeAndTheProgram(t *testing.T) {
 		"internal/config/builtin/v1/personas/developer.md",
 	} {
 		if _, ok := Touching(patterns, []string{covered}); !ok {
-			t.Errorf("the adoption walk's list does not cover %s", covered)
+			t.Errorf("the getting-started walk's list does not cover %s", covered)
 		}
 	}
 	for _, left := range []string{
@@ -124,7 +124,7 @@ func TestTheAdoptionWalksListCoversTheReadmeAndTheProgram(t *testing.T) {
 		".beads/issues.jsonl",
 	} {
 		if _, ok := Touching(patterns, []string{left}); ok {
-			t.Errorf("the adoption walk's list covers %s, which the walk neither builds nor reads", left)
+			t.Errorf("the getting-started walk's list covers %s, which the walk neither builds nor reads", left)
 		}
 	}
 }

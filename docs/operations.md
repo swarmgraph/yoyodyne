@@ -674,7 +674,7 @@ else in the way, the step:
 4. runs every gate a person's cut runs, in a worktree of its own detached at
    that commit under the product's state directory: `HEAD` at `origin/main`
    with a clean tree, the notes, release readiness matching the notes' stamp,
-   the adoption walkthrough, `make check`, and the release build. These are
+   the getting-started walkthrough, `make check`, and the release build. These are
    `scripts/cut-release.sh` itself, run with `YOYODYNE_RELEASE_CUT=automatic`,
    which drafts nothing, opens no pull request, and tags nothing. The worktree
    is removed afterwards;
@@ -942,7 +942,7 @@ problem  tracker                bd is not installed, and every role reads and wr
                                 fix: curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
 ```
 
-That is the same repository the README, the install script, and the adoption
+That is the same repository the README, the install script, and the getting-started
 walkthrough send you to, and it is deliberately not a `go install` line: the
 tracker moved to that home from `steveyegge/beads` and its released modules
 still declare the old path, so `go install` of a path under the new home fails

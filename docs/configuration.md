@@ -3598,7 +3598,7 @@ file in the repository listing the paths it vouches for:
 
 ```yaml
 path_checks:
-  - command: make adoption
+  - command: make getting-started
     paths: scripts/walk-adoption.paths
 ```
 

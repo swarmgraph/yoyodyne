@@ -6800,8 +6800,8 @@ func (a *activeRun) verify(ctx context.Context) error {
 	// persist is what says the store has gone, in the words it always said it in.
 	//
 	// What it touches also decides which path checks join the configured ones:
-	// a check that vouches for part of the repository — the adoption walk, for
-	// the README and the program it documents — runs for a change that touches
+	// a check that vouches for part of the repository — the getting-started
+	// walk, for the README and the program it documents — runs for a change that touches
 	// that part and costs nothing for one that does not. Where it runs, its
 	// result is one more check result, so the review evidence carries it the
 	// way it carries every other.
