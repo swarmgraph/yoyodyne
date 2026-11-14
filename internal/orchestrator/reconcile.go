@@ -657,6 +657,10 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 		result := reconciliationOf(state, ActionResumable)
 		result.Detail = fmt.Sprintf("the run was being brought up to date onto %s and %s at its %s phase; the sweep's last step carries the update on from there",
 			state.TargetBranch, describeLostHost(state), state.Phase)
+		if catchUpNotTakenUp(state) {
+			result.Detail = fmt.Sprintf("the merge queue handed the run back to bring its change up to date with %s, which moved under it; the sweep's last step hosts that attempt",
+				state.TargetBranch)
+		}
 		return result, nil
 	}
 	// A run its own pipeline can still continue is left alone. Ending it here
