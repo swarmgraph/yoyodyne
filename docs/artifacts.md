@@ -192,11 +192,13 @@ A revision's reason is also read back to the tracker, in one narrow way. A work
 item a role's conversation carries — admitted with `executor:
 conversation:architect`, say — is closed by the harness when a document that
 role owns records a revision, by that role, whose reason *opens* with the
-item's identifier: `yoyodyne-ifd.330 - side conversations designed`. Opening
-with it is the convention and the whole of the judgement; a reason that mentions
-an item further in is about something else and closes nothing. So when the
-revision is the landing of a tracked item, write the identifier first, and when
-it is not, do not. [How work flows](work.md#letting-the-harness-choose-the-work)
+item's identifier: `yoyodyne-ifd.330 - side conversations designed`. A reason
+that mentions an item further in is about something else and closes nothing.
+Where the item's text names documents that role owns, by path or identifier,
+it closes only once each of them has such a revision; one in a document it does
+not name is noted on the item and leaves it open. So when the revision is the
+landing of a tracked item, write the identifier first, in each document the
+item names, and when it is not, do not. [How work flows](work.md#letting-the-harness-choose-the-work)
 says what the close records and how it is undone: reopening the item with a
 note, which holds because the item carries the revision it was closed on and
 is not closed on it again.
