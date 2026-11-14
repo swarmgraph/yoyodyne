@@ -48,6 +48,7 @@ const ExpireAfter = 2 * time.Hour
 type Remote interface {
 	FetchClaims(ctx context.Context) error
 	FetchedClaim(ctx context.Context, workItemID string) (gitworktree.ClaimReading, error)
+	FetchedTeamPause(ctx context.Context) (gitworktree.TeamPauseReading, error)
 	PushClaim(ctx context.Context, workItemID, record, parent, expected string, now time.Time) (string, error)
 	DeleteClaim(ctx context.Context, workItemID, expected string) error
 }
@@ -183,16 +184,29 @@ func (c Claims) validate() error {
 	return errors.Join(problems...)
 }
 
-// Take claims one item on the shared remote for a run that is about to start
-// it. It fetches the claims first, then pushes the claim with a lease that
-// fails if the reference exists. A claim this factory left from an earlier run
-// of the item is taken on with a lease naming its commit, and one another
-// factory has not renewed for ExpireAfter is taken over the same way, naming
-// that factory as the previous holder.
+// Take claims one item on the shared remote for a run the harness chose to
+// start. It fetches the claims and the team pause first, and claims nothing
+// while the team pause is set (pause.go). Otherwise it pushes the claim with a
+// lease that fails if the reference exists. A claim this factory left from an
+// earlier run of the item is taken on with a lease naming its commit, and one
+// another factory has not renewed for ExpireAfter is taken over the same way,
+// naming that factory as the previous holder.
 //
-// An item another factory holds ends on HeldError, and a remote that could not
-// be reached ends on UnreachableError. Either way nothing was claimed.
+// An item another factory holds ends on HeldError, a team pause on PausedError,
+// and a remote that could not be reached on UnreachableError. Whichever it is,
+// nothing was claimed.
 func (c Claims) Take(ctx context.Context, workItemID, runID string) (runstate.TeamClaim, error) {
+	return c.take(ctx, workItemID, runID, true)
+}
+
+// TakeNamed is Take for an item the operator named on this machine, which is
+// that operator's exception to the team pause as it is to the intake hold. The
+// remote must still be reached and the claim still won.
+func (c Claims) TakeNamed(ctx context.Context, workItemID, runID string) (runstate.TeamClaim, error) {
+	return c.take(ctx, workItemID, runID, false)
+}
+
+func (c Claims) take(ctx context.Context, workItemID, runID string, honourPause bool) (runstate.TeamClaim, error) {
 	if err := c.validate(); err != nil {
 		return runstate.TeamClaim{}, err
 	}
@@ -203,6 +217,11 @@ func (c Claims) Take(ctx context.Context, workItemID, runID string) (runstate.Te
 	defer unlock()
 	if err := c.Remote.FetchClaims(ctx); err != nil {
 		return runstate.TeamClaim{}, UnreachableError{WorkItemID: workItemID, Err: err}
+	}
+	if honourPause {
+		if err := readPause(ctx, c.Remote, workItemID); err != nil {
+			return runstate.TeamClaim{}, err
+		}
 	}
 	reading, err := c.Remote.FetchedClaim(ctx, workItemID)
 	if err != nil {

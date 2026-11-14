@@ -60,6 +60,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/teamclaim"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
@@ -181,6 +182,13 @@ type OperatorHolds interface {
 // satisfied by *runstate.IntakeHoldStore.
 type IntakeHolds interface {
 	Held() (runstate.IntakeHold, bool, error)
+}
+
+// TeamPause is the team pause as this machine last fetched it from the shared
+// remote, in team mode. It asks the remote nothing. It is satisfied by
+// teamclaim.TeamPause.
+type TeamPause interface {
+	Fetched(ctx context.Context) (teamclaim.Pause, bool, error)
 }
 
 // Sessions is what the sessions that choose work have said about themselves. It
@@ -418,6 +426,10 @@ type Sources struct {
 	// them before the scheduler starts no new developer work. Zero is no limit,
 	// and nothing is said about it (waitingpullrequests.go).
 	MaxWaitingPullRequests int
+	// TeamPause is the team pause, wired only where the project's team mode is
+	// on. Nil is a project working its repository alone, which has no team
+	// pause, and nothing is said about one.
+	TeamPause TeamPause
 	// FactoryStallAfter is execution.factory_stall_after as the caller read it:
 	// how long no pull and no successful recurring pass may go before the
 	// factory is said to have stalled. Zero takes DefaultFactoryStallAfter.
@@ -759,6 +771,14 @@ type Standing struct {
 	WaitingForTeamMerge        []runstate.WaitingForTeamMergeItem `json:"waiting_for_team_merge,omitempty"`
 	WaitingForTeamMergeSays    []string                           `json:"waiting_for_team_merge_says,omitempty"`
 	WaitingForTeamMergeProblem string                             `json:"waiting_for_team_merge_problem,omitempty"`
+	// TeamPause is the team pause on the shared remote, as this machine last
+	// fetched it, where the project's team mode is on and the pause is set, and
+	// nil otherwise. While it stands no factory working the repository starts new
+	// work the harness chose, and the banner above says so and who set it,
+	// wherever nothing that stops more than new work is said there first.
+	// TeamPauseProblem is why this machine's copy could not be read.
+	TeamPause        *teamclaim.Pause `json:"team_pause,omitempty"`
+	TeamPauseProblem string           `json:"team_pause_problem,omitempty"`
 
 	Running        []RunningRun `json:"running"`
 	RunningProblem string       `json:"running_problem,omitempty"`
@@ -1397,6 +1417,19 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 				prefixes = append(prefixes, workref.PrefixOf(run.WorkItemID))
 			}
 			standing.Titles = UnreadableWorkItemTitles(standing.ObservedAt, prefixes...)
+		}
+	}
+	// The team pause stops new work on every factory sharing the repository,
+	// which is more than the limit below stops, so it is said in the banner
+	// ahead of it, and after anything that stops more than new work.
+	if sources.TeamPause != nil {
+		if pause, set, err := sources.TeamPause.Fetched(ctx); err != nil {
+			standing.TeamPauseProblem = fmt.Sprintf("the team pause could not be read from this machine's copy: %v", err)
+		} else if set {
+			standing.TeamPause = &pause
+			if standing.Paused == "" {
+				standing.Paused = pause.Says()
+			}
 		}
 	}
 	// The limit on pull requests waiting for a person to merge is said in the

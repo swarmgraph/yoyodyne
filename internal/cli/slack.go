@@ -511,6 +511,7 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		Slots:                      resolved.Config.Execution.DeveloperSlots,
 		SchedulingWaitProblemAfter: resolved.Config.Execution.SchedulingWaitProblemAfter.Duration(),
 		MaxWaitingPullRequests:     resolved.Config.Execution.MaxWaitingPullRequests,
+		TeamPause:                  standingTeamPause(resolved),
 		TrackerTimeout:             chatTrackerTimeout,
 	}
 	// The tracker reading every status reading on the machine shares, as
