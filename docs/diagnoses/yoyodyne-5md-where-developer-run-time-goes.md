@@ -27,7 +27,9 @@ These records were read:
 - the merge queue's entries, each candidate built from an entry with its check
   and review times, and each landing with its pushes, pull request and the
   time GitHub confirmed the merge;
-- the heavy-check permit measurements (512 of them, starting November 8, 14:40).
+- the heavy-check permit measurements, which start on November 8 at 14:40:
+  511 of them were asked for inside the window. The file keeps growing, and
+  every later one is left out.
 
 A run's elapsed time starts when the scheduler selected it. It ends when its
 change landed on main. If the queue handed the change back, it ends at the
@@ -57,15 +59,22 @@ run took 22.9 hours.
 | Landing (merge queue, replays, conflicts) | 3,829.7 | 86.4% | 14.3 h |
 | Not accounted for by the records | 142.9 | 3.2% | 4.9 min |
 
-**Landing is the largest share by far.** It breaks down as follows:
+**Landing is the largest share by far.** The landing periods, from approval
+to landing, hand-back or the window's end, come to 3,847.3 hours before the
+overlap rule is applied. They break down as follows:
 
-- Waiting in the queue before the entry's own candidate was built: 3,718
+- Waiting in the queue before the entry's own candidate was built: 3,718.2
   hours.
-- Candidate checks: 50 hours. 6.7 of these were for later candidates, rebuilt
-  because main had moved.
+- Candidate checks: 50.4 hours. 43.7 were for first candidates, and 6.7 were
+  for later candidates, rebuilt because main had moved.
 - Candidate review: 0.5 hours.
-- Getting from approval into the queue: 19 hours.
-- Everything else, mostly waiting on GitHub's merge: 59 hours.
+- Getting from approval into the queue: 19.1 hours.
+- Everything else, mostly waiting on GitHub's merge: 59.0 hours.
+
+17.6 of those hours overlap a part listed earlier in the overlap order, such
+as a repair round's checks or a developer session that ran after approval.
+Under the rule they are counted there, and that is why the table gives
+landing 3,829.7 hours.
 
 The 140 runs that reached the queue ended up three ways:
 
@@ -78,7 +87,7 @@ The 140 runs that reached the queue ended up three ways:
 The 31 hand-backs break down as:
 
 - 15 conflicted with main by the time their turn came;
-- 11 were in a run that was interrupted and then settled;
+- 6 were in a run that was interrupted and then settled;
 - 4 had their queued merge withdrawn;
 - 4 were handed back by hand because the change had been merged by hand;
 - 2 had a candidate check fail.
@@ -159,7 +168,8 @@ Recording it is work to admit.
    length but not the command. A test run cannot be told from any other long
    command. This note counts any shell command of 60 seconds or more as the
    developer's own check.
-2. **Why a run sat still.** One run, the item yoyodyne-fvn, passed its checks
+2. **Why a run sat still.** One run, for the item to cut release v0.6.0
+   (yoyodyne-fvn), passed its checks
    on November 8 at 17:30 and recorded nothing more until new checks on
    November 12 at 17:13. That is 95.7 hours, two thirds of all the time not
    accounted for. A hold, a parking or a stop is not written into the run's own
