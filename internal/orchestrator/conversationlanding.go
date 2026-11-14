@@ -17,13 +17,27 @@ package orchestrator
 // So the pass reads the landing. An item whose executor is a role's
 // conversation is closed once a document that role owns carries a revision, by
 // that role, whose reason opens with the item's identifier: "yoyodyne-ifd.330 -
-// side conversations designed". Opening with it is the convention, and it is
-// the whole of the judgement: a revision that merely mentions an item in
-// passing — "published under yoyodyne-ifd.280 after three reviewer reports" —
-// is a revision about something else, and an item with two deliverables of
-// which the revision carries one is not closed on it. The architect's revision
-// log is the architect saying the item's work is in the document, which is
-// exactly the evidence the product manager was reading by hand.
+// side conversations designed". Opening with it is the convention: a revision
+// that merely mentions an item in passing — "published under yoyodyne-ifd.280
+// after three reviewer reports" — is a revision about something else. The
+// architect's revision log is the architect saying the item's work is in the
+// document, which is exactly the evidence the product manager was reading by
+// hand.
+//
+// The convention says which item a revision is for, and not that it is the
+// revision the item asked for. An item that names the documents it is to revise
+// — by path, "docs/designs/artifact-contract.md", or by identifier,
+// "artifact-contract" — closes only once every one of those documents the role
+// owns carries such a revision. A revision opening with its identifier in some
+// other document is written onto the item's notes as related and closes
+// nothing: the architect revising a third design under the item's identifier
+// left the two passages the item named untouched, and the item closed anyway,
+// before this rule. An item that names no document the role owns has nothing
+// to check the revision against, so the first such revision closes it as it
+// always did, and the close says no named document was checked. Only the
+// item's own text — title, description, design, acceptance criteria — is read
+// for names, never its notes: the related note this writes names the document
+// it is about, and reading it back would make that document named.
 //
 // It reads the repository the pull is made from, which is the same tree every
 // other reader of the artifact homes reads — the invariants delivered to a run,
@@ -55,11 +69,13 @@ import (
 )
 
 // LandingTracker is the tracker access one landing sweep needs: recording the
-// revision an item is closed on, and closing it with the reason on it. It is
-// satisfied by beads.Client.
+// revision an item is closed on, closing it with the reason on it, and adding a
+// note about a related revision that did not close it. It is satisfied by
+// beads.Client.
 type LandingTracker interface {
 	RecordLanding(ctx context.Context, id, landing string) (beads.WorkItem, error)
 	Complete(ctx context.Context, id, reason string) (beads.WorkItem, error)
+	Update(ctx context.Context, id string, change beads.WorkItemChange) (beads.WorkItem, error)
 }
 
 // ConversationLander closes conversation-executed items whose landing is in
@@ -78,11 +94,29 @@ type LandedConversation struct {
 	WorkItemID string                  `json:"work_item_id"`
 	Executor   domain.WorkItemExecutor `json:"executor"`
 	// Document is the repository-relative path of the document the revision is
-	// in, and Revision is the revision's own timestamp and reason.
-	Document    string    `json:"document"`
-	RevisedAt   time.Time `json:"revised_at"`
-	Reason      string    `json:"reason"`
-	CloseReason string    `json:"close_reason"`
+	// in, and Revision is the revision's own timestamp and reason. Where the item
+	// names several documents it is the revision that completed the set.
+	Document  string    `json:"document"`
+	RevisedAt time.Time `json:"revised_at"`
+	Reason    string    `json:"reason"`
+	// Named is every revision the close rests on, one per document the item's
+	// text names, and empty where the item names no document its role owns.
+	Named       []LandingRevision `json:"named,omitempty"`
+	CloseReason string            `json:"close_reason"`
+}
+
+// LandingRevision is one revision of one document, as the landing sweep reads
+// it.
+type LandingRevision struct {
+	Document  string    `json:"document"`
+	RevisedAt time.Time `json:"revised_at"`
+	Reason    string    `json:"reason"`
+}
+
+// Key is the revision as the tracker records it: the document and the
+// revision's time.
+func (r LandingRevision) Key() string {
+	return r.Document + "@" + r.RevisedAt.UTC().Format(time.RFC3339)
 }
 
 // Key is the revision as the tracker records it on the item: the document and
@@ -100,6 +134,10 @@ type LandingSweep struct {
 	// because the item already carries that revision as the one the harness
 	// closed it on: somebody reopened it, and the reopen holds.
 	Reopened []string `json:"reopened,omitempty"`
+	// Related is the entries this sweep wrote a related revision onto: a
+	// revision opening with the item's identifier in a document the item's text
+	// does not name, which left the item open.
+	Related []string `json:"related,omitempty"`
 	// Problems name the items whose landing was found and whose close the
 	// tracker refused, or the reading that failed. They are named rather than
 	// counted because what a person does about one is specific to the item.
@@ -137,7 +175,12 @@ func (l ConversationLander) validate() error {
 // is reported and closes nothing, in the direction every other optional part
 // of a pull fails in: an item closed on a document nobody could read would be
 // the one thing worse than an item left open.
-func (l ConversationLander) Settle(ctx context.Context, entries []backlog.Entry) (LandingSweep, error) {
+//
+// Items is the tracker's reading of the same entries, by identifier, which is
+// where each item's text is read for the documents it names. An entry missing
+// from it is left open and named as a problem, for the same reason: which
+// documents it asked for is not known, so neither is whether they landed.
+func (l ConversationLander) Settle(ctx context.Context, entries []backlog.Entry, items map[string]beads.WorkItem) (LandingSweep, error) {
 	if err := l.validate(); err != nil {
 		return LandingSweep{}, err
 	}
@@ -165,7 +208,24 @@ func (l ConversationLander) Settle(ctx context.Context, entries []backlog.Entry)
 			sweep.Reopened = append(sweep.Reopened, entry.ID)
 			continue
 		}
-		landing, found := findLanding(set, entry, closedOn)
+		item, known := items[entry.ID]
+		if !known {
+			sweep.Problems = append(sweep.Problems, fmt.Sprintf("%s was not read from the tracker with the queue, so which documents it names is not known and it was not checked for a landing; it stays open", entry.ID))
+			continue
+		}
+		judged := judgeLanding(set, entry, item, closedOn)
+		if note := judged.relatedNote(entry, item); note != "" {
+			// A related revision is said on the item whether or not the item closes,
+			// so whoever reads it sees what the role revised under its identifier.
+			// A note that could not be written is reported and costs the close
+			// nothing: the close rests on the named documents, not on the note.
+			if _, err := l.Tracker.Update(ctx, entry.ID, beads.WorkItemChange{AppendNotes: note}); err != nil {
+				sweep.Problems = append(sweep.Problems, fmt.Sprintf("%s has a revision opening with its identifier in a document its text does not name, and the note saying so could not be written: %v", entry.ID, err))
+			} else {
+				sweep.Related = append(sweep.Related, entry.ID)
+			}
+		}
+		landing, found := judged.landing, judged.found
 		if !found {
 			if reopened {
 				sweep.Reopened = append(sweep.Reopened, entry.ID)
@@ -238,42 +298,195 @@ func recordedLanding(key string) (time.Time, bool) {
 	return at, true
 }
 
-// findLanding is the revision that lands one entry, where the set holds one: in
-// a document the entry's role owns, made by that role, with a reason that opens
-// with the entry's identifier, and later than the revision the entry was
-// already closed on where it was. The earliest such revision is the landing
-// where there are several, because the item landed when the first one did.
-func findLanding(set artifact.Set, entry backlog.Entry, after time.Time) (LandedConversation, bool) {
+// judgedLanding is what one entry's documents say about it: the landing, where
+// there is one, and the revisions opening with its identifier in documents its
+// text does not name.
+type judgedLanding struct {
+	landing LandedConversation
+	found   bool
+	// named is the documents the item's text names that its role owns, and
+	// unlanded those of them with no revision opening with its identifier yet.
+	named    []string
+	unlanded []string
+	related  []LandingRevision
+}
+
+// judgeLanding reads one entry's landing out of the set. A revision counts
+// where it is in a document the entry's role owns, made by that role, with a
+// reason that opens with the entry's identifier.
+//
+// Where the item's text names no document the role owns, the landing is the
+// earliest such revision later than the one the entry was already closed on,
+// because the item landed when the first one did. Where it names some, each of
+// them needs one, and the landing is the revision that completed the set: the
+// latest of each document's earliest. For an entry already closed once and
+// reopened, the set has to be completed again by a revision after the one it
+// was closed on, and the earliest such revision is the new landing.
+func judgeLanding(set artifact.Set, entry backlog.Entry, item beads.WorkItem, after time.Time) judgedLanding {
 	role := entry.Executor.Role()
+	text := strings.Join([]string{item.Title, item.Description, item.Design, item.AcceptanceCriteria}, "\n")
 	var (
-		landing LandedConversation
-		found   bool
+		judged   judgedLanding
+		earliest = map[string]LandingRevision{}
+		latest   = map[string]LandingRevision{}
+		opening  []LandingRevision
 	)
+	named := map[string]bool{}
 	for _, document := range set.Artifacts {
 		if owner, placed := artifact.Owner(document.Kind); !placed || owner != role {
 			continue
 		}
+		if namesDocument(text, document) {
+			named[document.Path] = true
+			judged.named = append(judged.named, document.Path)
+		}
 		for _, revision := range document.Revisions {
-			if revision.By != role || !opensWith(revision.Reason, entry.ID) || !revision.At.After(after) {
+			if revision.By != role || !opensWith(revision.Reason, entry.ID) {
 				continue
 			}
-			if found && !revision.At.Before(landing.RevisedAt) {
-				continue
+			read := LandingRevision{Document: document.Path, RevisedAt: revision.At, Reason: revision.Reason}
+			opening = append(opening, read)
+			if first, seen := earliest[document.Path]; !seen || read.RevisedAt.Before(first.RevisedAt) {
+				earliest[document.Path] = read
 			}
-			landing = LandedConversation{
-				WorkItemID: entry.ID,
-				Executor:   entry.Executor,
-				Document:   document.Path,
-				RevisedAt:  revision.At,
-				Reason:     revision.Reason,
+			if last, seen := latest[document.Path]; !seen || read.RevisedAt.After(last.RevisedAt) {
+				latest[document.Path] = read
 			}
-			found = true
 		}
 	}
-	if found {
-		landing.CloseReason = landingCloseReason(landing)
+	if len(judged.named) == 0 {
+		var first LandingRevision
+		for _, revision := range opening {
+			if revision.RevisedAt.After(after) && (!judged.found || revision.RevisedAt.Before(first.RevisedAt)) {
+				first, judged.found = revision, true
+			}
+		}
+		if judged.found {
+			judged.landing = landedOn(entry, first, nil)
+		}
+		return judged
 	}
-	return landing, found
+	for _, revision := range opening {
+		if !named[revision.Document] {
+			judged.related = append(judged.related, revision)
+		}
+	}
+	var completed LandingRevision
+	for _, path := range judged.named {
+		first, landed := earliest[path]
+		if !landed {
+			judged.unlanded = append(judged.unlanded, path)
+			continue
+		}
+		if completed.Document == "" || first.RevisedAt.After(completed.RevisedAt) {
+			completed = first
+		}
+	}
+	if len(judged.unlanded) > 0 {
+		return judged
+	}
+	if !completed.RevisedAt.After(after) {
+		// Closed on this set once and reopened: what closes it again is a later
+		// revision of a document it names, the earliest of them.
+		completed = LandingRevision{}
+		for _, revision := range opening {
+			if named[revision.Document] && revision.RevisedAt.After(after) && (completed.Document == "" || revision.RevisedAt.Before(completed.RevisedAt)) {
+				completed = revision
+			}
+		}
+		if completed.Document == "" {
+			return judged
+		}
+	}
+	rests := make([]LandingRevision, 0, len(judged.named))
+	for _, path := range judged.named {
+		revision := earliest[path]
+		if path == completed.Document {
+			revision = completed
+		} else if last := latest[path]; last.RevisedAt.After(after) && after.After(revision.RevisedAt) {
+			revision = last
+		}
+		rests = append(rests, revision)
+	}
+	judged.landing, judged.found = landedOn(entry, completed, rests), true
+	return judged
+}
+
+// landedOn is the landing of an entry on one revision, with the revisions of
+// every document its text names where it names some.
+func landedOn(entry backlog.Entry, revision LandingRevision, named []LandingRevision) LandedConversation {
+	landing := LandedConversation{
+		WorkItemID: entry.ID,
+		Executor:   entry.Executor,
+		Document:   revision.Document,
+		RevisedAt:  revision.RevisedAt,
+		Reason:     revision.Reason,
+		Named:      named,
+	}
+	landing.CloseReason = landingCloseReason(landing)
+	return landing
+}
+
+// namesDocument reports item text naming a document by its repository-relative
+// path or by its identifier as a whole word: "artifact-contract" names the
+// document with that identifier, and "artifact-contract-notes" does not.
+func namesDocument(text string, document artifact.Artifact) bool {
+	if path := strings.TrimSpace(document.Path); path != "" && strings.Contains(text, path) {
+		return true
+	}
+	id := strings.TrimSpace(document.ID)
+	if id == "" {
+		return false
+	}
+	for offset := 0; ; {
+		found := strings.Index(text[offset:], id)
+		if found < 0 {
+			return false
+		}
+		start := offset + found
+		end := start + len(id)
+		if (start == 0 || !artifactIDByte(text[start-1])) && (end == len(text) || !artifactIDByte(text[end])) {
+			return true
+		}
+		offset = start + 1
+	}
+}
+
+// artifactIDByte reports a byte that can continue an artifact identifier, so a
+// match running into one is part of a longer word.
+func artifactIDByte(b byte) bool {
+	return b == '-' || b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+// relatedNote is the note written onto an item for the related revisions it
+// does not yet carry, or empty where there are none. Each revision is written
+// once: the note names it by the same key a close records, and a revision
+// whose key the item's notes already hold was said at an earlier pull.
+func (j judgedLanding) relatedNote(entry backlog.Entry, item beads.WorkItem) string {
+	var fresh []LandingRevision
+	for _, revision := range j.related {
+		if !strings.Contains(item.Notes, revision.Key()) {
+			fresh = append(fresh, revision)
+		}
+	}
+	if len(fresh) == 0 {
+		return ""
+	}
+	role := entry.Executor.Role()
+	var note strings.Builder
+	note.WriteString("Related revision, recorded by the harness: ")
+	for index, revision := range fresh {
+		if index > 0 {
+			note.WriteString("; ")
+		}
+		fmt.Fprintf(&note, "the %s revision %s opens with this item's identifier (%s)", role, revision.Key(), singleLine(revision.Reason, maxLandingReasonBytes))
+	}
+	fmt.Fprintf(&note, ". This item's text does not name that document, so the revision did not close it and it stays open. It closes once each document it names has a revision by the %s opening with its identifier: %s.",
+		role, strings.Join(j.named, ", "))
+	if len(j.unlanded) > 0 {
+		fmt.Fprintf(&note, " Still without one: %s.", strings.Join(j.unlanded, ", "))
+	}
+	return note.String()
 }
 
 // opensWith reports a revision reason that begins with the item's identifier
@@ -301,10 +514,19 @@ func opensWith(reason, id string) bool {
 const maxLandingReasonBytes = 400
 
 // landingCloseReason is what the tracker records about a close made here: which
-// document, which revision, the convention it was read by, and what the
-// revision said, so a close somebody disagrees with is one they can read and
-// reopen with a note rather than one they have to reconstruct.
+// documents, which revisions, the rule it was read by, and what the revision
+// said, so a close somebody disagrees with is one they can read and reopen with
+// a note rather than one they have to reconstruct.
 func landingCloseReason(landing LandedConversation) string {
-	return fmt.Sprintf("Closed by the harness: the %s revision of %s at %s opens with this item's identifier, which is the %s recording that the item's work is in the document. The revision's reason: %s",
-		landing.Executor.Role(), landing.Document, landing.RevisedAt.UTC().Format(time.RFC3339), landing.Executor.Role(), singleLine(landing.Reason, maxLandingReasonBytes))
+	role := landing.Executor.Role()
+	if len(landing.Named) == 0 {
+		return fmt.Sprintf("Closed by the harness: the %s revision of %s at %s opens with this item's identifier, which is the %s recording that the item's work is in the document. The item's text names no document the %s owns, so no named document was checked. The revision's reason: %s",
+			role, landing.Document, landing.RevisedAt.UTC().Format(time.RFC3339), role, role, singleLine(landing.Reason, maxLandingReasonBytes))
+	}
+	revisions := make([]string, 0, len(landing.Named))
+	for _, revision := range landing.Named {
+		revisions = append(revisions, fmt.Sprintf("%s at %s", revision.Document, revision.RevisedAt.UTC().Format(time.RFC3339)))
+	}
+	return fmt.Sprintf("Closed by the harness: every document this item's text names has a %s revision that opens with this item's identifier (%s), which is the %s recording that the item's work is in those documents. The last of them, the revision of %s at %s, closed it. Its reason: %s",
+		role, strings.Join(revisions, "; "), role, landing.Document, landing.RevisedAt.UTC().Format(time.RFC3339), singleLine(landing.Reason, maxLandingReasonBytes))
 }

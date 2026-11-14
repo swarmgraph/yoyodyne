@@ -1596,8 +1596,19 @@ designed` in a design's revision log — is closed at that pull, with the
 document, the revision, and the revision's own words in the close reason. The
 convention is that the reason *opens* with the identifier: a revision that
 mentions an item further in — "published under yoyodyne-ifd.280 after three
-reviewer reports" — is about something else and closes nothing, so an item with
-two deliverables is not closed on a revision that carries one. A close you
+reviewer reports" — is about something else and closes nothing.
+
+The identifier says which item a revision is for, not that it is the revision
+the item asked for, so an item whose text names the documents it is to revise
+— by path, `docs/designs/artifact-contract.md`, or by identifier,
+`artifact-contract` — closes only once every one of those documents the role
+owns has such a revision, and not on the first. A revision opening with its
+identifier in a document its text does not name is written onto the item's
+notes as related, once, and the item stays open; the note says which named
+documents still have no revision. Only the item's title, description, design
+and acceptance criteria are read for names, never its notes. An item that
+names no document the role owns closes on the first such revision, as before,
+and its close reason says no named document was checked. A close you
 disagree with is one you can read and reopen with a note, and the reopen
 holds: the revision the item was closed on is written onto the item, as
 `yoyodyne_landed` in its metadata, before the close, and a pull that finds an
