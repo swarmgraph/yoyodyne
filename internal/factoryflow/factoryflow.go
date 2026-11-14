@@ -52,10 +52,23 @@ type Forge interface {
 }
 
 // Runs is the harness's own record of runs and of documents waiting for a
-// landing. It is satisfied by *runstate.Store.
+// landing. It is satisfied by *runstate.Store. Every question is asked of the
+// run index or of one record by name, never by reading every run record: the
+// runs in flight are the ones holding document landings, and a pull request's
+// run is found from its branch.
 type Runs interface {
-	Recorded() ([]runstate.State, error)
+	Incomplete() ([]runstate.State, error)
+	Runs(workItemID string) ([]runstate.State, error)
+	Read(runID string) (runstate.State, error)
 	DocumentWaits() ([]runstate.DocumentWait, error)
+}
+
+// MergeQueues is the merge queues' own record, read to find the run a merge
+// queue candidate's pull request carries. It is satisfied by
+// *runstate.MergeQueueStore.
+type MergeQueues interface {
+	Keys() ([]runstate.MergeQueueKey, error)
+	Entries(key runstate.MergeQueueKey) ([]runstate.MergeQueueEntry, error)
 }
 
 // Reader takes the reading. Forge is nil in a project whose publishing is not
@@ -63,6 +76,9 @@ type Runs interface {
 type Reader struct {
 	Forge Forge
 	Runs  Runs
+	// Queues is optional; without it a merge queue candidate's pull request is
+	// named as one no record names.
+	Queues MergeQueues
 	// Landings is execution.document_landings as the configuration reads it.
 	Landings int
 	Now      func() time.Time
@@ -79,6 +95,7 @@ type Reading struct {
 
 // carrier is what one run of the harness's carries: a work item or a document.
 type carrier struct {
+	state    runstate.State
 	run      string
 	item     string
 	title    string
@@ -125,15 +142,16 @@ func (r Reader) Read(ctx context.Context) Reading {
 		now = r.Now()
 	}
 	var reading Reading
-	var states []runstate.State
+	var inFlight []runstate.State
 	runsRead := false
 	if r.Runs == nil {
 		reading.Problems = append(reading.Problems, "the run records are not wired here, so no pull request can be matched to its work and no document landing can be read")
-	} else if recorded, err := r.Runs.Recorded(); err != nil {
-		reading.Problems = append(reading.Problems, fmt.Sprintf("the run records could not be read, so no pull request is matched to its work and the document landings are unknown: %v", err))
+	} else if incomplete, err := r.Runs.Incomplete(); err != nil {
+		reading.Problems = append(reading.Problems, fmt.Sprintf("the runs in flight could not be read, so the document landings are unknown: %v", err))
 	} else {
-		states, runsRead = recorded, true
+		inFlight, runsRead = incomplete, true
 	}
+	var queued []runstate.State
 
 	var section strings.Builder
 	fmt.Fprintf(&section, "## Factory flow: open pull requests and documents waiting to land\n\nRead by the harness itself at %s, for this pass. No role reaches the forge, so this is the only view of it you have.\n", localMoment(now))
@@ -152,11 +170,18 @@ func (r Reader) Read(ctx context.Context) Reading {
 			reading.Problems = append(reading.Problems, problem)
 			break
 		}
-		carriers := carriersOf(states)
+		carriers := r.carriersFor(open)
+		reading.Problems = append(reading.Problems, carriers.problems...)
 		var ours []publish.OpenPullRequestStatus
+		queuedRuns := map[string]bool{}
 		for _, request := range open {
-			if _, matched := carriers.of(request); matched || strings.HasPrefix(request.HeadBranch, branchPrefix) {
+			found, matched := carriers.of(request)
+			if matched || strings.HasPrefix(request.HeadBranch, branchPrefix) {
 				ours = append(ours, request)
+			}
+			if matched && found.document != nil && found.state.AwaitingMergeQueue() && !queuedRuns[found.run] {
+				queuedRuns[found.run] = true
+				queued = append(queued, found.state)
 			}
 		}
 		sort.SliceStable(ours, func(i, j int) bool {
@@ -203,14 +228,10 @@ func (r Reader) Read(ctx context.Context) Reading {
 		landings = 1
 	}
 	var held []runstate.State
-	var queued []runstate.State
 	if runsRead {
-		for _, state := range states {
-			switch {
-			case state.HoldsDocumentLanding():
+		for _, state := range inFlight {
+			if state.HoldsDocumentLanding() {
 				held = append(held, state)
-			case state.Document != nil && state.AwaitingMergeQueue():
-				queued = append(queued, state)
 			}
 		}
 		sort.SliceStable(held, func(i, j int) bool { return held[i].StartedAt.Before(held[j].StartedAt) })
@@ -255,7 +276,7 @@ func (r Reader) Read(ctx context.Context) Reading {
 		}
 	}
 	if len(queued) > 0 {
-		fmt.Fprintf(&section, "\n%d approved document(s) waiting in the merge queue to land, oldest first:\n\n", len(queued))
+		fmt.Fprintf(&section, "\n%d approved document(s) waiting in the merge queue to land, with their pull requests open, oldest first:\n\n", len(queued))
 		for index, state := range queued {
 			if index >= maxListed {
 				fmt.Fprintf(&section, "- and %d more in the merge queue\n", len(queued)-maxListed)
@@ -289,39 +310,92 @@ func (r Reader) Read(ctx context.Context) Reading {
 	return reading
 }
 
-// carriers is what each run of the harness's carries, by the pull request it
-// opened and by every branch it published.
+// carriers is the run each open pull request carries, found by asking the
+// run index for the runs of the work item its branch names, or the merge
+// queues for the entry its candidate branch names, and reading that one run.
 type carriers struct {
 	byNumber map[int]carrier
-	byBranch map[string]carrier
+	problems []string
 }
 
-func carriersOf(states []runstate.State) carriers {
-	found := carriers{byNumber: map[int]carrier{}, byBranch: map[string]carrier{}}
-	// Oldest first, so a later run publishing on the same branch is the one
-	// named.
-	ordered := append([]runstate.State(nil), states...)
-	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].StartedAt.Before(ordered[j].StartedAt) })
-	for _, state := range ordered {
-		one := carrier{run: state.RunID, item: state.WorkItemID, title: state.WorkItemTitle, document: state.Document}
-		if state.PullRequest != nil && state.PullRequest.Number > 0 {
-			found.byNumber[state.PullRequest.Number] = one
-		}
-		if state.Branch != "" {
-			found.byBranch[state.Branch] = one
-		}
-		if state.MergeQueue != nil && state.MergeQueue.EntryID != "" {
-			found.byBranch[runstate.MergeQueueCandidateBranch(state.MergeQueue.EntryID)] = one
+func (r Reader) carriersFor(open []publish.OpenPullRequestStatus) carriers {
+	found := carriers{byNumber: map[int]carrier{}}
+	if r.Runs == nil {
+		return found
+	}
+	itemRuns := map[string][]runstate.State{}
+	var entries map[string]string
+	queuesRead := false
+	for _, request := range open {
+		branch := request.HeadBranch
+		switch {
+		case strings.HasPrefix(branch, runstate.MergeQueueCandidateBranchPrefix):
+			if r.Queues == nil {
+				continue
+			}
+			if !queuesRead {
+				queuesRead = true
+				var err error
+				if entries, err = queueEntryRuns(r.Queues); err != nil {
+					found.problems = append(found.problems, fmt.Sprintf("the merge queues could not be read, so a merge queue candidate's pull request is not matched to its run: %v", err))
+				}
+			}
+			run, ok := entries[strings.TrimPrefix(branch, runstate.MergeQueueCandidateBranchPrefix)]
+			if !ok {
+				continue
+			}
+			state, err := r.Runs.Read(run)
+			if err != nil {
+				found.problems = append(found.problems, fmt.Sprintf("run %s, which pull request #%d carries, could not be read: %v", run, request.Number, err))
+				continue
+			}
+			found.byNumber[request.Number] = carrierOf(state)
+		case itemFromBranch(branch) != "":
+			item := itemFromBranch(branch)
+			states, read := itemRuns[item]
+			if !read {
+				var err error
+				if states, err = r.Runs.Runs(item); err != nil {
+					found.problems = append(found.problems, fmt.Sprintf("the runs of %s, which pull request #%d carries, could not be read: %v", item, request.Number, err))
+				}
+				itemRuns[item] = states
+			}
+			for _, state := range states {
+				if (state.PullRequest != nil && state.PullRequest.Number == request.Number) || state.Branch == branch {
+					found.byNumber[request.Number] = carrierOf(state)
+					break
+				}
+			}
 		}
 	}
 	return found
 }
 
-func (c carriers) of(request publish.OpenPullRequestStatus) (carrier, bool) {
-	if found, ok := c.byNumber[request.Number]; ok {
-		return found, true
+// queueEntryRuns is the run each merge queue entry was admitted for, by entry.
+func queueEntryRuns(queues MergeQueues) (map[string]string, error) {
+	keys, err := queues.Keys()
+	if err != nil {
+		return nil, err
 	}
-	found, ok := c.byBranch[request.HeadBranch]
+	runs := map[string]string{}
+	for _, key := range keys {
+		entries, err := queues.Entries(key)
+		if err != nil {
+			return runs, err
+		}
+		for _, entry := range entries {
+			runs[entry.EntryID] = entry.RunID
+		}
+	}
+	return runs, nil
+}
+
+func carrierOf(state runstate.State) carrier {
+	return carrier{state: state, run: state.RunID, item: state.WorkItemID, title: state.WorkItemTitle, document: state.Document}
+}
+
+func (c carriers) of(request publish.OpenPullRequestStatus) (carrier, bool) {
+	found, ok := c.byNumber[request.Number]
 	return found, ok
 }
 

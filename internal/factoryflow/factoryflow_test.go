@@ -29,8 +29,50 @@ type fakeRuns struct {
 	waitsErr error
 }
 
-func (f fakeRuns) Recorded() ([]runstate.State, error)             { return f.states, f.err }
+// Incomplete is the runs in flight among the states, as the run index answers.
+func (f fakeRuns) Incomplete() ([]runstate.State, error) {
+	var inFlight []runstate.State
+	for _, state := range f.states {
+		if state.Status.InFlight() {
+			inFlight = append(inFlight, state)
+		}
+	}
+	return inFlight, f.err
+}
+
+func (f fakeRuns) Runs(item string) ([]runstate.State, error) {
+	var runs []runstate.State
+	for _, state := range f.states {
+		if state.WorkItemID == item {
+			runs = append(runs, state)
+		}
+	}
+	runstate.NewestFirst(runs)
+	return runs, f.err
+}
+
+func (f fakeRuns) Read(run string) (runstate.State, error) {
+	for _, state := range f.states {
+		if state.RunID == run {
+			return state, nil
+		}
+	}
+	return runstate.State{}, errors.New("no such run")
+}
+
 func (f fakeRuns) DocumentWaits() ([]runstate.DocumentWait, error) { return f.waits, f.waitsErr }
+
+type fakeQueues struct {
+	entries []runstate.MergeQueueEntry
+}
+
+func (f fakeQueues) Keys() ([]runstate.MergeQueueKey, error) {
+	return []runstate.MergeQueueKey{{Repository: "yoyodyne", TargetBranch: "main"}}, nil
+}
+
+func (f fakeQueues) Entries(runstate.MergeQueueKey) ([]runstate.MergeQueueEntry, error) {
+	return f.entries, nil
+}
 
 var now = time.Date(2026, 10, 13, 18, 0, 0, 0, time.UTC)
 
@@ -80,9 +122,9 @@ func TestAFailedForgeReadIsSaidAndNeverAnEmptyList(t *testing.T) {
 func TestOpenRequestsAreListedAndADuplicatedDocumentIsAFinding(t *testing.T) {
 	design := document("machine-home", "Machine home", domain.RoleArchitect)
 	states := []runstate.State{
-		{RunID: "run-a", Status: runstate.StatusFailed, StartedAt: now.Add(-20 * time.Hour), Branch: "yoyodyne/document-machine-home/a", Document: design,
+		{RunID: "run-a", WorkItemID: "document-machine-home", Status: runstate.StatusFailed, StartedAt: now.Add(-20 * time.Hour), Branch: "yoyodyne/document-machine-home/a", Document: design,
 			PullRequest: &runstate.PullRequest{Number: 101}},
-		{RunID: "run-b", Status: runstate.StatusSucceeded, StartedAt: now.Add(-10 * time.Hour), Document: design,
+		{RunID: "run-b", WorkItemID: "document-machine-home-2", Status: runstate.StatusSucceeded, StartedAt: now.Add(-10 * time.Hour), Document: design,
 			MergeQueue: &runstate.MergeQueueAdmissionRecord{EntryID: "mqe-b", TargetBranch: "main", AdmittedAt: now.Add(-9 * time.Hour)}},
 		{RunID: "run-c", Status: runstate.StatusRunning, StartedAt: now.Add(-time.Hour), Branch: "yoyodyne/yoyodyne-7fl/c", WorkItemID: "yoyodyne-7fl", WorkItemTitle: "factory flow"},
 	}
@@ -93,7 +135,8 @@ func TestOpenRequestsAreListedAndADuplicatedDocumentIsAFinding(t *testing.T) {
 		request(104, "feature/by-hand", now.Add(-time.Hour)),
 	}
 	open[1].Mergeable, open[1].Checks = "CONFLICTING", publish.ChecksSummary{Passed: 1, Failed: []string{"test"}}
-	reading := Reader{Forge: fakeForge{open: open}, Runs: fakeRuns{states: states}, Landings: 2, Now: func() time.Time { return now }}.Read(context.Background())
+	queues := fakeQueues{entries: []runstate.MergeQueueEntry{{EntryID: "mqe-b", RunID: "run-b"}}}
+	reading := Reader{Forge: fakeForge{open: open}, Runs: fakeRuns{states: states}, Queues: queues, Landings: 2, Now: func() time.Time { return now }}.Read(context.Background())
 
 	for _, want := range []string{
 		"3 open, oldest first",
@@ -163,7 +206,7 @@ func TestEveryLandingHeldTooLongIsAFindingNamingTheRole(t *testing.T) {
 // Run records or waits that could not be read are said as unknown.
 func TestUnreadableRunRecordsAreSaidAsUnknown(t *testing.T) {
 	reading := Reader{Runs: fakeRuns{err: errors.New("disk"), waitsErr: errors.New("torn")}, Landings: 2, Now: func() time.Time { return now }}.Read(context.Background())
-	if !strings.Contains(reading.Section, "NOT KNOWN: the run records could not be read") || !strings.Contains(reading.Section, "NOT KNOWN rather than empty") {
+	if !strings.Contains(reading.Section, "NOT KNOWN: the run records could not be read") || !strings.Contains(reading.Problems[0], "runs in flight could not be read") || !strings.Contains(reading.Section, "NOT KNOWN rather than empty") {
 		t.Fatalf("section = %s", reading.Section)
 	}
 	if len(reading.Problems) != 2 {

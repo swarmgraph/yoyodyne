@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
 // maxSummaryProblemBytes bounds the pass's own problem as a summary repeats
@@ -121,7 +122,7 @@ func howPassEnded(read passFields, complete bool) string {
 	}
 	if problem := strings.TrimSpace(read.Problem); problem != "" {
 		if len(problem) > maxSummaryProblemBytes {
-			problem = problem[:characterStart(problem, maxSummaryProblemBytes)] + " [cut here; the whole problem is in the entry]"
+			problem = oneline.Bound(problem, maxSummaryProblemBytes) + " [cut here; the whole problem is in the entry]"
 		}
 		said += "; its record says: " + problem
 	}

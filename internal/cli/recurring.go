@@ -201,6 +201,9 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 	// documents waiting to land, read from the run store. The forge is read only
 	// where the harness opens requests at all, for the reason given below.
 	flow := factoryflow.Reader{Runs: parts.store, Landings: parts.config.Execution.DocumentLandingLimit()}
+	if parts.mergeQueues != nil {
+		flow.Queues = parts.mergeQueues
+	}
 	if parts.config.Approvals.Publishing == domain.ApprovalAutomatic {
 		flow.Forge = publish.GitHub{
 			Runner:       parts.runner,
