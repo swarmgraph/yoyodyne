@@ -28,7 +28,7 @@ type OpenPullRequestStatus struct {
 	// MergeState is the forge's word for what stands between the request and a
 	// merge (CLEAN, BLOCKED, BEHIND, DIRTY, UNSTABLE, ...); MergeRequirement says
 	// it in words.
-	MergeState string `json:"merge_state,omitempty"`
+	MergeState string        `json:"merge_state,omitempty"`
 	Checks     ChecksSummary `json:"checks"`
 }
 

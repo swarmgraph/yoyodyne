@@ -1947,8 +1947,16 @@ of it are `remaining`, and its `next` carries on from the same cursor with an
 `offset` into the entry. Offsets count bytes of the entry as returned, with
 secrets already removed from the whole entry before it is cut, so no part
 carries a secret or a piece of one. Single JSON records accept cursor zero or
-their end, and are read in parts the same way. Missing records, forbidden names
-and symlinks are refused.
+their end, and are read in parts the same way. A pass entry returned in parts
+also carries a `summary` on every part: the task, role and agent, when the pass
+started and ended, and how it ended, so the first part alone says whether the
+role ran. A read never comes back empty for want of room: where the reads before
+it in the same reply have already returned the 96 KiB a reply may, it says so in
+its `problem`, summarises a pass entry, and its `next` asks for the same entry
+again. An entry longer than the 8 MiB one read scans cannot be returned even in
+parts; the read says so, summarises a pass entry from what it scanned, and its
+`next` starts after the entry. Missing records, forbidden names and symlinks are
+refused.
 
 The harness redacts the returned records before handing them back as untrusted
 evidence in the same message. Each invocation records `tool.requested` followed
@@ -1979,7 +1987,12 @@ it; the run's worker and whether it is live, absent, or uncertain; whether the
 run's branch and worktree are there, as the repository was asked; whether the
 run still holds its work item and a developer slot or document landing; any wait
 and what releases it; and the last continuation and the last refusal to
-continue.
+continue. For a run that stopped, it also hands back the whole reason it stopped
+as `stop_reason`, apart from the record, so the record's cut never cuts it; a
+reason over 16 KiB is cut with `stop_reason_cut` set and its whole size in
+`stop_reason_bytes`. A pass's list of stopped runs gives each reason whole up to
+1,000 bytes of its line; a longer one is cut there with the cut declared and the
+run named, and `run.inspect` on that run reads the rest.
 
 A worker is the process holding the run's lease. When a process takes a run's
 lease it writes down its process number, the start time the operating system
@@ -2078,6 +2091,17 @@ the events since the pass's last one and however old the conversation's
 briefing. The pass's record keeps the observation's identifier and the identity
 of every condition it carried, which is what a later observation reads to say
 when a condition was first seen and how often it has recurred.
+
+The factory-flow instance's pass is also handed what no role can read for
+itself: every pull request the harness opened that is still open, with the work
+item or document it carries, its age, whether the forge says it can merge, and
+its checks; and every document waiting to land, with its author, how long it
+has waited, and what it waits for, beside which document landings are held and
+by whom. A forge that could not be read is said as not known, never as an empty
+list. The harness adds two kinds of stall to the pass's account as findings of
+its own: a document with more than one open publication pull request, and every
+document landing held for longer than three hours, naming the role whose
+documents hold them.
 
 A run carrying an unresolved recovery hold is reported as its own condition,
 owned by the role the hold names and needing the hold's next action. So is a

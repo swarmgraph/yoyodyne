@@ -8494,6 +8494,17 @@ never presented as a healthy one. The pass's record keeps the observation's
 identifier and the identity of each condition it carried, in the `health` field
 `yoyo sweeps --json` shows.
 
+**Every factory-flow program manager pass also shows the open pull requests
+and the documents waiting to land.** The harness reads the forge itself, since
+no role can, and lists every pull request it opened that is still open: what it
+carries, how long it has been open, whether it can merge, and its checks. Beside
+them are the document landings and who holds each, the documents waiting for one
+to free, and the approved documents waiting in the merge queue. A document with
+more than one open publication pull request, and every document landing held for
+longer than three hours, are added to the pass's account as findings of their
+own. A forge that could not be read is said as not known rather than shown as an
+empty list.
+
 **A development manager's pass carries what waits on you, beside her docket.**
 Every firing of her task, scheduled or summoned by the brake, has two sections
 in the message that wakes her: the triage docket, and `Waiting on the operator`

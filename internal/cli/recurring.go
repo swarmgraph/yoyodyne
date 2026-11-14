@@ -27,6 +27,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/contextbundle"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/factoryflow"
 	"github.com/mason-bryant/yoyodyne/internal/forgehygiene"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
@@ -195,6 +196,24 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 	// `human`, pushes nothing and opens nothing, as the approvals table in
 	// docs/configuration.md says. A project under it has no requests of the
 	// harness's on any forge, and a forge it may not even have is not read.
+	// The factory-flow program manager's view of what she cannot read herself:
+	// the harness's open pull requests, read through the same client, and the
+	// documents waiting to land, read from the run store. The forge is read only
+	// where the harness opens requests at all, for the reason given below.
+	flow := factoryflow.Reader{Runs: parts.store, Landings: parts.config.Execution.DocumentLandingLimit()}
+	if parts.config.Approvals.Publishing == domain.ApprovalAutomatic {
+		flow.Forge = publish.GitHub{
+			Runner:       parts.runner,
+			Dir:          parts.repository,
+			Remote:       parts.config.Execution.Remote,
+			PushRemote:   parts.config.Execution.PushRemote,
+			RedactValues: parts.redactValues,
+		}
+	}
+	trigger.FactoryFlow = func(ctx context.Context) (string, []sweep.Finding, []string) {
+		reading := flow.Read(ctx)
+		return reading.Section, reading.Findings, reading.Problems
+	}
 	if parts.config.Approvals.Publishing == domain.ApprovalAutomatic {
 		trigger.Forge = forgehygiene.Sweeper{
 			Forge: publish.GitHub{
