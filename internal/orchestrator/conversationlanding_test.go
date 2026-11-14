@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
@@ -74,7 +75,7 @@ func TestAConversationsItemClosesOnTheRevisionThatOpensWithItsIdentifier(t *test
 		{ID: "yoyodyne-ifd.250", Title: "Settle the docket entries", Status: "open", Executor: domain.ConversationWith(domain.RoleDevelopmentManager)},
 	}
 
-	sweep, err := lander.Settle(context.Background(), entries)
+	sweep, err := lander.Settle(context.Background(), entries, itemsFor(entries))
 	if err != nil {
 		t.Fatalf("Settle() error = %v", err)
 	}
@@ -91,7 +92,7 @@ func TestAConversationsItemClosesOnTheRevisionThatOpensWithItsIdentifier(t *test
 	// The close carries the whole account: the document, the revision, the
 	// convention it was read by, and the revision's own words.
 	reason := tracker.Closed["yoyodyne-ifd.330"]
-	for _, want := range []string{"Closed by the harness", "architect revision of docs/designs/management-and-supervision.md", "2026-09-07T05:30:00Z", "opens with this item's identifier", "side conversations designed"} {
+	for _, want := range []string{"Closed by the harness", "no named document was checked", "architect revision of docs/designs/management-and-supervision.md", "2026-09-07T05:30:00Z", "opens with this item's identifier", "side conversations designed"} {
 		if !strings.Contains(reason, want) {
 			t.Fatalf("close reason %q never says %q", reason, want)
 		}
@@ -125,11 +126,11 @@ func TestALandingSweepReadsNothingItHasNoUseForAndClosesNothingItCannotRead(t *t
 	sweep, err := unreadable.Settle(context.Background(), []backlog.Entry{
 		{ID: "yoyodyne-ifd.1", Status: "open"},
 		{ID: "yoyodyne-ifd.250", Status: "open", Executor: domain.ConversationWith(domain.RoleDevelopmentManager)},
-	})
+	}, nil)
 	if err != nil || len(sweep.Landed) != 0 || len(sweep.Problems) != 0 {
 		t.Fatalf("Settle() over nothing landable = %#v, %v, want nothing read and nothing said", sweep, err)
 	}
-	if _, err := unreadable.Settle(context.Background(), []backlog.Entry{architectEntry("yoyodyne-ifd.330")}); err == nil {
+	if _, err := unreadable.Settle(context.Background(), []backlog.Entry{architectEntry("yoyodyne-ifd.330")}, itemsFor([]backlog.Entry{architectEntry("yoyodyne-ifd.330")})); err == nil {
 		t.Fatal("Settle() over an unreadable repository = nil error, want the reading reported")
 	}
 	if len(tracker.Closed) != 0 {
@@ -148,7 +149,7 @@ func TestAReopenedItemIsNotClosedAgainOnTheSameRevision(t *testing.T) {
 
 	tracker := &orchestratortest.LandingTracker{}
 	lander := ConversationLander{Tracker: tracker, Repository: landingRepository(t), Product: landingProduct()}
-	first, err := lander.Settle(context.Background(), []backlog.Entry{architectEntry("yoyodyne-ifd.330")})
+	first, err := lander.Settle(context.Background(), []backlog.Entry{architectEntry("yoyodyne-ifd.330")}, itemsFor([]backlog.Entry{architectEntry("yoyodyne-ifd.330")}))
 	if err != nil || len(first.Landed) != 1 {
 		t.Fatalf("Settle() = %#v, %v, want 330 closed on its landing", first, err)
 	}
@@ -158,7 +159,7 @@ func TestAReopenedItemIsNotClosedAgainOnTheSameRevision(t *testing.T) {
 	reopened := architectEntry("yoyodyne-ifd.330")
 	reopened.Landing = tracker.Current("yoyodyne-ifd.330")
 	delete(tracker.Closed, "yoyodyne-ifd.330")
-	second, err := lander.Settle(context.Background(), []backlog.Entry{reopened})
+	second, err := lander.Settle(context.Background(), []backlog.Entry{reopened}, itemsFor([]backlog.Entry{reopened}))
 	if err != nil {
 		t.Fatalf("Settle() after the reopen error = %v", err)
 	}
@@ -178,7 +179,7 @@ func TestAReopenedItemIsNotClosedAgainOnTheSameRevision(t *testing.T) {
 	// and an item carrying one is left alone rather than closed over it.
 	garbled := architectEntry("yoyodyne-ifd.330")
 	garbled.Landing = "not a landing anybody wrote"
-	if sweep, err := lander.Settle(context.Background(), []backlog.Entry{garbled}); err != nil || len(sweep.Landed) != 0 || len(sweep.Reopened) != 1 {
+	if sweep, err := lander.Settle(context.Background(), []backlog.Entry{garbled}, itemsFor([]backlog.Entry{garbled})); err != nil || len(sweep.Landed) != 0 || len(sweep.Reopened) != 1 {
 		t.Fatalf("Settle() over an unreadable landing = %#v, %v, want the item left alone", sweep, err)
 	}
 
@@ -195,7 +196,7 @@ func TestAReopenedItemIsNotClosedAgainOnTheSameRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	later := ConversationLander{Tracker: tracker, Repository: root, Product: landingProduct()}
-	third, err := later.Settle(context.Background(), []backlog.Entry{reopened})
+	third, err := later.Settle(context.Background(), []backlog.Entry{reopened}, itemsFor([]backlog.Entry{reopened}))
 	if err != nil || len(third.Landed) != 1 || third.Landed[0].RevisedAt.Format("2006-01-02") != "2026-09-12" {
 		t.Fatalf("Settle() on a later revision = %#v, %v, want the item closed on the new landing", third, err)
 	}
@@ -215,7 +216,7 @@ func TestALandingTheTrackerRefusesToCloseIsReported(t *testing.T) {
 
 	tracker := &orchestratortest.LandingTracker{Refused: map[string]error{"yoyodyne-ifd.330": errors.New("bd: the store is locked")}}
 	lander := ConversationLander{Tracker: tracker, Repository: landingRepository(t), Product: landingProduct()}
-	sweep, err := lander.Settle(context.Background(), []backlog.Entry{architectEntry("yoyodyne-ifd.330")})
+	sweep, err := lander.Settle(context.Background(), []backlog.Entry{architectEntry("yoyodyne-ifd.330")}, itemsFor([]backlog.Entry{architectEntry("yoyodyne-ifd.330")}))
 	if err != nil {
 		t.Fatalf("Settle() error = %v", err)
 	}
@@ -234,7 +235,7 @@ func TestALandingTheTrackerRefusesToCloseIsReported(t *testing.T) {
 	// A revision that cannot be recorded closes nothing: the close would be one
 	// a reopen could not hold against.
 	unrecordable := &orchestratortest.LandingTracker{Unrecordable: map[string]error{"yoyodyne-ifd.330": errors.New("bd: the store is locked")}}
-	sweep, err = ConversationLander{Tracker: unrecordable, Repository: landingRepository(t), Product: landingProduct()}.Settle(context.Background(), []backlog.Entry{architectEntry("yoyodyne-ifd.330")})
+	sweep, err = ConversationLander{Tracker: unrecordable, Repository: landingRepository(t), Product: landingProduct()}.Settle(context.Background(), []backlog.Entry{architectEntry("yoyodyne-ifd.330")}, itemsFor([]backlog.Entry{architectEntry("yoyodyne-ifd.330")}))
 	if err != nil || len(sweep.Landed) != 0 || len(sweep.Problems) != 1 || len(unrecordable.Closed) != 0 {
 		t.Fatalf("Settle() with the record refused = %#v, %v, closed %v; want nothing closed and the refusal named", sweep, err, unrecordable.Closed)
 	}
@@ -249,7 +250,7 @@ func TestALandingTheTrackerRefusesToCloseIsReported(t *testing.T) {
 		Refused:     map[string]error{"yoyodyne-ifd.330": errors.New("bd: the store is locked")},
 		Unclearable: map[string]error{"yoyodyne-ifd.330": errors.New("bd: still locked")},
 	}
-	sweep, err = ConversationLander{Tracker: stuck, Repository: landingRepository(t), Product: landingProduct()}.Settle(context.Background(), []backlog.Entry{architectEntry("yoyodyne-ifd.330")})
+	sweep, err = ConversationLander{Tracker: stuck, Repository: landingRepository(t), Product: landingProduct()}.Settle(context.Background(), []backlog.Entry{architectEntry("yoyodyne-ifd.330")}, itemsFor([]backlog.Entry{architectEntry("yoyodyne-ifd.330")}))
 	if err != nil || len(sweep.Problems) != 1 {
 		t.Fatalf("Settle() with the clear refused = %#v, %v, want one problem", sweep, err)
 	}
@@ -280,6 +281,288 @@ func TestARevisionReasonOpensWithAnIdentifierAsAWholeWord(t *testing.T) {
 	} {
 		if got := opensWith(reason, "yoyodyne-ifd.330"); got != want {
 			t.Fatalf("opensWith(%q) = %v, want %v", reason, got, want)
+		}
+	}
+}
+
+// itemsFor is the tracker's reading of the entries as the queue read them: each
+// item with its title and executor and no text naming any document.
+func itemsFor(entries []backlog.Entry) map[string]beads.WorkItem {
+	items := map[string]beads.WorkItem{}
+	for _, entry := range entries {
+		items[entry.ID] = beads.WorkItem{ID: entry.ID, Title: entry.Title, Status: entry.Status, Executor: entry.Executor}
+	}
+	return items
+}
+
+// designRevision is one revision the architect made of a design.
+type designRevision struct {
+	at     string
+	reason string
+}
+
+// namedDesigns are the three designs the incident's item touched, by identifier.
+var namedDesigns = []string{"artifact-contract", "v1-harness-design", "portable-agent-configuration"}
+
+// writeDesigns writes the architect's three designs under root, each with the
+// revisions given for its identifier after its creation, replacing what was there.
+func writeDesigns(t *testing.T, root string, revisions map[string][]designRevision) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, "docs", "designs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range namedDesigns {
+		var content strings.Builder
+		content.WriteString("---\nid: " + id + "\nkind: design\ntitle: " + id + "\nstatus: active\nsupports: []\nrevisions:\n")
+		content.WriteString("    - action: created\n      by: architect\n      at: 2026-09-01T12:00:00Z\n      reason: yoyodyne-ifd.1 - " + id + " created\n")
+		for _, revision := range revisions[id] {
+			content.WriteString("    - action: amended\n      by: architect\n      at: " + revision.at + "\n      reason: " + revision.reason + "\n")
+		}
+		content.WriteString("---\n# " + id + "\n")
+		if err := os.WriteFile(filepath.Join(root, "docs", "designs", id+".md"), []byte(content.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+const incidentItem = "yoyodyne-ifd.437.36"
+
+// incidentItemText is the incident item as the tracker holds it: its
+// description names one design by path and another by identifier.
+func incidentItemText(notes string) map[string]beads.WorkItem {
+	return map[string]beads.WorkItem{incidentItem: {
+		ID: incidentItem, Title: "Revise the designs", Status: "open", Executor: domain.ConversationWith(domain.RoleArchitect),
+		Description: "Amend docs/designs/artifact-contract.md and the v1-harness-design so both carry the contract.",
+		Notes:       notes,
+	}}
+}
+
+func incidentLander(t *testing.T, tracker *orchestratortest.LandingTracker, revisions map[string][]designRevision) (ConversationLander, string) {
+	t.Helper()
+	root := t.TempDir()
+	writeDesigns(t, root, revisions)
+	return ConversationLander{Tracker: tracker, Repository: root, Product: landingProduct()}, root
+}
+
+// The incident replayed. The architect revised a third design under the item's
+// identifier and left the two documents the item names untouched. The item stays
+// open, the revision is written onto it as related exactly once, and the close
+// comes only when each named document has a revision opening with the identifier.
+func TestAnItemNamingDocumentsIsNotClosedByARevisionOfAnotherDocument(t *testing.T) {
+	t.Parallel()
+
+	tracker := &orchestratortest.LandingTracker{}
+	revisions := map[string][]designRevision{
+		"portable-agent-configuration": {{"2026-10-01T10:00:00Z", incidentItem + " - the portable configuration revised"}},
+	}
+	lander, root := incidentLander(t, tracker, revisions)
+	entries := []backlog.Entry{architectEntry(incidentItem)}
+
+	sweep, err := lander.Settle(context.Background(), entries, incidentItemText(""))
+	if err != nil {
+		t.Fatalf("Settle() error = %v", err)
+	}
+	if len(sweep.Landed) != 0 || len(tracker.Closed) != 0 || len(tracker.Landings[incidentItem]) != 0 {
+		t.Fatalf("sweep = %#v, closed %v, landings %v; want the item left open with nothing recorded", sweep, tracker.Closed, tracker.Landings)
+	}
+	if len(tracker.Notes[incidentItem]) != 1 {
+		t.Fatalf("notes written = %v, want exactly one note on the item", tracker.Notes[incidentItem])
+	}
+	note := tracker.Notes[incidentItem][0]
+	for _, want := range []string{"docs/designs/portable-agent-configuration.md@2026-10-01T10:00:00Z", "does not name", "docs/designs/artifact-contract.md", "docs/designs/v1-harness-design.md"} {
+		if !strings.Contains(note, want) {
+			t.Fatalf("note %q never says %q", note, want)
+		}
+	}
+	if len(sweep.Related) != 1 || sweep.Related[0] != incidentItem {
+		t.Fatalf("related = %v, want the item named", sweep.Related)
+	}
+
+	// The next pull reads the item with the note on it and says nothing more.
+	again, err := lander.Settle(context.Background(), entries, incidentItemText(note))
+	if err != nil {
+		t.Fatalf("Settle() second pull error = %v", err)
+	}
+	if len(tracker.Notes[incidentItem]) != 1 || len(again.Related) != 0 || len(again.Landed) != 0 {
+		t.Fatalf("second pull = %#v, notes %v; want no further note and no close", again, tracker.Notes[incidentItem])
+	}
+
+	// A revision of one named document is not enough, and says nothing new.
+	revisions["artifact-contract"] = []designRevision{{"2026-10-02T10:00:00Z", incidentItem + " - the contract amended"}}
+	writeDesigns(t, root, revisions)
+	half, err := lander.Settle(context.Background(), entries, incidentItemText(note))
+	if err != nil || len(half.Landed) != 0 || len(tracker.Closed) != 0 {
+		t.Fatalf("Settle() with one named document revised = %#v, %v, closed %v; want the item open", half, err, tracker.Closed)
+	}
+	if len(tracker.Notes[incidentItem]) != 1 {
+		t.Fatalf("notes written = %v, want the already noted revision not noted again", tracker.Notes[incidentItem])
+	}
+
+	// The second named document completes the set, and the close rests on both.
+	revisions["v1-harness-design"] = []designRevision{{"2026-10-03T10:00:00Z", incidentItem + " - the harness design amended"}}
+	writeDesigns(t, root, revisions)
+	done, err := lander.Settle(context.Background(), entries, incidentItemText(note))
+	if err != nil || len(done.Landed) != 1 {
+		t.Fatalf("Settle() with both named documents revised = %#v, %v, want the item closed", done, err)
+	}
+	landed := done.Landed[0]
+	if len(landed.Named) != 2 {
+		t.Fatalf("named = %#v, want one revision per named document", landed.Named)
+	}
+	reason := tracker.Closed[incidentItem]
+	for _, want := range []string{"every document this item's text names", "docs/designs/artifact-contract.md", "docs/designs/v1-harness-design.md"} {
+		if !strings.Contains(reason, want) {
+			t.Fatalf("close reason %q never says %q", reason, want)
+		}
+	}
+	if got := tracker.Current(incidentItem); got != "docs/designs/v1-harness-design.md@2026-10-03T10:00:00Z" {
+		t.Fatalf("landing recorded = %q, want the later of the two revisions", got)
+	}
+}
+
+// An item whose text names no document has nothing to check the revision
+// against, so the first revision opening with its identifier closes it, in
+// whatever document, and the close says nothing was checked.
+func TestAnItemNamingNoDocumentClosesOnAnyRevisionAndSaysSo(t *testing.T) {
+	t.Parallel()
+
+	tracker := &orchestratortest.LandingTracker{}
+	lander, _ := incidentLander(t, tracker, map[string][]designRevision{
+		"portable-agent-configuration": {{"2026-10-01T10:00:00Z", incidentItem + " - the portable configuration revised"}},
+	})
+	entries := []backlog.Entry{architectEntry(incidentItem)}
+	sweep, err := lander.Settle(context.Background(), entries, itemsFor(entries))
+	if err != nil || len(sweep.Landed) != 1 {
+		t.Fatalf("Settle() = %#v, %v, want the item closed", sweep, err)
+	}
+	if !strings.Contains(tracker.Closed[incidentItem], "no named document was checked") {
+		t.Fatalf("close reason %q never says no named document was checked", tracker.Closed[incidentItem])
+	}
+	if len(tracker.Notes) != 0 || len(sweep.Related) != 0 || len(sweep.Landed[0].Named) != 0 {
+		t.Fatalf("notes %v, related %v, named %v; want nothing noted", tracker.Notes, sweep.Related, sweep.Landed[0].Named)
+	}
+}
+
+// An entry the tracker's reading does not hold is one whose text is unknown, so
+// it is left open and named rather than closed on a guess.
+func TestAnEntryMissingFromTheItemsIsLeftOpenAndNamed(t *testing.T) {
+	t.Parallel()
+
+	tracker := &orchestratortest.LandingTracker{}
+	lander, _ := incidentLander(t, tracker, map[string][]designRevision{
+		"artifact-contract": {{"2026-10-01T10:00:00Z", incidentItem + " - the contract amended"}},
+	})
+	sweep, err := lander.Settle(context.Background(), []backlog.Entry{architectEntry(incidentItem)}, map[string]beads.WorkItem{})
+	if err != nil {
+		t.Fatalf("Settle() error = %v", err)
+	}
+	if len(sweep.Landed) != 0 || len(tracker.Closed) != 0 {
+		t.Fatalf("sweep = %#v, closed %v, want the item left open", sweep, tracker.Closed)
+	}
+	if len(sweep.Problems) != 1 || !strings.Contains(sweep.Problems[0], incidentItem) {
+		t.Fatalf("problems = %v, want the item named", sweep.Problems)
+	}
+}
+
+// A note the tracker refuses is reported, and costs the close nothing: an item
+// whose named documents have all landed closes, with the unnamed revision's
+// note the thing that failed.
+func TestAFailedRelatedNoteIsReportedAndDoesNotStopTheClose(t *testing.T) {
+	t.Parallel()
+
+	tracker := &orchestratortest.LandingTracker{Unnotable: map[string]error{incidentItem: errors.New("bd: the store is locked")}}
+	lander, _ := incidentLander(t, tracker, map[string][]designRevision{
+		"artifact-contract":            {{"2026-10-02T10:00:00Z", incidentItem + " - the contract amended"}},
+		"v1-harness-design":            {{"2026-10-03T10:00:00Z", incidentItem + " - the harness design amended"}},
+		"portable-agent-configuration": {{"2026-10-01T10:00:00Z", incidentItem + " - the portable configuration revised"}},
+	})
+	entries := []backlog.Entry{architectEntry(incidentItem)}
+	sweep, err := lander.Settle(context.Background(), entries, incidentItemText(""))
+	if err != nil {
+		t.Fatalf("Settle() error = %v", err)
+	}
+	if len(sweep.Problems) != 1 || !strings.Contains(sweep.Problems[0], "the store is locked") || !strings.Contains(sweep.Problems[0], incidentItem) {
+		t.Fatalf("problems = %v, want the refused note named", sweep.Problems)
+	}
+	if len(sweep.Related) != 0 {
+		t.Fatalf("related = %v, want an item whose note failed not reported as noted", sweep.Related)
+	}
+	if len(sweep.Landed) != 1 || tracker.Closed[incidentItem] == "" {
+		t.Fatalf("sweep = %#v, closed %v, want the item closed all the same", sweep, tracker.Closed)
+	}
+}
+
+// A reopen holds for an item naming several documents, and what closes it again
+// is a later revision of one of them.
+func TestAReopenedItemNamingDocumentsClosesAgainOnALaterRevisionOfOneOfThem(t *testing.T) {
+	t.Parallel()
+
+	tracker := &orchestratortest.LandingTracker{}
+	revisions := map[string][]designRevision{
+		"artifact-contract": {{"2026-10-02T10:00:00Z", incidentItem + " - the contract amended"}},
+		"v1-harness-design": {{"2026-10-03T10:00:00Z", incidentItem + " - the harness design amended"}},
+	}
+	lander, root := incidentLander(t, tracker, revisions)
+	entries := []backlog.Entry{architectEntry(incidentItem)}
+	first, err := lander.Settle(context.Background(), entries, incidentItemText(""))
+	if err != nil || len(first.Landed) != 1 {
+		t.Fatalf("Settle() = %#v, %v, want the item closed", first, err)
+	}
+
+	reopened := architectEntry(incidentItem)
+	reopened.Landing = tracker.Current(incidentItem)
+	delete(tracker.Closed, incidentItem)
+	second, err := lander.Settle(context.Background(), []backlog.Entry{reopened}, incidentItemText(""))
+	if err != nil || len(second.Landed) != 0 || len(second.Problems) != 0 {
+		t.Fatalf("Settle() after the reopen = %#v, %v, want the item left open", second, err)
+	}
+	if len(second.Reopened) != 1 || second.Reopened[0] != incidentItem {
+		t.Fatalf("reopened = %v, want the item named as one left alone", second.Reopened)
+	}
+	if _, closed := tracker.Closed[incidentItem]; closed {
+		t.Fatal("the reopened item was closed again on the revisions it was reopened from")
+	}
+
+	revisions["artifact-contract"] = append(revisions["artifact-contract"], designRevision{"2026-10-05T09:00:00Z", incidentItem + " - the contract amended again"})
+	writeDesigns(t, root, revisions)
+	third, err := lander.Settle(context.Background(), []backlog.Entry{reopened}, incidentItemText(""))
+	if err != nil || len(third.Landed) != 1 {
+		t.Fatalf("Settle() on a later revision = %#v, %v, want the item closed again", third, err)
+	}
+	if got := tracker.Current(incidentItem); got != "docs/designs/artifact-contract.md@2026-10-05T09:00:00Z" {
+		t.Fatalf("landing recorded = %q, want the later revision", got)
+	}
+	if len(third.Landed[0].Named) != 2 {
+		t.Fatalf("named = %#v, want a revision for each named document", third.Landed[0].Named)
+	}
+}
+
+// A document is named by its path or by its identifier as a whole word, and an
+// identifier inside a longer word names nothing.
+func TestNamesDocument(t *testing.T) {
+	t.Parallel()
+
+	document := artifact.Artifact{ID: "artifact-contract", Path: "docs/designs/artifact-contract.md"}
+	for name, test := range map[string]struct {
+		text     string
+		document artifact.Artifact
+		want     bool
+	}{
+		"path":                  {"Amend docs/designs/artifact-contract.md today", document, true},
+		"identifier":            {"Amend the artifact-contract design", document, true},
+		"identifier at the end": {"the artifact-contract", document, true},
+		"identifier alone":      {"artifact-contract", document, true},
+		"longer hyphenated":     {"see artifact-contract-notes for more", document, false},
+		"prefixed hyphenated":   {"see old-artifact-contract for more", document, false},
+		"underscore continues":  {"artifact-contract_v2", document, false},
+		"trailing full stop":    {"Amend artifact-contract.", document, true},
+		"trailing parenthesis":  {"(the artifact-contract)", document, true},
+		"second occurrence":     {"artifact-contract-notes and artifact-contract", document, true},
+		"empty identifier":      {"anything at all", artifact.Artifact{}, false},
+		"other document":        {"Amend the v1-harness-design", document, false},
+	} {
+		if got := namesDocument(test.text, test.document); got != test.want {
+			t.Errorf("%s: namesDocument(%q) = %v, want %v", name, test.text, got, test.want)
 		}
 	}
 }

@@ -508,7 +508,7 @@ type landedOnPull struct {
 	settles int
 }
 
-func (l *landedOnPull) Settle(_ context.Context, entries []backlog.Entry) (LandingSweep, error) {
+func (l *landedOnPull) Settle(_ context.Context, entries []backlog.Entry, _ map[string]beads.WorkItem) (LandingSweep, error) {
 	l.settles++
 	var sweep LandingSweep
 	for _, entry := range entries {

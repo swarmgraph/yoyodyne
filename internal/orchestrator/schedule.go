@@ -658,8 +658,9 @@ type ScheduleCorrectionsConcurrent interface {
 
 // ScheduleLandings closes the items a conversation carries whose landing is
 // already in the repository — a revision of a document the conversation's role
-// owns, opening with the item's identifier. It is satisfied by
-// ConversationLander.
+// owns, opening with the item's identifier, in each document the item's text
+// names. It is satisfied by ConversationLander, which reads each item's text
+// from items, the tracker's reading the queue was ordered from.
 //
 // It is optional, and a pull wired without one pulls exactly the same work:
 // what is lost is the closing, so a design-only item waits on the product
@@ -667,7 +668,7 @@ type ScheduleCorrectionsConcurrent interface {
 // them waited on before this existed — and what two of them cost a turn each
 // for, one of them after a developer run had been spent on it.
 type ScheduleLandings interface {
-	Settle(ctx context.Context, entries []backlog.Entry) (LandingSweep, error)
+	Settle(ctx context.Context, entries []backlog.Entry, items map[string]beads.WorkItem) (LandingSweep, error)
 }
 
 // ScheduleClaims audits the items the tracker says are claimed against the runs
@@ -3523,7 +3524,7 @@ pulling:
 		// pull as work still waiting on somebody opening a conversation.
 		waitTracker = pull.Tracker
 		waitItems = read.items
-		queue.Entries = s.land(ctx, &schedule, pull, queue.Entries)
+		queue.Entries = s.land(ctx, &schedule, pull, queue.Entries, read.items)
 		// Work the tracker leaves out of its ready set is never asked about by a
 		// slot, so its reason is kept here, over the whole queue; see
 		// keepUnreadyWaits.
@@ -6486,11 +6487,11 @@ func diedTogether(died []runstate.ReleasedClaim) runstate.BrakeBlockedRun {
 // what this sweep found, and cleared by a sweep that found nothing wrong —
 // every pull reads every landing, so a sweep with no problems means the
 // problem before it is gone or the item it was about is closed.
-func (s Scheduler) land(ctx context.Context, schedule *Schedule, pull Pull, entries []backlog.Entry) []backlog.Entry {
+func (s Scheduler) land(ctx context.Context, schedule *Schedule, pull Pull, entries []backlog.Entry, items map[string]beads.WorkItem) []backlog.Entry {
 	if pull.Landings == nil {
 		return entries
 	}
-	sweep, err := pull.Landings.Settle(ctx, entries)
+	sweep, err := pull.Landings.Settle(ctx, entries, items)
 	var problems []string
 	if err != nil {
 		problems = append(problems, fmt.Sprintf("the landings of conversation-carried work could not be read, so an item whose design has landed stays open until somebody closes it: %v", err))
