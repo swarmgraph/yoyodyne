@@ -158,3 +158,28 @@ func TestAHeadTheTargetAlreadyHoldsIsNoCandidate(t *testing.T) {
 		t.Fatalf("BuildQueueCandidate() error = %v, want ErrQueueCandidateEmpty", err)
 	}
 }
+
+func TestCommitParentsNamesTheBaseThenTheHeadOfAMerge(t *testing.T) {
+	t.Parallel()
+
+	repository, head := queueRepository(t)
+	manager := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+	ctx := context.Background()
+	target := gitLine(t, repository, "rev-parse", "main")
+	candidate, err := manager.BuildQueueCandidate(ctx, QueueCandidateRequest{Entry: testQueueEntry, TargetBranch: "main", Heads: []string{head}})
+	if err != nil {
+		t.Fatalf("BuildQueueCandidate() error = %v", err)
+	}
+	defer manager.RemoveQueueCandidate(ctx, candidate.Path)
+
+	parents, err := manager.CommitParents(ctx, candidate.Commit)
+	if err != nil || len(parents) != 2 || parents[0] != target || parents[1] != head {
+		t.Fatalf("CommitParents(candidate) = %v, %v; want the target then the head", parents, err)
+	}
+	if parents, err := manager.CommitParents(ctx, target); err != nil || len(parents) != 1 {
+		t.Fatalf("CommitParents(target) = %v, %v; want its one parent", parents, err)
+	}
+	if _, err := manager.CommitParents(ctx, "main"); err == nil {
+		t.Fatal("CommitParents() accepted a name that is not a full commit id")
+	}
+}

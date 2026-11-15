@@ -103,6 +103,10 @@ type BranchReview struct {
 	Shadow bool `json:"shadow,omitempty"`
 }
 
+// ValidBranchReviewName reports whether a name can stand as a review's branch,
+// which is what a record keeps it as: a local branch name.
+func ValidBranchReviewName(name string) bool { return validLocalBranch(name) }
+
 // Validate rejects a record that could not describe a review that happened.
 func (b BranchReview) Validate() error {
 	var problems []error

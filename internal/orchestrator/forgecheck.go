@@ -20,7 +20,10 @@ import (
 // that it reads each pull request into the team's branch that an outside tool
 // carries those changes in, closing the items of one merged, giving back those of
 // one closed without merging, and adding to an open one the items it carries but
-// nobody named (SettleTeamPullRequests). The claim, team pause and records
+// nobody named (SettleTeamPullRequests). The command also hosts bringing the
+// target branch up to date with the team's branch (TeamBranchUpdater,
+// teambranchupdate.go), which runs checks and a review and so is not part of
+// CheckForge. The claim, team pause and records
 // references the design adds with team mode are not read: team mode does not
 // exist yet, and the check covers them once it does.
 //

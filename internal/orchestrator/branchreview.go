@@ -40,6 +40,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/capability"
+	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/contextbundle"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -200,6 +201,77 @@ func (b BranchReviewer) Review(ctx context.Context, request BranchReviewRequest)
 	if err != nil {
 		return BranchReviewOutcome{}, fmt.Errorf("assemble the accumulated change: %w", err)
 	}
+	return b.conduct(ctx, conducted{
+		change:       change,
+		context:      branchContext(change),
+		worktreePath: b.Repository,
+		shadow:       request.Shadow,
+	})
+}
+
+// CandidateReviewRequest names a commit range that is not a local branch, such
+// as a merge the harness built in a checkout of its own, for the same review.
+type CandidateReviewRequest struct {
+	// Name is what the reviewed range is called, such as "main-into-staging". It
+	// stands where a branch's name does in the record and in what the reviewer
+	// is shown, so it has the shape of a local branch name.
+	Name       string
+	BaseCommit string
+	HeadCommit string
+	// Change is the bounded change from BaseCommit to HeadCommit.
+	Change gitworktree.BranchChange
+	// Context is what the reviewer is asked. The product's intent is appended to
+	// it, as it is to a branch review's.
+	Context string
+	// Checks are the results of the configured checks on HeadCommit, shown to
+	// the reviewer.
+	Checks []checks.Result
+	// WorktreePath is a checkout of HeadCommit the reviewer may inspect.
+	WorktreePath string
+}
+
+// ReviewCandidate obtains one independent verdict on a commit range that is
+// not a branch, and records it. Everything beside what is being reviewed is
+// what Review does: the review id, the reviewer agent's own account, the spend
+// attribution, the event stream, the durable record, the collected reports and
+// the recorded usage limit. The errors mean what they mean for Review.
+func (b BranchReviewer) ReviewCandidate(ctx context.Context, request CandidateReviewRequest) (BranchReviewOutcome, error) {
+	if b.Worktrees == nil {
+		return BranchReviewOutcome{}, errors.New("a candidate review requires a worktree manager")
+	}
+	if b.Reviewer == nil {
+		return BranchReviewOutcome{}, errors.New("a candidate review requires an independent reviewer")
+	}
+	if !runstate.ValidBranchReviewName(request.Name) {
+		return BranchReviewOutcome{}, fmt.Errorf("a candidate review requires a name shaped like a branch name for what is reviewed, not %q", request.Name)
+	}
+	change := request.Change
+	if change.BaseCommit != request.BaseCommit || change.HeadCommit != request.HeadCommit {
+		return BranchReviewOutcome{}, fmt.Errorf("the change described runs from %s to %s, not from %s to %s as asked", change.BaseCommit, change.HeadCommit, request.BaseCommit, request.HeadCommit)
+	}
+	change.Branch = request.Name
+	return b.conduct(ctx, conducted{
+		change:       change,
+		context:      request.Context,
+		checks:       request.Checks,
+		worktreePath: request.WorktreePath,
+	})
+}
+
+// conducted is what differs between one review and another: the change under
+// review, what the reviewer is asked, and the checkout it may inspect.
+type conducted struct {
+	change gitworktree.BranchChange
+	// context is what the reviewer is asked, before the product's intent.
+	context      string
+	checks       []checks.Result
+	worktreePath string
+	shadow       bool
+}
+
+// conduct is the review itself, which is the same whatever range it is of.
+func (b BranchReviewer) conduct(ctx context.Context, in conducted) (BranchReviewOutcome, error) {
+	change := in.change
 	reviewID, err := b.newReviewID()
 	if err != nil {
 		return BranchReviewOutcome{}, err
@@ -213,7 +285,7 @@ func (b BranchReviewer) Review(ctx context.Context, request BranchReviewRequest)
 		Commits:        len(change.Commits),
 		CommitsOmitted: change.CommitsOmitted,
 		Truncated:      change.Changes.Truncated,
-		Shadow:         request.Shadow,
+		Shadow:         in.shadow,
 	}
 	invariants, invariantErr := b.deliveredInvariants(change)
 	if invariantErr != nil {
@@ -232,12 +304,14 @@ func (b BranchReviewer) Review(ctx context.Context, request BranchReviewRequest)
 		RunID:      reviewID,
 		Scope:      review.ScopeBranch,
 		Branch:     branchScope(change),
-		Context:    branchContext(change) + intent,
+		Context:    in.context + intent,
 		Invariants: invariants.Text(),
-		// The repository holds the named commits; its current checkout need not
-		// be the reviewed branch. The review contract distinguishes the two.
-		WorktreePath: b.Repository,
+		// For a branch the repository holds the named commits, and its current
+		// checkout need not be the reviewed branch. The review contract
+		// distinguishes the two.
+		WorktreePath: in.worktreePath,
 		Changes:      change.Changes,
+		Checks:       in.checks,
 		Repository:   reviewedRepository(ctx, b.Worktrees, change.HeadCommit, beads.WorkItem{}, change.Changes),
 		RedactValues: b.RedactValues,
 		// A branch review is a provider invocation like any other the harness
