@@ -203,7 +203,7 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 			for _, r := range revised {
 				refusal.Revised = append(refusal.Revised, runstate.DocumentLinkRevised{ID: r.ID, Path: r.Path, RevisedAt: r.RevisedAt})
 			}
-			if document.Retried != nil {
+			if document.Retried != nil || document.StandingApproval() {
 				// No conversation holds a retry the development manager decided, so
 				// the refusal is put to the author's conversation here. Where that
 				// cannot be done the wait is kept and the scheduler tries again,
@@ -288,27 +288,42 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 // handoff no conversation holds. It is satisfied by *runstate.ConversationStore.
 type DocumentAuthors interface {
 	TellDocumentAuthor(conversationID, text string) error
+	TellDocumentOwner(role domain.AgentRole, text string) error
 }
 
-// tellAuthorLinksRevised answers a retried document whose linked documents were
-// revised after it was confirmed: the author's conversation is told what changed
-// and what to do, the wait is cleared, and the work item the document names gets
-// a note. A failure to tell the author is returned with the wait kept.
+// tellAuthorLinksRevised answers a retried document or a standing approval whose
+// linked documents were revised after it was confirmed: no conversation holds
+// either, so the author's conversation (for a standing approval, every
+// conversation of the owning role) is told what changed and what to do, the
+// wait is cleared, and the work item the document names gets a note. A failure
+// to tell anyone is returned with the wait kept.
 func (p Pipeline) tellAuthorLinksRevised(ctx context.Context, document runstate.DocumentPublication, refusal *runstate.DocumentLinksRevisedError, record documentItemRecorder) (runstate.DocumentDelivery, error) {
 	if p.Authors == nil {
 		return runstate.DocumentDelivery{}, fmt.Errorf("no conversation record is wired to tell the %s that document %s is out of date: %w", document.Owner.Title(), document.WriteID, refusal)
 	}
 	var told strings.Builder
-	fmt.Fprintf(&told, "Document %s (%s) was retried by the development manager and was not published, and no run was opened for it: it was confirmed at %s, and since then", document.WriteID, document.Candidate.Artifact.Title, refusal.ConfirmedAt.Local().Format("2006-01-02 15:04 MST"))
+	standing := document.StandingApproval()
+	if standing {
+		fmt.Fprintf(&told, "The operator's approval of document %s (%s) as it stood was not published, and no run was opened for it: it was confirmed at %s, and since then", document.Candidate.Artifact.ID, document.Candidate.Artifact.Title, refusal.ConfirmedAt.Local().Format("2006-01-02 15:04 MST"))
+	} else {
+		fmt.Fprintf(&told, "Document %s (%s) was retried by the development manager and was not published, and no run was opened for it: it was confirmed at %s, and since then", document.WriteID, document.Candidate.Artifact.Title, refusal.ConfirmedAt.Local().Format("2006-01-02 15:04 MST"))
+	}
 	for _, r := range refusal.Revised {
 		fmt.Fprintf(&told, "\n- %s (%s) was revised at %s", r.ID, r.Path, r.RevisedAt.Local().Format("2006-01-02 15:04 MST"))
 	}
-	fmt.Fprintf(&told, "\nThe %s must read what changed and write document %s again: revised where it no longer agrees, or with its text as it is and a reason saying it still agrees with the revised documents. It is then published.\n", document.Owner.Title(), document.Candidate.Artifact.ID)
-	if err := p.Authors.TellDocumentAuthor(document.ConversationID, told.String()); err != nil {
+	var err error
+	if standing {
+		fmt.Fprintf(&told, "\nThe %s must read what changed and revise document %s, or confirm it still agrees; the operator's approval is a step only they can take, so it is given again with yoyo artifact approve once the document stands as the %s wants it.\n", document.Owner.Title(), document.Candidate.Artifact.ID, document.Owner.Title())
+		err = p.Authors.TellDocumentOwner(document.Owner, told.String())
+	} else {
+		fmt.Fprintf(&told, "\nThe %s must read what changed and write document %s again: revised where it no longer agrees, or with its text as it is and a reason saying it still agrees with the revised documents. It is then published.\n", document.Owner.Title(), document.Candidate.Artifact.ID)
+		err = p.Authors.TellDocumentAuthor(document.ConversationID, told.String())
+	}
+	if err != nil {
 		return runstate.DocumentDelivery{}, fmt.Errorf("tell the %s that document %s is out of date: %w", document.Owner.Title(), document.WriteID, err)
 	}
 	p.clearDocumentWait(document)
-	record.note(ctx, fmt.Sprintf("Yoyodyne did not publish the retry of document %s (%s): %s. The %s was told in conversation %s to revise it or say it still agrees.", document.WriteID, document.Candidate.Artifact.Title, refusal.Error(), document.Owner.Title(), document.ConversationID))
+	record.note(ctx, fmt.Sprintf("Yoyodyne did not publish document %s (%s) from %s: %s. The %s was told to revise it or say it still agrees.", document.WriteID, document.Candidate.Artifact.Title, document.Origin(), refusal.Error(), document.Owner.Title()))
 	return runstate.DocumentDelivery{Detail: told.String()}, nil
 }
 

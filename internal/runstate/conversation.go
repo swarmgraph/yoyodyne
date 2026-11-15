@@ -2059,28 +2059,62 @@ func (s *ConversationStore) TellDocumentAuthor(conversationID, text string) erro
 		return err
 	}
 	for _, found := range conversations {
-		if found.ConversationID != conversationID {
-			continue
+		if found.ConversationID == conversationID {
+			return s.tell(found.Identity(), text)
 		}
-		hold, err := s.TryClaim(found.Identity())
-		if err != nil {
-			return err
-		}
-		defer hold.Release()
-		current, err := s.Load(found.Identity())
-		if err != nil {
-			return err
-		}
-		told := current.PendingTrackerResults + text
-		if limit := MaxPendingTrackerResultBytes / 2; len(told) > limit {
-			cut := len(told) - limit
-			for cut < len(told) && !utf8.RuneStart(told[cut]) {
-				cut++
-			}
-			told = "[the first " + strconv.Itoa(cut) + " bytes are cut; treat them as unread rather than absent]\n\n" + told[cut:]
-		}
-		current.PendingTrackerResults = told
-		return s.Save(current)
 	}
 	return fmt.Errorf("no recorded conversation %s to tell about its document", conversationID)
+}
+
+// TellDocumentOwner is TellDocumentAuthor for a handoff that names no
+// conversation at all, such as the operator's approval of a document as it
+// stands: every recorded conversation of the role that owns the document is
+// told. It fails when the role has none, or when one could not be told, so the
+// caller keeps the message rather than losing it.
+func (s *ConversationStore) TellDocumentOwner(role domain.AgentRole, text string) error {
+	conversations, err := s.Recorded()
+	if err != nil {
+		return err
+	}
+	told := 0
+	var failed []error
+	for _, found := range conversations {
+		if found.Role != role {
+			continue
+		}
+		if err := s.tell(found.Identity(), text); err != nil {
+			failed = append(failed, err)
+			continue
+		}
+		told++
+	}
+	if len(failed) > 0 {
+		return errors.Join(failed...)
+	}
+	if told == 0 {
+		return fmt.Errorf("no recorded conversation of the %s to tell", role.Title())
+	}
+	return nil
+}
+
+func (s *ConversationStore) tell(identity ConversationIdentity, text string) error {
+	hold, err := s.TryClaim(identity)
+	if err != nil {
+		return err
+	}
+	defer hold.Release()
+	current, err := s.Load(identity)
+	if err != nil {
+		return err
+	}
+	told := current.PendingTrackerResults + text
+	if limit := MaxPendingTrackerResultBytes / 2; len(told) > limit {
+		cut := len(told) - limit
+		for cut < len(told) && !utf8.RuneStart(told[cut]) {
+			cut++
+		}
+		told = "[the first " + strconv.Itoa(cut) + " bytes are cut; treat them as unread rather than absent]\n\n" + told[cut:]
+	}
+	current.PendingTrackerResults = told
+	return s.Save(current)
 }

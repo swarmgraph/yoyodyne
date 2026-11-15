@@ -211,3 +211,64 @@ func TestARetriedDocumentWhoseLinkedDocumentWasRevisedIsPutToItsAuthor(t *testin
 		t.Fatal("a retry whose author cannot be told was accepted")
 	}
 }
+
+// An operator's approval of a document as it stands can wait for a document
+// landing. If a linked document is revised while it waits, the scheduler's
+// start of it opens no run and the owning role is told, so the approval is not
+// lost unsaid.
+func TestAStandingApprovalWhoseLinkedDocumentWasRevisedWhileItWaitedIsPutToTheOwner(t *testing.T) {
+	t.Parallel()
+
+	repository, _, provider, pipeline, runs := automaticFixture(t)
+	start := time.Now().UTC().Add(time.Minute).Truncate(time.Second)
+	if err := os.MkdirAll(filepath.Join(repository, "docs", "designs"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "docs", "designs", "base-design.md"), []byte(linkedDesignFile(start.Add(-time.Hour))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	artifacts := artifact.StoreFor(repository, pipeline.Config.Product)
+	if _, err := artifacts.Create(domain.RoleArchitect, artifact.Draft{ID: "standing-design", Kind: artifact.KindDesign, Title: "Standing design", Supports: []string{"base-design"}, Directory: "docs/designs", Body: "# Standing\n\nThe owner's words.", Reason: "written by the architect"}, start.Add(-30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	publicationGit(t, repository, "add", ".")
+	publicationGit(t, repository, "commit", "-m", "designs")
+	candidate, err := artifacts.PrepareStandingApproval("standing-design", "approved on the command line", start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication := runstate.DocumentPublication{Candidate: candidate, Owner: domain.RoleArchitect,
+		WriteID: fmt.Sprintf("%s%s.%d-%s", runstate.StandingApprovalPrefix, candidate.Artifact.ID, len(candidate.Artifact.Revisions)-1, artifact.DocumentIdentity([]byte(candidate.Content))[:12])}
+	if !publication.StandingApproval() {
+		t.Fatal("not a standing approval")
+	}
+	options, store := publicationConversation(t, pipeline, provider)
+	if _, err := chat.Open(options); err != nil {
+		t.Fatal(err)
+	}
+	pipeline.Authors = store
+
+	// The base design is revised after the approval was given, while it waited.
+	revised := start.Add(time.Hour)
+	if err := os.WriteFile(filepath.Join(repository, "docs", "designs", "base-design.md"), []byte(linkedDesignFile(revised)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := pipeline.PublishWaitingDocument(context.Background(), publication)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if records, err := runs.Recorded(); err != nil || len(records) != 0 {
+		t.Fatalf("runs = %+v, %v, want none opened", records, err)
+	}
+	saved, err := store.Load(runstate.ConversationIdentity{Role: domain.RoleArchitect, Agent: "architect"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, told := range []string{outcome.Summary, saved.PendingTrackerResults} {
+		for _, want := range []string{"operator's approval of document standing-design", "base-design (docs/designs/base-design.md) was revised at " + revised.Local().Format("2006-01-02 15:04 MST"), "yoyo artifact approve"} {
+			if !strings.Contains(told, want) {
+				t.Errorf("told %q, want it to say %q", told, want)
+			}
+		}
+	}
+}
