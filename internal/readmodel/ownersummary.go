@@ -430,6 +430,8 @@ func stageSays(run RunningRun) string {
 		return "in review"
 	case StageIntegrating:
 		return "landing"
+	case StageUnknown:
+		return "at a step this build does not know"
 	}
 	if run.Checks != "" {
 		return "in its checks"
@@ -440,7 +442,10 @@ func stageSays(run RunningRun) string {
 // runDetail is what the summary keeps behind a run's line.
 func runDetail(run RunningRun) []string {
 	detail := []string{"run " + run.RunID}
-	if run.Phase != "" {
+	if run.Stage == StageUnknown {
+		// Already said as a phase this build does not know (RunningRun.Phase).
+		detail = append(detail, string(run.Phase))
+	} else if run.Phase != "" {
 		detail = append(detail, "phase "+string(run.Phase))
 	}
 	if run.Checks != "" {

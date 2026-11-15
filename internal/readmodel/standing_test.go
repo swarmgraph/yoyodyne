@@ -1388,14 +1388,15 @@ func TestStartableIsCountedFromTheSameEntriesAsTheRefusals(t *testing.T) {
 func TestStageOfFoldsEveryPhase(t *testing.T) {
 	t.Parallel()
 	for phase, stage := range map[runstate.Phase]Stage{
-		"":                        StageDeveloping,
-		runstate.PhaseDeveloping:  StageDeveloping,
-		runstate.PhaseChecking:    StageDeveloping,
-		runstate.PhaseReviewing:   StageReviewing,
-		runstate.PhaseIntegrating: StageIntegrating,
-		runstate.PhaseCompleting:  StageIntegrating,
-		runstate.PhaseCleaningUp:  StageIntegrating,
-		runstate.PhaseComplete:    StageIntegrating,
+		"":                           StageDeveloping,
+		runstate.PhaseDeveloping:     StageDeveloping,
+		runstate.PhaseChecking:       StageDeveloping,
+		runstate.PhaseReviewing:      StageReviewing,
+		runstate.PhaseIntegrating:    StageIntegrating,
+		runstate.PhaseCompleting:     StageIntegrating,
+		runstate.PhaseCleaningUp:     StageIntegrating,
+		runstate.PhaseComplete:       StageIntegrating,
+		"a-phase-from-a-later-build": StageUnknown,
 	} {
 		if got := StageOf(phase); got != stage {
 			t.Errorf("StageOf(%q) = %q, want %q", phase, got, stage)

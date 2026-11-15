@@ -233,14 +233,28 @@ func (c StopClass) Gate() bool {
 // first word, which is how every surface prints the reason. A record naming no
 // class prints its reason as it was written, and a class with no reason beside it
 // prints on its own, so neither half is lost for want of the other.
+//
+// A class this build does not know — one a newer build wrote — is printed as
+// unknown with the value recorded (StopCauseShown), never as though it were a
+// class this build could explain.
 func StopReason(class StopClass, reason string) string {
 	reason = strings.TrimSpace(reason)
 	switch {
 	case class == "" || class == StopUnknown:
 		return reason
 	case reason == "":
-		return string(class)
+		return StopCauseShown(class)
 	default:
-		return string(class) + ": " + reason
+		return StopCauseShown(class) + ": " + reason
 	}
+}
+
+// StopCauseShown is a recorded stop class as a surface prints it: its own name
+// where this build knows it, and where it does not, unknown with the value the
+// record holds.
+func StopCauseShown(class StopClass) string {
+	if class == "" || class.Valid() {
+		return string(class)
+	}
+	return "stop cause " + UnknownValueShown(string(class))
 }
