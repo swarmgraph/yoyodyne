@@ -59,3 +59,25 @@ func TestTheSettleContractDecodesAndTheLastEntryStands(t *testing.T) {
 		}
 	}
 }
+
+// Every instruction that asks for a settled decision says it needs at least one
+// assumption, because the harness refuses a decision with none whatever the
+// open points were.
+func TestEveryInstructionForASettledDecisionSaysItNeedsAnAssumption(t *testing.T) {
+	t.Parallel()
+	refusal := Settled{Item: "x-1", Decision: "d"}.Validate()
+	for name, text := range map[string]string{
+		"settle contract":    SettleContract("x-1", 2, nil),
+		"sent back":          SentBack("x-1", 2),
+		"report request":     ReportRequest(),
+		"correction request": CorrectionRequest(refusal),
+	} {
+		if !strings.Contains(text, "at least one") || !strings.Contains(text, "assumption") {
+			t.Errorf("%s does not say a decision needs at least one assumption:\n%s", name, text)
+		}
+	}
+	correction := CorrectionRequest(refusal)
+	if !strings.Contains(correction, refusal.Error()) || !strings.Contains(correction, Fence) {
+		t.Errorf("the correction request does not carry the refusal and the block's shape:\n%s", correction)
+	}
+}
