@@ -280,22 +280,23 @@ func (c conversationQueueRelease) ReleaseHead(ctx context.Context, release chat.
 // queueReleaseSays is what a release did, said to the role that asked for it.
 func queueReleaseSays(result orchestrator.MergeQueuePromotion) string {
 	entry := result.Entry
+	item := orchestrator.MergeQueueEntryItem(entry)
 	handback := result.HandedBack
 	switch {
 	case handback != nil && handback.Continuation == runstate.MergeQueueLandedOutside && handback.HandedBackAt != nil:
 		return fmt.Sprintf("released entry %d (%s) from the head of the merge queue for %s as landed: its approved commit %s is on %s, the landing is recorded on run %s and on %s with your reason, and the next pass goes on to the entry behind it",
-			entry.Order, entry.EntryID, entry.TargetBranch, entry.ApprovedHead, entry.TargetBranch, entry.RunID, entry.WorkItemID)
+			entry.Order, entry.EntryID, entry.TargetBranch, entry.ApprovedHead, entry.TargetBranch, entry.RunID, item)
 	case handback != nil && handback.Continuation == runstate.MergeQueueLandedOutside:
 		return fmt.Sprintf("released entry %d (%s) from the head of the merge queue for %s as landed; recording it on run %s and on %s is not finished, and the next pass of the queue finishes it",
-			entry.Order, entry.EntryID, entry.TargetBranch, entry.RunID, entry.WorkItemID)
+			entry.Order, entry.EntryID, entry.TargetBranch, entry.RunID, item)
 	case handback != nil:
 		return fmt.Sprintf("released entry %d (%s) from the head of the merge queue for %s and handed it back to %s: its change is kept on run %s, the item is blocked with your reason, and the next pass goes on to the entry behind it",
-			entry.Order, entry.EntryID, entry.TargetBranch, entry.WorkItemID, entry.RunID)
+			entry.Order, entry.EntryID, entry.TargetBranch, item, entry.RunID)
 	case result.Completed:
 		return fmt.Sprintf("entry %d (%s) had already landed on %s through the merge queue itself, so it was recorded as that landing rather than released, and the next pass goes on to the entry behind it",
 			entry.Order, entry.EntryID, entry.TargetBranch)
 	default:
 		return fmt.Sprintf("entry %d (%s) landed on %s through the merge queue itself; recording it on run %s and on %s is not finished, and the next pass of the queue finishes it",
-			entry.Order, entry.EntryID, entry.TargetBranch, entry.RunID, entry.WorkItemID)
+			entry.Order, entry.EntryID, entry.TargetBranch, entry.RunID, item)
 	}
 }

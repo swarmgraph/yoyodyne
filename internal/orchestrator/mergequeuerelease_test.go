@@ -50,8 +50,9 @@ func TestTheDevelopmentManagerReleasesAHeadEntryAlreadyOnTheTargetAsLanded(t *te
 		!strings.Contains(refusal.Reason, "head of the queue") {
 		t.Fatalf("ReleaseHead() of the entry behind the head error = %v, want it refused as not the head", err)
 	}
-	if _, err := f.release(MergeQueueRelease{EntryID: f.entry.EntryID, WorkItemID: "yoyodyne-other", Landed: true, Reason: "wrong item"}); !errors.As(err, &refusal) {
-		t.Fatalf("ReleaseHead() naming another item error = %v, want it refused", err)
+	if _, err := f.release(MergeQueueRelease{EntryID: f.entry.EntryID, WorkItemID: "yoyodyne-other", Landed: true, Reason: "wrong item"}); !errors.As(err, &refusal) ||
+		!strings.Contains(refusal.Reason, MergeQueueEntryItem(f.entry)) || !strings.Contains(refusal.Reason, "yoyodyne-other, the item the release named") {
+		t.Fatalf("ReleaseHead() naming another item error = %v, want it refused naming the entry's item by what it is", err)
 	}
 	if _, err := f.release(MergeQueueRelease{EntryID: f.entry.EntryID, Landed: true}); err == nil {
 		t.Fatal("ReleaseHead() with no reason = nil, want it refused")
@@ -117,6 +118,18 @@ func TestReleasingAsLandedLeavesAClosedItemClosedAndOffersNoRepair(t *testing.T)
 	}
 	if repair.count() != 0 {
 		t.Fatalf("repair given %#v, want no repair offered for a change that landed", repair.given)
+	}
+}
+
+func TestMergeQueueEntryItemNamesTheItemByWhatItIs(t *testing.T) {
+	t.Parallel()
+
+	titled := runstate.MergeQueueEntry{WorkItemID: "yoyodyne-task", WorkItemTitle: "Release the queue head"}
+	if got := MergeQueueEntryItem(titled); got != `"Release the queue head" (yoyodyne-task)` {
+		t.Errorf("MergeQueueEntryItem() = %q, want the title with the identifier after it", got)
+	}
+	if got := MergeQueueEntryItem(runstate.MergeQueueEntry{WorkItemID: "yoyodyne-task"}); got != "work item yoyodyne-task" {
+		t.Errorf("MergeQueueEntryItem() with no title = %q, want it said to be a work item", got)
 	}
 }
 

@@ -151,10 +151,10 @@ func (p MergeQueuePromoter) ReleaseHead(ctx context.Context, key runstate.MergeQ
 			return refuse("the queue for %s has no unfinished entry at its head", key.TargetBranch)
 		}
 		return refuse("it is entry %d, and the head of the queue for %s is entry %d (%s, for %s); only the head holds the queue back, so only the head is released",
-			q.entry.Order, key.TargetBranch, head.Order, head.EntryID, head.WorkItemID)
+			q.entry.Order, key.TargetBranch, head.Order, head.EntryID, MergeQueueEntryItem(head))
 	}
 	if want := strings.TrimSpace(release.WorkItemID); want != "" && want != q.entry.WorkItemID {
-		return refuse("it is the entry of %s, not of %s; nothing was recorded", q.entry.WorkItemID, want)
+		return refuse("it is the entry of %s, not of %s, the item the release named; nothing was recorded", MergeQueueEntryItem(q.entry), want)
 	}
 	if q.landing.Handback != nil {
 		return refuse("it already left the queue (%s): %s", q.landing.Handback.Continuation, q.landing.Handback.Reason)
@@ -237,6 +237,16 @@ func (p MergeQueuePromoter) releaseLandedOutside(ctx context.Context, q *queuePr
 		return q.result(), err
 	}
 	return q.result(), nil
+}
+
+// MergeQueueEntryItem names the work item an entry is for as a person reads
+// it: its title with its identifier after it, or the identifier alone, said
+// to be a work item, where the entry was admitted without a title.
+func MergeQueueEntryItem(entry runstate.MergeQueueEntry) string {
+	if title := strings.TrimSpace(entry.WorkItemTitle); title != "" {
+		return fmt.Sprintf("%q (%s)", title, entry.WorkItemID)
+	}
+	return "work item " + entry.WorkItemID
 }
 
 // head is the entry at the head of the queue: the first, in the order the
