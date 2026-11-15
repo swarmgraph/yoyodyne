@@ -609,6 +609,10 @@ func (r *resolution) apply(applied layer) error {
 		r.config.MCP = copyMCP(*document.MCP)
 		r.origins["mcp"] = applied.origin
 	}
+	if document.Intake != nil {
+		r.config.Intake = resolveIntake(*document.Intake)
+		r.origins["intake"] = applied.origin
+	}
 	if intent := document.Intent; intent != nil {
 		setValue(r.origins, "intent.repository", intent.Repository, &r.config.Intent.Repository, applied.origin)
 	}

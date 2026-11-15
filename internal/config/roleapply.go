@@ -38,6 +38,7 @@ var roleApplicableKeys = []string{
 var operatorKeyReasons = map[string]string{
 	"install":            "an install step is a command the harness runs with network access, and what it fetches and runs decides what reaches this machine",
 	"mcp":                "an MCP server is a program the harness runs, or an address it reaches, on a role's behalf, and which tools of it may be called decides what can leave this machine",
+	"intake":             "a scheduled query decides which tool the harness calls with nobody watching, whose messages can start work, and who is asked about them",
 	"agents.*.mcp_tools": "which MCP tools an agent may ask the harness to call decides what that agent can reach outside the harness",
 }
 
