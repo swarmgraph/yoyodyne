@@ -93,13 +93,14 @@ func TestADocumentWhoseLinkedDocumentWasRevisedGoesBackToItsAuthorBeforeAnyRun(t
 
 	// The author says it still agrees: the same text again, with that as the reason.
 	clock.at = start.Add(2 * time.Hour)
-	reply = linkingDesign("recovery-design", body, "still agrees with base-design as revised", "revise", "")
+	reply = linkingDesign("recovery-design", body, "still agrees with base-design as revised", "create", `"kind":"design","directory":"docs/designs",`)
 	if _, err := session.Send(context.Background(), "It still agrees."); err != nil {
 		t.Fatal(err)
 	}
 	recorded, err := runs.Recorded()
 	if err != nil || len(recorded) != 1 || recorded[0].Status != runstate.StatusSucceeded {
-		t.Fatalf("runs = %+v, %v, want the document published once the author said it still agrees", recorded, err)
+		after, _ := store.Load(runstate.ConversationIdentity{Role: domain.RoleArchitect, Agent: "architect"})
+		t.Fatalf("told = %q; runs = %+v, %v, want the document published once the author said it still agrees", after.PendingTrackerResults, recorded, err)
 	}
 	content := publicationGit(t, repository, "show", "main:docs/designs/recovery-design.md")
 	if !strings.Contains(content, "still agrees with base-design as revised") || !strings.Contains(content, "The owner's exact words") {
