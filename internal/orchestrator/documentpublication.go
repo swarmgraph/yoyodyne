@@ -190,6 +190,23 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 		p.clearDocumentWait(document)
 		return p.handOverDocument(ctx, docket, record, *previous)
 	}
+	if _, err := p.Store.Load(document.RunIDFor(attempt)); errors.Is(err, os.ErrNotExist) {
+		// No run of this attempt exists yet, so nothing has been spent on the text.
+		// If a document it links to changed while it waited, it goes back to its
+		// author instead of to a run and a review.
+		revised, err := artifact.StoreFor(p.Repository, p.Config.Product).LinkedRevisionsSince(document.Candidate)
+		if err != nil {
+			return runstate.DocumentDelivery{}, fmt.Errorf("check the documents %s links to for revisions since it was confirmed: %w", document.Candidate.Artifact.ID, err)
+		}
+		if len(revised) > 0 {
+			p.clearDocumentWait(document)
+			refusal := &runstate.DocumentLinksRevisedError{ConfirmedAt: document.Candidate.Artifact.ConfirmedAt()}
+			for _, r := range revised {
+				refusal.Revised = append(refusal.Revised, runstate.DocumentLinkRevised{ID: r.ID, Path: r.Path, RevisedAt: r.RevisedAt})
+			}
+			return runstate.DocumentDelivery{}, refusal
+		}
+	}
 	if previous != nil {
 		if _, err := p.Store.Load(document.RunIDFor(attempt)); errors.Is(err, os.ErrNotExist) {
 			waited := documentRetryWaited(*previous)
