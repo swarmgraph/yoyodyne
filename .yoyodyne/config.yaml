@@ -448,6 +448,20 @@ mcp:
         git_log: read
         git_show: read
         git_branch: read
+    # The Slack server is the operator's choice of 2026-11-15: the factory's own
+    # bot, read tools only, through the reference Slack server
+    # (@modelcontextprotocol/server-slack 2025.4.25, which npm marks deprecated),
+    # installed with `npm install --ignore-scripts --prefix
+    # ~/.local/lib/mcp-server-slack`. The bot reads only the channels it is in.
+    # The server will not start without a team id, which these two tools never
+    # send, so it is given a placeholder.
+    slack:
+      command: [sh, -c, 'SLACK_TEAM_ID=unused exec node "/Users/$USER/.local/lib/mcp-server-slack/node_modules/@modelcontextprotocol/server-slack/dist/index.js"']
+      credential: keychain
+      credential_env: SLACK_BOT_TOKEN
+      tools:
+        slack_get_channel_history: read
+        slack_get_thread_replies: read
 
 # Every agent is stated in full: nothing about them is inherited. A model
 # selector that names a family, such as "opus", floats to that family's current
@@ -530,7 +544,7 @@ agents:
     persona:
       version: v2
       path: personas/development-manager.md
-    mcp_tools: [git.git_log, git.git_show, git.git_branch]
+    mcp_tools: [git.git_log, git.git_show, git.git_branch, slack.slack_get_channel_history, slack.slack_get_thread_replies]
   product-manager:
     role: product-manager
     backend: claude-code
