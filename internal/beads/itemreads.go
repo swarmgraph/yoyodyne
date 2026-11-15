@@ -154,15 +154,19 @@ func (r *ItemReads) take(id string) (WorkItem, bool) {
 	return held.item, true
 }
 
-// forget drops what is held for every item a command names.
+// forget drops what is held for every item a command names: an argument that
+// is the item's id, or a flag whose value is, such as `--parent=<id>`. An id is
+// matched whole, so a write naming yoyodyne-ifd.1 leaves yoyodyne-ifd.10 held.
 func (r *ItemReads) forget(args []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, arg := range args {
-		for id := range r.items {
-			if strings.Contains(arg, id) {
-				delete(r.items, id)
-			}
+		named := arg
+		if flag, value, isFlag := strings.Cut(arg, "="); isFlag && strings.HasPrefix(flag, "-") {
+			named = value
+		}
+		for _, id := range strings.Split(named, ",") {
+			delete(r.items, id)
 		}
 	}
 }

@@ -169,6 +169,14 @@ step was written against that answer.
 times out every listing, two finished runs whose clean-up is refused are kept
 exactly as before, with one read of both items and no listing; the same sweep
 without the read ahead makes one read per item.
+Beside it, on the same stand-in with every listing timing out,
+`TestReconcileStillAsksTheForgeAboutAQueuedMergeWhenListingsTimeOut` shows a
+run whose merge was left queued still has the forge asked about it, and is
+settled and its item closed once the forge has merged, and
+`TestReconcileStillKeepsARunHeldByADecisionWhenListingsTimeOut` shows a run
+the development manager holds under a recorded decision is kept in flight
+with its branch and worktree. Both read their run's item in the one read
+ahead and list nothing.
 
 ## What this does not fix
 

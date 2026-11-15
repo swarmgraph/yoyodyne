@@ -239,3 +239,31 @@ func TestShowManyConformance(t *testing.T) {
 		t.Fatalf("ShowMany() of an item bd does not hold = %v, %v; want an empty answer", none, err)
 	}
 }
+
+// A command drops only the items it names whole, as an argument or as a flag's
+// value: a write to yoyodyne-1 leaves yoyodyne-10 held.
+func TestAWriteDropsOnlyTheItemsItNamesWhole(t *testing.T) {
+	t.Parallel()
+
+	reads := &ItemReads{}
+	now := time.Now()
+	reads.hold(map[string]WorkItem{
+		"yoyodyne-1":  {ID: "yoyodyne-1"},
+		"yoyodyne-10": {ID: "yoyodyne-10"},
+		"yoyodyne-20": {ID: "yoyodyne-20"},
+	}, now)
+	reads.forget([]string{"update", "yoyodyne-1", "--append-notes=see yoyodyne-20", "--json"})
+	if _, held := reads.take("yoyodyne-1"); held {
+		t.Fatal("the item a write named is still held")
+	}
+	if reads.Held() != 2 {
+		t.Fatalf("a write naming yoyodyne-1 dropped %d other items, want none", 2-reads.Held())
+	}
+	reads.forget([]string{"create", "--parent=yoyodyne-20", "--json"})
+	if _, held := reads.take("yoyodyne-20"); held {
+		t.Fatal("an item named as a flag's value is still held")
+	}
+	if _, held := reads.take("yoyodyne-10"); !held {
+		t.Fatal("an item no command named was dropped")
+	}
+}
