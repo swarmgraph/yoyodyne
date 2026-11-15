@@ -239,4 +239,3 @@ func TestShowManyConformance(t *testing.T) {
 		t.Fatalf("ShowMany() of an item bd does not hold = %v, %v; want an empty answer", none, err)
 	}
 }
-

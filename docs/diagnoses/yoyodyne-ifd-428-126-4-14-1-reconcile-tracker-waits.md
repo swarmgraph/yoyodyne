@@ -26,7 +26,8 @@ Traced from `reconcileRuns` in `internal/cli/reconcile.go`:
 | `bd ready` | only when the stall check cannot otherwise explain a quiet line |
 | `bd list --all` | only when an exchange between roles runs out of rounds |
 | `bd list --status=open`, `in_progress`, `blocked` | only when a queued merge's checks are red on its target |
-| `bd show <id>`, one item at a time | for each outstanding run, person merge, red target, escalation, and finding the pass settles |
+| `bd show <id> <id> …`, every outstanding run's item in one call | every pass with an outstanding run (since the change below) |
+| `bd show <id>`, one item at a time | for each person merge, red target, escalation, and finding the pass settles, and for a run's item read again or after a write |
 
 Nothing else reconcile does lists the tracker. The runs a pass hosts after its
 report, continued developer attempts, make their own reads like any run.
@@ -96,17 +97,86 @@ state.
   calls it made, how long they took together, and the three longest, before
   the line about the forge. A call that takes 30 seconds or more, or is stopped
   at its limit, is written to standard error the moment it ends, naming the
-  read and how long it ran, so a pass stopped at fifteen minutes has those
-  lines at the end of its record.
+  read and how long it ran. A pass stopped at fifteen minutes therefore has a
+  line at the end of its record for each such call; where every call answered
+  in under 30 seconds and only their total ran out the clock, it has none, and
+  the total is printed only by a pass that finishes.
 - A listing of closed work the tracker did not answer is not asked again by
   the second step that needs it in the same pass. That saves up to six minutes
   on a pass that has already lost six.
 
+## The same items, read one at a time, every pass
+
+The tracker client logs every call it makes, by process, under
+`tracker-calls` in the product's state. Read on November 15, those logs held
+264 reconcile passes from the two days before. Their single-item reads,
+`bd show <id>`, numbered 2,971 and took 23,653 seconds between them; the
+closed-work listing, made once a pass, took 3,123 seconds; nothing else came
+close. The slowest passes each read the same eleven items one after another,
+every one of them closed (yoyodyne-ifd.429.96, 428.86, 432.25.9, 429.73,
+435.43, 428.126.1.1, yoyodyne-qzj, 428.99.11, 428.116, yoyodyne-wj4l.1 and
+428.130), each read taking 5 to 120 seconds, and the longest pass spent 818
+seconds of its fifteen minutes on fifteen tracker calls.
+
+Those eleven are the work items of finished runs whose clean-up is refused
+because their worktree has changes in it (for example run-83a4620a, whose
+record says `refusing to remove a dirty worktree`). Such a run stays
+outstanding, so every pass settles it again, and settling it reads its item
+to see whether the item is closed. The run itself is a separate matter; what
+it costs reconcile is one turn in the queue for the store per run per pass.
+
+Timed on a copy of the store at 02:22 PST on November 15 (1.5 GB, 1,333 closed
+items; the live store was being written throughout, so the copy was taken
+while it changed, and it opened and answered normally), with the machine's
+load average about 12 on 16 cores:
+
+| Read | Took |
+| --- | --- |
+| the eleven items, one `bd show` each | 5.7s to 6.7s |
+| the eleven items in one `bd show` naming all of them | 4.2s to 4.7s |
+| the eleven items in one `bd list --id=…` | 1.5s |
+| `bd list --json --limit=0 --status=closed` | 2.0s |
+| `bd show yoyodyne-qzj --json` | 1.8s |
+
+With four closed-work listings looping on the copy at the same time, the
+eleven single reads took 76 seconds and the one batched read 45. bd does not
+let commands in in the order they arrive, so a batch is not eleven times
+faster under contention, but it waits for the store once where the single
+reads wait eleven times, and on the live store each of those waits was what
+cost 5 to 120 seconds. None of these reads came near the two-minute limit on
+the copy; on the live store the reads that ran past it did so waiting.
+
+## The change: the runs' items are read together
+
+Before it settles anything, the sweep now reads the work items of every
+outstanding run in one `bd show` naming all of them (`beads.Client.ShowMany`,
+fifty to a call), and each run's first read of its own item in that pass is
+answered from that one call. Nothing else changes about how a run is settled:
+every later read of the same item, every read a write makes to check or
+confirm itself, and every read after anything in the pass wrote to the item
+asks the tracker as before, and nothing read ahead is given out more than five
+minutes after it was read or after the settling is over. A batch the tracker
+does not answer holds nothing, and each item is then read on its own as
+before; it is asked once rather than three times, so it adds at most one
+limit's wait. Runs that publish a document or bring in a file are settled
+against a stand-in for their item and are not read. `bd show` was kept rather
+than `bd list --id`, which is faster, because `bd show` answers each item
+exactly as it answers it alone (TestShowManyConformance) and every settling
+step was written against that answer.
+
+`TestReconcileReadsItsRunsItemsInOneCallAndListsNothing` in
+`internal/orchestrator` holds the sweep to this: over a stand-in for bd that
+times out every listing, two finished runs whose clean-up is refused are kept
+exactly as before, with one read of both items and no listing; the same sweep
+without the read ahead makes one read per item.
+
 ## What this does not fix
 
-The waiting itself. Reconcile still makes one bd call for each item it reads,
-and each waits its turn for a store every other process keeps busy. Asking for
-items one by one, as the investigation proposed, would add calls, each waiting
-its turn, where the one closed-work listing waits once. The fixes that would
-shorten the wait are outside reconcile: fewer bd processes polling the store,
-or a store that lets readers in together.
+The waiting itself. Each bd command still waits its turn for a store every
+other process keeps busy; this change cuts how many turns reconcile takes, by
+one for every outstanding run after the first. The closed-work listing is
+still one call a pass, of every closed item rather than only the ones the
+pass asks about; it answers in about two seconds on the copy and took a median
+of under a second on the live store, so it is not what runs the pass out of
+time. The fixes that would shorten each wait are outside reconcile: fewer bd
+processes polling the store, or a store that lets readers in together.

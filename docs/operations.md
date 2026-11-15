@@ -4486,8 +4486,18 @@ ends: `the tracker took 47s to answer reading work item …`, or `the tracker di
 not answer listing the work items with status closed: it was stopped after
 2m0s, at its limit of 2m0s`. The maintenance pass bounds the sweep at fifteen
 minutes and records the end of what a sweep stopped at that bound wrote to
-standard error, so a timed-out reconcile's record names the reads that held it
-up rather than only that it timed out.
+standard error, so a timed-out reconcile's record names each read that took 30
+seconds or more rather than only that it timed out.
+bd lets one command into its store at a time, so every tracker call waits its
+turn behind every other process using the store, and the sweep takes as few
+turns as it can: before it settles any run it reads the work items of every
+outstanding run in one call — `reading 11 work items in one call, … first` where a
+read that slow is said — and each run's first read of its own item is answered
+from that. A later read of the same item, a read a write makes, and a read after
+anything in the pass wrote to the item still ask the tracker; nothing read
+ahead is given out more than five minutes after it was read; and a batch the
+tracker does not answer is not asked again, so each item is then read on its
+own as before.
 [The diagnosis](diagnoses/yoyodyne-ifd-428-126-4-14-1-reconcile-tracker-waits.md)
 says why those reads are slow. Until yoyodyne-ifd.429.38
 every recorded request that was not merged was asked about on every pass, one
