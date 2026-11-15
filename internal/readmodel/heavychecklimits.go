@@ -15,6 +15,11 @@ package readmodel
 // most it can be shown to hold at is two, and a limit above the one it was
 // measured under is never proposed. A number of running checks with too few
 // launches finished at it is not judged at all.
+//
+// A launch whose end could not be written down (the measurement's Unsaved)
+// ran for a time nobody knows. It is listed on its own with the reason, and
+// left out of its check's reading and so out of every limit proposed; the
+// machine's load as it launched was read before it ran, and still counts.
 
 import (
 	"fmt"
@@ -94,11 +99,25 @@ type HeavyCheckLoadLevel struct {
 	OutsideMost int `json:"outside_most"`
 }
 
+// HeavyCheckUnsaved is one launch whose end could not be written down.
+type HeavyCheckUnsaved struct {
+	Check      string    `json:"check"`
+	Permit     string    `json:"permit"`
+	Product    string    `json:"product"`
+	RunID      string    `json:"run_id"`
+	LaunchedAt time.Time `json:"launched_at"`
+	// Reason is why, as the harness wrote it when the write failed.
+	Reason string `json:"reason"`
+}
+
 // HeavyCheckLimits is every heavy check's reading, by name, and the machine's
 // load by how many heavy checks were running.
 type HeavyCheckLimits struct {
 	Checks  []HeavyCheckLimitReading `json:"checks"`
 	Machine []HeavyCheckLoadLevel    `json:"machine"`
+	// Unsaved is every launch whose end could not be written down, oldest
+	// first, none of which is in Checks.
+	Unsaved []HeavyCheckUnsaved `json:"unsaved,omitempty"`
 	// Unlisted is how many launches the machine's processes could not be
 	// listed for, so whether a developer's own suite ran beside them is not
 	// known.
@@ -112,7 +131,14 @@ func ReadHeavyCheckLimits(measurements runstate.HeavyCheckMeasurements) HeavyChe
 	byRunning := map[int][]runstate.HeavyCheckMeasurement{}
 	var limits HeavyCheckLimits
 	for _, measurement := range measurements.Measurements {
-		byCheck[measurement.Check] = append(byCheck[measurement.Check], measurement)
+		if measurement.Unsaved != "" && measurement.ExitedAt == nil {
+			limits.Unsaved = append(limits.Unsaved, HeavyCheckUnsaved{
+				Check: measurement.Check, Permit: measurement.Permit, Product: measurement.Product, RunID: measurement.RunID,
+				LaunchedAt: measurement.LaunchedAt, Reason: measurement.Unsaved,
+			})
+		} else {
+			byCheck[measurement.Check] = append(byCheck[measurement.Check], measurement)
+		}
 		total := 0
 		for _, running := range measurement.Running {
 			total += running

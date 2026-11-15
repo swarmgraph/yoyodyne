@@ -114,3 +114,26 @@ func TestTheMachineIsReadByHowManyHeavyChecksWereRunning(t *testing.T) {
 		t.Fatalf("checks = %#v, want the test suite's launch beside a developer's suite counted", limits.Checks)
 	}
 }
+
+// A launch whose end could not be written down is listed with the reason and
+// left out of its check's reading: five launches that held at one running at
+// once still propose that limit, and a sixth whose end is unknown neither
+// counts toward it nor against it.
+func TestAHeavyCheckLaunchWhoseEndWasNotWrittenIsListedAndLeftOutOfTheLimit(t *testing.T) {
+	t.Parallel()
+	measured := launches(5, measuredLaunch("make race", 1, 1, 4*time.Minute, 20*time.Minute, runstate.HeavyCheckPassed))
+	unsaved := measuredLaunch("make race", 1, 1, 0, 20*time.Minute, "")
+	unsaved.Permit, unsaved.RunID, unsaved.Product = "permit-fedcba9876543210", "run-b", "yoyodyne"
+	unsaved.ExitedAt, unsaved.BudgetMS = nil, 0
+	unsaved.Unsaved = "the end of make race could not be written to the heavy check measurements: the disk refused the write"
+	limits := ReadHeavyCheckLimits(runstate.HeavyCheckMeasurements{Measurements: append(measured, unsaved)})
+	if len(limits.Unsaved) != 1 || limits.Unsaved[0].Permit != "permit-fedcba9876543210" || limits.Unsaved[0].RunID != "run-b" || !strings.Contains(limits.Unsaved[0].Reason, "the disk refused the write") {
+		t.Fatalf("unsaved = %#v, want the one launch with its reason", limits.Unsaved)
+	}
+	if len(limits.Checks) != 1 || limits.Checks[0].Launches != 5 || limits.Checks[0].Proposed != 1 {
+		t.Fatalf("checks = %#v, want the five finished launches read and the unsaved one left out", limits.Checks)
+	}
+	if len(limits.Machine) != 1 || limits.Machine[0].Launches != 6 {
+		t.Fatalf("machine = %#v, want the load read as every launch started, the unsaved one included", limits.Machine)
+	}
+}

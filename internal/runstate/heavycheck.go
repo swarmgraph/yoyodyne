@@ -375,6 +375,9 @@ type HeavyCheckStore struct {
 	cleanupWait time.Duration
 	signalGroup func(int) error
 	boot        func() string
+	// measureFault, where set, fails each try at writing a launch's
+	// measurement for the permit it names with the error it returns.
+	measureFault func(permit string) error
 }
 
 // NewHeavyCheckStore is the record under the state root root.
@@ -647,7 +650,9 @@ type HeavyCheckGrant struct {
 	outcome    HeavyCheckOutcome
 	budget     time.Duration
 	// MeasureProblem is why this launch's measurement could not be written,
-	// where it could not. The check ran exactly as it would have regardless.
+	// where it could not after every try, in words a person reads: the run
+	// reports it in its own record. The check ran, and its place is given
+	// back, exactly as they would have been regardless.
 	MeasureProblem error
 }
 
@@ -897,7 +902,7 @@ func (g *HeavyCheckGrant) Register(process execution.StartedProcess) error {
 	g.registered = true
 	g.Permit = *permit
 	if err := session.measureLaunch(*permit, reading); err != nil {
-		g.MeasureProblem = err
+		g.MeasureProblem = fmt.Errorf("the launch of %s could not be written to the heavy check measurements, so it is missing from them: %w", permit.Check, err)
 	}
 	return nil
 }
@@ -943,8 +948,8 @@ func (g *HeavyCheckGrant) Finish(result string) (HeavyCheckPermit, error) {
 						now := g.store.clock()
 						ended.ExitedAt = &now
 					}
-					if err := session.measureExit(ended, g.outcome, g.budget); err != nil && g.MeasureProblem == nil {
-						g.MeasureProblem = err
+					if err := session.measureExit(ended, g.outcome, g.budget); err != nil {
+						g.MeasureProblem = errors.Join(g.MeasureProblem, err)
 					}
 				}
 				g.Permit = *permit
@@ -957,8 +962,11 @@ func (g *HeavyCheckGrant) Finish(result string) (HeavyCheckPermit, error) {
 			permit.State = HeavyCheckExited
 			permit.ExitedAt = &now
 			permit.Result = boundedReason(result)
-			if err := session.measureExit(*permit, g.outcome, g.budget); err != nil && g.MeasureProblem == nil {
-				g.MeasureProblem = err
+			// A measurement that cannot be written is the run's to report and
+			// never holds the place: the place is given back below whatever
+			// became of it.
+			if err := session.measureExit(*permit, g.outcome, g.budget); err != nil {
+				g.MeasureProblem = errors.Join(g.MeasureProblem, err)
 			}
 		}
 		// The reason a place is kept is written only once the watch is over, so
