@@ -6591,9 +6591,14 @@ admitted for a role's conversation — `executor: conversation:architect` — la
 as a revision in a document that role owns, and until 2026-09-20 nothing read
 that revision back to the tracker: the Lead Product Manager closed such items on
 evidence some turns later, and one of them had a developer run spent on it
-first. Now every pull reads the documents each marked role owns, and an item
-whose identifier opens the reason of a revision in one of them, made by that
-role, is closed at that pull:
+first. Now every pull reads the documents each marked role owns, along with
+each item's title, description, design and acceptance criteria. A revision by
+that role whose reason opens with the item's identifier counts toward closing
+it. An item whose text names documents the role owns, by path
+(`docs/designs/artifact-contract.md`) or by identifier (`artifact-contract`),
+is closed at the pull that finds every one of those documents carrying such a
+revision. An item that names none is closed at the pull that finds the first
+one, in any document the role owns:
 
 ```text
 yoyodyne-ifd.330 was closed: its architect landed as the 2026-09-07 05:30:00Z revision of docs/designs/management-and-supervision.md
@@ -6604,10 +6609,14 @@ it was read by, and the revision's own words, so a close you disagree with is
 one you can read and reopen with a note — and the reopen holds, because the
 revision is recorded on the item ahead of the close and a pull that finds the
 item open and still carrying it leaves it alone until a later revision lands.
-A revision that mentions an item further into its reason closes nothing, which
-is what keeps an item with two deliverables open on a revision that carries
-one; a landing the tracker will not close is reported on the pass and left for
-you, and so is the one case a person has to clear by hand — a close the tracker
+The close reason also says which kind of close it was: for an item that names
+documents it lists the revision of each, and for one that names none it says
+no named document was checked. A revision opening with the item's identifier in
+a document the item's text does not name closes nothing: it is written onto the
+item's notes once, as related, with the named documents that still have no such
+revision, and the item stays open. A revision that mentions an item further
+into its reason closes nothing either. A landing the tracker will not close is
+reported on the pass and left for you, and so is the one case a person has to clear by hand — a close the tracker
 refused after the revision was recorded and the record could not be taken back
 off, which the pass names with the metadata key to clear. [How work
 flows](work.md#letting-the-harness-choose-the-work) says what is read and why,

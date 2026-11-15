@@ -723,11 +723,19 @@ is the whole of it. The reading is deliberately narrow — "decision" is what
 triage records on an item, "the design" is cited by nearly every developer
 item, and neither is read — so an item it does not fire on is still yours to
 mark. And a marked item closes on its own once its work lands: the pass reads
-the documents the marked role owns, and an item whose identifier opens the
-reason of a revision in one of them — `yoyodyne-ifd.330 - side conversations
-designed` in a design's revision log, made by that role — is closed with the
-document and the revision cited, at the first pull after the revision is in the
-tree. Reopen it with a note if the close was wrong: the item carries the
+the documents the marked role owns for revisions by that role whose reason
+opens with the item's identifier — `yoyodyne-ifd.330 - side conversations
+designed` in a design's revision log. How you word the item decides when that
+closes it. An item whose title, description, design or acceptance criteria name
+documents the role owns, by path (`docs/designs/artifact-contract.md`) or by
+identifier (`artifact-contract`), closes at the first pull after every one of
+them carries such a revision, with each revision cited; a document named only
+by its title is not counted, so name each document the work is to revise by
+path. A revision opening with the identifier in a document the item does not
+name is written onto the item's notes as related, once, and leaves it open. An
+item that names none closes at the first pull after the first such revision is
+in the tree, in any document the role owns, and its close says no named
+document was checked. Reopen it with a note if the close was wrong: the item carries the
 revision it was closed on and is not closed on that revision again. The same
 clause that is refused on an unmarked item is what a marked one says: "Done means the ruling is recorded on the slack-reporting design" is
 admitted with `executor: conversation:architect`, and refused with none.

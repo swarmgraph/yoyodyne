@@ -508,7 +508,7 @@ type landedOnPull struct {
 	settles int
 }
 
-func (l *landedOnPull) Settle(_ context.Context, entries []backlog.Entry) (LandingSweep, error) {
+func (l *landedOnPull) Settle(_ context.Context, entries []backlog.Entry, _ map[string]beads.WorkItem) (LandingSweep, error) {
 	l.settles++
 	var sweep LandingSweep
 	for _, entry := range entries {
@@ -585,6 +585,39 @@ func TestAConversationsItemWhoseDesignLandedIsClosedOnThePullRatherThanPassedOve
 	}
 	if !strings.Contains(schedule.Render(), landed.ID+" was closed: its architect landed as the 2026-09-07 05:30:00Z revision of docs/designs/management-and-supervision.md") {
 		t.Fatalf("rendered = %q, want the close said where the pass is read", schedule.Render())
+	}
+}
+
+// The orchestrator split design (yoyodyne-ifd.437.27) replayed: its revision was
+// in the tree, but every developer slot was busy, and a pull with no slot free
+// never read the queue, so the item stayed open until it was closed by hand.
+// Closing it takes no slot, so a full machine closes it on the pull all the same
+// and still starts nothing.
+func TestAConversationsItemWhoseDesignLandedIsClosedWhileEverySlotIsHeld(t *testing.T) {
+	t.Parallel()
+
+	landed := beads.WorkItem{
+		ID: "yoyodyne-ifd.437.27", Title: "The architect rules the seams along which internal/orchestrator is split", Status: "open", Priority: 1,
+		Executor: domain.ConversationWith(domain.RoleArchitect),
+	}
+	ordinary := beads.WorkItem{ID: "yoyodyne-one", Title: "Ready work", Status: "open", Priority: 2}
+	harness := newScheduleHarness(landed, ordinary)
+	harness.capacity = 1
+	harness.inFlight["yoyodyne-elsewhere"] = runstate.State{
+		RunID: "run-elsewhere", WorkItemID: "yoyodyne-elsewhere", Status: runstate.StatusRunning,
+	}
+	sweep := &landedOnPull{harness: harness, landed: map[string]bool{landed.ID: true}}
+	harness.landings = sweep
+
+	schedule, err := Scheduler{Open: harness.open}.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if schedule.Stopped != ScheduleCapacityFull || len(schedule.Started) != 0 {
+		t.Fatalf("schedule = %#v, want nothing started on a full machine", schedule)
+	}
+	if len(schedule.Landed) != 1 || schedule.Landed[0].WorkItemID != landed.ID || sweep.settles < 1 {
+		t.Fatalf("landed = %#v after %d sweeps, want the item closed although no slot was free", schedule.Landed, sweep.settles)
 	}
 }
 
