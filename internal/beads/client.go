@@ -534,6 +534,10 @@ type Client struct {
 	// Calls is told of every bd invocation once it has ended, with how long it
 	// ran (calltally.go). Nil tells nothing.
 	Calls CallObserver
+	// Reads holds work items read ahead of need, for the first Show of each
+	// (itemreads.go). Nil reads every item when it is asked for, which is every
+	// client but the one a reconcile sweep reads its runs' items through.
+	Reads *ItemReads
 	// WriterZone is the zone the tracker's writers ran bd in, which a listing
 	// reads a provably early dependency stamp in (dependencyCreatedAt). Nil is
 	// this machine's own zone, which is right for a tracker only this machine
@@ -640,6 +644,9 @@ func ValidIssueID(id string) bool {
 func (c Client) Show(ctx context.Context, id string) (WorkItem, error) {
 	if err := validateIssueID(id); err != nil {
 		return WorkItem{}, err
+	}
+	if item, held := c.heldRead(id); held {
+		return item, nil
 	}
 	started := time.Now()
 	for attempts := 1; ; attempts++ {
@@ -1318,7 +1325,7 @@ func (c Client) confirmWritten(ctx context.Context, item WorkItem, written ...wr
 	if len(missing) == 0 {
 		return item, nil
 	}
-	reread, err := c.Show(ctx, item.ID)
+	reread, err := c.live().Show(ctx, item.ID)
 	if err != nil {
 		return WorkItem{}, fmt.Errorf("work item %s was reported updated and did not answer with the %s it was given, "+
 			"and reading it back to say whether the write landed failed: %w", item.ID, strings.Join(missing, " or the "), err)
@@ -1535,7 +1542,7 @@ func (c Client) claim(ctx context.Context, id string) (WorkItem, error) {
 // claimed — a claim made on a status the tracker still holds as blocked is the
 // refusal this was entered on, met a second time.
 func (c Client) claimPastStaleBlock(ctx context.Context, id string, refusal error) (WorkItem, *StaleBlockClear, error) {
-	item, err := c.Show(ctx, id)
+	item, err := c.live().Show(ctx, id)
 	if err != nil {
 		return WorkItem{}, nil, errors.Join(refusal, fmt.Errorf("re-read %s to judge whether its blocked status is stale: %w", id, err))
 	}
@@ -1649,7 +1656,7 @@ func (c Client) claimOnConfirmedClear(ctx context.Context, id string) (WorkItem,
 				return WorkItem{}, account, fmt.Errorf("wait to read %s's status back after clearing its stale blocked status: %w", id, err)
 			}
 		}
-		item, err := c.Show(ctx, id)
+		item, err := c.live().Show(ctx, id)
 		if err != nil {
 			return WorkItem{}, account, fmt.Errorf("read %s's status back after clearing its stale blocked status: %w", id, err)
 		}
@@ -1943,7 +1950,7 @@ func (c Client) RecordOrigin(ctx context.Context, id string, origin domain.WorkI
 	if err := origin.Validate(); err != nil {
 		return WorkItem{}, fmt.Errorf("invalid work item origin: %w", err)
 	}
-	current, err := c.Show(ctx, id)
+	current, err := c.live().Show(ctx, id)
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -2092,6 +2099,11 @@ func (c Client) runWithin(ctx context.Context, limit time.Duration, args ...stri
 		Env:            inUTC(withoutAutoExport(c.environment())),
 		Timeout:        limit,
 		MaxOutputBytes: maxBDOutputBytes,
+	}
+	// A command that may change an item drops what is held of it before it
+	// runs, so a read after it asks the tracker (itemreads.go).
+	if c.Reads != nil && !readsOnly(args[0]) {
+		c.Reads.forget(args)
 	}
 	var raw boundedExportOutput
 	if args[0] == "export" {
@@ -2261,8 +2273,8 @@ func describeCall(args []string) string {
 		target = args[1]
 	}
 	switch verb := args[0]; {
-	case verb == "show" && target != "":
-		return "reading work item " + target
+	case verb == "show" && describeShow(args) != "":
+		return describeShow(args)
 	case verb == "list" || verb == "ready":
 		return "listing the work items"
 	case verb == "export":
