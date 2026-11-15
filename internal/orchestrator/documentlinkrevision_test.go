@@ -147,3 +147,67 @@ func TestADocumentWhoseLinkedDocumentsAreUnchangedIsPublishedAsBefore(t *testing
 		t.Fatalf("runs = %+v, %v, want one published run", recorded, err)
 	}
 }
+
+// A retry the development manager decided is held by no conversation, so where a
+// document it links to was revised after it was confirmed, its author's
+// conversation is told directly, no run is opened, and the wait is cleared.
+func TestARetriedDocumentWhoseLinkedDocumentWasRevisedIsPutToItsAuthor(t *testing.T) {
+	t.Parallel()
+
+	repository, _, provider, pipeline, runs := automaticFixture(t)
+	start := time.Now().UTC().Add(time.Minute).Truncate(time.Second)
+	if err := os.MkdirAll(filepath.Join(repository, "docs", "designs"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "docs", "designs", "base-design.md"), []byte(linkedDesignFile(start.Add(time.Hour))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	publicationGit(t, repository, "add", ".")
+	publicationGit(t, repository, "commit", "-m", "base design")
+	options, store := publicationConversation(t, pipeline, provider)
+	if _, err := chat.Open(options); err != nil {
+		t.Fatal(err)
+	}
+	identity := runstate.ConversationIdentity{Role: domain.RoleArchitect, Agent: "architect"}
+	conversation, err := store.Load(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := artifact.Write{Action: artifact.WriteCreate, ID: "recovery-design", Kind: artifact.KindDesign, Title: "Recovery design", Directory: "docs/designs", Supports: []string{"base-design"}, Body: "# Recovery\n\nWritten against the base design.\n", Reason: "drafted by the architect"}
+	candidate, automatic, err := artifact.StoreFor(repository, pipeline.Config.Product).PrepareConfirmation(domain.RoleArchitect, write, options.DocumentPolicy, "confirmed for the test", start)
+	if err != nil || !automatic {
+		t.Fatalf("confirmation = %v, automatic %v", err, automatic)
+	}
+	original := runstate.DocumentPublication{Candidate: candidate, ConversationID: conversation.ConversationID, WriteID: "document-1.1", Turn: 1, Owner: domain.RoleArchitect, AuthorBackend: string(domain.BackendClaudeCode), AuthorModel: "opus"}
+	stopped, err := runstate.NewRunID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := original.RetryOf(stopped, runstate.DocumentRetried{FromRun: stopped, Reason: "the time limit was the cause", DecidedBy: "the development manager", DecidedAt: start})
+	pipeline.Authors = store
+	delivery, err := pipeline.PublishDocument(context.Background(), document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if records, err := runs.Recorded(); err != nil || len(records) != 0 {
+		t.Fatalf("runs = %+v, %v, want none opened", records, err)
+	}
+	saved, err := store.Load(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, told := range []string{delivery.Detail, saved.PendingTrackerResults} {
+		for _, want := range []string{"retried by the development manager", "base-design (docs/designs/base-design.md) was revised at " + start.Add(time.Hour).Local().Format("2006-01-02 15:04 MST"), "still agrees"} {
+			if !strings.Contains(told, want) {
+				t.Errorf("told %q, want it to say %q", told, want)
+			}
+		}
+	}
+
+	// Where nobody can be told, the document is not dropped: the refusal is an
+	// error and the wait stays for the scheduler to try again.
+	pipeline.Authors = nil
+	if _, err := pipeline.PublishDocument(context.Background(), document); err == nil {
+		t.Fatal("a retry whose author cannot be told was accepted")
+	}
+}

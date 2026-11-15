@@ -525,6 +525,9 @@ type Pipeline struct {
 	// by the time it is docketed, so a pipeline wired without one stops exactly
 	// as it would have and loses only the delivery.
 	Docket *Docketer
+	// Authors tells a document's owning role about a handoff no conversation
+	// holds, such as a retry the development manager decided. Optional.
+	Authors DocumentAuthors
 	// Landings is where a landing's checks are given a checkout of the integrated
 	// commit. It is optional: a pipeline wired without one lands exactly as it
 	// would have, and what is lost is the landing checks, which the run's record

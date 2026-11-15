@@ -12,8 +12,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/backend"
@@ -2043,4 +2045,42 @@ func (s *ConversationStore) deliveredPictureFile(identity ConversationIdentity) 
 		return "", err
 	}
 	return filepath.Join(s.root, identity.Agent+".delivered"), nil
+}
+
+// TellDocumentAuthor adds a message to what the owning role of one conversation
+// has not been told yet, for a document handoff no live conversation holds, such
+// as a retry the development manager decided. The conversation is taken for the
+// write like any other turn, and ErrConversationHeld is returned while somebody
+// is mid-turn, so the caller keeps the message and tries again. When the text
+// would pass what a conversation carries forward, the oldest part is dropped.
+func (s *ConversationStore) TellDocumentAuthor(conversationID, text string) error {
+	conversations, err := s.Recorded()
+	if err != nil {
+		return err
+	}
+	for _, found := range conversations {
+		if found.ConversationID != conversationID {
+			continue
+		}
+		hold, err := s.TryClaim(found.Identity())
+		if err != nil {
+			return err
+		}
+		defer hold.Release()
+		current, err := s.Load(found.Identity())
+		if err != nil {
+			return err
+		}
+		told := current.PendingTrackerResults + text
+		if limit := MaxPendingTrackerResultBytes / 2; len(told) > limit {
+			cut := len(told) - limit
+			for cut < len(told) && !utf8.RuneStart(told[cut]) {
+				cut++
+			}
+			told = "[the first " + strconv.Itoa(cut) + " bytes are cut; treat them as unread rather than absent]\n\n" + told[cut:]
+		}
+		current.PendingTrackerResults = told
+		return s.Save(current)
+	}
+	return fmt.Errorf("no recorded conversation %s to tell about its document", conversationID)
 }
