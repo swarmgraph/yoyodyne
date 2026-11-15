@@ -364,7 +364,7 @@ func TestASessionSaysWhenItIsDrainingAndUnderWhatBound(t *testing.T) {
 	if !recorded[1].Draining.BoundReached {
 		t.Fatal("the line that said the bound had run out reads back as one still waiting")
 	}
-	for _, said := range []string{"since 2026-09-19T07:35:00Z", "bounded at 15m0s", "until 2026-09-19T07:50:00Z", "waiting out 1 run(s)"} {
+	for _, said := range []string{"since " + LocalStamp(since), "bounded at 15m0s", "until " + LocalStamp(since.Add(15*time.Minute)), "waiting out 1 run(s)"} {
 		if !strings.Contains(recorded[0].Draining.Says(), said) {
 			t.Fatalf("Says() = %q, want %q in it", recorded[0].Draining.Says(), said)
 		}
@@ -375,7 +375,7 @@ func TestASessionSaysWhenItIsDrainingAndUnderWhatBound(t *testing.T) {
 	// A drain waiting out a check stage past its bound says so and until when,
 	// and one claiming to wait on a stage with no end named is refused.
 	checking := WatchDrain{Since: since, BoundSeconds: 900, Until: since.Add(15 * time.Minute), Hosting: 2, BoundReached: true, Checking: 1, ChecksUntil: since.Add(30 * time.Minute)}
-	for _, said := range []string{"waiting out a check stage in 1 run(s)", "until 2026-09-19T08:05:00Z at the latest", "developer attempt or a review"} {
+	for _, said := range []string{"waiting out a check stage in 1 run(s)", "until " + LocalStamp(since.Add(30*time.Minute)) + " at the latest", "developer attempt or a review"} {
 		if !strings.Contains(checking.Says(), said) {
 			t.Fatalf("Says() = %q, want %q in it", checking.Says(), said)
 		}
@@ -398,7 +398,7 @@ func TestASessionSaysWhenItIsDrainingAndUnderWhatBound(t *testing.T) {
 		recorded[len(recorded)-1].Draining.CheckWaits[0] != wait || recorded[len(recorded)-1].Draining.Publishing != 1 {
 		t.Fatalf("List() = %#v, %v; want the waits on the check and the document read back", recorded, err)
 	}
-	for _, said := range []string{"run run-racing (yoyodyne-racing) to finish make race, until 2026-09-19T08:35:00Z at the latest", "not started over on the new build", "1 document landing run(s) to finish"} {
+	for _, said := range []string{"run run-racing (yoyodyne-racing) to finish make race, until " + LocalStamp(wait.Until) + " at the latest", "not started over on the new build", "1 document landing run(s) to finish"} {
 		if !strings.Contains(waiting.Draining.Says(), said) {
 			t.Fatalf("Says() = %q, want %q in it", waiting.Draining.Says(), said)
 		}
@@ -419,7 +419,7 @@ func TestASessionSaysWhenItIsDrainingAndUnderWhatBound(t *testing.T) {
 		!recorded[len(recorded)-1].Draining.PromotingSince.Equal(since.Add(15*time.Minute)) {
 		t.Fatalf("List() = %#v, %v; want the promotion wait read back", recorded, err)
 	}
-	for _, said := range []string{"waiting out 1 run(s) it hosts at their promotion since 2026-09-19T07:50:00Z", "restarts the moment they finish"} {
+	for _, said := range []string{"waiting out 1 run(s) it hosts at their promotion since " + LocalStamp(since.Add(15*time.Minute)), "restarts the moment they finish"} {
 		if !strings.Contains(promoting.Draining.Says(), said) {
 			t.Fatalf("Says() = %q, want %q in it", promoting.Draining.Says(), said)
 		}

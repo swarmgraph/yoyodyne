@@ -470,3 +470,54 @@ func TestAReattachedPartIsNotDatedOnItsBuildUntilItMoves(t *testing.T) {
 		t.Errorf("scheduler = %+v, want the move it was seen to make dated", moved)
 	}
 }
+
+// The supervisor does not wait for a part that moves itself before moving
+// itself: while the scheduler drains its runs on the old build, nothing the
+// supervisor is moving holds its own take-up back, and only the moment the
+// scheduler lets its lease go to re-execute does. While the supervisor is
+// behind, its record says since when — the moment the build was written — and
+// what it waits for.
+func TestTheSupervisorIsNotHeldBackByAPartDrainingItself(t *testing.T) {
+	t.Parallel()
+
+	store := newStore(t)
+	clock := &clock{now: time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)}
+	binary := newBinary(t, "1111111111111111")
+	sink := newDeployable(config.ServiceSlack, binary, nil)
+	scheduler := selfRestartingChild{newDeployable(config.ServiceScheduler, binary, nil)}
+	supervisor := deploySupervisor(t, store, clock, binary, sink, scheduler)
+	supervisor.Build = "1111111111111111"
+	supervisor.Tick(context.Background())
+	if recorded := loaded(t, store); recorded.TakeUpWait != "" {
+		t.Fatalf("take-up wait = %q, want nothing said by a supervisor on the deployed build", recorded.TakeUpWait)
+	}
+
+	binary.deploy(t, "2222222222222222")
+	clock.advance(DeployEvery)
+	supervisor.Tick(context.Background())
+	draining := child(t, loaded(t, store), config.ServiceScheduler)
+	if draining.RestartingInto != "2222222222222222" {
+		t.Fatalf("scheduler = %+v, want it taking the deployed build up itself", draining)
+	}
+	if moving := supervisor.Moving(); moving != "" {
+		t.Fatalf("Moving() = %q while only the scheduler is draining itself, want nothing holding the supervisor back", moving)
+	}
+	recorded := loaded(t, store)
+	if !recorded.DeployedAt.Equal(binary.at) || recorded.TakeUpWait != "at its next look" {
+		t.Fatalf("record = deployed at %s, waiting %q; want the build's write time %s and the supervisor moving at its next look", recorded.DeployedAt, recorded.TakeUpWait, binary.at)
+	}
+
+	supervisor.AwaitTakeUp("once the release cut under way since 2026-09-28 05:00 PDT has finished")
+	clock.advance(DefaultPoll)
+	supervisor.Tick(context.Background())
+	if recorded := loaded(t, store); !strings.Contains(recorded.TakeUpWait, "release cut") {
+		t.Fatalf("take-up wait = %q, want what holds the supervisor back recorded", recorded.TakeUpWait)
+	}
+
+	scheduler.letGo()
+	clock.advance(DefaultPoll)
+	supervisor.Tick(context.Background())
+	if moving := supervisor.Moving(); moving != string(config.ServiceScheduler) {
+		t.Fatalf("Moving() = %q while the scheduler has let its lease go to re-execute, want the scheduler named", moving)
+	}
+}

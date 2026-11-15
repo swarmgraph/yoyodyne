@@ -841,9 +841,9 @@ func TestStatusNamesTheDrainAndItsBoundWhileASessionDrains(t *testing.T) {
 	}
 	for _, want := range []string{
 		"the session choosing work is idle",
-		"draining to restart into the build deployed over it since 2026-09-19T07:35:00Z",
+		"draining to restart into the build deployed over it since " + runstate.LocalStamp(since),
 		"bounded at 15m0s",
-		"until 2026-09-19T07:50:00Z",
+		"until " + runstate.LocalStamp(since.Add(15*time.Minute)),
 		"waiting out 1 run(s) it hosts while still pulling into free seats and firing its recurring tasks",
 	} {
 		if !strings.Contains(stdout, want) {

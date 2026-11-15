@@ -184,8 +184,14 @@ type Supervisor struct {
 	lastDeployLook time.Time
 	lastSaid       string
 	// takeUp is the deployed build a pass has asked the supervisor to take up
-	// by re-executing into it, which Run does once the tick asking it is over.
-	takeUp string
+	// by re-executing into it, which Run does once the tick asking it is over,
+	// and takeUpWait what the pass last said the supervisor waits for before it
+	// may (AwaitTakeUp).
+	takeUp     string
+	takeUpWait string
+	// deployedAt is when the binary on disk was written, as the tick read it:
+	// since when a part behind it has been behind.
+	deployedAt time.Time
 	// applying is the changed settings each child was stopped to start on, said
 	// once it has started again.
 	applying map[config.ServiceName]string
@@ -493,7 +499,7 @@ func (s *Supervisor) record(now time.Time) {
 	supervision := s.Supervision(now)
 	// Compared without the observation time, which moves on every tick and
 	// would make every tick a write.
-	rendered := fmt.Sprintf("%+v", supervision.Children)
+	rendered := fmt.Sprintf("%+v %s %s %s", supervision.Children, supervision.Deployed, supervision.DeployedAt, supervision.TakeUpWait)
 	if rendered == s.recorded {
 		return
 	}
@@ -534,6 +540,8 @@ func (s *Supervisor) Supervision(now time.Time) runstate.Supervision {
 		PID:           s.PID,
 		Build:         s.Build,
 		Deployed:      s.deployed,
+		DeployedAt:    s.deployedAt.UTC(),
+		TakeUpWait:    s.behindWait(),
 		StartedAt:     s.startedAt.UTC(),
 		ObservedAt:    now.UTC(),
 		Children:      children,

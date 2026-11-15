@@ -2313,8 +2313,9 @@ hosts, so nothing it stopped holds the restart back, and a recurring pass still
 taking its turns is stopped too, not recorded as failed, and tried again at
 the first pull of the session that comes back. A run with a
 check running is the exception: it finishes that check, up to the check's own
-configured limit, and stops before its next one, so a new build never makes a
-check start over however many arrive while it runs. Each check that passed before
+configured limit or ten minutes past the bound, whichever comes first, and
+stops before its next one; a check still running ten minutes past the bound is
+stopped and runs again on the new build. Each check that passed before
 the stop keeps its result: the session that comes back runs only the checks
 that had not finished, and only when the change is exactly the one they passed
 on — a changed change runs every check again. A stage that has already finished gets a brief grace
@@ -2725,7 +2726,9 @@ way it is with the switch off. Moving a queued change between the harness's
 queue and the forge's is `yoyo queue transfer`, which withdraws first and moves
 nothing while that withdrawal is unconfirmed. A push of a candidate that ends
 before the remote answers is looked at and asked for again by the next pass,
-and one the remote refuses hands back only its own entry. An entry the queue
+and one the remote refuses hands back only its own entry. A change whose run
+will not take the hand-back is set aside with the reason, kept for the
+development manager, and the entries behind it go on. An entry the queue
 stopped on is taken up again with `yoyo queue retry` or handed back to its run
 with `yoyo queue hand-back`, each with a reason. `yoyo status` and the dashboard
 show every queue and where each change in it stands.

@@ -3538,7 +3538,7 @@ func TestASessionWaitingOutAPromotionPastTheBoundSaysSoAgainWhileItWaits(t *test
 		if line.draining.Promoting != 1 || !line.draining.PromotingSince.Equal(since) || since.IsZero() {
 			t.Fatalf("line = %#v, want every line naming the one promotion and when the wait on it began", line)
 		}
-		if !strings.Contains(line.reason, "at their promotion since "+since.UTC().Format(time.RFC3339)) {
+		if !strings.Contains(line.reason, "at their promotion since "+runstate.LocalStamp(since)) {
 			t.Fatalf("reason = %q, want the promotion wait said with since when", line.reason)
 		}
 	}
