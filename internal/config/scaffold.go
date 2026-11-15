@@ -336,7 +336,7 @@ execution:
   check_stage_timeout: %s
   # The budget each landing check gets -- the list under "landing_checks" below,
   # run once per landing over the integrated commit. It is its own budget with
-  # no stage bound, because what goes there is the suite too long for the gate.
+  # no stage bound, because what goes there is the suite too long to run on every attempt.
   landing_check_timeout: %s
   # "yoyo work --watch" stays open instead of returning when the queue is empty,
   # and this is how long it waits before reading the queue again. Nothing is
@@ -474,7 +474,7 @@ conversation:
 # work_items below. Designs are "automatic" because a design serving an approved
 # goal is the architect's judgement about how.
 #
-# work_items is the one approval that gates rather than records, and it is where
+# work_items is the one approval that holds work back rather than records, and it is where
 # you say how much of this you want to watch. "human" puts every work item to
 # you before it is admitted to the queue, which is what you get until you say
 # otherwise; it refuses the Lead Product Manager's direct "create" as well as
@@ -489,7 +489,7 @@ conversation:
 # "yoyo artifact approve".
 #
 # Integration and publishing are opted in to separately. Automatic integration is
-# refused unless it is actually gated by the checks below and a reviewer agent,
+# refused unless the checks below and a reviewer agent actually stand in front of it,
 # and publishing is what pushes a branch and opens a pull request where other
 # people can see it.
 #
@@ -1175,8 +1175,8 @@ func renderScaffoldLandingChecks(builder *strings.Builder) {
 # landed the change. Each check gets landing_check_timeout above and the list
 # has no stage bound; a check stopped at its budget leaves the landing
 # unverified rather than red. This is where a suite too expensive for every
-# attempt goes whole -- a race detector, a long integration suite -- while the per-run gate
-# above runs it narrowed: every check is given YOYODYNE_CHANGED_GO_PACKAGES,
+# attempt goes whole -- a race detector, a long integration suite -- while the checks every run
+# passes above run it narrowed: every check is given YOYODYNE_CHANGED_GO_PACKAGES,
 # the Go packages the change touches as "./dir" patterns, "./..." where the
 # harness cannot narrow, and empty where the change touches no package. Read it
 # with the shell's unset-only default, so the same line run outside the harness
@@ -1209,7 +1209,7 @@ func renderScaffoldCandidates(builder *strings.Builder, candidates []CheckPropos
 	} else {
 		builder.WriteString("\n" + CandidateMarker + ` -- nothing below runs, and the list above is empty, so a
 # run is refused until this is settled. "yoyo init" found these and could not
-# tell which one is this project's gate, so it wrote none of them into "checks"
+# tell which of them every change here must pass, so it wrote none of them into "checks"
 # above. Uncomment what belongs here -- delete the leading "#" and nothing else
 # -- then delete the rest, or write your own instead. Replace "checks: []"
 # above with "checks:" first, so the list can take the entry.

@@ -208,3 +208,142 @@ No change reaches the target branch without a verdict on it.
 A change promoted on nobody's verdict is a change nobody agreed to.
 `)
 }
+
+// TestConformanceStampsFromTheTrackersExportInsideADeveloperRun is the release
+// item's own run stamping its notes. Its sandbox refuses the tracker to every
+// bd command and refuses writes to the harness's state, so both are made so
+// here: the project has no tracker to open, and the directory the workflow's
+// records go in is read-only. Read from the export, the reading still passes,
+// says where it read the work from, and leaves no record behind.
+func TestConformanceStampsFromTheTrackersExportInsideADeveloperRun(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", stateHome)
+	configPath := writeConfig(t, validConfig)
+	project := filepath.Dir(configPath)
+	writeConformingProduct(t, project)
+	writeTrackerExport(t, project,
+		`{"_type":"issue","id":"item-1","title":"Admitted work","status":"open","priority":1,"issue_type":"task","notes":"Goal served: serving the chain"}`,
+		`{"_type":"issue","id":"item-2","title":"Finished work naming nothing","status":"closed","priority":2,"issue_type":"task","notes":"Goal served: a goal nobody states"}`,
+	)
+
+	// The ordinary reading, before the state is closed off: with no tracker to
+	// open, the goals check judged nothing and the reading is refused. That is
+	// the failure a release run met, and what --from-export exists to answer.
+	stdout, stderr, code := runCLI(t, "conformance", "--config", configPath, "--notes")
+	if code != 1 || !strings.Contains(stdout, "the work tracker could not be read") {
+		t.Fatalf("conformance without a tracker: code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+
+	records := instanceDirectory(t, stateHome)
+	before := directoryNames(t, records)
+	if err := os.Chmod(records, 0o500); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(records, 0o700) })
+	if _, stderr, code := runCLI(t, "conformance", "--config", configPath, "--notes"); code != 1 || !strings.Contains(stderr, "create workflow instance") {
+		t.Fatalf("with the state read-only the ordinary reading exited %d, stderr = %q; the test is not reproducing a developer run's sandbox", code, stderr)
+	}
+
+	stdout, stderr, code = runCLI(t, "conformance", "--config", configPath, "--notes", "--from-export")
+	if code != 0 {
+		t.Fatalf("conformance --notes --from-export code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		"<!-- yoyodyne:release-readiness -->\n",
+		"ended in **ready**",
+		"**goals** — conforms — 1 admitted item(s), 1 serving a recorded goal",
+		"read from the tracker's export, .beads/issues.jsonl",
+		"<!-- /yoyodyne:release-readiness -->\n",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("the notes section = %q, want it to contain %q", stdout, want)
+		}
+	}
+	if after := directoryNames(t, records); strings.Join(after, "\n") != strings.Join(before, "\n") {
+		t.Fatalf("a reading from the export wrote into the harness's state: before %v, after %v", before, after)
+	}
+}
+
+// TestConformanceFromTheExportStillRefusesWhatGenuinelyFails is the other half:
+// reading the export changes where the work is read from and nothing about what
+// is judged. Work that names a goal nobody states is refused, and an export that
+// is not there is a tracker that could not be read rather than an empty backlog.
+func TestConformanceFromTheExportStillRefusesWhatGenuinelyFails(t *testing.T) {
+	t.Setenv("YOYODYNE_STATE_HOME", t.TempDir())
+	configPath := writeConfig(t, validConfig)
+	project := filepath.Dir(configPath)
+	writeConformingProduct(t, project)
+
+	stdout, stderr, code := runCLI(t, "conformance", "--config", configPath, "--notes", "--from-export")
+	if code != 1 || !strings.Contains(stdout, "ended in **mismatch**") || !strings.Contains(stdout, "the work tracker could not be read") {
+		t.Fatalf("with no export: code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+
+	writeTrackerExport(t, project,
+		`{"_type":"issue","id":"item-1","title":"Admitted work","status":"open","priority":1,"issue_type":"task","notes":"Goal served: serving the chain"}`,
+		`{"_type":"issue","id":"item-2","title":"Work serving nothing stated","status":"blocked","priority":2,"issue_type":"task","notes":"Goal served: a goal nobody states"}`,
+	)
+	stdout, stderr, code = runCLI(t, "conformance", "--config", configPath, "--notes", "--from-export")
+	if code != 1 {
+		t.Fatalf("an admitted item naming no stated goal passed: code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+	for _, want := range []string{"ended in **mismatch**", "**goals** — diverges", "item-2"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("the notes section = %q, want it to contain %q", stdout, want)
+		}
+	}
+
+	// A notes failure the repository half finds is refused the same way.
+	writeTrackerExport(t, project,
+		`{"_type":"issue","id":"item-1","title":"Admitted work","status":"open","priority":1,"issue_type":"task","notes":"Goal served: serving the chain"}`,
+	)
+	writeArtifact(t, project, "docs/releases/v9.9.9.md", "# v9.9.9\n\nSee [the design](../designs/gone.md).\n")
+	stdout, _, code = runCLI(t, "conformance", "--config", configPath, "--notes", "--from-export")
+	if code != 1 || !strings.Contains(stdout, "**references** — diverges") {
+		t.Fatalf("a broken link in the notes passed: code = %d, stdout = %q", code, stdout)
+	}
+}
+
+func writeTrackerExport(t *testing.T, project string, lines ...string) {
+	t.Helper()
+	path := filepath.Join(project, ".beads", "issues.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+}
+
+// instanceDirectory is the one directory under the state home that holds a
+// conformance reading's workflow record.
+func instanceDirectory(t *testing.T, stateHome string) string {
+	t.Helper()
+	var found string
+	err := filepath.WalkDir(stateHome, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "release-readiness-") {
+			found = filepath.Dir(path)
+		}
+		return nil
+	})
+	if err != nil || found == "" {
+		t.Fatalf("no conformance record under %s: %v", stateHome, err)
+	}
+	return found
+}
+
+func directoryNames(t *testing.T, directory string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return names
+}

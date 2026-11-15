@@ -1135,6 +1135,9 @@ type Reply struct {
 	HandedBack []string `json:"handed_back,omitempty"`
 	// DocumentRefusals are action results returned to the role without failing the turn.
 	DocumentRefusals []string `json:"document_refusals,omitempty"`
+	// ConcernRefusals are concern blocks refused for naming a goal nothing
+	// records, returned to the role as results without failing the turn.
+	ConcernRefusals []string `json:"concern_refusals,omitempty"`
 	// RefusedAsks are questions put to a role the asker may not ask, said in
 	// ordinary words. Each was handed back to the asking role, and the rest of
 	// the reply that carried it was carried out.
@@ -1380,7 +1383,8 @@ func (s *Session) adopt(existing runstate.Conversation) {
 	s.writes = nil
 	for _, pending := range existing.PendingWrites {
 		s.writes = append(s.writes, &writeRecord{
-			pending: restoredWrite(existing.ConversationID, pending),
+			pending:    restoredWrite(existing.ConversationID, pending),
+			unanswered: pending.Unanswered,
 		})
 	}
 	// The same for what the agent has not been told: it acted, the process that
@@ -1624,6 +1628,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	// for the same reason.
 	repositoryRounds := 0
 	documentHandedBack := false
+	concernHandedBack := false
 	logRounds := 0
 	runRounds := 0
 	healthRounds := 0
@@ -1758,7 +1763,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				return reply, auditErr
 			}
 			documentResult = s.renderDocumentRefusal(err)
-			parsed.Writes = nil
+			parsed.Writes, parsed.Withdraw = nil, nil
 			reply.DocumentRefusals = append(reply.DocumentRefusals, documentResult)
 			if documentHandedBack {
 				if err := s.carryResults(documentResult); err != nil {
@@ -1767,6 +1772,28 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				documentResult = ""
 			} else {
 				documentHandedBack = true
+			}
+		}
+		// A concern naming a goal nothing records is refused the way a document is:
+		// as a result handed back to the role once in this message, and carried to
+		// its next turn after that, while the rest of the reply goes on. A whole
+		// failed turn would cost every other action the reply carried, over a goal
+		// the role can simply name again.
+		var concernResult string
+		if err := s.verifyConcernGoals(parsed.Concerns); err != nil {
+			if _, auditErr := auditTool(ctx, s, capability.ConcernRaise, nil, len(parsed.Concerns), func() (struct{}, error) { return struct{}{}, err }, nil); auditErr != nil && strings.Contains(auditErr.Error(), "audit failed") {
+				return reply, auditErr
+			}
+			concernResult = renderConcernRefusal(err)
+			parsed.Concerns = nil
+			reply.ConcernRefusals = append(reply.ConcernRefusals, concernResult)
+			if concernHandedBack {
+				if err := s.carryResults(concernResult); err != nil {
+					return reply, err
+				}
+				concernResult = ""
+			} else {
+				concernHandedBack = true
 			}
 		}
 		// A concern is recorded before anything else is decided about the turn: it
@@ -1828,6 +1855,15 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		if err != nil {
 			return reply, err
 		}
+		// A withdrawal and a listing are answered in this message, after the
+		// block's documents are recorded, so the list shows what was just
+		// written and a withdrawal can name any document already waiting.
+		documentAnswer, err := s.answerDocumentRequests(parsed)
+		if err != nil {
+			return reply, err
+		}
+		documentResult += documentAnswer
+		reply.Writes = s.Writes()
 		// What the turn set going is carried out here, and what it produced is what
 		// the next round of this message answers from. A reply may both act on the
 		// tracker and ask another role, so both are carried out and both are handed
@@ -1837,7 +1873,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// rather than into the durable record — the tracker's results, and whatever
 		// research came back. It is owed to the role either way, so a round that
 		// ends up sending nothing writes it down instead of dropping it.
-		undelivered := documentResult
+		undelivered := documentResult + concernResult
 		if len(parsed.Actions) > 0 {
 			// The harness now goes to the tracker on the product manager's behalf,
 			// which emits no provider events, so the display is told directly rather
@@ -2756,7 +2792,7 @@ func (s *Session) takeTurn(ctx context.Context, permit budget.Permission, prompt
 			stderr = result.Process.Stderr
 		}
 		if stderr != "" {
-			outputTail += "\nProcess stderr:\n" + stderr
+			outputTail += "\nWhat the process printed as errors:\n" + stderr
 		}
 		// The terminal can name a cause no preceding text event carried. Keep it
 		// last so bounding the combined output preserves that diagnostic.
@@ -3069,7 +3105,12 @@ type parsedReply struct {
 	// Writes are the documents this reply wrote as typed actions, each of which
 	// waits on the operator before anything reaches the repository. Most replies
 	// write none.
-	Writes        []artifact.Write
+	Writes []artifact.Write
+	// Withdraw are this role's own waiting documents the reply took back, and
+	// ListDocuments says it asked to see every one of them and where it stands
+	// (waitingdocuments.go). Both travel in the same block as Writes.
+	Withdraw      []artifact.Withdrawal
+	ListDocuments bool
 	Reports       []report.Entry
 	ReportProblem error
 	// MCPCalls are the MCP calls this reply asked the harness to make.
@@ -3180,11 +3221,13 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 		parsed.Prose = rest
 		return parsed, &InterventionError{Err: err}
 	}
-	prose, writes, err := artifact.ExtractWrites(prose)
+	prose, documents, err := artifact.ExtractDocumentBlock(prose)
 	if err != nil {
 		parsed.Prose = rest
 		return parsed, &DocumentError{Role: role, Err: err}
 	}
+	writes := documents.Writes
+	parsed.Withdraw, parsed.ListDocuments = documents.Withdraw, documents.List
 	parsed.Prose = prose
 	parsed.Actions = actions
 	parsed.Proposals = proposals
@@ -4450,6 +4493,9 @@ func (s *Session) reportTrackerActions(out io.Writer, reply Reply) {
 	for _, refusal := range reply.DocumentRefusals {
 		fmt.Fprintln(out, refusal)
 	}
+	for _, refusal := range reply.ConcernRefusals {
+		fmt.Fprintln(out, refusal)
+	}
 	// A block handed back is said before what came of it, so an operator reading
 	// the actions below knows they are the re-issue rather than the first asking.
 	for _, refusal := range reply.HandedBack {
@@ -5455,7 +5501,7 @@ A concern mentioned in passing inside a paragraph is not a concern; it reads as 
 {"concerns":[{"kind":"unplaceable|conflict|judgement","subject":"the work this is about, in one line","goal":"the goal at issue","detail":"what you see","question":"what you need the operator to decide?","options":["one answer you would accept","another"]}]}
 ` + "```" + `
 
-"kind" says which case this is: "unplaceable" is work you can attach to no goal, "conflict" is work that would cut against one, and "judgement" is work that fits the goals and that you think is against the product's intent. "goal" names the goal at issue — the one the work would cut against, or the one it fits on paper — and is required on "conflict" and "judgement" and refused on "unplaceable", which is exactly the case with no goal to name. "subject", "detail", and "question" are required, and "question" ends in a question mark because it is a question. "options" is optional and lists the answers you would accept, between 2 and ` + maxConcernOptionsText + ` of them, each on one line and each different from the others. Give it where the answer really is one of a few — which goal it should serve, whether to retire the work or reshape it — and leave it out where it is not, because two invented options are a worse question than an open one. The harness puts them to the operator to choose from, and always offers their own words as the last choice, so listing options never narrows what they can say and one of them is never the only way to answer. You are told which answer they gave, in the words of the option they chose, exactly as you are told what they typed.
+"kind" says which case this is: "unplaceable" is work you can attach to no goal, "conflict" is work that would cut against one, and "judgement" is work that fits the goals and that you think is against the product's intent. "goal" names the goal at issue — the one the work would cut against, or the one it fits on paper — and is required on "conflict" and "judgement" and refused on "unplaceable", which is exactly the case with no goal to name. Name it as you name the goal work serves — by its identity where the goals document states one, as in "[traceable-chain]", and otherwise in the words that document states it in, in full — on one line of at most ` + maxConcernGoalBytesText + ` bytes. The harness resolves it against the recorded goals before the operator is asked, and a concern block naming a goal they do not state puts nothing to the operator: the refusal, saying which goal was not found, is handed back to you to raise the concerns again. "subject", "detail", and "question" are required, and "question" ends in a question mark because it is a question. "options" is optional and lists the answers you would accept, between 2 and ` + maxConcernOptionsText + ` of them, each on one line and each different from the others. Give it where the answer really is one of a few — which goal it should serve, whether to retire the work or reshape it — and leave it out where it is not, because two invented options are a worse question than an open one. The harness puts them to the operator to choose from, and always offers their own words as the last choice, so listing options never narrows what they can say and one of them is never the only way to answer. You are told which answer they gave, in the words of the option they chose, exactly as you are told what they typed.
 
 Raise at most ` + maxConcernsPerTurnText + ` concerns in one reply. The harness puts each one to the operator, waits for their answer, and tells you what they said on your next turn. Nothing you raise this way is proposed, admitted, or created, so raise a concern instead of proposing the work rather than as well as.
 
@@ -5474,6 +5520,8 @@ Keeping the queue coherent is yours to do, not to ask for. To act on the work tr
   {"action":"reprioritize","id":"beads-id","priority":2,"reason":"why"},
   {"action":"park","id":"beads-id","reason":"why this work is not to be started yet"},
   {"action":"unpark","id":"beads-id","reason":"why it is to be started again"},
+  {"action":"place","id":"beads-id","reason":"why it goes first among its priority"},
+  {"action":"unplace","id":"beads-id","reason":"why it no longer does"},
   {"action":"link","id":"beads-id","depends_on":"the item this one waits for","reason":"why"},
   {"action":"unlink","id":"beads-id","depends_on":"beads-id","reason":"why"},
   {"action":"repair","id":"beads-id","state":"status|dependency|attribution","depends_on":"beads-id","goal":"the goal this work serves","reason":"why"},
@@ -5488,7 +5536,7 @@ Keeping the queue coherent is yours to do, not to ask for. To act on the work tr
 ]}
 ` + "```" + `
 
-That example lists every action there is. "create" admits work to the backlog and "reprioritize" is how you order it; "attribute" records the goal an item already in the backlog serves; "label" puts one label on an item or takes one off; "park" and "unpark" take admitted work out of reach and put it back; "repair" corrects backlog state that has stopped describing what the records say; "close" and "retire" are the two ways work leaves it; "inflight" hands the development manager your decision about an item whose run is still going; "handle" says what became of a report, "withdraw" takes back a proposal of yours nobody has decided, "directive" ends a directive the operator recorded, and "amendment" decides a change another role proposed to a document you own, and none of the four is about a work item; "read" and "survey" only look. One block carries only the actions you actually want, at most ` + maxTrackerActionsPerTurnText + ` of them, and each action takes only the arguments shown for it: an action carrying anything else is refused whole and nothing in the block is run. "reason" is required on everything but "read" and "survey", and it is what the operator reads afterwards to understand what you did. "goal" is required on "create", on "attribute", and on a "repair" of an attribution, and is taken by nothing else: it names the goal the work serves — by its identity where the goals document states one, as in "[traceable-chain]", and otherwise in the words that document states it in — and the harness records it on the item by that identity, so re-wording the goal later leaves the item attributed. An action naming a goal the goals do not state is refused and changes nothing, and work you cannot name a goal for is raised as a concern instead of admitted. Work admitted before goals were checked names none, and a survey says which items those are; "attribute" is how one of them acquires a goal, appended to what the item already records rather than replacing it, so the goal an item was admitted under is never rewritten. Attributing work is a judgement about what it is for: read the item before you attribute it, and where you cannot say which goal it serves, raise it rather than picking the nearest one. "priority" is 0 to 4, where 0 is the highest; on a "create" it is where the work is admitted in the order, and a creation that leaves it out is admitted wherever the tracker's default puts it, which is a decision you have not made. "report" is required on "handle", optional on "create", and replaces "id" on a report "read"; it names a report exactly as it was listed to you or cited inside another report. On a "handle" it says which report you are recording a decision about, "requests" beside it maps what the report asked for to what answers each (see the reports section below), and "handle" takes no id, because a report is not a work item: it changes no item's state, and the only write it makes to the backlog is a note on each item a mapped request names, saying which of the report's requests that item answers. On a "create" it says the work is being admitted because of that report, which writes the report onto the item and is what the harness checks the next admission citing it against; leave it out where the work came from the conversation rather than from something a role reported. Naming a report nobody filed refuses the whole creation and admits nothing, so never invent one. "needs" is taken by "handle" alone and is optional there, and the one value it takes is "operator": set it only where what the report asks for is the operator's for a reason on his closed list, given beside it as "operator_reason" — "fundamental-intent" for a change to what the goals admit or refuse, "credential" for a credential or account only a person holds, "repository-setting" for a setting the harness's token cannot change, or "protected-file" for a file beyond every grant — and say in the reason exactly what he has to do. A handling naming him without one of those reasons is refused and nothing is recorded, with the rung to use instead: a report whose remedy is a role's stays with that role, and what no role can do for want of a capability is a defect to admit, naming the capability and the report that met it. A handling that says so is a finding for him rather than a decision that closes the report: he is sent it directly the moment it is recorded, it is named on ` + "`yoyo status`" + ` under what needs a human until it is done, and a later "handle" of the same report without "needs" is what records the change made. Leave it out on every other handling; a report you can act on yourself is not his. "hand" is taken by "handle" in place of "needs" for the one other case: what the report asks for is your decision, and the harness cannot yet carry it out for you, so only the operator's keyboard can. Today that is "operational-configuration", a value for .yoyodyne/config.yaml you decided on — a check, a developer model, how often a task runs — and the reason says exactly what to put where. It stays your decision: he is sent it directly and it is named on ` + "`yoyo status`" + ` as a role's decision that needs his hand, counted as the harness's missing capability rather than as his to decide, until a later "handle" of the same report without "hand" records it carried out. "parent" on a reparent may be empty to detach the item. "create" takes no id, because the tracker assigns one, so say where new work goes as you admit it rather than in a later action that would have to name an identifier you do not have yet. Every other identifier must name an item that already exists; never invent one. Leave the block out entirely when you are not acting on the tracker, and say in your prose what you are doing and why, because the block is not what the operator reads.
+That example lists every action there is. "create" admits work to the backlog and "reprioritize" is how you order it; "attribute" records the goal an item already in the backlog serves; "label" puts one label on an item or takes one off; "park" and "unpark" take admitted work out of reach and put it back; "place" and "unplace" put an item first among work of its own priority and take that back; "repair" corrects backlog state that has stopped describing what the records say; "close" and "retire" are the two ways work leaves it; "inflight" hands the development manager your decision about an item whose run is still going; "handle" says what became of a report, "withdraw" takes back a proposal of yours nobody has decided, "directive" ends a directive the operator recorded, and "amendment" decides a change another role proposed to a document you own, and none of the four is about a work item; "read" and "survey" only look. One block carries only the actions you actually want, at most ` + maxTrackerActionsPerTurnText + ` of them, and each action takes only the arguments shown for it: an action carrying anything else is refused whole and nothing in the block is run. "reason" is required on everything but "read" and "survey", and it is what the operator reads afterwards to understand what you did. "goal" is required on "create", on "attribute", and on a "repair" of an attribution, and is taken by nothing else: it names the goal the work serves — by its identity where the goals document states one, as in "[traceable-chain]", and otherwise in the words that document states it in — and the harness records it on the item by that identity, so re-wording the goal later leaves the item attributed. An action naming a goal the goals do not state is refused and changes nothing, and work you cannot name a goal for is raised as a concern instead of admitted. Work admitted before goals were checked names none, and a survey says which items those are; "attribute" is how one of them acquires a goal, appended to what the item already records rather than replacing it, so the goal an item was admitted under is never rewritten. Attributing work is a judgement about what it is for: read the item before you attribute it, and where you cannot say which goal it serves, raise it rather than picking the nearest one. "priority" is 0 to 4, where 0 is the highest; on a "create" it is where the work is admitted in the order, and a creation that leaves it out is admitted wherever the tracker's default puts it, which is a decision you have not made. "report" is required on "handle", optional on "create", and replaces "id" on a report "read"; it names a report exactly as it was listed to you or cited inside another report. On a "handle" it says which report you are recording a decision about, "requests" beside it maps what the report asked for to what answers each (see the reports section below), and "handle" takes no id, because a report is not a work item: it changes no item's state, and the only write it makes to the backlog is a note on each item a mapped request names, saying which of the report's requests that item answers. On a "create" it says the work is being admitted because of that report, which writes the report onto the item and is what the harness checks the next admission citing it against; leave it out where the work came from the conversation rather than from something a role reported. Naming a report nobody filed refuses the whole creation and admits nothing, so never invent one. "needs" is taken by "handle" alone and is optional there, and the one value it takes is "operator": set it only where what the report asks for is the operator's for a reason on his closed list, given beside it as "operator_reason" — "fundamental-intent" for a change to what the goals admit or refuse, "credential" for a credential or account only a person holds, "repository-setting" for a setting the harness's token cannot change, or "protected-file" for a file beyond every grant — and say in the reason exactly what he has to do. A handling naming him without one of those reasons is refused and nothing is recorded, with the rung to use instead: a report whose remedy is a role's stays with that role, and what no role can do for want of a capability is a defect to admit, naming the capability and the report that met it. A handling that says so is a finding for him rather than a decision that closes the report: he is sent it directly the moment it is recorded, it is named on ` + "`yoyo status`" + ` under what needs a human until it is done, and a later "handle" of the same report without "needs" is what records the change made. Leave it out on every other handling; a report you can act on yourself is not his. "hand" is taken by "handle" in place of "needs" for the one other case: what the report asks for is your decision, and the harness cannot yet carry it out for you, so only the operator's keyboard can. Today that is "operational-configuration", a value for .yoyodyne/config.yaml you decided on — a check, a developer model, how often a task runs — and the reason says exactly what to put where. It stays your decision: he is sent it directly and it is named on ` + "`yoyo status`" + ` as a role's decision that needs his hand, counted as the harness's missing capability rather than as his to decide, until a later "handle" of the same report without "hand" records it carried out. "parent" on a reparent may be empty to detach the item. "create" takes no id, because the tracker assigns one, so say where new work goes as you admit it rather than in a later action that would have to name an identifier you do not have yet. Every other identifier must name an item that already exists; never invent one. Leave the block out entirely when you are not acting on the tracker, and say in your prose what you are doing and why, because the block is not what the operator reads.
 
 "inflight" is for an item with a developer run in flight when you decide the item is superseded by another item, narrowed so the run is building more than the item now asks for, or to be retired. Whether the run stops is not yours: stopping a run in flight is the development manager's decision, and this is how yours reaches her without anybody relaying it. "decision" is "superseded", "narrowed", or "retired"; "superseded_by" names the item doing the work instead, and is required on "superseded" and optional on the other two; "reason" is what she decides from, so say why the run's work should not simply go on. The harness finds the run in flight itself and dockets your decision for her at once, ahead of the stoppages on her docket, with where the run stands; she records "stop", which stops the run at its next boundary with its branch and worktree preserved, or "proceed", which lets it finish. The item's notes record your decision, and the run's docket entry and her decision record hers. It changes nothing about the item: an "inflight" on an item with no run in flight is refused, because a decision about the item alone is a "retire", a "park", or an "update" you make directly, and retiring an item whose run is still going is a closure the run then settles over — so retire it once the run has stopped or finished, which you will see in the item's notes.
 
@@ -5497,6 +5545,8 @@ That example lists every action there is. "create" admits work to the backlog an
 A label is a word the tracker keeps on an item and filters on, and it is how an admission practice is written down where it can be checked: where the operator's practice is that every item of some kind carries a label — every item admitted under a directive, every bug, every stall or mistake fix — the label is what says the item is one of those, and a seat that watches for the label has work only where the label is there. "labels" on a "create" applies them in the same write as the admission, so the item never exists without them; give it there rather than labelling on the next turn, because the identifier a creation assigns does not reach you until then and an item labelled a turn late is one a watcher missed. "label" puts one label on an item that already exists or takes one off: "add" names the label to put on and "remove" the one to take off, exactly one of the two, and the reason is recorded on the item beside the change. A label is an identifier — one word of letters, digits, dots, underscores, and hyphens, such as "reliability" — and an action naming anything else is refused whole. Labels are shown beside each item wherever the queue is listed, so a survey says which items carry which.
 
 "park" and "unpark" take no arguments beyond the id: a park's "reason" is the parking reason itself, exactly as a retirement's reason is why the work will not be done, and it is what the item then says about itself and what the harness names when a pull passes the item over. Write it so a reader months later can tell whether releasing it is right — what decided the parking, and what would change that. "parked" on a "create" is the same reason, for work you are admitting already parked; it is there because a creation's own "reason" is the provenance of the admission and cannot be both, and because the identifier a creation assigns does not reach you until your next turn, so admitting the work now and parking it then leaves it pullable across the whole gap. Neither action works on closed work, which has left the backlog and was not going to be selected anyway.
+
+"place" puts an item first among the work of its own priority, and "unplace" takes that back; neither takes an argument beyond the id. Within one priority, work is otherwise pulled oldest admitted first, so "place" is how an order you promised — this item before the others of its priority — is written where the scheduler reads it rather than only said in this conversation. A placed item is pulled before the unplaced work of its priority, and among placed items the one placed earliest goes first, so a later placement never overtakes an earlier one unless you remove the earlier one. A placement never lifts an item above work of a higher priority — that is what "reprioritize" is for — never starts an item that is parked, waiting on a design, or otherwise held, and never goes before work on a change a run has already written, which is taken first under the operator's rule. At most three items may be placed in one priority at a time, because placement is for promises and not a second scale of priorities; a placement past that is refused, and the refusal names the items already placed and when, so you can remove one. The "reason" is what the placement records and what every listing of the queue shows beside the item, so write it as the promise: who it was made to and why. A placement ends by itself when the item closes or its priority changes, because the promise was about its place among that priority, and the item's notes record what ended it. Only you can place or remove a placement; a program manager or the development manager who wants an item moved ahead asks you.
 
 Three things about admitted work stop describing the world without anybody having changed them, and putting each right is yours to do rather than to ask for. A status is written when work stops and is never rewritten when what stopped it clears, so an item whose blocker landed reads as blocked forever. A dependency records that one item waits for another and goes on recording it after that other item closes. And an attribution stops resolving: an item that recorded its goal in the document's words rather than by the goal's identity names words nobody states once the document is reworded, an item whose goal was retired or removed names a goal that is no longer active whichever way it named it, and an item whose notes were replaced carries nothing where the tracker witnesses that it once did. Re-wording a goal an item named by its identity is not one of these and never will be, which is what recording the identity is for. "repair" corrects one of the three, and "state" says which: "status" clears a blocked status where every link the item records is one the tracker says is finished, "dependency" retires a link on work the tracker holds as closed and names it in "depends_on", and "attribution" re-attributes an item whose recorded goal no longer resolves and names the goal in "goal". The goal you name there is resolved against the goals before anything is written, exactly as an admission's is, so a re-attribution can never leave the item naming something they do not state.
 

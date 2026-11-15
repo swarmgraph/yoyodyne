@@ -42,7 +42,7 @@ import "sort"
 const ExportInstruction = "One of the refused paths is a file the harness copied into your worktree from the checkout the worktree was cut from, so that you read the work around your own rather than the copy your base commit carried. " +
 	"It is derived from a store outside Git that is authoritative for it, nothing a run writes reaches that store, and every run is given its own copy — so the same file changed by two runs is a merge conflict between them rather than a contribution. " +
 	"Git is told to leave that path alone in this worktree, which is why it is normally in no diff at all; its being in yours means the hold was lifted, whether or not you meant to lift it. " +
-	"Put the file back to the content your run's base commit carries and leave it alone; you can read that content with `git show <base commit>:<path>`. The gate is applied again on your next attempt, so it is the change rather than the index bit that has to be right."
+	"Put the file back to the content your run's base commit carries and leave it alone; you can read that content with `git show <base commit>:<path>`. The same comparison runs again on your next attempt, so it is the change rather than the index bit that has to be right."
 
 // HeldExports is what this set holds out of a run's change, in a stable order,
 // so a refusal can say which paths are the harness's own rather than the

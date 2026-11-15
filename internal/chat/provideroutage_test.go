@@ -141,3 +141,54 @@ func TestATurnIntoAnExpiredLoginRecordsTheOutageAndAServedTurnClearsIt(t *testin
 		t.Fatalf("Standing() after a served turn = %t, %v, want the outage cleared", away, err)
 	}
 }
+
+// A conversation turn is often the first thing to meet a provider's program
+// that cannot be found, because scheduled turns run whether or not work is
+// ready. The turn that opens the outage files its one critical report, and a
+// later sighting of the same outage, by another turn or a dispatch, files none.
+func TestATurnThatFirstMeetsAMissingProgramFilesTheOneReport(t *testing.T) {
+	t.Parallel()
+
+	outages := newTestOutages(t)
+	reports, err := runstate.NewReportStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := &Session{
+		options: Options{ProviderOutages: outages, Reports: reports, Provider: domain.BackendClaudeCode, ProductID: "yoyodyne", RepositoryID: "yoyodyne"},
+		state:   runstate.Conversation{Role: domain.RoleArchitect, ConversationID: "chat-architect"},
+	}
+	missing := backendapi.RunResult{IsError: true, ProviderOutage: &backendapi.ProviderOutage{
+		Cause: domain.ProviderProgramMissing, Provider: domain.BackendClaudeCode, Detail: `"claude" was not found on PATH /usr/bin:/bin`}}
+
+	for range 2 {
+		if err := session.noteProviderOutage(missing, nil); !errors.Is(err, ErrProviderAway) {
+			t.Fatalf("noteProviderOutage() = %v, want the turn failed as a wait", err)
+		}
+	}
+	// A dispatch meeting the same outage afterwards is a later sighting.
+	later, err := outages.Notice(runstate.ProviderOutageObservation{Cause: domain.ProviderProgramMissing, Provider: domain.BackendClaudeCode, Waiting: "the dispatch of yoyodyne-one"})
+	if err != nil || later.OpensProgramMissing() || later.Refusals != 3 {
+		t.Fatalf("later sighting = %+v, %v; want it counted inside the outage the turn opened", later, err)
+	}
+	filed, err := reports.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filed) != 1 || !strings.Contains(filed[0].Message, "claude-code program cannot be found") {
+		t.Fatalf("reports = %+v, want exactly one about the missing program", filed)
+	}
+
+	// A turn another provider served does not end it; one the same provider
+	// served does.
+	session.options.Provider = domain.BackendCodex
+	session.noteProviderServed()
+	if _, standing, _ := outages.Standing(); !standing {
+		t.Fatal("a turn served by another provider ended the missing-program outage")
+	}
+	session.options.Provider = domain.BackendClaudeCode
+	session.noteProviderServed()
+	if _, standing, _ := outages.Standing(); standing {
+		t.Fatal("a turn served by the provider whose program was missing did not end the outage")
+	}
+}

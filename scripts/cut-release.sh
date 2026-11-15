@@ -445,7 +445,7 @@ else
 fi
 
 if [ "$stamp_current" != "1" ] && [ "$automatic" = "1" ]; then
-  refuse_preparation "docs/releases/$tag.md on $default_branch does not carry a readiness result matching this reading, so $tag was not cut and nothing was written. The release item's reviewed run stamps it with yoyo conformance --notes; the harness opens no pull request for it"
+  refuse_preparation "docs/releases/$tag.md on $default_branch does not carry a readiness result matching this reading, so $tag was not cut and nothing was written. The release item's reviewed run stamps it with yoyo conformance --notes --from-export; the harness opens no pull request for it"
 fi
 if [ "$stamp_current" != "1" ]; then
   # The branch carries the tag and the commit the stamp was taken against, so a

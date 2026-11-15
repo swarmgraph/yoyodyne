@@ -41,7 +41,7 @@ import (
 // its other tools. When omitted, lookup uses the process's PATH.
 func For(descriptor backend.Descriptor, named domain.Backend, runner execution.ProcessRunner, configDir string, lookup ...func(string) (string, error)) (backend.Backend, bool) {
 	if runner != nil {
-		resolved := &executableRunner{runner: runner, binary: Binary(descriptor), provider: named}
+		resolved := &executableRunner{runner: runner, binary: Binary(descriptor), provider: named, fallback: descriptor.Binary == ""}
 		if len(lookup) != 0 {
 			resolved.lookup = lookup[0]
 		}

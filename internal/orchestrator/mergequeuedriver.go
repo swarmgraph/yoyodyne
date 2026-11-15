@@ -7,10 +7,12 @@ package orchestrator
 // more it can do now.
 //
 // One pass of one queue, in order: a failed candidate is read for what it says
-// and handed back where it is the change's (Recover); the first unfinished
-// entry is landed, or taken up where an earlier pass stopped (Promote); and
-// where nothing is under way the next waiting entry's candidate is built,
-// checked and reviewed (Work). Each of the three takes the queue's worker lease
+// and handed back where it is the change's (Recover); an entry whose change
+// already reached the target, or whose pull request was closed, outside the
+// queue leaves it (SettleOutside); the first unfinished entry is landed, or
+// taken up where an earlier pass stopped (Promote); and where nothing is under
+// way the next waiting entry's candidate is built, checked and reviewed
+// (Work). Each of the four takes the queue's worker lease
 // for itself, so one process works a queue at a time however many sessions are
 // watching, and a pass that finds the lease taken does nothing. A pass ends on
 // its own: when the queue has nothing waiting, when what is left waits on
@@ -153,6 +155,9 @@ func (d MergeQueueDriver) Pass(ctx context.Context, key runstate.MergeQueueKey) 
 func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) runstate.MergeQueuePass {
 	landed, handedBack := 0, 0
 	var untidied []string
+	// retried is each candidate checkout the worker tried again within this
+	// pass, so a pass that went on to land says what the busy machine cost it.
+	var retried []string
 	done := func(outcome runstate.MergeQueuePassOutcome, entry runstate.MergeQueueEntry, says string) runstate.MergeQueuePass {
 		if outcome == runstate.MergeQueuePassIdle {
 			switch {
@@ -167,6 +172,9 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 		}
 		if len(untidied) > 0 {
 			says = fmt.Sprintf("%s; %s", says, strings.Join(untidied, "; "))
+		}
+		if len(retried) > 0 {
+			says = fmt.Sprintf("%s; %s", says, strings.Join(retried, "; "))
 		}
 		return runstate.MergeQueuePass{Outcome: outcome, EntryID: entry.EntryID, WorkItemID: entry.WorkItemID, Says: says}
 	}
@@ -192,6 +200,9 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 		return true
 	}
 	repeated := ""
+	// looked is the entries this pass has looked at for a change that reached
+	// the target outside the queue, each asked about once a pass.
+	looked := map[string]bool{}
 	for step := 0; step < maxMergeQueuePassSteps; step++ {
 		if ctx.Err() != nil {
 			return done(runstate.MergeQueuePassWaiting, runstate.MergeQueueEntry{}, "the session working the queue stopped; the next pass carries on from the records")
@@ -204,7 +215,29 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			return stopped(recovered.Entry, err)
 		}
 		if recovered.Handback != nil {
-			handedBack++
+			if recovered.Handback.Continuation == runstate.MergeQueueLandedOutside {
+				landed++
+			} else {
+				handedBack++
+			}
+			continue
+		}
+		// An entry whose change already reached the target, or whose pull request
+		// was closed, outside the queue leaves it before anything is built for it
+		// (mergequeueoutside.go).
+		outside, err := d.Promoter.settleOutside(ctx, key, looked)
+		if passOver(err) {
+			continue
+		}
+		if err != nil {
+			return stopped(outside.Entry, err)
+		}
+		if outside.Handback != nil {
+			if outside.Handback.Continuation == runstate.MergeQueueLandedOutside {
+				landed++
+			} else {
+				handedBack++
+			}
 			continue
 		}
 		promoted, err := d.Promoter.Promote(ctx, key)
@@ -272,6 +305,7 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			return done(runstate.MergeQueuePassStopped, promoted.Entry, promoted.Refusal)
 		}
 		verified, err := d.Worker.Work(ctx, key)
+		retried = append(retried, verified.CheckoutRetries...)
 		if err != nil {
 			return stopped(verified.Entry, err)
 		}

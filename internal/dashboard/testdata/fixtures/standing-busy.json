@@ -467,7 +467,7 @@
         "statement": "load the release signing key into the keychain"
       },
       "label": "person's step waiting",
-      "what": "yoyodyne-ifd.436.1 waits on the gate \"signing-key\": load the release signing key into the keychain",
+      "what": "yoyodyne-ifd.436.1 waits on the step \"signing-key\", which only a person can take: load the release signing key into the keychain",
       "whose": "the operator's — nothing machinery does passes it, closing an item included; `yoyo gate record signing-key --for yoyodyne-ifd.436.1` is the act",
       "owner_reason": "a step the work item reserves for a person"
     },

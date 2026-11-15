@@ -5,7 +5,9 @@ package orchestrator
 //
 // A fresh run takes its item's claim reference on the remote before it claims
 // the item in the tracker, and an item another factory holds is skipped this
-// turn with the holder named. The watch loop then keeps every claim this
+// turn with the holder named. The team pause is read in the same fetch, and
+// while it is set no work the harness chose is claimed; an item the operator
+// named is still claimed, as the intake hold lets it start. The watch loop then keeps every claim this
 // machine holds: it renews each one every fifteen minutes while its run holds
 // the item, and releases it once the run no longer does. What a claim is, and
 // the leases every push names, are internal/teamclaim's; this file is only when
@@ -29,6 +31,7 @@ import (
 // is satisfied by teamclaim.Claims.
 type TeamClaims interface {
 	Take(ctx context.Context, workItemID, runID string) (runstate.TeamClaim, error)
+	TakeNamed(ctx context.Context, workItemID, runID string) (runstate.TeamClaim, error)
 	Release(ctx context.Context, workItemID, runID string) error
 }
 
@@ -43,9 +46,15 @@ type ScheduleTeamClaims interface {
 // it, where team mode is on. It is asked after the intake hold and every
 // question answerable here, and before anything is reserved or claimed in the
 // tracker, so an item another factory holds costs nothing but the push.
+//
+// An item the operator named is his exception to the team pause, as it is to
+// the intake hold (holdIntake), so it is claimed whatever the pause says.
 func (p *Pipeline) takeTeamClaim(ctx context.Context, workItemID, runID string) (runstate.TeamClaim, error) {
 	if p.TeamClaims == nil {
 		return runstate.TeamClaim{}, nil
+	}
+	if !p.Selection.SelectedByHarness() {
+		return p.TeamClaims.TakeNamed(ctx, workItemID, runID)
 	}
 	return p.TeamClaims.Take(ctx, workItemID, runID)
 }
@@ -75,12 +84,17 @@ func (a *activeRun) noteTeamTakeover(ctx context.Context, claim runstate.TeamCla
 }
 
 // teamClaimHeld reads a refused start that was another factory holding the
-// item, or the shared remote not answering, as the declined start it is, in
-// words naming the holder where one is known.
+// item, the team pause, or the shared remote not answering, as the declined
+// start it is, in words naming the holder or whoever set the pause where one is
+// known.
 func teamClaimHeld(err error) (string, bool) {
 	var held teamclaim.HeldError
 	if errors.As(err, &held) {
 		return held.Error() + ", so this machine did not start it", true
+	}
+	var paused teamclaim.PausedError
+	if errors.As(err, &paused) {
+		return paused.Error(), true
 	}
 	var unreachable teamclaim.UnreachableError
 	if errors.As(err, &unreachable) {

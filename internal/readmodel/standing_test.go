@@ -2328,7 +2328,7 @@ func TestAnUnreadableGateRecordIsSaidOnlyWhereItOverstatesTheWait(t *testing.T) 
 		ready: []beads.WorkItem{{ID: "yoyodyne-ifd.209.7"}},
 	}}
 	problem := ReadStanding(context.Background(), gated).NotStartableProblem
-	if !strings.Contains(problem, "would not answer") || !strings.Contains(problem, "1 gated item") {
+	if !strings.Contains(problem, "would not answer") || !strings.Contains(problem, "1 item(s) waiting on such a step") {
 		t.Fatalf("not startable problem = %q", problem)
 	}
 }

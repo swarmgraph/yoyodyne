@@ -401,6 +401,7 @@ func (s Standing) renderNotStartable() string {
 	if s.WaitingForSlot != nil {
 		fmt.Fprintf(&rendered, "%s%s — %s\n", tally, s.WaitingForSlot.Says(), slotWaitNext)
 	}
+	rendered.WriteString(s.renderPlacedFirst())
 	rendered.WriteString(s.renderDocumentWaits())
 	for _, group := range s.NotStartableGroups {
 		fmt.Fprintf(&rendered, "%s%s\n", tally, group.Says())
@@ -424,6 +425,21 @@ func (s Standing) renderNotStartable() string {
 	rendered.WriteString(remainder(furtherWaits, "item the scheduler has kept a reason for not starting"))
 	if s.NotStartableProblem != "" {
 		fmt.Fprintf(&rendered, "%s%s\n", partialRead, s.NotStartableProblem)
+	}
+	return rendered.String()
+}
+
+// renderPlacedFirst names each admitted item the Lead Product Manager placed
+// first among work of its priority, in the queue's order, so the order a
+// promise set is visible where the queue is read. It says nothing where no item
+// is placed, which is most of the time. At most three items are placed in one
+// priority, so the list is bounded without being cut.
+func (s Standing) renderPlacedFirst() string {
+	var rendered strings.Builder
+	for _, item := range s.AdmittedItems {
+		if item.PlacedFirst != "" {
+			fmt.Fprintf(&rendered, "  %s — %s\n", s.named(item.WorkItemID, item.Title), item.PlacedFirst)
+		}
 	}
 	return rendered.String()
 }

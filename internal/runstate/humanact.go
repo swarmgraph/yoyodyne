@@ -121,7 +121,7 @@ func (a HumanAct) Validate() error {
 		problems = append(problems, problem)
 	}
 	if strings.TrimSpace(a.Person) == "" {
-		problems = append(problems, errors.New("the act names nobody; a gate is passed by a person and the record says which"))
+		problems = append(problems, errors.New("the act names nobody; a step only a person can take is recorded by a person and the record says which"))
 	} else if len(a.Person) > MaxHumanActPersonBytes {
 		problems = append(problems, fmt.Errorf("who recorded the act is %d bytes against a limit of %d", len(a.Person), MaxHumanActPersonBytes))
 	}
@@ -165,7 +165,7 @@ func (s *Store) RecordHumanAct(act HumanAct) error {
 	if existing, recorded, err := s.HumanAct(act.Subject, act.Gate); err != nil {
 		return err
 	} else if recorded {
-		return fmt.Errorf("the gate %q on %s was already passed by %s at %s; the act that passed it is the one on the record, and replacing it would change whose it was",
+		return fmt.Errorf("the step %q on %s was already recorded as taken by %s at %s; the act that recorded it is the one on the record, and replacing it would change whose it was",
 			act.Gate, act.Subject, existing.Person, existing.RecordedAt.UTC().Format(time.RFC3339))
 	}
 	if err := createJSONFile(s.root, path, "human act", act); err != nil {
@@ -194,7 +194,7 @@ func (s *Store) HumanAct(subject, gate string) (HumanAct, bool, error) {
 	// The file name is a rendering plus a digest, so a record whose own fields
 	// disagree with what was asked for is one nothing here wrote.
 	if act.Gate != gate || act.Subject != subject {
-		return HumanAct{}, false, fmt.Errorf("the recorded act filed for the gate %q on %s is about %q on %s",
+		return HumanAct{}, false, fmt.Errorf("the recorded act filed for the step %q on %s is about %q on %s",
 			gate, subject, act.Gate, act.Subject)
 	}
 	return act, true, nil
@@ -268,7 +268,7 @@ func (s *Store) DischargedGates() (map[string][]string, error) {
 func humanActSubjectProblem(subject string) error {
 	switch {
 	case strings.TrimSpace(subject) == "":
-		return errors.New("the act says nothing about what it was recorded against; an act passes the gate on its subject, and one with no subject would pass every declaration of the name")
+		return errors.New("the act says nothing about what it was recorded against; an act records the step on its subject, and one with no subject would record every declaration of the name")
 	case len(subject) > MaxHumanActSubjectBytes:
 		return fmt.Errorf("what the act was recorded against is %d bytes against a limit of %d", len(subject), MaxHumanActSubjectBytes)
 	case strings.ContainsAny(subject, "\n\r"), !utf8.ValidString(subject):

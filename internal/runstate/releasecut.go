@@ -159,7 +159,7 @@ func (c ReleaseCut) Validate() error {
 		problems = append(problems, fmt.Errorf("release cut state %q is not one this harness names", c.State))
 	}
 	if c.State != ReleaseCutRefused && c.State != ReleaseCutStale && c.NotesDigest == "" {
-		problems = append(problems, errors.New("a release cut past its gates records the notes it checked"))
+		problems = append(problems, errors.New("a release cut past its checks records the notes it checked"))
 	}
 	if c.UnconfirmedTurns < 0 {
 		problems = append(problems, errors.New("unconfirmed turns is negative"))

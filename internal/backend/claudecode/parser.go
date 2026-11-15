@@ -18,6 +18,11 @@ const maxEventTextBytes = execution.MaxEventTextBytes
 
 type streamParser struct {
 	runID string
+	// executable is the program this invocation was started as, where the
+	// adapter's runner resolved it, said on the starting event so the record
+	// shows which installation ran: the one on the search path, or one found in
+	// a usual install folder because the search path did not reach it.
+	executable string
 	// role is who this invocation was made as, and it is written onto the
 	// terminal event so the record says whose invocation it priced rather than
 	// leaving that to be inferred from where the terminal sits in the log. See
@@ -199,13 +204,24 @@ func (p *streamParser) ParseLine(line string) error {
 		return nil
 	}
 	var envelope streamEnvelope
+	var repairedFrom error
 	if err := json.Unmarshal([]byte(line), &envelope); err != nil {
-		return p.plainLine(line, fmt.Errorf("decode stream event: %w", err))
+		repaired, ok := repairInvalidEscapes(line)
+		envelope = streamEnvelope{}
+		if !ok || json.Unmarshal([]byte(repaired), &envelope) != nil {
+			return p.plainLine(line, fmt.Errorf("decode stream event: %w", err))
+		}
+		repairedFrom = err
 	}
 	if envelope.Type == "" {
 		return p.plainLine(line, errors.New("decode stream event: type is required"))
 	}
 	p.sawEnvelope = true
+	if repairedFrom != nil {
+		if err := p.recordRepairedLine(line, repairedFrom); err != nil {
+			return err
+		}
+	}
 	if err := p.redactEnvelope(&envelope); err != nil {
 		return err
 	}
@@ -242,6 +258,8 @@ func (p *streamParser) ParseLine(line string) error {
 		return p.parseResult(envelope)
 	case rateLimitEventType:
 		return p.parseRateLimit(envelope)
+	case toolProgressEventType:
+		return p.parseToolProgress([]byte(line), envelope)
 	default:
 		// An event type this parser has no reading of could carry a tool call in
 		// a shape a newer CLI writes, so it is said as what could not be seen
@@ -397,6 +415,54 @@ func (p *streamParser) RecordTruncatedLine(output execution.Output) error {
 	})
 }
 
+// repairedStreamLine names a provider line that was not valid JSON only because
+// a string in it held a backslash before a character JSON cannot escape, such
+// as `\[` from Markdown-escaped text in a tool result. Unlike a cut line nothing
+// is lost: the line is read with each such backslash kept as text.
+const repairedStreamLine = "repaired_stream_line"
+
+// recordRepairedLine says in the event log that a line was read only after
+// repair, with the decode error it first earned.
+func (p *streamParser) recordRepairedLine(line string, decodeErr error) error {
+	return p.emit(execution.EventProcessOutput, map[string]any{
+		"stream":  execution.StreamStdout,
+		"anomaly": repairedStreamLine,
+		"error":   truncate(decodeErr.Error()),
+		"text":    truncate(p.redactor.Redact(line)),
+	})
+}
+
+// repairInvalidEscapes doubles every backslash inside a JSON string that does
+// not begin a valid escape, so `\[` reads as the two characters it was meant to
+// be. It reports false when there was nothing to repair, leaving any other
+// malformation to fail the way it always has.
+func repairInvalidEscapes(line string) (string, bool) {
+	var out strings.Builder
+	repaired := false
+	inString := false
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case c == '"':
+			inString = !inString
+		case c == '\\' && inString:
+			if i+1 < len(line) && strings.IndexByte(`"\/bfnrtu`, line[i+1]) >= 0 {
+				out.WriteByte(c)
+				out.WriteByte(line[i+1])
+				i++
+				continue
+			}
+			out.WriteByte('\\')
+			repaired = true
+		}
+		out.WriteByte(c)
+	}
+	if !repaired {
+		return line, false
+	}
+	return out.String(), true
+}
+
 func (p *streamParser) parseSystem(envelope streamEnvelope) error {
 	switch envelope.Subtype {
 	case "init":
@@ -415,6 +481,9 @@ func (p *streamParser) parseSystem(envelope streamEnvelope) error {
 		}
 		if p.loaded.Reported {
 			payload["loaded"] = p.loaded.String()
+		}
+		if p.executable != "" {
+			payload["executable"] = p.executable
 		}
 		return p.emit(execution.EventRunStarted, payload)
 	case apiRetrySubtype:
@@ -556,11 +625,7 @@ func (p *streamParser) parseMessage(messageType string, raw json.RawMessage, par
 				"tool":        block.Name,
 				"input_bytes": len(block.Input),
 			}
-			kind := backend.ClassifyTool(block.Name)
-			if isSubagentTool(block.Name) {
-				kind = backend.ToolKindAgent
-			}
-			p.tools.Start(block.ID, block.Name, kind, parent)
+			p.tools.Start(block.ID, block.Name, toolKind(block.Name), parent)
 			switch {
 			case parent != "":
 				payload["parent_tool_use_id"] = parent
@@ -628,6 +693,93 @@ func (p *streamParser) parseMessage(messageType string, raw json.RawMessage, par
 		}
 	}
 	return nil
+}
+
+// toolProgressEventType is the event Claude Code writes while a tool call is
+// running: a long command's elapsed time, a heartbeat, a sub-agent's retry, or
+// a call a script tool made from inside its own run.
+const toolProgressEventType = "tool_progress"
+
+// toolProgress is what the harness reads off a tool_progress event. The shape
+// is the one Claude Code 2.1.321 declares for the event in its own output
+// schema: every one names the call it reports on (tool_use_id, tool_name) and
+// the call that one was made inside (parent_tool_use_id, null for the
+// session's own). The same executable also writes inner_call on the event it
+// sends for a call a script tool made, which the declared schema does not
+// list; it names a call of its own, made inside the call the event reports on.
+// Everything else on the event -- elapsed time, heartbeat and retry details --
+// says nothing about which tools ran, so it is not decoded, and a field the
+// harness does not need can never make the event unreadable.
+type toolProgress struct {
+	ToolUseID       string `json:"tool_use_id"`
+	ToolName        string `json:"tool_name"`
+	ParentToolUseID string `json:"parent_tool_use_id"`
+	InnerCall       *struct {
+		ToolUseID string `json:"tool_use_id"`
+		ToolName  string `json:"tool_name"`
+	} `json:"inner_call"`
+}
+
+// parseToolProgress reads the tool calls a tool_progress event names.
+//
+// Almost every one reports on a call the stream already showed starting, as a
+// tool_use block, so it carries no call of its own and adds nothing: the tool
+// call log keeps one entry per identifier however often the call is reported.
+// One that names a call the stream has not shown is that call's first sighting,
+// and it is recorded like a start, so it is compared with the session's tool
+// access like any other call. A call a script tool made from inside its run is
+// recorded the same way, inside the script's call.
+//
+// An event whose fields cannot be read, or that names no call, is said as tool
+// use that could not be seen, exactly as an event type the parser has no
+// reading of is, rather than read as carrying none.
+func (p *streamParser) parseToolProgress(line []byte, envelope streamEnvelope) error {
+	var progress toolProgress
+	readable := json.Unmarshal(line, &progress) == nil
+	progress.ToolUseID = p.redactor.Redact(progress.ToolUseID)
+	progress.ToolName = p.redactor.Redact(progress.ToolName)
+	progress.ParentToolUseID = p.redactor.Redact(progress.ParentToolUseID)
+	if readable && (progress.ToolUseID == "" || progress.ToolName == "") {
+		readable = false
+	}
+	if readable && progress.InnerCall != nil {
+		progress.InnerCall.ToolUseID = p.redactor.Redact(progress.InnerCall.ToolUseID)
+		progress.InnerCall.ToolName = p.redactor.Redact(progress.InnerCall.ToolName)
+		if progress.InnerCall.ToolUseID == "" || progress.InnerCall.ToolName == "" {
+			readable = false
+		}
+	}
+	if !readable {
+		p.tools.Gap(fmt.Sprintf("Claude Code wrote a %q event the harness does not read, so a tool call it may carry was not observed", truncate(envelope.Type)))
+		return p.emit(execution.EventProcessOutput, map[string]any{
+			"provider_type":    envelope.Type,
+			"provider_subtype": envelope.Subtype,
+		})
+	}
+	p.tools.Start(progress.ToolUseID, progress.ToolName, toolKind(progress.ToolName), progress.ParentToolUseID)
+	payload := map[string]any{
+		"provider_type": envelope.Type,
+		"tool_use_id":   progress.ToolUseID,
+		"tool":          progress.ToolName,
+	}
+	if progress.ParentToolUseID != "" {
+		payload["parent_tool_use_id"] = progress.ParentToolUseID
+	}
+	if inner := progress.InnerCall; inner != nil {
+		p.tools.Start(inner.ToolUseID, inner.ToolName, toolKind(inner.ToolName), progress.ToolUseID)
+		payload["inner_tool_use_id"] = inner.ToolUseID
+		payload["inner_tool"] = inner.ToolName
+	}
+	return p.emit(execution.EventProcessOutput, payload)
+}
+
+// toolKind is what a Claude Code tool does, with the sub-agent tool read as
+// handing work to an agent whatever the shared table calls it.
+func toolKind(name string) backend.ToolKind {
+	if isSubagentTool(name) {
+		return backend.ToolKindAgent
+	}
+	return backend.ClassifyTool(name)
 }
 
 // carriesNoToolCalls reports a top-level event type Claude Code sends that

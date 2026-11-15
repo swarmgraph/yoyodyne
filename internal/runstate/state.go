@@ -298,17 +298,24 @@ const (
 // for something a run can do something about, and a login and a network are
 // not. The cause carries which of the two it is because that is what decides
 // what the operator is told to do.
+//
+// A provider's program that cannot be found is the third: nothing was started,
+// nothing judged the work, and what ends it is the program being found again.
 const (
 	PauseProviderUnauthenticated = "provider_unauthenticated"
 	PauseProviderUnreachable     = "provider_unreachable"
+	PauseProviderProgramMissing  = "provider_program_missing"
 )
 
 // PauseCauseForOutage is the pause a run takes on a provider outage of the
 // given cause. It is the one conversion between the domain's vocabulary and the
 // run record's, kept beside the causes it names.
 func PauseCauseForOutage(cause domain.ProviderOutageCause) string {
-	if cause == domain.ProviderUnreachable {
+	switch cause {
+	case domain.ProviderUnreachable:
 		return PauseProviderUnreachable
+	case domain.ProviderProgramMissing:
+		return PauseProviderProgramMissing
 	}
 	return PauseProviderUnauthenticated
 }
@@ -323,6 +330,8 @@ func PausedForProviderOutage(cause string) (domain.ProviderOutageCause, bool) {
 		return domain.ProviderUnauthenticated, true
 	case PauseProviderUnreachable:
 		return domain.ProviderUnreachable, true
+	case PauseProviderProgramMissing:
+		return domain.ProviderProgramMissing, true
 	default:
 		return "", false
 	}
@@ -2507,6 +2516,14 @@ func (s *State) recordedTexts() []recordedText {
 	if s.PersonMerge != nil {
 		unstated("person_merge.closed_by", "person_merge.closed_by", &s.PersonMerge.ClosedBy, maxForgeLoginBytes)
 		unstated("person_merge.update_refused", "person_merge.update_refused", &s.PersonMerge.UpdateRefused, MaxSelectionReasonBytes)
+	}
+	if s.TeamMerge != nil {
+		if s.TeamMerge.PullRequest != nil {
+			unstated("team_merge.pull_request.url", "team_merge.pull_request.url", &s.TeamMerge.PullRequest.URL, maxCheckURLBytes)
+		}
+		if s.TeamMerge.Returned != nil {
+			unstated("team_merge.returned.closed_by", "team_merge.returned.closed_by", &s.TeamMerge.Returned.ClosedBy, maxForgeLoginBytes)
+		}
 	}
 	if s.MergeDrop != nil {
 		unstated("merge_drop.reason", "merge_drop.reason", &s.MergeDrop.Reason, MaxRecordedTextBytes)

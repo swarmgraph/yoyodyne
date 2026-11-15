@@ -243,7 +243,7 @@
         "Diff stat:",
         "feature.txt | 1 +",
         " 1 file changed, 1 insertion(+)",
-        "Check stage: \u003celapsed\u003e of the 30m0s execution.check_stage_timeout bound (gate narrowed to: the whole module (the repository root is not a Go module))",
+        "Check stage: \u003celapsed\u003e of the 30m0s execution.check_stage_timeout bound (checks narrowed to: the whole module (the repository root is not a Go module))",
         "Check: test -f feature.txt (passed=true, exit=0, \u003celapsed\u003e of 30m0s)",
         "Reviewer session: reviewer-session",
         "Reviewer model: opus (resolved: claude-opus-5-reviewer)",

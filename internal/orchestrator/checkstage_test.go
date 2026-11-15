@@ -683,7 +683,7 @@ func TestEveryCheckIsToldWhichGoPackagesTheChangeTouches(t *testing.T) {
 				t.Fatalf("outcome = %#v, want the change integrated", outcome)
 			}
 			notes := strings.Join(tracker.NoteRecords, "\n")
-			if !strings.Contains(notes, "gate narrowed to: ") {
+			if !strings.Contains(notes, "checks narrowed to: ") {
 				t.Fatalf("item notes do not say what the gate was narrowed to:\n%s", notes)
 			}
 		})

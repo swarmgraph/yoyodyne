@@ -1993,7 +1993,7 @@ func TestStatusSaysWhichBranchAChangeLandedOnAndWhichItWaitsToBeMergedInto(t *te
 		t.Fatalf("status exited %d: %s", code, stderr)
 	}
 	want := "Waiting for the team's merge: yoyodyne-landed"
-	if !strings.Contains(stdout, want) || !strings.Contains(stdout, "landed on staging as bbbbbbbbbbbb, waiting for the team to merge it into main") {
+	if !strings.Contains(stdout, want) || !strings.Contains(stdout, "landed on staging as bbbbbbbbbbbb, waiting for the team to merge it into main; no pull request carries it yet") {
 		t.Fatalf("status does not say the wait (%q):\n%s", want, stdout)
 	}
 }

@@ -462,7 +462,7 @@ func (r Rearmer) targetRedAnswered(ctx context.Context, waiting runstate.TargetR
 			return fmt.Errorf("read whether %s, filed for a red check on %s, is closed: %w; nothing was spent", id, waiting.TargetBranch, err)
 		}
 		if !strings.EqualFold(item.Status, "closed") {
-			return fmt.Errorf("refused at the red-target gate: this merge waits on %s, filed for a red check on %s, which is %s; the harness arms it once that closes, and nothing was spent",
+			return fmt.Errorf("refused because the target is red: this merge waits on %s, filed for a red check on %s, which is %s; the harness arms it once that closes, and nothing was spent",
 				id, waiting.TargetBranch, nonEmpty(item.Status, "not closed"))
 		}
 	}
@@ -733,7 +733,7 @@ func (r Rearmer) landingChecksPass(ctx context.Context, published runstate.PullR
 			published.Number, err)
 	}
 	if reading.BehindBy > 0 {
-		return fmt.Errorf("refused at the head-behind-target gate: pull request %d's head is %d commit(s) behind %s, so its merge would land a change nobody checked against the target it lands on; nothing was spent, so the publication keeps its re-arm, and a re-run hands the change back for a fresh run",
+		return fmt.Errorf("refused because the head is behind the target: pull request %d's head is %d commit(s) behind %s, so its merge would land a change nobody checked against the target it lands on; nothing was spent, so the publication keeps its re-arm, and a re-run hands the change back for a fresh run",
 			published.Number, reading.BehindBy, integration.TargetBranch)
 	}
 	if len(reading.Failing) > 0 {
@@ -741,7 +741,7 @@ func (r Rearmer) landingChecksPass(ctx context.Context, published runstate.PullR
 		for _, failed := range reading.Failing {
 			names = append(names, failed.Name)
 		}
-		return fmt.Errorf("refused at the checks gate: pull request %d has %d failing check(s) on its head (%s), and the harness does not arm a merge its checks refuse; nothing was spent, so the publication keeps its re-arm, and a re-run hands the change back for a fresh run",
+		return fmt.Errorf("refused because its checks fail: pull request %d has %d failing check(s) on its head (%s), and the harness does not arm a merge its checks refuse; nothing was spent, so the publication keeps its re-arm, and a re-run hands the change back for a fresh run",
 			published.Number, len(names), strings.Join(names, ", "))
 	}
 	return nil
@@ -827,7 +827,7 @@ func (r Rearmer) validate() error {
 		problems = append(problems, errors.New("a re-arm requires forge access, because what it repeats is a merge request"))
 	}
 	if r.Worktrees == nil {
-		problems = append(problems, errors.New("a re-arm requires the pre-merge check on the remote target, which is what says the request is still the one the gate passed"))
+		problems = append(problems, errors.New("a re-arm requires the pre-merge check on the remote target, which is what says the request is still the one that passed its checks and review"))
 	}
 	if r.Decisions == nil {
 		problems = append(problems, errors.New("a re-arm requires the item's triage record, which is what says the development manager decided one"))

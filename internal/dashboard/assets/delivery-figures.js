@@ -595,7 +595,7 @@ var deliveryFigures = (function () {
           });
         });
         var notes = grouped(missing, scale, "Not recorded on")
-          .concat(grouped(partial, scale, "Read from only some of its records, so a floor, on"));
+          .concat(grouped(partial, scale, "Read from only some of its records, so at least this much, on"));
         Object.keys(counted).forEach(function (line) {
           notes.push(line.charAt(0).toUpperCase() + line.slice(1) + (counted[line] > 1 ? " (" + plural(counted[line], scale === "weekly" ? "week" : "day", scale === "weekly" ? "weeks" : "days") + ")" : "") + ".");
         });

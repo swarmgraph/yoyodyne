@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"syscall"
+	"time"
 )
 
 // duplicateHold is a second descriptor on the held file's open file
@@ -31,19 +32,29 @@ func duplicateHold(file *os.File) (*os.File, error) {
 
 // groupAlive says whether a recorded process group may still have a live
 // member, on the rule observeExecution applies: a group with no members, or
-// with only members that have exited, has stopped, and anything else that
-// cannot be established is read as alive.
-func groupAlive(group int) (bool, string) {
+// with only members that have exited, has stopped; a process that cannot be
+// found has gone; and anything else that cannot be established is read as
+// alive. A group that seems to have members is looked at once more,
+// groupRecheck later, before it is read as having them: the last process of a
+// stage lets go of the hold as it exits, a moment before it leaves its group,
+// so a single look can land between the two.
+func (s *MergeQueueStore) groupAlive(group int) (bool, string) {
 	if group <= 0 {
 		return false, ""
 	}
-	switch err := syscall.Kill(-group, 0); {
+	signal := s.signalGroup
+	if signal == nil {
+		signal = func(group int) error { return syscall.Kill(-group, 0) }
+	}
+	err := lookAtGroup(signal, group)
+	if err == nil {
+		time.Sleep(groupRecheck)
+		err = lookAtGroup(signal, group)
+	}
+	switch {
 	case errors.Is(err, syscall.ESRCH):
 		return false, ""
 	case err == nil:
-		if exited, _ := groupHasOnlyExited(group); exited {
-			return false, ""
-		}
 		return true, fmt.Sprintf("its process group %d still has members", group)
 	default:
 		return true, fmt.Sprintf("its process group %d could not be checked: %v", group, err)

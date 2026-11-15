@@ -57,7 +57,7 @@ func TestTheStandingSaysWhichBranchAnItemLandedOnAndWhichItWaitsToBeMergedInto(t
 	if len(standing.WaitingForTeamMerge) != 1 || standing.WaitingForTeamMerge[0].WorkItemID != "ex-1" {
 		t.Fatalf("waiting = %#v, want only ex-1", standing.WaitingForTeamMerge)
 	}
-	want := "Waiting for the team's merge: Recorded title (ex-1): landed on staging as bbbbbbbbbbbb, waiting for the team to merge it into main\n"
+	want := "Waiting for the team's merge: Recorded title (ex-1): landed on staging as bbbbbbbbbbbb, waiting for the team to merge it into main; no pull request carries it yet\n"
 	if rendered := standing.RenderLines(); !strings.Contains(rendered, want) || strings.Contains(rendered, "ex-2") {
 		t.Fatalf("lines:\n%s\nwant %q and no ex-2", rendered, want)
 	}

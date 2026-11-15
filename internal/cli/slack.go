@@ -464,9 +464,12 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		OperatorHolds:   holds,
 		IntakeHolds:     intake,
 		LandingHolds:    slackLandingHolds(stateRoot, resolved.Config.Product.ID),
-		Sessions:        watch,
-		Reports:         reports,
-		Interventions:   interventions,
+		// Since when each item has waited on the architect's design, as the
+		// terminal says it.
+		NeedsDesignLabelled: runs.NeedsDesignLabelled(),
+		Sessions:            watch,
+		Reports:             reports,
+		Interventions:       interventions,
 		// The triage docket, so the channel names an unanswered product decision
 		// about a run in flight exactly as the terminal does.
 		Docket: slackDocket(stateRoot, resolved.Config.Product.ID),
@@ -508,6 +511,7 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		Slots:                      resolved.Config.Execution.DeveloperSlots,
 		SchedulingWaitProblemAfter: resolved.Config.Execution.SchedulingWaitProblemAfter.Duration(),
 		MaxWaitingPullRequests:     resolved.Config.Execution.MaxWaitingPullRequests,
+		TeamPause:                  standingTeamPause(resolved),
 		TrackerTimeout:             chatTrackerTimeout,
 	}
 	// The tracker reading every status reading on the machine shares, as
@@ -1033,7 +1037,7 @@ decomposed, attributed, or reordered in a conversation — so the queue changing
 as visible as the runs it feeds.
 
 It reads the durable records and posts from them, so it is an observation rather
-than a gate: nothing waits on it, a workspace that is down delays messages
+than a step anything waits on: a workspace that is down delays messages
 rather than losing them, and a sink that has been away catches up from its own
 cursors when it returns. Catching up is paced to what Slack keeps accepting, and
 a backlog too deep to post one message at a time is said once per thread --

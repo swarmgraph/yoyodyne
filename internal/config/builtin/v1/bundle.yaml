@@ -71,7 +71,7 @@ execution:
   # purpose -- a stage that can take hours holds a developer seat for hours.
   check_stage_timeout: 30m
   # The budget each landing check gets, with no stage bound over the list: what
-  # runs once per landing is the suite too long for the gate, so it is given what
+  # runs once per landing is the suite too long for the checks each run must pass, so it is given what
   # it actually takes. A check stopped here leaves the landing unverified.
   landing_check_timeout: 2h
   # "yoyo work --watch" does not return when the queue empties: it waits this
@@ -137,13 +137,13 @@ execution:
 #
 # Designs are "automatic" for that same reason read the other way: a design
 # serving an approved goal is the architect's judgement about how, and approving
-# each one is the per-change gate that autonomy is the absence of.
+# each one is the routine approval of each change that autonomy is the absence of.
 #
-# work_items is the one approval that gates rather than records, and it is
+# work_items is the one approval that holds work back rather than records, and it is
 # "human" deliberately rather than by omission: every work item is put to the
 # operator before it is admitted to the queue. That covers both ways work
 # reaches it -- the Lead Product Manager's direct "create" is refused here as
-# well as the automatic admission, because a gate the proposals held while that
+# well as the automatic admission, because an approval the proposals waited on while that
 # door stood open would be one the Lead Product Manager could walk around.
 #
 # Set it to "automatic" to move that approval up to the goals, which is what it
@@ -156,7 +156,7 @@ execution:
 # It is opted in to rather than inherited, for the reason integration and
 # publishing are: this is the setting that lets work reach the queue with no
 # person in the loop, and autonomy is something a project turns on once it has
-# the gates to justify it rather than something a repository acquires by
+# the checks and review to justify it rather than something a repository acquires by
 # extending this bundle. A project that opts in gets a second ramp for free --
 # nothing is admitted without asking until goals are actually approved, so it
 # still asks about everything until the first "yoyo artifact approve". That is
@@ -174,8 +174,8 @@ execution:
 # Releases are the same again. Under "human" a release the Lead Product Manager
 # decided is cut, and its tag pushed, by a person with make release. Under
 # "automatic" the supervisor's maintenance pass cuts it once the release item's
-# reviewed run has landed the notes and their readiness stamp, behind the gates
-# a person's cut holds, and pushes the tag itself.
+# reviewed run has landed the notes and their readiness stamp, behind the same checks
+# a person's cut must pass, and pushes the tag itself.
 approvals:
   brief: human
   goals: human

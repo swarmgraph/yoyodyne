@@ -1717,6 +1717,83 @@ func TestAStreamLineTooLongToHoldIsRecordedRatherThanFatal(t *testing.T) {
 	}
 }
 
+// Claude Code has written a backslash before `[` inside a JSON string, which
+// JSON does not allow, when a tool result held Markdown-escaped brackets such
+// as `\[see notes\]`. The line is read with the stray backslash kept as text,
+// the repair is recorded, and the invocation goes on to its own result.
+func TestAStreamLineWithAnInvalidEscapeIsRepairedRatherThanFatal(t *testing.T) {
+	t.Parallel()
+
+	toolResult := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":"Status: \[see notes\]"}]}}`
+	agentText := `{"type":"assistant","message":{"content":[{"type":"text","text":"The comment says \[not checked\]."}]}}`
+	stream := strings.Join([]string{
+		`{"type":"system","subtype":"init","session_id":"session-1","model":"claude-test"}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool-1","name":"Bash","input":{"command":"cat notes.md"}}]}}`,
+		toolResult,
+		agentText,
+		`{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"done","total_cost_usd":1.25,"usage":{"input_tokens":10},"terminal_reason":"end_turn"}`,
+	}, "\n") + "\n"
+	var events []execution.Event
+	result, err := (Backend{
+		Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: stream}}},
+		Clock:  fixedClock{},
+	}).Run(context.Background(), backendapi.RunRequest{
+		RunID:            testRunID,
+		Role:             domain.RoleDeveloper,
+		WorkingDirectory: "/worktree",
+		Prompt:           "implement the task",
+		EventSink: func(event execution.Event) error {
+			events = append(events, event)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v, want a line with an invalid escape repaired, not fatal", err)
+	}
+	if result.IsError || result.FinalText != "done" || !result.CostReported || result.CostUSD != 1.25 {
+		t.Fatalf("Run() result = %#v, want the invocation judged on its own result event", result)
+	}
+	var repairs, agentSaid int
+	for _, event := range events {
+		payload := string(event.Payload)
+		if event.Type == execution.EventProcessOutput && strings.Contains(payload, repairedStreamLine) {
+			repairs++
+		}
+		if event.Type == execution.EventAgentMessage && strings.Contains(payload, `The comment says \\[not checked\\].`) {
+			agentSaid++
+		}
+	}
+	if repairs != 2 {
+		t.Fatalf("%d events name %q, want one for each repaired line", repairs, repairedStreamLine)
+	}
+	if agentSaid != 1 {
+		t.Fatalf("the agent's message was not recorded with its backslashes kept as text: %#v", events)
+	}
+}
+
+func TestRepairInvalidEscapes(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name, line, want string
+		ok               bool
+	}{
+		{name: "escaped bracket", line: `{"a":"\[x\]"}`, want: `{"a":"\\[x\\]"}`, ok: true},
+		{name: "valid escapes untouched", line: `{"a":"\"\\\/\b\f\n\r\t\u00e9\["}`, want: `{"a":"\"\\\/\b\f\n\r\t\u00e9\\["}`, ok: true},
+		{name: "an escaped backslash before a bracket is already valid", line: `{"a":"\\["}`, ok: false},
+		{name: "a backslash outside a string is not a string escape", line: `{"a":1}\[`, ok: false},
+		{name: "quotes inside a string do not end it when escaped", line: `{"a":"say \"\[\""}`, want: `{"a":"say \"\\[\""}`, ok: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := repairInvalidEscapes(test.line)
+			if ok != test.ok || (ok && got != test.want) {
+				t.Fatalf("repairInvalidEscapes(%q) = %q, %t; want %q, %t", test.line, got, ok, test.want, test.ok)
+			}
+		})
+	}
+}
+
 type fakeRunner struct {
 	results  []execution.ProcessResult
 	errors   []error

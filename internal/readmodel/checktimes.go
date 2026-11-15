@@ -21,8 +21,8 @@ package readmodel
 // which says what that stage was told; a check outside that stage, in an older
 // log, is counted as not recorded rather than guessed. This is what the harness
 // told the check. A project's own check may widen what it was told — this
-// repository's Makefile runs the whole module for a change to the Makefile, say
-// — and says so only in its own output, which the harness does not read.
+// repository's Makefile runs the whole module for a change to the Makefile that
+// touches no Go package, say — and says so only in its own output, which the harness does not read.
 
 import (
 	"context"

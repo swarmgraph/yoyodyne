@@ -2663,7 +2663,7 @@ func (e Entry) renderCarryOut() string {
 		stopped.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(stopped.Refusal))
 	rendered.WriteString(indented("What would clear it", stopped.Clears))
 	if stopped.Cause != "" {
-		rendered.WriteString("      This gate will not clear on its own; no further attempt is made until the development manager changes the decision, by recording a re-run or an escalation.\n")
+		rendered.WriteString("      This condition will not clear on its own; no further attempt is made until the development manager changes the decision, by recording a re-run or an escalation.\n")
 	} else {
 		rendered.WriteString("      Nothing was spent, so this decision is carried out by the first pass after that is no longer so; until then the harness keeps trying it at a paced interval rather than every pass.\n")
 	}

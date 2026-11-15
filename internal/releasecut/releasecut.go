@@ -565,7 +565,7 @@ func (c *Cutter) note(cut runstate.ReleaseCut) string {
 	case cut.State == runstate.ReleaseCutBlocked:
 		return fmt.Sprintf("The harness did not finish cutting %s, and the release is held for the Lead Product Manager: %s.", cut.Version, cut.Detail)
 	case cut.Preparation:
-		return fmt.Sprintf("The harness did not cut %s, because its preparation is not on main: %s. This release's reviewed run drafts and curates docs/releases/%s.md, stamps it with yoyo conformance --notes, and lands both through review; the harness then cuts it on its next maintenance pass. It is handed back to the Lead Product Manager for that run.",
+		return fmt.Sprintf("The harness did not cut %s, because its preparation is not on main: %s. This release's reviewed run drafts and curates docs/releases/%s.md, stamps it with yoyo conformance --notes --from-export, and lands both through review; the harness then cuts it on its next maintenance pass. It is handed back to the Lead Product Manager for that run.",
 			cut.Version, cut.Detail, cut.Version)
 	default:
 		return fmt.Sprintf("The harness did not cut %s: %s. It tries again once main moves past %s.", cut.Version, cut.Detail, short(cut.Commit))

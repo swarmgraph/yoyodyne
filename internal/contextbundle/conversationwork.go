@@ -16,7 +16,7 @@ func ConversationWorkSection(items []beads.WorkItem, problem string) string {
 		fmt.Fprintf(&rendered, "The work waiting on you could not be read: %s. Do not assume nothing is waiting.\n", problem)
 		return rendered.String()
 	}
-	rendered.WriteString("Read for this turn, in backlog order: highest priority first (P0 before P1), then oldest admitted within each priority. Parked items are excluded. Read each item in full before deciding.\n\n")
+	rendered.WriteString("Read for this turn, in backlog order: highest priority first (P0 before P1), then, within each priority, the items the Lead Product Manager placed first (earliest placement first, each saying so), then oldest admitted. Parked items are excluded. Read each item in full before deciding.\n\n")
 	if len(items) == 0 {
 		rendered.WriteString("Nothing is waiting in your conversation.\n")
 		return rendered.String()
@@ -24,6 +24,9 @@ func ConversationWorkSection(items []beads.WorkItem, problem string) string {
 	listed := ConversationWorkListed(items)
 	for _, item := range listed {
 		fmt.Fprintf(&rendered, "- %s (%s) [P%d, %s]\n", singleLine(item.Title, maxWorkItemTitleBytes), item.ID, item.Priority, item.Status)
+		if placement := item.PlacedFirst(); placement != nil {
+			fmt.Fprintf(&rendered, "    %s\n", placement.Line())
+		}
 	}
 	if len(items) > len(listed) {
 		fmt.Fprintf(&rendered, "\n%d further work item(s) are not listed here.\n", len(items)-len(listed))

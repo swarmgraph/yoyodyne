@@ -32,17 +32,21 @@
 //     never reclaims the room its changes leave behind, and every tracker call
 //     opens the whole store, so one nobody cleans up slows every call. It runs
 //     after reconcile, on the same goroutine, so the pass's own tracker calls
-//     are over before it starts; it does not start while any other process has
-//     the store open; and it is stopped once it has held the store for the
-//     section's max_hold, so no call waiting behind it runs past its own limit
-//     (internal/beads, cleanup.go). Being busy or stopped is a skip, never a
-//     failure: the next pass tries again. Nothing before the cleanup or while
+//     are over before it starts. A store past the tracker_limits size bound is
+//     also cleaned up every overBoundEvery. A due cleanup is put off while any
+//     other process has the store open, and each postponement is recorded; once it
+//     has waited busyPatience it starts beside them, since with every
+//     developer slot busy the store may never be free, and bd's lock keeps
+//     their calls whole (internal/beads, cleanup.go). It is stopped once it
+//     has held the store for the section's max_hold, so no call waiting
+//     behind it runs past its own limit. Being put off or stopped is a skip,
+//     never a failure: the next pass tries again. Nothing before the cleanup or while
 //     it holds the store lists or counts work items, which an oversized store
 //     cannot answer in time; whether one is due is read from the store's size
 //     on disk. Each cleanup that ran is recorded with when, the store's size
 //     either side, its count of work items after it, or why that count could
-//     not be taken, and how long it took, and the latest is said on the pass's
-//     line in `yoyo status`. A cleanup that fails is a failure of the pass,
+//     not be taken, and how long it held the store; the latest is said on the
+//     pass's line in `yoyo status`, with the store's size at the last pass. A cleanup that fails is a failure of the pass,
 //     recorded, and the next cleanup waits until one is due; a count that
 //     could not be taken is not. A cleanup recorded by an earlier build, which
 //     counted either side, after which an item it held before was missing
@@ -211,14 +215,18 @@ type Host interface {
 type TrackerStore interface {
 	StoreSize() (string, int64, error)
 	CleanUpStore(ctx context.Context, hold time.Duration) (beads.StoreCleanup, error)
+	CleanUpStoreBeside(ctx context.Context, hold time.Duration) (beads.StoreCleanup, error)
 	MissingItems(ctx context.Context, ids []string) ([]string, error)
 }
 
-// Cleanups is the record of each cleanup of the tracker's store that ran. It
-// is satisfied by *runstate.TrackerStoreCleanupStore.
+// Cleanups is the record of each cleanup of the tracker's store that ran, and
+// of each one that was due and put off. It is satisfied by
+// *runstate.TrackerStoreCleanupStore.
 type Cleanups interface {
 	Read() (runstate.TrackerStoreCleanups, error)
 	Record(runstate.TrackerStoreCleanup) error
+	RecordPutOff(runstate.TrackerStoreCleanupPutOff) error
+	PutOffsSince(since time.Time) (runstate.TrackerStoreCleanupPutOffs, error)
 }
 
 // StoreMeasurer measures the work tracker's store on a copy of it. It is
@@ -330,6 +338,12 @@ type Pass struct {
 	// line; cleanupsRead says the record has been read for it once.
 	cleanedUp    *runstate.TrackerStoreCleanup
 	cleanupsRead bool
+	// storeSize is the tracker store's size as the last pass read it, for the
+	// pass's line, and putOffSince since when a due cleanup has waited for the
+	// store to be free, zero where none is waiting.
+	storeSize     *storeReading
+	storeSizeRead bool
+	putOffSince   time.Time
 	// lostLookedAt is when the pass last looked for the items a cleanup found
 	// missing, so it looks once a cleanup interval rather than at every pass.
 	lostLookedAt time.Time
@@ -356,8 +370,7 @@ type underway struct {
 // check of its limits.
 type offGoroutine struct {
 	reconciled runstate.SweepStep
-	cleaned    runstate.SweepStep
-	cleanup    *runstate.TrackerStoreCleanup
+	cleaned    cleanedTracker
 	measured   runstate.SweepStep
 	squashed   runstate.SweepStep
 	limits     runstate.SweepStep
@@ -383,6 +396,20 @@ func (p *Pass) Describe() string {
 	}
 	if cleanup := p.latestCleanup(); cleanup != nil {
 		said += "; the tracker's store was last cleaned up " + cleanup.Says()
+	}
+	if p.storeSize == nil && p.Tracker != nil && !p.storeSizeRead {
+		// Read once before the first pass has, so the line says it from the
+		// start; each pass reads it afresh after that.
+		p.storeSizeRead = true
+		if _, size, err := p.Tracker.StoreSize(); err == nil {
+			p.storeSize = &storeReading{size: size, at: p.now()}
+		}
+	}
+	if p.storeSize != nil {
+		said += fmt.Sprintf("; the tracker's store measured %s at %s", runstate.SayBytes(p.storeSize.size), local(p.storeSize.at))
+	}
+	if !p.putOffSince.IsZero() {
+		said += fmt.Sprintf("; a cleanup due since %s has been put off because other processes had the store open, and starts beside them from %s", local(p.putOffSince), local(p.putOffSince.Add(busyPatience)))
 	}
 	return said
 }
@@ -436,7 +463,7 @@ func (p *Pass) Look(ctx context.Context, now time.Time) {
 	done := p.running.done
 	go func() {
 		work := offGoroutine{reconciled: p.reconcile(ctx)}
-		work.cleaned, work.cleanup = p.cleanUpTracker(ctx)
+		work.cleaned = p.cleanUpTracker(ctx)
 		work.measured = p.measureTracker(ctx)
 		work.squashed = p.squashTracker(ctx)
 		work.limits = p.checkTrackerLimits()
@@ -508,13 +535,17 @@ func (p *Pass) finish(ctx context.Context, done offGoroutine) {
 	}
 	recorded.Steps = append(recorded.Steps, p.provider())
 	recorded.Steps = append(recorded.Steps, done.reconciled)
-	recorded.Steps = append(recorded.Steps, done.cleaned)
+	recorded.Steps = append(recorded.Steps, done.cleaned.step)
 	recorded.Steps = append(recorded.Steps, done.measured)
 	recorded.Steps = append(recorded.Steps, done.squashed)
 	recorded.Steps = append(recorded.Steps, done.limits)
-	if done.cleanup != nil {
-		p.cleanedUp, p.cleanupsRead = done.cleanup, true
+	if done.cleaned.cleanup != nil {
+		p.cleanedUp, p.cleanupsRead = done.cleaned.cleanup, true
 	}
+	if done.cleaned.size != nil {
+		p.storeSize = done.cleaned.size
+	}
+	p.putOffSince = done.cleaned.putOffSince
 	recorded.Steps = append(recorded.Steps, p.rebuild())
 	recorded.Steps = append(recorded.Steps, p.restartRequests(ctx))
 	// Collected before the redeploy is decided, so a cut that has just finished
@@ -634,49 +665,74 @@ func (p *Pass) reconcile(ctx context.Context) runstate.SweepStep {
 }
 
 // cleanUpTracker cleans up the tracker's store where a cleanup is due, and
-// records it where one ran. It runs off the supervisor's goroutine, after
-// reconcile, and touches nothing of the supervisor's.
-func (p *Pass) cleanUpTracker(ctx context.Context) (runstate.SweepStep, *runstate.TrackerStoreCleanup) {
+// records it where one ran and where one was due and put off. It runs off the
+// supervisor's goroutine, after reconcile, and touches nothing of the
+// supervisor's.
+func (p *Pass) cleanUpTracker(ctx context.Context) cleanedTracker {
 	step := runstate.SweepStep{Name: StepTrackerCleanup}
 	if p.Tracker == nil || p.Cleanups == nil {
 		step.Outcome, step.Detail = runstate.StepSkipped, "no tracker store is wired, so nothing is cleaned up"
-		return step, nil
+		return cleanedTracker{step: step}
 	}
 	bounds := p.cleanupBounds()
 	earlier, err := p.Cleanups.Read()
 	if err != nil {
 		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the record of earlier cleanups of the tracker's store could not be read, so whether one is due cannot be told: %v", err)
-		return step, nil
+		return cleanedTracker{step: step}
 	}
-	_, size, err := p.Tracker.StoreSize()
+	store, size, err := p.Tracker.StoreSize()
 	if err != nil {
 		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the tracker's store could not be measured, so whether a cleanup is due cannot be told: %v", err)
-		return step, nil
+		return cleanedTracker{step: step}
 	}
-	reason, notDue := cleanupDue(earlier, size, bounds, p.now())
+	now := p.now()
+	result := cleanedTracker{size: &storeReading{size: size, at: now}}
+	due := cleanupDue(earlier, size, bounds, p.trackerLimits().StoreMegabytes, now)
+	reason := due.reason
 	if latest, found := earlier.Latest(); found && latest.Lost() {
 		back, held := p.lookForMissing(ctx, latest, reason != "", bounds)
 		if held != "" {
 			step.Outcome, step.Detail = runstate.StepFailed, held
-			return step, nil
+			if reason != "" {
+				step.Detail += p.recordPutOff(runstate.TrackerStoreCleanupPutOff{Store: store, At: now, SizeBefore: size, SizeAfter: size, Reason: reason, Why: held})
+			}
+			result.step = step
+			return result
 		}
 		reason += "; " + back
 	}
 	if reason == "" {
-		step.Outcome, step.Detail = runstate.StepSkipped, notDue
-		return step, nil
+		step.Outcome, step.Detail = runstate.StepSkipped, due.notDue
+		result.step = step
+		return result
 	}
-	cleaned, err := p.Tracker.CleanUpStore(ctx, bounds.MaxHold.Duration())
+	waited, beside, waitUnread := p.busyWait(earlier, due.since, now)
+	clean := p.Tracker.CleanUpStore
+	if beside {
+		clean = p.Tracker.CleanUpStoreBeside
+		reason += fmt.Sprintf("; it has waited since %s for no other process to have the store open, which is as long as the pass waits (%s), so it was started beside them", local(waited), busyPatience)
+	}
+	cleaned, err := clean(ctx, bounds.MaxHold.Duration())
 	if err != nil && (!cleaned.Ran() || ctx.Err() != nil) {
 		// Nothing was started, or the supervisor is stopping: there is no
 		// cleanup to record, and the next pass is due one again.
 		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the tracker's store (%s) was due a cleanup because %s, and it could not be cleaned up: %v", runstate.SayBytes(size), reason, err)
-		return step, nil
+		result.step = step
+		return result
 	}
 	if !cleaned.Ran() {
-		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("the tracker's store (%s) is due a cleanup because %s, and it was not started because another process had the store open, which a cleanup would have kept waiting: %s; the next pass tries again",
-			runstate.SayBytes(size), reason, beads.SayHolders(cleaned.Busy))
-		return step, nil
+		if waited.IsZero() {
+			waited = now
+		}
+		why := fmt.Sprintf("another process had the store open, which a cleanup would have kept waiting: %s; it has waited for the store to be free since %s, and the first pass from %s starts it beside them",
+			beads.SayHolders(cleaned.Busy), local(waited), local(waited.Add(busyPatience)))
+		if waitUnread != "" {
+			why += "; how long it has waited could not be read from its record, so it is measured from now: " + waitUnread
+		}
+		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("the tracker's store (%s) is due a cleanup because %s, and it was put off: %s", runstate.SayBytes(size), reason, why)
+		step.Detail += p.recordPutOff(runstate.TrackerStoreCleanupPutOff{Store: cleaned.Store, At: now, SizeBefore: size, SizeAfter: size, Reason: reason, Why: why, Busy: true})
+		result.step, result.putOffSince = step, waited
+		return result
 	}
 	record := runstate.TrackerStoreCleanup{
 		Store:             cleaned.Store,
@@ -691,28 +747,101 @@ func (p *Pass) cleanUpTracker(ctx context.Context) (runstate.SweepStep, *runstat
 		ItemsCountedAfter: cleaned.Counted,
 		ItemsNotCounted:   cleaned.NotCounted,
 	}
+	if len(cleaned.Beside) > 0 {
+		record.Beside = beads.SayHolders(cleaned.Beside)
+	}
 	if err != nil {
 		record.Failed = err.Error()
 	}
+	result.size = &storeReading{size: cleaned.SizeAfter, at: cleaned.StartedAt.Add(cleaned.Took)}
 	recordFailure := ""
 	if err := p.Cleanups.Record(record); err != nil {
 		recordFailure = fmt.Sprintf("; it could not be recorded, so the next pass measures from the cleanup before it: %v", err)
 	}
+	besideSaid := ""
+	if record.Beside != "" {
+		besideSaid = ", started beside the processes that had it open: " + record.Beside
+	}
 	switch {
 	case record.Failed != "":
-		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the tracker's store was due a cleanup because %s, and the cleanup failed after %s: %s; it is not tried again until the next cleanup is due, at %s or once the store has grown %d MB%s",
-			reason, roundTook(cleaned.Took), record.Failed, local(cleaned.StartedAt.Add(bounds.Every.Duration())), bounds.GrownMegabytes, recordFailure)
+		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the tracker's store was due a cleanup because %s, and the cleanup failed after holding the store for %s%s: %s; it is not tried again until the next cleanup is due, at %s or once the store has grown %d MB%s",
+			reason, roundTook(cleaned.Took), besideSaid, record.Failed, local(cleaned.StartedAt.Add(bounds.Every.Duration())), bounds.GrownMegabytes, recordFailure)
 	case cleaned.Stopped:
-		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("the tracker's store was due a cleanup because %s, and the cleanup was stopped once it had held the store for %s, so that no other tracker call waits on it past its own limit: from %s to %s in %s, %s; the next pass finishes it%s",
-			reason, bounds.MaxHold, runstate.SayBytes(cleaned.SizeBefore), runstate.SayBytes(cleaned.SizeAfter), roundTook(cleaned.Took), record.SaysItems(), recordFailure)
+		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("the tracker's store was due a cleanup because %s, and the cleanup was stopped once it had held the store for %s, so that no other tracker call waits on it past its own limit: from %s to %s, holding the store for %s%s, %s; the next pass finishes it%s",
+			reason, bounds.MaxHold, runstate.SayBytes(cleaned.SizeBefore), runstate.SayBytes(cleaned.SizeAfter), roundTook(cleaned.Took), besideSaid, record.SaysItems(), recordFailure)
 	default:
-		step.Outcome, step.Detail = runstate.StepRan, fmt.Sprintf("cleaned up the tracker's store, due because %s: from %s to %s in %s, %s%s",
-			reason, runstate.SayBytes(cleaned.SizeBefore), runstate.SayBytes(cleaned.SizeAfter), roundTook(cleaned.Took), record.SaysItems(), recordFailure)
+		step.Outcome, step.Detail = runstate.StepRan, fmt.Sprintf("cleaned up the tracker's store, due because %s: from %s to %s, holding the store for %s%s, %s%s",
+			reason, runstate.SayBytes(cleaned.SizeBefore), runstate.SayBytes(cleaned.SizeAfter), roundTook(cleaned.Took), besideSaid, record.SaysItems(), recordFailure)
 		if recordFailure != "" {
 			step.Outcome = runstate.StepFailed
 		}
 	}
-	return step, &record
+	result.step, result.cleanup = step, &record
+	return result
+}
+
+// cleanedTracker is what the cleanup step came to: its step, the cleanup it
+// recorded where one ran, the store's size as last read, and since when a
+// cleanup put off because the store was busy has waited.
+type cleanedTracker struct {
+	step        runstate.SweepStep
+	cleanup     *runstate.TrackerStoreCleanup
+	size        *storeReading
+	putOffSince time.Time
+}
+
+// storeReading is the tracker store's size on disk and when it was read.
+type storeReading struct {
+	size int64
+	at   time.Time
+}
+
+const (
+	// overBoundEvery is how often a store past services.maintenance.tracker_limits'
+	// size bound is cleaned up, however little it has grown; and busyPatience
+	// is how long a due cleanup waits for no other process to have the store
+	// open before it starts beside them. Together, with the pass's default
+	// ten-minute cadence, a store past its bound has a cleanup start within
+	// five and a half hours of the last, however busy every developer slot
+	// keeps it. A cleanup reclaims what its history no longer reaches, which a
+	// day of runs leaves plenty of, and holds every tracker call for at most
+	// its max_hold, so four hours apart costs little.
+	overBoundEvery = 4 * time.Hour
+	busyPatience   = time.Hour
+)
+
+// busyWait is since when a due cleanup has waited for the store to be free,
+// and whether it has waited busyPatience and so starts beside the processes
+// holding it. The wait runs from the moment the cleanup fell due, where that is
+// known, or from the first pass that put it off as busy since the last cleanup
+// started, whichever is earlier: so a pass slower than the default cadence
+// does not lengthen it. A record that cannot be read is said, and the wait is
+// then measured from the moment it fell due alone.
+func (p *Pass) busyWait(earlier runstate.TrackerStoreCleanups, dueSince, now time.Time) (since time.Time, beside bool, unread string) {
+	since = dueSince
+	var after time.Time
+	if latest, found := earlier.Latest(); found {
+		after = latest.StartedAt
+	}
+	putOffs, err := p.Cleanups.PutOffsSince(after)
+	if err != nil {
+		unread = err.Error()
+	} else if first, found := putOffs.FirstBusy(); found && (since.IsZero() || first.At.Before(since)) {
+		since = first.At
+	}
+	if since.IsZero() {
+		return since, false, unread
+	}
+	return since, now.Sub(since) >= busyPatience, unread
+}
+
+// recordPutOff records a cleanup that was due and did not start, and says
+// where that could not be done.
+func (p *Pass) recordPutOff(putOff runstate.TrackerStoreCleanupPutOff) string {
+	if err := p.Cleanups.RecordPutOff(putOff); err != nil {
+		return fmt.Sprintf("; the postponement could not be recorded: %v", err)
+	}
+	return ""
 }
 
 // measureTracker measures the tracker's store on a copy of it where a
@@ -880,21 +1009,42 @@ func (p *Pass) lookForMissing(ctx context.Context, lost runstate.TrackerStoreCle
 	return fmt.Sprintf("the items its last cleanup, at %s, found missing (%s) are all in the store again", local(lost.StartedAt), runstate.SayIdentifiers(lost.Missing)), ""
 }
 
+// dueCleanup is whether a cleanup is due: why, where it is, and since when where that
+// is known; or why not and when it will be.
+type dueCleanup struct {
+	reason, notDue string
+	since          time.Time
+}
+
 // cleanupDue says why a cleanup of a store of size bytes is due, or, where
-// none is, why not and when one will be.
-func cleanupDue(earlier runstate.TrackerStoreCleanups, size int64, bounds config.TrackerCleanup, now time.Time) (reason, notDue string) {
+// none is, why not and when one will be. boundMegabytes is the size bound the
+// store is held to (services.maintenance.tracker_limits.store_megabytes): a
+// store past it is cleaned up every overBoundEvery.
+func cleanupDue(earlier runstate.TrackerStoreCleanups, size int64, bounds config.TrackerCleanup, boundMegabytes int, now time.Time) dueCleanup {
 	last, found := earlier.LastFinished()
 	if !found {
-		return "the harness has never finished cleaning it up", ""
+		return dueCleanup{reason: "the harness has never finished cleaning it up"}
 	}
 	every := bounds.Every.Duration()
 	grownBound := int64(bounds.GrownMegabytes) << 20
+	sizeBound := int64(boundMegabytes) << 20
 	grown := size - last.SizeAfter
-	if since := now.Sub(last.StartedAt); since >= every {
-		return fmt.Sprintf("its last cleanup, at %s, was more than %s ago", local(last.StartedAt), bounds.Every), ""
+	since := now.Sub(last.StartedAt)
+	if since >= every {
+		return dueCleanup{reason: fmt.Sprintf("its last cleanup, at %s, was more than %s ago", local(last.StartedAt), bounds.Every), since: last.StartedAt.Add(every)}
 	}
 	if grown >= grownBound {
-		return fmt.Sprintf("it has grown %s since its last cleanup left it at %s, past the %d MB bound", runstate.SayBytes(grown), runstate.SayBytes(last.SizeAfter), bounds.GrownMegabytes), ""
+		return dueCleanup{reason: fmt.Sprintf("it has grown %s since its last cleanup left it at %s, past the %d MB bound", runstate.SayBytes(grown), runstate.SayBytes(last.SizeAfter), bounds.GrownMegabytes)}
+	}
+	over := sizeBound > 0 && size > sizeBound
+	if over && since >= overBoundEvery {
+		fell := dueCleanup{reason: fmt.Sprintf("it is %s, past its %d MB size bound, and its last cleanup, at %s, was more than %s ago", runstate.SayBytes(size), boundMegabytes, local(last.StartedAt), config.Duration(overBoundEvery))}
+		if last.SizeAfter > sizeBound {
+			// It was past the bound once that cleanup ended, so it fell due as the
+			// interval ran out; otherwise when it passed the bound is not known.
+			fell.since = last.StartedAt.Add(overBoundEvery)
+		}
+		return fell
 	}
 	said := fmt.Sprintf("the tracker's store is %s", runstate.SayBytes(size))
 	if grown > 0 {
@@ -905,7 +1055,12 @@ func cleanupDue(earlier runstate.TrackerStoreCleanups, size int64, bounds config
 	if last.Failed != "" {
 		said += fmt.Sprintf("; that cleanup failed: %s", last.Failed)
 	}
-	return "", fmt.Sprintf("%s; the next cleanup is due at %s, or sooner once it has grown %d MB", said, local(last.StartedAt.Add(every)), bounds.GrownMegabytes)
+	next := last.StartedAt.Add(every)
+	if over {
+		next = last.StartedAt.Add(overBoundEvery)
+		said += fmt.Sprintf(", past its %d MB size bound", boundMegabytes)
+	}
+	return dueCleanup{notDue: fmt.Sprintf("%s; the next cleanup is due at %s, or sooner once it has grown %d MB", said, local(next), bounds.GrownMegabytes)}
 }
 
 // cleanupBounds is the configured cleanup, with the default standing for each

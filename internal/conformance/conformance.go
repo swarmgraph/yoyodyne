@@ -137,6 +137,12 @@ type Sources struct {
 	// Both are empty on an ordinary read.
 	ArtifactsUnreadable string
 	TrackerUnreadable   string
+	// TrackerExport is the tracker's export the admitted work was read from,
+	// where it was read from that rather than from the tracker itself, and is
+	// empty on an ordinary read. A reading taken from the export says so in the
+	// goals check's notes, because the export is only as current as the moment
+	// it was copied, and whoever reads the result should know which it judged.
+	TrackerExport string
 }
 
 // Gather assembles the sources from a repository and the work already read out
@@ -386,6 +392,9 @@ func (a *Assessment) checkGoals() error {
 	var mismatches, notes []string
 	if reason := a.sources.TrackerUnreadable; reason != "" {
 		mismatches = append(mismatches, "the work tracker could not be read, so no admitted item's attribution was checked: "+reason)
+	}
+	if export := a.sources.TrackerExport; export != "" {
+		notes = append(notes, "the admitted work was read from the tracker's export, "+export+", as it stood when it was copied, rather than from the tracker itself")
 	}
 	goals := a.sources.Goals
 	if reason, uncheckable := goals.Uncheckable(); uncheckable {

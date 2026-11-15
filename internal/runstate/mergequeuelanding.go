@@ -511,6 +511,15 @@ const (
 	// which leaves the queue with its change kept for the development manager.
 	// It names no failed candidate and charges nothing.
 	MergeQueueReleased MergeQueueContinuation = "released"
+	// MergeQueueLandedOutside is an entry whose change reached the target by
+	// another way while it waited — its run's own pull request merged on the
+	// forge, or its approved head already on the target — so the queue builds
+	// nothing for it. Nothing failed and nothing is charged: the change has
+	// landed, and the entry leaves the queue with that recorded on its run and
+	// its work item (orchestrator's mergequeueoutside.go). TargetBase is the
+	// commit found carrying the change, and HandedBackAt is when the landing was
+	// recorded on the run and the item.
+	MergeQueueLandedOutside MergeQueueContinuation = "landed-outside"
 )
 
 // HandsBackToRun reports a continuation whose failure is recorded on the run
@@ -523,7 +532,7 @@ func (c MergeQueueContinuation) HandsBackToRun() bool {
 
 func (c MergeQueueContinuation) valid() bool {
 	switch c {
-	case MergeQueueContinueRepair, MergeQueueBudgetExhausted, MergeQueueMissingPrerequisite, MergeQueueUnattributed, MergeQueueReleased:
+	case MergeQueueContinueRepair, MergeQueueBudgetExhausted, MergeQueueMissingPrerequisite, MergeQueueUnattributed, MergeQueueReleased, MergeQueueLandedOutside:
 		return true
 	}
 	return false
@@ -611,7 +620,13 @@ func (h MergeQueueHandback) validate() []error {
 	if h.At.IsZero() {
 		problems = append(problems, errors.New("the handback records no time"))
 	}
-	released := h.Continuation == MergeQueueReleased
+	// An entry that landed outside the queue left it the way a released one
+	// does: nothing failed, no candidate is named, and no repair is read.
+	outside := h.Continuation == MergeQueueLandedOutside
+	released := h.Continuation == MergeQueueReleased || outside
+	if outside && (h.TransferTo != "" || !commitPattern.MatchString(h.TargetBase)) {
+		problems = append(problems, errors.New("an entry that landed outside the queue names the commit carrying its change, and no other queue mode"))
+	}
 	switch {
 	case released && h.Class != "":
 		problems = append(problems, fmt.Errorf("a released entry was withdrawn, not failed, and names no failure class (%s)", h.Class))
@@ -677,7 +692,7 @@ func (h MergeQueueHandback) validate() []error {
 	if released && (h.RepairAttempts != 0 || h.RepairBudget != 0) {
 		problems = append(problems, errors.New("a released entry reads no repair budget"))
 	}
-	if h.HandedBackAt != nil && (!h.GoesToRun() || h.HandedBackAt.IsZero()) {
+	if h.HandedBackAt != nil && (!(h.GoesToRun() || outside) || h.HandedBackAt.IsZero()) {
 		problems = append(problems, fmt.Errorf("a %s is not handed back to its run", h.Continuation))
 	}
 	return problems
@@ -698,9 +713,9 @@ type MergeQueueLanding struct {
 	Attempts    []MergeQueuePromotionAttempt `json:"attempts,omitempty"`
 	Recoveries  []MergeQueueRecovery         `json:"recoveries,omitempty"`
 	Completion  *MergeQueueCompletion        `json:"completion,omitempty"`
-	// Handback is the entry handed back for its defective candidate, or
-	// released after its merge was withdrawn for something else; either ends its
-	// turn in the queue as a completion does.
+	// Handback is the entry handed back for its defective candidate, released
+	// after its merge was withdrawn for something else, or found to have landed
+	// outside the queue; each ends its turn in the queue as a completion does.
 	Handback *MergeQueueHandback `json:"handback,omitempty"`
 }
 
@@ -714,7 +729,8 @@ func NewMergeQueueLanding(entry MergeQueueEntry) MergeQueueLanding {
 }
 
 // Waiting reports an entry the queue has not finished with: nothing has
-// recorded its completion, and it has not been handed back.
+// recorded its completion, and it has not been handed back, released, or found
+// landed outside the queue.
 func (l MergeQueueLanding) Waiting() bool {
 	return l.Completion == nil && l.Handback == nil
 }

@@ -32,6 +32,10 @@ var templateOnlyPassages = map[string]map[string]string{
 	"development-manager.md": {
 		"- Check what appears to wait on the operator": "Replacing the coined vocabulary in role guidance (yoyodyne-ifd.437.19) rewords this passage to drop the retired \"whose move\", but grants no write to .yoyodyne/personas/development-manager.md. The change lands as evidence until an authorized change carries the rewording into the bound copy; remove this declaration then.",
 	},
+	"product-manager.md": {
+		"- Open a project that has not written its intent down": "Replacing the coined vocabulary in role guidance (yoyodyne-ifd.437.19) rewords this passage to drop the retired \"gate\", but grants no write to .yoyodyne/personas/product-manager.md. The change lands as evidence until an authorized change carries the rewording into the bound copy; remove this declaration then.",
+		"- Sequencing lives in dependency links":                "Replacing the coined vocabulary in role guidance (yoyodyne-ifd.437.19) rewords this passage to drop the retired \"gate\", but grants no write to .yoyodyne/personas/product-manager.md. The change lands as evidence until an authorized change carries the rewording into the bound copy; remove this declaration then.",
+	},
 	"program-manager.md": {
 		"You own one outcome": "the live copy also names docs/designs/program-manager.md, this repository's own design for the role, which a new project does not have",
 	},

@@ -765,3 +765,48 @@ func TestAStandingFromTheLastGoodListingIsNotReadWhole(t *testing.T) {
 	}
 	t.Fatalf("no held source in %+v", observation.Sources)
 }
+
+// The program is looked for when the check is asked, not taken from what was
+// found when the part started: a program removed after the scheduler started
+// is reported missing on the next observation. One that moved to a usual
+// install folder, where nothing configured its path, is found there and is
+// not missing, because that is where the part will start it from.
+func TestAProgramRemovedAfterTheSchedulerStartedIsReportedMissing(t *testing.T) {
+	t.Parallel()
+
+	observer, files := whole(t)
+	observer.InstallFolders = []string{"/home/someone/.local/bin", "/opt/homebrew/bin"}
+	observer.FolderCommands = map[string]bool{"claude": true}
+	scheduler := func(observation Observation) Copy {
+		for _, service := range observation.Services {
+			if service.Name == "scheduler" {
+				return service.Copies[0]
+			}
+		}
+		t.Fatalf("no scheduler in %+v", observation.Services)
+		return Copy{}
+	}
+	observation := observer.Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+	if got := scheduler(observation).Commands; !reflect.DeepEqual(got, []Command{{Name: "claude", Found: true, Path: "/bin/claude"}}) {
+		t.Fatalf("before the removal = %+v", got)
+	}
+
+	delete(files, "/bin/claude")
+	observation = observer.Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+	missing := find(t, observation, "yoyodyne/-/missing-command:scheduler:claude")
+	if missing.Classification != ClassMissingCommand || !strings.Contains(missing.Says, "nor in the usual install folders /home/someone/.local/bin, /opt/homebrew/bin") {
+		t.Fatalf("after the removal = %+v, want the program reported missing", missing)
+	}
+
+	files["/home/someone/.local/bin/claude"] = true
+	observation = observer.Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+	want := []Command{{Name: "claude", Found: true, Path: "/home/someone/.local/bin/claude", InInstallFolder: true}}
+	if got := scheduler(observation).Commands; !reflect.DeepEqual(got, want) {
+		t.Fatalf("after the move = %+v, want %+v", got, want)
+	}
+	for _, anomaly := range observation.Anomalies {
+		if anomaly.Classification == ClassMissingCommand {
+			t.Fatalf("a program the part will find in a usual install folder was reported missing: %+v", anomaly)
+		}
+	}
+}

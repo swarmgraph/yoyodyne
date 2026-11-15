@@ -183,6 +183,7 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 	if architect {
 		trigger.NeedsDesign = needsDesignItems{repository: parts.repository, refresh: parts.tracker().RefreshExportIfDue}
 		trigger.NeedsDesignWakes = parts.store.NeedsDesignWakes()
+		trigger.NeedsDesignLabelled = parts.store.NeedsDesignLabelled()
 	}
 	// The harness's own reading of the forge on the development manager's pass,
 	// through the same client the publication path opens and merges requests

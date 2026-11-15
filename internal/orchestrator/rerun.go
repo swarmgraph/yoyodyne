@@ -968,7 +968,7 @@ func (r Rerunner) itemCanBeRun(ctx context.Context, workItemID string) (beads.Wo
 	}
 	discharged, err := r.Gates.DischargedGates()
 	if err != nil {
-		return beads.WorkItem{}, fmt.Errorf("read the human gates a person has passed: %w", err)
+		return beads.WorkItem{}, fmt.Errorf("read the steps a person has recorded taking: %w", err)
 	}
 	if gates := humangate.Of(item).Pending(discharged[item.ID]); gates.Holds() {
 		return beads.WorkItem{}, fmt.Errorf("work item %s is %s; nothing was claimed, so the stoppage keeps its re-run — a re-run is the harness choosing work, and no decision of the development manager's passes a step reserved for a person",
@@ -1717,7 +1717,7 @@ func (r Rerunner) validate() error {
 		problems = append(problems, errors.New("a re-run requires the work item, because a fresh run starts on it and a re-run that cannot read it would spend the stoppage's claim to find that out"))
 	}
 	if r.Gates == nil {
-		problems = append(problems, errors.New("a re-run requires the human gates a person has passed, because a re-run is the harness choosing work and a gated item is not work it may choose"))
+		problems = append(problems, errors.New("a re-run requires the steps a person has recorded taking, because a re-run is the harness choosing work and an item waiting on a person is not work it may choose"))
 	}
 	if r.Start == nil {
 		problems = append(problems, errors.New("a re-run requires a way to start a run"))

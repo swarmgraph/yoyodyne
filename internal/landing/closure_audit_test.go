@@ -141,9 +141,9 @@ var auditedClosures = []closureSite{
 		Why: "the forge check settling a run whose pull request a person merged. The merge settles where the work is and not whether it discharges the item, so the developer's claim and the reviewer's approval are read back from the run's durable record, and an undischarged change goes to settleUndischarged instead of closing.",
 	},
 	{
-		File: "internal/orchestrator/teammergesettle.go", Declaration: "(Reconciler) settleTeamMerge", Calls: 1,
+		File: "internal/orchestrator/teammergesettle.go", Declaration: "(Reconciler) closeOnTeamMerge", Calls: 1,
 		ConsultsDischarge: true, Kind: kindSettlement,
-		Why: "the forge check closing an item whose change landed on the target branch once the team's branch carries its landing commit. A wait is recorded only for a change that discharges its item, and the check reads that back from the run's durable record before closing, leaving the item claimed where it no longer says so.",
+		Why: "the forge check closing an item whose change landed on the target branch once the team's branch carries its landing commit, or once the tracked pull request into the team's branch that carries it merges. A wait is recorded only for a change that discharges its item, and the closing reads that back from the run's durable record first, leaving the item claimed where it no longer says so.",
 	},
 	{
 		File: "internal/orchestrator/reconcile.go", Declaration: "(Reconciler) completeIntegrated", Calls: 1,
@@ -151,14 +151,14 @@ var auditedClosures = []closureSite{
 		Why: "the sweep finishing a run somebody interrupted after its change was promoted. It decides the same way the run itself would have, from the same durable record, so an interrupted run and a finished one leave the item in the same place.",
 	},
 	{
-		File: "internal/orchestrator/mergequeuepromotion.go", Declaration: "(MergeQueueRunCompletion) RecordWorkItem", Calls: 1,
+		File: "internal/orchestrator/mergequeuepromotion.go", Declaration: "(MergeQueueRunCompletion) settleLandedItem", Calls: 1,
 		ConsultsDischarge: true, Kind: kindSettlement,
-		Why: "the merge queue settling the item of a change it landed, once the landing is confirmed on the target. The candidate's own checks and review authorized the landing and say nothing about whether the change finishes the item, so the developer's claim and the reviewer's approval are read back from the run's durable record, as the sweep reads them for a merge the forge performed; anything that does not discharge goes to settleUndischarged instead.",
+		Why: "the merge queue settling the item of a change that landed, once the landing is confirmed on the target: one it landed itself (RecordWorkItem), or one found already on the target outside the queue, merged by a person (RecordOutside). Neither the candidate's own checks and review nor a person's merge says whether the change finishes the item, so the developer's claim and the reviewer's approval are read back from the run's durable record, as the sweep reads them for a merge the forge performed; anything that does not discharge goes to settleUndischarged instead.",
 	},
 	{
 		File: "internal/orchestrator/outsidefilequeue.go", Declaration: "(HarnessRunItems) Complete", Calls: 1,
 		ConsultsDischarge: false, Kind: kindUnrelated,
-		Why: "the tracker the merge queue is given, passing a closure on unchanged. For a work item the tracker holds it forwards exactly the closure its caller decided, and the merge queue's only caller is MergeQueueRunCompletion.RecordWorkItem, which reads the run's discharge first; for the bookkeeping item of a run that brings a file in, or of a document run, it closes nothing and writes a note on the item the run is for. It decides no closure of its own.",
+		Why: "the tracker the merge queue is given, passing a closure on unchanged. For a work item the tracker holds it forwards exactly the closure its caller decided, and the merge queue's only caller is MergeQueueRunCompletion.settleLandedItem, which reads the run's discharge first; for the bookkeeping item of a run that brings a file in, or of a document run, it closes nothing and writes a note on the item the run is for. It decides no closure of its own.",
 	},
 	{
 		File: "internal/orchestrator/conversationlanding.go", Declaration: "(ConversationLander) Settle", Calls: 1,

@@ -111,6 +111,7 @@ var strictSites = map[string]strictSite{
 	"internal/runstate/documentwait.go:(*Store).documentWait":                     {strictValidator, "a waiting document is published from its record, so one this build cannot read whole is refused rather than published from part of it; the read model reports it"},
 	"internal/runstate/passcursor.go:(*PassCursorStore).Load":                     {strictWriter, "an instance's cursor is read to be advanced and written back, and a cursor nobody can read must stop its passes rather than hand them nothing or everything"},
 	"internal/runstate/needsdesignwake.go:(*NeedsDesignWakeStore).Load":           {strictWriter, "the record is read to be added to and written back, and one nobody can read must stop the architect's wake rather than wake her again for every labelled item"},
+	"internal/runstate/needsdesignlabelled.go:(*NeedsDesignLabelledStore).load":   {strictWriter, "the strict read is the writer's, which writes the record back; the surfaces that only show the wait read through Load, which reads past a field it does not know"},
 	"internal/runstate/lanereport.go:(*LaneReportStore).decode":                   {strictWriter, "the writer numbers the next version from the history and writes it back; Current and History read through the tolerant door"},
 	"internal/runstate/memory.go:decodeMemoryRevision":                            {strictValidator, "a revision that will not decode is reported as a problem against its line, and the lines beside it are read"},
 	"internal/readmodel/attention.go:(*Attention).UnmarshalJSON":                  {strictValidator, "no stored record is read through it; it holds the dashboard's fixtures and scripted readers to the shape"},
@@ -119,7 +120,7 @@ var strictSites = map[string]strictSite{
 	// was written seconds ago by a role this build instructed, and the refusal
 	// reaches the turn as an error naming the block.
 	"internal/amendment/amendment.go:Decode":            {strictValidator, "an amendment block in an agent's reply"},
-	"internal/artifact/write.go:DecodeWrites":           {strictValidator, "a document-write block in an owning role's conversation reply"},
+	"internal/artifact/write.go:decodeWriteDocument":    {strictValidator, "a document-write block in an owning role's conversation reply"},
 	"internal/chat/concern.go:decodeConcerns":           {strictValidator, "a concern block in a conversation reply"},
 	"internal/chat/intervention.go:extractIntervention": {strictValidator, "an intervention block in a conversation reply"},
 	"internal/chat/lanereport.go:decodeLaneReport":      {strictValidator, "a lane report block in a program manager's reply"},

@@ -17,6 +17,7 @@ package backlog
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -308,10 +309,20 @@ type Entry struct {
 	// not in the queue is a parking the queue's readers do not share, and what
 	// they do instead is pull the work.
 	Parking domain.WorkItemParking `json:"parking,omitempty"`
+	// Placement is the Lead Product Manager's record that this item goes first
+	// among work of its own priority, where one still orders it, and nil where
+	// none does. It is on the entry for the reason the parking is: a placement
+	// the queue's readers do not see is an order they cannot explain.
+	Placement *beads.Placement `json:"placement,omitempty"`
 	// NeedsDesign reports an item carrying the needs-design label: it is not to
 	// be started until the architect's design for it is readable. It is on the
 	// entry for the reason the parking is, and holds the item as a parking does.
 	NeedsDesign bool `json:"needs_design,omitempty"`
+	// NeedsDesignSince is when the harness first saw the item carrying the
+	// label, and zero where that is not known: the queue is ordered from the
+	// tracker, which keeps no such time, and a caller holding the harness's
+	// record of it adds it with WithNeedsDesignSince.
+	NeedsDesignSince time.Time `json:"needs_design_since,omitzero"`
 	// Landing is the revision the harness already closed this item on, where it
 	// did and somebody has since reopened it, and is empty for everything else.
 	// It is on the entry because the sweep that closes conversation-carried work
@@ -537,6 +548,7 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 			Status:         item.Status,
 			Executor:       item.Executor,
 			Parking:        item.Parking,
+			Placement:      item.PlacedFirst(),
 			NeedsDesign:    needsDesign,
 			Landing:        item.Landing,
 			Awaiting:       awaiting,
@@ -608,7 +620,12 @@ func startable(item beads.WorkItem, reportedReady bool, waiting []string, held H
 }
 
 // Sort puts work items in the backlog's order in place, highest priority first,
-// and items of equal priority oldest-admitted first. It is exported because more
+// then, within one priority, the items the Lead Product Manager placed first
+// (earliest placement first), then the rest oldest-admitted first. A placement
+// never lifts an item above a higher priority, and one that no longer orders
+// its item — closed, or moved to another priority — counts for nothing
+// (beads.WorkItem.PlacedFirst; docs/designs/placing-an-item-first.md). It is
+// exported because more
 // than one place shows the same work — the queue an operator reads and the
 // tracker state the product manager reasons over — and a listing that disagreed
 // with the order would be a listing that misinforms whoever is setting it.
@@ -627,6 +644,15 @@ func Sort(items []beads.WorkItem) {
 		if items[i].Priority != items[j].Priority {
 			return items[i].Priority < items[j].Priority
 		}
+		leftPlaced, rightPlaced := items[i].PlacedFirst(), items[j].PlacedFirst()
+		switch {
+		case leftPlaced != nil && rightPlaced != nil:
+			if !leftPlaced.At.Equal(rightPlaced.At) {
+				return leftPlaced.Before(*rightPlaced)
+			}
+		case leftPlaced != nil || rightPlaced != nil:
+			return leftPlaced != nil
+		}
 		left, right := items[i].CreatedAt, items[j].CreatedAt
 		switch {
 		case left.IsZero() || right.IsZero():
@@ -635,6 +661,16 @@ func Sort(items []beads.WorkItem) {
 			return left.Before(right)
 		}
 	})
+}
+
+// PlacementLine is the line a listing shows beside an entry placed first among
+// its priority, and empty for every other entry, so an unplaced entry reads
+// exactly as it did before placements existed.
+func (e Entry) PlacementLine() string {
+	if e.Placement == nil {
+		return ""
+	}
+	return e.Placement.Line()
 }
 
 // Next is the item to pull now: the first entry in the product manager's order
@@ -774,6 +810,9 @@ func (q Queue) Render() string {
 		}
 		fmt.Fprintf(&rendered, "  %d. [%s] p%d%s %s\n", entry.Position, entry.ID, entry.Priority, parked,
 			singleLine(entry.Title, maxRenderedTitleBytes))
+		if line := entry.PlacementLine(); line != "" {
+			fmt.Fprintf(&rendered, "    %s\n", line)
+		}
 		if len(entry.RelevantGoals) > 0 {
 			fmt.Fprintf(&rendered, "    relevant goals: %s\n", strings.Join(entry.RelevantGoals, "; "))
 		}
@@ -911,6 +950,36 @@ const (
 // reads the same refusal wherever she meets it.
 const NeedsDesignHold = "labelled " + domain.NeedsDesignLabel + ", so nothing the harness chooses starts it until the architect's design for it is readable — written into the item's design field, or landed in docs/designs naming the item — and the architect removes the label. A run already going on it carries on, and a run the operator names is not held"
 
+// NeedsDesignHoldSince is NeedsDesignHold saying since when the item has
+// waited on the architect's design, in local time with the zone, where that is
+// known; it is NeedsDesignHold itself where it is not.
+func NeedsDesignHoldSince(since time.Time) string {
+	if since.IsZero() {
+		return NeedsDesignHold
+	}
+	return strings.Replace(NeedsDesignHold, "labelled "+domain.NeedsDesignLabel+",",
+		"labelled "+domain.NeedsDesignLabel+" since "+since.Local().Format("2006-01-02 15:04 MST")+",", 1)
+}
+
+// WithNeedsDesignSince is the queue with each entry carrying the needs-design
+// label given since when it has carried it, as since answers for its id.
+func (q Queue) WithNeedsDesignSince(since func(id string) (time.Time, bool)) Queue {
+	if since == nil {
+		return q
+	}
+	entries := slices.Clone(q.Entries)
+	for index, entry := range entries {
+		if !entry.NeedsDesign {
+			continue
+		}
+		if at, known := since(entry.ID); known {
+			entries[index].NeedsDesignSince = at
+		}
+	}
+	q.Entries = entries
+	return q
+}
+
 // HoldKind is the kind of the refusal Hold returns, from the same reading.
 func (e Entry) HoldKind() HoldKind {
 	kind, _ := e.hold()
@@ -926,7 +995,7 @@ func (e Entry) hold() (HoldKind, string) {
 	case e.Parking.Parked():
 		return HeldParked, "parked, so no pull selects it however far the queue drains: " + e.Parking.Reason()
 	case e.NeedsDesign:
-		return HeldForDesign, NeedsDesignHold
+		return HeldForDesign, NeedsDesignHoldSince(e.NeedsDesignSince)
 	case e.Awaiting != "" && e.AwaitingLanding:
 		// A wait rather than a hold for a person: nobody decides anything, and it
 		// clears as the parent's change lands.

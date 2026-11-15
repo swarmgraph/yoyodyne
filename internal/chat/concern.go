@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/console"
+	"github.com/mason-bryant/yoyodyne/internal/goal"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -55,6 +56,16 @@ const MaxConcernBlockBytes = 16 << 10
 const (
 	maxConcernSubjectBytes = 200
 	maxConcernTextBytes    = 4 << 10
+	// maxConcernGoalBytes is the goal's bound, and it is the bound a goal
+	// statement is held to rather than the subject's: the goal names a recorded
+	// goal, by its identifier or in the words its document states it in, and a
+	// goal's own words run to goal.MaxStatementBytes. A tighter bound here
+	// refused every concern naming a long goal in full, which a role had no way
+	// to avoid where the goal states no identifier.
+	maxConcernGoalBytes = goal.MaxStatementBytes
+	// maxConcernGoalBytesText is the same bound as the contract states it; a test
+	// keeps the two equal.
+	maxConcernGoalBytesText = "400"
 )
 
 // ConcernKind is which of the cases a concern is. They are kept apart rather
@@ -295,7 +306,7 @@ func (c Concern) Validate() error {
 	goalRequired := c.Kind == ConcernConflict || c.Kind == ConcernJudgement
 	switch {
 	case goalRequired:
-		problems = append(problems, boundConcernLine("goal", c.Goal, maxConcernSubjectBytes, true))
+		problems = append(problems, boundConcernLine("goal", c.Goal, maxConcernGoalBytes, true))
 	case c.Kind == ConcernUnplaceable && strings.TrimSpace(c.Goal) != "":
 		problems = append(problems, errors.New("unplaceable does not take \"goal\"; it is the case where there is no goal to name"))
 	}
@@ -311,6 +322,44 @@ func (c Concern) Validate() error {
 		return fmt.Errorf("invalid concern: %w", err)
 	}
 	return nil
+}
+
+// verifyConcernGoals checks that every concern naming a goal names one the
+// repository records, resolved exactly as a proposal's goal is: by its
+// identifier where it opens with one, and otherwise by the words its document
+// states it in. A concern is a question put to the operator about that goal, and
+// a question about a goal nothing states is one they cannot answer.
+//
+// A repository with no goals to check against refuses nothing, for the reason
+// verifyProposalGoals gives.
+func (s *Session) verifyConcernGoals(concerns []Concern) error {
+	if _, uncheckable := s.options.Goals.Uncheckable(); uncheckable {
+		return nil
+	}
+	var problems []error
+	for i, concern := range concerns {
+		if strings.TrimSpace(concern.Goal) == "" {
+			continue
+		}
+		attribution := s.options.Goals.Attribute(concern.Goal)
+		if attribution.State != goal.StateUnresolved {
+			continue
+		}
+		problems = append(problems, fmt.Errorf("concerns[%d] about %q names the goal %q, and %s",
+			i, strings.TrimSpace(concern.Subject), attribution.Named, attribution.Reason))
+	}
+	return errors.Join(problems...)
+}
+
+// renderConcernRefusal is what the role is told when its concerns were refused
+// for naming a goal nothing records. Like a refused document it is a result
+// handed back rather than a failed turn: nothing in the block reached the
+// operator, the rest of the reply is carried out, and the role can raise the
+// concerns again naming the goal as it is recorded.
+func renderConcernRefusal(problem error) string {
+	return fmt.Sprintf("# Concerns refused\n\n%s\n\nNothing in the concern block was put to the operator. "+
+		"Name each goal by its identifier where its goals document states one, or otherwise in the words that document states it in, and raise the concerns again. "+
+		"Other actions in the reply continue.\n\n", problem)
 }
 
 func concernKindNames() []string {

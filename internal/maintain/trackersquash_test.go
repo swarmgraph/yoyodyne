@@ -784,6 +784,10 @@ func (s *timingOutTracker) CleanUpStore(context.Context, time.Duration) (beads.S
 	return beads.StoreCleanup{Store: "/opt/calc/.beads/embeddeddolt", SizeBefore: 1033 * megabyte}, errors.New("count the work items: bd list --all: timed out after 30s")
 }
 
+func (s *timingOutTracker) CleanUpStoreBeside(ctx context.Context, hold time.Duration) (beads.StoreCleanup, error) {
+	return s.CleanUpStore(ctx, hold)
+}
+
 func (s *timingOutTracker) MissingItems(context.Context, []string) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

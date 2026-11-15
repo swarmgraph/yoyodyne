@@ -30,6 +30,7 @@ import (
 	"io/fs"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -278,6 +279,12 @@ func (g MergeQueueGeneration) WaitsOnTarget() bool {
 // generation's candidate. It is written when the checks start, with no
 // FinishedAt, and again when they end, so a worker that died between the two
 // leaves a record that says the checks began and earned nothing.
+//
+// Each check that passes is added to Results as it passes, before the stage
+// ends, so a stage cut off part-way leaves on the record which of its checks
+// had already passed. Those results are bound to the generation — its exact
+// candidate and its check list — so the next attempt at the stage on the same
+// generation keeps them and runs only the rest (MergeQueueInterruption.Passed).
 type MergeQueueCheckEvidence struct {
 	Binding    string                  `json:"binding"`
 	StartedAt  time.Time               `json:"started_at"`
@@ -287,6 +294,13 @@ type MergeQueueCheckEvidence struct {
 	// runner failed, or the stage was stopped. Checks with a problem earn
 	// nothing whatever their results say.
 	Problem string `json:"problem,omitempty"`
+	// Kept names the checks whose results this attempt took from the attempt
+	// set aside before it, on the same generation, rather than running them.
+	Kept []string `json:"kept,omitempty"`
+	// RunWhole is why this attempt ran every check although an earlier attempt
+	// on the same generation had been set aside: the record of what passed on
+	// it could not be used. Empty where results were kept, or none had passed.
+	RunWhole string `json:"run_whole,omitempty"`
 }
 
 // MergeQueueCheckResult is how one configured check ended over a candidate.
@@ -328,6 +342,18 @@ type MergeQueueInterruption struct {
 	// Problem is why a finished attempt earned nothing, and empty for one that
 	// never finished.
 	Problem string `json:"problem,omitempty"`
+	// Binding and Passed are, for an attempt at the checks, the generation the
+	// attempt's checks were recorded against and the checks that had passed on
+	// it before it was set aside. The next attempt on the same generation keeps
+	// those results and runs only the other checks. An interruption written
+	// before passed checks were kept carries neither.
+	Binding string                  `json:"binding,omitempty"`
+	Passed  []MergeQueueCheckResult `json:"passed,omitempty"`
+}
+
+func sameInterruption(a, b MergeQueueInterruption) bool {
+	return a.Stage == b.Stage && a.StartedAt.Equal(b.StartedAt) && a.FoundAt.Equal(b.FoundAt) &&
+		a.Problem == b.Problem && a.Binding == b.Binding && slices.Equal(a.Passed, b.Passed)
 }
 
 // MergeQueueLaunch is one process a stage of a generation was started as.
@@ -537,8 +563,11 @@ func (g MergeQueueGeneration) validate() error {
 		if g.CheckRun.StartedAt.IsZero() {
 			problems = append(problems, errors.New("its checks record no start"))
 		}
-		if len(g.CheckRun.Problem) > maxMergeQueueEvidenceText {
+		if len(g.CheckRun.Problem) > maxMergeQueueEvidenceText || len(g.CheckRun.RunWhole) > maxMergeQueueEvidenceText {
 			problems = append(problems, errors.New("its checks' problem exceeds its bound"))
+		}
+		if len(g.CheckRun.Kept) > len(g.Checks.Commands) {
+			problems = append(problems, errors.New("its checks keep more results than it has checks"))
 		}
 		for _, result := range g.CheckRun.Results {
 			if len(result.CouldNotRun) > maxMergeQueueEvidenceText {
@@ -582,6 +611,14 @@ func (g MergeQueueGeneration) validate() error {
 		}
 		if !interruption.Stage.valid() {
 			problems = append(problems, fmt.Errorf("interrupted stage %q is not one of the stages a generation has", interruption.Stage))
+		}
+		if len(interruption.Passed) > len(g.Checks.Commands) || (len(interruption.Passed) > 0 && interruption.Stage != MergeQueueStageChecks) {
+			problems = append(problems, errors.New("an interruption keeps more passed checks than its stage has"))
+		}
+		for _, passed := range interruption.Passed {
+			if !passed.Passed || len(passed.CouldNotRun) > maxMergeQueueEvidenceText {
+				problems = append(problems, errors.New("an interruption keeps a check that did not pass"))
+			}
 		}
 	}
 	if g.Invalidated != nil {
@@ -810,7 +847,7 @@ func revisable(recorded, revised MergeQueueGeneration) error {
 		return conflict("an interruption is never removed")
 	}
 	for index, interruption := range recorded.Interruptions {
-		if revised.Interruptions[index] != interruption {
+		if !sameInterruption(revised.Interruptions[index], interruption) {
 			return conflict("an interruption is never rewritten")
 		}
 	}
@@ -821,7 +858,8 @@ func sameCheckEvidence(a, b *MergeQueueCheckEvidence) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	if a.Binding != b.Binding || !a.StartedAt.Equal(b.StartedAt) || !sameTime(a.FinishedAt, b.FinishedAt) || a.Problem != b.Problem || len(a.Results) != len(b.Results) {
+	if a.Binding != b.Binding || !a.StartedAt.Equal(b.StartedAt) || !sameTime(a.FinishedAt, b.FinishedAt) || a.Problem != b.Problem || len(a.Results) != len(b.Results) ||
+		!slices.Equal(a.Kept, b.Kept) || a.RunWhole != b.RunWhole {
 		return false
 	}
 	for index := range a.Results {

@@ -274,7 +274,7 @@ func approveArtifact(ctx context.Context, args []string, stdout, stderr io.Write
 	// Said every time, because the one way this could quietly become something
 	// else is somebody reading an approval as a change to the document or as a
 	// gate that has now opened. It is neither.
-	fmt.Fprintln(stdout, "recorded in the document's frontmatter; nothing the document says changed, and no gate moved")
+	fmt.Fprintln(stdout, "recorded in the document's frontmatter; nothing the document says changed, and nothing held back was let through")
 	// And where that record now sits, which is the other thing said every time:
 	// this command wrote into the checkout the configuration pointed it at, and
 	// the write stops there. It is printed after the approval rather than before
@@ -310,7 +310,7 @@ func approveThroughRun(ctx context.Context, pipeline orchestrator.Pipeline, flag
 	fmt.Fprintf(stdout, "%s [%s, %s] %s\n", candidate.ID, candidate.Kind, candidate.Status, candidate.Title)
 	fmt.Fprintf(stdout, "file: %s\n", candidate.Path)
 	fmt.Fprintf(stdout, "approval: %s\n", renderArtifactApproval(candidate, policy))
-	fmt.Fprintln(stdout, "recorded in the document's frontmatter as the run lands it; nothing the document says changed, and no gate moved")
+	fmt.Fprintln(stdout, "recorded in the document's frontmatter as the run lands it; nothing the document says changed, and nothing held back was let through")
 	fmt.Fprintln(stdout, publishing)
 	fmt.Fprintln(stdout, published)
 	return 0

@@ -136,7 +136,47 @@ func (r Reconciler) settleTeamMerge(ctx context.Context, reader TeamBranchReader
 	}
 	headline := teamMergeFoundHeadline(wait)
 	notes := headline + "\n" + fmt.Sprintf("%s was at %s when it was read.", wait.UpstreamBranch, reading.Tip)
-	err = r.recovering(ctx, &state, runstate.RetryTrackerWrite, func(ctx context.Context) error {
+	err = r.closeOnTeamMerge(ctx, &state, teamMergeClosing{
+		Branch:   wait.UpstreamBranch,
+		Headline: headline,
+		Notes:    notes,
+		Reason:   teamMergeCompletionReason(state, wait),
+		Found:    runstate.TeamMergeFound{LandingCommit: wait.LandingCommit, FoundOn: reading.Tip, At: r.clock().Now()},
+	})
+	if err != nil {
+		result.Failure = err.Error()
+		return result
+	}
+	result.Settled = true
+	return result
+}
+
+// teamMergeClosing is what closes the item of a run whose wait for the team's
+// merge has ended, and what the run records about it.
+type teamMergeClosing struct {
+	// Branch is the team's branch, named when a write fails.
+	Branch string
+	// Headline is the first line of Notes, and the line a repeated write is
+	// recognised by.
+	Headline string
+	Notes    string
+	Reason   string
+	Found    runstate.TeamMergeFound
+}
+
+// closeOnTeamMerge closes the item of a run held under its lease, writing the
+// note only once, then records on the run that the wait ended and settles the
+// item's docket entry. An item already closed is not written to again.
+//
+// The team's merge settles where the work is, not whether it is the work the
+// item asked for, so the run's record is asked here, where the item is closed,
+// whether its change discharges the item. Callers ask first too, to say why a
+// wait is left as it stands.
+func (r Reconciler) closeOnTeamMerge(ctx context.Context, state *runstate.State, closing teamMergeClosing) error {
+	if !state.Discharges() {
+		return fmt.Errorf("run %s's record does not say its change discharges %s, so the team's merge does not close it", state.RunID, state.WorkItemID)
+	}
+	err := r.recovering(ctx, state, runstate.RetryTrackerWrite, func(ctx context.Context) error {
 		item, err := r.Tracker.Show(ctx, state.WorkItemID)
 		if err != nil {
 			return fmt.Errorf("load work item %s: %w", state.WorkItemID, err)
@@ -144,32 +184,28 @@ func (r Reconciler) settleTeamMerge(ctx context.Context, reader TeamBranchReader
 		if item.Status == closedStatus {
 			return nil
 		}
-		if !notesCarry(item.Notes, headline) {
-			if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, notes); err != nil {
+		if !notesCarry(item.Notes, closing.Headline) {
+			if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, closing.Notes); err != nil {
 				return fmt.Errorf("record the team's merge on %s: %w", state.WorkItemID, err)
 			}
 		}
-		if _, err := r.Tracker.Complete(ctx, state.WorkItemID, teamMergeCompletionReason(state, wait)); err != nil {
-			return fmt.Errorf("close work item %s on the team's merge into %s: %w", state.WorkItemID, wait.UpstreamBranch, err)
+		if _, err := r.Tracker.Complete(ctx, state.WorkItemID, closing.Reason); err != nil {
+			return fmt.Errorf("close work item %s on the team's merge into %s: %w", state.WorkItemID, closing.Branch, err)
 		}
 		return nil
 	})
 	if err != nil {
-		result.Failure = err.Error()
-		return result
+		return err
 	}
-	now := r.clock().Now()
-	if _, err := r.Store.Update(ctx, state.RunID, runstate.TeamMergeFound{LandingCommit: wait.LandingCommit, FoundOn: reading.Tip, At: now}); err != nil {
-		result.Failure = fmt.Errorf("record on run %s that %s carries %s: %w", state.RunID, wait.UpstreamBranch, wait.LandingCommit, err).Error()
-		return result
+	if _, err := r.Store.Update(ctx, state.RunID, closing.Found); err != nil {
+		return fmt.Errorf("record on run %s that %s carries %s: %w", state.RunID, closing.Branch, closing.Found.LandingCommit, err)
 	}
 	if r.Docket != nil {
 		// A closure that cannot be written does not undo the item's: the sweep
 		// closes every docket entry whose item the tracker holds as closed.
-		_, _ = r.Docket.SettleClosedItem(state.WorkItemID, teamMergeCompletionReason(state, wait))
+		_, _ = r.Docket.SettleClosedItem(state.WorkItemID, closing.Reason)
 	}
-	result.Settled = true
-	return result
+	return nil
 }
 
 // teamMergeFoundHeadline is the note's first line, and the line a repeated

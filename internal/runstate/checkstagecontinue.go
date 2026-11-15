@@ -294,7 +294,7 @@ func (s State) CheckStageStopSays() string {
 	}
 	if s.HarnessContinuesCheckStage() {
 		return fmt.Sprintf(
-			"%s; the harness continues it itself, re-running the checks on the change the run already has, on the same branch and worktree, at the next pull with a developer slot free, ahead of fresh work at equal or lower priority, without waiting on machine load; after 30 minutes waiting, the item names any remaining gate and what clears it — no developer is invoked and no review round, repair grant, or re-run is spent (rerun %d of %d on this candidate)",
+			"%s; the harness continues it itself, re-running the checks on the change the run already has, on the same branch and worktree, at the next pull with a developer slot free, ahead of fresh work at equal or lower priority, without waiting on machine load; after 30 minutes waiting, the item names anything it still waits on and what clears it — no developer is invoked and no review round, repair grant, or re-run is spent (rerun %d of %d on this candidate)",
 			stopped, len(s.CheckReruns())+1, MaxCheckStageContinuations)
 	}
 	if refused := strings.TrimSpace(s.CheckStageContinuationRefused); refused != "" {

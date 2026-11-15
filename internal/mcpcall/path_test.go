@@ -512,3 +512,89 @@ func TestAServerThatNeverAnswersIsEndedAtTheLimitAndTheCallerCarriesOn(t *testin
 		t.Fatalf("the caller could not carry on: %+v", after)
 	}
 }
+
+func TestTheRecordSaysHowMuchOfAResultReachedTheCaller(t *testing.T) {
+	f := newPathFixture(t)
+	f.do(t, f.lead(t),
+		Request{Tool: "fake.big", Arguments: json.RawMessage(`{"bytes":40000}`)},
+		Request{Tool: "fake.echo", Arguments: json.RawMessage(`{"q":"x"}`)},
+		Request{Tool: "fake.big", Arguments: json.RawMessage(`{"bytes":300000}`)},
+		Request{Tool: "fake.big", Arguments: json.RawMessage(`{"bytes":10}`)})
+	records := f.records(t)
+	if records[0].ShownBytes != 32<<10 || records[0].ResultBytes != 40000 || len(records[0].Result) != 40000 {
+		t.Errorf("first shown %d of %d, want 32 KiB of 40000", records[0].ShownBytes, records[0].ResultBytes)
+	}
+	if records[1].ShownBytes != len(records[1].Result) || records[1].ShownBytes == 0 {
+		t.Errorf("a whole result shown %d of %d", records[1].ShownBytes, len(records[1].Result))
+	}
+	// The reply's room is 64 KiB for every call in it, so the third call gets
+	// what the first two left.
+	if want := 64<<10 - 32<<10 - records[1].ShownBytes; records[2].ShownBytes != want {
+		t.Errorf("third shown %d, want %d", records[2].ShownBytes, want)
+	}
+	// The reply's 64 KiB were used up, so the fourth call was refused and shows
+	// nothing.
+	if records[3].Outcome != OutcomeRefused || records[3].ShownBytes != 0 {
+		t.Errorf("fourth = %+v", records[3])
+	}
+}
+
+func TestForRunReadsOnlyTheDeveloperOfThatRunFromTheDaysItCouldHaveStarted(t *testing.T) {
+	f := newPathFixture(t)
+	records := f.path.Records
+	day := func(d time.Time) { records.now = func() time.Time { return d } }
+	mid := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	developer := CallerRecord{Kind: CallerDeveloper, Role: domain.RoleDeveloper, Agent: "dev", Run: "run-a", Attempt: 1}
+	write := func(entry string, caller CallerRecord, started time.Time) {
+		t.Helper()
+		day(started)
+		if err := records.append(Record{Entry: entry, Phase: PhaseSettled, Caller: caller, StartedAt: started, Tool: "fake.echo",
+			Class: config.MCPRead, Outcome: OutcomePerformed}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	other := developer
+	other.Run = "run-b"
+	conversation := CallerRecord{Kind: CallerConversation, Run: "run-a"}
+	write("late", developer, mid.Add(time.Hour))
+	write("early", developer, mid.Add(-48*time.Hour))
+	write("other-run", other, mid)
+	write("lead", conversation, mid)
+	// An entry left unsettled reads as the same kind of failure Read gives it.
+	day(mid.Add(2 * time.Hour))
+	if err := records.append(Record{Entry: "killed", Phase: PhaseAsked, Caller: developer, StartedAt: mid.Add(2 * time.Hour), Tool: "fake.echo", Class: config.MCPRead}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, unreadable, err := records.ForRun("run-a", time.Time{})
+	if err != nil || unreadable != 0 {
+		t.Fatalf("ForRun: %d unreadable, %v", unreadable, err)
+	}
+	var names []string
+	for _, record := range got {
+		names = append(names, record.Entry)
+	}
+	if strings.Join(names, ",") != "early,late,killed" {
+		t.Fatalf("entries = %v, want the run's developer calls in start order", names)
+	}
+	if got[2].Outcome != OutcomeFailed {
+		t.Errorf("an unsettled read = %q, want failed", got[2].Outcome)
+	}
+
+	// A run that started on the 10th holds nothing from a file of the 8th, and
+	// the day it started on counts, whatever the hour.
+	got, _, err = records.ForRun("run-a", mid.Add(-10*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names = nil
+	for _, record := range got {
+		names = append(names, record.Entry)
+	}
+	if strings.Join(names, ",") != "late,killed" {
+		t.Fatalf("entries since the 10th = %v", names)
+	}
+	if all, _, _ := records.Read(); len(all) != 5 {
+		t.Errorf("Read holds %d entries, want all 5", len(all))
+	}
+}

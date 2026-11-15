@@ -234,8 +234,15 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // each with the architect's recommendation attached, as needing his hand
 // (yoyodyne-i92, under the architect's ruling for yoyodyne-ifd.437.14). It is
 // held under amendment.decide, and a change to the brief or the goals that does not say it is consistent with their intent stays his.
+//
+// The product manager's `place` and `unplace` put an item first among work of
+// its own priority and take that back. They are the architect's design for
+// yoyodyne-364h (docs/designs/placing-an-item-first.md): an order she promised
+// within one priority was lost because nothing a role could do changed the
+// oldest-admitted-first tie-break. Ordering is hers, so they are held under
+// backlog.order, which only she holds, with no lane-scoped name.
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
-	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment"},
+	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment", "place", "unplace"},
 	domain.RoleArchitect:          {"amendment"},
 	domain.RoleDevelopmentManager: {"brake", "label"},
 }

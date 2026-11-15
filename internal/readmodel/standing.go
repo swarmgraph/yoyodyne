@@ -60,6 +60,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/teamclaim"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
@@ -181,6 +182,13 @@ type OperatorHolds interface {
 // satisfied by *runstate.IntakeHoldStore.
 type IntakeHolds interface {
 	Held() (runstate.IntakeHold, bool, error)
+}
+
+// TeamPause is the team pause as this machine last fetched it from the shared
+// remote, in team mode. It asks the remote nothing. It is satisfied by
+// teamclaim.TeamPause.
+type TeamPause interface {
+	Fetched(ctx context.Context) (teamclaim.Pause, bool, error)
 }
 
 // Sessions is what the sessions that choose work have said about themselves. It
@@ -371,12 +379,16 @@ type Sources struct {
 	MergeQueues MergeQueues
 	// LandingHolds is the holds a person's script has placed on landing; nil
 	// reads none. It is satisfied by *runstate.LandingHoldStore.
-	LandingHolds    LandingHolds
-	RestartRequests RestartRequests
-	LaneReports     LaneReports
-	Passes          Passes
-	Exchanges       Exchanges
-	FirstSeen       FirstSeen
+	LandingHolds LandingHolds
+	// NeedsDesignLabelled is since when each item has carried the needs-design
+	// label, for the factory problems and the queue's refusal. Optional: a
+	// reading without it shows each waiting item without the time.
+	NeedsDesignLabelled NeedsDesignLabelled
+	RestartRequests     RestartRequests
+	LaneReports         LaneReports
+	Passes              Passes
+	Exchanges           Exchanges
+	FirstSeen           FirstSeen
 	// PassRequests is the requests made for each instance's pass, so whoever
 	// asked can read what became of one. Optional: a reading without it carries
 	// no instance's requests.
@@ -414,6 +426,10 @@ type Sources struct {
 	// them before the scheduler starts no new developer work. Zero is no limit,
 	// and nothing is said about it (waitingpullrequests.go).
 	MaxWaitingPullRequests int
+	// TeamPause is the team pause, wired only where the project's team mode is
+	// on. Nil is a project working its repository alone, which has no team
+	// pause, and nothing is said about one.
+	TeamPause TeamPause
 	// FactoryStallAfter is execution.factory_stall_after as the caller read it:
 	// how long no pull and no successful recurring pass may go before the
 	// factory is said to have stalled. Zero takes DefaultFactoryStallAfter.
@@ -652,6 +668,10 @@ type WorkItemRef struct {
 	WaitReason              string                `json:"wait_reason,omitempty"`
 	SchedulingWaitProlonged bool                  `json:"scheduling_wait_prolonged,omitempty"`
 	SchedulingWaitWhose     string                `json:"scheduling_wait_whose,omitempty"`
+	// PlacedFirst is the line saying the Lead Product Manager placed this item
+	// first among work of its priority, in the words every listing of the queue
+	// uses, and empty for an item with no placement.
+	PlacedFirst string `json:"placed_first,omitempty"`
 }
 
 // Standing is where the harness stands, in the four lines and nothing else.
@@ -751,6 +771,14 @@ type Standing struct {
 	WaitingForTeamMerge        []runstate.WaitingForTeamMergeItem `json:"waiting_for_team_merge,omitempty"`
 	WaitingForTeamMergeSays    []string                           `json:"waiting_for_team_merge_says,omitempty"`
 	WaitingForTeamMergeProblem string                             `json:"waiting_for_team_merge_problem,omitempty"`
+	// TeamPause is the team pause on the shared remote, as this machine last
+	// fetched it, where the project's team mode is on and the pause is set, and
+	// nil otherwise. While it stands no factory working the repository starts new
+	// work the harness chose, and the banner above says so and who set it,
+	// wherever nothing that stops more than new work is said there first.
+	// TeamPauseProblem is why this machine's copy could not be read.
+	TeamPause        *teamclaim.Pause `json:"team_pause,omitempty"`
+	TeamPauseProblem string           `json:"team_pause_problem,omitempty"`
 
 	Running        []RunningRun `json:"running"`
 	RunningProblem string       `json:"running_problem,omitempty"`
@@ -1297,6 +1325,16 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	} else if problem != "" {
 		standing.FactoryProblemsProblem = joinProblems(standing.FactoryProblemsProblem, problem)
 	}
+	// Each item waiting on the architect's design is a factory problem of hers,
+	// P0 first, and on the attention line, which is where `yoyo status` says it.
+	waitingOnDesign := DesignWaits(queue, now)
+	standing.FactoryProblems = append(standing.FactoryProblems, waitingOnDesign...)
+	needs = append(needs, waitingOnDesign...)
+	if len(waitingOnDesign) > 0 {
+		if _, problem := readNeedsDesignSince(sources); problem != "" {
+			needsProblem = joinProblems(needsProblem, problem)
+		}
+	}
 	needsProblem = joinProblems(needsProblem, standing.FactoryProblemsProblem)
 	failing, failingProblem := ReadFailingTasks(sources)
 	for _, task := range failing {
@@ -1381,6 +1419,19 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 			standing.Titles = UnreadableWorkItemTitles(standing.ObservedAt, prefixes...)
 		}
 	}
+	// The team pause stops new work on every factory sharing the repository,
+	// which is more than the limit below stops, so it is said in the banner
+	// ahead of it, and after anything that stops more than new work.
+	if sources.TeamPause != nil {
+		if pause, set, err := sources.TeamPause.Fetched(ctx); err != nil {
+			standing.TeamPauseProblem = fmt.Sprintf("the team pause could not be read from this machine's copy: %v", err)
+		} else if set {
+			standing.TeamPause = &pause
+			if standing.Paused == "" {
+				standing.Paused = pause.Says()
+			}
+		}
+	}
 	// The limit on pull requests waiting for a person to merge is said in the
 	// banner where nothing else is: every other banner stops more than new
 	// work, so it is the first thing to say when it stands, and this says the
@@ -1405,6 +1456,14 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	for index := range standing.NeedsHuman {
 		standing.NeedsHuman[index].titles = standing.Titles
 		standing.NeedsHuman[index].wording = standing.wording
+	}
+	// The items waiting on design are named with their titles in the factory
+	// problems as they are on the attention line.
+	for index := range standing.FactoryProblems {
+		if standing.FactoryProblems[index].WorkItemID != "" {
+			standing.FactoryProblems[index].titles = standing.Titles
+			standing.FactoryProblems[index].wording = standing.wording
+		}
 	}
 	for index := range standing.ProgramManagers {
 		standing.ProgramManagers[index] = citeProgramManager(standing.ProgramManagers[index], standing.Titles)
@@ -2287,6 +2346,12 @@ func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Cov
 		}
 	}
 	queue := backlog.Order(admitted, pullable, held, discharged)
+	// Since when each item has waited on the architect's design, so the refusal
+	// says it as the scheduler's does. What could not be read is said with the
+	// factory problems, where the time is shown.
+	if since, _ := readNeedsDesignSince(sources); since != nil {
+		queue = queue.WithNeedsDesignSince(since)
+	}
 	// What could not be read is reported only where it changed the answer. No
 	// admitted item declares a gate on most readings, and a line that announced an
 	// unread source every time would be a line reporting a gap that cost nothing —
@@ -2294,7 +2359,7 @@ func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Cov
 	// count is said, because that is exactly what is being overstated.
 	problem := ""
 	if unread != "" && queue.Gated() > 0 {
-		problem = fmt.Sprintf("the human gates a person has passed could not be read (%s), so all %d gated item(s) are reported as still waiting on somebody",
+		problem = fmt.Sprintf("the steps a person has recorded taking could not be read (%s), so all %d item(s) waiting on such a step are reported as still waiting on somebody",
 			unread, queue.Gated())
 	}
 	// Coverage is read one status wider than the order, exactly as the scheduling

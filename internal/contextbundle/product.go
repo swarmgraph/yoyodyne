@@ -1675,8 +1675,9 @@ func renderWorkItems(items []beads.WorkItem, unavailable string) string {
 	ordered := append([]beads.WorkItem(nil), items...)
 	backlog.Sort(ordered)
 	rendered.WriteString("These are in backlog order: highest priority first, which is the order work is\n")
-	rendered.WriteString("pulled in. Items at the same priority are listed oldest-admitted first, which is\n")
-	rendered.WriteString("the harness's tie-break: nothing has decided which of those comes first.\n\n")
+	rendered.WriteString("pulled in. Within one priority, items the Lead Product Manager placed first come\n")
+	rendered.WriteString("first, earliest placement first, and each says so. The rest are oldest-admitted\n")
+	rendered.WriteString("first, which is the harness's tie-break: nothing has decided which of those comes first.\n\n")
 	listed := ordered
 	if len(listed) > maxProductWorkItems {
 		listed = listed[:maxProductWorkItems]
@@ -1713,6 +1714,9 @@ func renderWorkItems(items []beads.WorkItem, unavailable string) string {
 		rendered.WriteString(fmt.Sprintf("- %s [%s, p%d%s, %s%s%s] %s\n",
 			item.ID, item.Status, item.Priority, parked, item.IssueType, executor, labels,
 			singleLine(item.Title, maxWorkItemTitleBytes)))
+		if placement := item.PlacedFirst(); placement != nil {
+			fmt.Fprintf(&rendered, "    %s\n", placement.Line())
+		}
 		fmt.Fprintf(&rendered, "    relevant goals: %s\n", relevantGoals(item.RelevantGoals))
 	}
 	if len(items) > len(listed) {

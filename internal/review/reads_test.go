@@ -90,8 +90,9 @@ func TestAReviewerReadsAFileItWasNotHanded(t *testing.T) {
 	if result.Decision != DecisionApprove || !strings.Contains(result.Verdict.Summary, "calls Store.Save") {
 		t.Fatalf("Review() = %#v, want a judged approval carrying what it read", result)
 	}
-	if last := events[len(events)-1]; last.Type != execution.EventReviewCompleted {
-		t.Fatalf("last event = %s, want review.completed", last.Type)
+	if last := events[len(events)-1]; last.Type != execution.EventReviewCompleted ||
+		!strings.Contains(string(last.Payload), `"answered_reads":1`) || !strings.Contains(string(last.Payload), `"unmeasured_reads":0`) {
+		t.Fatalf("last event = %s %s, want review.completed with its one read answered and measured", last.Type, last.Payload)
 	}
 }
 

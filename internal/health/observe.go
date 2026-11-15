@@ -70,9 +70,15 @@ type Observer struct {
 	// ProviderCommands is every provider command the configured agents launch,
 	// as the configuration resolves each.
 	ProviderCommands []string
-	Keeper           Keeper
-	RedactValues     []string
-	Now              func() time.Time
+	// InstallFolders are the usual install folders the harness looks in for a
+	// provider command it does not find on the search path, and FolderCommands
+	// the commands it does that for: those nothing configured a path for. A
+	// command found there is one the part will start, so it is not missing.
+	InstallFolders []string
+	FolderCommands map[string]bool
+	Keeper         Keeper
+	RedactValues   []string
+	Now            func() time.Time
 	// Stat and Executable are seams over the file system, for a test that
 	// arranges a missing file without touching the machine's.
 	Stat func(string) (fs.FileInfo, error)
@@ -497,7 +503,7 @@ func (o Observer) readServices(r *reading, standing readmodel.Standing) {
 					copied.Commands = append(copied.Commands, command)
 					if !command.Found && len(r.restricted) == 0 {
 						r.add(Anomaly{Classification: ClassMissingCommand, Identity: Identity{Condition: "missing-command:" + reader.Service + ":" + name},
-							Says:  fmt.Sprintf("%s runs with a search path on which the provider command %s is not found", who, name),
+							Says:  fmt.Sprintf("%s runs with a search path on which the provider command %s is not found%s", who, name, o.alsoLookedIn(name)),
 							Owner: ownership.MoverDevelopmentManager, Needs: "the part is started with a search path that finds the command, or the provider's configuration names the command by its full path; a search path set by hand in a person's shell does not reach the part"})
 					}
 				}
@@ -529,7 +535,9 @@ func (o Observer) readServices(r *reading, standing readmodel.Standing) {
 
 // lookOn looks for a command on a search path as the part would: a command
 // named by its path is looked for there, and a bare name in each directory of
-// the path in turn, as a regular file anybody may execute.
+// the path in turn, then in the usual install folders where nothing configured
+// it, as a regular file anybody may execute. It looks at the files when it is
+// asked, so a program removed after the part started is reported missing.
 func (o Observer) lookOn(searchPath, name string) Command {
 	command := Command{Name: name}
 	executable := func(path string) bool {
@@ -553,7 +561,25 @@ func (o Observer) lookOn(searchPath, name string) Command {
 			return command
 		}
 	}
+	if o.FolderCommands[name] {
+		for _, folder := range o.InstallFolders {
+			candidate := filepath.Join(folder, name)
+			if executable(candidate) {
+				command.Found, command.Path, command.InInstallFolder = true, candidate, true
+				return command
+			}
+		}
+	}
 	return command
+}
+
+// alsoLookedIn says which usual install folders a missing command was also
+// looked for in, and nothing where none were.
+func (o Observer) alsoLookedIn(name string) string {
+	if !o.FolderCommands[name] || len(o.InstallFolders) == 0 {
+		return ""
+	}
+	return ", nor in the usual install folders " + strings.Join(o.InstallFolders, ", ")
 }
 
 func (o Observer) readPasses(r *reading) []runstate.Sweep {

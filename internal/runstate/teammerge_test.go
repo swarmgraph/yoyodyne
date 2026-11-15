@@ -157,10 +157,10 @@ func TestWaitingForTeamMergeOfKeepsOnePerItemOldestFirst(t *testing.T) {
 	if runs[2] != "r2" {
 		t.Errorf("the latest wait did not win: %v", runs)
 	}
-	if got, want := items[0].Says(), "Gamma (yoyodyne-c): landed on staging as bbbbbbbbbbbb, waiting for the team to merge it into main"; got != want {
+	if got, want := items[0].Says(), "Gamma (yoyodyne-c): landed on staging as bbbbbbbbbbbb, waiting for the team to merge it into main; no pull request carries it yet"; got != want {
 		t.Errorf("Says() = %q, want %q", got, want)
 	}
-	if got, want := items[1].Says(), "yoyodyne-a: landed on staging as bbbbbbbbbbbb, waiting for the team to merge it into main"; got != want {
+	if got, want := items[1].Says(), "yoyodyne-a: landed on staging as bbbbbbbbbbbb, waiting for the team to merge it into main; no pull request carries it yet"; got != want {
 		t.Errorf("Says() = %q, want %q", got, want)
 	}
 }

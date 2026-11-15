@@ -219,3 +219,25 @@ func TestAnOutageRecordNamesTheChannelItWasReadOnOrNone(t *testing.T) {
 		t.Fatalf("State.Validate() with an unnamed channel error = %v, want it refused", err)
 	}
 }
+
+// A missing program is said in ordinary words: which provider's program, the
+// one fix, and since when in the operator's local time with the zone named
+// rather than a UTC timestamp to convert.
+func TestAMissingProgramIsSaidWithItsFixAndALocalTime(t *testing.T) {
+	t.Parallel()
+
+	since := time.Date(2026, 11, 7, 0, 38, 0, 0, time.UTC)
+	said := ProviderOutage{Cause: domain.ProviderProgramMissing, Provider: domain.BackendClaudeCode, Since: since, LastSeen: since, Refusals: 2}.Says()
+	for _, want := range []string{
+		"The claude-code program cannot be found on this machine",
+		"providers.claude-code.binary",
+		"since " + since.Local().Format("Jan 2 15:04 MST"),
+	} {
+		if !strings.Contains(said, want) {
+			t.Fatalf("said %q, want it to contain %q", said, want)
+		}
+	}
+	if strings.Contains(said, "2026-11-07T00:38:00Z") {
+		t.Fatalf("said %q, want no UTC timestamp", said)
+	}
+}

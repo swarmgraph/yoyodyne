@@ -11,16 +11,26 @@ import (
 // readTally is what a reviewer tried to read of the repository during one
 // invocation, and how much of it came back, read off the events its provider
 // reported. Both adapters report a tool call as command.started and its result
-// as command.completed with the size of what it returned, so this is the same
-// count on either.
+// as command.completed, saying whether it was refused or failed, so this is the
+// same count on either.
+//
+// A completed call carries content_bytes, the size of what it returned, where
+// the provider's stream reported its output. Claude Code always does; Codex
+// does when the event carries the command's output, and an MCP call's end or
+// an item that leaves its output out does not. A read with no size is counted
+// as unmeasured, never as empty: whether a read was answered is decided by
+// whether it ran, never by its size, so a missing figure cannot refuse a
+// review (unread).
 //
 // A tool call written out as text in the reviewer's reply is counted too. It
 // runs nothing and returns nothing, and it is what a reviewer with no way to
 // read does in place of reading, before reporting that every read returned
 // nothing (docs/diagnoses/yoyodyne-ifd-428-89-reviewer-silences.md).
 type readTally struct {
-	attempted     int
-	answered      int
+	attempted int
+	answered  int
+	// unmeasured is how many of the answered reads came back with no size.
+	unmeasured    int
 	writtenAsText int
 }
 
@@ -41,10 +51,14 @@ func (t *readTally) observe(event execution.Event) {
 		// has told the reviewer something true about the repository. A call that
 		// was refused or failed told it nothing.
 		var result struct {
-			IsError bool `json:"is_error"`
+			IsError      bool `json:"is_error"`
+			ContentBytes *int `json:"content_bytes"`
 		}
 		if json.Unmarshal(event.Payload, &result) == nil && !result.IsError {
 			t.answered++
+			if result.ContentBytes == nil {
+				t.unmeasured++
+			}
 		}
 	case execution.EventAgentMessage:
 		var message struct {
@@ -87,8 +101,21 @@ func writtenToolCalls(text string) int {
 // which the contract permits; one whose reads all came back empty judged from
 // it because it had no other choice, and said nothing about the callers, tests,
 // and documentation it was asked to check.
+//
+// It reads no sizes, so a read whose size its provider did not report counts
+// exactly as one that reported it.
 func (t readTally) unread() bool {
 	return t.attempted+t.writtenAsText > 0 && t.answered == 0
+}
+
+// record writes what the reviewer read into a review's record: how many reads
+// it tried and had answered, and how many of those answers came back with no
+// size, so a reader can tell a review whose reads were not measured from one
+// whose reads were.
+func (t readTally) record(fields map[string]any) {
+	fields["attempted_reads"] = t.attempted
+	fields["answered_reads"] = t.answered
+	fields["unmeasured_reads"] = t.unmeasured
 }
 
 // UnreadRepositoryError reports a review whose reads of the repository all

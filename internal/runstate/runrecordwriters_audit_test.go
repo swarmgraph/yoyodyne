@@ -317,7 +317,7 @@ var outsideRunRecordBypasses = []outsideRunRecordSite{
 	{"internal/orchestrator/mergedisagreement.go", "(Reconciler).recordUnconfirmedMerge", savesWholeRecord},
 	{"internal/orchestrator/mergequeueadmission.go", "(*activeRun).admitToMergeQueue", savesWholeRecord},
 	{"internal/orchestrator/mergequeueadmission.go", "(*activeRun).completeQueued", savesWholeRecord},
-	{"internal/orchestrator/mergequeuepromotion.go", "(MergeQueueRunCompletion).RecordWorkItem", savesWholeRecord},
+	{"internal/orchestrator/mergequeuepromotion.go", "(MergeQueueRunCompletion).settleLandedItem", savesWholeRecord},
 	{"internal/orchestrator/mergequeuerecovery.go", "(MergeQueueRunHandback).HandBack", savesWholeRecord},
 	{"internal/orchestrator/mergequeuerecovery.go", "(MergeQueueRunHandback).HandBack", setsStatusOrStep},
 	{"internal/orchestrator/outsidefilelanding.go", "(*activeRun).writeOutsideFile", savesWholeRecord},

@@ -168,7 +168,7 @@ func (g ClaimGiver) giveBack(ctx context.Context, claim runstate.Rerun, by strin
 	}
 	result.GivenBack = true
 	result.Note = fmt.Sprintf(
-		"Re-run claim given back: %s. The re-run decided about the stoppage of run %s is outstanding again, and the harness carries it out at its next pull under every gate a re-run already asks.",
+		"Re-run claim given back: %s. The re-run decided about the stoppage of run %s is outstanding again, and the harness carries it out at its next pull under every condition a re-run already has to meet.",
 		given.GivenBack.Says(), given.PriorRunID)
 	if g.Notes == nil {
 		result.NoteProblem = "no tracker was wired to write the give-back onto the item; it is recorded on the claim"

@@ -503,6 +503,12 @@ type Trigger struct {
 	// needsdesignwake.go.
 	NeedsDesign      NeedsDesignItems
 	NeedsDesignWakes NeedsDesignWakeRecord
+	// NeedsDesignLabelled is since when each labelled item has waited on the
+	// architect's design, recorded at every pull from NeedsDesign; the standing
+	// surfaces and the scheduler's refusal say it, and a P0 item past a day is
+	// reported to the Lead Product Manager once. Optional: a trigger wired
+	// without it records no wait. See needsdesignwait.go.
+	NeedsDesignLabelled NeedsDesignLabelledRecord
 	// Breakage is where a missed cadence is said to somebody, as a report the
 	// harness files itself. Optional: a trigger wired without one still records
 	// the miss in the sweep log, and only the report is left unsaid.

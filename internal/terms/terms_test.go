@@ -851,6 +851,73 @@ func TestGuidanceRefusesReplacedTermsOutsideTheQuotedExample(t *testing.T) {
 	}
 }
 
+// `gate` is refused as `gate`, `gates` and `gated`, in a persona and in a
+// contract's string alike, while the names written with it that keep their
+// names — the stored reason `human-gate`, the `yoyo gate` command and its
+// subcommands, a file path, and a key with no space in it — are passed over.
+// `gateway` is a different word and is not reported.
+func TestGateIsRefusedAndItsKeptNamesAreNot(t *testing.T) {
+	t.Parallel()
+
+	registerBody := "# Terms\n\n## The register\n\n| Term | In plain words | Where it is used |\n| --- | --- | --- |\n\n" +
+		"## Replaced rather than registered\n\n| Term | Write instead | Still written in |\n| --- | --- | --- |\n" +
+		"| `gate` | name the check |  |\n"
+	persona := "# Developer\n\n" +
+		"- `human-gate`: a step the work item reserves for a person.\n\n" +
+		"Record it with `yoyo gate record release-signed --for x`.\n\n" +
+		"Read docs/designs/needs-design-gate.md first.\n\n" +
+		"The gateway answered.\n\n" +
+		"It passed the gate.\n\n" +
+		"Two gates held it.\n\n" +
+		"It is gated on review.\n"
+	source := "package orchestrator\n\nconst (\n\tkey = \"states.gate\"\n\tlisting = `\ngate              read the steps only a person can take`\n\tflags = \"gate record\"\n\tsaid = \"stops at its next gate\"\n)\n"
+	directory := root(t, registerBody, map[string]string{
+		"internal/config/builtin/v1/personas/developer.md": persona,
+		"internal/orchestrator/prompt.go":                  source,
+	})
+	problems, err := Guidance(directory)
+	if err != nil {
+		t.Fatalf("Guidance() error = %v", err)
+	}
+	want := map[string]bool{
+		"internal/config/builtin/v1/personas/developer.md:11": true,
+		"internal/config/builtin/v1/personas/developer.md:13": true,
+		"internal/config/builtin/v1/personas/developer.md:15": true,
+		"internal/orchestrator/prompt.go:8":                   true,
+	}
+	got := make(map[string]bool)
+	for _, problem := range problems {
+		got[fmt.Sprintf("%s:%d", problem.Path, problem.Line)] = true
+	}
+	if len(got) != len(want) || len(problems) != len(want) {
+		t.Fatalf("Guidance() = %v, want exactly %v", problems, want)
+	}
+	for place := range want {
+		if !got[place] {
+			t.Errorf("Guidance() did not report %s; all: %v", place, problems)
+		}
+	}
+
+	checked, err := Check(directory)
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	reported := make(map[string]bool)
+	for _, problem := range checked {
+		if problem.Term == "gate" {
+			reported[fmt.Sprintf("%s:%d", problem.Path, problem.Line)] = true
+		}
+	}
+	for place := range want {
+		if !reported[place] {
+			t.Errorf("Check() did not report gate at %s; all: %v", place, checked)
+		}
+	}
+	if len(reported) != len(want) {
+		t.Errorf("Check() reported gate at %v, want exactly %v", reported, want)
+	}
+}
+
 // The run pipeline, the run store, and triage are read like the other
 // surfaces, since their sentences reach a person in the docket, a sweep's
 // record, and a work item's notes.

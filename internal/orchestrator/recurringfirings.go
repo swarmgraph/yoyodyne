@@ -193,6 +193,14 @@ func (t Trigger) Start(ctx context.Context, busy map[string]bool, free int) (Rec
 			problems = append(problems, fmt.Errorf("record product pass failure findings: %w", err))
 		}
 	}
+	// Since when each item has carried the needs-design label is recorded at
+	// every pull, whatever is fired, so the wait is timed from the pull that
+	// first saw the label rather than from the architect's next pass.
+	if t.needsDesignWaitWired() {
+		if err := t.watchNeedsDesign(ctx); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	// Whether the provider is answering anybody is read once, before any task is
 	// claimed. A firing made into a login nobody has renewed spends a claim on a
 	// turn that cannot be served and records a turn that failed, which over three

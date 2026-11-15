@@ -307,6 +307,20 @@ used to judge an extraction. The review's start event records the candidate
 commit, the listing's omission count, and which file contents were supplied or
 unavailable.
 
+Where the project declares an MCP server, the reviewer is also shown the
+harness's own record of every MCP call the run's developer asked for, across all
+its attempts: the tool, the arguments with secrets removed, and the result the
+developer was handed back, labelled as outside data the harness fetched and
+nobody verified. This lets the reviewer hold the developer's account of a call
+against what the call returned. The record takes at most 64 KiB of the review
+input; small calls keep their whole text, the larger ones share what is left,
+and every cut is declared in the text, including later calls left out when even
+their headings do not fit. The reviewer holds no MCP tool of its own, so this
+record is all it has of a call. A call result counts as no check: it satisfies no
+configured check and is not evidence that a required check passed. A project
+with no MCP server sees none of this, and the review's start event records how
+many calls were shown and whether any were cut.
+
 The patch is bounded, and the bound is spent whole file by whole file rather
 than cutting the patch at a byte count: a patch cut tail-first keeps whichever
 files Git rendered first and loses the rest without naming them, so a reviewer
@@ -437,7 +451,11 @@ treated the same way. The reviewer is asked to check callers, tests, and
 documentation, so one whose every read was refused or failed — or which wrote
 its tool calls into its reply as text, which runs nothing — judged only from
 what it was handed. A read that ran and printed nothing, such as `git status`
-on a clean worktree, counts as answered. Its verdict is kept on the run's record but not counted as a judged
+on a clean worktree, counts as answered. So does a read whose size the
+provider's stream did not report, as a Codex command can leave its output out:
+it is counted as unmeasured, never as empty, and `review.completed` and
+`review.unread` both say how many reads were tried, how many were answered, and
+how many of those were unmeasured. Its verdict is kept on the run's record but not counted as a judged
 review: the record carries `review.unread`, saying what was tried and what came
 back, in place of `review.completed`, and the review is asked for once more on
 the same budget. A second like it ends the run with that cause, and the stopped
@@ -1631,6 +1649,19 @@ conversation with the item named, whichever path added it, and once a day
 she is woken again for every item still carrying it
 ([the recurring tasks](configuration.md#recurring-tasks) say how).
 
+Each item waiting on her design is shown among the dashboard's factory problems
+and on `yoyo status` as hers: its priority, **waiting on the architect's design
+since** a time in local time with the zone, and how long ago that was. P0 items
+come first, then the longest waits. The tracker keeps no time for a label being
+added, so the time is when a watching session's pull first saw the label, which
+is within one pull of its being set while a session is running and later by
+however long none was; an item no pull has seen yet is shown saying its time is
+not recorded. The pull's refusal says the same time. Taking the label off ends
+the wait and the entry, and putting it back starts a new one. A P0 item still
+waiting more than a day is reported to the Lead Product Manager once, as the
+harness's own report, and stays among the factory problems until the label
+comes off.
+
 **An item the tree cannot serve is not dispatched, and the read that says so is
 free.** Four items in a fortnight were handed to a developer that could not do
 them, and each cost a full run to establish why: one asked for machinery that was
@@ -2684,7 +2715,7 @@ GitHub's merge queue — or whose protection cannot be read — nothing is admit
 and nothing is merged the old way. The run stops at its promotion with its
 approval standing, the item is blocked naming the branch setting that holds it,
 and one report is filed for the queue however many changes it holds. A change
-already admitted waits with its candidate's gate kept. The harness takes the
+already admitted waits with its candidate's checks and review kept. The harness takes the
 held changes up by itself, in the order they were approved, at the first
 reading that finds the requirement gone; it never changes the setting itself.
 

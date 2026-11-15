@@ -719,6 +719,7 @@ func standingSources(configPath string) readmodel.Sources {
 	sources.BrakeProbeOverdueAfter = cfg.Execution.BrakeProbeOverdueAfter.Duration()
 	sources.SchedulingWaitProblemAfter = cfg.Execution.SchedulingWaitProblemAfter.Duration()
 	sources.MaxWaitingPullRequests = cfg.Execution.MaxWaitingPullRequests
+	sources.TeamPause = standingTeamPause(resolved)
 	// What each agent asks for and may be served by instead, read against the
 	// refusal log below for the one thing the two say together: whether the
 	// provider is holding every role at once.
@@ -768,6 +769,11 @@ func standingSources(configPath string) readmodel.Sources {
 	}
 	if store, err := runstate.NewLandingHoldStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.LandingHolds = store
+	}
+	// Since when each item has carried the needs-design label, so an item waiting
+	// on the architect's design is shown with its age.
+	if store, err := runstate.NewNeedsDesignLabelledStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.NeedsDesignLabelled = store
 	}
 	if store, err := runstate.NewWatchStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Sessions = store
@@ -1489,7 +1495,7 @@ func printRunReasons(writer io.Writer, run runstate.RunSummary) bool {
 	// proposal that reached only the run's printed outcome was, afterwards, one
 	// nobody could tell from a proposal never made.
 	if run.SchedulingWaitClearFailure != "" {
-		fmt.Fprintf(writer, "  scheduling reason clearing pending: %s\n", singleLine(run.SchedulingWaitClearFailure))
+		fmt.Fprintf(writer, "  the old reason this item had not started could not be removed yet: %s\n", singleLine(run.SchedulingWaitClearFailure))
 		printed = true
 	}
 	if run.ReportProblem != "" {

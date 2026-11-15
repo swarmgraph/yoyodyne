@@ -111,7 +111,12 @@ services:
     token: file
 
 execution:
-  max_concurrent_developers: 4  # slot 1 reliability, slot 2 product, slot 3 team development, slot 4 general (fourth slot approved by the operator, 2026-11-09)
+  # Temporarily 3, down from 4, until the merge queue's two speed fixes land:
+  # checks and review side by side (yoyodyne-ifd.429.143) and checking the
+  # next candidate ahead (yoyodyne-ifd.429.153). With four slots busy, queue
+  # candidates' checks ran far slower than at low load (operator, 2026-11-11).
+  # Return it to 4 once both have landed.
+  max_concurrent_developers: 3  # slot 1 reliability, slot 2 product, slot 3 team development
   # One developer slot prefers the reliability label, per the operator's
   # direction of 2026-09-19: bugs, anything that keeps the system from
   # stalling, and anything that keeps the system from making mistakes. The
@@ -127,10 +132,17 @@ execution:
     # how the chat and dashboard behave for the operator, product features,
     # and delivery metrics, which P0 fixes would otherwise crowd out.
     - prefer: [usability, product, performance]
-    # Slot 3 is dedicated to team-development by the development manager's decision of October 28, and remains the sub-agent trial slot for yoyodyne-wj4l.
+    # Slot 3 is dedicated to team-development by the development manager's decision of October 28.
+    # At the operator's direction of 2026-11-14 it trials Sonnet as its main developer model, with
+    # sub-agents off, to see whether quality holds while using less of the weekly Opus limit; the
+    # Opus-main, Sonnet-sub-agent trial (yoyodyne-wj4l) cost more without a quality gain. Opus is
+    # named only because a pair needs an alternate; fallback stays off.
     - prefer: [team-development]
       dedicated: true
-      subagents: {enabled: true}
+      routing:
+        enabled: false
+        primary: {provider: claude-code, model: sonnet}
+        alternate: {model: opus}
   repair_attempts_before_replan: 4
   # A promotion that loses a race -- to another run, or to whoever moved the
   # target branch while this one was working -- is replayed onto where the

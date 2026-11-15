@@ -3,6 +3,7 @@ package maintain
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -38,6 +39,9 @@ type fakeStore struct {
 	looked     int
 	// clock is when a cleanup starts, where the test moves time on.
 	clock *time.Time
+	// besides is how many cleanups were started beside the processes holding
+	// the store.
+	besides int
 }
 
 func (s *fakeStore) MissingItems(_ context.Context, ids []string) ([]string, error) {
@@ -60,6 +64,16 @@ func (s *fakeStore) StoreSize() (string, int64, error) {
 }
 
 func (s *fakeStore) CleanUpStore(_ context.Context, hold time.Duration) (beads.StoreCleanup, error) {
+	return s.cleanUp(hold, false)
+}
+
+// CleanUpStoreBeside starts whoever holds the store, as the client does,
+// naming them.
+func (s *fakeStore) CleanUpStoreBeside(_ context.Context, hold time.Duration) (beads.StoreCleanup, error) {
+	return s.cleanUp(hold, true)
+}
+
+func (s *fakeStore) cleanUp(hold time.Duration, beside bool) (beads.StoreCleanup, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.asked = append(s.asked, hold)
@@ -68,8 +82,12 @@ func (s *fakeStore) CleanUpStore(_ context.Context, hold time.Duration) (beads.S
 	}
 	cleanup := beads.StoreCleanup{Store: "/opt/calc/.beads/embeddeddolt", SizeBefore: s.size}
 	if len(s.busy) > 0 {
-		cleanup.Busy, cleanup.SizeAfter = s.busy, s.size
-		return cleanup, nil
+		if !beside {
+			cleanup.Busy, cleanup.SizeAfter = s.busy, s.size
+			return cleanup, nil
+		}
+		s.besides++
+		cleanup.Beside = s.busy
 	}
 	cleanup.StartedAt = time.Date(2026, 9, 29, 17, 0, 1, 0, time.UTC)
 	if s.clock != nil {
@@ -125,7 +143,7 @@ func TestAStoreOverTheSizeBoundIsCleanedUpAndRecorded(t *testing.T) {
 	if step.Outcome != runstate.StepRan {
 		t.Fatalf("cleanup step = %+v, want a cleanup run", step)
 	}
-	for _, want := range []string{"grown 200 MB since its last cleanup left it at 500 MB, past the 128 MB bound", "from 700 MB to 520 MB in 9.0 seconds, 1483 work items after it"} {
+	for _, want := range []string{"grown 200 MB since its last cleanup left it at 500 MB, past the 128 MB bound", "from 700 MB to 520 MB, holding the store for 9.0 seconds, 1483 work items after it"} {
 		if !strings.Contains(step.Detail, want) {
 			t.Errorf("cleanup step = %q, want it to say %q", step.Detail, want)
 		}
@@ -147,7 +165,7 @@ func TestAStoreOverTheSizeBoundIsCleanedUpAndRecorded(t *testing.T) {
 	if recorded.Problem != "" {
 		t.Errorf("pass problem = %q, want none", recorded.Problem)
 	}
-	if said := f.pass.Describe(); !strings.Contains(said, "the tracker's store was last cleaned up at ") || !strings.Contains(said, "from 700 MB to 520 MB in 9.0 seconds, 1483 work items after it") {
+	if said := f.pass.Describe(); !strings.Contains(said, "the tracker's store was last cleaned up at ") || !strings.Contains(said, "from 700 MB to 520 MB, holding the store for 9.0 seconds, 1483 work items after it") {
 		t.Errorf("Describe() = %q, want the latest cleanup said in it", said)
 	}
 }
@@ -224,14 +242,22 @@ func TestABusyStoreIsSkippedAndTriedAgainWithoutFailingThePass(t *testing.T) {
 
 	recorded := f.pass1(t)
 	step := stepNamed(t, recorded, StepTrackerCleanup)
-	if step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "process 4242 (bd export -o .beads/issues.jsonl)") || !strings.Contains(step.Detail, "the next pass tries again") {
+	if step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "process 4242 (bd export -o .beads/issues.jsonl)") || !strings.Contains(step.Detail, "it was put off") {
 		t.Errorf("cleanup step = %+v, want it skipped naming the holder", step)
 	}
 	if recorded.Problem != "" {
 		t.Errorf("pass problem = %q, want a busy store to fail nothing", recorded.Problem)
 	}
 	if cleanups, err := record.Read(); err != nil || len(cleanups) != 0 {
-		t.Errorf("cleanups = %+v, %v, want nothing recorded for a cleanup that never started", cleanups, err)
+		t.Errorf("cleanups = %+v, %v, want nothing recorded as a cleanup for one that never started", cleanups, err)
+	}
+	putOffs, err := record.PutOffsSince(time.Time{})
+	if err != nil || len(putOffs) != 1 {
+		t.Fatalf("postponements = %+v, %v, want the one put off", putOffs, err)
+	}
+	if putOff := putOffs[0]; !putOff.Busy || !putOff.At.Equal(f.now) || putOff.SizeBefore != 700*megabyte || putOff.SizeAfter != 700*megabyte ||
+		!strings.Contains(putOff.Why, "another process had the store open") || !strings.Contains(putOff.Why, "process 4242") || putOff.Reason == "" {
+		t.Errorf("postponement = %+v, want when, the size, why it was due, and why it was put off in words", putOff)
 	}
 
 	store.mu.Lock()
@@ -365,7 +391,7 @@ func TestAFailedCleanupIsRecordedAndNotRetriedAtTheNextPass(t *testing.T) {
 
 	recorded := f.pass1(t)
 	step := stepNamed(t, recorded, StepTrackerCleanup)
-	if step.Outcome != runstate.StepFailed || !strings.Contains(step.Detail, "the cleanup failed after 9.0 seconds: bd gc failed with status failed and exit code 1: dolt gc: disk full") || !strings.Contains(step.Detail, "it is not tried again until the next cleanup is due") {
+	if step.Outcome != runstate.StepFailed || !strings.Contains(step.Detail, "the cleanup failed after holding the store for 9.0 seconds: bd gc failed with status failed and exit code 1: dolt gc: disk full") || !strings.Contains(step.Detail, "it is not tried again until the next cleanup is due") {
 		t.Errorf("cleanup step = %+v, want it failed in words", step)
 	}
 	if !strings.Contains(recorded.Problem, "disk full") {
@@ -423,5 +449,120 @@ func TestTheCleanupStartsOnlyAfterReconcile(t *testing.T) {
 	defer store.mu.Unlock()
 	if strings.Join(order, ",") != "reconcile,cleanup" {
 		t.Errorf("order = %v, want reconcile and then the cleanup", order)
+	}
+}
+
+// A store past its size bound is cleaned up within six hours of its last
+// cleanup even when another process has it open at every pass, as it does
+// while every developer slot is busy: each pass puts the cleanup off and
+// records that, until it has waited as long as the pass waits, and then it
+// starts beside the processes holding the store, naming them. The pass's line
+// says when the store was last cleaned up and its size, in local time with the
+// zone named.
+func TestAStorePastItsBoundIsCleanedUpWithinSixHoursWhileEverySlotIsBusy(t *testing.T) {
+	t.Parallel()
+	for name, leftAt := range map[string]int64{
+		"its last cleanup left it past the bound":    1090 * megabyte,
+		"it passed the bound after its last cleanup": 1000 * megabyte,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			lastCleanup := f.now
+			store := &fakeStore{size: 1100 * megabyte, after: 1080 * megabyte, items: 1722, clock: &f.now,
+				busy: []beads.StoreHolder{{PID: 4242, Command: "bd update yoyodyne-ifd.7 --append-notes"}}}
+			record := withTrackerStore(t, f, store)
+			if err := record.Record(runstate.TrackerStoreCleanup{StartedAt: lastCleanup, Took: 9 * time.Second, SizeBefore: 1110 * megabyte, SizeAfter: leftAt}); err != nil {
+				t.Fatal(err)
+			}
+
+			var started *runstate.TrackerStoreCleanup
+			putOffSteps := 0
+			for f.now = lastCleanup.Add(10 * time.Minute); f.now.Before(lastCleanup.Add(6 * time.Hour)); f.now = f.now.Add(10 * time.Minute) {
+				step := stepNamed(t, f.pass1(t), StepTrackerCleanup)
+				if strings.Contains(step.Detail, "it was put off") {
+					putOffSteps++
+				}
+				cleanups, err := record.Read()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(cleanups) > 1 {
+					started = &cleanups[1]
+					if step.Outcome != runstate.StepRan || !strings.Contains(step.Detail, "past its 1024 MB size bound") || !strings.Contains(step.Detail, "so it was started beside them") ||
+						!strings.Contains(step.Detail, "started beside the processes that had it open: process 4242") || !strings.Contains(step.Detail, "holding the store for 9.0 seconds") {
+						t.Errorf("cleanup step that started it = %+v, want it run beside the holder, saying why and how long it held the store", step)
+					}
+					break
+				}
+			}
+			if started == nil {
+				t.Fatalf("no cleanup started in the six hours after the last while the store stayed busy; %d passes put it off", putOffSteps)
+			}
+			if started.StartedAt.After(lastCleanup.Add(6 * time.Hour)) {
+				t.Errorf("the cleanup started at %s, more than six hours after the last at %s", started.StartedAt, lastCleanup)
+			}
+			if !strings.Contains(started.Beside, "process 4242") || started.SizeBefore != 1100*megabyte || started.SizeAfter != 1080*megabyte || started.Took != 9*time.Second {
+				t.Errorf("recorded cleanup = %+v, want it recorded with who it started beside, both sizes, and how long it held the store", *started)
+			}
+			if !strings.Contains(started.Says(), "holding the store for 9.0 seconds, started beside the processes that had it open: process 4242") {
+				t.Errorf("recorded cleanup says %q, want how long it held the store and beside whom", started.Says())
+			}
+			putOffs, err := record.PutOffsSince(lastCleanup)
+			if err != nil || len(putOffs) == 0 || len(putOffs) != putOffSteps {
+				t.Fatalf("postponements = %d, %v, want one recorded for each of the %d passes that put it off", len(putOffs), err, putOffSteps)
+			}
+			for _, putOff := range putOffs {
+				if !putOff.Busy || putOff.SizeBefore != 1100*megabyte || !strings.Contains(putOff.Why, "process 4242") || !strings.Contains(putOff.Says(), "put off at ") {
+					t.Errorf("postponement = %+v, want it recorded with the size and why in words", putOff)
+				}
+			}
+			if store.besides != 1 {
+				t.Errorf("cleanups started beside the holders = %d, want 1", store.besides)
+			}
+
+			said := f.pass.Describe()
+			zoned := regexp.MustCompile(`the tracker's store measured 1080 MB at \d{4}-\d{2}-\d{2} \d{2}:\d{2} [A-Z]{3,5}`)
+			if !strings.Contains(said, "the tracker's store was last cleaned up at ") || !zoned.MatchString(said) {
+				t.Errorf("Describe() = %q, want when the store was last cleaned up and its size now, in local time with the zone named", said)
+			}
+		})
+	}
+}
+
+// A store under its size bound and every other bound waits out its ordinary
+// interval: being busy does not bring a cleanup on early.
+func TestAStoreUnderItsSizeBoundIsNotCleanedUpEarly(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	store := &fakeStore{size: 900 * megabyte, after: 890 * megabyte, busy: []beads.StoreHolder{{PID: 4242}}}
+	record := withTrackerStore(t, f, store)
+	if err := record.Record(runstate.TrackerStoreCleanup{StartedAt: f.now, Took: time.Second, SizeBefore: 950 * megabyte, SizeAfter: 890 * megabyte}); err != nil {
+		t.Fatal(err)
+	}
+	f.now = f.now.Add(5 * time.Hour)
+	step := stepNamed(t, f.pass1(t), StepTrackerCleanup)
+	if step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "the next cleanup is due at") {
+		t.Errorf("cleanup step = %+v, want the ordinary not-due skip", step)
+	}
+	if putOffs, err := record.PutOffsSince(time.Time{}); err != nil || len(putOffs) != 0 {
+		t.Errorf("postponements = %+v, %v, want none for a cleanup that was not due", putOffs, err)
+	}
+}
+
+// A cleanup that fell due on its interval and has waited longer than the pass
+// waits by the time a pass sees it, as after the machine slept, starts beside
+// whoever holds the store at that pass.
+func TestACleanupLongDueStartsBesideTheHoldersAtOnce(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	store := &fakeStore{size: 600 * megabyte, after: 590 * megabyte, busy: []beads.StoreHolder{{PID: 4242}}}
+	record := withTrackerStore(t, f, store)
+	if err := record.Record(runstate.TrackerStoreCleanup{StartedAt: f.now.Add(-26 * time.Hour), Took: time.Second, SizeBefore: 650 * megabyte, SizeAfter: 590 * megabyte}); err != nil {
+		t.Fatal(err)
+	}
+	step := stepNamed(t, f.pass1(t), StepTrackerCleanup)
+	if step.Outcome != runstate.StepRan || store.besides != 1 || !strings.Contains(step.Detail, "started beside them") {
+		t.Errorf("cleanup step = %+v, cleanups beside = %d, want it started beside the holder", step, store.besides)
 	}
 }

@@ -31,7 +31,7 @@ is short.
   this is, who it is for, what finished looks like — and three are not one reply:
   say there are three, say the order you will ask them in and what you ordered
   by, then ask the first, exactly as "How to communicate" below requires. It
-  is an opening question and not a gate: nothing waits on it, later means later,
+  is an opening question and not a step anything waits on: later means later,
   and a short document somebody meant on a young project is a judgment call
   rather than a defect to raise twice.
 - Turn vague intent into a decision the rest of the system can act on. When the
@@ -140,7 +140,7 @@ recommendation is how they stay decided rather than drifted.
   happened is the confirmation lines, not your draft: a refused block is work
   that did not happen, and saying otherwise misleads everyone downstream.
 - Sequencing lives in dependency links, never prose. A description saying
-  "after X" gates nothing; the scheduler reads links.
+  "after X" holds nothing back; the scheduler reads links.
 - Urgent actions travel alone: an operator-directed item goes in its own small
   block so a typo elsewhere cannot sink it; housekeeping batches separately.
 - Anything requiring the operator's action tags them by their configured

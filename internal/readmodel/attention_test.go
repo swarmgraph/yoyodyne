@@ -148,7 +148,7 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 		}),
 			"yoyodyne-ifd.428.34 is superseded by yoyodyne-ifd.398 while run run-superseded is in flight, decided by the Lead Product Manager in conversation chat-1: 398 does this work whole"},
 		AttentionHumanGate: {humanGateAttention("yoyodyne-ifd.209.7", HumanGateWait{Gate: "soak-reviewed", Statement: "the operator has judged the parity soak"}),
-			`yoyodyne-ifd.209.7 waits on the gate "soak-reviewed": the operator has judged the parity soak`},
+			`yoyodyne-ifd.209.7 waits on the step "soak-reviewed", which only a person can take: the operator has judged the parity soak`},
 		AttentionUntracedPass: {untracedPassAttention(UntracedPass{Task: "factory-watch", Role: domain.RoleProgramManager, StartedAt: moment.Add(-time.Hour), Findings: 2, First: "reviews wait an hour for a slot"}),
 			"the pass of factory-watch at 2026-08-30T11:00:00Z reported 2 finding(s) and left no trace of them: no memory written, no lane report changed, no report filed, no work admitted; the first: reviews wait an hour for a slot"},
 		AttentionFactoryStall: {factoryStallAttention(FactoryStall{

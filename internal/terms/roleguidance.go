@@ -171,10 +171,15 @@ func Guidance(root string) ([]Problem, error) {
 			stretches = passagesFrom(strings.Split(content, "\n"), 1)
 		}
 		for _, stretch := range stretches {
+			// A Go literal with no space in it is a key or an identifier, which
+			// keeps its name; Check reads by the same rule (see spoken).
+			if strings.HasSuffix(file, ".go") && !spoken(stretch) {
+				continue
+			}
 			text := WithoutQuotedExample(stretch.text)
 			for _, term := range looked {
 				reported := make(map[int]bool)
-				for _, match := range term.pattern.FindAllStringIndex(text, -1) {
+				for _, match := range term.pattern.FindAllStringIndex(withoutKeptNames(term.term, text), -1) {
 					line := stretch.lineOf(match[0])
 					if reported[line] {
 						continue

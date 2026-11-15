@@ -12,6 +12,7 @@ import (
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/tooluse"
 )
 
 const toolStreamInit = `{"type":"system","subtype":"init","session_id":"session-tools","model":"claude-opus-5"}`
@@ -158,6 +159,92 @@ func TestAnUnknownTopLevelEventIsALimit(t *testing.T) {
 	gaps := result.ToolVisibility.Gaps
 	if len(gaps) != 1 || !strings.Contains(gaps[0], `"tool_invocation_v2"`) {
 		t.Fatalf("Gaps = %q, want the one unread event type named once", gaps)
+	}
+}
+
+// The tool_progress samples below are sanitized copies of the events Claude
+// Code 2.1.321 writes, in the fields its own output schema declares for the
+// event: a long command's elapsed time, a heartbeat, a sub-agent's retry, and a
+// call a script tool made from inside its run.
+
+// Progress on a call the stream already showed starting carries no call of its
+// own: the call stays one call with the outcome its result gave, and nothing is
+// said as unseen.
+func TestToolProgressOnAKnownCallAddsNothing(t *testing.T) {
+	t.Parallel()
+	result := runRoleStream(t, domain.RoleDeveloper,
+		toolStreamInit,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_bash","name":"Bash","input":{"command":"make test"}}]}}`,
+		`{"type":"tool_progress","tool_use_id":"toolu_bash","tool_name":"Bash","parent_tool_use_id":null,"elapsed_time_seconds":30,"task_id":"task-1","uuid":"00000000-0000-4000-8000-000000000001","session_id":"session-tools"}`,
+		`{"type":"tool_progress","tool_use_id":"toolu_bash","tool_name":"Bash","parent_tool_use_id":null,"elapsed_time_seconds":60,"heartbeat":true,"uuid":"00000000-0000-4000-8000-000000000002","session_id":"session-tools"}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_bash","is_error":false,"content":"ok"}]}}`,
+		toolStreamResult,
+	)
+	want := backendapi.ToolCall{ID: "toolu_bash", Tool: "Bash", Kind: backendapi.ToolKindShell, Outcome: backendapi.ToolExecuted}
+	if len(result.ToolCalls) != 1 || result.ToolCalls[0] != want {
+		t.Fatalf("ToolCalls = %#v, want only %#v", result.ToolCalls, want)
+	}
+	if gaps := result.ToolVisibility.Gaps; len(gaps) != 0 {
+		t.Fatalf("Gaps = %q, want progress on a known call read as carrying none", gaps)
+	}
+}
+
+// A call the stream shows only through tool_progress is recorded once however
+// often its progress arrives, and is compared with the session's tool access
+// like a call shown as a tool_use block: a reviewer's write is unexpected. A
+// call a script tool made from inside its run is recorded inside the script's
+// call.
+func TestToolProgressNamingAnUnseenCallRecordsItOnce(t *testing.T) {
+	t.Parallel()
+	request := backendapi.RunRequest{Role: domain.RoleReviewer}
+	result := runRoleStream(t, domain.RoleReviewer,
+		toolStreamInit,
+		`{"type":"tool_progress","tool_use_id":"toolu_write","tool_name":"Write","parent_tool_use_id":"toolu_agent","elapsed_time_seconds":5,"uuid":"00000000-0000-4000-8000-000000000003","session_id":"session-tools"}`,
+		`{"type":"tool_progress","tool_use_id":"toolu_write","tool_name":"Write","parent_tool_use_id":"toolu_agent","elapsed_time_seconds":10,"heartbeat":true,"uuid":"00000000-0000-4000-8000-000000000004","session_id":"session-tools"}`,
+		`{"type":"tool_progress","tool_use_id":"toolu_script","tool_name":"Script","parent_tool_use_id":null,"elapsed_time_seconds":0,"inner_call":{"tool_name":"Read","tool_input":{"file_path":"/etc/secret-token-value"},"tool_use_id":"toolu_inner","phase":"start"},"uuid":"00000000-0000-4000-8000-000000000005","session_id":"session-tools"}`,
+		`{"type":"tool_progress","tool_use_id":"toolu_script","tool_name":"Script","parent_tool_use_id":null,"elapsed_time_seconds":0,"inner_call":{"tool_name":"Read","tool_input":{"file_path":"/etc/secret-token-value"},"tool_use_id":"toolu_inner","phase":"end"},"uuid":"00000000-0000-4000-8000-000000000006","session_id":"session-tools"}`,
+		toolStreamResult,
+	)
+	want := []backendapi.ToolCall{
+		{ID: "toolu_write", Tool: "Write", Kind: backendapi.ToolKindWrite, Parent: "toolu_agent", Outcome: backendapi.ToolAttempted},
+		{ID: "toolu_script", Tool: "Script", Kind: backendapi.ToolKindUnknown, Outcome: backendapi.ToolAttempted},
+		{ID: "toolu_inner", Tool: "Read", Kind: backendapi.ToolKindRead, Parent: "toolu_script", Outcome: backendapi.ToolAttempted},
+	}
+	if len(result.ToolCalls) != len(want) {
+		t.Fatalf("ToolCalls = %#v, want %#v", result.ToolCalls, want)
+	}
+	for index := range want {
+		if result.ToolCalls[index] != want[index] {
+			t.Errorf("ToolCalls[%d] = %#v, want %#v", index, result.ToolCalls[index], want[index])
+		}
+	}
+	unexpected, gaps := tooluse.Check(request, result)
+	if len(unexpected) != 2 || unexpected[0].ID != "toolu_write" || unexpected[1].ID != "toolu_script" {
+		t.Fatalf("unexpected = %#v, want the write and the unknown script tool, each once", unexpected)
+	}
+	if len(gaps) != 0 {
+		t.Fatalf("gaps = %q, want readable progress events said as nothing unseen", gaps)
+	}
+}
+
+// A tool_progress event whose fields cannot be read, or that names no call,
+// is still said as tool use that could not be seen, never dropped.
+func TestUnreadableToolProgressIsALimit(t *testing.T) {
+	t.Parallel()
+	for name, line := range map[string]string{
+		"an identifier that is not text": `{"type":"tool_progress","tool_use_id":42,"tool_name":"Bash","parent_tool_use_id":null,"elapsed_time_seconds":1,"uuid":"u","session_id":"session-tools"}`,
+		"no tool named":                  `{"type":"tool_progress","tool_use_id":"toolu_x","parent_tool_use_id":null,"elapsed_time_seconds":1,"uuid":"u","session_id":"session-tools"}`,
+		"no call named":                  `{"type":"tool_progress","elapsed_time_seconds":1,"uuid":"u","session_id":"session-tools"}`,
+		"an inner call with no id":       `{"type":"tool_progress","tool_use_id":"toolu_script","tool_name":"Script","parent_tool_use_id":null,"elapsed_time_seconds":0,"inner_call":{"tool_name":"Write"},"uuid":"u","session_id":"session-tools"}`,
+	} {
+		result := runRoleStream(t, domain.RoleDeveloper, toolStreamInit, line, line, toolStreamResult)
+		gaps := result.ToolVisibility.Gaps
+		if len(gaps) != 1 || gaps[0] != `Claude Code wrote a "tool_progress" event the harness does not read, so a tool call it may carry was not observed` {
+			t.Errorf("%s: Gaps = %q, want the unread event said once", name, gaps)
+		}
+		if len(result.ToolCalls) != 0 {
+			t.Errorf("%s: ToolCalls = %#v, want nothing guessed from an event that could not be read", name, result.ToolCalls)
+		}
 	}
 }
 

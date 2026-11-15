@@ -1970,7 +1970,7 @@ func TestARerunnerWithoutItsPartsRefuses(t *testing.T) {
 	if err == nil {
 		t.Fatal("Rerun() with nothing wired did not refuse")
 	}
-	for _, want := range []string{"triage docket", "intake hold", "one per docketed stoppage", "triage record", "work item", "human gates", "start a run", "developer capacity"} {
+	for _, want := range []string{"triage docket", "intake hold", "one per docketed stoppage", "triage record", "work item", "steps a person has recorded taking", "start a run", "developer capacity"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("refusal is missing %q: %v", want, err)
 		}

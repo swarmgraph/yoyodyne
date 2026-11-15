@@ -237,7 +237,7 @@ func (w conversationWork) Backlog(ctx context.Context) (backlog.Queue, error) {
 		// same reason it holds every blocked item.
 		discharged, err = w.store.DischargedGates()
 		if err != nil {
-			return backlog.Queue{}, fmt.Errorf("read the human gates a person has passed: %w", err)
+			return backlog.Queue{}, fmt.Errorf("read the steps a person has recorded taking: %w", err)
 		}
 	}
 	return backlog.Order(admitted, pullable, held, discharged), nil

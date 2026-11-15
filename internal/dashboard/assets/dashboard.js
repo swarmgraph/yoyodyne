@@ -850,7 +850,7 @@ var standingWarningAgeSeconds = 5 * 60;
     figures.appendChild(figureRow("Cost", (period.floor ? "at least " : "") + (period.cost_text || money(period.cost_usd)) + " from " + count(period.invocations, "invocation"), "figure-cost"));
     figures.appendChild(figureRow("Of which", splitOf(period.kinds)));
     if (period.unpriced) {
-      figures.appendChild(figureRow("Not priced", count(period.unpriced, "exchange record") + " could not be read, so the cost is a floor", "figure-unreadable"));
+      figures.appendChild(figureRow("Not priced", count(period.unpriced, "exchange record") + " could not be read, so the cost is at least this much", "figure-unreadable"));
     }
     // The spend ledger's calls by kind of cost, in the read model's own words:
     // reported, estimated, the comparison at API prices that is not money
@@ -1646,7 +1646,9 @@ var standingWarningAgeSeconds = 5 * 60;
 
   function entryKey(entry) {
     if (entry.kind === "held-work") {
-      return entry.kind + ":" + (entry.held_work ? entry.held_work.awaiting : "");
+      // A wait on the architect's design is one entry per item, so its key
+      // names the item; the other waits are one entry each.
+      return entry.kind + ":" + (entry.held_work ? entry.held_work.awaiting : "") + (entry.id ? ":" + entry.id : "");
     }
     return entry.kind + ":" + (entry.id || "");
   }
@@ -1722,11 +1724,16 @@ var standingWarningAgeSeconds = 5 * 60;
       );
     }
     var refused = standing.not_startable_problem ? [] : standing.not_startable;
+    // An item placed first among its priority says so before why it has not
+    // started; an item with no placement reads as it always did.
+    var queuedDetail = function (item) {
+      return [item.placed_first || "", item.wait_reason || ""].filter(function (part) { return part !== ""; }).join("; ");
+    };
     var withReason = function (item) { return { id: item.work_item_id, title: item.title, detail: heldSince(item, standing) + item.reason }; };
     switch (kind) {
       case "admitted":
         return listing("Admitted", "every admitted item, in the Lead Product Manager's order", standing.not_startable_problem, whatToDoAboutTheQueue(), "No work item is admitted.",
-          (standing.admitted_items || []).map(function (item) { return { id: item.work_item_id, title: item.title, detail: item.wait_reason || "" }; }));
+          (standing.admitted_items || []).map(function (item) { return { id: item.work_item_id, title: item.title, detail: queuedDetail(item) }; }));
       case "held":
         return listing("Held back", "admitted items not startable now, each with the refusal that stops it", standing.not_startable_problem, whatToDoAboutTheQueue(), "No admitted item is held back.", refused.map(withReason));
       case "pile":
@@ -1740,7 +1747,7 @@ var standingWarningAgeSeconds = 5 * 60;
         return listing("Startable", stalled.length > 0 ? "the harness is choosing nothing: " + stalled[0].reason
           : (standing.waiting_for_slot ? standing.waiting_for_slot.says + "; the harness pulls them in this order as slots free" : "the admitted items nothing refuses, which the harness pulls next in this order"),
           standing.not_startable_problem, whatToDoAboutTheQueue(), "No admitted item is startable.",
-          (standing.startable_items || []).map(function (item) { return { id: item.work_item_id, title: item.title, detail: item.wait_reason || "" }; }));
+          (standing.startable_items || []).map(function (item) { return { id: item.work_item_id, title: item.title, detail: queuedDetail(item) }; }));
       default:
         return listing(key, "", "the page asked for a grouping it does not have", "", "", []);
     }
@@ -1798,7 +1805,7 @@ var standingWarningAgeSeconds = 5 * 60;
       lines.push({
         day: "unpriced",
         title: "not priced",
-        detail: count(spend.unpriced, "exchange record") + " could not be read, so every figure here and above is a floor",
+        detail: count(spend.unpriced, "exchange record") + " could not be read, so every figure here and above is at least what it says",
         className: "grouping-day-unreached"
       });
     }
@@ -2400,7 +2407,14 @@ var standingWarningAgeSeconds = 5 * 60;
         add("Worst", pile.worst);
         break;
       case "held-work":
-        if (entry.held_work) {
+        if (entry.held_work && entry.held_work.awaiting === "design") {
+          add("Awaiting", "the architect's design");
+          add("Item", entry.work_item_id || "");
+          if (entry.held_work.priority !== undefined) {
+            add("Priority", "p" + entry.held_work.priority);
+          }
+          add("Since", entry.held_work.since ? dayAndClock(entry.held_work.since) : "not recorded yet");
+        } else if (entry.held_work) {
           add("Awaiting", entry.held_work.awaiting === "carry-out" ? "carry-out of a decision already recorded" : "the development manager's decision");
           add("Items", count(entry.held_work.count, "admitted item"));
         }

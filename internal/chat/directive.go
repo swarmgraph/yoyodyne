@@ -365,7 +365,7 @@ func (s *Session) directivePauseNote(recorded directive.Directive) string {
 		fmt.Fprintf(&note, "Governed artifact it changes: %s\n", recorded.Artifact)
 	}
 	fmt.Fprintf(&note, "Unresolved: %s\n\n", recorded.Unresolved)
-	note.WriteString("Nothing was cancelled. A run in flight for this item keeps its claim, branch, and worktree and stops at its next gate; nothing new starts on it. Resolving the directive is what lets it carry on.\n")
+	note.WriteString("Nothing was cancelled. A run in flight for this item keeps its claim, branch, and worktree and stops before its next step; nothing new starts on it. Resolving the directive is what lets it carry on.\n")
 	return note.String()
 }
 
@@ -388,7 +388,7 @@ func (d DirectiveRecorded) Render() string {
 		rendered.WriteString("nothing is in flight or claimed for it to pause; work it affects will not start while it is unresolved.\n")
 	} else {
 		fmt.Fprintf(&rendered, "paused %d work item(s): %s\n", len(d.Paused), strings.Join(d.Paused, ", "))
-		rendered.WriteString("nothing was cancelled: a run in flight keeps its claim, branch, and worktree and stops at its next gate.\n")
+		rendered.WriteString("nothing was cancelled: a run in flight keeps its claim, branch, and worktree and stops before its next step.\n")
 		if unnoted := d.unnoted(); len(unnoted) > 0 {
 			// The pause holds from the record rather than from the note, so an item
 			// the tracker would not take a note for is still paused. Saying which is

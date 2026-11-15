@@ -123,8 +123,15 @@ func (m *Manager) RemoveLandingCheckout(ctx context.Context, runID string) error
 // removeCheckout removes a checkout whatever it holds: a landing checkout is
 // nobody's change, so a check that left build products in it is not work to
 // preserve. The caller holds the registry lease.
+//
+// The force is given twice because the one lock such a checkout can carry is
+// the "initializing" lock `git worktree add` takes while it writes the tree,
+// and an add ended part-way leaves it: Git refuses to remove a locked checkout
+// on one force, and refuses to add one at the same path while the locked
+// registration stands, even with its directory gone. The harness never locks a
+// checkout of its own, so the lock is never somebody's to keep.
 func (m *Manager) removeCheckout(ctx context.Context, path string) error {
-	removed, err := m.run(ctx, "-C", m.repositoryRoot, "worktree", "remove", "--force", path)
+	removed, err := m.run(ctx, "-C", m.repositoryRoot, "worktree", "remove", "--force", "--force", path)
 	if err != nil {
 		return err
 	}

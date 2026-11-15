@@ -93,6 +93,10 @@ type WorkItem struct {
 	// and it is a different question from the executor: this one says the work is
 	// not to be started now, not that no run could start it.
 	Parking domain.WorkItemParking
+	// Placement is the Lead Product Manager's record that this item goes first
+	// among work of its own priority, and nil where she made none. It is read
+	// through PlacedFirst, which says whether it still orders the item.
+	Placement *Placement `json:",omitempty"`
 	// Labels are the tracker's own labels on the item, in the order bd lists
 	// them, and nil for an item carrying none. They are bd's native field rather
 	// than harness metadata, so whatever else reads the tracker — bd's own
@@ -469,6 +473,10 @@ type WorkItemChange struct {
 	// empty one releases the item back into the queue, and a stated one parks it
 	// with that as the reason.
 	Parking *domain.WorkItemParking
+	// Placement places the item first among work of its own priority or ends a
+	// placement, applied only when it is set: nil leaves the placement alone, a
+	// pointer to the zero placement ends it, and a stated one places the item.
+	Placement *Placement
 	// Priority is a pointer because zero is the highest Beads priority rather
 	// than an absent one.
 	Priority *int
@@ -1079,6 +1087,13 @@ func (c Client) Update(ctx context.Context, id string, change WorkItemChange) (W
 	if change.Parking != nil {
 		args = append(args, "--set-metadata="+parkedKey+"="+change.Parking.Reason())
 	}
+	if change.Placement != nil {
+		value, err := change.Placement.encode()
+		if err != nil {
+			return WorkItem{}, err
+		}
+		args = append(args, "--set-metadata="+placedKey+"="+value)
+	}
 	if change.Priority != nil {
 		args = append(args, "--priority="+strconv.Itoa(*change.Priority))
 	}
@@ -1149,6 +1164,16 @@ func (change WorkItemChange) heldBy(item WorkItem) error {
 			return fmt.Errorf("work item %s is parked %q after being updated, want %q", item.ID, item.Parking, change.Parking.Reason())
 		}
 		return fmt.Errorf("work item %s is still parked %q after being released", item.ID, item.Parking)
+	}
+	// The placement is read back in both directions, for the parking's reason: a
+	// placement that did not take is a promise the scheduler does not keep, and
+	// an ending that did not take keeps an item ahead of work nobody promised
+	// it would pass.
+	if change.Placement != nil && !samePlacement(item.Placement, change.Placement) {
+		if *change.Placement == (Placement{}) {
+			return fmt.Errorf("work item %s is still placed first among priority %d after its placement was ended", item.ID, item.Placement.Priority)
+		}
+		return fmt.Errorf("work item %s does not carry the placement first among priority %d it was given", item.ID, change.Placement.Priority)
 	}
 	// The labels are read back in both directions. What rests on a label is
 	// whatever filters on it — the seat that watches for one, bd's own listing
@@ -1957,7 +1982,28 @@ func (c Client) Complete(ctx context.Context, id, reason string) (WorkItem, erro
 	if strings.TrimSpace(reason) == "" {
 		return WorkItem{}, errors.New("completion reason is required")
 	}
-	return c.writeItem(ctx, id, func(item WorkItem) bool { return item.Status == statusClosed }, "close", id, "--reason="+reason, "--json")
+	closed, err := c.writeItem(ctx, id, func(item WorkItem) bool { return item.Status == statusClosed }, "close", id, "--reason="+reason, "--json")
+	if err != nil || closed.Placement == nil {
+		return closed, err
+	}
+	return c.endPlacementOnClose(ctx, closed), nil
+}
+
+// endPlacementOnClose records on a closed item that its placement first among
+// its priority ended with it, and clears the placement. Every close the harness
+// makes passes through Complete, so this is the one place the ending is
+// recorded. The close has already happened and is the caller's answer, so a
+// write here that fails is not the caller's failure: a placement on a closed
+// item orders nothing (PlacedFirst), and the item is returned as it was closed.
+func (c Client) endPlacementOnClose(ctx context.Context, closed WorkItem) WorkItem {
+	ended := Placement{}
+	note := fmt.Sprintf("Placement first among priority %d ended: the item closed. It had been %s.",
+		closed.Placement.Priority, closed.Placement.Line())
+	updated, err := c.Update(ctx, closed.ID, WorkItemChange{Placement: &ended, AppendNotes: note})
+	if err != nil {
+		return closed
+	}
+	return updated
 }
 
 // Reopen returns a claimed item to the backlog, carrying into its notes the
@@ -2311,6 +2357,17 @@ func decodeWorkItemsIn(data []byte, writerZone *time.Location) ([]WorkItem, erro
 	return items, nil
 }
 
+// samePlacement reports two placements as the same record, where nil and the
+// zero placement are both no placement.
+func samePlacement(stored, wanted *Placement) bool {
+	none := func(p *Placement) bool { return p == nil || *p == (Placement{}) }
+	if none(stored) || none(wanted) {
+		return none(stored) && none(wanted)
+	}
+	return stored.By == wanted.By && stored.At.Equal(wanted.At) && stored.Priority == wanted.Priority &&
+		stored.Reason == strings.TrimSpace(wanted.Reason)
+}
+
 func convertWorkItem(raw rawWorkItem) (WorkItem, error) {
 	return convertWorkItemIn(raw, time.Local)
 }
@@ -2382,6 +2439,7 @@ func convertWorkItemIn(raw rawWorkItem, writerZone *time.Location) (WorkItem, er
 	}
 	item.Executor = executorIn(raw.Metadata)
 	item.Parking = parkingIn(raw.Metadata)
+	item.Placement = placementIn(raw.Metadata)
 	item.Landing = metadataString(raw.Metadata, LandingKey)
 	item.Origin = originIn(raw.Metadata)
 	if saved := metadataString(raw.Metadata, schedulingWaitKey); saved != "" {
@@ -2639,7 +2697,7 @@ func (c WorkItemChange) validate() error {
 		strings.TrimSpace(c.Description) == "" &&
 		strings.TrimSpace(c.AppendNotes) == "" &&
 		strings.TrimSpace(string(c.Executor)) == "" &&
-		c.RelevantGoals == nil && c.Priority == nil && c.Parent == nil && c.Parking == nil &&
+		c.RelevantGoals == nil && c.Priority == nil && c.Parent == nil && c.Parking == nil && c.Placement == nil &&
 		len(c.AddLabels) == 0 && len(c.RemoveLabels) == 0 && c.Kind == "" {
 		problems = append(problems, errors.New("an update must change something"))
 	}
@@ -2649,6 +2707,11 @@ func (c WorkItemChange) validate() error {
 	}
 	if c.Parking != nil {
 		problems = append(problems, parkingProblem(*c.Parking)...)
+	}
+	if c.Placement != nil && *c.Placement != (Placement{}) {
+		if err := c.Placement.Validate(); err != nil {
+			problems = append(problems, err)
+		}
 	}
 	problems = append(problems, labelProblems(c.AddLabels)...)
 	problems = append(problems, labelProblems(c.RemoveLabels)...)
