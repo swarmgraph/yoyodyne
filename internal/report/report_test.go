@@ -1,6 +1,7 @@
 package report
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -498,5 +499,91 @@ func TestAHandlingMapsEachRequestToExactlyOneAnswer(t *testing.T) {
 		if err := invalid.Validate(); err == nil || !strings.Contains(err.Error(), "exactly one of") {
 			t.Fatalf("Validate() error = %v, want a request with no single answer refused", err)
 		}
+	}
+}
+
+// A record copied from another factory says so wherever a person reads it, and
+// one filed here reads exactly as it always did.
+func TestARecordFromAnotherFactoryNamesTheFactoryItCameFrom(t *testing.T) {
+	t.Parallel()
+
+	filed := piledReport("report-0123456789abcdef0123456789abcdef", SeverityNote, 0)
+	local := filed.Render()
+	if strings.Contains(local, "another factory") {
+		t.Fatalf("Render() = %q, want no mention of another factory for a local report", local)
+	}
+	filed.Factory = "yoyodyne harness on the build machine"
+	if err := filed.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	copied := filed.Render()
+	if want := " (filed by another factory: yoyodyne harness on the build machine)\n"; !strings.Contains(copied, want) {
+		t.Fatalf("Render() = %q, want it to contain %q", copied, want)
+	}
+	if strings.Replace(copied, " (filed by another factory: yoyodyne harness on the build machine)", "", 1) != local {
+		t.Fatalf("Render() = %q, want the local rendering plus the factory", copied)
+	}
+
+	handling := testHandling(filed.ID, "covered already")
+	localHandling := handling.Render()
+	handling.Factory = "the build machine"
+	if err := handling.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if got := handling.Render(); !strings.Contains(got, "(recorded by another factory: the build machine):") || strings.Contains(localHandling, "another factory") {
+		t.Fatalf("Render() = %q (local %q), want the factory named only on the copied handling", got, localHandling)
+	}
+}
+
+func TestAFactoryIsOneBoundedLine(t *testing.T) {
+	t.Parallel()
+
+	filed := piledReport("report-0123456789abcdef0123456789abcdef", SeverityNote, 0)
+	filed.Factory = "two\nlines"
+	if err := filed.Validate(); err == nil || !strings.Contains(err.Error(), "factory cannot span lines") {
+		t.Fatalf("Validate() error = %v, want a refusal of a factory over two lines", err)
+	}
+	filed.Factory = strings.Repeat("f", MaxFactoryBytes+1)
+	if err := filed.Validate(); err == nil || !strings.Contains(err.Error(), "factory is") {
+		t.Fatalf("Validate() error = %v, want a refusal of a factory over the bound", err)
+	}
+	handling := testHandling(filed.ID, "covered already")
+	handling.Factory = "two\nlines"
+	if err := handling.Validate(); err == nil {
+		t.Fatal("Validate() accepted a handling whose factory spans lines")
+	}
+}
+
+// A handling is named by what it says, so two machines holding the same one
+// agree on its name whichever of them recorded it.
+func TestAHandlingIDIsStableAndIgnoresTheFactory(t *testing.T) {
+	t.Parallel()
+
+	handling := testHandling("report-0123456789abcdef0123456789abcdef", "a <b> & c")
+	id := HandlingID(handling)
+	if !ValidHandlingID(id) {
+		t.Fatalf("HandlingID() = %q, want 32 lowercase hex digits", id)
+	}
+	encoded, err := json.Marshal(handling)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Handling
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if got := HandlingID(decoded); got != id {
+		t.Fatalf("HandlingID() after a round trip = %q, want %q", got, id)
+	}
+	decoded.Factory = "another"
+	if got := HandlingID(decoded); got != id {
+		t.Fatalf("HandlingID() with a factory = %q, want %q", got, id)
+	}
+	decoded.Reason = "something else"
+	if got := HandlingID(decoded); got == id {
+		t.Fatal("HandlingID() did not change with the reason")
+	}
+	if ValidHandlingID("report-0123") || ValidHandlingID(strings.ToUpper(id)) {
+		t.Fatal("ValidHandlingID() accepted a malformed identifier")
 	}
 }

@@ -19,6 +19,7 @@ package report
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -239,6 +240,11 @@ type Report struct {
 	// empty where it named none; see Entry.For and Addressee.
 	For        domain.AgentRole `json:"for,omitempty"`
 	RecordedAt time.Time        `json:"recorded_at"`
+	// Factory is the factory, as its identity line names it, that filed a report
+	// this machine copied from the shared records of a team
+	// (docs/designs/working-alongside-other-contributors.md, section 7). It is
+	// empty for a report filed on this machine.
+	Factory string `json:"factory,omitempty"`
 }
 
 // Addressees is the roles a report may be addressed to: the ones that hold a
@@ -347,6 +353,9 @@ func (r Report) Validate() error {
 	}
 	if r.RecordedAt.IsZero() {
 		problems = append(problems, errors.New("recorded_at is required"))
+	}
+	if err := validateFactory(r.Factory); err != nil {
+		problems = append(problems, err)
 	}
 	problems = append(problems, Entry{Severity: r.Severity, Message: r.Message, For: r.For}.Validate())
 	if err := errors.Join(problems...); err != nil {
@@ -571,7 +580,60 @@ type Handling struct {
 	// it done; unlike NeedsOperator, the finding stays the role's and is never
 	// his to decide.
 	Hand ownership.HandNeed `json:"hand,omitempty"`
+	// Factory is the factory that recorded a handling this machine copied from
+	// the shared records, named as a report's is. It is empty for a handling
+	// recorded on this machine.
+	Factory string `json:"factory,omitempty"`
 }
+
+// MaxFactoryBytes bounds the name of the factory that filed a record.
+const MaxFactoryBytes = 300
+
+// validateFactory checks the optional factory a record was copied from: one
+// bounded line.
+func validateFactory(factory string) error {
+	trimmed := strings.TrimSpace(factory)
+	switch {
+	case len(trimmed) > MaxFactoryBytes:
+		return fmt.Errorf("factory is %d bytes, limit is %d", len(trimmed), MaxFactoryBytes)
+	case strings.ContainsAny(trimmed, "\r\n"):
+		return errors.New("factory cannot span lines")
+	}
+	return nil
+}
+
+// otherFactory is the words a rendering adds where a record came from another
+// factory, and nothing where it was written on this machine.
+func otherFactory(verb, factory string) string {
+	if strings.TrimSpace(factory) == "" {
+		return ""
+	}
+	return " (" + verb + " by another factory: " + strings.TrimSpace(factory) + ")"
+}
+
+// HandlingID names a handling's file in the shared records. It is the same on
+// every machine that holds the same handling, because it is computed from what
+// the handling says and not from where it was copied from: Factory is cleared
+// first, so a machine that copied the handling and the one that recorded it
+// agree on it.
+func HandlingID(h Handling) string {
+	h.Factory = ""
+	h.RecordedAt = h.RecordedAt.UTC()
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(h); err != nil {
+		// A handling is plain data; encoding one cannot fail.
+		panic(fmt.Sprintf("encode report handling: %v", err))
+	}
+	sum := sha256.Sum256(encoded.Bytes())
+	return hex.EncodeToString(sum[:16])
+}
+
+// ValidHandlingID reports an identifier of the shape HandlingID issues.
+func ValidHandlingID(id string) bool { return handlingIDPattern.MatchString(id) }
+
+var handlingIDPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
 // MaxRequestsPerHandling bounds how many requests one handling maps, and
 // MaxRequestBytes bounds the words one request is quoted in. A report is two
@@ -725,6 +787,9 @@ func (h Handling) Validate() error {
 	if h.RecordedAt.IsZero() {
 		problems = append(problems, errors.New("recorded_at is required"))
 	}
+	if err := validateFactory(h.Factory); err != nil {
+		problems = append(problems, err)
+	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid report handling: %w", err)
 	}
@@ -823,8 +888,8 @@ func (h Handling) Render() string {
 		verb = "needs the operator's hand, recorded"
 	}
 	var rendered strings.Builder
-	fmt.Fprintf(&rendered, "      %s %s by the %s (%s): %s\n",
-		verb, h.RecordedAt.UTC().Format(time.RFC3339), handler, h.RunID, strings.Join(strings.Fields(workref.Expand(h.Reason, h.References)), " "))
+	fmt.Fprintf(&rendered, "      %s %s by the %s (%s)%s: %s\n",
+		verb, h.RecordedAt.UTC().Format(time.RFC3339), handler, h.RunID, otherFactory("recorded", h.Factory), strings.Join(strings.Fields(workref.Expand(h.Reason, h.References)), " "))
 	if h.PersonOnly != nil {
 		fmt.Fprintf(&rendered, "        person's step: %s\n", h.PersonOnly.Step)
 	}
@@ -891,7 +956,7 @@ func (r Report) RenderAgainst(gauge *Gauge) string {
 	if r.For != "" {
 		fmt.Fprintf(&rendered, " for the %s", r.For.Title())
 	}
-	fmt.Fprintf(&rendered, " (%s)\n", r.provenance(gauge))
+	fmt.Fprintf(&rendered, " (%s)%s\n", r.provenance(gauge), otherFactory("filed", r.Factory))
 	for _, line := range strings.Split(strings.TrimSpace(r.ExpandedMessage()), "\n") {
 		fmt.Fprintf(&rendered, "      %s\n", strings.TrimSpace(line))
 	}

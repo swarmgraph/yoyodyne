@@ -618,11 +618,19 @@ var standingWarningAgeSeconds = 5 * 60;
 
   // renderTeamMerge lists the items whose change landed on the target branch and
   // waits for the team to merge it, one line each in the words the terminal
-  // prints, which the model says (Standing.WaitingForTeamMergeSays).
+  // prints, which the model says (Standing.WaitingForTeamMergeSays). It lists
+  // beside them the records not yet shared with the team's other factories, in
+  // the model's words (Standing.RecordsNotSharedSays).
   function renderTeamMerge(standing) {
     var list = document.getElementById("team-merge");
     var said = standing && standing.waiting_for_team_merge_says ? standing.waiting_for_team_merge_says : [];
     var problem = standing && standing.waiting_for_team_merge_problem ? standing.waiting_for_team_merge_problem : "";
+    if (standing && standing.records_not_shared_problem) {
+      said = said.concat([standing.records_not_shared_problem]);
+    }
+    if (standing && standing.records_not_shared_says) {
+      said = said.concat([standing.records_not_shared_says]);
+    }
     if (!list) {
       // Made on first need, beside the banner it follows, so a page with nothing
       // waiting for the team carries nothing for it.
