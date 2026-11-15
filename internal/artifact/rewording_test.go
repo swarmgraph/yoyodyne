@@ -1,6 +1,7 @@
 package artifact
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -190,4 +191,113 @@ func TestDirectingItemIsTheIdentifierAReasonOpensWith(t *testing.T) {
 			t.Errorf("DirectingItem(%q) = %q, %v; want %q", reason, got, named, want)
 		}
 	}
+}
+
+// The operator can approve a revision of a document that already stands
+// approved, whatever the revision is: a rewording the Lead Product Manager
+// recorded as consistent with intent, an identity revision, or a change of
+// fundamental intent. The approval is recorded against the revision as it now
+// stands, after the earlier one, which is left exactly as it was; and a second
+// approval of that same revision is refused rather than recorded twice.
+func TestTheOperatorsApprovalOfARevisionOfAnApprovedDocumentIsRecorded(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name   string
+		start  func(t *testing.T) Store
+		revise func(t *testing.T, store Store)
+	}{
+		{name: "a rewording recorded as consistent with intent", start: approvedGoalsDocument, revise: func(t *testing.T, store Store) {
+			body := strings.Replace(rewordingGoals, "the product manager", "the lead product manager", 1)
+			if _, err := store.Amend(domain.RoleProductManager, "v1-goals", Amendment{
+				Body: &body, Reason: "yoyodyne-ifd.437.11 - the autonomy goal names the Lead Product Manager", Intent: IntentConsistent,
+			}, moment().Add(2*time.Hour)); err != nil {
+				t.Fatalf("Amend() error = %v", err)
+			}
+		}},
+		{name: "a revision that only gives the goals identifiers", start: approvedGoals, revise: func(t *testing.T, store Store) {
+			if _, err := store.Identify(domain.RoleProductManager, "v1-goals", identifiedGoals,
+				"yoyodyne-ifd.344 - goal identifiers recorded", moment().Add(2*time.Hour)); err != nil {
+				t.Fatalf("Identify() error = %v", err)
+			}
+		}},
+		{name: "a change of fundamental intent", start: approvedGoalsDocument, revise: func(t *testing.T, store Store) {
+			body := strings.Replace(rewordingGoals, "the product manager", "nobody", 1)
+			if _, err := store.Amend(domain.RoleProductManager, "v1-goals", Amendment{
+				Body: &body, Reason: "yoyodyne-ifd.500 - the autonomy goal drops the product manager", Intent: IntentFundamental,
+			}, moment().Add(2*time.Hour)); err != nil {
+				t.Fatalf("Amend() error = %v", err)
+			}
+		}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := testCase.start(t)
+			testCase.revise(t, store)
+			before, found, err := loadGoals(store)
+			if err != nil || !found {
+				t.Fatalf("load before approving: found %v, %v", found, err)
+			}
+			if len(before.Approvals) != 1 || len(before.Revisions) != 2 {
+				t.Fatalf("before: %d approvals, %d revisions", len(before.Approvals), len(before.Revisions))
+			}
+
+			approvedAt := moment().Add(3 * time.Hour)
+			approved, err := store.Approve("v1-goals", "approved by the operator in conversation, the revision as it stands", approvedAt)
+			if err != nil {
+				t.Fatalf("Approve() error = %v", err)
+			}
+
+			reloaded, found, err := loadGoals(store)
+			if err != nil || !found {
+				t.Fatalf("load after approving: found %v, %v", found, err)
+			}
+			for _, recorded := range []Artifact{approved, reloaded} {
+				if len(recorded.Approvals) != 2 {
+					t.Fatalf("approvals = %#v, want the earlier one and the new one", recorded.Approvals)
+				}
+				// The earlier approval is untouched: same revision, approver, time and reason.
+				if recorded.Approvals[0] != before.Approvals[0] {
+					t.Fatalf("earlier approval = %#v, want it unchanged from %#v", recorded.Approvals[0], before.Approvals[0])
+				}
+				latest := recorded.Approvals[1]
+				if latest.Revision != len(recorded.Revisions)-1 || latest.By != ApproverOperator ||
+					!latest.At.Equal(approvedAt) || latest.Reason != "approved by the operator in conversation, the revision as it stands" {
+					t.Fatalf("new approval = %#v, want the operator's, against revision %d", latest, len(recorded.Revisions)-1)
+				}
+				if recorded.ApprovalState() != ApprovalApproved || recorded.RevisionsSinceApproval() != 0 || len(recorded.RewordingsSinceApproval()) != 0 {
+					t.Fatalf("state %q, %d since, %d rewordings; want approved as it stands", recorded.ApprovalState(),
+						recorded.RevisionsSinceApproval(), len(recorded.RewordingsSinceApproval()))
+				}
+				if len(recorded.Revisions) != len(before.Revisions) {
+					t.Fatalf("approving added a revision: %d, was %d", len(recorded.Revisions), len(before.Revisions))
+				}
+			}
+
+			// The same revision is approved once.
+			_, err = store.Approve("v1-goals", "approved again", moment().Add(4*time.Hour))
+			if err == nil || !strings.Contains(err.Error(), "is already approved as it stands, at revision 1 by the operator") {
+				t.Fatalf("second Approve() error = %v, want it refused as already approved", err)
+			}
+			again, _, err := loadGoals(store)
+			if err != nil || len(again.Approvals) != 2 {
+				t.Fatalf("a refused approval changed the record: %#v, %v", again.Approvals, err)
+			}
+		})
+	}
+}
+
+// loadGoals reads the goals document back from disk, refusing a load that
+// reported any problem with the set.
+func loadGoals(store Store) (Artifact, bool, error) {
+	set, err := store.Load()
+	if err != nil {
+		return Artifact{}, false, err
+	}
+	if len(set.Problems) != 0 {
+		return Artifact{}, false, fmt.Errorf("problems: %v", set.Problems)
+	}
+	recorded, found := set.Find("v1-goals")
+	return recorded, found, nil
 }

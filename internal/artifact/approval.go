@@ -470,6 +470,14 @@ func (s Store) PrepareStandingApproval(id, reason string, now time.Time) (Confir
 
 // standingApproval is the operator's approval of a document as it now stands,
 // recorded against its last revision, and the document's body.
+//
+// It is refused only where the last revision already carries an approval,
+// because one revision is approved once. A document that reads as approved
+// through an identity revision or a delegated rewording recorded after the
+// approval is still approvable: the approval it stands on names an earlier
+// revision, so the record says nothing about who approved it as it now reads,
+// and the operator approving it is what makes the record say so. The new
+// approval is appended after the earlier ones, which are left as they were.
 func (s Store) standingApproval(id, reason string, now time.Time) (Artifact, string, error) {
 	existing, body, err := s.loadOne(id)
 	if err != nil {
@@ -483,9 +491,9 @@ func (s Store) standingApproval(id, reason string, now time.Time) (Artifact, str
 		return Artifact{}, "", fmt.Errorf("approving artifact %q needs a reason saying how the approval was given; this record speaks for a person, and one that cannot be traced back to them is a claim made on their behalf", id)
 	}
 	revision := len(existing.Revisions) - 1
-	if latest, approved := existing.LatestApproval(); approved && existing.ApprovalState() == ApprovalApproved {
-		return Artifact{}, "", fmt.Errorf("artifact %q is already approved as it stands, at revision %d on %s: %s",
-			id, latest.Revision, latest.At.Format(time.RFC3339), latest.Reason)
+	if latest, approved := existing.LatestApproval(); approved && latest.Revision == revision {
+		return Artifact{}, "", fmt.Errorf("artifact %q is already approved as it stands, at revision %d by the %s on %s: %s",
+			id, latest.Revision, latest.By.Title(), latest.At.Format(time.RFC3339), latest.Reason)
 	}
 	approved := existing
 	approved.Approvals = append(append([]Approval(nil), existing.Approvals...), Approval{
