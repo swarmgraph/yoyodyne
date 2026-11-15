@@ -433,6 +433,22 @@ path_checks:
     paths: scripts/codex-resume.paths
     needs_provider_clis: true
 
+# MCP servers the harness calls on the roles' behalf (docs/configuration.md,
+# "MCP servers"). The git server is the operator's choice of 2026-11-15 for the
+# real-server trial: read tools only, confined to this repository. It is
+# installed once with `uv tool install mcp-server-git==2026.11.11`, because a
+# first start under uvx fetches it for longer than a call's one-minute limit.
+# The harness starts a server with HOME set to the server's own folder, so the
+# repository is named from USER.
+mcp:
+  servers:
+    git:
+      command: [sh, -c, 'exec mcp-server-git --repository "/Users/$USER/github/yoyodyne"']
+      tools:
+        git_log: read
+        git_show: read
+        git_branch: read
+
 # Every agent is stated in full: nothing about them is inherited. A model
 # selector that names a family, such as "opus", floats to that family's current
 # default; an exact identifier such as claude-opus-5 pins a version. Persona
@@ -461,6 +477,7 @@ agents:
     persona:
       version: v2
       path: personas/developer.md
+    mcp_tools: [git.git_log, git.git_show, git.git_branch]
   # The first program manager, created on the operator's direction of
   # 2026-09-25: it owns the factory not getting stuck or halting on a person.
   # docs/designs/program-manager.md; its passes fire on the triggers below.
@@ -513,6 +530,7 @@ agents:
     persona:
       version: v2
       path: personas/development-manager.md
+    mcp_tools: [git.git_log, git.git_show, git.git_branch]
   product-manager:
     role: product-manager
     backend: claude-code
