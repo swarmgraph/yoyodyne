@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -244,12 +243,11 @@ func TestPlacedProposalsAreCheckedAgainstTheTrackerBeforeTheOperatorIsAsked(t *t
 		session := openTestSession(t, options)
 
 		reply, err := session.Send(context.Background(), "what follows?")
-		var unplaced *ProposalPlacementError
-		if !errors.As(err, &unplaced) {
-			t.Fatalf("Send() error = %v, want a placement failure", err)
+		if err != nil {
+			t.Fatalf("Send() error = %v, want the proposal refused alone", err)
 		}
-		if !strings.Contains(err.Error(), "yoyodyne-ifd.4.4") {
-			t.Fatalf("Send() error = %v, want it to name the missing dependency", err)
+		if len(reply.RefusedBlocks) != 1 || !strings.Contains(reply.RefusedBlocks[0], "yoyodyne-ifd.4.4") {
+			t.Fatalf("refused blocks = %q, want a placement refusal naming the missing dependency", reply.RefusedBlocks)
 		}
 		// The answer is still the operator's to read, and nothing was recorded as
 		// awaiting a decision they were never asked for.
@@ -296,9 +294,9 @@ func TestPlacedProposalsAreCheckedAgainstTheTrackerBeforeTheOperatorIsAsked(t *t
 		}}})
 		session := openTestSession(t, options)
 
-		if _, err := session.Send(context.Background(), "what follows?"); err == nil ||
-			!strings.Contains(err.Error(), "no work tracker is configured") {
-			t.Fatalf("Send() error = %v", err)
+		if reply, err := session.Send(context.Background(), "what follows?"); err != nil ||
+			len(reply.RefusedBlocks) != 1 || !strings.Contains(reply.RefusedBlocks[0], "no work tracker is configured") {
+			t.Fatalf("Send() = %q, %v, want the proposal refused alone for want of a tracker", reply.RefusedBlocks, err)
 		}
 		if len(session.Proposals()) != 0 {
 			t.Fatalf("an unconfirmed proposal is awaiting a decision: %#v", session.Proposals())
@@ -347,7 +345,7 @@ func TestConverseSurvivesAProposalPlacedAgainstNothing(t *testing.T) {
 		"Here is what I would do.",
 		"do not exist",
 		"yoyodyne-ifd.99",
-		"Nothing was proposed and nothing was created",
+		"Everything else in the reply was carried out",
 		"created yoyodyne-1",
 	} {
 		if !strings.Contains(transcript, required) {
