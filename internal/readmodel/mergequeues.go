@@ -346,6 +346,11 @@ func placedByLanding(read *QueueEntryStanding, landing runstate.MergeQueueLandin
 			}
 			return true
 		}
+		defer func() {
+			if handback.IsSetAside() {
+				read.Why = fmt.Sprintf("%s; set aside: %s", read.Why, handback.SetAside)
+			}
+		}()
 		if handback.Continuation == runstate.MergeQueueReleased {
 			read.State, read.Why = QueueEntryReleased, handback.Reason
 			if handback.TransferTo != "" {
