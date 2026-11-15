@@ -7334,7 +7334,8 @@ harness to call on its behalf
 server, a connection to one, or its credentials: the harness makes every call
 itself. **In this build a conversation — the Lead Product Manager, the
 architect, the development manager, or a program manager — can ask for the
-tools on its own agent's list; a developer run cannot ask yet.** A project that
+tools on its own agent's list, and a developer run can ask for the read tools
+on its own agent's list.** A project that
 says nothing has no servers and no lists, and runs exactly as it did before the
 keys existed. [Using MCP servers](mcp.md) is the setup guide, in order, with a
 worked example to copy, and says what a result sent to an AI provider means for

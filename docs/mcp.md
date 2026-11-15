@@ -30,8 +30,9 @@ server, whatever your configuration declares.
 in, keeps the record of calls, and shows that record. A role in a conversation
 — the Lead Product Manager, the architect, the development manager, or a
 program manager — can ask for the tools on its own agent's list. A developer
-during a run cannot ask yet; that step is still being built, and the list you
-give a developer now is what it will use.
+during a run can ask for the read tools on its own agent's list; the harness
+makes the calls and resumes the same session with the answers, and asking
+spends no repair attempt.
 
 ## 1. Declare a server
 
@@ -147,8 +148,9 @@ the agent is an AI model run by a provider, such as Anthropic or OpenAI. So:
   that may ask for calls is told, with its list of tools, never to copy a
   result into the tracker, and to copy one into a report or a document only
   where the work needs it there. That instruction is the only guard on it, and
-  it leaves the judgement to the agent. A developer run cannot ask for calls yet, and will be given the same
-  instruction when it can.
+  it leaves the judgement to the agent. A developer run is told the same about
+  the tracker, and to put a private result into its change only where the work
+  item asks for exactly that.
 - **A result can try to steer the agent.** It is marked as outside data, never
   instructions, which lowers this and does not remove it. That is part of why
   developers hold read tools only.
