@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-11-13T09:38:35.945083Z
       reason: 'yoyodyne-ifd.435.64: Mason directed on November 9 that Slack calls post as him and that he register no Slack app. Slack gives a desktop client a user token only through a registered app, so while he has none, section 8 routes each Slack call through one Claude Code session the harness starts on his account''s approved Slack connector, for one call already checked and recorded, in an empty directory with only that tool on, posting only the harness''s own wording, with its output checked against the decided call. Declared as sign_in: connector, Slack only. Narrows the no-MCP-server invariant in that one way; the route (yoyodyne-ifd.435.60) is not integrated until the invariant''s own revision lands. Replaces the declined-alternative paragraph and line, the adapter line under what is enforced, and piece 10''s Slack check; adds piece 12. Written from a whole read at main ba7e1114.'
+    - action: amended
+      by: architect
+      at: 2026-11-15T19:17:00.400736Z
+      reason: 'yoyodyne-ifd.435.64: the Slack bullet no longer says the operator''s workplace approved the Slack connector, which the operator ruled out on November 13; it now says the session works through a Slack connection on the operator''s Claude account. The closing paragraph now says plainly that this route holds only while he has no Slack app, as the item asks. The rest of the section is unchanged. The earlier revision entry''s wording is left as recorded. Read whole at main 7639c9c2.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-11-13T09:38:35.945083Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2751, for document-2751.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-15T19:17:00.400736Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2832, for document-2832.1 under the automatic approval policy
 ---
 # MCP tools through the harness
 
@@ -275,7 +284,7 @@ mcp:
 
 **Slack.** Slack offers no way for an app to register itself, and gives a user token to a desktop client only through an app registered with the workspace, with PKCE turned on. Mason directed on November 9, 2026 that calls to Slack post as him and that he register no Slack app. With no app there is no token the harness can hold for him, so the harness cannot call Slack as section 4 calls every other server. For as long as he has no app, Slack takes one route of its own, declared with `sign_in: connector`:
 
-- The harness starts one Claude Code session for each Slack call, on the operator's Claude account, whose Slack connector his workspace has already approved. No role asks for this session, and it is no role's session.
+- The harness starts one Claude Code session for each Slack call, through a Slack connection on the operator's Claude account. No role asks for this session, and it is no role's session.
 - The call has already passed every check in sections 1 to 4 and been recorded, as any call is, before the session starts. The session makes the call `internal/mcpcall` decided, and nothing else.
 - The session runs in an empty directory, with no repository and no files, and with every tool and connector off but the one Slack tool the call names.
 - Its instructions are fixed in code. The call's arguments are passed to it as data, never as instructions.
@@ -286,7 +295,7 @@ mcp:
 
 This narrows the first point of Mason's rule of November 6, and the invariant that keeps it, [no agent session holds an MCP server](../decisions/invariants/no-agent-session-holds-an-mcp-server.md), in this one way only: a session the harness starts, for one call it has already decided and recorded, limited to that one tool. It is narrowed because his direction of November 9 leaves no other way to post as him. The invariant's own revision says so, and the route (yoyodyne-ifd.435.60) is not integrated until that revision has landed.
 
-If Mason later registers a Slack app, Slack is signed in to with `sign_in: oauth` as above, the app's client id goes in the configuration, and this route is removed.
+This route is not meant to last. It holds only while Mason has no Slack app. If he later registers one, Slack is signed in to with `sign_in: oauth` as above, the app's client id goes in the configuration, and this route is removed.
 
 ## Risks accepted, stated plainly
 
