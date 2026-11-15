@@ -87,6 +87,11 @@ func (p *Pipeline) mergeQueueChecks(entry runstate.MergeQueueEntry) runstate.Mer
 // the merge queue rather than being promoted by the run.
 func (a *activeRun) admitsToMergeQueue() bool {
 	p := a.pipeline
+	// The merge queue lands into the project's target branch, so a landing in
+	// the companion intent repository is promoted by the run itself.
+	if a.landsInIntentRepository() {
+		return false
+	}
 	// A confirmed document and a run that brings a file in go through the queue
 	// like any approved change: with the queue on, nothing replays a change
 	// onto a target that moved, so one kept out could land on a target its

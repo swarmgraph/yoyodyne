@@ -87,7 +87,9 @@ func (a *activeRun) installBeforeDeveloper(ctx context.Context) error {
 // or whose steps are all in place, runs nothing and records nothing.
 func (a *activeRun) installWhereDue(ctx context.Context, directory, before string, priority domain.HeavyCheckPriority, sorted bool) error {
 	p := a.pipeline
-	if len(p.Config.Install) == 0 {
+	// The install steps are the project's code repository's, so a landing in the
+	// companion intent repository runs none.
+	if len(p.Config.Install) == 0 || a.landsInIntentRepository() {
 		return nil
 	}
 	cache := ""

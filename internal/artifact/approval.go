@@ -542,9 +542,11 @@ func PendingCommit(repositoryRoot, path string) string {
 // checkout. The write stops at that repository's working tree for the same
 // reasons, and is the operator's to commit there; what differs is that no run
 // starts from that repository, so nothing refuses to start over it, and saying
-// one does would send the operator looking for a refusal that never comes.
+// one does would send the operator looking for a refusal that never comes. Runs
+// read that repository at the commit its target branch holds, not its checkout,
+// so the change is not intent until it is committed there.
 func PendingCommitInCompanion(intentRepository, path string) string {
-	return fmt.Sprintf("%s is now an uncommitted change in %s, the project's companion intent repository; runs read it from that checkout as it stands, and committing it there, and pushing it where your team shares it, is yours, under your own identity", path, intentRepository)
+	return fmt.Sprintf("%s is now an uncommitted change in %s, the project's companion intent repository; runs read that repository at its target branch's commit, so the change is not intent until it is committed there, and committing it there, and pushing it where your team shares it, is yours, under your own identity", path, intentRepository)
 }
 
 // PendingCommit says where a write through this store landed, in whichever of

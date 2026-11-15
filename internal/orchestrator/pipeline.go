@@ -384,7 +384,21 @@ type Pipeline struct {
 	Availability func(from, to time.Time, task string) readmodel.GapCause
 	Tracker      WorkTracker
 	Worktrees    WorktreeManager
-	Store        StateStore
+	// IntentWorktrees is the companion intent repository's worktree manager,
+	// where the project keeps its intent in one (config.Product.IntentRoot), and
+	// nil otherwise. A confirmed document lands there through a run cut from that
+	// repository's target branch (intentroute.go), and every run and review reads
+	// the companion intent at the commit that target holds rather than from its
+	// checkout. A companion project's pipeline without one holds its documents
+	// (ErrCompanionPublicationNotBuilt).
+	IntentWorktrees IntentWorktrees
+	// projectWorktrees and intentLanding are set only by intentRoute, on the copy
+	// of the pipeline that lands a document in the companion intent repository:
+	// Worktrees is then that repository's manager, and projectWorktrees is the
+	// project's own, kept for the reviewer's view of the project's code.
+	projectWorktrees WorktreeManager
+	intentLanding    bool
+	Store            StateStore
 	// Backend is the adapter for the backend the developer slot is configured
 	// for, which is what every run reserved under this configuration records.
 	Backend backend.Backend
@@ -1706,7 +1720,15 @@ func (a *activeRun) claim(ctx context.Context) error {
 		return fmt.Errorf("validate claimed work item: %w", err)
 	}
 	a.clearAcceptedSchedulingWait(ctx)
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.pipeline.Repository, WorkItem: item, Specifications: a.pipeline.Config.Product.Specifications, IntentRoot: a.pipeline.Config.Product.IntentRoot(a.pipeline.Repository)})
+	// Companion intent is read at a commit that is recorded the first time and
+	// read again from the record, so the developer, a resumed attempt and the
+	// reviewer all read the same one.
+	intentRevision, intentCommit, err := a.pipeline.intentRevision(ctx, a.state.IntentCommit)
+	if err != nil {
+		return fmt.Errorf("assemble claimed work item context: %w", err)
+	}
+	a.state.IntentCommit = intentCommit
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.pipeline.Repository, WorkItem: item, Specifications: a.pipeline.Config.Product.Specifications, IntentRoot: a.pipeline.Config.Product.IntentRoot(a.pipeline.Repository), IntentRevision: intentRevision})
 	if err != nil {
 		return fmt.Errorf("assemble claimed work item context: %w", err)
 	}
@@ -1978,7 +2000,12 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	if err := validateClaimedItem(p.releaseTeamMerged(ctx, item, state.TargetBranch), state.WorkItemID); err != nil {
 		return Outcome{}, fmt.Errorf("validate resumed work item: %w", err)
 	}
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: item, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(p.Repository)})
+	intentRevision, intentCommit, err := p.intentRevision(ctx, state.IntentCommit)
+	if err != nil {
+		return Outcome{}, fmt.Errorf("assemble resumed work item context: %w", err)
+	}
+	state.IntentCommit = intentCommit
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: item, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(p.Repository), IntentRevision: intentRevision})
 	if err != nil {
 		return Outcome{}, fmt.Errorf("assemble resumed work item context: %w", err)
 	}
@@ -6843,6 +6870,9 @@ func (a *activeRun) verify(ctx context.Context) error {
 	if commands, declared := a.documentChecks(); declared {
 		stageCommands, providerCLIs = commands, nil
 		narrowed = "the document checks, in place of the configured checks, because the change is a confirmed document"
+		if a.landsInIntentRepository() {
+			narrowed = "the companion intent repository's checks, in place of the configured checks, because the change is a confirmed document landing in that repository"
+		}
 		evidenceNarrowed = ""
 	}
 	priority := heavyCheckPriority(a.state)
@@ -6897,6 +6927,7 @@ func (a *activeRun) verify(ctx context.Context) error {
 		ranResults, lastSequence, err = p.Checks.Run(ctx, checks.Request{
 			RunID:        a.state.RunID,
 			Directory:    a.worktree.Path,
+			Env:          a.checkEnvironment(),
 			Commands:     keeping.commands,
 			ProviderCLIs: keeping.providerCLIs,
 			LastSequence: a.state.LastSequence,
@@ -7708,7 +7739,9 @@ func (a *activeRun) finish(ctx context.Context) (Outcome, error) {
 // can read is the one thing worse than a red one.
 func (a *activeRun) runLandingChecks(ctx context.Context) {
 	p := a.pipeline
-	if a.outcome.Integration == nil || len(p.Config.LandingChecks) == 0 {
+	// The landing checks are the project's code repository's, so a landing in the
+	// companion intent repository runs none; its checks ran before review.
+	if a.outcome.Integration == nil || len(p.Config.LandingChecks) == 0 || a.landsInIntentRepository() {
 		return
 	}
 	// A watch session hosting this run is told the landing has begun, so a
@@ -8267,7 +8300,11 @@ func (p Pipeline) closeDocketWithItem(state runstate.State, reason string) {
 // left an artifact behind never reaches it and is settled as the outstanding
 // cleanup it is.
 func (a *activeRun) cleanUp(ctx context.Context) error {
-	cleanup, err := a.pipeline.Worktrees.CleanupIntegrated(ctx, gitworktree.CleanupRequest{
+	worktrees := a.pipeline.worktreesFor(a.state)
+	if worktrees == nil {
+		return errors.New("clean up integrated run artifacts: this process has no access to the repository the run is in, so its branch and checkout are left as they are")
+	}
+	cleanup, err := worktrees.CleanupIntegrated(ctx, gitworktree.CleanupRequest{
 		Worktree:     a.worktree,
 		TargetBranch: a.outcome.Integration.TargetBranch,
 		SourceCommit: a.outcome.Integration.SourceCommit,
@@ -9020,13 +9057,14 @@ func (a *activeRun) verifyPreservation() *Preservation {
 	if !preservation.checkable() {
 		return preservation
 	}
-	if a.pipeline.Worktrees == nil {
+	worktrees := a.pipeline.worktreesFor(a.state)
+	if worktrees == nil {
 		preservation.Unverified = "this process has no repository access to check them with"
 		return preservation
 	}
 	observeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	observed, err := a.pipeline.Worktrees.Observe(observeCtx, worktreeOf(a.state))
+	observed, err := worktrees.Observe(observeCtx, worktreeOf(a.state))
 	if err != nil {
 		preservation.Unverified = err.Error()
 		return preservation
@@ -9500,7 +9538,13 @@ func (a *activeRun) reviewedContext(ctx context.Context, baseCommit string) (str
 		return a.context, nil
 	}
 	revision := reviewedRevision(ctx, p.Worktrees, baseCommit)
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.worktree.Path, WorkItem: a.item, Revision: revision, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(a.worktree.Path)})
+	// The reviewer reads companion intent at the commit the run recorded, which
+	// is the one its developer read.
+	intentRevision, _, err := p.intentRevision(ctx, a.state.IntentCommit)
+	if err != nil {
+		return "", fmt.Errorf("assemble reviewed work item context at %s: %w", baseCommit, err)
+	}
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.worktree.Path, WorkItem: a.item, Revision: revision, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(a.worktree.Path), IntentRevision: intentRevision})
 	if err != nil {
 		return "", fmt.Errorf("assemble reviewed work item context at %s: %w", baseCommit, err)
 	}
@@ -9559,6 +9603,13 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 	}
 	account := a.account()
 	attribution := a.spendAttribution(domain.RoleReviewer, runstate.SpendPhaseReview)
+	// A change landing in the companion intent repository is reviewed beside the
+	// project's code, which it is about and which that repository does not hold.
+	var projectCode review.RepositoryEvidence
+	var projectCodeCommit string
+	if a.landsInIntentRepository() {
+		projectCode, projectCodeCommit = a.projectCodeFor(ctx)
+	}
 	result, reviewErr := p.Reviewer.Review(ctx, review.Request{
 		RunID:      a.state.RunID,
 		WorkItemID: a.state.WorkItemID,
@@ -9593,6 +9644,8 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		WorktreePath:                     a.worktree.Path,
 		Changes:                          changes,
 		Repository:                       reviewedRepository(ctx, p.Worktrees, changes.HeadCommit, a.item, changes),
+		ProjectCode:                      projectCode,
+		ProjectCodeCommit:                projectCodeCommit,
 		Checks:                           a.outcome.Checks,
 		// The harness's record of the MCP calls the developer asked for, labelled
 		// as outside data. It sits apart from the checks, and is evidence for none

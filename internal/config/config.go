@@ -1233,6 +1233,14 @@ func (c Config) productProblems() []string {
 	if err := validateIntentRepository(c.Intent.Repository); err != nil {
 		problems = append(problems, err.Error())
 	}
+	for index, check := range c.Intent.Checks {
+		if strings.TrimSpace(check) == "" {
+			problems = append(problems, fmt.Sprintf("intent check %d cannot be empty", index))
+		}
+	}
+	if len(c.Intent.Checks) > 0 && strings.TrimSpace(c.Intent.Repository) == "" {
+		problems = append(problems, "intent.checks is the list a landing into the companion intent repository runs, so it means nothing without intent.repository")
+	}
 	for _, documentPath := range c.Product.ShippedDocumentation {
 		if err := validateShippedDocument(documentPath); err != nil {
 			problems = append(problems, err.Error())

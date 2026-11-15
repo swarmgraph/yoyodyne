@@ -24,10 +24,36 @@ type Intent struct {
 	// `~/.yoyodyne/projects/<id>/intent`. Empty means the project's own
 	// repository holds the documents.
 	Repository string `yaml:"repository,omitempty" json:"repository,omitempty"`
+
+	// Checks are the commands a landing into the companion intent repository
+	// runs, in place of the project's own checks, which are the code
+	// repository's commands. Empty means DefaultIntentChecks. See IntentChecks.
+	Checks []string `yaml:"checks,omitempty" json:"checks,omitempty"`
 }
 
 type intentDocument struct {
-	Repository *string `yaml:"repository"`
+	Repository *string   `yaml:"repository"`
+	Checks     *[]string `yaml:"checks"`
+}
+
+// DefaultIntentChecks are what a landing into the companion intent repository
+// runs when the project names no list of its own: the format check of the
+// artifacts and invariants, and of the goals.
+var DefaultIntentChecks = []string{"yoyo artifact check --intent .", "yoyo goals check --intent ."}
+
+// IntentChecks is the list a landing into the companion intent repository runs:
+// intent.checks where the project sets one, DefaultIntentChecks otherwise. A
+// copy, so a caller cannot change the configuration.
+//
+// Each command runs with its working directory in the checkout of the intent
+// repository the landing's run cut, and with YOYODYNE_CONFIG naming the
+// project's configuration, which the harness sets; `--intent .` therefore reads
+// the candidate rather than the configured checkout.
+func (c Config) IntentChecks() []string {
+	if len(c.Intent.Checks) > 0 {
+		return append([]string(nil), c.Intent.Checks...)
+	}
+	return append([]string(nil), DefaultIntentChecks...)
 }
 
 // IntentRoot is where this project's governed documents are read from: the

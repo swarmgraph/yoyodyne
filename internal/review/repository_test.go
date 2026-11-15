@@ -144,3 +144,55 @@ func TestReviewBoundsRepositoryEvidenceAgainstTheWholeInput(t *testing.T) {
 		t.Fatalf("an absence claim was accepted against the bounded listing: %#v, %v", result, err)
 	}
 }
+
+func TestReviewRendersProjectCodeOnlyWhenSupplied(t *testing.T) {
+	t.Parallel()
+	provider := &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"ok"}`}
+	request := newRequest(nil)
+	if _, err := (Reviewer{Backend: provider, Model: testReviewModel}).Review(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(provider.request.Prompt, "The project's code") {
+		t.Fatal("a review with no project code rendered a project code section")
+	}
+	request.ProjectCodeCommit = "abc123"
+	request.ProjectCode = RepositoryEvidence{
+		Listing:  gitworktree.CommitListing{Commit: "abc123", Files: []string{"internal/foo/foo.go"}},
+		Contents: []RepositoryFile{{Path: "internal/foo/foo.go", Size: 24, Content: "package foo // marker-xyz"}},
+	}
+	if _, err := (Reviewer{Backend: provider, Model: testReviewModel}).Review(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"# The project's code at commit abc123", "companion intent repository", "unread rather than absent", "internal/foo/foo.go", "package foo // marker-xyz"} {
+		if !strings.Contains(provider.request.Prompt, want) {
+			t.Fatalf("prompt lacks %q", want)
+		}
+	}
+}
+
+func TestReviewBoundsProjectCodeAndRepositoryTogether(t *testing.T) {
+	t.Parallel()
+	request := newRequest(nil)
+	request.Context = strings.Repeat("c", 100<<10)
+	huge := func(commit string) RepositoryEvidence {
+		e := RepositoryEvidence{Listing: gitworktree.CommitListing{Commit: commit}}
+		for index := 0; index < 6000; index++ {
+			e.Listing.Files = append(e.Listing.Files, fmt.Sprintf("long/path/to/repository/file-%06d.txt", index))
+		}
+		e.Contents = []RepositoryFile{{Path: "big.txt", Size: 600 << 10, Content: strings.Repeat("x", 600<<10)}}
+		return e
+	}
+	request.Repository = huge("head")
+	request.ProjectCode = huge("proj")
+	request.ProjectCodeCommit = "proj"
+	provider := &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"ok"}`}
+	if _, err := (Reviewer{Backend: provider, Model: testReviewModel}).Review(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if total := len(provider.request.Prompt) + len(provider.request.SystemPrompt); total > MaxReviewInputBytes {
+		t.Fatalf("input is %d bytes, limit %d", total, MaxReviewInputBytes)
+	}
+	if !strings.Contains(provider.request.Prompt, "# The project's code at commit proj") || !strings.Contains(provider.request.Prompt, "# Repository at the reviewed commit") {
+		t.Fatal("one of the two evidence sections is missing")
+	}
+}
