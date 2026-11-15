@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/factory"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
@@ -23,7 +24,10 @@ type Forge struct {
 	Opened             []publish.Request
 	Number             int
 	Merged             bool
-	StateErr           error
+	// MergedAt is the time State reports the forge merged the request at, once
+	// it has; zero reports none, as an answer without one does.
+	MergedAt time.Time
+	StateErr error
 	// OnEnsure runs when the pull request is opened, which is the moment after
 	// the branch is published and before anything is promoted. It is how a test
 	// expresses the world moving underneath a run.
@@ -258,7 +262,7 @@ func (f *Forge) State(context.Context, string) (publish.PullRequest, error) {
 	if !f.Merged || f.StateCalls <= f.OpenReplies {
 		return publish.PullRequest{Number: f.Number, URL: url, State: "OPEN", AutoMerge: f.Queued, HeadCommit: f.HeadCommit}, nil
 	}
-	return publish.PullRequest{Number: f.Number, URL: url, State: "MERGED", Merged: true, HeadCommit: f.HeadCommit}, nil
+	return publish.PullRequest{Number: f.Number, URL: url, State: "MERGED", Merged: true, HeadCommit: f.HeadCommit, MergedAt: f.MergedAt}, nil
 }
 
 // Close retires a request the forge holds beyond the run's own, the way the
