@@ -6189,30 +6189,52 @@ accountable for the change: it reads what its sub-agents did and verifies it
 before handing the change over. The design is
 [developer sub-agents](designs/developer-sub-agents.md).
 
-**A run with sub-agents on is told to hand the coding over.** Every developer
+**A run with sub-agents on is told how to use them.** Every developer
 invocation given sub-agents is also given a built-in instruction, after the
-developer persona: plan the change itself, hand the writing of code to
-sub-agents one bounded piece at a time, saying which files to change, what the
-change must do, and how to check it, read what each one changed before handing
-out the next, and verify the whole change itself before submitting, since a
-sub-agent's word that checks passed is not the developer's verification. It
-writes code itself only where handing it over would cost more, such as a change
-of a few lines. How the change is divided into pieces is still the developer's
-decision; the harness does not split the work. The instruction is
-`internal/orchestrator/developer-sub-agents.md`, built into the program, so
-every project receives the same text and nothing in a project's own files,
-its persona included, changes it. An invocation that goes without sub-agents —
-the setting off, a provider that does not offer them, a check that did not
-confirm them, or a usage limit on their model — is not given it, and receives
-exactly what it received before the instruction existed. The run's record notes
-the instruction under its sub-agent setting, as `instruction`, with the file and
-the harness build it came from, and its line in `yoyo status` says so, for
-example `told to hand the coding to them by the built-in instruction
-developer-sub-agents.md from build 0123456789ab`. A run that later goes without
-sub-agents, whether for one of those reasons or because it was moved to a
-developer slot that does not turn them on, keeps the note, and its line then
-reads `an earlier attempt was told to hand the coding to sub-agents by the
-built-in instruction ...`, so a trial can still tell which runs received it.
+developer persona. The harness chooses it from the models the invocation runs
+on, reading each model by the family its name carries, so `opus` and
+`claude-opus-4-7` are the same:
+
+- **An Opus developer with Sonnet or Haiku sub-agents** is given
+  `internal/orchestrator/developer-sub-agents-opus-main.md`. Nearly all of such
+  a run's cost is the developer reading its own context again on every turn,
+  so it keeps that context small: a sub-agent explores and returns a summary
+  of at most twenty lines; another writes each bounded piece, runs the
+  checks and fixes what fails, briefed with the files, the intended change, when it is
+  done and the repository's own conventions, and answers in a fixed three-line
+  report; the developer reviews each piece by its diff, and before submitting
+  reviews the whole change as one diff and runs the checks itself, reading
+  only how they ended.
+- **A Sonnet developer with Opus sub-agents** is given
+  `internal/orchestrator/developer-sub-agents-sonnet-main.md`. The sub-agent is
+  the expensive side here, so the developer consults it to review its plan and
+  for hard calls, giving it what it needs in the brief, and never hands it the
+  writing, the checks, or the reading of files.
+- **Any other arrangement** is given
+  `internal/orchestrator/developer-sub-agents.md`: plan the change itself, hand
+  the writing of code to sub-agents one bounded piece at a time, saying which
+  files to change, what the change must do, and how to check it, read what
+  each one changed before handing out the next, and verify the whole change
+  itself before submitting. It writes code itself only where handing it over
+  would cost more, such as a change of a few lines.
+
+In every arrangement a sub-agent's word that checks passed is not the
+developer's verification, and how the change is divided into pieces is still
+the developer's decision; the harness does not split the work. The
+instructions are built into the program, so every project receives the same
+text and nothing in a project's own files, its persona included, changes them.
+An invocation that goes without sub-agents — the setting off, a provider that
+does not offer them, a check that did not confirm them, or a usage limit on
+their model — is given none, and receives exactly what it received before the
+instructions existed. The run's record notes the instruction under its
+sub-agent setting, as `instruction`, with the file and the harness build it
+came from, and its line in `yoyo status` says so, for example `given the
+built-in sub-agent instruction developer-sub-agents-opus-main.md from build
+0123456789ab`. A run that later goes without sub-agents, whether for one of
+those reasons or because it was moved to a developer slot that does not turn
+them on, keeps the note, and its line then reads `an earlier attempt was given
+the built-in sub-agent instruction ...`, so a trial can still tell which runs
+received which.
 
 Sub-agents are off unless the configuration turns them on. Off is a developer
 invoked exactly as before the setting existed: the same tools, the same
