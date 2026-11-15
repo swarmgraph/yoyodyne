@@ -111,6 +111,10 @@ const (
 	// conversation that waits for the operator to approve or decline it. The
 	// conversation and the document's identifier there are the ID.
 	KindDocumentApproval Kind = "document-approval"
+	// KindUnreadableRun is one run record the listing of runs in flight read
+	// past because it would not read. The run is the ID. Nothing acts on the
+	// run while it does not read, so it is said rather than left out silently.
+	KindUnreadableRun Kind = "unreadable-run"
 )
 
 // KindStoppage is a run that stopped and left its item for somebody: the
@@ -158,6 +162,7 @@ func AttentionKinds() []Kind {
 		KindKeptHeavyCheck,
 		KindLaneHumanBlock,
 		KindDocumentApproval,
+		KindUnreadableRun,
 	}
 }
 

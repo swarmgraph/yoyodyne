@@ -62,6 +62,7 @@ var runRecordPathSites = map[string]string{
 	"(*Store).WaitForSlot":     "asks only whether the document's run is recorded, under the reservation lock, before writing a wait of its own beside it",
 	"(*Store).whatIsLeft":      "reads a record that would not load for its work item and status alone, so the run index can say whether it may be a run in flight; it writes nothing",
 	"(*Store).unreadableStale": "looks at the size and time of a record the run index holds as unreadable, to decide whether to read it again; it writes nothing",
+	"(*Store).unreadableAt":    "names the file of a record a listing could not read, so a surface can say where it is; it reads and writes nothing",
 }
 
 // runRecordReplacers is every function allowed to call writeState.
