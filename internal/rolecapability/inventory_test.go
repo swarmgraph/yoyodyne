@@ -560,6 +560,10 @@ var expresses = map[string]expression{
 		question: "no role holds either half; moving the branch without the lease is refused where the harness does it",
 		asks:     []capability.Capability{capability.PromotionLease, capability.TargetBranchMutate},
 	},
+	"run.wait-for-github-without-lease": {
+		question: "no role holds it; giving the promotion lease back for a wait on GitHub and taking it again before the merge step is asked again is the harness's own, under the same lease",
+		asks:     []capability.Capability{capability.PromotionLease},
+	},
 	"landing.lease": {
 		question: "no role holds it; the harness takes it in the landing's own process",
 		gap:      "no capability names it: it serializes the landing checks the harness runs after a run is over, and it moves no branch and grants no authority, so there is nothing a role could be asked whether it holds",
