@@ -50,10 +50,10 @@ var sections = []string{"summary", "band", "spend", "live", "pipeline", "through
 
 // shownWhenPresent are the sections the page shows only where the product has
 // what they list, and hides otherwise, so a page without them is the page it
-// was before they existed: the merge queues. Each opens hidden in its loading
+// was before they existed: the merge queues, and the MCP calls. Each opens hidden in its loading
 // state, carries the same four states as the rest, and is left out of a
 // scenario's render and matrix while it is hidden.
-var shownWhenPresent = []string{"queues"}
+var shownWhenPresent = []string{"queues", "mcp"}
 
 // popups are the four dialogs the page opens over the sections: a grouping —
 // of the pipeline listed by title, or of the attention line listed by what
@@ -88,7 +88,7 @@ func strict(t *testing.T, name string, body []byte, into any) {
 	}
 }
 
-// The shell carries the nine sections and the hidden merge queues section,
+// The shell carries the nine sections and the hidden merge queues and MCP calls sections,
 // and each of them carries its four states with the lines the script fills, so
 // a section the script has not reached yet says it is reading rather than
 // being blank.
@@ -858,6 +858,17 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"2. yoyodyne-ifd.222 Name the stale program managers on the channel — landed, in the harness's own queue — landed on main as 4b825dc642cb, confirmed on the target",
 		},
 		"queues-unreadable": {"Could not be read: the merge queues could not all be listed: decode the merge queue 7d2f0c41: unexpected end of JSON input"},
+		// Each tool by name and how its calls ended, from the counts alone; the
+		// record's content is never in the standing, so it cannot be here.
+		"mcp-calls": {
+			"MCP calls",
+			"7 MCP call(s) in the last 24 hours: 4 made, 2 refused, 1 outcome not known",
+			"mail.search (read): 4 made",
+			"mail.send (act): 1 refused, 1 outcome not known",
+			"asked for a tool not on the caller's list: 1 refused",
+			"1 act call(s) in the record may or may not have happened",
+		},
+		"mcp-calls-unreadable": {"Could not be read: the record of MCP calls could not be read: read the MCP call record 20260919-4242.jsonl: permission denied"},
 		"busy": {
 			// Each account's provider usage at the top of the band, in the
 			// model's own sentence, and an account with none said in words.

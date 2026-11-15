@@ -184,6 +184,20 @@
       </div>
     </section>
 
+    <section id="mcp" class="panel mcp" data-state="loading" aria-labelledby="mcp-heading" hidden>
+      <div class="panel-head">
+        <h2 id="mcp-heading">MCP calls</h2>
+        <p class="panel-note">the calls the harness made to Model Context Protocol servers in the last 24 hours, by tool and how each ended; what a call sent and what came back are never shown here, and <code>yoyo mcp calls</code> at your terminal reads them</p>
+      </div>
+      <div class="section-loading"><p class="waiting"><span class="pulse" aria-hidden="true"></span>Reading…</p></div>
+      <div class="section-error" role="alert"><p id="mcp-problem" class="problem"></p><p id="mcp-remedy" class="remedy"></p></div>
+      <div class="section-empty"><p id="mcp-empty" class="empty"></p></div>
+      <div class="section-ready">
+        <ul id="mcp-problems" class="degraded"></ul>
+        <ul id="mcp-list" class="held-list"></ul>
+      </div>
+    </section>
+
     <div id="grouping" class="popup" role="dialog" aria-modal="true" aria-labelledby="grouping-heading" data-state="loading" hidden>
       <div id="grouping-backdrop" class="popup-backdrop"></div>
       <div class="popup-card">

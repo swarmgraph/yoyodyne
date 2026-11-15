@@ -384,11 +384,14 @@ type Sources struct {
 	// label, for the factory problems and the queue's refusal. Optional: a
 	// reading without it shows each waiting item without the time.
 	NeedsDesignLabelled NeedsDesignLabelled
-	RestartRequests     RestartRequests
-	LaneReports         LaneReports
-	Passes              Passes
-	Exchanges           Exchanges
-	FirstSeen           FirstSeen
+	// MCPCalls is the record of the MCP calls the harness made, counted with no
+	// content (mcpcalls.go); nil reads none.
+	MCPCalls        MCPCallRecord
+	RestartRequests RestartRequests
+	LaneReports     LaneReports
+	Passes          Passes
+	Exchanges       Exchanges
+	FirstSeen       FirstSeen
 	// PassRequests is the requests made for each instance's pass, so whoever
 	// asked can read what became of one. Optional: a reading without it carries
 	// no instance's requests.
@@ -984,6 +987,10 @@ type Standing struct {
 	// this reading.
 	LandingHolds        []runstate.LandingHold `json:"landing_holds,omitempty"`
 	LandingHoldsProblem string                 `json:"landing_holds_problem,omitempty"`
+	// MCPCalls is the MCP calls of the last day, by tool and outcome, with no
+	// content; nil where the product has made none. See mcpcalls.go.
+	MCPCalls        *MCPCalls `json:"mcp_calls,omitempty"`
+	MCPCallsProblem string    `json:"mcp_calls_problem,omitempty"`
 
 	// Titles is this reading's one listing of the tracker, which the rendered
 	// lines show every work item they name against. It is nil where no tracker
@@ -1283,6 +1290,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.ConversationPasses, standing.ConversationPassesProblem = ReadConversationPasses(sources)
 	standing.MergeQueues, standing.MergeQueuesProblem = ReadMergeQueues(sources.MergeQueues)
 	standing.LandingHolds, standing.LandingHoldsProblem = ReadLandingHolds(sources.LandingHolds, sources.now())
+	standing.MCPCalls, standing.MCPCallsProblem = ReadMCPCalls(sources.MCPCalls, now)
 	needs = append(needs, standing.Services.Attention()...)
 	needsProblem = joinProblems(needsProblem, standing.ServicesProblem)
 	// A running part whose build cannot read a key the configuration now
