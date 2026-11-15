@@ -59,10 +59,11 @@ func TestAnIdentityRevisionLeavesTheApprovalStanding(t *testing.T) {
 	if !found || reloaded.ApprovalState() != ApprovalApproved {
 		t.Fatalf("reloaded = %#v, problems = %v", reloaded, set.Problems)
 	}
-	// The document is already approved as it stands, so there is nothing for the
-	// operator to approve again.
-	if _, err := store.Approve("v1-goals", "approved again", moment().Add(3*time.Hour)); err == nil {
-		t.Fatal("Approve() asked for an approval an identity revision never withdrew")
+	// The approval stands through the identity revision without being asked for
+	// again, and nothing above approved anything: the one approval still names
+	// the revision the operator was asked about.
+	if len(identified.Approvals) != 1 || identified.Approvals[0].Revision != 0 {
+		t.Fatalf("approvals = %#v, want only the operator's of revision 0", identified.Approvals)
 	}
 
 	// An amendment afterwards is still an amendment, and counts once: the identity

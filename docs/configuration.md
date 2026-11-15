@@ -1545,8 +1545,11 @@ revision is a document approved as it stands, and an approval of an earlier one
 is a document that has been amended since you saw it. A revision that only gives
 a goals document's goals identifiers — the bracketed name an entry opens with —
 is not counted: it is recorded as `identified` rather than `amended`, changes no
-goal's words, and leaves the document approved as it stands. `yoyo artifact list` and
-`show` say which:
+goal's words, and leaves the document approved as it stands. You can still
+approve such a document, or one the Lead Product Manager has reworded since: the
+approval is then recorded against the revision as it now stands, after the
+earlier ones, which are left as they were. Only a revision that already carries
+an approval is refused. `yoyo artifact list` and `show` say which:
 
 ```
 v1-goals [goals, active] V1 goals
