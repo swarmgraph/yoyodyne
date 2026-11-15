@@ -667,13 +667,13 @@ type WatchCheckWait struct {
 // Says is the wait in the words the drain's clause names it in.
 func (w WatchCheckWait) Says() string {
 	if w.Queue != "" {
-		return fmt.Sprintf("the merge queue for %s, checking build %d of the queued change, to finish %s, until %s at the latest", w.Queue, w.Generation, w.Check, w.Until.UTC().Format(time.RFC3339))
+		return fmt.Sprintf("the merge queue for %s, checking build %d of the queued change, to finish %s, until %s at the latest", w.Queue, w.Generation, w.Check, LocalStamp(w.Until))
 	}
 	run := "run " + w.RunID
 	if w.WorkItemID != "" && w.WorkItemID != w.RunID {
 		run += " (" + w.WorkItemID + ")"
 	}
-	return fmt.Sprintf("%s to finish %s, until %s at the latest", run, w.Check, w.Until.UTC().Format(time.RFC3339))
+	return fmt.Sprintf("%s to finish %s, until %s at the latest", run, w.Check, LocalStamp(w.Until))
 }
 
 func (w WatchCheckWait) validate() error {
@@ -700,9 +700,11 @@ func (d WatchDrain) Bound() time.Duration {
 
 // Says is the drain as the clause every surface prints beside the session's
 // state, so `yoyo status`, the watch log, and the channel name it in one way.
+// Every moment in it is in this machine's zone with the zone named, because it
+// is what a person reads to learn what the restart waits for and since when.
 func (d WatchDrain) Says() string {
 	said := fmt.Sprintf("draining to restart into the build deployed over it since %s, bounded at %s (until %s)",
-		d.Since.UTC().Format(time.RFC3339), d.Bound(), d.Until.UTC().Format(time.RFC3339))
+		LocalStamp(d.Since), d.Bound(), LocalStamp(d.Until))
 	if d.BoundReached {
 		// What the restart is waiting on, each in its own words: a check running
 		// in a run it hosts, a document landing, a promotion.
@@ -713,24 +715,24 @@ func (d WatchDrain) Says() string {
 				for _, wait := range d.CheckWaits {
 					checks = append(checks, wait.Says())
 				}
-				waits = append(waits, "the check running in "+strings.Join(checks, ", and ")+", so that check is not started over on the new build; each such run is stopped before its next check starts, and the checks it has passed keep their results, and each such merge queue is stopped once its candidate's checks have ended")
+				waits = append(waits, "the check running in "+strings.Join(checks, ", and ")+", so that check is not started over on the new build, and any still running then is stopped and runs again on it; each such run is stopped before its next check starts, and the checks it has passed keep their results, and each such merge queue is stopped once its candidate's checks have ended")
 			}
 			if d.Publishing > 0 {
 				waits = append(waits, fmt.Sprintf("%d document landing run(s) to finish, because a restart never stops one part-way", d.Publishing))
 			}
 			if d.Promoting > 0 {
-				waits = append(waits, fmt.Sprintf("%d run(s) at their promotion, waited on since %s, because a promotion is never stopped part-way", d.Promoting, d.PromotingSince.UTC().Format(time.RFC3339)))
+				waits = append(waits, fmt.Sprintf("%d run(s) at their promotion, waited on since %s, because a promotion is never stopped part-way", d.Promoting, LocalStamp(d.PromotingSince)))
 			}
 			return fmt.Sprintf("%s; the bound has run out, so it is waiting for %s; it restarts the moment they finish, every other run is stopped and preserved for the session that comes back, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing",
 				said, strings.Join(waits, "; and for "))
 		}
 		if d.Checking > 0 {
 			return fmt.Sprintf("%s; the bound has run out, so it is waiting out a check stage in %d run(s) it hosts until %s at the latest, the check-stage bound, and stopping and preserving every other run at a developer attempt or a review for the session that comes back; nothing more is pulled into a free seat until it does, and its recurring tasks go on firing",
-				said, d.Checking, d.ChecksUntil.UTC().Format(time.RFC3339))
+				said, d.Checking, LocalStamp(d.ChecksUntil))
 		}
 		if d.Promoting > 0 {
 			return fmt.Sprintf("%s; the bound has run out, so it has been waiting out %d run(s) it hosts at their promotion since %s, because a promotion is never stopped part-way, and restarts the moment they finish; every other run is stopped and preserved for the session that comes back, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing",
-				said, d.Promoting, d.PromotingSince.UTC().Format(time.RFC3339))
+				said, d.Promoting, LocalStamp(d.PromotingSince))
 		}
 		return said + "; the bound has run out, so the runs it hosts are stopped and preserved for the session that comes back, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing"
 	}
