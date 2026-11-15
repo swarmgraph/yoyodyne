@@ -249,26 +249,15 @@ func MergeQueueEntryItem(entry runstate.MergeQueueEntry) string {
 	return "work item " + entry.WorkItemID
 }
 
-// head is the entry at the head of the queue: the first, in the order the
-// queue is worked, that has neither left it nor been completed whole. It is
-// the entry every pass begins with, so it is the one a stop holds the rest
-// behind.
+// head is the entry at the head of the queue: the one the queue's own
+// promotion works next (MergeQueuePromoter.next), so the release and the queue
+// can never disagree about which entry holds the rest back. That passes over an
+// entry that has left the queue or landed whole, and one with nothing under way
+// that waits on its target being made to pass a check, as the worker does: the
+// entry behind such a one is the head, and is the one released.
 func (p MergeQueuePromoter) head(key runstate.MergeQueueKey) (runstate.MergeQueueEntry, bool, error) {
-	entries, err := p.Queue.Entries(key)
-	if err != nil {
-		return runstate.MergeQueueEntry{}, false, err
-	}
-	for _, entry := range runstate.MergeQueueWorkOrder(entries) {
-		landing, found, err := p.Queue.Landing(key, entry.EntryID)
-		if err != nil {
-			return runstate.MergeQueueEntry{}, false, err
-		}
-		if found && (landing.Handback != nil || (landing.Completion != nil && landing.Completion.Whole())) {
-			continue
-		}
-		return entry, true, nil
-	}
-	return runstate.MergeQueueEntry{}, false, nil
+	entry, _, found, err := p.next(key)
+	return entry, found, err
 }
 
 // stoppedEntry takes the queue's worker lease and reads one unfinished entry,

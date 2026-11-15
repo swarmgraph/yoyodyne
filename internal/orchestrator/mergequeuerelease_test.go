@@ -133,6 +133,39 @@ func TestMergeQueueEntryItemNamesTheItemByWhatItIs(t *testing.T) {
 	}
 }
 
+func TestTheHeadReleasedIsTheEntryTheQueueWorksPastOneWaitingOnTheTarget(t *testing.T) {
+	t.Parallel()
+
+	// The target fails a check, and the change that fixes it is queued behind
+	// an entry whose candidate fails the same check: the queue passes over that
+	// entry while it waits for the target, so the fix is the head.
+	f := newPromotionFixture(t, landLocally)
+	f.worker.Pipeline.Config.Checks = []string{"test -f fixed.txt"}
+	fix := f.admitAnother(queueKey, "fix", "fixed.txt", "fixed\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	if verification, err := f.worker.Work(ctx, queueKey); err != nil || verification.Verified {
+		t.Fatalf("Work() = %#v, %v; want the first entry's candidate failing", verification, err)
+	}
+	if generations := f.generations(); len(generations) != 1 || !generations[0].WaitsOnTarget() {
+		t.Fatalf("generations = %#v, want the first entry waiting on its target", generations)
+	}
+
+	var refusal MergeQueueEntryRefusal
+	if _, err := f.release(MergeQueueRelease{EntryID: f.entry.EntryID, Reason: "the wrong one"}); !errors.As(err, &refusal) ||
+		!strings.Contains(refusal.Reason, fix.EntryID) {
+		t.Fatalf("ReleaseHead() of the waiting entry error = %v, want it refused naming the fix as the head", err)
+	}
+	released, err := f.release(MergeQueueRelease{EntryID: fix.EntryID, WorkItemID: fix.WorkItemID,
+		Reason: "the fix keeps stopping at its push and has to be handed back"})
+	if err != nil || released.HandedBack == nil || released.HandedBack.Continuation != runstate.MergeQueueReleased {
+		t.Fatalf("ReleaseHead() of the fix = %#v, %v; want it released as the head", released, err)
+	}
+	if landing := f.landing(); landing.Handback != nil || landing.Completion != nil {
+		t.Fatalf("the waiting entry's landing = %#v, want it left waiting", landing)
+	}
+}
+
 func TestReleasingAsLandedIsRefusedWhereTheTargetDoesNotHoldTheChange(t *testing.T) {
 	t.Parallel()
 
