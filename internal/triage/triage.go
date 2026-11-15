@@ -1322,6 +1322,10 @@ type Entry struct {
 	// StopClass is the runstate-owned wire name, converted at the owning type.
 	// This package declares no vocabulary of its own for it.
 	StopClass string `json:"stop_class,omitempty"`
+	// StopClassUnknown is set when the entry was read from the docket holding a
+	// stop class this build does not know, most often one a newer build wrote;
+	// the class is kept as written and shown as unknown. It is never written.
+	StopClassUnknown bool `json:"-"`
 	// Findings are the reviewer's own words about the change, and Check is the
 	// deterministic check that was failing. Both are absent from work that
 	// stopped before either had anything to say.
@@ -2043,7 +2047,10 @@ func (e Entry) Render() string {
 	if e.Closed != nil {
 		rendered.WriteString(indented("Decided", e.Closed.Describe()))
 	}
-	if e.StopClass != "" {
+	// The words are runstate.UnknownValueShown's, which this package cannot import.
+	if e.StopClassUnknown {
+		rendered.WriteString(indented("Stop cause", fmt.Sprintf("unknown to this build (recorded as %q)", e.StopClass)))
+	} else if e.StopClass != "" {
 		rendered.WriteString(indented("Stop cause", e.StopClass))
 	}
 	rendered.WriteString(e.renderUnready())

@@ -376,7 +376,7 @@ func TestAFindingStoresOnlyADispositionTheSchemaKnows(t *testing.T) {
 		}
 	}
 	finding := Finding{Severity: SeverityMinor, Disposition: "trivial", Message: "the comment above is stale"}
-	want := `disposition "trivial" must be "out_of_scope" or omitted`
+	want := `disposition is invalid: "trivial" is not a value this build knows`
 	if err := finding.Validate(); err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("Finding{Disposition: \"trivial\"}.Validate() error = %v, want %q", err, want)
 	}
@@ -400,7 +400,7 @@ func TestARefusedSaveNamesTheFieldAndLeavesTheRecordAsItWas(t *testing.T) {
 	state.ReviewFindings = 1
 	state.ReviewFindingDetails = []Finding{{Severity: "advisory", Message: "this reads oddly"}}
 	err := store.Save(state)
-	want := `review_finding_details[0]: severity "advisory" must be "blocker", "major", or "minor"`
+	want := `review_finding_details[0]: severity is invalid: "advisory" is not a value this build knows`
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("Save() refused state error = %v, want %q named", err, want)
 	}

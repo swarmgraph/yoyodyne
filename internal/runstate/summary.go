@@ -312,6 +312,10 @@ type RunSummary struct {
 	// StopClass is which gate stopped the run, exactly as State.StopClass records
 	// it. Reason is how a surface prints it, as the first word of the reason.
 	StopClass StopClass `json:"stop_class,omitempty"`
+	// UnknownValues are the values the run's record holds that this build does
+	// not know, exactly as State.UnknownValues lists them, so a surface shows
+	// each as unknown beside what was recorded rather than losing the run.
+	UnknownValues []UnknownValueError `json:"unknown_values,omitempty"`
 	// Blocker is the words the run's work item was handed back in, where it was.
 	// It is carried so the reason a surface prints can fall back to it on a run
 	// that recorded a blocker and no failure, which is what Reason reads.
@@ -574,6 +578,7 @@ func (s *Store) summarize(state State) RunSummary {
 		Build:               state.Build,
 		Failure:             state.Failure,
 		StopClass:           state.RecordedStopClass(),
+		UnknownValues:       slices.Clone(state.UnknownValues),
 		Blocker:             state.Blocker,
 		ReportProblem:       state.ReportProblem,
 		AmendmentProblem:    state.AmendmentProblem,

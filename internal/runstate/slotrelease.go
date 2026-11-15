@@ -138,7 +138,7 @@ func (s *Store) noLiveWorker(state State, now time.Time) (string, bool) {
 	if reading.Liveness != WorkerUncertain {
 		return "", false
 	}
-	presence, err := s.Presence(state, UncertainWorkerQuiet, now)
+	presence, err := s.presence(state, UncertainWorkerQuiet, now, false)
 	if err != nil || presence.Found {
 		return "", false
 	}

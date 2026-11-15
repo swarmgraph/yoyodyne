@@ -60,9 +60,10 @@ func TestEveryNewerStopCauseIsReadBackByEveryListing(t *testing.T) {
 }
 
 // A record carrying a value this build does not know is refused, as strictly as
-// it ever was, and the refusal names the record, the field, and the value, so
-// nobody is left guessing at corruption — and a listing fails rather than
-// skipping the record.
+// it ever was, by a reading that precedes acting on the run, and the refusal
+// names the record, the field, and the value, so nobody is left guessing at
+// corruption. A listing keeps the record instead, with the value marked unknown
+// (unknownvalue_test.go).
 func TestARefusedRecordIsNamedWithItsFieldAndValue(t *testing.T) {
 	t.Parallel()
 
@@ -86,26 +87,23 @@ func TestARefusedRecordIsNamedWithItsFieldAndValue(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = store.Read(state.RunID)
+	_, err = store.Load(state.RunID)
 	var refused RefusedRecordError
 	if !errors.As(err, &refused) {
-		t.Fatalf("Read() error = %v, want the refused record named", err)
+		t.Fatalf("Load() error = %v, want the refused record named", err)
 	}
 	var unknown UnknownValueError
 	if !errors.As(err, &unknown) || unknown.Field != "stop_class" || unknown.Value != "a-cause-from-a-later-build" {
-		t.Errorf("Read() error = %v, want the field and the value named", err)
+		t.Errorf("Load() error = %v, want the field and the value named", err)
 	}
 	var stateRefused RefusedStateError
 	if !errors.As(err, &stateRefused) {
-		t.Errorf("Read() error = %v, want it still the refusal it always was", err)
+		t.Errorf("Load() error = %v, want it still the refusal it always was", err)
 	}
 	for _, want := range []string{path, `stop_class is invalid: "a-cause-from-a-later-build" is not a value this build knows`, "the record was made by build cccccccccccc"} {
 		if !strings.Contains(err.Error(), want) {
-			t.Errorf("Read() error = %q, want %q in it", err, want)
+			t.Errorf("Load() error = %q, want %q in it", err, want)
 		}
-	}
-	if _, err := store.Recorded(); err == nil || !strings.Contains(err.Error(), "a-cause-from-a-later-build") {
-		t.Errorf("Recorded() error = %v, want the listing refused with the record named rather than the record skipped", err)
 	}
 }
 

@@ -1029,9 +1029,10 @@ var standingWarningAgeSeconds = 5 * 60;
   }
 
   // stageOrder is the order the read model's three stages are shown in: the
-  // developer's part, the reviewer's, the harness's. Which phase is which stage
-  // is the model's to say, and each run arrives carrying its stage.
-  var stageOrder = ["developing", "reviewing", "integrating"];
+  // developer's part, the reviewer's, the harness's, and last the runs whose
+  // phase this build does not know. Which phase is which stage is the model's to
+  // say, and each run arrives carrying its stage.
+  var stageOrder = ["developing", "reviewing", "integrating", "unknown"];
 
   // stage is one stage of the pipeline. Its label is a button that opens the
   // list of the items the figure counts — or, for a stage whose source could
