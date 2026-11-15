@@ -177,6 +177,17 @@ func (s Standing) renderRunning() string {
 	if len(s.Dispatching) > 0 {
 		waiting = dispatches(len(s.Dispatching)) + " waiting out a tracker failure before claiming anything"
 	}
+	// A slot the scheduler left empty while ready work waits is said in the head
+	// as well, for the reason a dispatch's wait is: the brief rendering keeps
+	// only the head, and this is a problem rather than a state.
+	if s.EmptySlots != nil {
+		empty := s.EmptySlots.SlotsSaid() + " empty while ready work waits"
+		if waiting == "" {
+			waiting = empty
+		} else {
+			waiting += ", and " + empty
+		}
+	}
 	switch {
 	case len(s.Running) == 0 && waiting == "":
 		rendered.WriteString("Running: nothing\n")
@@ -208,6 +219,7 @@ func (s Standing) renderRunning() string {
 	if s.DispatchingProblem != "" {
 		fmt.Fprintf(&rendered, "%s%s\n", partialRead, s.DispatchingProblem)
 	}
+	rendered.WriteString(s.renderEmptySlots())
 	// The slots with nothing in them, each with what it prefers, said under the
 	// runs where some slot prefers a label. A free slot that prefers a label is
 	// the one fact about capacity a reader cannot infer from the runs: it says
