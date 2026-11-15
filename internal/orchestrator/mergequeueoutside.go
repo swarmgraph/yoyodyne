@@ -231,8 +231,12 @@ func (c MergeQueueRunCompletion) RecordOutside(ctx context.Context, entry runsta
 	if err != nil {
 		return err
 	}
+	// The note is written whatever state the item is in, closed included:
+	// how its entry left the queue, and who released it where the development
+	// manager did (ReleaseHead), is the record the queue owes the item. Adding a
+	// note moves no status.
 	headline := mergeQueueLandedOutsideHeadline(entry)
-	if item.Status != "closed" && !strings.Contains(item.Notes, headline) {
+	if !strings.Contains(item.Notes, headline) {
 		note := strings.Join([]string{
 			headline,
 			"What happened: " + handback.Reason + ".",
