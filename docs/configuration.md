@@ -6832,11 +6832,21 @@ reconcile it. A handback no single run can take up goes on the development
 manager's docket. While the forge holds a candidate's merge, a check on the
 candidate's pull request that ended without judging the change — cancelled by
 its own time limit, out of time, or never started — is run again once, at once,
-and the queue's pass says so on status and the dashboard. A candidate's merge
-the forge drops, holds queued longer than `triage.stuck_merge_age`, or can
-never make because such a check ended that way again after being run again, or
-could not be run again, with nothing else still running, is withdrawn by the
-queue's own pass, and once the forge confirms the withdrawal the entry leaves
+and the queue's pass says so on status and the dashboard. At every pass that
+finds GitHub holding the merge, the queue also asks GitHub what the merge is
+waiting on — whether the pull request can merge, its merge state, its reviews,
+and how each check the branch rules require stands — and keeps the latest
+answer on the entry with its time; status and the dashboard show it beside the
+entry. A pass that cannot ask GitHub, because GitHub cannot be reached or its
+certificate cannot be checked, keeps that failure instead, and the time until
+GitHub can be asked again is not counted toward `triage.stuck_merge_age`. A
+candidate's merge the forge drops, holds queued longer than
+`triage.stuck_merge_age`, or can never make — because a required check failed
+on it with no required check still running, or because such a check ended
+without judging the change again after being run again, or could not be run
+again, with nothing else still running — is withdrawn by the queue's own pass,
+naming what GitHub last said the merge was waiting on or the check that
+failed, and once the forge confirms the withdrawal the entry leaves
 the queue and the change is handed back to its run, kept, for the development
 manager to decide on. An entry that has left the queue holds up nothing behind
 it: if its run cannot be told, the pass says so, works the entries behind it,

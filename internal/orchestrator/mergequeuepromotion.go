@@ -131,6 +131,12 @@ type MergeQueuePromoter struct {
 	// stuck-merge limit withdraws it.
 	Checks MergeQueueCandidateChecks
 	Reruns MergeQueueCheckReruns
+	// Waits reads GitHub's account of what a merge it holds is waiting on, and
+	// Readings keeps the latest reading per entry (mergequeueforgewait.go). Nil
+	// either reads nothing, and a held merge's wait is counted from when the
+	// merge was asked for, as it was before.
+	Waits    MergeQueueMergeWaits
+	Readings MergeQueueForgeReadings
 }
 
 // MergeQueuePromotion is what one call to Promote found and did. At most one
@@ -174,6 +180,15 @@ type MergeQueuePromotion struct {
 	// make the merge, and the driver withdraws it at once with this reason
 	// rather than waiting out the stuck-merge limit.
 	Unjudged string
+	// RequiredFailed is set beside Waiting where GitHub reports a check its
+	// branch rules require ended in failure on the candidate's pull request and
+	// no required check is still running: GitHub will never make the merge, and
+	// the driver withdraws it at once naming the check (mergequeueforgewait.go).
+	RequiredFailed string
+	// ForgeSays is the latest reading of what GitHub said the held merge was
+	// waiting on, or that it could not be asked, with its time; set beside
+	// Waiting where the promoter reads it.
+	ForgeSays string
 	// Uncovered is set beside Refusal where the refusal is the candidate's own
 	// checks not covering the whole check its run left to them
 	// (mergequeuewhole.go). Verifying the candidate again does not change that,
@@ -986,11 +1001,25 @@ func (q *queuePromotion) awaitForge(ctx context.Context) error {
 		return q.confirmWith(ctx, state.MergeCommit)
 	case strings.EqualFold(state.State, "OPEN") && state.AutoMerge:
 		q.outcome.Waiting = fmt.Sprintf("the forge holds the merge of pull request %d queued until its own requirements are met", attempt.PullRequest)
-		if requested, asked := attempt.Mutation(runstate.MergeQueueRequestMerge); asked && requested.Settled != nil {
-			since := requested.Settled.At
+		reading, read, err := q.readMergeWait(ctx)
+		if err != nil {
+			return err
+		}
+		// A pass that could not ask GitHub what it is waiting on does not count
+		// toward the limit on a held merge's wait, and neither does the time
+		// until GitHub could be asked again (mergequeueforgewait.go).
+		if requested, asked := attempt.Mutation(runstate.MergeQueueRequestMerge); asked && requested.Settled != nil && (!read || reading.Unread == "") {
+			since := requested.Settled.At.Add(reading.UnreadFor)
 			q.outcome.ForgeHeldSince = &since
 		}
-		return q.answerUnjudgedChecks(ctx)
+		if err := q.answerUnjudgedChecks(ctx); err != nil {
+			return err
+		}
+		if read {
+			q.outcome.ForgeSays = reading.Says()
+			q.outcome.Waiting += "; " + q.outcome.ForgeSays
+		}
+		return nil
 	default:
 		q.outcome.Unresolved = fmt.Sprintf("the forge no longer holds the merge of pull request %d and has not made it (it reads %s); it is kept as it is and not asked for again",
 			attempt.PullRequest, strings.ToLower(nonEmpty(state.State, "unreported")))

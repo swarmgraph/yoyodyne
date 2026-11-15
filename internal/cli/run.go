@@ -1594,6 +1594,9 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 		// A check on a candidate's pull request that ended without judging the
 		// change is run again once, and the re-run recorded beside the queue.
 		promoter.Checks, promoter.Reruns = forge, parts.mergeQueues
+		// While GitHub holds a merge the queue asked for, each pass asks it what
+		// the merge is waiting on and keeps the answer beside the queue.
+		promoter.Waits, promoter.Readings = forge, parts.mergeQueues
 		held.Forge = forge
 		// Once the queue lands a change, the run's own pull request and the
 		// queue's candidate branch are closed and deleted on the forge.
