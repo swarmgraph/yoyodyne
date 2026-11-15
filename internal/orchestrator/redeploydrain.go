@@ -543,9 +543,11 @@ func (q *queueCheckStages) close() {
 // moment, with the latest time its current check can run to: its launch plus
 // its limit, or, for a check not yet launched — between two checks, or waiting
 // for a heavy check's place — checkYieldGrace from the stage's last change. A
-// stage past that and the grace after it is not waited for.
-func (q *queueCheckStages) waiting(now time.Time) map[runstate.MergeQueueKey]runstate.WatchCheckWait {
-	if q == nil {
+// stage past that and the grace after it is not waited for, and nothing is
+// waited for past ceiling (redeployCheckWaitCeiling), which is also the latest
+// any wait is said to run to.
+func (q *queueCheckStages) waiting(now, ceiling time.Time) map[runstate.MergeQueueKey]runstate.WatchCheckWait {
+	if q == nil || !now.Before(ceiling) {
 		return nil
 	}
 	q.mu.Lock()
@@ -558,6 +560,9 @@ func (q *queueCheckStages) waiting(now time.Time) map[runstate.MergeQueueKey]run
 		}
 		if !now.Before(until.Add(checkYieldGrace)) {
 			continue
+		}
+		if until.After(ceiling) {
+			until = ceiling
 		}
 		check := nonEmpty(stage.check, "its first check")
 		waits[key] = runstate.WatchCheckWait{Queue: key.TargetBranch, Generation: stage.generation, Check: oneline.Fold(check, 512), Until: until}
