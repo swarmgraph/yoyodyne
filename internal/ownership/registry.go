@@ -82,6 +82,10 @@ type Record struct {
 
 	// Stall is the stall's reason, on a stall or a held group that is one.
 	Stall StallReason
+	// EmptySlot is why the scheduler left a developer slot empty while ready
+	// work waited, on an empty slot. Where it is a hold, the hold's facts above
+	// say whose hold it is.
+	EmptySlot EmptySlotCause
 	// OutageCause is why the provider answers nobody, on an outage or a stall
 	// that is one.
 	OutageCause domain.ProviderOutageCause
@@ -201,6 +205,7 @@ var registry = map[Kind]Rule{
 	KindDocumentApproval:  documentApprovalRule,
 	KindStoppage:          stoppageRule,
 	KindFollowUp:          followUpRule,
+	KindEmptySlot:         emptySlotRule,
 }
 
 // HasRule reports whether the registry keeps a rule for a kind.

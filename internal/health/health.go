@@ -230,6 +230,9 @@ const (
 	ClassUndeliveredMaintenance Classification = "maintenance failure no role was told of"
 	// A factory problem the read model raised.
 	ClassFactoryProblem Classification = "factory problem"
+	// A developer slot the scheduler left empty while ready work waited, with
+	// the reason it recorded (readmodel.EmptySlots).
+	ClassEmptySlot Classification = "developer slot empty while ready work waits"
 )
 
 // Actionable is whether the classification asks a role for a decision or an
