@@ -181,6 +181,46 @@
       "decide": "closed"
     }
   },
+  "slots": {
+    "page": "ready",
+    "sections": {
+      "summary": "ready",
+      "band": "ready",
+      "spend": "empty",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "empty",
+      "capacity": "empty",
+      "factory": "empty",
+      "managers": "empty"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
+  "slots-idle": {
+    "page": "ready",
+    "sections": {
+      "summary": "ready",
+      "band": "empty",
+      "spend": "empty",
+      "live": "ready",
+      "pipeline": "empty",
+      "throughput": "empty",
+      "capacity": "empty",
+      "factory": "empty",
+      "managers": "empty"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
   "held": {
     "page": "ready",
     "sections": {
@@ -817,6 +857,26 @@
     "popups": {
       "grouping": "closed",
       "card": "ready",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
+  "grouping-slots": {
+    "page": "ready",
+    "sections": {
+      "summary": "ready",
+      "band": "ready",
+      "spend": "empty",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "empty",
+      "capacity": "empty",
+      "factory": "empty",
+      "managers": "empty"
+    },
+    "popups": {
+      "grouping": "ready",
+      "card": "closed",
       "report": "closed",
       "decide": "closed"
     }
