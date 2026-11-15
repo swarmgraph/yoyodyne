@@ -68,7 +68,7 @@ func TestUnfinishedAndChangedClosedListingConformance(t *testing.T) {
 		t.Fatalf("Block() error = %v", err)
 	}
 	claimed := create("Being worked")
-	if _, err := client.claim(ctx, claimed.ID); err != nil {
+	if _, err := client.claim(ctx, claimed.ID, true); err != nil {
 		t.Fatalf("claim() error = %v", err)
 	}
 	deferred := create("Put off")

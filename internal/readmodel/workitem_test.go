@@ -105,6 +105,11 @@ func TestReadWorkItemCarriesEveryFieldAndTheRunInFlight(t *testing.T) {
 	if run.RunID != "run-new" || !run.InFlight || run.Preserved || run.Remains != "" || run.Elapsed != 12*time.Minute || run.Phase != runstate.PhaseDeveloping || run.CostUSD != 3.41 || run.Branch == "" {
 		t.Fatalf("the run in flight reads as %+v", run)
 	}
+	// The card says the run in flight holds the item, by the same derivation
+	// every surface says it with.
+	if item.HeldBy.Kind != HeldByRun || item.HeldBy.RunID != "run-new" {
+		t.Fatalf("held by = %+v, want the run in flight", item.HeldBy)
+	}
 }
 
 // A run that ended is said in the run history's words: its outcome, and what
@@ -146,10 +151,25 @@ func TestReadWorkItemSaysWhatTheLatestRunCameTo(t *testing.T) {
 		t.Fatalf("a landed run reads as %+v", item.Run)
 	}
 
+	// An item a run has claimed before, whose name no claim marked, is never
+	// said to be held by a person: the name is most likely the earlier claim's.
+	assigned := &fakeItemTracker{items: map[string]beads.WorkItem{"yoyodyne-ifd.1": {ID: "yoyodyne-ifd.1", Title: "t", Status: "open", Assignee: "Mason Bryant"}}}
+	item, err = ReadWorkItem(context.Background(), WorkItemSources{Tracker: assigned, Runs: removed}, "yoyodyne-ifd.1")
+	if err != nil || item.HeldBy.Kind != HeldByNobody || !strings.Contains(item.HeldBy.Says, "earlier run's claim") {
+		t.Fatalf("an unmarked name on an item a run claimed is held by %+v (err %v)", item.HeldBy, err)
+	}
+	item, err = ReadWorkItem(context.Background(), WorkItemSources{Tracker: assigned, Runs: &fakeHistories{}}, "yoyodyne-ifd.1")
+	if err != nil || item.HeldBy.Kind != HeldByPerson {
+		t.Fatalf("an unmarked name on an item no run claimed is held by %+v (err %v)", item.HeldBy, err)
+	}
+
 	never := &fakeHistories{}
 	item, err = ReadWorkItem(context.Background(), WorkItemSources{Tracker: tracker, Runs: never}, "yoyodyne-ifd.1")
 	if err != nil || item.Run != nil || item.RunProblem != "" {
 		t.Fatalf("an item never run reads as run %+v, problem %q, err %v", item.Run, item.RunProblem, err)
+	}
+	if item.HeldBy.Kind != HeldByNobody {
+		t.Fatalf("an item nothing works on and nobody assigned is held by %+v", item.HeldBy)
 	}
 }
 
