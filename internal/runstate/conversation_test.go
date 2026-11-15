@@ -1477,7 +1477,7 @@ func TestHeldByNamesTheConversationsOneProcessHolds(t *testing.T) {
 }
 
 // Documents held for sending are bounded apart from the ones waiting for a
-// decision or publication, so two held documents leave room for two more of
+// decision or publication, so two held documents leave room for every one of
 // the others, and the held ones have their own bound.
 func TestConversationBoundsHeldDocumentsApart(t *testing.T) {
 	t.Parallel()
@@ -1490,13 +1490,16 @@ func TestConversationBoundsHeldDocumentsApart(t *testing.T) {
 		return pending
 	}
 	conversation := testConversation(t)
-	conversation.PendingWrites = []PendingWrite{write("a", true), write("b", true), write("c", false), write("d", false)}
+	conversation.PendingWrites = []PendingWrite{write("a", true), write("b", true)}
+	for index := 0; index < MaxPendingWrites; index++ {
+		conversation.PendingWrites = append(conversation.PendingWrites, write(fmt.Sprintf("waiting-%d", index), false))
+	}
 	if err := conversation.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v, want two held and two waiting accepted", err)
+		t.Fatalf("Validate() error = %v, want two held and %d waiting accepted", err, MaxPendingWrites)
 	}
 	conversation.PendingWrites = append(conversation.PendingWrites, write("e", false))
-	if err := conversation.Validate(); err == nil || !strings.Contains(err.Error(), "3 undecided documents") {
-		t.Fatalf("Validate() error = %v, want the third waiting document refused", err)
+	if err := conversation.Validate(); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("%d undecided documents", MaxPendingWrites+1)) {
+		t.Fatalf("Validate() error = %v, want the ninth waiting document refused", err)
 	}
 	conversation.PendingWrites = []PendingWrite{write("a", true), write("b", true), write("c", true), write("d", true), write("e", true)}
 	if err := conversation.Validate(); err == nil || !strings.Contains(err.Error(), "5 documents held for sending") {

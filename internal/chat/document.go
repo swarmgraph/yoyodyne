@@ -120,6 +120,13 @@ type writeRecord struct {
 	// landingFailure is the last failure to read the repository for this
 	// document the owning role was told about in this process.
 	landingFailure string
+	// unanswered is a write recorded and not yet answered to its owning role;
+	// see runstate.PendingWrite.Unanswered.
+	unanswered bool
+	// waitsFor is why an unconfirmed document waits, where this process found it
+	// waiting for something other than its next confirmation: the operator's
+	// decision, for one whose kind's setting asks him.
+	waitsFor string
 }
 
 // WriteOutcome is what became of one document the operator decided. It is what
@@ -275,10 +282,13 @@ func (s *Session) refuseWrites(ctx context.Context, writes []artifact.Write) err
 		return err
 	}
 	// What is counted is what is still waiting. A document the operator has
-	// already decided costs the record nothing, so a conversation that has
-	// written and filed two documents is not thereby a conversation that may
-	// never write a third.
-	if err := s.refuseWriteCount(writes); err != nil {
+	// already decided costs the record nothing, and a new revision of a document
+	// already waiting takes that document's place rather than another.
+	places := make([]revisionPlace, 0, len(writes))
+	for _, write := range writes {
+		places = append(places, s.placeRevision(write))
+	}
+	if err := s.refuseWriteCount(writes, places); err != nil {
 		return err
 	}
 	for _, write := range writes {
@@ -294,27 +304,14 @@ func (s *Session) refuseWrites(ctx context.Context, writes []artifact.Write) err
 	return s.refuseWorkItemReferences(ctx, writes)
 }
 
-// refuseCopies refuses a write of a document this conversation is already
-// waiting on, and a block that writes one document twice. Either would record
-// the same next revision of that document twice, so only one copy can ever be
-// confirmed, and the other would hold a place for waiting documents that
-// nothing settles. It is checked before the limit on waiting documents so the
-// role is told the reason that applies to it.
+// refuseCopies refuses a block that writes one document twice: both copies
+// would be the same next revision of it, and only one could ever be confirmed.
+// A new revision of a document already waiting is not a copy: it replaces the
+// waiting revision or waits behind its run (placeRevision).
 func (s *Session) refuseCopies(writes []artifact.Write) error {
-	waiting := map[string]string{}
-	for _, record := range s.writes {
-		if id := strings.TrimSpace(record.pending.Write.ID); !record.decided && id != "" {
-			if _, held := waiting[id]; !held {
-				waiting[id] = record.pending.ID
-			}
-		}
-	}
 	inBlock := map[string]bool{}
 	for _, write := range writes {
 		id := strings.TrimSpace(write.ID)
-		if held, ok := waiting[id]; ok {
-			return fmt.Errorf("document %s is already waiting in this conversation as %s, and a second copy would record the same revision of it; the copy is refused and takes no place. %s is confirmed, published, or put to the operator as it stands, and a change to it is written once it is settled", id, held, held)
-		}
 		if inBlock[id] {
 			return fmt.Errorf("document %s is written twice in one block, and both copies would record the same revision of it; neither is recorded, and it is written once", id)
 		}
@@ -379,33 +376,31 @@ func (s *Session) checkSection(documentPath string, write artifact.Write) error 
 	return &documentcheck.Refusal{Path: refused.Path, Problems: own}
 }
 
-// releaseCopies settles every waiting document that is a second copy of a
-// document already waiting in this conversation — what refuseCopies refuses
-// now, kept by a conversation that waited from before it did. The copy kept
-// is the one whose publication has started, and otherwise the earliest; a copy
-// whose publication has started is never released, because a run is carrying
-// it. A released copy's text stays in the conversation's account, where it was
-// saved when it was written, and the owning role is told which copy was kept.
+// releaseCopies settles every waiting revision a newer one of the same
+// document has replaced, where a conversation kept both from before a new
+// revision replaced the one waiting (placeRevision). Every revision whose
+// publication has started is kept, because a run may be carrying it, and so is
+// the latest of the rest, which waits behind it; any earlier one that has not
+// started is released. A released copy's text stays in the conversation's
+// account, where it was saved when it was written, and the owning role is told
+// which revision was kept.
 func (s *Session) releaseCopies() error {
-	kept := map[string]*writeRecord{}
-	for _, published := range []bool{true, false} {
-		for _, record := range s.writes {
-			id := strings.TrimSpace(record.pending.Write.ID)
-			if record.decided || id == "" || kept[id] != nil || (record.pending.Publication != nil) != published {
-				continue
-			}
-			kept[id] = record
+	latest := map[string]*writeRecord{}
+	for _, record := range s.writes {
+		id := strings.TrimSpace(record.pending.Write.ID)
+		if !record.decided && id != "" && record.pending.Publication == nil {
+			latest[id] = record
 		}
 	}
 	var told strings.Builder
 	for _, record := range s.writes {
 		id := strings.TrimSpace(record.pending.Write.ID)
-		if record.decided || id == "" || kept[id] == record || record.pending.Publication != nil {
+		if record.decided || id == "" || latest[id] == record || record.pending.Publication != nil {
 			continue
 		}
 		record.decided = true
-		fmt.Fprintf(&told, "Document %s (%s) was a second copy of %s, which is already waiting for the same revision of %s, so its place for waiting documents is given back. %s goes on as it stands; the %s writes a change to it once it is settled.\n",
-			record.pending.ID, id, kept[id].pending.ID, id, kept[id].pending.ID, s.state.Role.Title())
+		fmt.Fprintf(&told, "Document %s (%s) was an earlier revision of %s, and the newer revision %s replaces it, so its place for waiting documents is given back. %s goes on as it stands.\n",
+			record.pending.ID, id, id, latest[id].pending.ID, latest[id].pending.ID)
 	}
 	if told.Len() == 0 {
 		return nil
@@ -433,26 +428,45 @@ func (s *Session) renderDocumentRefusal(problem error) string {
 func (s *Session) recordWritesWithoutToolAudit(writes []artifact.Write) ([]PendingWrite, error) {
 	pending := make([]PendingWrite, 0, len(writes))
 	now := s.options.clock().Now().UTC()
+	var answers strings.Builder
+	var answered []*writeRecord
 	for index, write := range writes {
-		record := &writeRecord{pending: PendingWrite{
+		record := &writeRecord{unanswered: true, pending: PendingWrite{
 			ID:             fmt.Sprintf("document-%d.%d", s.state.Turns, index+1),
 			ConversationID: s.state.ConversationID,
 			Turn:           s.state.Turns,
 			WrittenAt:      now,
 			Write:          write,
 		}}
+		// What the new revision frees is settled first, so the revision it
+		// replaces is never sent beside it.
+		place := s.placeRevision(write)
+		settled, err := s.takePlace(&place, record.pending.ID)
+		if err != nil {
+			return pending, err
+		}
 		if err := s.emit(execution.EventDocumentDrafted, record.pending); err != nil {
 			return pending, fmt.Errorf("record a written document: %w", err)
 		}
+		s.state.HandedBack = s.forgetHandedBack(strings.TrimSpace(write.ID))
 		s.writes = append(s.writes, record)
 		pending = append(pending, record.pending)
+		answers.WriteString(s.answerWrite(record, settled, place))
+		answered = append(answered, record)
 	}
-	if len(pending) > 0 {
-		if err := s.record(); err != nil {
-			return pending, err
-		}
+	if len(pending) == 0 {
+		return pending, nil
 	}
-	return pending, nil
+	// The write is saved as owed an answer before the answer is given, so a
+	// process that stops between the two leaves a write the next one reports
+	// (answerUnanswered) rather than one nobody knows was never answered.
+	if err := s.record(); err != nil {
+		return pending, err
+	}
+	for _, record := range answered {
+		record.unanswered = false
+	}
+	return pending, s.carryResults(answers.String())
 }
 
 // ApproveWrite carries out the operator's approval of a document, under the
@@ -995,18 +1009,26 @@ func (s *Session) undecidedWrites() []runstate.PendingWrite {
 	// through them, so a waiting document settles before a held one behind it
 	// asks for its room.
 	var all []runstate.PendingWrite
-	waiting, held := 0, 0
+	held := 0
 	for _, record := range s.writes {
 		if record.decided {
 			continue
 		}
 		recorded := record.pending.recorded()
+		recorded.Unanswered = record.unanswered
 		if recorded.Held() {
 			held++
-		} else {
-			waiting++
 		}
 		all = append(all, recorded)
+	}
+	// Waiting documents are counted as documents, so the latest revisions of the
+	// latest documents are kept: a document named among the newest
+	// runstate.MaxPendingWrites keeps every revision it has waiting.
+	keep := map[string]bool{}
+	for i := len(all) - 1; i >= 0; i-- {
+		if artifactID := all[i].Artifact; !all[i].Held() && len(keep) < runstate.MaxPendingWrites {
+			keep[artifactID] = true
+		}
 	}
 	pending := make([]runstate.PendingWrite, 0, len(all))
 	for _, recorded := range all {
@@ -1015,8 +1037,7 @@ func (s *Session) undecidedWrites() []runstate.PendingWrite {
 				held--
 				continue
 			}
-		} else if waiting > runstate.MaxPendingWrites {
-			waiting--
+		} else if !keep[recorded.Artifact] {
 			continue
 		}
 		pending = append(pending, recorded)

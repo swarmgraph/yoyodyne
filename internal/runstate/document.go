@@ -140,6 +140,11 @@ type DocumentDelivery struct {
 	// manager instead.
 	Judged     bool `json:"judged,omitempty"`
 	HandedOver bool `json:"handed_over,omitempty"`
+	// Passed says the run passed its checks and review. It is set beside Landed
+	// on a run that landed, and alone on one that waits for the operator's merge
+	// because the project's integration is not automatic: neither hands the
+	// document back to its owner.
+	Passed bool `json:"passed,omitempty"`
 	// Retrying is what an unsettled delivery tells the owning role: that a run
 	// stopped without judging the document and the next attempt is waiting or
 	// will start at the next message. Empty for every other unsettled delivery.
@@ -148,6 +153,33 @@ type DocumentDelivery struct {
 	// slot was taken and the document is waiting for one (see DocumentWait), and
 	// nil otherwise.
 	WaitingForSlot *CapacityError `json:"waiting_for_slot,omitempty"`
+}
+
+// DocumentStanding is where one confirmed document's runs stand, read from the
+// run store without starting or continuing anything. Started says a run of the
+// handoff is recorded, RunID names the latest one, and Delivery is what that
+// run would settle as. A handoff with no run recorded — waiting for a document
+// landing to free, or kept by the intake hold — has not started, so its owner
+// may still replace or withdraw it.
+type DocumentStanding struct {
+	RunID    string           `json:"run_id,omitempty"`
+	Started  bool             `json:"started,omitempty"`
+	Delivery DocumentDelivery `json:"delivery"`
+}
+
+// Running reports a run that has started and not ended, including one that
+// passed and waits in a merge queue: a new revision waits behind it.
+func (d DocumentStanding) Running() bool { return d.Started && !d.Delivery.Settled }
+
+// Finished reports a run that has ended, however it ended.
+func (d DocumentStanding) Finished() bool { return d.Started && d.Delivery.Settled }
+
+// HandedBack reports a run that ended without landing or passing the document,
+// for any cause — refused by review, a failing check, or stopped short of the
+// target branch: the revision no longer counts as its document's waiting
+// revision.
+func (d DocumentStanding) HandedBack() bool {
+	return d.Finished() && !d.Delivery.Landed && !d.Delivery.Passed
 }
 
 // StandingApprovalPrefix opens the WriteID of a handoff that lands the
