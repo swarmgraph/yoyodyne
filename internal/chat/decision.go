@@ -1,10 +1,11 @@
 package chat
 
-// An operator decides proposals in batches. Batching changes what one answer
-// may say and nothing else: nothing is created without an approval that names
-// the item, an answer nobody can be sure of declines, and every decision is
-// recorded on its own exactly as a serial answer records it. A batch approval
-// is several approvals rather than a new kind of thing.
+// The grammar a single message decides proposals in. The console asks about
+// each proposal on its own (askone.go); a message sent without a question can
+// still name several, as "approve 3.1 and decline 3.2 <reason>". Nothing is
+// created without an approval that names the item, nothing is declined that the
+// answer did not name, and every decision is recorded on its own exactly as an
+// answer at the prompt records it.
 
 import (
 	"errors"
@@ -139,11 +140,9 @@ func namesAProposal(answer string) (string, bool) {
 }
 
 // decidesAsAMessage reports an answer that decides proposals when nobody has
-// just asked a question. It is the whole of the difference between a prompt and
-// a single message, and it exists because the grammar below is written for a
-// prompt: there, the operator is answering "create 3.1?" and the words after
-// their verb can only be about that, so a clause that trails off into prose is
-// safely read as a decline with the prose kept as the reason.
+// just asked a question. The grammar below reads a clause that trails off into
+// prose after a decline as the reason for it, which is safe only where the
+// operator is plainly deciding.
 //
 // A message is not that. The proposals it would decide may be hours and several
 // messages old, and the operator is usually talking rather than answering. So an
@@ -223,8 +222,8 @@ func declineReason(reason string) string {
 
 // errNotADecision reports an answer that is not a decision at all: it names no
 // proposal and begins with nothing the harness recognizes. It is separate from
-// every other failure here because it is the one the contract already decides —
-// an answer nobody can be sure of declines, and is kept as the reason.
+// every other failure here because it is not a decision that failed: a message
+// that reads as one is said to the role as speech, and decides nothing.
 var errNotADecision = errors.New("that answer does not decide anything")
 
 // readDecisions turns one answer into the decisions it asks for, resolved
@@ -346,11 +345,15 @@ func approveExample(cards []card) string {
 	return fmt.Sprintf("approve %d,%d", cards[0].number, cards[len(cards)-1].number)
 }
 
-// resolveDeclined names the proposals a decline clause turns down. Unlike an
-// approval it may name none of them, which declines everything still on the
-// table: nothing is created either way, so the operator saying "no" to the lot
-// is a decision the harness can act on as it stands.
+// resolveDeclined names the proposals a decline clause turns down. A decline
+// naming nothing is accepted only where exactly one proposal is waiting, as an
+// approval is: where several are, a bare "no" has not said which, and declining
+// them all on its account would decide work the operator did not name. "decline
+// all" names every one of them, and is accepted.
 func resolveDeclined(selectors []string, cards []card, named map[string]bool) ([]string, error) {
+	if len(selectors) == 0 && len(cards) != 1 {
+		return nil, fmt.Errorf("say which of the %d proposals to decline, as decline %d <reason>, or decline all <reason>; nothing is declined that you did not name", len(cards), cards[0].number)
+	}
 	if len(selectors) == 0 || (len(selectors) == 1 && strings.EqualFold(selectors[0], allSelector)) {
 		var chosen []string
 		for _, entry := range cards {
@@ -428,18 +431,6 @@ func inCardOrder(decisions []decision, cards []card) []decision {
 		}
 	}
 	return ordered
-}
-
-// declineAll is what an answer nobody can be sure of comes to: every proposal
-// still on the table is declined, and the answer itself is kept as the reason,
-// exactly as it is when a single proposal is answered with something that is
-// not a yes.
-func declineAll(cards []card, reason string) []decision {
-	decisions := make([]decision, 0, len(cards))
-	for _, entry := range cards {
-		decisions = append(decisions, decision{proposalID: entry.proposal.ID, reason: reason})
-	}
-	return decisions
 }
 
 // takeSelectors consumes the proposals a clause names, and returns what is left
