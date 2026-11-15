@@ -956,15 +956,43 @@ func Contract() string {
 	}, "\n")
 }
 
+// accountShape is every field a closing account may carry, as the two requests
+// that ask for an account again quote it. The rules beneath it name what each
+// optional list requires when it is used, so a role correcting a refused
+// account is told every requirement it could have missed, the assumptions a
+// settled decision must carry among them.
+var accountShape = []string{
+	Fence,
+	`{"status":"complete|more","summary":"what the preceding reply found","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you already did and why","filed":["work already filed"]}],"questions":["what only a person can settle"],"recommendations":[{"proposal":"amendment-id already considered","verdict":"approve|decline|merge","reason":"why","into":"amendment-id (a merge only)"}],"audits":[{"item":"closed beads-id already audited","goals":["standing goal checked"],"finding":"met|broken","detail":"where it breaks the goal","correction":"beads-id admitted or widened","deferred":false}],"left":[{"item":"beads-id of waiting work not taken","reason":"why"}],"held":["beads-id whose finished document is held for sending"],"settled":[{"item":"beads-id already decided or asked about","decision":"what was decided","assumptions":["what the decision took to be true"],"question":"or the one question already asked","asked_of":"who it was put to"}]}`,
+	"```",
+	"Omit empty lists. Include recommendations only for proposals already considered in the preceding reply, audits only for closed items it already audited, left only for waiting work it did not take, and settled only for an item it already decided or asked about.",
+	`Every entry needs its fields: "status" and "summary" always; each finding its "issue" and "disposition"; each recommendation its "proposal", "verdict" and "reason", and "into" only on a merge; each audit its "item", at least one of "goals", and "finding", and a broken one its "detail" and exactly one of "correction" or "deferred"; each left item its "item" and "reason"; each settled item its "item" and either a "decision" with at least one entry in "assumptions" and no "asked_of", or a "question" with "asked_of" and no "assumptions".`,
+}
+
 // ReportRequest recovers an account without asking the role to do its work again.
 func ReportRequest() string {
-	return strings.Join([]string{
+	return strings.Join(append([]string{
 		"Your previous reply omitted its closing report block. This is the only request for it on this pass. Reply with the block alone, accounting for that reply's findings and actions already taken. Do not repeat any action or perform new work; all earlier writes, reports, admissions and costs remain recorded.",
-		Fence,
-		`{"status":"complete|more","summary":"what the preceding reply found","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you already did and why","filed":["work already filed"]}],"questions":["what only a person can settle"],"recommendations":[{"proposal":"amendment-id already considered","verdict":"approve|decline|merge","reason":"why","into":"amendment-id (a merge only)"}],"audits":[{"item":"closed beads-id already audited","goals":["standing goal checked"],"finding":"met|broken","detail":"where it breaks the goal","correction":"beads-id admitted or widened","deferred":false}],"left":[{"item":"beads-id of waiting work not taken","reason":"why"}],"held":["beads-id whose finished document is held for sending"],"settled":[{"item":"beads-id already decided or asked about","decision":"what was decided","assumptions":["what the decision took to be true"],"question":"or the one question already asked","asked_of":"who it was put to"}]}`,
-		"```",
-		"Omit empty lists. Include recommendations only for proposals already considered in the preceding reply, audits only for closed items it already audited, left only for waiting work it did not take, and settled only for an item it already decided or asked about.",
-	}, "\n")
+	}, accountShape...), "\n")
+}
+
+// CorrectionRequest is what a role is told when the harness refused the
+// closing account it gave, for its shape rather than for anything it did: the
+// refusal's own words, and the shape the account is held to. It asks for the
+// corrected block alone, for the reason ReportRequest does — the work was done
+// and recorded, and only its account is missing.
+func CorrectionRequest(refusal error) string {
+	reason := "no reason was given"
+	if refusal != nil {
+		reason = oneline.Bound(refusal.Error(), MaxSummaryBytes)
+	}
+	return strings.Join(append([]string{
+		"The harness refused the closing report block your previous reply ended with, so nothing in it is recorded yet. Its reason:",
+		"",
+		reason,
+		"",
+		"This is the only request to correct it on this pass. Reply with the corrected block alone, with the same account of that reply's findings and actions, changed only where the reason above says. Do not repeat any action or perform new work; all earlier writes, reports, admissions and costs remain recorded. If the corrected block is refused too, the pass fails and that reason is recorded.",
+	}, accountShape...), "\n")
 }
 
 // RecommendationContract is what an owning role is told, beside the contract
@@ -1041,7 +1069,7 @@ func SettleContract(item string, times int, reasons []string) string {
 		"",
 		"This pass does not leave it again. Do one of two things with it, and say which in your block's \"settled\":",
 		"",
-		`- decide it, writing down the assumptions your decision makes where an open point is not settled anywhere: "settled":[{"item":"`+item+`","decision":"what you decided, in a sentence or two","assumptions":["what you took to be true, one per entry, at most `+maxAssumptionsText+`"]}]`,
+		`- decide it, writing down at least one assumption your decision makes — what you took to be true where an open point is not settled anywhere; a decision with no assumptions is refused: "settled":[{"item":"`+item+`","decision":"what you decided, in a sentence or two","assumptions":["what you took to be true, one per entry, at most `+maxAssumptionsText+`"]}]`,
 		`- or put one question to whoever can answer it, and nothing else: another role, asked the way you ask any role, or the operator only where the decision is a change of what the product is for or something only a person can do, in your block's "questions": "settled":[{"item":"`+item+`","question":"the one question","asked_of":"who you put it to"}]`,
 		"",
 		"Do the decision's own work as you would any item's, in the tracker and the documents it needs. The harness writes on the item which of the two you did. A pass that ends having left it again is sent back once to decide or ask, with everything else it did kept; if it still leaves the item, that is written on the item and the development manager is told.",
@@ -1056,6 +1084,6 @@ func SentBack(item string, times int) string {
 	return strings.Join([]string{
 		fmt.Sprintf("This pass is ending having left %s again, and it was told at its start not to: your passes have already left it %d times in a row with nothing outside your role holding it. Everything else this pass did stands and is recorded as you gave it.", item, times),
 		"",
-		fmt.Sprintf(`Decide %s now, writing down the assumptions you made, or put one question about it to whoever can answer, and give your block again with that entry in "settled". Nothing else is asked of this turn. If you leave it again, that is written on the item, and the development manager is told at that role's next pass.`, item),
+		fmt.Sprintf(`Decide %s now, writing down at least one assumption you made in "assumptions" (a decision with none is refused), or put one question about it to whoever can answer, and give your block again with that entry in "settled". Nothing else is asked of this turn. If you leave it again, that is written on the item, and the development manager is told at that role's next pass.`, item),
 	}, "\n")
 }
