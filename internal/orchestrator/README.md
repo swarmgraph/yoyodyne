@@ -262,6 +262,13 @@ slot and records it (runstate's `takeUpSlot`, reached through `AdoptWithin`,
 which case it waits for the slot; a moved run settles its sub-agent setting
 afresh from the new slot (`settleSubagents`), and the move, with its reason, is
 written once into its event log when it is next taken up (`recordSlotMove`).
+A run that started before its project configured pairs is given the slot it
+runs in and that slot's pair at its next developer invocation, a repair or a
+continuation (`adoptDeveloperRouting`, called from `develop` through runstate's
+`MigrateRouting`), and keeps them from then on as a run started on a pair does.
+A round already under way when it is given them is recorded with its history
+unknown and no switch; a repair begun since (`genuineDeveloperRound`) opens
+with its own.
 
 ### How is a stopped run classified, and what does the item say?
 `stop` decides first whether the error is a pause (usage limit, provider stop,

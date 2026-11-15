@@ -2617,6 +2617,11 @@ type activeRun struct {
 	// is recorded as a narrow update on the record as stored rather than a save
 	// of a copy that may be out of date (recovery.go, recordRetry).
 	narrowRetries bool
+	// repairBegunHere is the repair attempt this process counted and handed to
+	// its developer (repair), and zero before it began one. A run given its
+	// endpoint pair at that round opens it as a genuine new operation rather than
+	// one already under way (adoptDeveloperRouting).
+	repairBegunHere int
 	// scratch is the directory this run's developer is told to write its scratch
 	// files to, cut for this run alone and outside the worktree. It is derived
 	// from the worktree rather than recorded with the run, because it is a fact
@@ -3990,6 +3995,7 @@ func (a *activeRun) repair(ctx context.Context, prompt string) error {
 	if err := a.pipeline.Store.Save(a.state); err != nil {
 		return fmt.Errorf("save repair attempt %d: %w", a.state.RepairAttempts, err)
 	}
+	a.repairBegunHere = a.state.RepairAttempts
 	return a.develop(ctx, prompt, a.state.ProviderSessionID)
 }
 
@@ -4544,6 +4550,13 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 	// spent, rather than offering its session to a provider that never opened it
 	// (recordedbackend.go).
 	if _, _, err := a.pipeline.developerBackendFor(a.state); err != nil {
+		a.observeDevelopEnded(ctx, err)
+		return err
+	}
+	// A run that started before its project configured endpoint pairs is given
+	// its slot's pair here, at its first developer invocation since, and keeps it
+	// from then on (developerrouting.go).
+	if err := a.adoptDeveloperRouting(ctx); err != nil {
 		a.observeDevelopEnded(ctx, err)
 		return err
 	}

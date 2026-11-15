@@ -1029,6 +1029,7 @@ var notAStep = map[string]string{
 	// They are part of the one developer invocation candidate.develop already
 	// is, as the account and model it reads are, rather than steps beside it.
 	"pinDeveloperRouting":         "records the run's developer slot and pinned endpoint pair before the claim",
+	"adoptDeveloperRouting":       "gives a run started before its project configured endpoint pairs its slot and pair at its next developer invocation",
 	"beginDeveloperOperation":     "finds or opens the logical operation a developer invocation serves",
 	"prepareDeveloperAttempt":     "reserves and gates the next attempt of the developer invocation",
 	"finishDeveloperAttempt":      "records how a developer attempt ended",
