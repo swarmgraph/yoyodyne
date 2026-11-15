@@ -88,7 +88,8 @@ func (r MCPRound) Render() string {
 		}
 		line := name + ": " + call.Outcome
 		if call.Refusal != "" {
-			line += " (" + call.Refusal + ")"
+			// The stored code stays on the reply; the operator reads why in words.
+			line += " because " + mcpcall.RefusalReason(call.Refusal).Plain()
 		}
 		if call.Bytes > 0 {
 			line += fmt.Sprintf(", %d bytes", call.Bytes)

@@ -369,3 +369,53 @@ func TestARoleHoldingNoMCPGrantIsRefusedTheBlock(t *testing.T) {
 		}
 	}
 }
+
+// The operator's line for a round says why each call was refused in a plain
+// sentence, never as the code the harness stores, while the reply keeps the
+// stored code and the role is handed it back as before. Every reason on the
+// closed list is covered, so a reason added later without words fails here.
+func TestTheOperatorReadsWhyACallWasRefusedInWordsNotAsTheStoredCode(t *testing.T) {
+	codeWord := func(text, code string) bool {
+		for _, field := range strings.FieldsFunc(text, func(r rune) bool {
+			return !(r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
+		}) {
+			if field == code {
+				return true
+			}
+		}
+		return false
+	}
+	seen := map[string]mcpcall.RefusalReason{}
+	for _, reason := range mcpcall.RefusalReasons {
+		words := reason.Plain()
+		if words == "" || !strings.Contains(words, " ") || words == string(reason) {
+			t.Fatalf("reason %q is put as %q, want a sentence", reason, words)
+		}
+		if other, ok := seen[words]; ok {
+			t.Fatalf("reasons %q and %q read the same: %q", other, reason, words)
+		}
+		seen[words] = reason
+		round := MCPRound{Calls: []MCPCall{{Tool: "mail.search", Outcome: string(mcpcall.OutcomeRefused), Refusal: string(reason)}}}
+		rendered := round.Render()
+		if !strings.Contains(rendered, "mail.search: refused because "+words+"\n") {
+			t.Fatalf("round for %q renders %q, want it to say why in words: %q", reason, rendered, words)
+		}
+		// The sentence may use an ordinary word that is also a code, such as
+		// "limit"; what must not appear is the code anywhere else on the line.
+		if rest := strings.Replace(rendered, words, "", 1); codeWord(rest, string(reason)) || strings.Contains(rendered, "("+string(reason)+")") {
+			t.Fatalf("round for %q shows the stored code: %q", reason, rendered)
+		}
+		if strings.Contains(words, "_") {
+			t.Fatalf("reason %q is put in words holding a code: %q", reason, words)
+		}
+		// The role is still handed the stored code.
+		answer := mcpcall.Answer{Tool: "mail.search", Outcome: mcpcall.OutcomeRefused, Refusal: reason}
+		if !strings.Contains(answer.Evidence(), "refused: "+string(reason)) {
+			t.Fatalf("the role was not handed the stored code for %q: %q", reason, answer.Evidence())
+		}
+	}
+	unknown := MCPRound{Calls: []MCPCall{{Outcome: string(mcpcall.OutcomeRefused), Refusal: "made_up_code"}}}.Render()
+	if strings.Contains(unknown, "made_up_code") || !strings.Contains(unknown, "refused because ") {
+		t.Fatalf("a reason with no words renders %q, want words and no code", unknown)
+	}
+}
