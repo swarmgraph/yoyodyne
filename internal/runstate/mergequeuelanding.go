@@ -231,6 +231,19 @@ type MergeQueueLanded struct {
 	// RemoteMerge is the commit the forge made of the merge, where it made one.
 	RemoteMerge string    `json:"remote_merge,omitempty"`
 	ConfirmedAt time.Time `json:"confirmed_at"`
+	// MergedAt is when the forge says it merged the pull request, where the
+	// landing went through one and the forge said; ConfirmedAt is when the
+	// queue learned of it.
+	MergedAt time.Time `json:"merged_at,omitzero"`
+}
+
+// LandedAt is when the change landed: the forge's merge time where it gave
+// one, and otherwise when the queue confirmed the landing.
+func (l MergeQueueLanded) LandedAt() time.Time {
+	if !l.MergedAt.IsZero() {
+		return l.MergedAt
+	}
+	return l.ConfirmedAt
 }
 
 // MaxMergeQueueWithdrawalAnswers bounds the answers one withdrawal keeps: each
