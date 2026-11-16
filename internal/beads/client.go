@@ -898,9 +898,9 @@ func (c Client) Ready(ctx context.Context) ([]WorkItem, error) {
 // workListing lifts the row cap on both whole-set readings. The old-tracker
 // fallback is evidence about what was read, never a successful whole listing.
 func (c Client) workListing(ctx context.Context, verb string, filter []string) ([]WorkItem, error) {
-	data, err := c.run(ctx, append([]string{verb, "--json", unboundedListing}, filter...)...)
+	data, err := c.runListing(ctx, append([]string{verb, "--json", unboundedListing}, filter...)...)
 	if err != nil && refusedFlag(err, unboundedListing) {
-		data, err = c.run(ctx, append([]string{verb, "--json"}, filter...)...)
+		data, err = c.runListing(ctx, append([]string{verb, "--json"}, filter...)...)
 		if err == nil {
 			items, decodeErr := decodeWorkListing(data, verb, c.writerZone())
 			if decodeErr != nil {
