@@ -350,3 +350,26 @@ func TestAPlacementNeverLiftsAnEntryIntoAHigherRuleOrPastOneInProgress(t *testin
 		t.Fatalf("chose %s by %q, want the entry already being checked", got.Entry.EntryID, got.Rule)
 	}
 }
+
+func TestAVerifiedCandidateCountsAsInProgressAndOneCheckedAheadOnlyOnceItsBaseHasLanded(t *testing.T) {
+	finished := orderNow
+	verified := runstate.MergeQueueGeneration{
+		Number:   1,
+		CheckRun: &runstate.MergeQueueCheckEvidence{FinishedAt: &finished},
+		Review:   &runstate.MergeQueueReviewEvidence{FinishedAt: &finished},
+	}
+	if !entryInProgress([]runstate.MergeQueueGeneration{verified}, map[string]bool{}) {
+		t.Fatal("a candidate that passed its checks and review and waits to land is not counted as in progress")
+	}
+	ahead := verified
+	ahead.BuiltAhead = &runstate.MergeQueueAhead{EntryID: "base-entry"}
+	if entryInProgress([]runstate.MergeQueueGeneration{ahead}, map[string]bool{"base-entry": true}) {
+		t.Fatal("a candidate checked ahead of an entry that still waits is counted as in progress")
+	}
+	if !entryInProgress([]runstate.MergeQueueGeneration{ahead}, map[string]bool{}) {
+		t.Fatal("a candidate checked ahead of an entry that has landed is not counted as in progress")
+	}
+	if entryInProgress([]runstate.MergeQueueGeneration{{Number: 1}}, map[string]bool{}) {
+		t.Fatal("a candidate whose checks have not begun is counted as in progress")
+	}
+}

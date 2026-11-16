@@ -341,11 +341,14 @@ func (w MergeQueueWorker) chooseNext(ctx context.Context, key runstate.MergeQueu
 	target := ""
 	var waiting []runstate.MergeQueueEntry
 	started := map[string]bool{}
-	for _, entry := range runstate.MergeQueueWorkOrder(entries) {
-		if entry.EntryID == after {
-			continue
+	unlanded := map[string]bool{}
+	for _, entry := range entries {
+		if w.Waiting == nil || w.Waiting(entry) {
+			unlanded[entry.EntryID] = true
 		}
-		if w.Waiting != nil && !w.Waiting(entry) {
+	}
+	for _, entry := range runstate.MergeQueueWorkOrder(entries) {
+		if entry.EntryID == after || !unlanded[entry.EntryID] {
 			continue
 		}
 		generations, err := w.Queue.Generations(key, entry.EntryID)
@@ -362,7 +365,7 @@ func (w MergeQueueWorker) chooseNext(ctx context.Context, key runstate.MergeQueu
 				continue
 			}
 		}
-		started[entry.EntryID] = entryInProgress(w.Pipeline, generations, entry)
+		started[entry.EntryID] = entryInProgress(generations, unlanded)
 		waiting = append(waiting, entry)
 	}
 	if len(waiting) == 0 {

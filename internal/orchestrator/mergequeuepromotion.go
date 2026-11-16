@@ -271,6 +271,8 @@ func (p MergeQueuePromoter) next(ctx context.Context, key runstate.MergeQueueKey
 	var waiting []runstate.MergeQueueEntry
 	landings := map[string]runstate.MergeQueueLanding{}
 	started := map[string]bool{}
+	var unfinished []runstate.MergeQueueEntry
+	unlanded := map[string]bool{}
 	for _, entry := range runstate.MergeQueueWorkOrder(entries) {
 		landing, found, err := p.Queue.Landing(key, entry.EntryID)
 		if err != nil {
@@ -282,6 +284,12 @@ func (p MergeQueuePromoter) next(ctx context.Context, key runstate.MergeQueueKey
 		if landing.Handback != nil || (landing.Completion != nil && landing.Completion.Whole()) {
 			continue
 		}
+		landings[entry.EntryID] = landing
+		unlanded[entry.EntryID] = true
+		unfinished = append(unfinished, entry)
+	}
+	for _, entry := range unfinished {
+		landing := landings[entry.EntryID]
 		generations, generationsErr := p.Queue.Generations(key, entry.EntryID)
 		if attempt, attempted := landing.Current(); !attempted || attempt.SetAside != nil {
 			// A candidate record that cannot be read steps nothing aside: it is
@@ -295,9 +303,8 @@ func (p MergeQueuePromoter) next(ctx context.Context, key runstate.MergeQueueKey
 		attempt, attempted := landing.Current()
 		started[entry.EntryID] = attempted && attempt.SetAside == nil
 		if generationsErr == nil && !started[entry.EntryID] {
-			started[entry.EntryID] = entryInProgress(p.Pipeline, generations, entry)
+			started[entry.EntryID] = entryInProgress(generations, unlanded)
 		}
-		landings[entry.EntryID] = landing
 		waiting = append(waiting, entry)
 	}
 	if len(waiting) == 0 {

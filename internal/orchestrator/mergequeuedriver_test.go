@@ -513,3 +513,44 @@ func withBase(state runstate.State, base string) runstate.State {
 	state.BaseCommit = base
 	return state
 }
+
+// An entry whose candidate has passed its checks and review is the one landed
+// even when the order's answer has changed since: its checks and review are
+// not thrown away for an entry that now ranks higher. Here the code entry is
+// verified as priority 0 code, and its item is then lowered to priority 4, which
+// on its own would put the architect's design, admitted after it, first.
+func TestAVerifiedEntryIsLandedWhenAnotherNowRanksAboveIt(t *testing.T) {
+	t.Parallel()
+
+	f := newPromotionFixture(t, landLocally)
+	f.tracker.Item.Priority = 0
+	f.tracker.Item.Description += "\nprotected-path grant: docs/designs/order.md\n"
+	pipeline := f.worker.Pipeline
+	pipeline.Config.Checks = []string{"true"}
+	pipeline.Config.Product.Designs = "docs/designs"
+	base := gitLine(t, f.repository, "rev-parse", "main")
+	admitted := f.runs.(*admittedRun)
+	admitted.state.BaseCommit = gitLine(t, f.repository, "merge-base", "main", f.head)
+	design := f.admitAnother(queueKey, "design-change", "docs/designs/order.md", "# Order\n")
+	admitted.others[design.RunID] = withBase(admitted.others[design.RunID], base)
+
+	verification, err := f.work()
+	if err != nil || !verification.Verified || verification.Entry.EntryID != f.entry.EntryID {
+		t.Fatalf("Work() verified entry %d (verified %v), %v; want the code entry %d verified first", verification.Entry.Order, verification.Verified, err, f.entry.Order)
+	}
+	f.tracker.Item.Priority = 4
+
+	if _, err := f.promote(); err != nil {
+		t.Fatalf("Promote() error = %v", err)
+	}
+	completion := f.landing().Completion
+	if completion == nil || !completion.Whole() || completion.Landed != verification.Generation.Candidate {
+		t.Fatalf("completion = %#v, want the verified candidate %s landed", completion, verification.Generation.Candidate)
+	}
+	if f.local("main") != verification.Generation.Candidate {
+		t.Fatalf("main = %s, want the verified candidate %s", f.local("main"), verification.Generation.Candidate)
+	}
+	if generations := f.generationsOf(design); len(generations) != 0 {
+		t.Fatalf("the design has %d generations, want none built while the verified entry waited to land", len(generations))
+	}
+}

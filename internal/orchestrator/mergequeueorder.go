@@ -105,9 +105,18 @@ func (o queueOrder) documentKind(ctx context.Context, entry runstate.MergeQueueE
 	return changeIsDocument(o.pipeline.Config, changed), changeIsArchitects(o.pipeline.Config, changed)
 }
 
-// entryInProgress is an entry whose newest generation is still earning its
-// checks or its review: it is never stopped for one that ranks higher.
-func entryInProgress(p *Pipeline, generations []runstate.MergeQueueGeneration, entry runstate.MergeQueueEntry) bool {
+// entryInProgress is an entry whose newest generation has begun its checks or
+// review and still stands: one still earning them, and one that has earned
+// both and waits only for the landing step. Either is never stopped for an
+// entry that ranks higher, so the checks and review it has are not thrown
+// away because the order's answer changed while it was checked, as when
+// another entry reaches eight hours of waiting in the meantime.
+//
+// A candidate checked ahead (mergequeueahead.go) stands on the candidate of the
+// entry it was built on, so it counts only once that entry no longer waits
+// (unlanded says which do): until then it is not the next thing to land, and a
+// stale one must not jump the order.
+func entryInProgress(generations []runstate.MergeQueueGeneration, unlanded map[string]bool) bool {
 	count := len(generations)
 	if count == 0 {
 		return false
@@ -116,7 +125,7 @@ func entryInProgress(p *Pipeline, generations []runstate.MergeQueueGeneration, e
 	if latest.Invalidated != nil || latest.WaitsOnTarget() || (latest.CheckRun == nil && latest.Review == nil) {
 		return false
 	}
-	return latest.Gate(p.mergeQueueChecks(entry)) != nil
+	return latest.BuiltAhead == nil || !unlanded[latest.BuiltAhead.EntryID]
 }
 
 // pick is the entry to work next among the waiting ones given in admission
