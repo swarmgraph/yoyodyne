@@ -831,6 +831,10 @@ func (c Client) listPatiently(ctx context.Context, filter []string) ([]WorkItem,
 // listing failure another attempt may well not meet: bd refusing, or answering
 // something that does not decode, is the same answer the next time.
 func timedOut(err error) bool {
+	var busy listingBusy
+	if errors.As(err, &busy) {
+		return true
+	}
 	var failure processFailure
 	return errors.As(err, &failure) && failure.status == execution.ProcessTimedOut
 }

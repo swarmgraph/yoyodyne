@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"reflect"
 	"sync"
 
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
@@ -20,7 +19,6 @@ const listingLockName = "listings.lock"
 type listingKey struct {
 	store   string
 	binary  string
-	runner  any
 	server  bool
 	command string
 }
@@ -43,17 +41,19 @@ var (
 )
 
 // sharedListingKey is the key for a listing this client may share, and false
-// for a client that cannot name its store or whose runner cannot be compared:
-// sharing there could hand one client another's answer.
+// for a client that cannot name its store. The runner is left out of the key on
+// purpose: production clients are all built with an execution.OSProcessRunner,
+// a value holding functions that cannot be compared, and what two of them ask
+// of one store with one bd is one question whatever runs it.
 func (c Client) sharedListingKey(args []string) (listingKey, bool) {
-	if c.Dir == "" || c.Runner == nil || !reflect.TypeOf(c.Runner).Comparable() {
+	if c.Dir == "" || c.Runner == nil {
 		return listingKey{}, false
 	}
 	store := storeDirectory(c.Dir, c.beadsDirVariable())
 	if store == "" {
 		return listingKey{}, false
 	}
-	return listingKey{store: store, binary: c.Binary, runner: c.Runner, server: c.serverMode, command: fmt.Sprint(args)}, true
+	return listingKey{store: store, binary: c.Binary, server: c.serverMode, command: fmt.Sprint(args)}, true
 }
 
 // runListing is one bd listing read under two rules, so the tracker's store,
@@ -135,7 +135,7 @@ func (c Client) lockListings(ctx context.Context) (func(), error) {
 		_ = file.Close()
 		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 			held := c.whoHeld("the listing lock", filepath.Join(store, writeLockDirectory, listingLockName))
-			return nil, busyWrite{fmt.Errorf("another listing held the store for longer than %s, so this one was not made (%s): %w", c.timeout(), held, err)}
+			return nil, listingBusy{fmt.Errorf("another listing held the store for longer than %s, so this one was not made (%s): %w", c.timeout(), held, err)}
 		}
 		return nil, fmt.Errorf("lock listings: %w", err)
 	}
@@ -144,3 +144,12 @@ func (c Client) lockListings(ctx context.Context) (func(), error) {
 		_ = file.Close()
 	}, nil
 }
+
+// listingBusy is a listing that never got the store's listing lock within one
+// call's bound. Like a listing bd's own bound killed, it is asked again after
+// the listing waits (timedOut), because the holder it waited on will have
+// finished by then.
+type listingBusy struct{ error }
+
+func (b listingBusy) Unwrap() error        { return b.error }
+func (b listingBusy) Is(target error) bool { return target == ErrUnanswered }

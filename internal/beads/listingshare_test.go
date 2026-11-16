@@ -164,15 +164,16 @@ func (r *cancelableRunner) Run(ctx context.Context, _ execution.Command, _ execu
 func TestTwoProcessesNeverHoldTheStoreForListingsTogether(t *testing.T) {
 	dir := listingStore(t)
 	var peak atomic.Int32
-	// Distinct runners stand for distinct processes: nothing in memory joins them.
+	// Distinct bd binaries keep the two from sharing a read in memory, standing
+	// for two processes that only the lock file joins.
 	a := &gatedRunner{release: make(chan struct{}), started: make(chan struct{}, 2), stdout: oneItemListing, peak: &peak}
 	b := &gatedRunner{release: a.release, started: make(chan struct{}, 2), stdout: oneItemListing, peak: &peak}
 	var wg sync.WaitGroup
-	for _, runner := range []*gatedRunner{a, b} {
+	for i, runner := range []*gatedRunner{a, b} {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := (Client{Runner: runner, Binary: "bd-test", Dir: dir}).List(context.Background(), "open"); err != nil {
+			if _, err := (Client{Runner: runner, Binary: []string{"bd-a", "bd-b"}[i], Dir: dir}).List(context.Background(), "open"); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -188,5 +189,46 @@ func TestTwoProcessesNeverHoldTheStoreForListingsTogether(t *testing.T) {
 	}
 	if a.calls.Load() != 1 || b.calls.Load() != 1 {
 		t.Fatalf("each process reads for itself: %d and %d", a.calls.Load(), b.calls.Load())
+	}
+}
+
+// valueRunner is shaped like execution.OSProcessRunner: a value holding a
+// function, which can never be compared.
+type valueRunner struct {
+	run   func() execution.ProcessResult
+	calls *atomic.Int32
+	hold  chan struct{}
+}
+
+func (v valueRunner) Run(context.Context, execution.Command, execution.OutputObserver) (execution.ProcessResult, error) {
+	v.calls.Add(1)
+	<-v.hold
+	return v.run(), nil
+}
+
+func TestClientsBuiltLikeProductionShareOneRead(t *testing.T) {
+	dir := listingStore(t)
+	var calls atomic.Int32
+	hold := make(chan struct{})
+	answer := func() execution.ProcessResult {
+		return execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: oneItemListing}
+	}
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// Each caller builds its own client with its own runner value.
+			client := Client{Runner: valueRunner{run: answer, calls: &calls, hold: hold}, Binary: "bd-test", Dir: dir}
+			if _, err := client.List(context.Background(), "open"); err != nil {
+				t.Error(err)
+			}
+		}()
+		time.Sleep(50 * time.Millisecond)
+	}
+	close(hold)
+	wg.Wait()
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("bd ran %d times for 4 concurrent requests from separate clients, want 1", got)
 	}
 }
