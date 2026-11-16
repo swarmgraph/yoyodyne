@@ -353,6 +353,8 @@ const pages = [
   { name: "pass-failures-unreadable", token: "t", standing: ok(fixture("standing-pass-failures-unreadable")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "queues", token: "t", standing: ok(fixture("standing-queues")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "queues-unreadable", token: "t", standing: ok(fixture("standing-queues-unreadable")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
+  { name: "mcp-calls", token: "t", standing: ok(fixture("standing-mcp-calls")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
+  { name: "mcp-calls-unreadable", token: "t", standing: ok(fixture("standing-mcp-calls-unreadable")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "run-steps", token: "t", standing: ok(fixture("standing-run-steps")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "signin", token: "", standing: pending, throughput: pending, spend: pending },
   { name: "loading", token: "t", standing: pending, throughput: pending, spend: pending },
@@ -700,7 +702,7 @@ async function run(scenario, shared) {
   // A section shown only where the product has what it lists is dropped from
   // the render and the matrix while it is hidden, so a page without it renders
   // exactly as it did before the section existed.
-  const shownWhenPresent = ["queues"];
+  const shownWhenPresent = ["queues", "mcp"];
   const popups = ["grouping", "card", "report", "decide"];
   const matrix = { page: page.getAttribute("data-state"), sections: {}, popups: {} };
   sections.forEach((id) => {

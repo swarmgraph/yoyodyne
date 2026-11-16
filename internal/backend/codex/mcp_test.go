@@ -210,7 +210,7 @@ func (r *listingRunner) Run(ctx context.Context, command execution.Command, obse
 // taken off, and has to see both servers start: without that the check would
 // pass on servers the CLI never read. The worktree's server has a dot in its
 // name, which a dotted `--config` path cannot reach. It skips where Codex is
-// not installed.
+// not installed, and where the control starts no server at all.
 func TestTheInstalledCLIStartsNoMCPServerForADeveloper(t *testing.T) {
 	t.Parallel()
 
@@ -274,11 +274,18 @@ func TestTheInstalledCLIStartsNoMCPServerForADeveloper(t *testing.T) {
 				}
 				return names
 			}
+			// The control goes first: where the CLI starts no server even
+			// without the adapter's setting, as inside a sandbox that will not
+			// let it spawn one, nothing here can be shown either way.
+			control := started(withoutMCPServersSetting(runner.turn.Args))
+			if len(control) == 0 {
+				t.Skip("the installed CLI started no MCP server even without the adapter's setting, as in a sandbox that refuses it, so what the setting stops cannot be seen here")
+			}
+			if !slices.Equal(control, []string{"account", "project"}) {
+				t.Fatalf("without the adapter's setting the CLI started %q, not both servers, so this check shows nothing about the files it reads", control)
+			}
 			if names := started(runner.turn.Args); len(names) != 0 {
 				t.Fatalf("a developer's turn started the MCP servers %q", names)
-			}
-			if names := started(withoutMCPServersSetting(runner.turn.Args)); !slices.Equal(names, []string{"account", "project"}) {
-				t.Fatalf("without the adapter's setting the CLI started %q, not both servers, so this check shows nothing about the files it reads", names)
 			}
 		})
 	}
