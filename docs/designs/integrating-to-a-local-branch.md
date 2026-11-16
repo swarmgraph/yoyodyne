@@ -10,12 +10,21 @@ revisions:
       by: architect
       at: 2026-11-07T19:44:19.303564Z
       reason: 'yoyodyne-ifd.429.127: the design for integrating to a branch other than the team''s main and handing landed work to the team through a pull request the harness tracks. Items stay open until the team merges them; an outside pull request is tracked by an explicit, forge-checked record; the local branch is kept current by a merge that earns checks and independent review; and an outside tool can hold landing for a bounded time. A separate document because the contributors design is close to the read limit; it extends that design''s sections 1 to 3 and changes none of them.'
+    - action: amended
+      by: architect
+      at: 2026-11-15T04:46:30.240554Z
+      reason: 'yoyodyne-ifd.429.169: records in section 3 the ruling of November 12, 2026 that the harness''s own merge of the team''s branch, bound by its recorded parents and a tree identical to the merge the harness builds again under the landing lease, stands as acceptance on protected paths; anything a run writes keeps the ordinary check, checks and review still run, and the evidence invariant keeps no list of exceptions so it needs no pointer.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-11-07T19:44:19.303564Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2448, for document-2448.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-15T04:46:30.240554Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2777, for document-2777.1 under the automatic approval policy
 ---
 # Integrating to a local branch and handing landed work to the team
 
@@ -91,9 +100,36 @@ On each forge check, after its fetch, when the team's branch has moved past what
 
 This happens at most once per forge check, and one merge covers everything the team's branch gained since the last one, so review is spent once per check rather than once per teammate's change.
 
-Each update is recorded beside the target branch's landing records: the team's commit brought in, the merge commit, the checks, the reviewer's verdict, and when it landed. The status line shows when the target branch was last brought up to date, and the update waiting, if any.
+Each update is recorded beside the target branch's landing records: the team's commit brought in, the target commit the merge was built on, the merge commit and its tree, the checks, the reviewer's verdict, and when it landed. The status line shows when the target branch was last brought up to date, and the update waiting, if any.
 
 **A conflict** is not resolved by the harness. The update waits, and the development manager's list gets one entry naming the conflicting paths and the items on the target branch whose landed commits touched them. Her decision names one item, and starts a run of it that resolves the conflict on the target branch. That run is counted against a limit of its own, three rounds, and not against the item's repair budget, as section 3 of the contributors design rules, because another contributor's work caused it. Work keeps landing on the target branch while the update waits.
+
+### The check on protected paths for this merge
+
+Every change that lands on the target branch is checked for changes to the paths the project protects, the files no run may write. The team's merged work was written by people on the team's branch, and may change those paths for good reason. Checked as if a run had written it, the merge would be refused, and the target branch would never catch up with the team's branch.
+
+So this merge lands without that check. In its place it carries proof that no run wrote any of it:
+
+- its first parent is the target commit the update recorded, and its second parent is the team's commit the update recorded;
+- its tree is identical to a merge of those two commits that the harness builds again itself, under the landing lease, immediately before the guarded change.
+
+Only the harness's own merge step in step 1 records this proof, and only the landing action in step 3 checks it. A merge that fails either part is not refused for that alone: it is treated as any other change and checked on protected paths. Configured checks and independent review run on the merge whatever the proof says; the proof stands in for the check on protected paths and for nothing else.
+
+Anything a run writes keeps the ordinary check. A merge whose tree differs in any file from the one the harness builds, including a merge carrying a run's change that resolves a conflict, is checked on protected paths, and a refusal goes to the development manager's list naming the paths.
+
+The rule that integration requires evidence bound to the exact candidate names acceptance on protected paths as one piece of the evidence every landing needs, and keeps no list of exceptions. For this merge, the proof above is that acceptance, bound to the exact commit by its parents and its tree, so the rule stands as it is and needs no change.
+
+Rejected:
+
+- **The ordinary check on protected paths.** It refuses a team's own change to a protected file, and the target branch then never catches up.
+- **Dropping the check with no proof in its place.** A run's change could then reach a protected path by riding inside the merge.
+- **Trusting the branch name or the commit message.** Either says who claims to have made the merge, and nothing about what its tree holds.
+
+A reviewer can check:
+
+- A merge whose parents are the recorded commits and whose tree matches the harness's own lands without the check on protected paths, and still passes the configured checks and independent review.
+- A merge whose tree differs in any file, such as one carrying a run's change that resolves a conflict, is checked on protected paths, and a refusal reaches the development manager's list naming the paths.
+- The update record names the target commit the merge was built on and the merge's tree.
 
 ## 4. A hold on landing that an outside tool can set
 
