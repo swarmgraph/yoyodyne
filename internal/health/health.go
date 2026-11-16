@@ -62,9 +62,15 @@ const (
 	// is as many as a pass's record keeps the identities of. An observation
 	// finding more says so, and its totals stay exact.
 	MaxKept = runstate.MaxSweepHealthDelivered
-	// MaxTextBytes bounds what one condition says and what it needs, so a
-	// rendered part stays inside the bytes one request may hand back.
-	MaxTextBytes = 600
+	// MaxTextBytes bounds what one condition says, and MaxNeedsBytes what it
+	// needs, so a rendered part stays inside the bytes one request may hand
+	// back. What a condition needs is the longer of the two because it carries
+	// the whole account of a wait: a stopped run's kept change, the decision
+	// standing over it, and why the harness has not carried that decision out
+	// yet, which at 600 bytes was cut off part-way through its reason. Twenty
+	// conditions at both bounds stay well inside MaxResultBytes.
+	MaxTextBytes  = 600
+	MaxNeedsBytes = 2 << 10
 	// MaxRuns is how many runs one observation may be restricted to.
 	MaxRuns             = 20
 	MaxRequestsPerReply = 2
