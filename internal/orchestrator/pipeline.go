@@ -909,6 +909,11 @@ type Outcome struct {
 	// have and its blocker says so; what was lost is the record a watching
 	// session holds its choosing on.
 	DivergedTargetProblem string `json:"diverged_target_problem,omitempty"`
+	// ScratchLinksProblem names every time a developer turn's links leading out
+	// of the Git directory could not be cleared from the run's scratch
+	// directory, joined. The run carried on exactly as it would have; what was
+	// lost is the git MCP server's use of the repository while they stay.
+	ScratchLinksProblem string `json:"scratch_links_problem,omitempty"`
 	// Invariants names the architectural invariants this run delivered to its
 	// developer and to its reviewer. It is the audit record of which durable
 	// constraints the change was actually held to, which is the thing a
@@ -4637,6 +4642,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			a.observeDevelopEnded(ctx, committed)
 			return committed
 		}
+		a.clearScratchLinks()
 		// A provider nobody is logged into or nobody can reach is answered before
 		// anything is counted, because what it asks for is the one wait that spends
 		// nothing: no relaunch, no repair attempt, no blocker. The refused attempt
@@ -8980,6 +8986,22 @@ func (a *activeRun) prepareScratch() error {
 	}
 	a.scratch = directory
 	return nil
+}
+
+// clearScratchLinks removes the links this run's turn left in its scratch
+// directory that lead outside the repository's Git directory, which would
+// otherwise have the git MCP server refuse every call on the repository
+// (execution.ClearOutwardScratchLinks says why). It runs after every developer
+// turn, before any MCP call the turn asked for is made. A failure does not end
+// the turn: the run's work is untouched by it, and what is lost is said on the
+// outcome.
+func (a *activeRun) clearScratchLinks() {
+	if a.scratch == "" {
+		return
+	}
+	if _, err := execution.ClearOutwardScratchLinks(a.pipeline.Repository, a.worktree.Path, a.state.RunID); err != nil {
+		a.outcome.ScratchLinksProblem = appendProblem(a.outcome.ScratchLinksProblem, err.Error())
+	}
 }
 
 // verifyPreservation looks at what is actually left of this run's branch and

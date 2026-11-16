@@ -7450,6 +7450,15 @@ agents:
   at your terminal with that folder as its working directory and its home. It
   is refused to a process the harness started for a role. A server with no
   login prints the command that stores its credential instead.
+- **A server confined to this repository** sees the repository's whole `.git`
+  directory, developer runs' scratch directories included. The official git
+  server, started with `--repository`, refuses every call while any symbolic
+  link in there leads outside the repository. So after each developer turn the
+  harness removes from that run's scratch directory every link leading outside
+  `.git`, such as the links to its own program the Codex CLI leaves under a
+  provider home made there. A link left by something else, or in a scratch
+  directory whose run has ended, stays until it is removed by hand or with its
+  worktree.
 - `yoyo config show` reports each agent's MCP tools beside its other tools, and
   `yoyo doctor` reports each server whose credential is missing, naming the
   server and the command to run. A missing credential stops nothing else.
