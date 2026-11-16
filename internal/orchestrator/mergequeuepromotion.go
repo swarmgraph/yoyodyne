@@ -209,7 +209,7 @@ func (p MergeQueuePromoter) Promote(ctx context.Context, key runstate.MergeQueue
 	}
 	defer func() { _ = worker.Release() }()
 
-	entry, landing, found, err := p.next(key)
+	entry, landing, found, err := p.next(ctx, key)
 	if err != nil || !found {
 		return MergeQueuePromotion{}, err
 	}
@@ -256,16 +256,21 @@ func (p MergeQueuePromoter) validate() error {
 	return errors.Join(problems...)
 }
 
-// next is the first entry, in the order the queue is worked, whose completion
-// is not whole and that was not handed back, with its landing record. An entry
-// with nothing under way whose candidate waits on its target being made to
-// pass a check (runstate's WaitsOnTarget) is passed over, as the worker passes
-// it over, so it holds back none of the entries behind it.
-func (p MergeQueuePromoter) next(key runstate.MergeQueueKey) (runstate.MergeQueueEntry, runstate.MergeQueueLanding, bool, error) {
+// next is the entry the queue lands next: among the entries whose completion
+// is not whole and that were not handed back, the one the queue's order puts
+// first (mergequeueorder.go), with its landing record. It is the entry the
+// worker verifies, chosen the same way, so what the worker verified is what is
+// landed. An entry with nothing under way whose candidate waits on its target
+// being made to pass a check (runstate's WaitsOnTarget) is passed over, as the
+// worker passes it over, so it holds back none of the entries behind it.
+func (p MergeQueuePromoter) next(ctx context.Context, key runstate.MergeQueueKey) (runstate.MergeQueueEntry, runstate.MergeQueueLanding, bool, error) {
 	entries, err := p.Queue.Entries(key)
 	if err != nil {
 		return runstate.MergeQueueEntry{}, runstate.MergeQueueLanding{}, false, err
 	}
+	var waiting []runstate.MergeQueueEntry
+	landings := map[string]runstate.MergeQueueLanding{}
+	started := map[string]bool{}
 	for _, entry := range runstate.MergeQueueWorkOrder(entries) {
 		landing, found, err := p.Queue.Landing(key, entry.EntryID)
 		if err != nil {
@@ -277,17 +282,30 @@ func (p MergeQueuePromoter) next(key runstate.MergeQueueKey) (runstate.MergeQueu
 		if landing.Handback != nil || (landing.Completion != nil && landing.Completion.Whole()) {
 			continue
 		}
+		generations, generationsErr := p.Queue.Generations(key, entry.EntryID)
 		if attempt, attempted := landing.Current(); !attempted || attempt.SetAside != nil {
 			// A candidate record that cannot be read steps nothing aside: it is
 			// evidence that says nothing either way, which Recover reads it as.
-			generations, err := p.Queue.Generations(key, entry.EntryID)
-			if count := len(generations); err == nil && count > 0 && generations[count-1].WaitsOnTarget() {
+			if count := len(generations); generationsErr == nil && count > 0 && generations[count-1].WaitsOnTarget() {
 				continue
 			}
 		}
-		return entry, landing, true, nil
+		// A promotion already under way is as little stopped for a later entry
+		// as a check already running.
+		attempt, attempted := landing.Current()
+		started[entry.EntryID] = attempted && attempt.SetAside == nil
+		if generationsErr == nil && !started[entry.EntryID] {
+			started[entry.EntryID] = entryInProgress(p.Pipeline, generations, entry)
+		}
+		landings[entry.EntryID] = landing
+		waiting = append(waiting, entry)
 	}
-	return runstate.MergeQueueEntry{}, runstate.MergeQueueLanding{}, false, nil
+	if len(waiting) == 0 {
+		return runstate.MergeQueueEntry{}, runstate.MergeQueueLanding{}, false, nil
+	}
+	order := queueOrder{pipeline: p.Pipeline, paths: p.Lander.CandidatePaths, now: p.Pipeline.clock().Now().UTC()}
+	entry := order.choose(ctx, waiting, started).Entry
+	return entry, landings[entry.EntryID], true, nil
 }
 
 // queuePromotion is one call's work on one entry.

@@ -482,3 +482,34 @@ func TestAHandbackTheQueueCannotGiveItsRunPassesOverThatEntryAndWorksTheOnesBehi
 		t.Fatalf("handback = %#v, want it still owed for the next pass", handback)
 	}
 }
+
+// A later-admitted entry the order puts first is the one the queue verifies
+// and then lands: the worker and the landing step choose the same entry, so a
+// pass lands it ahead of the earlier-admitted one instead of cycling.
+func TestAPassLandsAnEntryTheOrderPutsAheadOfAnEarlierAdmittedOne(t *testing.T) {
+	t.Parallel()
+
+	f := newPromotionFixture(t, landLocally)
+	f.tracker.Item.Priority = 4
+	f.tracker.Item.Description += "\nprotected-path grant: docs/designs/order.md\n"
+	pipeline := f.worker.Pipeline
+	pipeline.Config.Checks = []string{"true"}
+	pipeline.Config.Product.Designs = "docs/designs"
+	base := gitLine(t, f.repository, "rev-parse", "main")
+	admitted := f.runs.(*admittedRun)
+	admitted.state.BaseCommit = gitLine(t, f.repository, "merge-base", "main", f.head)
+	design := f.admitAnother(queueKey, "design-change", "docs/designs/order.md", "# Order\n")
+	admitted.others[design.RunID] = withBase(admitted.others[design.RunID], base)
+
+	pass := f.pass(queueKey)
+	order := gitLine(t, f.repository, "log", "--format=%s", "main")
+	design1, code1 := strings.Index(order, "merge queue candidate for yoyodyne-task The change on design-change"), strings.Index(order, "merge queue candidate for yoyodyne-task Add the feature")
+	if design1 < 0 || code1 < 0 || design1 < code1 {
+		t.Fatalf("the design should have landed before the lower-priority code (pass: %#v); log:\n%s", pass, order)
+	}
+}
+
+func withBase(state runstate.State, base string) runstate.State {
+	state.BaseCommit = base
+	return state
+}
