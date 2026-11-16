@@ -38,12 +38,20 @@ func runMCPCalls(parts components) (orchestrator.MCPCalls, orchestrator.MCPCallR
 	if runtime.GOOS == "darwin" {
 		stores.Keychain = slack.Keychain{Runner: execution.OSProcessRunner{}}
 	}
-	return &mcpcall.Path{
+	path := &mcpcall.Path{
 		Config:        cfg,
 		Stores:        stores,
 		Hold:          parts.holds,
 		Records:       records,
 		RedactValues:  parts.redactValues,
 		ClientVersion: buildinfo.Commit(),
-	}, records
+		Attribution:   passFailureAttribution(cfg),
+	}
+	// A changed tool listing is put to the development manager exactly as a
+	// conversation's call path puts it (conversationMCP); the store is assigned
+	// only when there is one, since a nil store in the interface reads as set.
+	if parts.reports != nil {
+		path.Notes = parts.reports
+	}
+	return path, records
 }
