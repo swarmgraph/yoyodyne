@@ -433,6 +433,9 @@ describes the pass that applies those rules.
 | `internal/orchestrator/schedule.go` | `(Scheduler).Schedule` | `call:stop` | 2 | Stops the drain and watch session or delivers escalations; no developer-run ending. |
 | `internal/orchestrator/schedule.go` | `(Scheduler).Schedule` | `call:escalate` | 1 | Stops the drain and watch session or delivers escalations; no developer-run ending. |
 | `internal/orchestrator/stallcontinue.go` | `continuedAfterStall` | `status-write` | 1 | Re-enters the same attempt after a stall with running status; no terminal outcome. |
+| `internal/orchestrator/testharness/integrationresume.go` | `ApprovedStoppedState` | `terminal-literal` | 1 | A test fixture: it builds the record of an approved change the environment had already stopped, for a resumption test to act on. Only tests import the package, and no run ends there. |
+| `internal/orchestrator/testharness/integrationresume.go` | `NewResumeHarness` | `terminal-literal` | 1 | A test fixture: the succeeded outcome is what its stand-in for starting the resumed run answers, so a resumption test has an ending to read without a run. Only tests import the package, and no run ends there. |
+| `internal/orchestrator/testharness/runretirement.go` | `RecordSupersedingMerge` | `status-write` | 1 | A test fixture: it writes the record of a later run whose merge had already landed, for a retirement test to read. Only tests import the package, and no run ends there. |
 | `internal/orchestrator/testharness/supersession.go` | `(QueuedFixture).DeadRun` | `terminal-literal` | 1 | A test fixture: it writes the durable record of a run that had already ended, for a reconciliation test to read. Only tests import the package, and no run ends there. |
 ```
 

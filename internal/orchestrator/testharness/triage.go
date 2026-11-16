@@ -154,3 +154,67 @@ func DocketerOverStore(docket orchestrator.Docket, store *runstate.Store, cfg co
 		Triage:    cfg.Triage,
 	}
 }
+
+// RecordedRuns is the run evidence a docket is built from.
+type RecordedRuns struct {
+	States []runstate.State
+}
+
+func (r RecordedRuns) Recorded() ([]runstate.State, error) { return r.States, nil }
+
+// RecordedDecisions is the durable triage record the guards spend and refuse
+// against, without the disk: what triage has decided about a work item, and what
+// the harness has claimed against that item's stoppages.
+type RecordedDecisions struct {
+	CountersByItem map[string]runstate.TriageCounters
+	ClaimedByItem  map[string][]runstate.Rerun
+	// Unreadable is the work item whose record cannot be read, which is the case
+	// an entry must never render as an item nothing was ever decided about.
+	Unreadable string
+}
+
+func (d *RecordedDecisions) Counters(workItemID string) (runstate.TriageCounters, error) {
+	if workItemID == d.Unreadable {
+		return runstate.TriageCounters{}, errors.New("the triage record is unreadable")
+	}
+	return d.CountersByItem[workItemID], nil
+}
+
+func (d *RecordedDecisions) Claimed(workItemID string) ([]runstate.Rerun, error) {
+	if workItemID == d.Unreadable {
+		return nil, errors.New("the re-run records are unreadable")
+	}
+	return d.ClaimedByItem[workItemID], nil
+}
+
+var DocketedNow = time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+
+// DocketClock keeps the moment a docket is built fixed, so what a test is
+// measuring is the age of the work rather than the age of the test.
+type DocketClock struct{}
+
+func (DocketClock) Now() time.Time { return DocketedNow }
+
+func DocketerOver(states []runstate.State, docket *MemoryDocket) orchestrator.Docketer {
+	recorded := &RecordedDecisions{
+		CountersByItem: map[string]runstate.TriageCounters{DocketedItem: {ReviewRounds: 3}},
+	}
+	return DocketerDeciding(states, docket, recorded, recorded)
+}
+
+// DocketerDeciding is a docket built over one triage record, for the tests that
+// are about what the record says rather than about what stopped.
+func DocketerDeciding(states []runstate.State, docket *MemoryDocket, decisions orchestrator.DocketDecisions, claimed orchestrator.DocketReruns) orchestrator.Docketer {
+	return orchestrator.Docketer{
+		Docket:    docket,
+		Runs:      RecordedRuns{States: states},
+		Decisions: decisions,
+		Reruns:    claimed,
+		// The caps are assembled the way every other reader of the same record
+		// assembles them, so the docket cannot report an item against a ceiling
+		// nothing enforces.
+		Caps:   DocketedCaps,
+		Triage: DocketedTriage,
+		Clock:  DocketClock{},
+	}
+}
