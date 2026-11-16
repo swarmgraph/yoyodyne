@@ -474,6 +474,7 @@ func printStanding(stdout io.Writer, standing *readmodel.Standing, summary *read
 		fmt.Fprint(stdout, standing.RenderConversationPasses())
 		fmt.Fprint(stdout, standing.RenderMergeQueues())
 		fmt.Fprint(stdout, standing.RenderMCPCalls())
+		fmt.Fprint(stdout, standing.RenderMainChecks())
 		fmt.Fprint(stdout, standing.RenderServices())
 		fmt.Fprintln(stdout)
 	}
@@ -834,6 +835,11 @@ func standingSources(configPath string) readmodel.Sources {
 	}
 	if store, err := runstate.NewDashboardStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Dashboards = store
+	}
+	// The checks run on the head of the target branch, so when it last passed
+	// them is said here. A product that has never run them prints nothing.
+	if store, err := runstate.NewMainCheckStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.MainChecks = store
 	}
 	if store, err := runstate.NewSupervisionStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Supervision = store

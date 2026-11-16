@@ -845,6 +845,19 @@ alone cannot transfer ownership to the operator. The factory-flow program
 manager still watches unless her own pass is failing; the role named in the
 finding still resolves the cause.
 
+### The supervisor's checks on main
+
+For a project that lists `main_checks`, the supervisor also runs them whole on
+the head of the branch runs land on, every `execution.main_check_interval`,
+four hours by default, and only when the branch has moved since the last run.
+It works in a worktree of its own under the product's state directory and never
+touches your checkout. `yoyo status` says when the branch last passed them. A
+failure is not run again: it files a critical report naming the commit, the
+failing tests, the last commit that passed and the commits between, and the
+next run waits for the branch to move. While a run is under way, the supervisor
+waits for it to finish before it moves onto a new build.
+[The checks run on main](configuration.md#the-checks-run-on-main) has the rest.
+
 ### The supervisor's forge check
 
 Beside the maintenance pass, and apart from it, the supervisor checks the forge
