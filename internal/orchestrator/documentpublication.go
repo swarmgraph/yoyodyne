@@ -1143,6 +1143,30 @@ func (a *activeRun) gateCandidateVerification(ctx context.Context) error {
 	return a.gateSelfVerification(ctx)
 }
 
+// changeIsDocument is the one test of whether a change is a document: every
+// path it changes lies inside an artifact home (documentRouteRefusal), which
+// the merge queue's order also asks of an entry's paths.
+func changeIsDocument(cfg config.Config, changed []string) bool {
+	return documentRouteRefusal(cfg, changed) == nil
+}
+
+// changeIsArchitects reports a document change whose every path lies in a home
+// the architect owns: the designs and the decisions, invariants included.
+func changeIsArchitects(cfg config.Config, changed []string) bool {
+	if !changeIsDocument(cfg, changed) {
+		return false
+	}
+	for _, changedPath := range changed {
+		owned := slices.ContainsFunc(artifacthome.Homes(cfg), func(home artifacthome.Home) bool {
+			return home.Owner == domain.RoleArchitect && strings.HasPrefix(changedPath, home.Directory+"/")
+		})
+		if !owned {
+			return false
+		}
+	}
+	return true
+}
+
 // documentRouteRefusal is why a change may not take the document landing route,
 // or nil where it may: only a change whose every path lies inside one of the
 // artifact homes the configuration names — the product specifications with
