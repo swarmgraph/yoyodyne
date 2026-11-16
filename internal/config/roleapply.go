@@ -17,6 +17,7 @@ import (
 var roleApplicableKeys = []string{
 	"checks",
 	"landing_checks",
+	"main_checks",
 	"execution.developer_models",
 	"execution.developer_slots",
 	"recurring_tasks.*.every",
@@ -28,6 +29,7 @@ var roleApplicableKeys = []string{
 	"execution.integration_retries_before_reconciliation",
 	"execution.transient_relaunches_before_blocking",
 	"execution.forge_check_interval",
+	"execution.main_check_interval",
 	// How long an agent's turns and calls may take changes how work is done and
 	// never what the agent may do; every value is held to its range on load.
 	"agents.*.time_limits",

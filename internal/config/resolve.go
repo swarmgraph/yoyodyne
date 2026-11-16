@@ -362,6 +362,7 @@ func newResolution() *resolution {
 				LandingCheckTimeout:                   defaultLandingCheckTimeout,
 				WorkPoll:                              defaultWorkPoll,
 				ForgeCheckInterval:                    DefaultForgeCheckInterval,
+				MainCheckInterval:                     DefaultMainCheckInterval,
 				RedeployDrainLimit:                    defaultRedeployDrainLimit,
 				FactoryStallAfter:                     defaultFactoryStallAfter,
 				CouldNotRunBeforeStatus:               defaultCouldNotRunBeforeStatus,
@@ -467,6 +468,7 @@ func newResolution() *resolution {
 			"execution.landing_check_timeout":                      OriginDefault,
 			"execution.work_poll":                                  OriginDefault,
 			"execution.forge_check_interval":                       OriginDefault,
+			"execution.main_check_interval":                        OriginDefault,
 			"execution.redeploy_drain_limit":                       OriginDefault,
 			"execution.factory_stall_after":                        OriginDefault,
 			"execution.could_not_run_before_status":                OriginDefault,
@@ -523,6 +525,7 @@ func (r *resolution) apply(applied layer) error {
 		setValue(r.origins, "execution.landing_check_timeout", execution.LandingCheckTimeout, &r.config.Execution.LandingCheckTimeout, applied.origin)
 		setValue(r.origins, "execution.work_poll", execution.WorkPoll, &r.config.Execution.WorkPoll, applied.origin)
 		setValue(r.origins, "execution.forge_check_interval", execution.ForgeCheckInterval, &r.config.Execution.ForgeCheckInterval, applied.origin)
+		setValue(r.origins, "execution.main_check_interval", execution.MainCheckInterval, &r.config.Execution.MainCheckInterval, applied.origin)
 		setValue(r.origins, "execution.redeploy_drain_limit", execution.RedeployDrainLimit, &r.config.Execution.RedeployDrainLimit, applied.origin)
 		setValue(r.origins, "execution.factory_stall_after", execution.FactoryStallAfter, &r.config.Execution.FactoryStallAfter, applied.origin)
 		setValue(r.origins, "execution.could_not_run_before_status", execution.CouldNotRunBeforeStatus, &r.config.Execution.CouldNotRunBeforeStatus, applied.origin)
@@ -763,6 +766,10 @@ func (r *resolution) apply(applied layer) error {
 	if document.DocumentChecks != nil {
 		r.config.DocumentChecks = append([]string(nil), (*document.DocumentChecks)...)
 		r.origins["document_checks"] = applied.origin
+	}
+	if document.MainChecks != nil {
+		r.config.MainChecks = append([]string(nil), (*document.MainChecks)...)
+		r.origins["main_checks"] = applied.origin
 	}
 	if document.PathChecks != nil {
 		r.config.PathChecks = append([]PathCheck(nil), (*document.PathChecks)...)

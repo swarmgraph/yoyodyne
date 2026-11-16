@@ -85,6 +85,10 @@ execution:
   # moved past each. Reads the forge can answer conditionally are asked that
   # way, so an unchanged answer costs little. At least a minute.
   forge_check_interval: 5m
+  # How often the supervisor runs "main_checks" on the head of the target
+  # branch, whenever the branch has moved since the last run. At least thirty
+  # minutes.
+  main_check_interval: 4h
   # A watching session that finds a build deployed over it waits out the runs it
   # hosts before restarting into the new build -- for at most this long. Past it
   # the session restarts anyway and the hosted runs are stopped and preserved
