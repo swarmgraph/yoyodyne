@@ -478,6 +478,11 @@ agents:
     persona:
       version: v2
       path: personas/architect.md
+    # 45m per turn and 60m per message, up from the defaults: the
+    # recurring pass failed ten times running against the shorter limits.
+    time_limits:
+      turn: 45m
+      message: 60m
   developer:
     role: developer
     # Opus, from Codex Sol, at the operator's direction of 2026-10-05: the
