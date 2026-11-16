@@ -1606,6 +1606,10 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 			Events:      parts.mergeQueues.AppendEvent,
 			Waiting:     orchestrator.MergeQueueWaiting(parts.mergeQueues),
 			UsageLimits: parts.usageLimits,
+			// The next entry's candidate is checked beside the current one's
+			// where a candidate lands as its own commit; the worker checks
+			// nothing ahead on a target that lands through a pull request.
+			CheckAhead: true,
 		},
 		Promoter: promoter,
 		Queues:   parts.mergeQueues,
