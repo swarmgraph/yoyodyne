@@ -23,6 +23,10 @@ revisions:
       by: architect
       at: 2026-11-12T02:57:42.623649Z
       reason: 'yoyodyne-ifd.429.154: adds the order the queue takes waiting entries in, starting from the operator''s direction that priority 0 code goes ahead of documents; and, for yoyodyne-ifd.429.160, when GitHub''s required checks on the exact candidate commit stand as the queue''s full check. Carries approved amendments 29000396 (checks and review side by side, spend charged to the entry), 57e91f68 (a check ended by its runner is run once more), 5f963776 (passed checks kept across a restart only with commit and check set recorded) and 9414b909 (checking one entry ahead), and removes the word ''gate'' throughout. Read whole at 69141ebf before revising.'
+    - action: amended
+      by: architect
+      at: 2026-11-15T03:03:26.58645Z
+      reason: 'Adds the placed-first rule ruled on November 13 for the queue-order item (yoyodyne-ifd.429.154), which the revision that landed as dd131700 did not carry: within the priority 0 step and within each priority of other code, an item the Lead Product Manager placed first goes ahead, earliest placement first, read at the moment of choosing; there is no command to move an entry. Answers the Lead Product Manager''s November 12 note. Section read whole at f5c47b24.'
 approvals:
     - revision: 0
       by: operator
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-11-12T02:57:42.623649Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2689, for document-2689.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-15T03:03:26.58645Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2805, for document-2805.1 under the automatic approval policy
 ---
 # Purpose
 
@@ -67,10 +76,12 @@ Queue waiting alone does not occupy a developer slot. Any developer or reviewer 
 The operator directed that priority 0 code goes ahead of documents. The queue chooses its next entry each time it builds a candidate, never at admission, so a priority changed after admission counts. It chooses by these rules, the first that applies deciding:
 
 1. An entry waiting eight hours or more since admission goes first, oldest first, whatever its priority, so no entry waits without limit.
-2. Then priority 0 code entries, together with the architect's oldest waiting document entry, in admission order. A design or decision record is what the development manager's next decomposition waits on, so one of them travels with the most urgent code instead of behind all of it.
+2. Then priority 0 code entries, together with the architect's oldest waiting document entry. A design or decision record is what the development manager's next decomposition waits on, so one of them travels with the most urgent code instead of behind all of it.
 3. Then the other document entries, in admission order.
-4. Then the other code entries, by priority, then admission order.
+4. Then the other code entries, by priority.
 5. Last, code entries whose work item's priority cannot be read, in admission order.
+
+Within rule 2, and within each priority under rule 4, an entry whose work item the Lead Product Manager placed first goes ahead of the others, earliest placement first, as [placing an item first](placing-an-item-first.md) records that placement; the rest follow in admission order. The placement is read from the tracker at the moment of choosing, like the priority, so placing an item first after its entry was admitted counts at the next choice. Placement never lifts an entry past rule 1 or into a higher rule, and never stops a candidate already being checked.
 
 An entry is a document entry when every path its candidate changes against its recorded base lies under `docs/product`, `docs/designs` or `docs/decisions` or their directory indexes: the same test that chooses its checks below. It is the architect's when those paths lie only under `docs/designs` or `docs/decisions`. Every other entry is a code entry. The recorded kind of an entry never decides which it is.
 
@@ -81,9 +92,11 @@ Four further rules hold whatever the order says:
 - checking one entry ahead, below, takes the next entry in this same order;
 - when the tracker cannot be read at the moment of choosing, that choice is made in admission order, and the record says the tracker could not be read.
 
-Each choice is recorded: the entry chosen, the rule that chose it, and the entries it passed over. yoyo status and the dashboard show the waiting entries in this order, with the rule that put the first one first.
+Each choice is recorded: the entry chosen, the rule that chose it, whether a placement decided it, and the entries it passed over. yoyo status and the dashboard show the waiting entries in this order, with the rule that put the first one first.
 
-Alternatives rejected: fixing the order at admission, because a priority raised while an entry waits would be ignored; strict priority with no age rule, because a document or low priority change could wait without limit; a separate queue for documents, because two queues landing on one target would need two promotions at once, which [one promotion per target branch](../decisions/invariants/one-promotion-per-target-branch.md) forbids.
+Verification of the order also covers placement: within priority 0 code, an entry whose item was placed first is chosen ahead of an older unplaced one; two placed entries go in the order they were placed; a placement made after admission changes the next choice; and a placed entry never goes ahead of an entry waiting eight hours or more.
+
+Alternatives rejected: fixing the order at admission, because a priority raised while an entry waits would be ignored; strict priority with no age rule, because a document or low priority change could wait without limit; a separate queue for documents, because two queues landing on one target would need two promotions at once, which [one promotion per target branch](../decisions/invariants/one-promotion-per-target-branch.md) forbids; a command that moves a queue entry forward, because the order the work is pulled in is already the Lead Product Manager's to set by placing an item first, and a second way to move an entry would let the queue order and the backlog order disagree.
 
 # Harness-run queue
 
