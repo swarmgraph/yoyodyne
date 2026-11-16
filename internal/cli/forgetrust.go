@@ -5,10 +5,10 @@ package cli
 // Every part the supervisor starts inherits the supervisor's macOS sandbox, if
 // it has one, and so does every gh command those parts run; a supervisor
 // started from inside an AI session's shell is one nothing in the product can
-// read GitHub from (internal/forgetrust says why). So `yoyo start` refuses to
-// detach a supervisor from such a shell, and says where to start it instead. A
-// start through the launch agent is not refused: launchd starts that
-// supervisor, outside whatever sandbox asked it to.
+// read GitHub from (internal/forgetrust says why). So `yoyo start` does not
+// detach a supervisor from such a shell: it starts the installed launch agent,
+// which launchd runs outside whatever sandbox asked it to, or refuses and says
+// where to start it instead (forgereach.go).
 //
 // A supervisor already running that way -- started before this check existed,
 // or by launchd somewhere that cannot verify either -- files one report saying
@@ -33,13 +33,6 @@ var forgeTrustProbe = forgetrust.Probe
 // forgeTrustReportRun is what a certificate report is attributed to, which is
 // how a supervisor finds one already filed and not yet dealt with.
 const forgeTrustReportRun = "supervisor-certificate-check"
-
-// forgeTrustRefusal is what `yoyo start` says instead of detaching a
-// supervisor that could not read GitHub.
-func forgeTrustRefusal(err error) string {
-	return fmt.Sprintf("start refused: %v. A supervisor started from here would pass that on to the scheduler and every other part, and none of them could check GitHub for merged pull requests. "+
-		"Run `yoyo start` from an ordinary terminal, or install the launch agent with `yoyo setup` so launchd starts the supervisor", err)
-}
 
 // forgeTrustReports is where the supervisor files its certificate report. It
 // is satisfied by *runstate.ReportStore.

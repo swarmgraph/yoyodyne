@@ -163,6 +163,12 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 			Latest: "bd list did not answer within its 30s bound on any of 3 attempts over 1m40s",
 		}),
 			"the tracker has not answered a listing since 2026-08-30T11:00:00Z: 3 listing(s) failed after their retries, the latest at 2026-08-30T12:00:00Z: bd list did not answer within its 30s bound on any of 3 attempts over 1m40s"},
+		AttentionForgeCertificate: {forgeCertificateAttention(runstate.ForgeCertificateFailure{
+			SupervisorPID: 4242, Since: moment.Add(-time.Hour), Checks: 3, LatestAt: moment, Latest: "x509: certificate signed by unknown authority",
+		}),
+			runstate.ForgeCertificateFailure{
+				SupervisorPID: 4242, Since: moment.Add(-time.Hour), Checks: 3, LatestAt: moment, Latest: "x509: certificate signed by unknown authority",
+			}.Says()},
 		AttentionUnrunCheck: {unrunCheckAttention(UnrunCheck{
 			Command: "make codex-resume", Changes: 3, Since: moment.Add(-3 * time.Hour), LatestAt: moment, LatestRunID: "run-latest",
 			Reason: "codex is not installed on this machine",
@@ -272,6 +278,7 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 		AttentionUntracedPass:      "factory-watch",
 		AttentionFactoryStall:      "2026-08-30T06:00:00Z",
 		AttentionTrackerUnanswered: "2026-08-30T11:00:00Z",
+		AttentionForgeCertificate:  "4242:2026-08-30T11:00:00Z",
 		AttentionUnrunCheck:        "make codex-resume",
 		AttentionCapacityDegraded:  "default:seven_day",
 		AttentionKeptHeavyCheck:    "permit-0123456789abcdef",
