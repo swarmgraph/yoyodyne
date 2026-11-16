@@ -46,6 +46,10 @@ revisions:
       by: architect
       at: 2026-10-14T01:15:05.973934Z
       reason: yoyodyne-cjw - by the operator's direction of 2026-10-13, the technical-health program manager has no schedule and no landing trigger and runs a pass only when the operator or the Lead Product Manager asks for one; any program manager may now be asked for a pass, through a request record the scheduler takes, with `yoyo agent pass` for the operator and a `pass.request` action for the Lead Product Manager; an instance with no schedule is stale when a request goes two hours without a completed pass, waits excepted; its remit opens with the code-quality framing and its rotation is the nine areas already listed and the seven the operator added; the activation steps and the list of what to build follow. Nothing else changes.
+    - action: amended
+      by: architect
+      at: 2026-11-15T06:39:09.071468Z
+      reason: 'yoyodyne-ifd.428.75.1: reconciled with configurable-workflows and architect-loop. The sentence saying at most one task fires per scheduler pull is replaced: passes of separate conversations may run side by side up to the harness''s bound, turns within one conversation stay one at a time, a busy conversation is skipped, and conversation leases, durable duplicate prevention, spending pauses, budgets committed before spending and durable pass records apply to every pass. This is not parallel steps inside a workflow. The rest of the section is unchanged. Read at main fbc388af.'
 approvals:
     - policy: approvals.designs
       revision: 6
@@ -67,6 +71,11 @@ approvals:
       by: harness
       at: 2026-10-14T01:15:05.973934Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 861, for document-861.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 10
+      by: harness
+      at: 2026-11-15T06:39:09.071468Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2812, for document-2812.1 under the automatic approval policy
 ---
 # The program manager: one role type, one lane per instance, requests batched to the Lead Product Manager
 
@@ -167,7 +176,7 @@ yoyodyne-ifd.430.13.11.1. An instance that reports on stopped runs has to say ho
 
 ## Triggers and passes
 
-A pass is a recurring-task firing, and every rule the recurring-task design states holds unchanged: the intake hold does not stop it, the spending pause does, budgets are committed before spend, it skips when a turn is in flight on the instance's conversation, at most one task fires per scheduler pull, and every pass ends in a durable record `yoyo sweeps` reads. An instance's `triggers` block names its schedule as `every` and its events as `on`, from a closed set: `landings` (a run integrated or a merge confirmed), `admissions` (items created), and `stoppages` (a docket entry opened). A trigger class decides when the instance gets an opportunity to judge, never what it concludes.
+A pass is a recurring-task firing, and every rule the recurring-task design states holds unchanged: the intake hold does not stop it, the spending pause does, budgets are committed before spend, it skips when a turn is in flight on the instance's conversation, and every pass ends in a durable record `yoyo sweeps` reads. A scheduler pull may start the due passes of several conversations at once, up to the bound the harness sets on how many run at once, as [configurable-workflows](configurable-workflows.md) states. Within one conversation, passes and turns are still taken one at a time, and a busy conversation is skipped rather than queued behind. Conversation leases, durable duplicate prevention, spending pauses, budgets committed before spending, and durable pass records apply to every pass started this way. Running conversations side by side is distinct from running steps in parallel inside one workflow, which this rule does not permit. An instance's `triggers` block names its schedule as `every` and its events as `on`, from a closed set: `landings` (a run integrated or a merge confirmed), `admissions` (items created), and `stoppages` (a docket entry opened). A trigger class decides when the instance gets an opportunity to judge, never what it concludes.
 
 **A burst wakes an instance once.** Each instance keeps a durable cursor per event stream, one stream per trigger class: the run records for `landings`, the tracker's item export (`.beads/issues.jsonl`) read by each item's recorded creation time for `admissions`, and the docket records for `stoppages`. The tracker's interactions log is not among them: Beads writes an entry there for a status, priority, or assignee change and none for an item's creation, so an admissions trigger reading it would never fire. The export is a dump the tracker refreshes rather than its live store, so an admission reaches the trigger when the export next carries it; the schedule's `every` bounds how late that can be. An event past the cursor arms one wake; the wake is taken at the next pull only once the stream has been quiet for a settle window of two minutes, or the schedule is due, whichever comes first; and the pass is handed everything between the cursor and the moment it was taken, after which the cursor moves. A Lead Product Manager admitting thirty items in one turn produces one pass carrying thirty admissions. A pass that fails leaves the cursor where it was, so the next pass carries the same events rather than losing them, and the failure is on the pass record as it is for any recurring task.
 
