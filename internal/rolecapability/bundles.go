@@ -303,10 +303,6 @@ type Ahead struct {
 func declaredAhead() []Ahead {
 	return []Ahead{
 		{
-			Capability: capability.ReadModelRead,
-			Reason:     "the read-model block a pass opens with and the one named query a reply may ask for are their own child of yoyodyne-ifd.430.13; until it lands the program manager is handed no read-model query",
-		},
-		{
 			Capability: capability.MCPRead,
 			Reason:     "a developer run carries out no MCP block until the build piece for developer runs in docs/designs/mcp-tools-through-the-harness.md lands; until then a developer's bundle names the read it will hold, and no run asks for it",
 		},

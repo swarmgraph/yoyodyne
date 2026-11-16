@@ -169,6 +169,8 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		trigger.Cursors = parts.store.PassCursors()
 		trigger.StopCauses = parts.store.StopCauses()
 		trigger.Events = passEvents{runs: parts.store, repository: parts.repository, refresh: parts.tracker().RefreshExportIfDue}
+		// What every pass opens with: the read model as `yoyo status` reads it.
+		trigger.ReadModel = passReadModelFrom(parts)
 		if conversations, err := runstate.NewConversationStore(parts.stateRoot, parts.config.Product.ID); err == nil {
 			trigger.Conversations = instanceConversations{store: conversations}
 		} else if stderr != nil {
@@ -748,7 +750,13 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 	for _, refused := range reply.RefusedAsks {
 		turn.ResultProblem = appendProblem(turn.ResultProblem, refused)
 	}
-	if refusal := reply.LaneReport.Refusal(); refusal != "" {
+	// A lane report or a report the turn carried that was not written — a digest
+	// refused for its shape or for a pass that already filed one among them — is
+	// on the pass's record beside whatever else the pass says about itself.
+	for _, refusal := range []string{reply.LaneReport.Refusal(), reportNotFiled(reply.ReportProblem)} {
+		if refusal == "" {
+			continue
+		}
 		if turn.ResultProblem == "" {
 			turn.ResultProblem = refusal
 		} else {
@@ -789,6 +797,15 @@ func heldForSending(session *chat.Session) map[string]string {
 		}
 	}
 	return held
+}
+
+// reportNotFiled is what the pass record says about a report block the turn
+// carried that was not all filed, and nothing where it was.
+func reportNotFiled(problem string) string {
+	if strings.TrimSpace(problem) == "" {
+		return ""
+	}
+	return "a report this turn carried was not filed: " + problem
 }
 
 // servingModel is the model a turn ran on: the alternate that served it where

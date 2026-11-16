@@ -148,9 +148,14 @@ func (s Severity) rank() int {
 // optionally the role it is for. Everything else about a report — which role,
 // which run, which work item — is what the harness knows and the agent does not
 // get to assert.
+//
+// A program manager's digest is the one entry that carries more: its fixed
+// shape, in place of the message or beside a sentence that leads it. See
+// digest.go.
 type Entry struct {
 	Severity Severity `json:"severity"`
-	Message  string   `json:"message"`
+	Message  string   `json:"message,omitempty"`
+	Digest   *Digest  `json:"digest,omitempty"`
 	// For is the role the reporter addressed the report to, where it named one:
 	// the role the report asks to act. A report that names none is the
 	// Lead Product Manager's, who handles the pile. It is never the operator,
@@ -166,11 +171,15 @@ func (e Entry) Validate() error {
 		problems = append(problems, fmt.Errorf("severity %q must be %q, %q, or %q",
 			e.Severity, SeverityCritical, SeverityWarning, SeverityNote))
 	}
+	limit := MaxMessageBytes
+	if e.Digest != nil {
+		limit = MaxDigestMessageBytes
+	}
 	switch message := strings.TrimSpace(e.Message); {
-	case message == "":
+	case message == "" && e.Digest == nil:
 		problems = append(problems, errors.New("message is required"))
-	case len(message) > MaxMessageBytes:
-		problems = append(problems, fmt.Errorf("message is %d bytes, limit is %d", len(message), MaxMessageBytes))
+	case len(message) > limit:
+		problems = append(problems, fmt.Errorf("message is %d bytes, limit is %d", len(message), limit))
 	}
 	if e.For != "" && !addressable(e.For) {
 		problems = append(problems, fmt.Errorf("for %q must be one of %v; a report is never addressed to the operator", e.For, Addressees()))
@@ -237,8 +246,12 @@ type Report struct {
 	ReferencesKept bool `json:"references_kept,omitempty"`
 	// For is the role the report was addressed to, as the entry named it, and
 	// empty where it named none; see Entry.For and Addressee.
-	For        domain.AgentRole `json:"for,omitempty"`
-	RecordedAt time.Time        `json:"recorded_at"`
+	For domain.AgentRole `json:"for,omitempty"`
+	// Digest is the shape a program manager's digest was filed in, stamped with
+	// its lane and its pass, and absent from every other report. Message is the
+	// same digest rendered, so a surface that reads only the text reads it whole.
+	Digest     *Digest   `json:"digest,omitempty"`
+	RecordedAt time.Time `json:"recorded_at"`
 }
 
 // Addressees is the roles a report may be addressed to: the ones that hold a
@@ -348,7 +361,13 @@ func (r Report) Validate() error {
 	if r.RecordedAt.IsZero() {
 		problems = append(problems, errors.New("recorded_at is required"))
 	}
-	problems = append(problems, Entry{Severity: r.Severity, Message: r.Message, For: r.For}.Validate())
+	problems = append(problems, Entry{Severity: r.Severity, Message: r.Message, For: r.For, Digest: r.Digest}.Validate())
+	if r.Digest != nil {
+		if r.Role != DigestFiler {
+			problems = append(problems, fmt.Errorf("a digest is filed by the %s alone, and this report is the %s's", DigestFiler.Title(), r.Role.Title()))
+		}
+		problems = append(problems, r.Digest.validateStamped(r.Severity))
+	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid collected report: %w", err)
 	}
@@ -415,6 +434,9 @@ func Decode(payload string) ([]Entry, error) {
 	if len(decoded.Reports) > MaxEntriesPerReply {
 		return nil, fmt.Errorf("decode reports: %d reports in one reply, limit is %d", len(decoded.Reports), MaxEntriesPerReply)
 	}
+	// A digest's own shape, and how many a reply carried, are not judged here:
+	// a refused digest must not cost the reports filed beside it, so they are
+	// judged as the block is collected, by SeparateDigests.
 	var problems []error
 	for i, entry := range decoded.Reports {
 		if err := entry.Validate(); err != nil {
@@ -455,6 +477,13 @@ func Collect(entries []Entry, attribution Attribution, now time.Time) ([]Report,
 		if err != nil {
 			return nil, err
 		}
+		message := strings.TrimSpace(entry.Message)
+		var digest *Digest
+		if entry.Digest != nil {
+			stamped := *entry.Digest
+			digest = &stamped
+			message = stamped.Render(message)
+		}
 		reported := Report{
 			SchemaVersion: SchemaVersion,
 			ID:            id,
@@ -466,8 +495,9 @@ func Collect(entries []Entry, attribution Attribution, now time.Time) ([]Report,
 			ProductID:     attribution.ProductID,
 			RepositoryID:  attribution.RepositoryID,
 			Severity:      entry.Severity,
-			Message:       strings.TrimSpace(entry.Message),
+			Message:       message,
 			For:           entry.For,
+			Digest:        digest,
 			RecordedAt:    now.UTC(),
 		}
 		if attribution.References != nil {

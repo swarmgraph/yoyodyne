@@ -433,7 +433,7 @@ func TestEveryToolNamesABlockTheHarnessReads(t *testing.T) {
 	t.Parallel()
 	read := map[string]bool{}
 	for _, fence := range []string{
-		trackerFence, memoryFence, proposalFence, concernFence, laneReportFence, restartFence, passRequestFence, stopCauseFence,
+		trackerFence, memoryFence, proposalFence, concernFence, laneReportFence, restartFence, passRequestFence, stopCauseFence, readModelFence,
 		artifact.WriteFence, report.Fence, amendment.Fence, exchange.Fence, evaluation.Fence,
 		research.Fence, repositoryread.Fence, logread.Fence, runinspect.Fence, health.Fence, runrecover.Fence,
 		mcpcall.Fence,

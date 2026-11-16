@@ -480,6 +480,11 @@ type Options struct {
 	// not told it can, and a block that arrived anyway is refused rather than
 	// appearing to have been filed.
 	Documents Documents
+	// ReadModel is the read model a program manager asks for one named query in
+	// full. It is optional like the rest, and a conversation without one answers
+	// an ask by saying nothing was wired to read it rather than with an empty
+	// record.
+	ReadModel ReadModelQueries
 	// Goals are the goals the repository records, which is what work admitted
 	// here has to name. It is what makes traceability something the harness holds
 	// rather than something the product manager asserts: a goal named on an item
@@ -1099,6 +1104,10 @@ type Reply struct {
 	// to. They are acts, so what they came to is the operator's to see whatever
 	// the turn concluded.
 	Recoveries []RecoveryRound `json:"recoveries,omitempty"`
+	// ReadModel is the read-model queries this reply asked for, answered or
+	// refused, in the order it asked. The answers themselves went to the role and
+	// are not repeated here.
+	ReadModel []ReadModelRound `json:"read_model,omitempty"`
 	// Picture is how old the picture of the repository this reply was answered
 	// from was, in landings on the target branch, and what the harness did about
 	// it: nothing where it was current, a re-read before the turn where it was
@@ -1644,6 +1653,8 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	recoveryRounds := 0
 	s.toolUses = make(map[capability.Capability]*toolUse)
 	s.mcpMessage, s.mcpRounds = nil, nil
+	// readModelRounds counts the read-model queries this message has answered.
+	readModelRounds := 0
 	// The operator's side of this message is recorded with the first round, which
 	// is the one built around it. The rounds after it are the harness handing back
 	// what that round asked for, and record nothing as the operator's.
@@ -1691,7 +1702,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// What was reported is collected before anything else is decided about
 		// the turn, and a report that could not be read is noted rather than
 		// returned: the rest of the answer is unaffected by either.
-		s.collectReply(&reply, parsed)
+		reportRefusal := s.collectReply(&reply, parsed)
 		// A tracker block the harness would not read is recorded, and handed back
 		// to the role that sent it as a further round of this same message, so it
 		// can re-issue the actions before its reply ends rather than waiting for
@@ -2037,6 +2048,14 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				undelivered += runrecover.Render(round.Results)
 			}
 		}
+		// One read-model query in full, answered on the role's behalf. Like a
+		// repository read it never fails the turn: a query refused, unknown, or not
+		// answered is what the role is told, with the queries there are.
+		if parsed.ReadModel != nil {
+			round, rendered := s.performReadModelAsk(ctx, *parsed.ReadModel, &readModelRounds)
+			reply.ReadModel = append(reply.ReadModel, round)
+			undelivered += rendered
+		}
 		// What this reply concluded about an operator's idea, written down where it
 		// outlives the conversation. It is recorded before the continuation is
 		// decided because it decides nothing about the turn: an evaluation that
@@ -2083,6 +2102,17 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			if undelivered != "" {
 				undelivered += renderLaneReportResult(outcome)
 			} else if err := s.carryResults(renderLaneReportResult(outcome)); err != nil {
+				return reply, err
+			}
+		}
+		// A report block this reply carried that was not filed — a digest refused
+		// for its shape, or for a pass that already filed one — is told to a role
+		// that files digests, since nothing it reads would otherwise say so.
+		if reportRefusal != "" && s.state.Role == report.DigestFiler {
+			result := "# Report result\n\nWhat your report block carried was not all filed: " + reportRefusal + "\n\n"
+			if undelivered != "" {
+				undelivered += result
+			} else if err := s.carryResults(result); err != nil {
 				return reply, err
 			}
 		}
@@ -3120,6 +3150,9 @@ type parsedReply struct {
 	// (waitingdocuments.go). Both travel in the same block as Writes.
 	Withdraw      []artifact.Withdrawal
 	ListDocuments bool
+	// ReadModel is the one read-model query this reply asked for, or why the
+	// block it carried named none the harness can answer.
+	ReadModel     *ReadModelAsk
 	Reports       []report.Entry
 	ReportProblem error
 	// MCPCalls are the MCP calls this reply asked the harness to make.
@@ -3237,6 +3270,12 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	}
 	writes := documents.Writes
 	parsed.Withdraw, parsed.ListDocuments = documents.Withdraw, documents.List
+	prose, readModelAsk, err := extractReadModelAsk(prose)
+	if err != nil {
+		parsed.Prose = rest
+		return parsed, &ReadModelError{Err: err}
+	}
+	parsed.ReadModel = readModelAsk
 	parsed.Prose = prose
 	parsed.Actions = actions
 	parsed.Proposals = proposals
@@ -3260,19 +3299,23 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 
 // collectReply records what one round of an answer reported and carries the
 // result into the reply. It is separate from the rest of the turn on purpose:
-// nothing it does can change what the turn did.
-func (s *Session) collectReply(reply *Reply, parsed parsedReply) {
+// nothing it does can change what the turn did. What it returns is what of the
+// block was not filed, and why, which a role filing digests is told.
+func (s *Session) collectReply(reply *Reply, parsed parsedReply) string {
 	if parsed.ReportProblem != nil {
 		_, auditErr := auditTool(context.Background(), s, capability.ReportFile, nil, 1, func() (struct{}, error) { return struct{}{}, errors.New("unreadable report block") }, nil)
 		if auditErr != nil && strings.Contains(auditErr.Error(), "audit failed") {
 			reply.ReportProblem = appendProblem(reply.ReportProblem, auditErr.Error())
 		}
 		reply.ReportProblem = appendProblem(reply.ReportProblem, s.noteUnreadableReport(parsed.ReportProblem))
-		return
+		return ""
 	}
-	recorded, problem := s.recordReports(parsed.Reports)
+	entries, refused := s.stampDigest(parsed.Reports)
+	recorded, problem := s.recordReports(entries)
 	reply.Reports = append(reply.Reports, recorded...)
+	problem = appendProblem(refused, problem)
 	reply.ReportProblem = appendProblem(reply.ReportProblem, problem)
+	return problem
 }
 
 // appendProblem joins what went wrong with reports across the rounds of one
@@ -3958,6 +4001,7 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// What it wrote down about the operator's own hand, because the record is
 		// of him and he should hear it from here first.
 		s.reportObserved(out, reply)
+		s.reportReadModel(out, reply)
 		// That the record holds only part of what was just said, because the
 		// operator read it whole and would otherwise take the record to hold it.
 		reportRecordCuts(out, reply)

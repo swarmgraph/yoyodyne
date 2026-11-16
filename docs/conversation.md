@@ -2335,6 +2335,47 @@ both an area and paths, is refused and nothing is recorded.
 is refused like any block a role has no authority for, and a role that wants a
 pass asks her for one.
 
+### What a program manager's pass opens with, and what it files
+
+A [program manager](designs/program-manager.md)'s pass is woken with the product
+as the read model has it. It is read fresh for each pass, from the same records
+`yoyo status` and the dashboard show, because the instance's conversation is
+resumed rather than opened and what it was told when it opened is old. The
+pass's first message carries six things, as counts rather than listings:
+
+- the standing: the four lines of `yoyo status`, each counted;
+- the throughput windows, today and the last seven days;
+- the capacity state: developer slots in use, and anything the provider is
+  holding or has parked;
+- the triage docket: how many stopped runs wait on the development manager, how
+  many of them are critical, and how long the oldest has waited;
+- the reports pile: how many reports are unhandled, how old the oldest is, and
+  how many are critical;
+- one line for each other program manager: its name, its lane, its status, and
+  the ids of its open requests.
+
+Where a count is not enough, the reply may ask for one query in full, with a
+`yoyodyne-readmodel` block naming it:
+
+```text
+{"query":"docket"}
+```
+
+The queries are `standing`, `throughput`, `capacity`, `docket`, `reports`,
+`program-managers`, and `lane-report`, which names the instance as `"agent"`.
+The answer comes back in the same reply, as a further round of it, as the read
+model's own record in JSON. Past 96 KiB the answer is cut, and the reply says
+where. A block naming two queries, a reply with two blocks, and a name that is
+not a query are each refused with the list of queries. The refusal comes back
+in the same round, so the instance can ask again. One message asks at most two
+queries. Only the program manager holds `readmodel.read`; the block in any
+other role's reply is refused like any block a role has no authority for.
+
+What the pass has to say outside its lane goes to the Lead Product Manager as
+one digest, filed in its report block, and she decides it with her `handle`
+action. [What comes back to you](reporting.md#a-program-managers-digest) has
+its shape and what refuses one.
+
 ### Roles asking each other things
 
 A question one role cannot answer itself used to cost you one of two things:
