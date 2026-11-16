@@ -72,7 +72,7 @@ type Digest struct {
 	OpenRequests []string `json:"open_requests,omitempty"`
 	// StopCauses is one line per cause of stopped runs the pass counted: the
 	// cause, its count, and the report that already names it. It is where the
-	// pass carries what its stop-cause block's result handed it for the digest.
+	// pass carries what its stop causes block's result handed it for the digest.
 	StopCauses []string `json:"stop_causes,omitempty"`
 }
 
@@ -285,7 +285,7 @@ const DigestContract = `# Your digest to the Lead Product Manager
 Everything a pass has to say outside your lane goes to the Lead Product Manager as one digest, filed as one entry of your report block, and nothing is filed per finding. It lands in the pile she walks, and she decides it with her "handle" action. The entry takes a "digest" in place of a message, or beside one sentence that leads it:
 
 ` + "```" + `yoyodyne-report
-{"reports":[{"severity":"note","digest":{"admissions":["the ids of the items this pass admitted in your lane"],"requests":[{"work":"the work you recommend outside your lane","goal":"the goal it would serve, in the words the goals state it","priority":2,"why":"why"}],"objections":[{"item":"the id of a new admission","concern":"what is wrong with it"}],"open_requests":["the ids of your requests from earlier passes that are still open"],"stop_causes":["one line per cause your stop-cause block counted: the cause, its count, and the report it names"]}}]}
+{"reports":[{"severity":"note","digest":{"admissions":["the ids of the items this pass admitted in your lane"],"requests":[{"work":"the work you recommend outside your lane","goal":"the goal it would serve, in the words the goals state it","priority":2,"why":"why"}],"objections":[{"item":"the id of a new admission","concern":"what is wrong with it"}],"open_requests":["the ids of your requests from earlier passes that are still open"],"stop_causes":["one line per cause your stop causes block counted: the cause, its count, and the report it names"]}}]}
 ` + "```" + `
 
 Leave out any list you have nothing for, and file no digest at all on a pass with nothing to say. File it at "note", or at "warning" where it carries an objection or a blocker of your own; a digest carrying an objection at "note" is refused, and a digest is never "critical" — something already costing somebody is its own report. Priority is 0 first and 4 last. Each list holds at most ` + maxDigestEntriesText + ` entries, and every id is the id alone. The harness stamps your lane and the pass, so name neither. One digest per pass: a reply carrying two, or a second in a pass that already filed one, is refused, and so is a digest that does not hold to this shape. A refused digest is not filed, the reason is written on the pass's record, and you are told why on your next turn.
