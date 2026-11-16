@@ -169,6 +169,21 @@ rm ~/Library/LaunchAgents/com.yoyodyne.supervisor.<product>.plist
 On a platform without launchd, the step says so and `yoyo start` is typed after
 each restart.
 
+**Without the agent, start the product from an ordinary terminal.** A
+supervisor `yoyo start` detaches keeps the macOS sandbox of the shell it was
+typed in, if that shell has one, and so does every part it starts. An AI
+session's shell is such a sandbox, and inside it no Go program, `gh` included,
+can verify GitHub's certificate: every check of GitHub fails with
+`x509: OSStatus -26276`, among them the check for pull requests merged outside
+the merge queue, so those changes are never closed out. So on macOS, `yoyo start`
+refuses to detach a supervisor from a shell that cannot verify a certificate,
+and says why. A start through the launch agent is not refused, because launchd
+starts that supervisor outside the sandbox. A supervisor already running that
+way says so in its log and files one warning for the development manager; the
+fix is `yoyo stop`, then `yoyo start` from an ordinary terminal. While the
+merge queue cannot verify GitHub's certificate, its pass stops and says so
+rather than building an entry whose pull request may already be merged.
+
 **Starting the supervisor retires the operator's old maintenance job.** Before
 the supervisor, a launchd job of the operator's own, `com.yoyodyne.maintenance`,
 ran a script every ten minutes that started and restarted the scheduler,
