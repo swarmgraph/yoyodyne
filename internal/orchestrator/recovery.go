@@ -144,7 +144,8 @@ func waitOnTracker[T any](ctx context.Context, a *activeRun, spent error, ask fu
 		if err := a.pipeline.sleep(ctx, recovery.MaxInterval); err != nil {
 			return zero, spent
 		}
-		if err := a.stopRequested(); err != nil {
+		// After its checks passed, a stop found here keeps the change (honorStop).
+		if err := a.honorStop(); err != nil {
 			return zero, err
 		}
 		value, err := ask(ctx)

@@ -209,7 +209,7 @@ func TestStoppingReportsARunThatHasNotGivenUpYet(t *testing.T) {
 		t.Fatalf("notes = %#v settles = %d, want nothing decided about a run still in flight", work.takenNotes(), work.settleCount())
 	}
 	rendered := stopped.Render()
-	if !strings.Contains(rendered, "stops at its next provider call") {
+	if !strings.Contains(rendered, "stops at its next step, no later than ten minutes after it was asked") {
 		t.Fatalf("rendered = %q, want it to say what is actually true of the run", rendered)
 	}
 }
