@@ -385,6 +385,16 @@ type Sweep struct {
 	// pass; on a missed pass, whose StartedAt already is the due time; and on
 	// every record written before passes carried it.
 	DueAt time.Time `json:"due_at,omitempty"`
+	// ConversationWait is how long, in all, the pass's turns waited for the
+	// role's conversation to be free — behind the operator, another process, or
+	// another turn in it — before each was allowed to start, and Ran is the rest
+	// of the pass, from StartedAt to EndedAt. They are separate figures because
+	// only Ran counts against a turn's time limit (roleConversation.Wake in
+	// internal/cli), so a pass that waited long and then finished is told apart
+	// from one that ran long. Both are absent on the harness's own maintenance
+	// pass and on every record written before passes carried them.
+	ConversationWait time.Duration `json:"conversation_wait,omitempty"`
+	Ran              time.Duration `json:"ran,omitempty"`
 	// Turns is how many answered turns the pass took, including its one request
 	// for a missing closing report, and CostUSD what the provider charged. The
 	// work-turn bound excludes that request; Problem names a bound that ended work.
@@ -1078,6 +1088,9 @@ func (s Sweep) Validate() error {
 	}
 	if s.Turns < 0 {
 		problems = append(problems, fmt.Errorf("turns is %d, and a pass cannot take a negative number of them", s.Turns))
+	}
+	if s.ConversationWait < 0 || s.Ran < 0 {
+		problems = append(problems, fmt.Errorf("a pass waited %s and ran %s, and neither can be negative", s.ConversationWait, s.Ran))
 	}
 	// A pass whose later turn lacked its block keeps the account its earlier turns
 	// gave and is not failed for that alone; one with no account at all is,
