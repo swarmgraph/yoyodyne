@@ -604,13 +604,13 @@ func (p MergeQueuePromoter) recover(ctx context.Context, key runstate.MergeQueue
 	// An entry that has landed has nothing to recover, though its completion
 	// may still wait on the tracker, so it is passed over for the one behind it.
 	landedOver := map[string]bool{}
-	entry, landing, found, err := p.next(key, landedOver)
+	entry, landing, found, err := p.next(ctx, key, landedOver)
 	for err == nil && found {
 		if attempt, ok := landing.Current(); !ok || attempt.Landed == nil {
 			break
 		}
 		landedOver[entry.EntryID] = true
-		entry, landing, found, err = p.next(key, landedOver)
+		entry, landing, found, err = p.next(ctx, key, landedOver)
 	}
 	if err != nil || !found {
 		return MergeQueueRecovery{}, err

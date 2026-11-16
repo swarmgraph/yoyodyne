@@ -165,6 +165,10 @@ type MergeQueueVerification struct {
 	// Drift counts the generations this call invalidated because the target
 	// moved. It is reported apart because it is charged to nothing.
 	Drift int
+	// Choice is why this entry was the one worked: the rule that chose it, the
+	// waiting entries it went ahead of, and whether the tracker could not be
+	// read when it was chosen.
+	Choice MergeQueueChoice
 	// Waiting is what the call stopped short of starting a stage for, and
 	// empty where it started everything it had to. A later call takes it up.
 	Waiting string
@@ -202,11 +206,12 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 	}
 	defer func() { _ = lease.Release() }()
 
-	entry, found, err := w.next(ctx, key)
+	choice, found, err := w.next(ctx, key)
 	if err != nil || !found {
 		return MergeQueueVerification{}, err
 	}
-	outcome := MergeQueueVerification{Entry: entry}
+	entry := choice.Entry
+	outcome := MergeQueueVerification{Entry: entry, Choice: choice}
 	run, err := w.Pipeline.Store.Load(entry.RunID)
 	if err != nil {
 		return outcome, fmt.Errorf("read run %s, which merge queue entry %d was admitted for: %w", entry.RunID, entry.Order, err)
@@ -318,37 +323,59 @@ func (w MergeQueueWorker) validate() error {
 	return errors.Join(problems...)
 }
 
-// next is the first entry, in the order the queue is worked, that still waits,
-// passing over one that waits on its target being made to pass a check it
-// fails at the candidate's base: nothing about that entry can change until the
-// target moves, and the change that moves it may be behind it.
-func (w MergeQueueWorker) next(ctx context.Context, key runstate.MergeQueueKey) (runstate.MergeQueueEntry, bool, error) {
+// next is the entry the queue works next, chosen by the order in
+// mergequeueorder.go from the entries that still wait. An entry that waits on
+// its target being made to pass a check it fails at the candidate's base is
+// passed over: nothing about that entry can change until the target moves, and
+// the change that moves it may be behind it.
+func (w MergeQueueWorker) next(ctx context.Context, key runstate.MergeQueueKey) (MergeQueueChoice, bool, error) {
+	return w.chooseNext(ctx, key, "")
+}
+
+// chooseNext is next with the entry named by after left out. Where after
+// names an entry, the choice is the one the order would make once that entry
+// has landed (checking ahead, mergequeueahead.go), so an entry waiting on its
+// target to move is not passed over: that landing is what moves it.
+func (w MergeQueueWorker) chooseNext(ctx context.Context, key runstate.MergeQueueKey, after string) (MergeQueueChoice, bool, error) {
 	entries, err := w.Queue.Entries(key)
 	if err != nil {
-		return runstate.MergeQueueEntry{}, false, err
+		return MergeQueueChoice{}, false, err
 	}
 	target := ""
+	var waiting []runstate.MergeQueueEntry
+	started := map[string]bool{}
+	unlanded := map[string]bool{}
+	for _, entry := range entries {
+		if w.Waiting == nil || w.Waiting(entry) {
+			unlanded[entry.EntryID] = true
+		}
+	}
 	for _, entry := range runstate.MergeQueueWorkOrder(entries) {
-		if w.Waiting != nil && !w.Waiting(entry) {
+		if entry.EntryID == after || !unlanded[entry.EntryID] {
 			continue
 		}
 		generations, err := w.Queue.Generations(key, entry.EntryID)
 		if err != nil {
-			return runstate.MergeQueueEntry{}, false, err
+			return MergeQueueChoice{}, false, err
 		}
-		if count := len(generations); count > 0 && generations[count-1].WaitsOnTarget() {
+		if count := len(generations); after == "" && count > 0 && generations[count-1].WaitsOnTarget() {
 			if target == "" {
 				if target, err = w.Candidates.TargetCommit(ctx, key.TargetBranch); err != nil {
-					return runstate.MergeQueueEntry{}, false, fmt.Errorf("read where %s stands: %w", key.TargetBranch, err)
+					return MergeQueueChoice{}, false, fmt.Errorf("read where %s stands: %w", key.TargetBranch, err)
 				}
 			}
 			if generations[count-1].TargetBase == target {
 				continue
 			}
 		}
-		return entry, true, nil
+		started[entry.EntryID] = entryInProgress(generations, unlanded)
+		waiting = append(waiting, entry)
 	}
-	return runstate.MergeQueueEntry{}, false, nil
+	if len(waiting) == 0 {
+		return MergeQueueChoice{}, false, nil
+	}
+	order := queueOrder{pipeline: w.Pipeline, paths: w.Candidates.CandidatePaths, now: w.now()}
+	return order.choose(ctx, waiting, started), true, nil
 }
 
 func (w MergeQueueWorker) now() time.Time {

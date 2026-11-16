@@ -179,7 +179,7 @@ func (w MergeQueueWorker) checkAhead(ctx context.Context, lease *runstate.Lease,
 	if current.Mode != runstate.MergeQueueHarness {
 		return skip("nothing is checked ahead of an entry the forge's own queue lands")
 	}
-	next, found, err := w.nextAhead(key, current)
+	next, found, err := w.nextAhead(ctx, key, current)
 	if err != nil {
 		return stopped(err)
 	}
@@ -247,25 +247,16 @@ func (w MergeQueueWorker) checkAhead(ctx context.Context, lease *runstate.Lease,
 	return outcome
 }
 
-// nextAhead is the first entry behind current, in the order the queue is
-// worked, that still waits to be integrated.
-func (w MergeQueueWorker) nextAhead(key runstate.MergeQueueKey, current runstate.MergeQueueEntry) (runstate.MergeQueueEntry, bool, error) {
-	entries, err := w.Queue.Entries(key)
-	if err != nil {
+// nextAhead is the entry the queue's order (mergequeueorder.go) would choose
+// next once current has landed: every other entry still waiting, chosen by the
+// same rules the worker chooses by, so the candidate checked ahead is the one
+// the queue takes next rather than the next one admitted.
+func (w MergeQueueWorker) nextAhead(ctx context.Context, key runstate.MergeQueueKey, current runstate.MergeQueueEntry) (runstate.MergeQueueEntry, bool, error) {
+	choice, found, err := w.chooseNext(ctx, key, current.EntryID)
+	if err != nil || !found {
 		return runstate.MergeQueueEntry{}, false, err
 	}
-	behind := false
-	for _, entry := range runstate.MergeQueueWorkOrder(entries) {
-		if !behind {
-			behind = entry.EntryID == current.EntryID
-			continue
-		}
-		if w.Waiting != nil && !w.Waiting(entry) {
-			continue
-		}
-		return entry, true, nil
-	}
-	return runstate.MergeQueueEntry{}, false, nil
+	return choice.Entry, true, nil
 }
 
 // aheadGeneration is the generation of next standing on base's candidate:
