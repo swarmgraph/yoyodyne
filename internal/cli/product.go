@@ -106,6 +106,10 @@ type product struct {
 	// agent is this product's launch agent on a machine with launchd, and nil
 	// elsewhere and in a product assembled by a test.
 	agent *launchd.Agent
+	// verifies says whether this process can verify GitHub's certificate, and
+	// why not where it cannot (internal/cli/forgetrust.go). It is nil in a
+	// product assembled by a test that is not about it, which checks nothing.
+	verifies func() error
 }
 
 func runStart(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -202,6 +206,7 @@ func openProduct(configPath string) (*product, error) {
 		p.agent = launchd.AgentFor(resolved.Config.Product.ID, launchd.Controller{Runner: execution.OSProcessRunner{}, UserHomeDir: os.UserHomeDir, Getuid: os.Getuid})
 	}
 	p.children = p.realChildren
+	p.verifies = forgeTrustProbe
 	return p, nil
 }
 
@@ -263,6 +268,14 @@ func (p *product) start(ctx context.Context, stdout, stderr io.Writer, jsonOutpu
 	// launched rather than two.
 	if started, handled := p.startThroughAgent(ctx, stdout, stderr, jsonOutput, logRoot, logPath, retired, retireProblem); handled {
 		return started
+	}
+	// A supervisor detached from here is in whatever sandbox this command is,
+	// and so is every part it starts.
+	if p.verifies != nil {
+		if err := p.verifies(); err != nil {
+			fmt.Fprintln(stderr, forgeTrustRefusal(err))
+			return 1
+		}
 	}
 	pid, err := p.launcher.Launch(slack.Launch{
 		Program: p.program,
@@ -448,6 +461,7 @@ func (p *product) supervise(ctx context.Context, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "start failed: %v\n", err)
 		return 1
 	}
+	p.checkForgeTrust(log)
 	copies, err := runstate.NewConfigReaderStore(p.stateRoot, p.resolved.Config.Product.ID)
 	if err != nil {
 		fmt.Fprintf(stderr, "start failed: %v\n", err)
@@ -510,6 +524,33 @@ func (p *product) supervise(ctx context.Context, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// checkForgeTrust says in the supervisor's log, and once in a report, that this
+// supervisor cannot verify GitHub's certificate. It does not stop the
+// supervisor: the parts that need no forge still run, and the report says what
+// a person has to do.
+func (p *product) checkForgeTrust(log func(format string, args ...any)) {
+	if p.verifies == nil {
+		return
+	}
+	problem := p.verifies()
+	if problem == nil {
+		return
+	}
+	log("the supervisor cannot verify GitHub's certificate: %v; every check of GitHub its parts make fails until the product is started again from an ordinary terminal or through its launch agent", problem)
+	reports, err := runstate.NewReportStore(p.stateRoot, p.resolved.Config.Product.ID)
+	if err != nil {
+		log("the report that the supervisor cannot verify GitHub's certificate could not be filed: %v", err)
+		return
+	}
+	filed, err := reportForgeTrust(reports, p.resolved.Config.Product.ID, string(p.resolved.Config.Product.RepositoryID), p.build(), problem, p.now())
+	switch {
+	case err != nil:
+		log("the report that the supervisor cannot verify GitHub's certificate could not be filed: %v", err)
+	case filed != "":
+		log("filed %s for the development manager: the supervisor cannot verify GitHub's certificate", filed)
+	}
 }
 
 // selfBinary is the binary this process is running, for re-executing into a
