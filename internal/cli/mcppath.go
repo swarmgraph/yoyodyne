@@ -45,6 +45,7 @@ func runMCPCalls(parts components) (orchestrator.MCPCalls, orchestrator.MCPCallR
 		Records:       records,
 		RedactValues:  parts.redactValues,
 		ClientVersion: buildinfo.Commit(),
+		Carrier:       mcpcall.ClaudeCarrier{},
 		Attribution:   passFailureAttribution(cfg),
 	}
 	// A changed tool listing is put to the development manager exactly as a

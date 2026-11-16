@@ -133,8 +133,15 @@ type Record struct {
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 	// ArgumentsDigest is what a repeat is compared with.
 	ArgumentsDigest string `json:"arguments_digest,omitempty"`
-	ID              string `json:"id,omitempty"`
-	Why             string `json:"why,omitempty"`
+	// Sent is what a Slack call's carrying session was told to send, with
+	// secrets removed: for a post, the channel and the text the harness put
+	// together.
+	Sent json.RawMessage `json:"sent,omitempty"`
+	// Carrier is the carrying session of a Slack call: its cost and every tool
+	// call it made.
+	Carrier *CarrierRecord `json:"carrier,omitempty"`
+	ID      string         `json:"id,omitempty"`
+	Why     string         `json:"why,omitempty"`
 
 	Outcome Outcome       `json:"outcome,omitempty"`
 	Refusal RefusalReason `json:"refusal,omitempty"`
