@@ -575,13 +575,14 @@ type RunningRun struct {
 	UnknownCost string `json:"unknown_cost,omitempty"`
 	// Slot is the developer slot this run occupies, counted from 1 as the
 	// configuration counts them, and SlotPrefers what that slot prefers. Both are
-	// carried only where some configured slot prefers a label — which slot a run
-	// is in is only worth saying where the slots differ — and both are read off
-	// the derivation the scheduler reads, so the slot this says a run holds is
-	// the slot the scheduler will not fill. Zero is a run in flight beyond the
-	// configured capacity, which no slot holds.
+	// read off the derivation the scheduler reads, so the slot this says a run
+	// holds is the slot the scheduler will not fill. Zero is a run in flight
+	// beyond the configured capacity, which no slot holds, or one holding no
+	// developer slot at all. SlotSays is the same in words — "in developer slot
+	// 3, which prefers no label" — for the surface that shows it as a sentence.
 	Slot        int      `json:"developer_slot,omitempty"`
 	SlotPrefers []string `json:"slot_prefers,omitempty"`
+	SlotSays    string   `json:"slot_says,omitempty"`
 	// SlotDedicated is a slot kept for what it prefers, where the running line
 	// also says whether the run is on that work or outside it.
 	SlotDedicated bool `json:"slot_dedicated,omitempty"`
@@ -599,11 +600,45 @@ type RunningRun struct {
 }
 
 // DeveloperSlotStanding is one configured developer slot as the standing status
-// names it: its number, what it prefers, and the run in it where one is. It is
-// carried only where some configured slot prefers a label, for the surfaces
-// that read the model rather than its lines, and the running line renders the
-// free ones under it.
-type DeveloperSlotStanding = developerslot.Slot
+// names it: its number, what it prefers, and the run in it where one is, with
+// Says the slot and its preference in words — "developer slot 3 is free and
+// prefers no label" for a free slot, "developer slot 1, which prefers the
+// reliability label" for one with a run in it — so no surface words a
+// preference of its own.
+type DeveloperSlotStanding struct {
+	developerslot.Slot
+	Says string `json:"says"`
+}
+
+// SlotsPrefer reports whether any configured developer slot prefers a label,
+// which is what decides whether the running line says anything about slots.
+func (s Standing) SlotsPrefer() bool {
+	for _, slot := range s.DeveloperSlots {
+		if slot.Preferring() {
+			return true
+		}
+	}
+	return false
+}
+
+// slotDescribed is a slot and what it prefers as a phrase that reads on its
+// own, a slot with no preference included: "developer slot 3, which prefers no
+// label", or "developer slot 1, which is kept for the team-development label".
+func slotDescribed(slot developerslot.Slot) string {
+	if slot.Dedicated && slot.Preferring() {
+		return fmt.Sprintf("developer slot %d, which is kept for %s", slot.Number, slot.Preference())
+	}
+	return fmt.Sprintf("developer slot %d, which prefers %s", slot.Number, slot.Preference())
+}
+
+// freeSlotSays is a free slot in words: "developer slot 2 is free and prefers
+// the dashboard label", or "... is free and kept for ..." for a dedicated slot.
+func freeSlotSays(slot developerslot.Slot) string {
+	if slot.Dedicated && slot.Preferring() {
+		return fmt.Sprintf("developer slot %d is free and kept for %s", slot.Number, slot.Preference())
+	}
+	return fmt.Sprintf("developer slot %d is free and prefers %s", slot.Number, slot.Preference())
+}
 
 // WorkingTurn is one persona conversation with a turn in flight. It is the fact
 // no surface counted before this: a conversation is not a run, so a machine
@@ -808,11 +843,13 @@ type Standing struct {
 	// under the line rather than in place of it: the runs above were read.
 	Dispatching        []DispatchWait `json:"dispatching,omitempty"`
 	DispatchingProblem string         `json:"dispatching_problem,omitempty"`
-	// DeveloperSlots is every configured developer slot with the run in it, in
-	// slot order, where some slot prefers a label; nil otherwise. The running
-	// line names the free ones with their preference under itself, and a run's
-	// own entry says which slot it is in, so this is for the surface that wants
-	// the whole set rather than the lines.
+	// DeveloperSlots is every configured developer slot with the run in it and
+	// what it prefers, in slot order, wherever the runs could be read and the
+	// configuration allows any developer run at all; nil otherwise. The
+	// dashboard lists every one of them, idle or not; the running line names the
+	// free ones under itself only where some slot prefers a label
+	// (SlotsPrefer), so a project that configured no preference reads there as
+	// it did before slots could prefer anything.
 	DeveloperSlots []DeveloperSlotStanding `json:"developer_slots,omitempty"`
 	// SlotHolders is every run in flight the harness reads against the developer
 	// slots — counted against them or recording a slot number — with whether it
@@ -1059,9 +1096,9 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.Running, standing.PausedRuns, standing.RunningProblem = running, paused, runningProblem
 	standing.Dispatching, standing.DispatchingProblem = readDispatching(sources, now)
 	// Which slot each run occupies, and which slots are free, from the reading
-	// the scheduler makes. It is read only where a slot prefers a label, and
-	// only where the runs could be read: a slot said to be free over runs
-	// nobody could list would be the confident emptiness this refuses.
+	// the scheduler makes. It is read only where the runs could be read: a
+	// slot said to be free over runs nobody could list would be the confident
+	// emptiness this refuses.
 	if runningProblem == "" {
 		standing.DeveloperSlots = readSlots(sources, standing.Running)
 	}
@@ -1685,12 +1722,13 @@ func readDispatching(sources Sources, now time.Time) ([]DispatchWait, string) {
 
 // readSlots is which developer slot each run in flight occupies and which are
 // free, read from the same derivation the scheduler fills the free slots from,
-// over the labels each run recorded at its claim. It answers nothing where no
-// configured slot prefers a label: which slot a run is in is only worth saying
-// where the slots differ, and a project that configured no preference reads
-// exactly as it did before. The runs are given their slot in place.
+// over the labels each run recorded at its claim, and what each slot prefers as
+// execution.developer_slots says in the configuration this reading was given. A
+// slot preferring nothing is carried too, so a surface can say so. It answers
+// nothing where the configuration allows no developer run. The runs are given
+// their slot in place.
 func readSlots(sources Sources, running []RunningRun) []DeveloperSlotStanding {
-	if !developerslot.Preferring(sources.Slots) {
+	if sources.Capacity <= 0 {
 		return nil
 	}
 	inFlight := make([]developerslot.Run, 0, len(running))
@@ -1707,19 +1745,26 @@ func readSlots(sources Sources, running []RunningRun) []DeveloperSlotStanding {
 		})
 	}
 	assignment := developerslot.Assign(sources.Capacity, sources.Slots, inFlight)
+	slots := make([]DeveloperSlotStanding, 0, len(assignment.Slots))
 	for _, slot := range assignment.Slots {
 		if slot.Free() {
+			slots = append(slots, DeveloperSlotStanding{Slot: slot, Says: freeSlotSays(slot)})
 			continue
 		}
+		slots = append(slots, DeveloperSlotStanding{Slot: slot, Says: slotDescribed(slot)})
 		for index := range running {
 			if running[index].RunID == slot.RunID {
 				running[index].Slot = slot.Number
 				running[index].SlotPrefers = slot.Preferred
 				running[index].SlotDedicated = slot.Dedicated
+				running[index].SlotSays = "in " + slotDescribed(slot)
+				if working := slot.Working(running[index].Labels); working != "" {
+					running[index].SlotSays += ", " + working
+				}
 			}
 		}
 	}
-	return assignment.Slots
+	return slots
 }
 
 // readSlotHolders is what the harness counts as holding each developer slot,

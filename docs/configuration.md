@@ -4159,7 +4159,10 @@ its claim, so a run started by `yoyo run` counts against the slots exactly as a
 scheduled one does. Where any slot prefers a label, the running line of
 [`yoyo status`](operations.md#where-the-harness-stands-the-four-lines) says which slot each run is in and what that slot
 prefers, and names each free slot with its preference under the runs; where
-none does, the line reads as it always did. An item the only free slots walked
+none does, the line reads as it always did. [The dashboard's Running now
+section](operations.md#watching-from-a-browser-the-dashboard) names every slot whatever it prefers: each run's
+slot with its preferred labels, a slot with none said to prefer no label, and
+each idle slot listed under the runs. An item the only free slots walked
 past for their label — an unlabelled item ranked above the reliability item
 slot 1 pulled, with no other slot free — is reported by the pass as **left for
 another developer slot** rather than as deferred, naming the slot and what it

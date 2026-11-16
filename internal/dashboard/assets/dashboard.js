@@ -934,6 +934,8 @@ var standingWarningAgeSeconds = 5 * 60;
     }
     if (run.holds_no_slot) {
       card.appendChild(el("p", "problem", "It holds no developer slot: " + run.holds_no_slot + "."));
+    } else if (run.slot_says) {
+      card.appendChild(el("p", "card-slot", sentence(run.slot_says)));
     }
     var where = provenance(run);
     if (where) {
@@ -962,6 +964,28 @@ var standingWarningAgeSeconds = 5 * 60;
     return card;
   }
 
+  // sentence is a phrase from the read model said as a sentence of its own:
+  // capitalised, with a full stop.
+  function sentence(phrase) {
+    return phrase.charAt(0).toUpperCase() + phrase.slice(1) + ".";
+  }
+
+  // slotSaysOf is the developer slot the standing reads a run in flight in,
+  // with what that slot prefers, in the read model's words, and "" where the
+  // standing does not hold the run or names no slot for it.
+  function slotSaysOf(runID) {
+    var standing = model.standing;
+    var found = "";
+    if (standing && !standing.running_problem) {
+      (standing.running || []).forEach(function (run) {
+        if (run.run_id === runID && run.slot_says) {
+          found = run.slot_says;
+        }
+      });
+    }
+    return found;
+  }
+
   function renderLive() {
     var standing = model.standing;
     if (!standing) {
@@ -974,7 +998,11 @@ var standingWarningAgeSeconds = 5 * 60;
     }
     var running = standing.running_problem ? [] : standing.running;
     var working = standing.working_problem ? [] : standing.working;
-    if (running.length === 0 && working.length === 0 && !standing.running_problem && !standing.working_problem) {
+    // The developer slots with no run in them, each with what it prefers, so
+    // a slot standing idle is still in view with what it would pull first. A
+    // slot with a run in it is said on that run's card.
+    var idle = (standing.developer_slots || []).filter(function (slot) { return !slot.run_id && !slot.work_item_id; });
+    if (running.length === 0 && working.length === 0 && idle.length === 0 && !standing.running_problem && !standing.working_problem) {
       section("live", "empty", "Nothing is running, and no conversation has a turn in flight.");
       return;
     }
@@ -983,6 +1011,10 @@ var standingWarningAgeSeconds = 5 * 60;
     clear(cards);
     running.forEach(function (run) { cards.appendChild(runCard(run)); });
     working.forEach(function (turn) { cards.appendChild(turnCard(turn)); });
+    var slots = document.getElementById("slots-idle");
+    clear(slots);
+    idle.forEach(function (slot) { slots.appendChild(el("li", "slot-idle", sentence(slot.says))); });
+    setHidden(slots, idle.length === 0);
     // The half that could be read and is empty says so in words, so an
     // unreadable other half does not leave a readable emptiness looking like
     // part of the failure.
@@ -1769,7 +1801,7 @@ var standingWarningAgeSeconds = 5 * 60;
         kind === "stage" ? "the developer runs in flight whose phase is in the " + which + " stage" : "the developer runs in flight, each with its phase",
         standing.running_problem, whatToDoAboutTheStanding(),
         kind === "stage" ? "No developer run is " + which + "." : "No developer run is in flight.",
-        named.map(function (run) { return { id: run.work_item_id, title: run.title, detail: phaseOf(run) + ", " + age(run.elapsed) + " elapsed" }; })
+        named.map(function (run) { return { id: run.work_item_id, title: run.title, detail: phaseOf(run) + ", " + age(run.elapsed) + " elapsed" + (run.slot_says ? ", " + run.slot_says : "") }; })
       );
     }
     var refused = standing.not_startable_problem ? [] : standing.not_startable;
@@ -2102,7 +2134,8 @@ var standingWarningAgeSeconds = 5 * 60;
     var lines = [];
     var facts = [];
     if (run.in_flight) {
-      lines.push("in flight — " + phaseOf(run) + ", " + age(run.elapsed) + " elapsed, " + spendOf(run));
+      var slot = slotSaysOf(run.run_id);
+      lines.push("in flight — " + phaseOf(run) + ", " + age(run.elapsed) + " elapsed, " + spendOf(run) + (slot ? ", " + slot : ""));
       facts.push("run " + run.run_id + ", started " + dayAndClock(run.started_at));
     } else {
       var ending = run.outcome + (run.phase ? ", " + phaseOf(run) : "") + " — " + (run.remains || "no artifacts recorded");

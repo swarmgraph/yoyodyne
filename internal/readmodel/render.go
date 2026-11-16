@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/developerslot"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -202,7 +203,7 @@ func (s Standing) renderRunning() string {
 		listed, further := bound(len(s.Running))
 		for _, run := range s.Running[:listed] {
 			fmt.Fprintf(&rendered, "  %s — %s%s, %s elapsed, %s%s\n",
-				s.named(run.WorkItemID, ""), phaseOf(run), atEffort(run.Model, run.Effort, run.EffortDescription), age(run.Elapsed), spendOf(run), slotOf(run))
+				s.named(run.WorkItemID, ""), phaseOf(run), atEffort(run.Model, run.Effort, run.EffortDescription), age(run.Elapsed), spendOf(run), slotOf(run, s.SlotsPrefer()))
 			if run.Subagents != "" {
 				fmt.Fprintf(&rendered, "    %s\n", run.Subagents)
 			}
@@ -225,13 +226,11 @@ func (s Standing) renderRunning() string {
 	// the one fact about capacity a reader cannot infer from the runs: it says
 	// what the next pull will look for first. Nothing is said where no slot
 	// prefers anything, so the line reads as it always did.
-	for _, slot := range s.DeveloperSlots {
-		switch {
-		case !slot.Free():
-		case slot.Dedicated:
-			fmt.Fprintf(&rendered, "  developer slot %d is free and kept for %s\n", slot.Number, slot.Preference())
-		default:
-			fmt.Fprintf(&rendered, "  developer slot %d is free and prefers %s\n", slot.Number, slot.Preference())
+	if s.SlotsPrefer() {
+		for _, slot := range s.DeveloperSlots {
+			if slot.Free() {
+				fmt.Fprintf(&rendered, "  %s\n", slot.Says)
+			}
 		}
 	}
 	return rendered.String()
@@ -327,15 +326,15 @@ func dispatches(number int) string {
 //
 // A run moved to another slot when it was taken up again says so after it,
 // whatever the slots prefer, so a move is never silent.
-func slotOf(run RunningRun) string {
+func slotOf(run RunningRun, preferring bool) string {
 	moved := ""
 	if run.SlotMoved != "" {
 		moved = ", " + run.SlotMoved
 	}
-	if run.Slot == 0 {
+	if run.Slot == 0 || !preferring {
 		return moved
 	}
-	slot := DeveloperSlotStanding{Number: run.Slot, Preferred: run.SlotPrefers, Dedicated: run.SlotDedicated}
+	slot := developerslot.Slot{Number: run.Slot, Preferred: run.SlotPrefers, Dedicated: run.SlotDedicated}
 	if working := slot.Working(run.Labels); working != "" {
 		return ", in " + slot.Says() + ", " + working + moved
 	}

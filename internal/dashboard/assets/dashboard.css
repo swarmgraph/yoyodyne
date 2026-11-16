@@ -610,6 +610,18 @@ input:focus-visible {
   color: var(--ink-soft);
 }
 
+.card-slot {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.slots-idle {
+  margin-top: 0.75rem;
+  padding-left: 1.25rem;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
 .card-id {
   color: var(--muted);
   overflow-wrap: anywhere;
