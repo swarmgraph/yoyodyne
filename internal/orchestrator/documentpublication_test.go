@@ -1046,10 +1046,11 @@ func TestDocumentReconciliationNamesItsOwner(t *testing.T) {
 	}
 }
 
-// A project that keeps its intent in a companion intent repository: a design
-// its automatic policy confirms is not put to the operator, is not landed in
-// the project's repository, and opens no run; it stays confirmed and saved, and
-// the owning role is told once what holds it.
+// A project that keeps its intent in a companion intent repository, read by a
+// pipeline with no access to it (no IntentWorktrees): a design its automatic
+// policy confirms is not put to the operator, is not landed in the project's
+// repository, and opens no run; it stays confirmed and saved, and the owning
+// role is told once what holds it.
 func TestCompanionIntentDocumentIsHeldConfirmedRatherThanPutToTheOperator(t *testing.T) {
 	t.Parallel()
 

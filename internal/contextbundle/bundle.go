@@ -83,12 +83,20 @@ type Request struct {
 	// IntentRoot is the repository the specification home is read from where it
 	// is not RepositoryRoot: the project's companion intent repository
 	// (config.Product.IntentRoot). Empty, or the same directory, reads it from
-	// RepositoryRoot as before. Intent kept there is read as its checkout stands
-	// and never at Revision, which names a commit of the project's repository; a
-	// document the item names that the project's repository does not hold is
-	// looked for there too, so an item citing a design reads the design wherever
-	// it is kept.
+	// RepositoryRoot as before. Intent kept there is never read at Revision, which
+	// names a commit of the project's repository: it is read at IntentRevision
+	// where that is set, and as the checkout stands otherwise. A document the item
+	// names that the project's repository does not hold is looked for there too,
+	// so an item citing a design reads the design wherever it is kept.
 	IntentRoot string
+	// IntentRevision is the commit of the companion intent repository its
+	// documents are read at. Where IntentRoot names a companion repository and
+	// this is set, the specification home and every reference looked for in the
+	// companion repository are read as that commit holds them, never from its
+	// checkout, so an uncommitted edit there is not intent. Nil keeps reading the
+	// checkout, which is what a caller with no commit, such as a conversation,
+	// passes. It is unused where IntentRoot is empty or is RepositoryRoot.
+	IntentRevision *Revision
 }
 
 // Revision is a recorded commit references are read at.
@@ -236,7 +244,7 @@ func Assemble(request Request) (Bundle, error) {
 		return Bundle{}, errors.New("max context bytes must be greater than zero")
 	}
 
-	intentSource, err := intentReferenceSource(root, request.IntentRoot)
+	intentSource, err := intentReferenceSource(root, request.IntentRoot, request.IntentRevision)
 	if err != nil {
 		return Bundle{}, err
 	}
@@ -391,8 +399,9 @@ type referenceSource struct {
 
 // intentReferenceSource is the source the specification home is read from when
 // the project keeps it in a companion intent repository, or nil when it is the
-// repository at root.
-func intentReferenceSource(root, intentRoot string) (*referenceSource, error) {
+// repository at root. A revision makes every read through it a read of that
+// commit of the companion repository rather than of its checkout.
+func intentReferenceSource(root, intentRoot string, revision *Revision) (*referenceSource, error) {
 	if strings.TrimSpace(intentRoot) == "" {
 		return nil, nil
 	}
@@ -407,7 +416,7 @@ func intentReferenceSource(root, intentRoot string) (*referenceSource, error) {
 	if resolved == root {
 		return nil, nil
 	}
-	return &referenceSource{root: resolved, companion: true}, nil
+	return &referenceSource{root: resolved, revision: revision, companion: true}, nil
 }
 
 // exists says whether a validated path names anything at all in this source,
