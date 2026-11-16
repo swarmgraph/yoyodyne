@@ -475,6 +475,9 @@ agents:
     model: opus
     effort: medium
     instances: 1
+    time_limits:
+      turn: 45m
+      message: 60m
     persona:
       version: v2
       path: personas/architect.md
