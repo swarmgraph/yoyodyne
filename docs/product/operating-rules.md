@@ -35,6 +35,11 @@ revisions:
       at: 2026-11-10T04:31:29.765719Z
       reason: 'yoyodyne-ifd.437.19: intent: consistent. The rule against the word ''gate'' exempted the approved brief and goals documents until each was reworded. The brief, the v1 non-goals and the operations goals are now all reworded on main (yoyodyne-v3cy, yoyodyne-av7p), so that exemption is removed and only the stored-names exemption remains. No goal is added, removed or changed, so the goals admit and refuse exactly the work they did before.'
       intent: consistent
+    - action: amended
+      by: product-manager
+      at: 2026-11-16T14:40:26.908762Z
+      reason: 'yoyodyne-q2l: records Mason''s direction of November 15, 2026 on priority, all three parts, replacing the reliability rule''s ''priority 0 or 1'': when a bug is priority 0, when anything else is, and how a bug''s priority below 0 follows its frequency and cost. Mason asked for these rules to be recorded where every role reads them. Ordering is the Lead Product Manager''s; no goal changes, so the goals admit and refuse exactly the work they did before. Replaces the waiting revision document-5633.1.'
+      intent: consistent
 approvals:
     - revision: 1
       by: product-manager
@@ -56,6 +61,10 @@ approvals:
       by: product-manager
       at: 2026-11-10T04:31:29.765719Z
       reason: yoyodyne-ifd.437.19 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
+    - revision: 6
+      by: operator
+      at: 2026-11-16T14:40:26.908762Z
+      reason: approved by the operator in conversation chat-91253e0e070c17b0663651cc48602122, turn 5636, for the document the product-manager wrote there (document-5636.1)
 ---
 
 # Operating rules
@@ -70,7 +79,9 @@ Lead Product Manager.
 - An approval of a brief, goals, or any other product document is recorded with the harness's approve command, never by editing a document by hand. (directive e82486d6)
 - A work item's notes are append-only: nothing rewrites, reorders, or removes an earlier note; a correction is a new note. (da04b051)
 - The delivery workflow is configurable: the graph of what happens to a change is project-owned data, and the capability behind each step stays trusted code that no configuration widens. (18dfadd1, 2026-08-31)
-- Anything that blocks reliable execution is a defect: admitted with the reliability label at priority 0 or 1 ahead of feature work, and a developer seat prefers it. (5268040c, 2026-09-14; a43f7677 and d83b6391 for the seats)
+- A bug is priority 0 only if it materially degrades usability, or raises the factory's total cost by 25% or more once weighted by how often it happens. A stalled factory counts as degraded usability when the stall is frequent or likely to become so; a stall hit once, as an edge case, does not. A work item whose purpose is fixing such a bug is judged the same way, whatever its type. (the operator, 2026-11-15)
+- Anything that is not a bug is priority 0 only when the operator says so. While a priority 0 feature he asked for is unfinished, a request for another is answered by asking him whether he wants the first deprioritized, never by adding a second beside it. (the operator, 2026-11-15)
+- Below priority 0, a bug's priority follows how often it happens and what it costs: priority 1 when it has happened more than once or is likely to, and it stalls part of the factory, wastes runs, or adds 5% or more to total cost; priority 2 for a first occurrence or moderate impact, until it recurs; priority 3 or 4 when it is rare and its impact small, such as wording, cosmetic faults and rare edge cases. A bug that blocks reliable execution is admitted with the reliability label, and a developer seat dedicated to reliability still prefers reliability-labelled work. (the operator, 2026-11-15; 5268040c, 2026-09-14, for the label)
 - A run is never killed for a flaky network or a sleeping laptop: a transport that drops or a machine that sleeps is waited out, and only a person or a bound on the work itself ends a run. (fb5a74a9)
 - Slack, the dashboard, the scheduler, and maintenance are parts of one product: started, stopped, restarted, and moved onto a new build together, by the product and not by a person. (6de828a8)
 - Developer seats are tagged, and one seat is dedicated to reliability work. (a43f7677, d83b6391)
