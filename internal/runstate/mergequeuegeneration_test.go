@@ -201,6 +201,44 @@ func TestARecordedGenerationOnlyEverGainsEvidence(t *testing.T) {
 	}
 }
 
+func TestWhatACandidateWasBuiltAheadOnIsRecordedOnceAndMatchesItsBase(t *testing.T) {
+	t.Parallel()
+
+	store := newMergeQueueStore(t, t.TempDir())
+	lease := workerLease(t, store, mainQueue)
+	record := func(generation MergeQueueGeneration) error {
+		return store.RecordGeneration(lease, mainQueue, generation)
+	}
+	ahead := testGeneration(t, 1)
+	ahead.BuiltAhead = &MergeQueueAhead{EntryID: "mqe-" + strings.Repeat("2", 32), Generation: 3, Candidate: ahead.TargetBase, OnTarget: strings.Repeat("e", 40)}
+	if ahead.MovedOffReason() != MergeQueueBaseNotLanded || testGeneration(t, 1).MovedOffReason() != MergeQueueTargetMoved {
+		t.Fatal("a candidate built ahead is not invalidated as a base that did not land, or one built on the target is")
+	}
+
+	mismatched := ahead
+	mismatched.BuiltAhead = &MergeQueueAhead{EntryID: ahead.BuiltAhead.EntryID, Generation: 3, Candidate: strings.Repeat("9", 40), OnTarget: ahead.BuiltAhead.OnTarget}
+	if err := record(mismatched); err == nil || !strings.Contains(err.Error(), "built ahead") {
+		t.Fatalf("RecordGeneration(built ahead on a commit that is not its base) = %v, want it refused", err)
+	}
+	if err := record(ahead); err != nil {
+		t.Fatalf("RecordGeneration(built ahead) = %v", err)
+	}
+	forgotten := ahead
+	forgotten.BuiltAhead = nil
+	if err := record(forgotten); !errors.As(err, new(MergeQueueGenerationConflictError)) {
+		t.Fatalf("RecordGeneration(what it was built ahead on dropped) = %v, want a conflict", err)
+	}
+	invalidated := ahead
+	invalidated.Invalidated = &MergeQueueInvalidation{Reason: MergeQueueBaseNotLanded, ObservedTarget: strings.Repeat("e", 40), At: time.Now().UTC()}
+	if err := record(invalidated); err != nil {
+		t.Fatalf("RecordGeneration(invalidated as a base that did not land) = %v", err)
+	}
+	generations, err := store.Generations(mainQueue, ahead.EntryID)
+	if err != nil || len(generations) != 1 || *generations[0].BuiltAhead != *ahead.BuiltAhead || generations[0].Invalidated.Reason != MergeQueueBaseNotLanded {
+		t.Fatalf("Generations() = %#v, %v; want the record read back as written", generations, err)
+	}
+}
+
 func TestAStageThatEndedWithoutAResultIsSetAsideForAnother(t *testing.T) {
 	t.Parallel()
 

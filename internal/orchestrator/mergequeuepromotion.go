@@ -522,7 +522,9 @@ func (q *queuePromotion) forgeQueueQualifies(ctx context.Context) (string, error
 func (q *queuePromotion) drift(generation runstate.MergeQueueGeneration, target string, attempt *runstate.MergeQueuePromotionAttempt) error {
 	q.outcome.Drift = true
 	if generation.Invalidated == nil {
-		generation.Invalidated = &runstate.MergeQueueInvalidation{Reason: runstate.MergeQueueTargetMoved, ObservedTarget: target, At: q.now()}
+		// A candidate built ahead on another entry's candidate is off its base
+		// because that candidate did not land as itself (mergequeueahead.go).
+		generation.Invalidated = &runstate.MergeQueueInvalidation{Reason: generation.MovedOffReason(), ObservedTarget: target, At: q.now()}
 		if err := q.p.Queue.RecordGeneration(q.worker, q.key, generation); err != nil {
 			return fmt.Errorf("invalidate generation %d, which %s moved off: %w", generation.Number, q.key.TargetBranch, err)
 		}
