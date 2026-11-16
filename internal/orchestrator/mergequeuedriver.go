@@ -137,8 +137,28 @@ func (d MergeQueueDriver) stuckAge() time.Duration {
 	return time.Duration(d.Promoter.Pipeline.Config.Triage.StuckMergeAge)
 }
 
+// heldTooLong reports a merge the forge has held past the limit. The limit
+// counts from when the harness asked the forge for the merge
+// (MergeQueuePromotion.ForgeHeldSince), which is only ever asked for the entry
+// at the head of the queue, so the time an entry spent waiting behind others,
+// and having its own candidate checked and reviewed, never counts toward it.
 func (d MergeQueueDriver) heldTooLong(promoted MergeQueuePromotion) bool {
 	return promoted.ForgeHeldSince != nil && d.stuckAge() > 0 && d.now().Sub(*promoted.ForgeHeldSince) > d.stuckAge()
+}
+
+// heldTooLongReason says why a merge the forge held past the limit is
+// withdrawn: how long the forge held it, counted from when the harness asked
+// for it, and how long the entry was in the queue before that, which the limit
+// does not count.
+func (d MergeQueueDriver) heldTooLongReason(promoted MergeQueuePromotion) string {
+	asked := *promoted.ForgeHeldSince
+	reason := fmt.Sprintf("the forge held its merge for %s after the harness asked for it at %s, longer than the %s a merge may be held (triage.stuck_merge_age)",
+		waitedFor(d.now().Sub(asked)), asked.Local().Format("2006-01-02 15:04 MST"), waitedFor(d.stuckAge()))
+	if joined := promoted.Entry.AdmittedAt; !joined.IsZero() && asked.After(joined) {
+		reason += fmt.Sprintf("; before that it was in the queue for %s, from when it joined at %s, waiting its turn and having its candidate checked and reviewed, and that time does not count toward the limit",
+			waitedFor(asked.Sub(joined)), joined.Local().Format("2006-01-02 15:04 MST"))
+	}
+	return reason
 }
 
 // Pass works one queue as far as it can go now, records what it ended on, and
@@ -275,12 +295,14 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			// the entry released, so it stops standing at the head of the queue;
 			// the next step hands the change back to its run, kept, for the
 			// development manager.
-			why := fmt.Sprintf("the forge held its merge queued for longer than triage.stuck_merge_age (%s)", d.stuckAge())
+			var why string
 			switch {
 			case promoted.Dropped:
 				why = "the forge stopped holding its merge without making it: " + promoted.Unresolved
 			case promoted.Unjudged != "":
 				why = promoted.Unjudged
+			default:
+				why = d.heldTooLongReason(promoted)
 			}
 			withdrawn, err := d.Promoter.Withdraw(ctx, key, promoted.Entry.EntryID, why)
 			switch {

@@ -424,6 +424,80 @@ func TestAPassWithdrawsAMergeTheForgeHeldTooLongAndHandsTheChangeBack(t *testing
 		if len(f.forge.MergeRequests()) != 1 {
 			t.Fatalf("dropped=%t: the merge was asked for again", dropped)
 		}
+		if !dropped {
+			// The reason says how long the forge held the merge, counted from the
+			// harness asking for it, in words rather than as "2h0m0s".
+			attempt, _ := landing.Current()
+			if attempt.SetAside == nil || !strings.Contains(attempt.SetAside.Reason, "the forge held its merge for 2 hours after the harness asked for it at ") ||
+				!strings.Contains(attempt.SetAside.Reason, "longer than the 1 hour a merge may be held") || strings.Contains(attempt.SetAside.Reason, "0m0s") {
+				t.Fatalf("set aside = %#v, want how long the forge held the merge said in words", attempt.SetAside)
+			}
+		}
+	}
+}
+
+// aheadClock is the wall clock moved on by a fixed span, so a test can stand
+// at a later moment without waiting for it.
+type aheadClock struct{ by time.Duration }
+
+func (c aheadClock) Now() time.Time { return time.Now().Add(c.by) }
+
+// The stuck-merge limit counts from when the harness asked the forge for the
+// entry's merge, which it does only once the entry is at the head of the
+// queue. An entry that waited behind others for longer than the limit before
+// that is not withdrawn for it, and lands once the forge makes the merge; and
+// one that the forge then holds past the limit is withdrawn with both spans
+// said in words.
+func TestAnEntryThatWaitedInTheQueueLongerThanTheStuckMergeLimitIsNotWithdrawnForIt(t *testing.T) {
+	t.Parallel()
+
+	for _, heldTooLong := range []bool{false, true} {
+		f := newPromotionFixture(t, landProtected)
+		withdrawer := &withdrawingForge{forge: f.forge.Forge}
+		f.promoter.Withdrawer = withdrawer
+		f.promoter.Repair = &recordingRepair{}
+		f.forge.QueueMerge = true
+		f.worker.Pipeline.Config.Triage.StuckMergeAge = config.Duration(time.Hour)
+		// The entry was admitted now; its turn comes three hours later, three
+		// times the limit, which is when its merge is asked for.
+		turn := 3 * time.Hour
+		f.worker.Pipeline.Clock = aheadClock{by: turn}
+		driver := f.driver()
+		held := 30 * time.Minute
+		if heldTooLong {
+			held = 90 * time.Minute
+		}
+		driver.Now = func() time.Time { return time.Now().Add(turn + held) }
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		pass := driver.Pass(ctx, queueKey)
+		cancel()
+		if heldTooLong {
+			if pass.Outcome != runstate.MergeQueuePassHandedBack || withdrawer.count() != 1 {
+				t.Fatalf("Pass() = %#v after %d withdrawals, want a merge held past the limit withdrawn", pass, withdrawer.count())
+			}
+			attempt, _ := f.landing().Current()
+			if attempt.SetAside == nil ||
+				!strings.Contains(attempt.SetAside.Reason, "the forge held its merge for 1 hour 30 minutes after the harness asked for it") ||
+				!strings.Contains(attempt.SetAside.Reason, "before that it was in the queue for 3 hours, from when it joined at ") ||
+				!strings.Contains(attempt.SetAside.Reason, "that time does not count toward the limit") {
+				t.Fatalf("set aside = %#v, want how long the merge was held and how long the entry waited before that", attempt.SetAside)
+			}
+			continue
+		}
+		if pass.Outcome != runstate.MergeQueuePassWaiting || withdrawer.count() != 0 || f.landing().Handback != nil {
+			t.Fatalf("Pass() = %#v after %d withdrawals, want the merge left with the forge: the entry waited three hours, but its merge only 30 minutes", pass, withdrawer.count())
+		}
+		f.forge.PerformQueuedMerge(t)
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Minute)
+		pass = driver.Pass(ctx, queueKey)
+		cancel()
+		if pass.Outcome != runstate.MergeQueuePassLanded || withdrawer.count() != 0 {
+			t.Fatalf("Pass() after the forge merged = %#v after %d withdrawals, want the entry landed", pass, withdrawer.count())
+		}
+		if landing := f.landing(); landing.Completion == nil || landing.Handback != nil {
+			t.Fatalf("landing = %#v, want the entry landed and not handed back", landing)
+		}
 	}
 }
 
