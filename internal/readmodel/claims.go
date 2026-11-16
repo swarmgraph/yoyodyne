@@ -314,7 +314,8 @@ func AwaitingContinuation(run runstate.State) bool {
 		run.DependencyPause != nil ||
 		parkedOnTrackerRead(run) ||
 		run.OperatorHeldSince != nil ||
-		run.UpdatingQueuedHead()
+		run.UpdatingQueuedHead() ||
+		run.CatchingUpWithMergeQueueTarget()
 }
 
 // parkedOnTrackerRead reports a run parked on a tracker read a later process

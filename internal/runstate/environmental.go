@@ -185,6 +185,16 @@ const (
 	// and its pull request updated, for the person to merge as before. Only the
 	// forge check records it, on the resumption it makes (personmerge.go).
 	CausePersonMergeBehind EnvironmentalCause = "person-merge-behind"
+	// CauseMergeQueueBehind is an approved change in the harness's merge queue
+	// whose head would no longer merge onto the target branch because the target
+	// moved while it waited. Nothing about the change was judged wrong, so the
+	// queue hands it back to its own run for the run's one reconciliation
+	// attempt (State.Reconciliation) rather than stopping it: the developer
+	// brings it level with the target, it earns its checks and review again,
+	// and it rejoins the queue by itself. No repair attempt and no fresh run is
+	// spent. Only the queue's hand-back records it, on the resumption it makes
+	// (mergequeuecatchup.go in internal/orchestrator).
+	CauseMergeQueueBehind EnvironmentalCause = "merge-queue-behind"
 	// CauseCheckStageBound is a check stage stopped at its bound — the
 	// configured execution.check_stage_timeout already scaled for the machine's
 	// load the way a local Git command's budget is — before the checks reached a
@@ -273,7 +283,7 @@ func EnvironmentalCauses() []EnvironmentalCause {
 		CauseHandbackMissingChange, CauseDirtyPrimary, CauseWorktreeCheckoutKilled,
 		CauseSandboxSpawnFailure, CauseStaleBinaryDispatch, CauseTransportFailure,
 		CauseProcessVanished, CauseUsageWindow, CauseReplayKilled, CauseDivergedTarget,
-		CauseRemoteAuthRefused, CauseQueuedHeadBehind, CausePersonMergeBehind, CauseCheckStageBound,
+		CauseRemoteAuthRefused, CauseQueuedHeadBehind, CausePersonMergeBehind, CauseMergeQueueBehind, CauseCheckStageBound,
 		CauseDeveloperSettingsNotApplied, CauseCheckTimeLimit, CauseMergeQueueHeld,
 		CauseNoCheckRan, CauseInstallUnavailable, CauseInstallNeverWorked,
 	}
@@ -357,6 +367,8 @@ func (c EnvironmentalCause) Title() string {
 		return "its queued merge's head fell behind the target and failed checks on files the change does not touch"
 	case CausePersonMergeBehind:
 		return "the target moved past its pull request while the pull request waited for a person to merge it"
+	case CauseMergeQueueBehind:
+		return "the target moved while the change waited in the merge queue, and the change no longer merged onto it"
 	case CauseCheckStageBound:
 		return "the check stage reached its bound, already scaled for the machine's load, before the checks judged the change"
 	case CauseCheckTimeLimit:
