@@ -531,7 +531,7 @@ func (p Pipeline) BringInOutsideFile(ctx context.Context, landing runstate.Outsi
 	if err != nil {
 		return Outcome{}, err
 	}
-	worktree, err := p.Worktrees.Create(ctx, gitworktree.CreateRequest{ResumeCreation: true, RunID: state.RunID, WorkItemID: item.ID, BaseRef: state.TargetBranch, TargetBranch: state.TargetBranch})
+	worktree, err := a.cutOwnCheckout(ctx, gitworktree.CreateRequest{ResumeCreation: true, RunID: state.RunID, WorkItemID: item.ID, BaseRef: state.TargetBranch, TargetBranch: state.TargetBranch})
 	if err != nil {
 		_, failErr := a.fail(stoppedBy(runstate.StopHarness, fmt.Errorf("cut the checkout for the run that brings a file in: %w", err)), runstate.StatusFailed)
 		return p.settleOutsideFile(ctx, store, state.RunID, record, failErr)
