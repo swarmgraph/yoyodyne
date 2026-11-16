@@ -3,6 +3,7 @@ package orchestratortest
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
@@ -13,6 +14,9 @@ import (
 // records every act the harness takes on it in the order taken, and can be told
 // to refuse any of them.
 type Tracker struct {
+	// showMu keeps Show's counters whole when a candidate checked ahead is
+	// reviewed beside the one before it.
+	showMu                 sync.Mutex
 	SchedulingWaitClearErr error
 	Item                   beads.WorkItem
 	// AlsoHolds is the other work this tracker has, by identifier. It is what
@@ -85,6 +89,8 @@ type Tracker struct {
 // for every identifier would make "the tracker has no such work item" untestable,
 // which is the case a landing's impediment marker has to be resolved against.
 func (f *Tracker) Show(_ context.Context, id string) (beads.WorkItem, error) {
+	f.showMu.Lock()
+	defer f.showMu.Unlock()
 	f.ShowCalls++
 	if f.ShowFailures > 0 {
 		f.ShowFailures--
