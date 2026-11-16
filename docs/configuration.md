@@ -302,6 +302,7 @@ landing_checks: []  # what runs whole, once per landing; see "Where the whole su
 path_checks: []     # checks a change runs only when it touches what they vouch for
 install: []         # what installs the project's dependencies; see configuration/runs.md
 document_checks: [] # what a confirmed document's landing runs; see "The document checks"
+main_checks: []     # what runs whole on the branch's head every four hours; see "The checks run on main"
 
 accounts:
   default: {}       # the provider account the agents below run under
@@ -3689,6 +3690,43 @@ to a developer, and the document goes back to its owner as any document that
 did not land does. An entry with no command is refused when the
 configuration loads, and `document_landings` may not be negative.
 
+### The checks run on main
+
+`main_checks` is a list the supervisor runs whole on the head of the branch
+runs land on, on a schedule of its own: every `execution.main_check_interval`,
+four hours unless you say otherwise, and only when the branch has moved since
+the last run. It is for a check you have taken off each change and want run on
+what has landed instead, such as a race detector over the whole module.
+
+```yaml
+main_checks:
+  - make race
+execution:
+  main_check_interval: 4h   # the default; at least 30m
+```
+
+Each run reads where the remote has the branch, fetches it, and checks that
+commit out in a worktree of its own under the product's state directory. It
+never touches your checkout and never moves a branch. Where the remote cannot
+be reached it checks the local branch and says so in the run's record. Every
+check runs whole there with `execution.landing_check_timeout` as its budget and
+no bound on the list, and waits for a place like any other check where
+`execution.heavy_checks` names it. The worktree is removed afterwards.
+
+Every run is recorded with the commit, when it started and ended, and how each
+check ended, and `yoyo status` says when the branch last passed and what the
+latest run came to where it did not pass. A failure is not run again to make it
+pass. It files a critical report naming the commit, the failing tests, the last
+commit the checks passed on, and the commits that landed between them. The next
+run waits for the branch to move. A check that could not run is recorded as
+such, files nothing, and the same commit is tried again at the next interval.
+
+The schedule is kept in that record, so the supervisor restarting does not
+start a run early: the next run is due an interval after the latest one
+started. While a run is under way the supervisor waits for it to finish before
+it moves onto a new build. A project that lists no `main_checks` runs nothing
+on its branch. Both keys may be changed by the development manager.
+
 ### A check that could not run
 
 A check can end a third way besides passing and failing: it could not run at
@@ -6817,6 +6855,24 @@ comment naming the entry that landed it, and the run's branch and the queue's
 candidate branch are deleted from the remote on the commit the harness last put
 there, so neither is left open; a failure to tidy them is said on the queue's
 pass and holds the landing up in nothing.
+
+**The next entry is checked while the first one is.** On a target the harness
+moves itself, in a project that does not publish, a candidate lands as exactly
+its own commit, so the queue builds the next waiting entry's candidate on top
+of the first entry's candidate, as if it lands, and runs its protected-path
+check, checks and review beside the first one's. It checks at most one entry
+ahead, and the pass lands the first entry once both are done. The candidate
+checked ahead is a commit of its own with its own recorded base, and its
+evidence is bound to it alone; it lands only if, as the promotion lease is
+taken, the target is exactly the commit it was built on. Where the entry before
+it fails, is withdrawn or handed back, or lands as any other commit, the
+candidate checked ahead is thrown away — recorded as `base_not_landed` — and
+built again on the target as it stands, and nothing is charged to its change;
+nothing found on it is handed back on its own account, and a check that fails
+on it is run on its base only once that base is the target. A project that
+publishes lands every candidate through a pull request, and the forge lands
+that with a merge commit of its own above the candidate, so the target never
+becomes the candidate: nothing is checked ahead there.
 
 **The candidate's checks and review pass the doors a run's do.** Nothing starts
 while the operator has paused harness activity (`yoyo pause`), and the review

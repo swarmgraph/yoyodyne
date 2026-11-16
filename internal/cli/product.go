@@ -41,6 +41,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
+	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/doctor"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -48,6 +49,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/forgecheck"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/launchd"
+	"github.com/mason-bryant/yoyodyne/internal/maincheck"
 	"github.com/mason-bryant/yoyodyne/internal/maintain"
 	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -734,6 +736,13 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 	if check, ok := p.forgeCheck(repository, log); ok {
 		residents = append(residents, check)
 	}
+	mainCheck, err := p.mainCheck(repository, log)
+	if err != nil {
+		return nil, nil, err
+	}
+	if mainCheck != nil {
+		residents = append(residents, mainCheck)
+	}
 	maintenance := p.resolved.Config.Services.Maintenance
 	if !maintenance.Enabled {
 		return residents, nil, nil
@@ -779,6 +788,9 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 	// not nil, and the pass reads a nil rebuilder as the reason above.
 	if rebuilder != nil {
 		pass.Rebuild = rebuilder
+	}
+	if mainCheck != nil {
+		pass.MainCheck = mainCheck
 	}
 	if p.runner != nil {
 		cutter, err := p.releaseCutter(repository, reports)
@@ -858,6 +870,49 @@ func (p *product) forgeCheck(repository string, log func(format string, args ...
 		Now:        p.now,
 		Log:        log,
 	}, true
+}
+
+// mainCheck is the run of the project's main_checks on the head of the branch
+// runs land on, on a schedule of its own every execution.main_check_interval,
+// whether or not the maintenance pass is enabled (internal/maincheck). A
+// project that lists no main checks, or a supervisor with no process runner,
+// has none, and nil is returned with no error.
+func (p *product) mainCheck(repository string, log func(format string, args ...any)) (*maincheck.Check, error) {
+	cfg := p.resolved.Config
+	if p.runner == nil || len(cfg.MainChecks) == 0 {
+		return nil, nil
+	}
+	runs, err := runstate.NewMainCheckStore(p.stateRoot, cfg.Product.ID)
+	if err != nil {
+		return nil, err
+	}
+	reports, err := runstate.NewReportStore(p.stateRoot, cfg.Product.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &maincheck.Check{
+		Every:      cfg.Execution.MainCheckEvery(),
+		Commands:   append([]string(nil), cfg.MainChecks...),
+		Repository: repository,
+		Remote:     cfg.Execution.Remote,
+		WorkRoot:   filepath.Join(home.ProductDirectory(p.stateRoot, string(cfg.Product.ID)), "main-check"),
+		Git:        p.runner,
+		Checks: checks.Runner{
+			Process:           p.runner,
+			Timeout:           cfg.Execution.LandingCheckTimeout.Duration(),
+			RedactValues:      execution.SensitiveEnvironmentValues(p.environ),
+			HiddenExecutables: providerExecutables(cfg),
+			Permits:           heavyCheckPermits(cfg, p.stateRoot, p.runner),
+		},
+		CheckTimeout: cfg.Execution.LandingCheckTimeout.Duration(),
+		Runs:         runs,
+		Reports:      reports,
+		Product:      cfg.Product.ID,
+		RepositoryID: string(cfg.Product.RepositoryID),
+		Build:        buildinfo.Commit(),
+		Now:          p.now,
+		Log:          log,
+	}, nil
 }
 
 // releaseCutter is the maintenance pass's release step: a release the Lead

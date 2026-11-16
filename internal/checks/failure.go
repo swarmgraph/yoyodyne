@@ -197,7 +197,7 @@ func cutFailureText(text string, limit int) string {
 func (c failureCapture) render() string {
 	header := "No failing test or package was named in the captured output, so only its end is kept.\n"
 	if len(c.names) > 0 {
-		header = "Failing tests or packages named in the captured output (up to 20): " + strings.Join(c.names, ", ") + "\n"
+		header = failingNamesTitle + strings.Join(c.names, ", ") + "\n"
 	}
 	window := c.renderWindow()
 	trailing := len(c.tail) - len(strings.TrimRight(c.tail, "\n"))
@@ -239,6 +239,28 @@ func (c failureCapture) renderTail(tail string, limit int) string {
 		return failureCut + cutFailureText(tail, limit-len(failureCut))
 	}
 	return tail
+}
+
+// failingNamesTitle opens the line of FailureOutput that names the failing
+// tests, which FailingNames reads back.
+const failingNamesTitle = "Failing tests or packages named in the captured output (up to 20): "
+
+// FailingNames is the tests or packages a check's output names failing, by the
+// markers FailureOutput reads, first seen first and at most twenty. The names
+// the runner read from the whole stream are preferred, because the process
+// result keeps only the start of a long output. A check printing none of those
+// markers names none.
+func FailingNames(result Result) []string {
+	if line, _, _ := strings.Cut(result.FailureOutput, "\n"); strings.HasPrefix(line, failingNamesTitle) {
+		return strings.Split(strings.TrimPrefix(line, failingNamesTitle), ", ")
+	}
+	var capture failureCapture
+	for _, text := range []string{result.Process.Stdout, result.Process.Stderr} {
+		if text != "" {
+			capture.add(text)
+		}
+	}
+	return append([]string(nil), capture.names...)
 }
 
 // FailureOutput is the bounded evidence a failed check carries to its run,

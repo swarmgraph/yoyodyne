@@ -386,7 +386,10 @@ type Sources struct {
 	NeedsDesignLabelled NeedsDesignLabelled
 	// MCPCalls is the record of the MCP calls the harness made, counted with no
 	// content (mcpcalls.go); nil reads none.
-	MCPCalls        MCPCallRecord
+	MCPCalls MCPCallRecord
+	// MainChecks is the record of the checks run on the head of the target
+	// branch (maincheck.go); nil reads none.
+	MainChecks      MainCheckRecord
 	RestartRequests RestartRequests
 	LaneReports     LaneReports
 	Passes          Passes
@@ -998,6 +1001,11 @@ type Standing struct {
 	// content; nil where the product has made none. See mcpcalls.go.
 	MCPCalls        *MCPCalls `json:"mcp_calls,omitempty"`
 	MCPCallsProblem string    `json:"mcp_calls_problem,omitempty"`
+	// MainChecks is when the target branch last passed the checks run on its
+	// head, and what the latest run came to; nil where none has run. See
+	// maincheck.go.
+	MainChecks        *MainChecks `json:"main_checks,omitempty"`
+	MainChecksProblem string      `json:"main_checks_problem,omitempty"`
 
 	// Titles is this reading's one listing of the tracker, which the rendered
 	// lines show every work item they name against. It is nil where no tracker
@@ -1312,6 +1320,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.MergeQueues, standing.MergeQueuesProblem = ReadMergeQueues(sources.MergeQueues)
 	standing.LandingHolds, standing.LandingHoldsProblem = ReadLandingHolds(sources.LandingHolds, sources.now())
 	standing.MCPCalls, standing.MCPCallsProblem = ReadMCPCalls(sources.MCPCalls, now)
+	standing.MainChecks, standing.MainChecksProblem = ReadMainChecks(sources.MainChecks)
 	needs = append(needs, standing.Services.Attention()...)
 	needsProblem = joinProblems(needsProblem, standing.ServicesProblem)
 	// A running part whose build cannot read a key the configuration now
