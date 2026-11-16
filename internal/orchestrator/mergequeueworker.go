@@ -326,6 +326,14 @@ func (w MergeQueueWorker) validate() error {
 // passed over: nothing about that entry can change until the target moves, and
 // the change that moves it may be behind it.
 func (w MergeQueueWorker) next(ctx context.Context, key runstate.MergeQueueKey) (MergeQueueChoice, bool, error) {
+	return w.chooseNext(ctx, key, "")
+}
+
+// chooseNext is next with the entry named by after left out. Where after
+// names an entry, the choice is the one the order would make once that entry
+// has landed (checking ahead, mergequeueahead.go), so an entry waiting on its
+// target to move is not passed over: that landing is what moves it.
+func (w MergeQueueWorker) chooseNext(ctx context.Context, key runstate.MergeQueueKey, after string) (MergeQueueChoice, bool, error) {
 	entries, err := w.Queue.Entries(key)
 	if err != nil {
 		return MergeQueueChoice{}, false, err
@@ -334,6 +342,9 @@ func (w MergeQueueWorker) next(ctx context.Context, key runstate.MergeQueueKey) 
 	var waiting []runstate.MergeQueueEntry
 	started := map[string]bool{}
 	for _, entry := range runstate.MergeQueueWorkOrder(entries) {
+		if entry.EntryID == after {
+			continue
+		}
 		if w.Waiting != nil && !w.Waiting(entry) {
 			continue
 		}
@@ -341,7 +352,7 @@ func (w MergeQueueWorker) next(ctx context.Context, key runstate.MergeQueueKey) 
 		if err != nil {
 			return MergeQueueChoice{}, false, err
 		}
-		if count := len(generations); count > 0 && generations[count-1].WaitsOnTarget() {
+		if count := len(generations); after == "" && count > 0 && generations[count-1].WaitsOnTarget() {
 			if target == "" {
 				if target, err = w.Candidates.TargetCommit(ctx, key.TargetBranch); err != nil {
 					return MergeQueueChoice{}, false, fmt.Errorf("read where %s stands: %w", key.TargetBranch, err)

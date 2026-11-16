@@ -7,14 +7,20 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
+
+// errNoQueueTracker is the tracker read of a queue given no tracker, which
+// chooses in admission order as an unreadable tracker does.
+var errNoQueueTracker = errors.New("no tracker is configured for the merge queue")
 
 // mergeQueueAgeLimit is how long an entry waits, since admission, before it
 // goes ahead of everything else whatever its priority.
@@ -41,6 +47,10 @@ type MergeQueueChoice struct {
 	// TrackerUnread says why priorities were not used, and is empty where the
 	// tracker was read.
 	TrackerUnread string
+	// PlacedFirst says the Lead Product Manager's placement of the chosen
+	// entry's work item first among its priority decided the choice: without
+	// it, an entry admitted earlier under the same rule would have been chosen.
+	PlacedFirst bool
 }
 
 // rankedEntry is a waiting entry with what the order decides by.
@@ -51,6 +61,10 @@ type rankedEntry struct {
 	architect  bool
 	priority   int
 	readable   bool
+	// placed is when the Lead Product Manager placed the entry's work item
+	// first among its priority (docs/designs/placing-an-item-first.md), and nil
+	// where no placement orders it.
+	placed *time.Time
 }
 
 // queueOrder is what the order is chosen with. The worker that verifies the
@@ -122,7 +136,11 @@ func (o queueOrder) pick(ctx context.Context, waiting []runstate.MergeQueueEntry
 	for _, entry := range waiting {
 		r := rankedEntry{entry: entry, inProgress: started[entry.EntryID]}
 		r.document, r.architect = o.documentKind(ctx, entry)
-		item, err := o.pipeline.Tracker.Show(ctx, entry.WorkItemID)
+		var item beads.WorkItem
+		err := errNoQueueTracker
+		if o.pipeline.Tracker != nil {
+			item, err = o.pipeline.Tracker.Show(ctx, entry.WorkItemID)
+		}
 		if err != nil {
 			readErrors++
 			if firstReadError == nil {
@@ -130,6 +148,10 @@ func (o queueOrder) pick(ctx context.Context, waiting []runstate.MergeQueueEntry
 			}
 		} else {
 			r.priority, r.readable = item.Priority, true
+			if placement := item.PlacedFirst(); placement != nil {
+				at := placement.At
+				r.placed = &at
+			}
 			// WaitingOn also names open items that are not in the queue; only
 			// another admitted entry's item holds this one back.
 			for _, id := range item.WaitingOn(admitted) {
@@ -155,8 +177,8 @@ func (o queueOrder) pick(ctx context.Context, waiting []runstate.MergeQueueEntry
 	if len(candidates) == 0 {
 		candidates = ranked
 	}
-	chosen, rule := rank(candidates, o.now)
-	return MergeQueueChoice{Entry: chosen.entry, Rule: rule, Passed: queuePassedOver(waiting, chosen.entry)}
+	chosen, rule, placed := rank(candidates, o.now)
+	return MergeQueueChoice{Entry: chosen.entry, Rule: rule, Passed: queuePassedOver(waiting, chosen.entry), PlacedFirst: placed}
 }
 
 func queuePassedOver(waiting []runstate.MergeQueueEntry, chosen runstate.MergeQueueEntry) []string {
@@ -171,11 +193,18 @@ func queuePassedOver(waiting []runstate.MergeQueueEntry, chosen runstate.MergeQu
 }
 
 // rank applies the rules to candidates given in admission order and returns
-// the first entry the first applicable rule picks. candidates is not empty.
-func rank(candidates []rankedEntry, now time.Time) (rankedEntry, string) {
+// the first entry the first applicable rule picks, and whether a placement
+// decided it. candidates is not empty.
+//
+// Within rule 2, and within each priority under rule 4, an entry whose work
+// item was placed first goes ahead, earliest placement first, and the rest
+// follow in admission order. A placement never lifts an entry past an entry
+// already in progress or one that has waited eight hours, nor into a higher
+// rule, because each rule's members are chosen before placement is looked at.
+func rank(candidates []rankedEntry, now time.Time) (rankedEntry, string, bool) {
 	for _, r := range candidates {
 		if r.inProgress {
-			return r, MergeQueueRuleInProgress
+			return r, MergeQueueRuleInProgress, false
 		}
 	}
 	var aged []rankedEntry
@@ -191,7 +220,7 @@ func rank(candidates []rankedEntry, now time.Time) (rankedEntry, string) {
 			}
 			return aged[i].entry.Order < aged[j].entry.Order
 		})
-		return aged[0], MergeQueueRuleAged
+		return aged[0], MergeQueueRuleAged, false
 	}
 	oldestArchitect := -1
 	for i, r := range candidates {
@@ -200,14 +229,19 @@ func rank(candidates []rankedEntry, now time.Time) (rankedEntry, string) {
 			break
 		}
 	}
+	var urgent []rankedEntry
 	for i, r := range candidates {
 		if i == oldestArchitect || (!r.document && r.readable && r.priority == 0) {
-			return r, MergeQueueRuleUrgent
+			urgent = append(urgent, r)
 		}
+	}
+	if len(urgent) > 0 {
+		chosen, placed := placedFirst(urgent)
+		return chosen, MergeQueueRuleUrgent, placed
 	}
 	for _, r := range candidates {
 		if r.document {
-			return r, MergeQueueRuleDocument
+			return r, MergeQueueRuleDocument, false
 		}
 	}
 	var code []rankedEntry
@@ -218,7 +252,34 @@ func rank(candidates []rankedEntry, now time.Time) (rankedEntry, string) {
 	}
 	if len(code) > 0 {
 		sort.SliceStable(code, func(i, j int) bool { return code[i].priority < code[j].priority })
-		return code[0], MergeQueueRulePriority
+		var same []rankedEntry
+		for _, r := range code {
+			if r.priority == code[0].priority {
+				same = append(same, r)
+			}
+		}
+		chosen, placed := placedFirst(same)
+		return chosen, MergeQueueRulePriority, placed
 	}
-	return candidates[0], MergeQueueRuleUnreadable
+	return candidates[0], MergeQueueRuleUnreadable, false
+}
+
+// placedFirst is the first of one rule's or one priority's entries, given in
+// admission order: the one placed earliest where any is placed, and otherwise
+// the one admitted first. It also says whether the placement decided it, which
+// is so only where an entry admitted earlier was passed over for it.
+func placedFirst(group []rankedEntry) (rankedEntry, bool) {
+	chosen := -1
+	for i, r := range group {
+		if r.placed == nil {
+			continue
+		}
+		if chosen < 0 || r.placed.Before(*group[chosen].placed) {
+			chosen = i
+		}
+	}
+	if chosen < 0 {
+		return group[0], false
+	}
+	return group[chosen], chosen > 0
 }

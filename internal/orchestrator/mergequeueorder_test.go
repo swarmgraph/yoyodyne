@@ -9,6 +9,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -61,6 +62,9 @@ type orderEntry struct {
 	recordedAsDocument bool
 	// outsider is an open item outside the queue its item depends on.
 	outsider string
+	// placedAgo, where not zero, is how long ago the Lead Product Manager
+	// placed the entry's item first among its priority.
+	placedAgo time.Duration
 }
 
 func chooseFrom(t *testing.T, tracker bool, entries ...orderEntry) MergeQueueChoice {
@@ -85,6 +89,9 @@ func chooseFrom(t *testing.T, tracker bool, entries ...orderEntry) MergeQueueCho
 			}
 			if e.blocker != "" {
 				item.Dependencies = []beads.Dependency{{ID: "item-" + e.blocker, Type: beads.BlocksDependency, Status: "open"}}
+			}
+			if e.placedAgo != 0 {
+				item.Placement = &beads.Placement{By: domain.RoleProductManager, At: orderNow.Add(-e.placedAgo), Priority: e.priority, Reason: "promised first"}
 			}
 			if e.outsider != "" {
 				item.Dependencies = append(item.Dependencies, beads.Dependency{ID: e.outsider, Type: beads.BlocksDependency, Status: "open"})
@@ -275,3 +282,71 @@ func TestTheChoiceRecordsTheEntriesItPassedOver(t *testing.T) {
 type fixedOrderClock struct{}
 
 func (fixedOrderClock) Now() time.Time { return orderNow }
+
+func TestAPlacedPriorityZeroEntryGoesAheadOfAnOlderUnplacedOne(t *testing.T) {
+	got := chooseFrom(t, true,
+		orderEntry{id: "older", paths: code, priority: 0, age: 3 * time.Hour},
+		orderEntry{id: "placed", paths: code, priority: 0, age: time.Hour, placedAgo: 30 * time.Minute},
+	)
+	if got.Entry.EntryID != "placed" || got.Rule != MergeQueueRuleUrgent || !got.PlacedFirst {
+		t.Fatalf("chose %s by %q (placement decided: %v), want the placed entry chosen by its placement", got.Entry.EntryID, got.Rule, got.PlacedFirst)
+	}
+}
+
+func TestTwoPlacedEntriesGoInTheOrderTheyWerePlaced(t *testing.T) {
+	got := chooseFrom(t, true,
+		orderEntry{id: "placed-later", paths: code, priority: 0, age: 3 * time.Hour, placedAgo: time.Hour},
+		orderEntry{id: "placed-earlier", paths: code, priority: 0, age: 2 * time.Hour, placedAgo: 2 * time.Hour},
+	)
+	if got.Entry.EntryID != "placed-earlier" || !got.PlacedFirst {
+		t.Fatalf("chose %s (placement decided: %v), want the entry placed earlier", got.Entry.EntryID, got.PlacedFirst)
+	}
+	// Within one priority under the code rule, the same holds.
+	got = chooseFrom(t, true,
+		orderEntry{id: "p2", paths: code, priority: 2, age: 3 * time.Hour},
+		orderEntry{id: "p2-placed-later", paths: code, priority: 2, age: 2 * time.Hour, placedAgo: time.Hour},
+		orderEntry{id: "p2-placed-earlier", paths: code, priority: 2, age: time.Hour, placedAgo: 2 * time.Hour},
+		orderEntry{id: "p3-placed", paths: code, priority: 3, age: 4 * time.Hour, placedAgo: 4 * time.Hour},
+	)
+	if got.Entry.EntryID != "p2-placed-earlier" || got.Rule != MergeQueueRulePriority || !got.PlacedFirst {
+		t.Fatalf("chose %s by %q (placement decided: %v), want the earliest placed priority 2 entry", got.Entry.EntryID, got.Rule, got.PlacedFirst)
+	}
+}
+
+func TestAPlacementMadeAfterAdmissionChangesTheNextChoice(t *testing.T) {
+	entries := []orderEntry{{id: "a", paths: code, priority: 0, age: 2 * time.Hour}, {id: "b", paths: code, priority: 0, age: time.Hour}}
+	if got := chooseFrom(t, true, entries...); got.Entry.EntryID != "a" || got.PlacedFirst {
+		t.Fatalf("chose %s (placement decided: %v), want a in admission order", got.Entry.EntryID, got.PlacedFirst)
+	}
+	entries[1].placedAgo = time.Minute
+	if got := chooseFrom(t, true, entries...); got.Entry.EntryID != "b" || !got.PlacedFirst {
+		t.Fatalf("chose %s (placement decided: %v), want b once it is placed first", got.Entry.EntryID, got.PlacedFirst)
+	}
+}
+
+func TestAPlacedEntryNeverGoesAheadOfOneWaitingEightHours(t *testing.T) {
+	got := chooseFrom(t, true,
+		orderEntry{id: "placed", paths: code, priority: 0, age: time.Hour, placedAgo: 30 * time.Minute},
+		orderEntry{id: "aged", paths: code, priority: 4, age: 9 * time.Hour},
+	)
+	if got.Entry.EntryID != "aged" || got.Rule != MergeQueueRuleAged || got.PlacedFirst {
+		t.Fatalf("chose %s by %q (placement decided: %v), want the entry waiting eight hours", got.Entry.EntryID, got.Rule, got.PlacedFirst)
+	}
+}
+
+func TestAPlacementNeverLiftsAnEntryIntoAHigherRuleOrPastOneInProgress(t *testing.T) {
+	got := chooseFrom(t, true,
+		orderEntry{id: "p0", paths: code, priority: 0},
+		orderEntry{id: "p2-placed", paths: code, priority: 2, placedAgo: time.Hour},
+	)
+	if got.Entry.EntryID != "p0" || got.PlacedFirst {
+		t.Fatalf("chose %s (placement decided: %v), want priority 0 ahead of a placed priority 2 entry", got.Entry.EntryID, got.PlacedFirst)
+	}
+	got = chooseFrom(t, true,
+		orderEntry{id: "checking", paths: code, priority: 3, started: true},
+		orderEntry{id: "p0-placed", paths: code, priority: 0, placedAgo: time.Hour},
+	)
+	if got.Entry.EntryID != "checking" || got.Rule != MergeQueueRuleInProgress {
+		t.Fatalf("chose %s by %q, want the entry already being checked", got.Entry.EntryID, got.Rule)
+	}
+}
