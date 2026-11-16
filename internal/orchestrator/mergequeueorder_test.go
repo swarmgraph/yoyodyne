@@ -56,6 +56,11 @@ type orderEntry struct {
 	unread   bool
 	blocker  string
 	started  bool
+	// recordedAsDocument gives the entry the identifiers a document's entry is
+	// recorded under (its item is its run's own identifier).
+	recordedAsDocument bool
+	// outsider is an open item outside the queue its item depends on.
+	outsider string
 }
 
 func chooseFrom(t *testing.T, tracker bool, entries ...orderEntry) MergeQueueChoice {
@@ -68,23 +73,33 @@ func chooseFrom(t *testing.T, tracker bool, entries ...orderEntry) MergeQueueCho
 			EntryID: e.id, Order: uint64(i + 1), WorkItemID: "item-" + e.id, RunID: e.id, ApprovedHead: e.id,
 			AdmittedAt: orderNow.Add(-e.age),
 		})
+		if e.recordedAsDocument {
+			waiting[i].WorkItemID = e.id
+		}
 		paths[e.id] = e.paths
 		started[e.id] = e.started
 		if !e.unread {
 			item := beads.WorkItem{ID: "item-" + e.id, Priority: e.priority}
+			if e.recordedAsDocument {
+				item.ID = e.id
+			}
 			if e.blocker != "" {
 				item.Dependencies = []beads.Dependency{{ID: "item-" + e.blocker, Type: beads.BlocksDependency, Status: "open"}}
 			}
-			items["item-"+e.id] = item
+			if e.outsider != "" {
+				item.Dependencies = append(item.Dependencies, beads.Dependency{ID: e.outsider, Type: beads.BlocksDependency, Status: "open"})
+			}
+			items[waiting[i].WorkItemID] = item
 		}
 	}
 	var cfg config.Config
 	cfg.Product.Specifications, cfg.Product.Designs, cfg.Product.Decisions, cfg.Product.Invariants = "docs/product", "docs/designs", "docs/decisions", "docs/decisions/invariants"
-	w := MergeQueueWorker{
-		Pipeline:   &Pipeline{Config: cfg, Store: orderRuns{}, Tracker: orderTracker{items: items, down: !tracker}, Clock: fixedOrderClock{}},
-		Candidates: orderPaths{paths: paths},
+	o := queueOrder{
+		pipeline: &Pipeline{Config: cfg, Store: orderRuns{}, Tracker: orderTracker{items: items, down: !tracker}},
+		paths:    orderPaths{paths: paths}.CandidatePaths,
+		now:      orderNow,
 	}
-	return w.choose(context.Background(), waiting, started)
+	return o.choose(context.Background(), waiting, started)
 }
 
 var (
@@ -214,6 +229,16 @@ func TestAnEntryWhoseItemDependsOnAnAdmittedEntryWaitsForIt(t *testing.T) {
 	}
 }
 
+func TestADependencyOnAnOpenItemOutsideTheQueueHoldsNothingBack(t *testing.T) {
+	got := chooseFrom(t, true,
+		orderEntry{id: "a", paths: code, priority: 3, outsider: "never-admitted"},
+		orderEntry{id: "b", paths: code, priority: 4},
+	)
+	if got.Entry.EntryID != "a" {
+		t.Fatalf("chose %s, want a: an item outside the queue does not hold it back", got.Entry.EntryID)
+	}
+}
+
 func TestATrackerThatCannotBeReadGivesAdmissionOrderAndSaysSo(t *testing.T) {
 	got := chooseFrom(t, false,
 		orderEntry{id: "p3", paths: code, priority: 3},
@@ -228,7 +253,7 @@ func TestAnEntryRecordedAsADocumentIsACodeEntryWhenItsPathsAreCode(t *testing.T)
 	// Both entries here are recorded as the same kind (item id equal to run id
 	// would mark a document); only the paths decide.
 	got := chooseFrom(t, true,
-		orderEntry{id: "mixed", paths: append(append([]string(nil), intent...), code...), priority: 3},
+		orderEntry{id: "mixed", paths: append(append([]string(nil), intent...), code...), priority: 3, recordedAsDocument: true},
 		orderEntry{id: "p1", paths: code, priority: 1},
 	)
 	if got.Entry.EntryID != "p1" || got.Rule != MergeQueueRulePriority {

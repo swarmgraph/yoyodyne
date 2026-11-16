@@ -8,7 +8,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"path"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -53,65 +53,47 @@ type rankedEntry struct {
 	readable   bool
 }
 
-// documentHomes are the directories whose contents make a change a document:
-// product intent, designs and decisions, with the invariants home inside them
-// or beside them. Every path under them is a document path, directory indexes
-// included.
-func (p *Pipeline) documentHomes() (all, architect []string) {
-	architect = []string{p.Config.Product.Designs, p.Config.Product.Decisions, p.Config.Product.Invariants}
-	all = append([]string{p.Config.Product.Specifications}, architect...)
-	return all, architect
+// queueOrder is what the order is chosen with. The worker that verifies the
+// next entry and the promoter that lands it both choose through it, so the two
+// never disagree about which entry is next: a promoter that took the earliest
+// admitted entry while the worker verified a later one would refuse the one
+// and never land the other.
+type queueOrder struct {
+	pipeline *Pipeline
+	// paths lists what a change makes against its base.
+	paths func(ctx context.Context, base, candidate string) ([]string, error)
+	now   time.Time
 }
 
-// onlyUnder reports whether every path lies under one of the directories, and
-// there is at least one path.
-func onlyUnder(paths, directories []string) bool {
-	if len(paths) == 0 {
-		return false
-	}
-	for _, changed := range paths {
-		changed = path.Clean(strings.ReplaceAll(changed, "\\", "/"))
-		inside := false
-		for _, directory := range directories {
-			directory = path.Clean(strings.TrimSpace(directory))
-			if directory == "." || directory == "" {
-				continue
-			}
-			if changed == directory || strings.HasPrefix(changed, directory+"/") {
-				inside = true
-				break
-			}
-		}
-		if !inside {
-			return false
-		}
-	}
-	return true
+func (o queueOrder) choose(ctx context.Context, waiting []runstate.MergeQueueEntry, started map[string]bool) MergeQueueChoice {
+	return o.pick(ctx, waiting, started)
 }
 
 // documentKind says from the paths the entry's change makes against its
 // recorded base, never from its recorded kind, whether the entry is a
-// document and whether it is the architect's. A change whose paths cannot be
-// read is a code entry, which is checked as code is.
-func (w MergeQueueWorker) documentKind(ctx context.Context, entry runstate.MergeQueueEntry) (document, architect bool) {
-	if w.Pipeline.Store == nil {
+// document and whether it is the architect's. It asks the same question of
+// the paths as the document landing route (changeIsDocument). A change whose
+// paths cannot be read is a code entry, which is checked as code is.
+func (o queueOrder) documentKind(ctx context.Context, entry runstate.MergeQueueEntry) (document, architect bool) {
+	if o.pipeline.Store == nil || o.paths == nil {
 		return false, false
 	}
-	run, err := w.Pipeline.Store.Load(entry.RunID)
+	run, err := o.pipeline.Store.Load(entry.RunID)
 	if err != nil || run.BaseCommit == "" || entry.ApprovedHead == "" {
 		return false, false
 	}
-	changed, err := w.Candidates.CandidatePaths(ctx, run.BaseCommit, entry.ApprovedHead)
+	changed, err := o.paths(ctx, run.BaseCommit, entry.ApprovedHead)
 	if err != nil {
 		return false, false
 	}
-	all, own := w.Pipeline.documentHomes()
-	return onlyUnder(changed, all), onlyUnder(changed, own)
+	// A blank line in a listing of paths is no path.
+	changed = slices.DeleteFunc(slices.Clone(changed), func(changedPath string) bool { return strings.TrimSpace(changedPath) == "" })
+	return changeIsDocument(o.pipeline.Config, changed), changeIsArchitects(o.pipeline.Config, changed)
 }
 
-// inProgress is an entry whose newest generation is still earning its checks
-// or its review: it is never stopped for one that ranks higher.
-func (w MergeQueueWorker) inProgress(generations []runstate.MergeQueueGeneration, entry runstate.MergeQueueEntry) bool {
+// entryInProgress is an entry whose newest generation is still earning its
+// checks or its review: it is never stopped for one that ranks higher.
+func entryInProgress(p *Pipeline, generations []runstate.MergeQueueGeneration, entry runstate.MergeQueueEntry) bool {
 	count := len(generations)
 	if count == 0 {
 		return false
@@ -120,28 +102,27 @@ func (w MergeQueueWorker) inProgress(generations []runstate.MergeQueueGeneration
 	if latest.Invalidated != nil || latest.WaitsOnTarget() || (latest.CheckRun == nil && latest.Review == nil) {
 		return false
 	}
-	return latest.Gate(w.Pipeline.mergeQueueChecks(entry)) != nil
+	return latest.Gate(p.mergeQueueChecks(entry)) != nil
 }
 
-// choose is the entry to work next among the waiting ones given in admission
+// pick is the entry to work next among the waiting ones given in admission
 // order, and the record of why.
-func (w MergeQueueWorker) choose(ctx context.Context, waiting []runstate.MergeQueueEntry, started map[string]bool) MergeQueueChoice {
+func (o queueOrder) pick(ctx context.Context, waiting []runstate.MergeQueueEntry, started map[string]bool) MergeQueueChoice {
 	if len(waiting) == 1 {
 		return MergeQueueChoice{Entry: waiting[0], Rule: MergeQueueRuleOnlyWaiting}
 	}
-	unfinished := map[string]struct{}{}
+	admitted := map[string]struct{}{}
 	for _, entry := range waiting {
-		unfinished[entry.WorkItemID] = struct{}{}
+		admitted[entry.WorkItemID] = struct{}{}
 	}
 	ranked := make([]rankedEntry, 0, len(waiting))
 	blocked := map[string]bool{}
-	readErrors, reads := 0, 0
+	readErrors := 0
 	var firstReadError error
 	for _, entry := range waiting {
 		r := rankedEntry{entry: entry, inProgress: started[entry.EntryID]}
-		r.document, r.architect = w.documentKind(ctx, entry)
-		item, err := w.Pipeline.Tracker.Show(ctx, entry.WorkItemID)
-		reads++
+		r.document, r.architect = o.documentKind(ctx, entry)
+		item, err := o.pipeline.Tracker.Show(ctx, entry.WorkItemID)
 		if err != nil {
 			readErrors++
 			if firstReadError == nil {
@@ -149,15 +130,17 @@ func (w MergeQueueWorker) choose(ctx context.Context, waiting []runstate.MergeQu
 			}
 		} else {
 			r.priority, r.readable = item.Priority, true
-			for _, id := range item.WaitingOn(unfinished) {
-				if id != entry.WorkItemID {
+			// WaitingOn also names open items that are not in the queue; only
+			// another admitted entry's item holds this one back.
+			for _, id := range item.WaitingOn(admitted) {
+				if _, inQueue := admitted[id]; inQueue && id != entry.WorkItemID {
 					blocked[entry.EntryID] = true
 				}
 			}
 		}
 		ranked = append(ranked, r)
 	}
-	if readErrors == reads {
+	if readErrors == len(waiting) {
 		return MergeQueueChoice{Entry: waiting[0], Rule: MergeQueueRuleAdmission, Passed: queuePassedOver(waiting, waiting[0]),
 			TrackerUnread: fmt.Sprintf("the tracker could not be read: %v", firstReadError)}
 	}
@@ -172,7 +155,7 @@ func (w MergeQueueWorker) choose(ctx context.Context, waiting []runstate.MergeQu
 	if len(candidates) == 0 {
 		candidates = ranked
 	}
-	chosen, rule := rank(candidates, w.now())
+	chosen, rule := rank(candidates, o.now)
 	return MergeQueueChoice{Entry: chosen.entry, Rule: rule, Passed: queuePassedOver(waiting, chosen.entry)}
 }
 

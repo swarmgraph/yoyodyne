@@ -342,13 +342,14 @@ func (w MergeQueueWorker) next(ctx context.Context, key runstate.MergeQueueKey) 
 				continue
 			}
 		}
-		started[entry.EntryID] = w.inProgress(generations, entry)
+		started[entry.EntryID] = entryInProgress(w.Pipeline, generations, entry)
 		waiting = append(waiting, entry)
 	}
 	if len(waiting) == 0 {
 		return MergeQueueChoice{}, false, nil
 	}
-	return w.choose(ctx, waiting, started), true, nil
+	order := queueOrder{pipeline: w.Pipeline, paths: w.Candidates.CandidatePaths, now: w.now()}
+	return order.choose(ctx, waiting, started), true, nil
 }
 
 func (w MergeQueueWorker) now() time.Time {

@@ -596,7 +596,7 @@ func (p MergeQueuePromoter) recover(ctx context.Context, key runstate.MergeQueue
 		recovered := MergeQueueRecovery{Entry: pending.entry, Handback: q.landing.Handback}
 		return recovered, q.handBack(ctx)
 	}
-	entry, landing, found, err := p.next(key)
+	entry, landing, found, err := p.next(ctx, key)
 	if err != nil || !found {
 		return MergeQueueRecovery{}, err
 	}
