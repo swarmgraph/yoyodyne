@@ -219,3 +219,30 @@ func TestARoleMayNotApplyTheMCPSectionOrAnAgentsList(t *testing.T) {
 		}
 	}
 }
+
+// A server reached through the operator's own Claude account is Slack's alone,
+// holds no command, address or credential, and is held to its own rules.
+func TestAConnectorServerIsHeldToItsRules(t *testing.T) {
+	t.Parallel()
+
+	const head = "mcp:\n  servers:\n    slack:\n      tools: {slack_search_public: read, slack_send_message: act}\n"
+	const good = "      connector:\n        service: slack\n        time_limit: 90s\n        link_forms: ['https://github.com/acme/']\n        messages:\n          ready: {channel: C1, text: 'Ready:'}\n"
+	if _, err := Decode(strings.NewReader(validBootstrapConfig + head + good)); err != nil {
+		t.Fatalf("a connector server did not load: %v", err)
+	}
+	for _, test := range []struct{ input, want string }{
+		{head + "      command: [a]\n" + good, "holds none of them"},
+		{head + "      url: https://h/\n" + good, "holds none of them"},
+		{head + "      credential: file\n" + good, "holds none of them"},
+		{head + strings.Replace(good, "service: slack", "service: mail", 1), "the only service a connector may be for"},
+		{head + strings.Replace(good, "90s", "11m", 1), "at most 10m0s"},
+		{head + strings.Replace(good, "'https://github.com/acme/'", "'http://github.com/acme/'", 1), "not an https address"},
+		{head + "      connector:\n        service: slack\n        link_forms: ['https://github.com/acme/']\n", "no connector.messages"},
+		{head + strings.Replace(good, "{channel: C1, text: 'Ready:'}", "{channel: C1}", 1), "needs a channel and text"},
+	} {
+		_, err := Decode(strings.NewReader(validBootstrapConfig + test.input))
+		if err == nil || !strings.Contains(err.Error(), test.want) {
+			t.Errorf("Decode(%q) error = %v, want one saying %q", test.input, err, test.want)
+		}
+	}
+}

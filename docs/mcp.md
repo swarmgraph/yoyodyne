@@ -119,6 +119,22 @@ runs the project.
 the command to run. Until it is stored, calls to that server are refused with
 that reason, and nothing else stops.
 
+### Slack
+
+Slack is reached through the Slack connection your own Claude account already
+has, so no Slack app is needed and posts appear as you. Declare it with a
+`connector` block (see `docs/configuration.md`, the MCP section). For each call
+the harness starts one Claude session of its own, with no repository, no files
+and no tool but the one Slack tool that call names; it checks afterwards that
+the session made exactly that one call with exactly the arguments it was given,
+and throws the result away, recording the call as refused, if it did anything
+else. A post is the words of a message you configured plus links in the forms
+you allowed; a role never writes the text. A session that runs past its time
+limit is ended, the call is recorded as failed, and it is not tried again. The
+session's cost is kept in the call's record. This needs your Claude account to
+have a Slack connection and the harness to be able to start `claude` with no
+person present; a Slack call fails, saying so, where it cannot.
+
 Both the `mcp` section and every agent's `mcp_tools` are yours alone: a role
 asking to change its configuration is refused for either.
 

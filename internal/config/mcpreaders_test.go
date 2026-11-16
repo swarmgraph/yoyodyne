@@ -18,7 +18,8 @@ import (
 // internal/mcpcall that starts a declared server in the harness's own process
 // and reads its credential from the stores, with the one call path beside it
 // that resolves each caller's list and scrubs results of every server's
-// credential. None of them builds a
+// credential, and internal/mcpcall/slack.go, which carries a Slack call
+// through the one Claude session the harness starts for it. None of them builds a
 // role's launch, so a project that declares nothing — whose revision is
 // unchanged too (TestAProjectWithNoMCPSectionIsUnchanged) — launches every
 // role exactly as it did before the keys existed.
@@ -55,6 +56,7 @@ var mcpReaders = map[string]bool{
 	"internal/mcpcall/mcpcall.go":     true,
 	"internal/mcpcall/path.go":        true,
 	"internal/mcpcall/remote.go":      true,
+	"internal/mcpcall/slack.go":       true,
 	"internal/orchestrator/mcpask.go": true,
 }
 

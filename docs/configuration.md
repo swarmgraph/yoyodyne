@@ -7394,6 +7394,24 @@ agents:
   at your terminal with that folder as its working directory and its home. It
   is refused to a process the harness started for a role. A server with no
   login prints the command that stores its credential instead.
+- **Slack through your own Claude account** is declared as a server with a
+  `connector` block in place of `command` and `url`. The harness holds no Slack
+  token: for each Slack call it starts one Claude session on your own account,
+  in the server's own empty folder, with every built-in tool off and only the
+  one Slack tool the call names allowed, and ends it when the call returns or
+  `connector.time_limit` (two minutes if unset, at most ten) runs out. Keys:
+  `connector.service` (only `slack`), `connector.tool_prefix` (the front of the
+  session's name for a Slack tool, `mcp__claude_ai_Slack__` if unset),
+  `connector.time_limit`, `connector.messages` (each post a role may ask for,
+  by name, with its `channel` and fixed `text`), `connector.link_forms` (the
+  https addresses a link in a post must start with), and
+  `connector.channel_argument` / `connector.text_argument` (the names the post
+  tool gives its channel and text, `channel_id` and `message` if unset). A role
+  asks for a post as `{"message": "<name>", "links": [...]}` and nothing else;
+  the harness checks each link and puts the text together. No key here loosens
+  a limit on the session, which are fixed in the harness's code. The session
+  uses whatever Slack connection your Claude account has; the harness cannot
+  start one without it.
 - `yoyo config show` reports each agent's MCP tools beside its other tools, and
   `yoyo doctor` reports each server whose credential is missing, naming the
   server and the command to run. A missing credential stops nothing else.

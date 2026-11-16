@@ -268,10 +268,14 @@ const (
 	// RefusedID is an act call with no id, or an id reused with different
 	// content.
 	RefusedID RefusalReason = "id"
+	// RefusedSessionVoided is a Slack call whose carrying session made any
+	// call but the one decided, or changed its arguments: the result was
+	// thrown away, and a post it made may already have gone out.
+	RefusedSessionVoided RefusalReason = "session_voided"
 )
 
 // RefusalReasons is the closed list, in the design's order.
-var RefusalReasons = []RefusalReason{RefusedNotOnList, RefusedArguments, RefusedSecret, RefusedLimit, RefusedPaused, RefusedCredential, RefusedID}
+var RefusalReasons = []RefusalReason{RefusedNotOnList, RefusedArguments, RefusedSecret, RefusedLimit, RefusedPaused, RefusedCredential, RefusedID, RefusedSessionVoided}
 
 // Plain is the reason as a short sentence for a person reading what a reply
 // did. The stored code stays what the call record and the role are given; this
@@ -292,6 +296,8 @@ func (r RefusalReason) Plain() string {
 		return "the server's password or key is not stored on this machine"
 	case RefusedID:
 		return "an act call needs an id of its own that has not been used before"
+	case RefusedSessionVoided:
+		return "the Slack session did more or other than the one call it was given, so its result was thrown away"
 	}
 	return "the harness refused it for a reason it did not name"
 }
@@ -398,6 +404,13 @@ type Path struct {
 	// Attribution's product, repository and build. Nil files none.
 	Notes       Notes
 	Attribution report.Attribution
+	// Carrier starts the one session that carries a Slack call. Nil carries
+	// none: such a call fails, saying so.
+	Carrier Carrier
+	// Spend is told what a carrying session cost, with who asked and the
+	// call's entry in the record. Nil tells nobody; the record keeps the cost
+	// either way.
+	Spend func(caller CallerRecord, entry string, usd float64)
 }
 
 // Notes is the pile the harness's own reports are filed into. It is satisfied
@@ -704,6 +717,10 @@ func (d *doing) scrubbedArguments(arguments json.RawMessage) json.RawMessage {
 func (d *doing) serve(group []*pending) {
 	server := group[0].tool.Server
 	declared := d.path.Config.MCP.Servers[server]
+	if declared.Connector != nil {
+		d.serveConnector(server, declared, group)
+		return
+	}
 	if declared.Credential != config.MCPCredentialNone {
 		if _, err := d.path.Stores.Read(d.ctx, server, declared); err != nil {
 			words := fmt.Sprintf("the credential for MCP server %q is not stored on this machine, so nothing was called; this is a step only a person can take, by running %s", server, mcpcredential.Remedy(d.path.Stores.StateRoot, d.path.Stores.Product, server, declared))

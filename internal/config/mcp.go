@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
@@ -58,6 +59,92 @@ type MCPServer struct {
 	// than the server's, because what a server says about its own tools is
 	// untrusted, and a tool this list does not name cannot be called by anyone.
 	Tools map[string]MCPToolClass `yaml:"tools,omitempty" json:"tools,omitempty"`
+	// Connector is set in place of Command and URL for the one server the
+	// harness does not call itself: Slack, reached through the Slack connection
+	// on the operator's own Claude account. See MCPConnector.
+	Connector *MCPConnector `yaml:"connector,omitempty" json:"connector,omitempty"`
+}
+
+// MCPConnectorSlack is the one service a connector may be for.
+const MCPConnectorSlack = "slack"
+
+// MCPConnectorDefaultTimeLimit is how long a carrying session may run when the
+// configuration names no limit, and MCPConnectorMaxTimeLimit the longest it may
+// be given.
+const (
+	MCPConnectorDefaultTimeLimit = 2 * time.Minute
+	MCPConnectorMaxTimeLimit     = 10 * time.Minute
+)
+
+// MCPConnector is how the harness reaches a service through the Claude account
+// the operator signs in with, when it holds no token of its own: for each call
+// it starts one Claude session that has only the one connector tool the call
+// names (docs/designs/mcp-tools-through-the-harness.md, section 8). It carries
+// what the project chooses and never what a session may do: the session's
+// limits are fixed in internal/mcpcall and no key here loosens one.
+type MCPConnector struct {
+	// Service is the service reached. Only "slack" is accepted.
+	Service string `yaml:"service" json:"service"`
+	// ToolPrefix is the front of the name the Claude session gives a tool of
+	// this connector; the tool's own name is added to it. Empty is the name
+	// Claude gives the account's Slack connection.
+	ToolPrefix string `yaml:"tool_prefix,omitempty" json:"tool_prefix,omitempty"`
+	// TimeLimit is how long one carrying session may run before it is ended and
+	// the call is recorded as failed. Empty is two minutes; at most ten.
+	TimeLimit Duration `yaml:"time_limit,omitempty" json:"time_limit,omitempty"`
+	// Messages are the posts a role may ask for, by name. A post is the
+	// message's fixed text and the links the role supplies, and nothing else.
+	Messages map[string]MCPConnectorMessage `yaml:"messages,omitempty" json:"messages,omitempty"`
+	// LinkForms are the forms a link in a post may take: each an https address
+	// ending where a link must begin, such as "https://github.com/acme/". A link
+	// is allowed when it starts with one of them.
+	LinkForms []string `yaml:"link_forms,omitempty" json:"link_forms,omitempty"`
+	// ChannelArgument and TextArgument are the names the post tool gives the
+	// channel and the text in its arguments. Empty is channel_id and message.
+	ChannelArgument string `yaml:"channel_argument,omitempty" json:"channel_argument,omitempty"`
+	TextArgument    string `yaml:"text_argument,omitempty" json:"text_argument,omitempty"`
+}
+
+// MCPConnectorMessage is one post the project allows: where it goes and the
+// words it says. The harness, not a role and not the session, puts the final
+// text together from these words and the checked links.
+type MCPConnectorMessage struct {
+	Channel string `yaml:"channel" json:"channel"`
+	Text    string `yaml:"text" json:"text"`
+}
+
+// TimeLimitOrDefault is the limit one carrying session runs under.
+func (c MCPConnector) TimeLimitOrDefault() time.Duration {
+	if c.TimeLimit.Duration() > 0 {
+		return c.TimeLimit.Duration()
+	}
+	return MCPConnectorDefaultTimeLimit
+}
+
+// ChannelKey and TextKey are the argument names a post's channel and text go
+// under.
+func (c MCPConnector) ChannelKey() string {
+	if c.ChannelArgument != "" {
+		return c.ChannelArgument
+	}
+	return "channel_id"
+}
+
+func (c MCPConnector) TextKey() string {
+	if c.TextArgument != "" {
+		return c.TextArgument
+	}
+	return "message"
+}
+
+// SessionToolName is the name the carrying session knows a tool of this
+// connector by.
+func (c MCPConnector) SessionToolName(tool string) string {
+	prefix := c.ToolPrefix
+	if prefix == "" {
+		prefix = "mcp__claude_ai_Slack__"
+	}
+	return prefix + tool
 }
 
 // MCPToolClass is whether a tool changes anything outside the harness.
@@ -181,6 +268,8 @@ func (s MCPServer) problems(name string) []string {
 	key := "mcp.servers." + name
 	hasCommand, hasURL := len(s.Command) > 0, strings.TrimSpace(s.URL) != ""
 	switch {
+	case s.Connector != nil:
+		problems = append(problems, s.connectorProblems(key, hasCommand, hasURL)...)
 	case hasCommand && hasURL:
 		problems = append(problems, fmt.Sprintf("%s sets both command and url; a server is one or the other", key))
 	case !hasCommand && !hasURL:
@@ -211,6 +300,9 @@ func (s MCPServer) problems(name string) []string {
 	case mcpReservedEnvironment[env] || strings.HasPrefix(env, "YOYODYNE_"):
 		problems = append(problems, fmt.Sprintf("%s.credential_env %q is a variable the harness sets itself", key, env))
 	}
+	if s.Connector != nil && s.Connector.Service == MCPConnectorSlack {
+		problems = append(problems, s.Connector.messageProblems(key, s.Tools)...)
+	}
 	if len(s.Tools) == 0 {
 		problems = append(problems, fmt.Sprintf("%s names no tools, so nothing on it could ever be called; name each tool the project uses as %s or %s", key, MCPRead, MCPAct))
 	}
@@ -226,6 +318,63 @@ func (s MCPServer) problems(name string) []string {
 		if class := s.Tools[tool]; class != MCPRead && class != MCPAct {
 			problems = append(problems, fmt.Sprintf("%s.tools.%s is %q; each tool is %q, a call that changes nothing outside the harness, or %q, one that may", key, tool, class, MCPRead, MCPAct))
 		}
+	}
+	return problems
+}
+
+// connectorProblems is what is wrong with a server reached through the
+// operator's Claude account: it is Slack's alone, and it names nothing the
+// harness would start, dial or keep a credential for.
+func (s MCPServer) connectorProblems(key string, hasCommand, hasURL bool) []string {
+	var problems []string
+	connector := s.Connector
+	if hasCommand || hasURL || s.Login != nil || s.Credential != MCPCredentialNone || s.CredentialEnv != "" {
+		problems = append(problems, fmt.Sprintf("%s.connector is set beside a command, url, login, credential or credential_env; a connector is reached through the operator's Claude account and holds none of them", key))
+	}
+	if connector.Service != MCPConnectorSlack {
+		problems = append(problems, fmt.Sprintf("%s.connector.service is %q; the only service a connector may be for is %q", key, connector.Service, MCPConnectorSlack))
+	}
+	if connector.TimeLimit.Duration() < 0 || connector.TimeLimit.Duration() > MCPConnectorMaxTimeLimit {
+		problems = append(problems, fmt.Sprintf("%s.connector.time_limit is %s; it is at most %s", key, connector.TimeLimit, MCPConnectorMaxTimeLimit))
+	}
+	for field, value := range map[string]string{"tool_prefix": connector.ToolPrefix, "channel_argument": connector.ChannelArgument, "text_argument": connector.TextArgument} {
+		if value != "" && !mcpToolNamePattern.MatchString(value) {
+			problems = append(problems, fmt.Sprintf("%s.connector.%s %q is not a name in letters, digits, underscores, hyphens and dots", key, field, value))
+		}
+	}
+	for _, form := range connector.LinkForms {
+		if parsed, err := url.Parse(form); err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" || strings.ContainsAny(form, " \t\r\n") {
+			problems = append(problems, fmt.Sprintf("%s.connector.link_forms names %q, which is not an https address with a host", key, form))
+		}
+	}
+	return problems
+}
+
+// messageProblems is what is wrong with the posts a connector allows: a post
+// needs a channel and words, and a server with a tool that acts needs at least
+// one post and one link form, because a role may post nothing else.
+func (c MCPConnector) messageProblems(key string, tools map[string]MCPToolClass) []string {
+	var problems []string
+	names := make([]string, 0, len(c.Messages))
+	for name := range c.Messages {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		message := c.Messages[name]
+		if domain.ValidateIdentifier("message name", name) != nil {
+			problems = append(problems, fmt.Sprintf("%s.connector.messages names %q, which is not a plain name", key, name))
+		}
+		if strings.TrimSpace(message.Channel) == "" || strings.TrimSpace(message.Text) == "" {
+			problems = append(problems, fmt.Sprintf("%s.connector.messages.%s needs a channel and text", key, name))
+		}
+	}
+	acts := false
+	for _, class := range tools {
+		acts = acts || class == MCPAct
+	}
+	if acts && len(c.Messages) == 0 {
+		problems = append(problems, fmt.Sprintf("%s has a tool that acts and no connector.messages, so nothing could be posted; a role posts only a configured message", key))
 	}
 	return problems
 }
@@ -345,6 +494,16 @@ func copyMCP(source MCP) MCP {
 			tools[tool] = class
 		}
 		server.Tools = tools
+		if server.Connector != nil {
+			connector := *server.Connector
+			connector.LinkForms = append([]string(nil), connector.LinkForms...)
+			messages := make(map[string]MCPConnectorMessage, len(connector.Messages))
+			for name, message := range connector.Messages {
+				messages[name] = message
+			}
+			connector.Messages = messages
+			server.Connector = &connector
+		}
 		copied.Servers[name] = server
 	}
 	return copied

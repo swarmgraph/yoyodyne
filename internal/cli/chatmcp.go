@@ -44,6 +44,7 @@ func conversationMCP(parts components, stderr io.Writer) chat.MCPCalls {
 		Records:       records,
 		RedactValues:  parts.redactValues,
 		ClientVersion: buildinfo.Commit(),
+		Carrier:       mcpcall.ClaudeCarrier{},
 		Attribution:   passFailureAttribution(parts.config),
 	}
 	// A server whose tool listing changed since its last call is put to the
