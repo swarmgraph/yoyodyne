@@ -61,7 +61,7 @@ import (
 const StepName = "release"
 
 const (
-	// CutTimeout bounds the gates: the adoption walkthrough, make check, and the
+	// CutTimeout bounds the gates: the getting-started walkthrough, make check, and the
 	// release build, which a person's cut runs in about forty minutes.
 	CutTimeout = 2 * time.Hour
 	// gitTimeout bounds one Git command, and pushTimeout one that reaches the
@@ -85,7 +85,7 @@ var gates = []string{
 	"HEAD at origin's default branch, with a clean tree",
 	"the release's notes",
 	"release readiness, matching the notes' stamp",
-	"the adoption walkthrough",
+	"the getting-started walkthrough",
 	"make check",
 	"the release build",
 }

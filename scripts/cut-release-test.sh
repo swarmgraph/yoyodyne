@@ -210,7 +210,7 @@ SH
 
   case "$walk" in
     green)
-      cat > "$project/scripts/walk-adoption.sh" <<'SH'
+      cat > "$project/scripts/walk-getting-started.sh" <<'SH'
 #!/usr/bin/env bash
 echo "  ok: the documented adoption path works as written"
 SH
@@ -220,7 +220,7 @@ SH
       # exercises bd, which rewrites the passive export beside it. The path is
       # resolved from the script rather than the caller's directory, because
       # the cut is run from wherever the operator happens to be.
-      cat > "$project/scripts/walk-adoption.sh" <<'SH'
+      cat > "$project/scripts/walk-getting-started.sh" <<'SH'
 #!/usr/bin/env bash
 echo "  ok: the documented adoption path works as written"
 project="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -228,14 +228,14 @@ printf 'the walkthrough touched the tracker\n' >> "$project/.beads/issues.jsonl"
 SH
       ;;
     *)
-      cat > "$project/scripts/walk-adoption.sh" <<'SH'
+      cat > "$project/scripts/walk-getting-started.sh" <<'SH'
 #!/usr/bin/env bash
 echo "  FAIL: README says Go 1.24 or newer, go.mod declares 1.9"
 exit 1
 SH
       ;;
   esac
-  chmod +x "$project/scripts/walk-adoption.sh" "$project/scripts/cut-release.sh"
+  chmod +x "$project/scripts/walk-getting-started.sh" "$project/scripts/cut-release.sh"
 
   # Tabs matter here, so the recipe lines are written with printf rather than a
   # heredoc an editor could helpfully reformat.
@@ -356,7 +356,7 @@ project="$(fabricate no-tag green green)"
 output="$(cut "$project")"
 contains "$output" "no version given" "refuses with no tag at all"
 contains "$output" "make release VERSION=" "the refusal names how to pass one"
-missing "$output" "adoption walkthrough" "refuses before spending the walkthrough"
+missing "$output" "getting-started walkthrough" "refuses before spending the walkthrough"
 
 output="$(cut "$project" "v0.2.0-143-gf5e427a")"
 contains "$output" "is not a release tag" "refuses \`git describe\` output, which VERSION defaults to"
@@ -475,7 +475,7 @@ git -C "$project" commit -q --allow-empty -m "a commit origin does not have"
 output="$(cut "$project" "v0.3.0")"
 contains "$output" "HEAD is not where origin/main is" "refuses a HEAD that has diverged from origin"
 contains "$output" "$shared" "the refusal names the commit origin has"
-missing "$output" "adoption walkthrough" "refuses before spending the walkthrough"
+missing "$output" "getting-started walkthrough" "refuses before spending the walkthrough"
 if [ -z "$(tags "$project")" ]; then
   pass "no tag was written"
 else
@@ -514,7 +514,7 @@ project="$(fabricate main-moves-on green green)"
 origin="$(origin_for "$project")"
 # The walkthrough is where the time goes, so that is where the stub lets main
 # move: it pushes a commit to origin from a second clone on its way through.
-cat > "$project/scripts/walk-adoption.sh" <<SH
+cat > "$project/scripts/walk-getting-started.sh" <<SH
 #!/usr/bin/env bash
 echo "  ok: the documented adoption path works as written"
 git -C "$scratch/main-moves-on-elsewhere" commit -q --allow-empty -m "landed while the gates ran"
@@ -536,7 +536,7 @@ fi
 # name a commit the product no longer has.
 project="$(fabricate main-rewritten green green)"
 origin="$(origin_for "$project")"
-cat > "$project/scripts/walk-adoption.sh" <<SH
+cat > "$project/scripts/walk-getting-started.sh" <<SH
 #!/usr/bin/env bash
 echo "  ok: the documented adoption path works as written"
 git -C "$scratch/main-rewritten-elsewhere" commit -q --amend --allow-empty -m "main rewritten while the gates ran"
@@ -978,7 +978,7 @@ fi
 step "a red walkthrough refuses the cut and names the failure"
 project="$(fabricate red-walk red green)"
 output="$(cut "$project" "v0.3.0")"
-contains "$output" "adoption walkthrough is red" "refuses the cut"
+contains "$output" "getting-started walkthrough is red" "refuses the cut"
 contains "$output" "go.mod declares 1.9" "the walkthrough's failing claim is named"
 contains "$output" "nothing was written" "the refusal says nothing was left behind"
 missing "$output" "stub check passed" "refuses before running the checks"
@@ -1102,7 +1102,7 @@ detach "$project"
 cut_automatic "$project" "v0.3.0"
 if [ "$status" = "3" ]; then pass "it exits 3"; else fail "it exited $status -- got: $output"; fi
 contains "$output" "opens no pull request" "the refusal says the stamp is the release item's run to land"
-missing "$output" "adoption walkthrough" "it refuses before spending the walkthrough"
+missing "$output" "getting-started walkthrough" "it refuses before spending the walkthrough"
 if [ -z "$(branches "$project")" ]; then pass "no branch was committed"; else fail "the harness's cut committed $(branches "$project")"; fi
 if [ ! -s "$(pull_requests_of "$project")" ]; then pass "no pull request was opened"; else fail "the harness's cut opened a pull request"; fi
 if [ "$(git -C "$origin" for-each-ref --format='%(refname)' | tr '\n' ' ')" = "refs/heads/main " ]; then

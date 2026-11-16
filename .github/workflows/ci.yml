@@ -88,7 +88,7 @@ jobs:
 
   # The README's "Getting started" is a claim a stranger acts on, and until this
   # job existed the only thing standing behind it was somebody remembering to
-  # run `make adoption` before merging a change to those sections. That is an
+  # run `make getting-started` before merging a change to those sections. That is an
   # assertion rather than a gate, which is what the README split was not allowed
   # to leave behind: a section that moved out of the README is a step a newcomer
   # can no longer take, and only executing the section says whether that
@@ -97,7 +97,7 @@ jobs:
   # It is a job of its own rather than a step in `build` because it needs a tool
   # `make check` does not -- the tracker -- and because it is independent of
   # everything above it, so it runs beside the build rather than after it.
-  adoption:
+  getting-started:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -151,7 +151,7 @@ jobs:
           tar -xzf /tmp/beads.tar.gz -C "$unpacked"
           BD=$(find "$unpacked" -maxdepth 2 -name bd -type f | head -1)
           if [ -z "$BD" ]; then
-            echo "::error::The archive for the pinned tracker v${BD_VERSION} carries no bd binary where this expects one. What is wrong is BD_VERSION in this workflow, not the adoption walkthrough: see docs/developing-yoyo.md#the-tracker-version-ci-pins" >&2
+            echo "::error::The archive for the pinned tracker v${BD_VERSION} carries no bd binary where this expects one. What is wrong is BD_VERSION in this workflow, not the getting-started walkthrough: see docs/developing-yoyo.md#the-tracker-version-ci-pins" >&2
             exit 1
           fi
           install -m 0755 "$BD" /usr/local/bin/bd 2>/dev/null || sudo install -m 0755 "$BD" /usr/local/bin/bd
@@ -163,7 +163,7 @@ jobs:
           case "$installed" in
             *"${BD_VERSION}"*) ;;
             *)
-              echo "::error::The tracker installed reports '${installed}', which does not name the pinned v${BD_VERSION}. What is wrong is BD_VERSION in this workflow, not the adoption walkthrough: see docs/developing-yoyo.md#the-tracker-version-ci-pins" >&2
+              echo "::error::The tracker installed reports '${installed}', which does not name the pinned v${BD_VERSION}. What is wrong is BD_VERSION in this workflow, not the getting-started walkthrough: see docs/developing-yoyo.md#the-tracker-version-ci-pins" >&2
               exit 1
               ;;
           esac
@@ -188,11 +188,11 @@ jobs:
             exit 1
           fi
 
-      # `make adoption` builds this checkout's own binary and walks the
+      # `make getting-started` builds this checkout's own binary and walks the
       # documented steps against a throwaway Python project -- its own scratch
       # repository and state directory, removed when it exits -- so nothing an
       # operator owns is touched. WALK_PROVIDER is left unset, so no provider is
       # invoked and no capacity is spent; the walkthrough names that step as
       # skipped rather than passing over it.
-      - name: Walk the documented adoption path
-        run: make adoption
+      - name: Walk the README's getting-started steps
+        run: make getting-started

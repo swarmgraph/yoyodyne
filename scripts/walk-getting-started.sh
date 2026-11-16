@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# walk-adoption.sh - execute the README's "Getting started" steps against a
+# walk-getting-started.sh - execute the README's "Getting started" steps against a
 # throwaway project that is not this one and is not written in Go, so that
 # section is verified rather than asserted. This file's history is the reason: a
 # README that asserted something false about the product once reached the
@@ -11,8 +11,8 @@
 # the numbered steps below are this script's own finer sequence through the
 # claims those three make.
 #
-#   scripts/walk-adoption.sh                 walk every step that needs no provider
-#   WALK_PROVIDER=1 scripts/walk-adoption.sh also invoke the provider on step 12
+#   scripts/walk-getting-started.sh                 walk every step that needs no provider
+#   WALK_PROVIDER=1 scripts/walk-getting-started.sh also invoke the provider on step 12
 #
 # The provider step is opt-in because it spends real capacity: it hands an item
 # to a developer agent. Everything before it is free and deterministic.
@@ -75,8 +75,8 @@ trap cleanup EXIT
 # is created inside it, and `bd init` there discovers the enclosing repository's
 # tracker remote and tries to clone it -- which under a sandbox that denies the
 # network dies at step 2 under `set -e` with nothing from bd in the log, so a
-# misplaced temporary directory reads as a broken adoption path. That is not
-# hypothetical: it cost run-626e851a a whole walkthrough, its TMPDIR having
+# misplaced temporary directory reads as a broken getting-started walk. That is
+# not hypothetical: it cost run-626e851a a whole walkthrough, its TMPDIR having
 # pointed into a harness run scratch directory under this repository's
 # .git/worktrees. Refusing here rather than passing --no-remote to `bd init` is
 # what the tracker actually offers -- `bd init` has --remote and no way to
@@ -84,7 +84,7 @@ trap cleanup EXIT
 # would find the enclosing repository next.
 if enclosing="$(git -C "$scratch" rev-parse --absolute-git-dir 2>/dev/null)"; then
   {
-    printf 'walk-adoption.sh needs a scratch root outside every git repository.\n'
+    printf 'walk-getting-started.sh needs a scratch root outside every git repository.\n'
     printf '  scratch root:         %s\n' "$scratch"
     printf '  enclosing repository: %s\n' "$enclosing"
     printf 'The throwaway project is created under that root, and `bd init` in it\n'
@@ -118,7 +118,7 @@ missing() {
 }
 
 for tool in go git python3; do
-  command -v "$tool" >/dev/null 2>&1 || { echo "walk-adoption.sh needs $tool" >&2; exit 2; }
+  command -v "$tool" >/dev/null 2>&1 || { echo "walk-getting-started.sh needs $tool" >&2; exit 2; }
 done
 
 # The tracker is the one prerequisite the README cannot have `go install`
@@ -131,24 +131,24 @@ done
 if ! command -v bd >/dev/null 2>&1; then
   bd_version="$(sed -n 's/^ *BD_VERSION: *\([0-9][0-9.]*\) *$/\1/p' "$repository/.github/workflows/ci.yml" | head -1)"
   if [ -z "$bd_version" ]; then
-    echo "walk-adoption.sh needs bd, and could not read the version CI pins (BD_VERSION in .github/workflows/ci.yml) to fetch one" >&2
+    echo "walk-getting-started.sh needs bd, and could not read the version CI pins (BD_VERSION in .github/workflows/ci.yml) to fetch one" >&2
     exit 2
   fi
   case "$(uname -s)" in (Darwin) bd_os=darwin ;; (Linux) bd_os=linux ;;
-    (*) echo "walk-adoption.sh needs bd, and there is no prebuilt tracker to fetch for $(uname -s); install it from $beads_home" >&2; exit 2 ;; esac
+    (*) echo "walk-getting-started.sh needs bd, and there is no prebuilt tracker to fetch for $(uname -s); install it from $beads_home" >&2; exit 2 ;; esac
   case "$(uname -m)" in (x86_64|amd64) bd_arch=amd64 ;; (arm64|aarch64) bd_arch=arm64 ;;
-    (*) echo "walk-adoption.sh needs bd, and there is no prebuilt tracker to fetch for $(uname -m); install it from $beads_home" >&2; exit 2 ;; esac
+    (*) echo "walk-getting-started.sh needs bd, and there is no prebuilt tracker to fetch for $(uname -m); install it from $beads_home" >&2; exit 2 ;; esac
   bd_release="$beads_home/releases/download/v${bd_version}/beads_${bd_version}_${bd_os}_${bd_arch}.tar.gz"
   printf 'bd is not on PATH; fetching the tracker CI pins, v%s, from %s\n' "$bd_version" "$bd_release"
   mkdir -p "$scratch/bin" "$scratch/bd-release"
   if ! curl -fsSL -o "$scratch/bd-release/beads.tar.gz" "$bd_release"; then
-    echo "walk-adoption.sh needs bd, and the pinned tracker v${bd_version} did not download from ${bd_release}; install it from $beads_home, or check BD_VERSION in .github/workflows/ci.yml" >&2
+    echo "walk-getting-started.sh needs bd, and the pinned tracker v${bd_version} did not download from ${bd_release}; install it from $beads_home, or check BD_VERSION in .github/workflows/ci.yml" >&2
     exit 2
   fi
   tar -xzf "$scratch/bd-release/beads.tar.gz" -C "$scratch/bd-release"
   bd_binary="$(find "$scratch/bd-release" -maxdepth 2 -name bd -type f | head -1)"
   if [ -z "$bd_binary" ]; then
-    echo "walk-adoption.sh needs bd, and the archive for the pinned tracker v${bd_version} carries no bd binary where this expects one" >&2
+    echo "walk-getting-started.sh needs bd, and the archive for the pinned tracker v${bd_version} carries no bd binary where this expects one" >&2
     exit 2
   fi
   install -m 0755 "$bd_binary" "$scratch/bin/bd"

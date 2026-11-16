@@ -29,7 +29,7 @@ import (
 //
 // `bash -n` reads a script and does not run it, so this is safe against files
 // whose whole purpose is to do something — the release verb tags a repository
-// and the adoption walkthrough builds one. It is deliberately the only thing
+// and the getting-started walkthrough builds one. It is deliberately the only thing
 // asked of shell that has no suite of its own: parsing is what nothing else in
 // this project did, and a syntax error in a script only a release path executes
 // would otherwise be found by the release.
@@ -170,12 +170,12 @@ var floatingReferences = []floatingReference{
 //
 // A workflow step is the one place in this repository where a stranger's
 // release lands in a pull request nobody wrote: `go install …@latest` in the
-// adoption job moved on 2026-09-05 and turned every open pull request red at a
-// step none of them had touched, where it read as a broken adoption walkthrough
-// rather than as an upstream release. Pinning the version ended that instance;
-// this ends the class, because the pin is one edit away from being a floating
-// reference again and no reviewer reliably sees which of the two they are
-// reading. What the pin costs in return — somebody has to move it deliberately —
+// job that walks the README's getting-started steps moved on 2026-09-05 and
+// turned every open pull request red at a step none of them had touched, where
+// it read as a broken getting-started walkthrough rather than as an upstream
+// release. Pinning the version ended that instance; this ends the class,
+// because the pin is one edit away from being a floating reference again and
+// no reviewer reliably sees which of the two they are reading. What the pin costs in return — somebody has to move it deliberately —
 // is docs/developing-yoyo.md#the-tracker-version-ci-pins.
 func WorkflowVersionPins(root string, paths []string) []Problem {
 	var problems []Problem
