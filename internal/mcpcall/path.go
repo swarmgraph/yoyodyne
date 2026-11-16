@@ -272,9 +272,9 @@ const (
 // RefusalReasons is the closed list, in the design's order.
 var RefusalReasons = []RefusalReason{RefusedNotOnList, RefusedArguments, RefusedSecret, RefusedLimit, RefusedPaused, RefusedCredential, RefusedID}
 
-// Plain is the reason as a short sentence for a person reading what a reply
-// did. The stored code stays what the call record and the role are given; this
-// is only how an operator is shown it, and it names no tool.
+// Plain is the reason as a short sentence, for the operator's line for a
+// round and for the answer handed back to the role that asked. The stored code
+// stays in the call record beside it and is shown to neither. It names no tool.
 func (r RefusalReason) Plain() string {
 	switch r {
 	case RefusedNotOnList:
@@ -338,7 +338,8 @@ func (a Answer) Evidence() string {
 	}
 	fmt.Fprintf(&text, ": %s", a.Outcome)
 	if a.Refusal != "" {
-		fmt.Fprintf(&text, ", refused: %s", a.Refusal)
+		// The stored code stays in the call record; the role reads why in words.
+		fmt.Fprintf(&text, " because %s", a.Refusal.Plain())
 	}
 	text.WriteString("\n")
 	if a.Repeat {
