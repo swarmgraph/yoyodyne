@@ -101,7 +101,7 @@ func newReportRecoveryPassWithOptions(t *testing.T, configure func(*chat.Options
 	}
 	b := &reportRecoveryBackend{replies: replies}
 	clock := &steppedClock{at: time.Date(2026, 10, 4, 18, 0, 0, 0, time.UTC)}
-	open := func(ctx context.Context, role domain.AgentRole, agent, _ string, recovery orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
+	open := func(ctx context.Context, _ func() context.Context, role domain.AgentRole, agent, _ string, recovery orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 		if agent == "" {
 			agent = string(role)
 		}

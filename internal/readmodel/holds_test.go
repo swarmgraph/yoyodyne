@@ -533,6 +533,82 @@ func TestARunThatDiedWithItsChangeCleanedUpHoldsNothing(t *testing.T) {
 	}
 }
 
+// The Nov 11 shape. run-52ead37b's approved change was merge queue entry 36;
+// the entry was released, the queue blocked the item on its hand-back, and the
+// hand-back could not be saved on the run, so the run still read succeeded with
+// nothing landed. No stoppage rule reads a succeeded run, so the item read as
+// free, its blocked status was cleared as left over, and a fresh run started
+// beside the approved change. The change in the queue holds the item, as the
+// harness's move, until the queue lands it or hands it back on the run.
+func TestAnApprovedChangeStillInTheMergeQueueHoldsItsItem(t *testing.T) {
+	t.Parallel()
+
+	queued := queuedRun("run-52ead37b960b1c7d65089c47780b6a86", "yoyodyne-fo4v", 36)
+	held := heldForAPerson([]runstate.State{queued}, nil, nothingDecided, asRecorded)
+	reason := heldReason(t, held, "yoyodyne-fo4v")
+	for _, want := range []string{"run-52ead37b960b1c7d65089c47780b6a86", "merge queue", "entry 36", "duplicate an approved change"} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("the hold says %q, want it to name %q", reason, want)
+		}
+	}
+	if !held.Decided("yoyodyne-fo4v") {
+		t.Errorf("the hold says %q, want the harness named as the next mover rather than the development manager", reason)
+	}
+	if strings.Contains(reason, "development manager") {
+		t.Errorf("the hold says %q, which sends the reader to a role that owes nothing here", reason)
+	}
+}
+
+// The other side: a queued change the queue landed and recorded on its run,
+// one retired by another run's publication, and one whose item a later run has
+// taken up hold nothing here — the last because the later run is what
+// describes where the work is.
+func TestAMergeQueueChangeLandedRetiredOrTakenUpHoldsNothing(t *testing.T) {
+	t.Parallel()
+
+	landed := queuedRun("run-landed", "yoyodyne-landed", 7)
+	landed.Integration = &runstate.Integration{TargetBranch: "main", SourceCommit: "43841801", TargetCommit: "43841801"}
+	landed.BranchRemoved, landed.WorktreeRemoved = true, true
+
+	retired := queuedRun("run-retired", "yoyodyne-retired", 8)
+	retired.Retirement = &runstate.RunRetirement{RunID: "run-other", Commit: "abc1234", TargetBranch: "main", At: retired.UpdatedAt}
+
+	superseded := queuedRun("run-earlier", "yoyodyne-later", 9)
+	later := runstate.State{
+		RunID: "run-later", WorkItemID: "yoyodyne-later", Status: runstate.StatusSucceeded,
+		StartedAt: superseded.StartedAt.Add(time.Hour), UpdatedAt: superseded.UpdatedAt.Add(time.Hour),
+		BranchRemoved: true, WorktreeRemoved: true,
+		Integration: &runstate.Integration{TargetBranch: "main", SourceCommit: "def5678", TargetCommit: "def5678"},
+	}
+
+	held := heldForAPerson([]runstate.State{landed, retired, superseded, later}, nil, nothingDecided, asRecorded)
+	for _, id := range []string{"yoyodyne-landed", "yoyodyne-retired", "yoyodyne-later"} {
+		if reason, ok := held.Reason(id); ok {
+			t.Errorf("%s was held for %q, want nothing holding it", id, reason)
+		}
+	}
+}
+
+// queuedRun is a run whose approved change was admitted to the merge queue for
+// main as the entry of the given order, and that nothing has landed or handed
+// back since: it ended succeeded with its branch and worktree kept.
+func queuedRun(runID, workItemID string, order uint64) runstate.State {
+	admitted := time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC)
+	return runstate.State{
+		RunID:        runID,
+		WorkItemID:   workItemID,
+		Status:       runstate.StatusSucceeded,
+		StartedAt:    admitted.Add(-time.Hour),
+		UpdatedAt:    admitted,
+		Branch:       "yoyodyne/" + workItemID + "/" + runID,
+		WorktreePath: "/state/worktrees/" + runID,
+		MergeQueue: &runstate.MergeQueueAdmissionRecord{
+			EntryID: "mqe-" + strings.Repeat("a", 32), Order: order, Repository: "yoyodyne", TargetBranch: "main",
+			Mode: runstate.MergeQueueHarness, ApprovedHead: strings.Repeat("4", 40), AdmittedAt: admitted,
+		},
+	}
+}
+
 // publishedRun is a run that finished, integrated its change, and could not
 // finish publishing it: the forge merged, and deleting the branch that merge
 // consumed failed on a reset connection.

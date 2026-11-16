@@ -333,7 +333,7 @@ func TestAnInstancesPassOpensTheInstancesOwnConversation(t *testing.T) {
 	t.Parallel()
 
 	var opened []string
-	open := func(_ context.Context, _ domain.AgentRole, agent, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
+	open := func(_ context.Context, _ func() context.Context, _ domain.AgentRole, agent, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 		opened = append(opened, agent)
 		return nil, nil, nil, errors.New("the provider is not signed in")
 	}

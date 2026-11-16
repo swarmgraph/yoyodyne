@@ -3876,9 +3876,13 @@ thirteen in the same order, and a test fails when the two lists differ:
    readable, and only the architect's removal of the label releases it; a run
    already going on the item carries on, and one you name is not held.
 7. **A hold** withholds an item whose stopped run left its change on a branch,
-   or whose publication did not finish, until the development manager's
-   decision is carried out, the escalation is answered, or `yoyo reconcile`
-   settles the publication.
+   or whose publication did not finish, or whose approved change is still in
+   the merge queue, until the development manager's decision is carried out,
+   the escalation is answered, `yoyo reconcile` settles the publication, or the
+   queue lands the change or records handing it back on the run. A queue entry
+   that was released but whose hand-back the run does not record still holds
+   the item, so its blocked status is never cleared as left over and no fresh
+   run starts beside the approved change.
 8. **A step only a person can take** withholds an item that declares a
    `human-gate:` nobody has recorded taking, and only a person's
    `yoyo gate record <name> --for <item>` releases it; closing an item never does.
@@ -7162,8 +7166,8 @@ agents:
 
 | Key | Who it is for | What it bounds | Default | Range |
 | --- | --- | --- | --- | --- |
-| `turn` | an agent that holds a conversation | One provider turn in the agent's conversation; it is the provider call's own total time. A recurring pass that wakes the agent waits for the conversation and takes its turn within it too. | 15 minutes | 1 minute to 4 hours |
-| `message` | an agent that holds a conversation | The elapsed time of one message, however many turns answering it takes, not counting time spent waiting out a provider that refused. | 45 minutes | 2 minutes to 8 hours |
+| `turn` | an agent that holds a conversation | One provider turn in the agent's conversation; it is the provider call's own total time. A recurring pass that wakes the agent starts counting it once the pass holds the conversation, so time spent waiting for the conversation to be free does not count against it. | 15 minutes | 1 minute to 4 hours |
+| `message` | an agent that holds a conversation | The elapsed time of one message, however many turns answering it takes, not counting time spent waiting out a provider that refused. It also bounds how long a recurring pass's turn may wait for the agent's conversation to be free; a pass whose wait reaches it is recorded as missed. | 45 minutes | 2 minutes to 8 hours |
 | `message_turns` | an agent that holds a conversation | How many provider turns one message may take. | 16 | 1 to 100 |
 | `message_spend_usd` | an agent that holds a conversation | What one message's turns may cost, where the provider reports a cost. | none | above 0 to 1000 |
 | `slack_turn` | an agent that holds a conversation | One turn taken from the Slack channel, from the message arriving to the answer being posted. The channel talks only to the Lead Product Manager, so hers is the one that applies. | 10 minutes | 1 minute to 4 hours |
