@@ -273,7 +273,7 @@ func TestConversationShapedWorkWithoutAnExecutorIsRefusedWithTheMarkerNamed(t *t
 		t.Fatalf("ConditionProblems() on 330 = %v, want the done-condition and the title each refused", problems)
 	}
 	for _, problem := range problems {
-		for _, want := range []string{`executor "conversation:architect"`, "never selected for a developer run", "closed by the harness once a revision"} {
+		for _, want := range []string{`executor "conversation:architect"`, "never selected for a developer run", "closed by the harness once each document", "or on the first such revision where it names none"} {
 			if !strings.Contains(problem.Error(), want) {
 				t.Fatalf("refusal %q never says %q", problem, want)
 			}
