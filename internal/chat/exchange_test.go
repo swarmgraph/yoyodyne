@@ -531,3 +531,107 @@ func TestARefusedAskIsHandedBackAndTheRestOfTheReplyIsCarriedOut(t *testing.T) {
 		}
 	}
 }
+
+// An ask the harness cannot read used to fail the whole reply: the memory
+// written beside it was never recorded, and the role that asked was told
+// nothing. Now the rest of the reply is carried out, and the question is handed
+// back to the role that sent it, with the reason, inside the same message, so it
+// can correct the block and send it again.
+func TestAnUnreadableAskIsHandedBackWithItsReasonAndTheRestOfTheReplyIsCarriedOut(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	memories, err := runstate.NewMemoryStore(root, "yoyodyne", "")
+	if err != nil {
+		t.Fatalf("NewMemoryStore() error = %v", err)
+	}
+	// The ask names a goals document without the revision that was read, which is
+	// refused; the corrected one names it and is put.
+	answer := "I will remember this and ask the Lead Product Manager.\n\n" +
+		memoryBlock(`{"memories":[{"action":"remember","memory":"heavyweight-permit","text":"The permit ends with its run."}]}`) +
+		askBlock(`{"ask":{"role":"product-manager","question":"is this trade-off acceptable?","refers":[{"what":"document","id":"v1-goals"}]}}`)
+	corrected := "Sending it again with the revision.\n\n" +
+		askBlock(`{"ask":{"role":"product-manager","question":"is this trade-off acceptable?","refers":[{"what":"document","id":"v1-goals","revision":"revision 8"},{"what":"work-item","id":"yoyodyne-dfk"}]}}`)
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: answer},
+		{SessionID: "session-1", FinalText: corrected},
+		{SessionID: "session-1", FinalText: "The Lead Product Manager says it is acceptable."},
+	}}
+	channel := &fakeExchanges{answers: []string{"Acceptable, if the operator is told."}}
+	options := testOptions(t, provider)
+	options.Role = domain.RoleArchitect
+	options.Agent = string(domain.RoleArchitect)
+	options.Store = newTestStore(t, root)
+	options.Memories = memories
+	options.Exchanges = channel
+	session := openTestSession(t, options)
+
+	reply, err := session.Send(context.Background(), "Carry on with the pass.")
+	if err != nil {
+		t.Fatalf("Send() error = %v, want the unreadable ask handed back rather than the turn failed", err)
+	}
+	if len(reply.Memories) != 1 || len(reply.Saved) != 1 {
+		t.Fatalf("memories = %+v, saved = %+v, want the memory written beside the unreadable ask", reply.Memories, reply.Saved)
+	}
+	if len(reply.RefusedAsks) != 1 || !strings.Contains(reply.RefusedAsks[0], "could not read") || !strings.Contains(reply.RefusedAsks[0], "revision is required") {
+		t.Fatalf("refused asks = %q, want the unreadable ask said with its reason", reply.RefusedAsks)
+	}
+	if len(provider.requests) != 3 {
+		t.Fatalf("provider invocations = %d, want the refusal handed back and the corrected ask put in the same message", len(provider.requests))
+	}
+	for _, wanted := range []string{"could not read your ask block", "revision is required for a document", "correct the block and send it again", "Everything else your reply asked for was carried out"} {
+		if !strings.Contains(provider.requests[1].Prompt, wanted) {
+			t.Fatalf("the hand-back is missing %q: %q", wanted, provider.requests[1].Prompt)
+		}
+	}
+	if len(reply.Exchanges) != 2 || reply.Exchanges[0].ID != "" || reply.Exchanges[0].Problem == "" {
+		t.Fatalf("exchanges = %+v, want the unreadable ask listed with nothing opened, then the corrected one", reply.Exchanges)
+	}
+	if reply.Exchanges[1].ID == "" || reply.Exchanges[1].Answer != "Acceptable, if the operator is told." {
+		t.Fatalf("corrected ask = %+v, want it put and answered", reply.Exchanges[1])
+	}
+	var told strings.Builder
+	session.reportExchanges(&told, reply)
+	if !strings.Contains(told.String(), "asked: a question the harness could not read") {
+		t.Fatalf("the operator was not told of the unreadable ask:\n%s", told.String())
+	}
+}
+
+// A block that is not even well formed is lifted out of the reply the same
+// way, and the blocks around it are still carried out.
+func TestAMalformedAskDoesNotDiscardTheMemoryWritesBesideIt(t *testing.T) {
+	t.Parallel()
+
+	answer := "Remembering this.\n\n" +
+		askBlock(`{"ask":{"role":"architect","question":"is this right?"`) +
+		memoryBlock(`{"memories":[{"action":"remember","memory":"heavyweight-permit","text":"The permit ends with its run."}]}`)
+	parsed, err := splitReply(domain.RoleProductManager, answer)
+	if err != nil {
+		t.Fatalf("splitReply() error = %v, want the unreadable ask carried as its own problem", err)
+	}
+	if parsed.AskProblem == nil || parsed.Ask != nil {
+		t.Fatalf("ask = %+v, problem = %v, want no ask and the problem", parsed.Ask, parsed.AskProblem)
+	}
+	if len(parsed.Memories) != 1 {
+		t.Fatalf("memories = %+v, want the memory beside the unreadable ask", parsed.Memories)
+	}
+	if strings.Contains(parsed.Prose, "yoyodyne-ask") || strings.Contains(parsed.Prose, "yoyodyne-memory") || !strings.Contains(parsed.Prose, "Remembering this.") {
+		t.Fatalf("prose = %q, want what was said without either block", parsed.Prose)
+	}
+}
+
+// A role that may not ask at all is still refused for carrying an ask block,
+// whether or not the harness could read it.
+func TestAnUnreadableAskFromARoleThatMayNotAskIsStillRefused(t *testing.T) {
+	t.Parallel()
+
+	reviewer, _ := AuthorityFor(domain.RoleReviewer)
+	parsed := parsedReply{AskProblem: &AskError{Err: errors.New("invalid ask")}}
+	if err := refuseUnauthorizedAsk(reviewer, parsed); err == nil {
+		t.Fatal("refuseUnauthorizedAsk() = nil, want a role with no ask refused for an unreadable one too")
+	}
+	architect, _ := AuthorityFor(domain.RoleArchitect)
+	if err := refuseUnauthorizedAsk(architect, parsed); err != nil {
+		t.Fatalf("refuseUnauthorizedAsk() = %v, want an unreadable ask from a role that may ask left to be handed back", err)
+	}
+}

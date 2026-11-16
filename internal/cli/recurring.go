@@ -764,9 +764,9 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 		}
 		turn.ResultProblem = appendProblem(turn.ResultProblem, corrected.LaneReport.Refusal())
 	}
-	// A question the role put to a role it may not ask was handed back and the
-	// rest of its reply carried out, so it is said beside the account and is
-	// not a failed turn.
+	// A question the role put to a role it may not ask, or one the harness could
+	// not read, was handed back and the rest of its reply carried out, so it is
+	// said beside the account and is not a failed turn.
 	for _, refused := range reply.RefusedAsks {
 		turn.ResultProblem = appendProblem(turn.ResultProblem, refused)
 	}

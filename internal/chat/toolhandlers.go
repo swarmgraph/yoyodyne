@@ -251,6 +251,20 @@ func (s *Session) refuseAsk(ctx context.Context, ask exchange.Ask, problem strin
 	return ExchangeRound{Asked: ask.Role, Question: oneLineAsk(ask), Problem: problem}
 }
 
+// refuseUnreadableAsk records an ask block the harness could not read as a
+// refused request through the tool envelope, without persisting any of its
+// untrusted JSON, and says what the operator is told about it.
+func (s *Session) refuseUnreadableAsk(ctx context.Context, cause *AskError) ExchangeRound {
+	problem := cause.Error()
+	_, err := auditTool(ctx, s, capability.ExchangeAsk, map[string]any{"block": strings.TrimPrefix(exchange.Fence, "```")}, 1, func() (struct{}, error) {
+		return struct{}{}, errors.New("block refused before invocation")
+	}, nil)
+	if err != nil && strings.Contains(err.Error(), "audit failed") {
+		problem = err.Error()
+	}
+	return ExchangeRound{Question: "a question the harness could not read", Problem: problem}
+}
+
 func (s *Session) recordEvaluation(entry evaluation.Entry) (*evaluation.Evaluation, error) {
 	return auditTool(context.Background(), s, capability.EvaluationRecord, nil, 1, func() (*evaluation.Evaluation, error) { return s.recordEvaluationWithoutToolAudit(entry) }, nil)
 }
