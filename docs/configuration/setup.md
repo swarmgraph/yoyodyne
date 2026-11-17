@@ -254,6 +254,7 @@ services:           # the parts of the product, each on or off; see Services
     bind: 127.0.0.1
     allowed_hosts: []
     token: generated
+    hide_summary: false
   scheduler:
     enabled: true
   maintenance:

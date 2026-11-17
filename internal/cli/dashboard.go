@@ -116,9 +116,13 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 	// supervisor see one change and replace it with a dashboard on the new
 	// value. A dashboard started by hand serves on the port it was given, and
 	// binds loopback, rather than the configured ones, so only its token source
-	// is the configuration's. Who it accepts is not held: it is re-read while it
-	// serves (dashboardaccess.go).
-	held := map[string]string{config.SettingDashboardToken: string(resolved.Config.Services.Dashboard.Token)}
+	// is the configuration's. Whether the page carries the summary is held either
+	// way, because the page is served from it. Who it accepts is not held: it is
+	// re-read while it serves (dashboardaccess.go).
+	held := map[string]string{
+		config.SettingDashboardToken:       string(resolved.Config.Services.Dashboard.Token),
+		config.SettingDashboardHideSummary: strconv.FormatBool(resolved.Config.Services.Dashboard.HideSummary),
+	}
 	bind := config.DefaultDashboardBind
 	if supervised {
 		bind = strings.TrimSpace(resolved.Config.Services.Dashboard.Bind)
@@ -152,6 +156,7 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 	// token cannot be read is said here and left unbound, so the page goes on
 	// reading and refuses that person's acts with the reason.
 	server.SetActor(newDashboardActor(ctx, *configPath, stderr))
+	server.HideSummary(resolved.Config.Services.Dashboard.HideSummary)
 	var url, readyURL string
 	if supervised {
 		url, err = server.ListenSharedOn(bind, *port)

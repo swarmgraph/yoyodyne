@@ -151,6 +151,52 @@ func TestTheShellCarriesEverySectionEachWithItsStates(t *testing.T) {
 	}
 }
 
+// services.dashboard.hide_summary leaves the owner summary out of the page:
+// no panel, heading, or period buttons, and the other sections in the order
+// they always had. Left unset, the page is the one it always was. Hiding it
+// touches the page alone: /api/summary still answers the token.
+func TestTheSummaryIsLeftOutOfThePageWhereTheConfigurationHidesIt(t *testing.T) {
+	t.Parallel()
+	// order is the panels' ids as the page carries them, first to last.
+	order := func(body string) string {
+		var found []string
+		for _, part := range strings.Split(body, `<section id="`)[1:] {
+			if id, rest, ok := strings.Cut(part, `"`); ok && strings.HasPrefix(rest, ` class="panel `) {
+				found = append(found, id)
+			}
+		}
+		return strings.Join(found, " ")
+	}
+	all := strings.Join(append(append([]string{}, sections...), shownWhenPresent...), " ")
+
+	shown := serve(t, stubReader{standing: standingWith("title")})
+	_, body := shown.get("/", nil)
+	if got := order(body); got != all {
+		t.Fatalf("with the summary shown, the sections are %v, want %v", got, all)
+	}
+	if strings.Contains(body, "{{") || strings.Contains(body, "HideSummary") {
+		t.Fatalf("the template's condition reached the page:\n%s", body)
+	}
+
+	hidden := serve(t, stubReader{standing: standingWith("title")})
+	hidden.server.HideSummary(true)
+	_, body = hidden.get("/", nil)
+	if got, want := order(body), strings.TrimPrefix(all, "summary "); got != want {
+		t.Fatalf("with the summary hidden, the sections are %v, want %v", got, want)
+	}
+	for _, gone := range []string{`id="summary`, ">Summary<", "summary-today", "summary-week"} {
+		if strings.Contains(body, gone) {
+			t.Fatalf("with the summary hidden the page still carries %q:\n%s", gone, body)
+		}
+	}
+	if panels := len(sections) + len(shownWhenPresent) - 1; strings.Count(body, `class="panel `) != panels {
+		t.Fatalf("with the summary hidden the page carries %d panels, want %d", strings.Count(body, `class="panel `), panels)
+	}
+	if response, body := hidden.get("/api/summary?since=today", bearer(hidden.server.Token())); response.StatusCode != http.StatusOK {
+		t.Fatalf("with the summary hidden from the page, /api/summary answered %d %s", response.StatusCode, body)
+	}
+}
+
 // Every fixture the page is rendered from is the read model's own shape: a
 // field the model does not carry is refused, so the renders cannot drift from
 // what the server actually sends.
@@ -802,6 +848,11 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			if !reached[id][state] {
 				t.Errorf("no scenario renders section %s in its %s state", id, state)
 			}
+		}
+		// The summary alone can be left out of the page, by
+		// services.dashboard.hide_summary, and one scenario serves it so.
+		if absent := reached[id]["absent"]; absent != (id == "summary") {
+			t.Errorf("section %s left out of the page in some scenario: %t", id, absent)
 		}
 	}
 	// A section shown only where there is something to list is hidden, ready,
