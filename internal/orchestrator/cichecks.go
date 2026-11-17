@@ -8,15 +8,20 @@ package orchestrator
 // carries on, and never pushes a different commit or starts the wait again.
 //
 // Review starts only once every required check has passed on exactly that
-// commit. Where the wait ends any other way — a required check failed, was
-// cancelled or skipped, never started within the wait limit, the forge cannot
-// be read, or the switch was turned off — the run runs the full declared checks
-// on this machine over the same commit and goes on from their result (build 5,
-// the fallback). That is what the design gives for CI being down or slow and
-// for switching off, and none of it spends a repair round: only a check that
-// fails does. A check that failed on the forge is not yet handed to the
-// developer with its output, which is a later build; until then the local full
-// checks run and the forge's failure is counted beside them (lateCIResult).
+// commit. Where the wait ends any other way — a required check was cancelled
+// or skipped, never started within the wait limit, the forge cannot be read, or
+// the switch was turned off — the run runs the full declared checks
+// on this machine over the same commit and goes on from their result (the
+// fallback). That is what the design gives for CI being down or slow and for
+// switching off, and none of it spends a repair round: only a check that fails
+// does.
+//
+// A required check that failed on the forge is a failed check, not an outage:
+// it goes back to the developer with the failing checks, the failing tests and
+// the end of each check's output, secrets removed, recorded on the run as a
+// local failed check is, and it spends one repair round. After the repair the
+// short local check runs again and the new commit is pushed and waited on for
+// its own result; a result for an earlier commit is never carried forward.
 //
 // After a fallback the forge is read again for the same commit once the local
 // checks have passed and once more before an approved change is promoted. An
@@ -40,11 +45,12 @@ import (
 
 // CIForge is what the wait asks of the forge: push a run's branch, open or
 // refresh its draft pull request, and read the required checks on a commit.
-// publish.GitHub does all three.
+// publish.GitHub does all four; the last reads the log of a failing check.
 type CIForge interface {
 	PushBranch(ctx context.Context, request publish.PushRequest) error
 	EnsureDraft(ctx context.Context, request publish.Request) (publish.PullRequest, error)
 	RequiredChecks(ctx context.Context, commit string, required []string) (publish.RequiredCheckReading, error)
+	CheckOutput(ctx context.Context, check publish.RequiredCheck) (publish.CheckOutput, error)
 }
 
 var fullCommit = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
@@ -199,13 +205,14 @@ func renderRefusedPushBlockerNotes(outcome Outcome, refusal error) string {
 // settleCIWait is the first thing a run does once it has a slot again with a
 // wait recorded. It reads the forge for exactly the commit the wait names and
 // never pushes. Every required check passed: the wait ends and review goes on.
-// Still running within the limit: the run parks again. Anything else, or the
-// switch turned off, ends the wait and runs the full declared checks over the
-// same commit. A forge that cannot be read here is one of those: the run only
-// takes its slot back once a pull decided the wait (ForgeCIWaits.Decided, which
-// already waits out a short spell of failed reads) or after a restart, and
-// parking again on an unreadable forge would give the slot back to take it again
-// on the next pull.
+// A required check that failed goes back to the developer as a failed check
+// (handBackCIFailure). Still running within the limit: the run parks again.
+// Anything else, or the switch turned off, ends the wait and runs the full
+// declared checks over the same commit. A forge that cannot be read here is one
+// of those: the run only takes its slot back once a pull decided the wait
+// (ForgeCIWaits.Decided, which already waits out a short spell of failed reads)
+// or after a restart, and parking again on an unreadable forge would give the
+// slot back to take it again on the next pull.
 func (a *activeRun) settleCIWait(ctx context.Context) error {
 	p := a.pipeline
 	wait := *a.state.CIWait
@@ -233,6 +240,15 @@ func (a *activeRun) settleCIWait(ctx context.Context) error {
 		}
 		return nil
 	}
+	var failed []publish.RequiredCheck
+	for _, check := range reading.Checks {
+		if check.Result == publish.CheckFailed {
+			failed = append(failed, check)
+		}
+	}
+	if len(failed) > 0 {
+		return a.handBackCIFailure(ctx, wait, failed)
+	}
 	var unsettled []string
 	for _, check := range reading.Checks {
 		switch check.Result {
@@ -248,6 +264,72 @@ func (a *activeRun) settleCIWait(ctx context.Context) error {
 		}
 	}
 	return a.parkAgain(wait, "still waiting for "+strings.Join(unsettled, ", "))
+}
+
+// handBackCIFailure ends the wait on required checks that failed on the
+// commit and returns them as a failed check, which the round's repair loop
+// records and answers with one repair round like any failed check. The forge's
+// output is read here because a developer's sandbox has no network. If it
+// cannot be read the forge is unreadable, which is an outage and not a failure
+// of the change, so the full checks run on this machine instead.
+func (a *activeRun) handBackCIFailure(ctx context.Context, wait runstate.CIWait, failed []publish.RequiredCheck) error {
+	outputs := make([]publish.CheckOutput, len(failed))
+	for i, check := range failed {
+		output, err := a.pipeline.CIForge.CheckOutput(ctx, check)
+		if err != nil {
+			return a.endCIWaitWithFullChecks(ctx, wait, fmt.Sprintf("%s failed on the forge and its output could not be read: %v", check.Name, err))
+		}
+		outputs[i] = output
+	}
+	names := make([]string, len(failed))
+	for i, check := range failed {
+		names[i] = check.Name
+	}
+	now := a.pipeline.clock().Now()
+	a.state.CIWait = nil
+	a.state.CIWaitEnd = &runstate.CIWaitEnd{Commit: wait.Commit, At: now,
+		Says: "required checks failed on the forge, so the change went back to its developer: " + strings.Join(names, ", ")}
+	a.state.UpdatedAt = now
+	// Nothing is saved here: the repair loop records the failure and saves the
+	// run when it spends the repair round. A process that stops before then
+	// finds the wait still recorded, reads the same failure from the forge, and
+	// hands it back again.
+	return checkFailure{result: ciFailureResult(wait.Commit, failed, outputs)}
+}
+
+// ciFailureResult is the forge's failure in the shape of a local failed check:
+// a command, a failing exit, and an output that opens with the failing tests
+// as checks.FailingNames reads them, followed by the end of each failing
+// check's output. The whole is held to the bound a recorded check output has,
+// so each check keeps an equal share of its end.
+func ciFailureResult(commit string, failed []publish.RequiredCheck, outputs []publish.CheckOutput) checks.Result {
+	var names, tests []string
+	for i, check := range failed {
+		names = append(names, check.Name)
+		tests = append(tests, outputs[i].FailingTests...)
+	}
+	header := checks.FailingNamesLine(tests)
+	if header == "" {
+		header = "No failing test was named in the forge's output, so only its end is kept.\n"
+	}
+	header += fmt.Sprintf("Failed on the forge for commit %s.\n", commit)
+	share := (runstate.MaxCheckOutputBytes - len(header)) / len(failed)
+	var body strings.Builder
+	for i, check := range failed {
+		section := fmt.Sprintf("\nCheck %s (%s):\n", check.Name, check.Result)
+		tail := strings.TrimRight(outputs[i].Tail, "\n")
+		if outputs[i].Cut {
+			tail = "[earlier check output truncated]\n" + tail
+		}
+		body.WriteString(section)
+		body.WriteString(boundedTail(tail, max(share-len(section), 0)))
+		body.WriteString("\n")
+	}
+	return checks.Result{
+		Command:       "checks on the forge: " + strings.Join(names, ", "),
+		Process:       execution.ProcessResult{ExitCode: 1},
+		FailureOutput: boundedTail(header+body.String(), runstate.MaxCheckOutputBytes),
+	}
 }
 
 // parkAgain returns a run that was continued before the forge had decided to

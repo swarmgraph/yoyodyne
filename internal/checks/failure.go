@@ -245,6 +245,20 @@ func (c failureCapture) renderTail(tail string, limit int) string {
 // tests, which FailingNames reads back.
 const failingNamesTitle = "Failing tests or packages named in the captured output (up to 20): "
 
+// FailingNamesLine is the first line FailureOutput writes when it names
+// failing tests, for an output assembled elsewhere that FailingNames must read
+// the same way: a failure the forge reported, whose names the harness read from
+// the forge's log. At most twenty names are kept. It is empty for no names.
+func FailingNamesLine(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	if len(names) > 20 {
+		names = names[:20]
+	}
+	return failingNamesTitle + strings.Join(names, ", ") + "\n"
+}
+
 // FailingNames is the tests or packages a check's output names failing, by the
 // markers FailureOutput reads, first seen first and at most twenty. The names
 // the runner read from the whole stream are preferred, because the process
