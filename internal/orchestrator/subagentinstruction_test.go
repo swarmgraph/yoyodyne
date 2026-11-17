@@ -1,10 +1,13 @@
 package orchestrator
 
-// A run with sub-agents on is told to hand the coding to them, by the
-// instruction built into the program from developer-sub-agents.md, placed after
-// the developer persona and noted on the run's record with the build it came
-// from; a run with them off, or on a provider that does not offer them, is told
-// nothing of the kind (docs/designs/developer-sub-agents.md).
+// A run with sub-agents on is told how to use them, by the instruction built
+// into the program for its arrangement of models — developer-sub-agents-opus-
+// main.md for an Opus developer with cheaper sub-agents,
+// developer-sub-agents-sonnet-main.md for a Sonnet developer with Opus
+// sub-agents, developer-sub-agents.md otherwise — placed after the developer
+// persona and noted on the run's record with the build it came from; a run
+// with them off, or on a provider that does not offer them, is told nothing of
+// the kind (docs/designs/developer-sub-agents.md).
 
 import (
 	"context"
@@ -29,11 +32,122 @@ const instructionTestBuild = "0123456789abcdef0123456789abcdef01234567"
 
 func instructionOf(t *testing.T) string {
 	t.Helper()
-	instruction := strings.TrimSpace(subagentInstruction)
+	return instructionText(t, subagentInstructionFile, subagentInstruction)
+}
+
+// instructionFor is the trimmed text of the instruction for a developer on
+// mainModel with sub-agents on subagentModel.
+func instructionFor(t *testing.T, mainModel, subagentModel string) string {
+	t.Helper()
+	file, text := subagentInstructionFor(mainModel, subagentModel)
+	return instructionText(t, file, text)
+}
+
+func instructionText(t *testing.T, file, text string) string {
+	t.Helper()
+	instruction := strings.TrimSpace(text)
 	if instruction == "" {
-		t.Fatal("the built-in sub-agent instruction is empty")
+		t.Fatalf("the built-in sub-agent instruction %s is empty", file)
 	}
 	return instruction
+}
+
+// everyInstruction is the trimmed text of each built-in instruction.
+func everyInstruction(t *testing.T) []string {
+	t.Helper()
+	return []string{
+		instructionText(t, subagentInstructionFile, subagentInstruction),
+		instructionText(t, opusMainInstructionFile, opusMainInstruction),
+		instructionText(t, sonnetMainInstructionFile, sonnetMainInstruction),
+	}
+}
+
+// The harness chooses the instruction from the main and sub-agent models,
+// reading each by the family its name carries.
+func TestTheSubagentInstructionIsChosenFromTheArrangement(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		main, sub, file string
+	}{
+		{"opus", "sonnet", opusMainInstructionFile},
+		{"claude-opus-4-7", "claude-sonnet-4-6", opusMainInstructionFile},
+		{"opus[1m]", "haiku", opusMainInstructionFile},
+		{"sonnet", "opus", sonnetMainInstructionFile},
+		{"claude-sonnet-4-6", "Claude-Opus-4-7", sonnetMainInstructionFile},
+		{"opus", "opus", subagentInstructionFile},
+		{"sonnet", "sonnet", subagentInstructionFile},
+		{"haiku", "opus", subagentInstructionFile},
+		{"gpt-6.1-sol", "sonnet", subagentInstructionFile},
+		{"", "", subagentInstructionFile},
+	} {
+		file, text := subagentInstructionFor(test.main, test.sub)
+		if file != test.file {
+			t.Errorf("a developer on %q with sub-agents on %q gets %s, want %s", test.main, test.sub, file, test.file)
+		}
+		if strings.TrimSpace(text) == "" {
+			t.Errorf("the instruction %s is empty", file)
+		}
+	}
+	texts := everyInstruction(t)
+	for i := range texts {
+		for j := i + 1; j < len(texts); j++ {
+			if texts[i] == texts[j] {
+				t.Errorf("two arrangements are given the same instruction:\n%s", texts[i])
+			}
+		}
+	}
+}
+
+// An Opus developer with cheaper sub-agents hands the exploration and the
+// running and fixing of checks over through a structured brief and a fixed report, and
+// reviews the diff.
+func TestTheOpusMainInstructionHandsOffReadingAndChecks(t *testing.T) {
+	t.Parallel()
+
+	instruction := instructionFor(t, "opus", "sonnet")
+	for _, point := range []string{
+		"Hand the exploration to a sub-agent.",
+		"Ask for a summary of at most twenty lines",
+		"Hand the writing, the checks and the fixes to a sub-agent, one bounded piece at a time.",
+		"Files: the files to change",
+		"Change: what the change must do",
+		"Done when: the conditions that must hold",
+		"Conventions: read CLAUDE.md or AGENTS.md and follow it",
+		"Report: reply in these three lines and nothing else",
+		"Changed: the files changed",
+		"Checks: each command run and whether it passed",
+		"Open: anything not done or not certain",
+		"Review each piece by its diff alone",
+		"review the complete change as one diff",
+		"A sub-agent's report that checks passed is not your verification.",
+	} {
+		if !strings.Contains(instruction, point) {
+			t.Errorf("the Opus-main instruction does not say %q:\n%s", point, instruction)
+		}
+	}
+}
+
+// A Sonnet developer with Opus sub-agents consults them for planning and hard
+// calls and never hands them the writing.
+func TestTheSonnetMainInstructionConsultsOpusOnlyForPlanning(t *testing.T) {
+	t.Parallel()
+
+	instruction := instructionFor(t, "sonnet", "opus")
+	for _, point := range []string{
+		"Use a sub-agent as an adviser, never as a writer",
+		"Before you write code, ask a sub-agent to review the plan.",
+		"Consult a sub-agent again only for a hard call",
+		"Never hand a sub-agent the writing of code, the running of checks, or the reading of files.",
+		"Before you submit, read the complete change and run the checks your instructions name.",
+	} {
+		if !strings.Contains(instruction, point) {
+			t.Errorf("the Sonnet-main instruction does not say %q:\n%s", point, instruction)
+		}
+	}
+	if strings.Contains(instruction, "Hand the writing") {
+		t.Errorf("the Sonnet-main instruction hands the writing over:\n%s", instruction)
+	}
 }
 
 // The instruction says the four things the design requires of it.
@@ -59,13 +173,23 @@ func TestTheSubagentInstructionCarriesTheDesignsFourPoints(t *testing.T) {
 	}
 }
 
-// The instruction is the Markdown file and nothing else: no Go source in this
+// Each instruction is its Markdown file and nothing else: no Go source in this
 // package carries its wording, and the developer persona the template ships
 // does not either.
 func TestTheSubagentInstructionLivesOnlyInItsFile(t *testing.T) {
 	t.Parallel()
 
-	phrase := "Hand the writing of code to sub-agents"
+	for _, phrase := range []string{
+		"Hand the writing of code to sub-agents",
+		"Hand the exploration to a sub-agent",
+		"Use a sub-agent as an adviser, never as a writer",
+	} {
+		instructionPhraseLivesOnlyInItsFile(t, phrase)
+	}
+}
+
+func instructionPhraseLivesOnlyInItsFile(t *testing.T, phrase string) {
+	t.Helper()
 	sources, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +203,7 @@ func TestTheSubagentInstructionLivesOnlyInItsFile(t *testing.T) {
 			t.Fatal(err)
 		}
 		if strings.Contains(string(body), phrase) {
-			t.Errorf("%s carries the sub-agent instruction's wording; it belongs in %s", source, subagentInstructionFile)
+			t.Errorf("%s carries the sub-agent instruction's wording %q; it belongs in its Markdown file", source, phrase)
 		}
 	}
 	persona, err := os.ReadFile(filepath.Join("..", "config", "builtin", "v1", "personas", "developer.md"))
@@ -87,7 +211,7 @@ func TestTheSubagentInstructionLivesOnlyInItsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(persona), phrase) {
-		t.Errorf("the developer persona carries the sub-agent instruction")
+		t.Errorf("the developer persona carries the sub-agent instruction's wording %q", phrase)
 	}
 }
 
@@ -98,7 +222,7 @@ func TestTheSubagentInstructionFollowsThePersona(t *testing.T) {
 
 	instruction := instructionOf(t)
 	prompt := developerPrompt(instructionTestPersona, "", "# Work item\n\nthe item\n", "/scratch", []string{"make test"})
-	instructed := withSubagentInstruction(prompt, instructionTestPersona)
+	instructed := withSubagentInstruction(prompt, instructionTestPersona, instruction)
 	persona := strings.Index(instructed, "Prefer the smallest change")
 	at := strings.Index(instructed, instruction)
 	item := strings.Index(instructed, "# Work item")
@@ -111,7 +235,7 @@ func TestTheSubagentInstructionFollowsThePersona(t *testing.T) {
 	// A prompt with no persona section, such as a repair resuming a session,
 	// carries it at its end.
 	repair := "the repair prompt"
-	if got := withSubagentInstruction(repair, instructionTestPersona); !strings.HasPrefix(got, repair) || !strings.HasSuffix(strings.TrimSpace(got), instruction) {
+	if got := withSubagentInstruction(repair, instructionTestPersona, instruction); !strings.HasPrefix(got, repair) || !strings.HasSuffix(strings.TrimSpace(got), instruction) {
 		t.Fatalf("a prompt without the persona got:\n%s", got)
 	}
 }
@@ -125,7 +249,7 @@ func TestAPromptQuotingTheSubagentInstructionIsStillGivenIt(t *testing.T) {
 	instruction := instructionOf(t)
 	bundle := "# Work item\n\n## Referenced file: internal/orchestrator/developer-sub-agents.md\n\n" + instruction + "\n"
 	prompt := developerPrompt(instructionTestPersona, "", bundle, "/scratch", []string{"make test"})
-	instructed := withSubagentInstruction(prompt, instructionTestPersona)
+	instructed := withSubagentInstruction(prompt, instructionTestPersona, instruction)
 	section := personaSection(instructionTestPersona)
 	if !strings.Contains(instructed, section+instruction+"\n\n") {
 		t.Fatalf("the instruction does not come straight after the persona:\n%s", instructed)
@@ -138,66 +262,89 @@ func TestAPromptQuotingTheSubagentInstructionIsStillGivenIt(t *testing.T) {
 	}
 }
 
-// With sub-agents on, every developer invocation that has them is told to hand
-// the coding over, after its persona, and the run's record notes that it was
-// and the build the instruction came from. The reviewer is never told.
+// With sub-agents on, every developer invocation that has them is given the
+// instruction for its arrangement of models, after its persona, and the run's
+// record notes which one it was and the build it came from. The reviewer is
+// never told.
 func TestARunWithSubagentsOnIsGivenTheInstructionAndRecordsIt(t *testing.T) {
 	t.Parallel()
 
-	instruction := instructionOf(t)
-	provider, _, outcome, pipeline := subagentRun(t, func(pipeline *Pipeline, agents map[string]config.AgentConfig) {
-		if pipeline == nil {
-			return
-		}
-		pipeline.Build = instructionTestBuild
-		withDeveloper(agents, func(agent *config.AgentConfig) {
-			agent.Persona = config.Persona{Version: "v1", Path: "personas/developer.md", Text: instructionTestPersona}
-			agent.Subagents = config.Subagents{Enabled: true}
+	for _, test := range []struct {
+		name, main, sub, file string
+	}{
+		{name: "an Opus developer with Sonnet sub-agents", main: "opus", sub: "sonnet", file: opusMainInstructionFile},
+		{name: "a Sonnet developer with Opus sub-agents", main: "sonnet", sub: "opus", file: sonnetMainInstructionFile},
+		{name: "an Opus developer with Opus sub-agents", main: "opus", sub: "opus", file: subagentInstructionFile},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			instruction := instructionFor(t, test.main, test.sub)
+			provider, _, outcome, pipeline := subagentRun(t, func(pipeline *Pipeline, agents map[string]config.AgentConfig) {
+				if pipeline == nil {
+					return
+				}
+				pipeline.Build = instructionTestBuild
+				withDeveloper(agents, func(agent *config.AgentConfig) {
+					agent.Model = test.main
+					agent.Persona = config.Persona{Version: "v1", Path: "personas/developer.md", Text: instructionTestPersona}
+					agent.Subagents = config.Subagents{Enabled: true, Model: test.sub}
+				})
+			})
+			attempts := provider.RequestsForRole(domain.RoleDeveloper)
+			if len(attempts) < 2 {
+				t.Fatalf("the run made %d developer attempt(s), want the first and its repair", len(attempts))
+			}
+			for index, request := range attempts {
+				if request.Subagents == nil {
+					t.Fatalf("developer attempt %d was not given sub-agents", index)
+				}
+				if request.Model != test.main || request.Subagents.Model != test.sub {
+					t.Fatalf("developer attempt %d ran on %q with sub-agents on %q, want %q and %q", index, request.Model, request.Subagents.Model, test.main, test.sub)
+				}
+				if strings.Count(request.Prompt, instruction) != 1 {
+					t.Fatalf("developer attempt %d carries its instruction %d time(s), want once:\n%s", index, strings.Count(request.Prompt, instruction), request.Prompt)
+				}
+				for _, other := range everyInstruction(t) {
+					if other != instruction && strings.Contains(request.Prompt, other) {
+						t.Fatalf("developer attempt %d carries another arrangement's instruction too:\n%s", index, request.Prompt)
+					}
+				}
+			}
+			first := attempts[0].Prompt
+			if persona, at := strings.Index(first, "Prefer the smallest change"), strings.Index(first, instruction); persona < 0 || at < persona {
+				t.Fatalf("the instruction does not follow the persona: persona at %d, instruction at %d", persona, at)
+			}
+			for _, request := range provider.RequestsForRole(domain.RoleReviewer) {
+				for _, given := range everyInstruction(t) {
+					if strings.Contains(request.Prompt, given) {
+						t.Fatal("the reviewer was given a sub-agent instruction")
+					}
+				}
+			}
+			state, err := pipeline.Store.Load(outcome.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if state.Subagents == nil || state.Subagents.Instruction == nil {
+				t.Fatalf("the run's record does not note the instruction: %+v", state.Subagents)
+			}
+			given := state.Subagents.Instruction
+			if given.File != test.file || given.Build != instructionTestBuild || given.At.IsZero() {
+				t.Fatalf("the record notes the instruction as %+v, want %s", given, test.file)
+			}
+			if says := state.SubagentsSays(); !strings.Contains(says, "given the built-in sub-agent instruction "+test.file+" from build 0123456789ab") {
+				t.Fatalf("the run says %q", says)
+			}
 		})
-	})
-	attempts := provider.RequestsForRole(domain.RoleDeveloper)
-	if len(attempts) < 2 {
-		t.Fatalf("the run made %d developer attempt(s), want the first and its repair", len(attempts))
-	}
-	for index, request := range attempts {
-		if request.Subagents == nil {
-			t.Fatalf("developer attempt %d was not given sub-agents", index)
-		}
-		if strings.Count(request.Prompt, instruction) != 1 {
-			t.Fatalf("developer attempt %d carries the instruction %d time(s), want once:\n%s", index, strings.Count(request.Prompt, instruction), request.Prompt)
-		}
-	}
-	first := attempts[0].Prompt
-	if persona, at := strings.Index(first, "Prefer the smallest change"), strings.Index(first, instruction); persona < 0 || at < persona {
-		t.Fatalf("the instruction does not follow the persona: persona at %d, instruction at %d", persona, at)
-	}
-	for _, request := range provider.RequestsForRole(domain.RoleReviewer) {
-		if strings.Contains(request.Prompt, instruction) {
-			t.Fatal("the reviewer was given the sub-agent instruction")
-		}
-	}
-	state, err := pipeline.Store.Load(outcome.RunID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state.Subagents == nil || state.Subagents.Instruction == nil {
-		t.Fatalf("the run's record does not note the instruction: %+v", state.Subagents)
-	}
-	given := state.Subagents.Instruction
-	if given.File != "developer-sub-agents.md" || given.Build != instructionTestBuild || given.At.IsZero() {
-		t.Fatalf("the record notes the instruction as %+v", given)
-	}
-	if says := state.SubagentsSays(); !strings.Contains(says, "told to hand the coding to them by the built-in instruction developer-sub-agents.md from build 0123456789ab") {
-		t.Fatalf("the run says %q", says)
 	}
 }
 
-// With sub-agents off, no invocation is told to hand the coding over and the
+// With sub-agents off, no invocation is given a sub-agent instruction and the
 // record notes nothing.
 func TestARunWithSubagentsOffIsNotGivenTheInstruction(t *testing.T) {
 	t.Parallel()
 
-	instruction := instructionOf(t)
 	provider, _, outcome, pipeline := subagentRun(t, func(pipeline *Pipeline, agents map[string]config.AgentConfig) {
 		if pipeline == nil {
 			return
@@ -207,8 +354,10 @@ func TestARunWithSubagentsOffIsNotGivenTheInstruction(t *testing.T) {
 		})
 	})
 	for _, request := range provider.RequestsMade() {
-		if strings.Contains(request.Prompt, instruction) {
-			t.Fatalf("the %s was given the sub-agent instruction with sub-agents off", request.Role)
+		for _, instruction := range everyInstruction(t) {
+			if strings.Contains(request.Prompt, instruction) {
+				t.Fatalf("the %s was given a sub-agent instruction with sub-agents off", request.Role)
+			}
 		}
 	}
 	state, err := pipeline.Store.Load(outcome.RunID)
@@ -225,7 +374,6 @@ func TestARunWithSubagentsOffIsNotGivenTheInstruction(t *testing.T) {
 func TestARunOnAProviderWithoutSubagentsIsNotGivenTheInstruction(t *testing.T) {
 	t.Parallel()
 
-	instruction := instructionOf(t)
 	provider, _, outcome, pipeline := subagentRun(t, func(pipeline *Pipeline, agents map[string]config.AgentConfig) {
 		if pipeline == nil {
 			return
@@ -237,8 +385,10 @@ func TestARunOnAProviderWithoutSubagentsIsNotGivenTheInstruction(t *testing.T) {
 		})
 	})
 	for _, request := range provider.RequestsForRole(domain.RoleDeveloper) {
-		if strings.Contains(request.Prompt, instruction) {
-			t.Fatal("a Codex developer was given the sub-agent instruction")
+		for _, instruction := range everyInstruction(t) {
+			if strings.Contains(request.Prompt, instruction) {
+				t.Fatal("a Codex developer was given a sub-agent instruction")
+			}
 		}
 	}
 	state, err := pipeline.Store.Load(outcome.RunID)
@@ -250,13 +400,14 @@ func TestARunOnAProviderWithoutSubagentsIsNotGivenTheInstruction(t *testing.T) {
 	}
 }
 
-// A run told to hand the coding over keeps the note when it is moved to another
+// A run given an instruction keeps the note when it is moved to another
 // developer slot, whatever that slot says about sub-agents, and its next
-// invocation is given the instruction only where the new slot turns them on.
+// invocation is given the instruction for its arrangement — here an Opus
+// developer with Sonnet sub-agents — only where the new slot turns them on.
 func TestARunMovedToAnotherSlotKeepsTheNoteOfTheInstruction(t *testing.T) {
 	t.Parallel()
 
-	instruction := instructionOf(t)
+	instruction := instructionFor(t, testDeveloperModel, config.DefaultSubagentModel)
 	on, off := true, false
 	for _, test := range []struct {
 		name  string
@@ -264,9 +415,9 @@ func TestARunMovedToAnotherSlotKeepsTheNoteOfTheInstruction(t *testing.T) {
 		given bool
 		says  string
 	}{
-		{name: "a slot stating nothing", slot: domain.DeveloperSlot{}, says: "an earlier attempt was told to hand the coding to sub-agents by the built-in instruction developer-sub-agents.md from build 0123456789ab"},
-		{name: "a slot turning them off", slot: domain.DeveloperSlot{Subagents: &domain.SlotSubagents{Enabled: &off}}, says: "an earlier attempt was told to hand the coding to sub-agents by the built-in instruction developer-sub-agents.md from build 0123456789ab"},
-		{name: "a slot turning them on", slot: domain.DeveloperSlot{Subagents: &domain.SlotSubagents{Enabled: &on}}, given: true, says: "told to hand the coding to them by the built-in instruction developer-sub-agents.md from build fedcba987654"},
+		{name: "a slot stating nothing", slot: domain.DeveloperSlot{}, says: "an earlier attempt was given the built-in sub-agent instruction developer-sub-agents.md from build 0123456789ab"},
+		{name: "a slot turning them off", slot: domain.DeveloperSlot{Subagents: &domain.SlotSubagents{Enabled: &off}}, says: "an earlier attempt was given the built-in sub-agent instruction developer-sub-agents.md from build 0123456789ab"},
+		{name: "a slot turning them on", slot: domain.DeveloperSlot{Subagents: &domain.SlotSubagents{Enabled: &on}}, given: true, says: "given the built-in sub-agent instruction developer-sub-agents-opus-main.md from build fedcba987654"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -343,12 +494,12 @@ func TestARunMovedToAnotherSlotKeepsTheNoteOfTheInstruction(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if saved.Subagents == nil || saved.Subagents.Instruction == nil || saved.Subagents.Instruction.File != subagentInstructionFile {
-				t.Fatalf("the record lost the note of the instruction: %+v", saved.Subagents)
-			}
-			wantBuild := instructionTestBuild
+			wantFile, wantBuild := subagentInstructionFile, instructionTestBuild
 			if test.given {
-				wantBuild = pipeline.Build
+				wantFile, wantBuild = opusMainInstructionFile, pipeline.Build
+			}
+			if saved.Subagents == nil || saved.Subagents.Instruction == nil || saved.Subagents.Instruction.File != wantFile {
+				t.Fatalf("the record lost the note of the instruction, or names the wrong one: %+v", saved.Subagents)
 			}
 			if saved.Subagents.Instruction.Build != wantBuild {
 				t.Fatalf("the record names build %q, want %q", saved.Subagents.Instruction.Build, wantBuild)
