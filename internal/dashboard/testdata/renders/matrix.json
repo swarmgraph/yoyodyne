@@ -703,6 +703,26 @@
       "decide": "closed"
     }
   },
+  "summary-hidden": {
+    "page": "ready",
+    "sections": {
+      "summary": "absent",
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
   "switch-token": {
     "page": "signin",
     "sections": {

@@ -284,6 +284,7 @@ services:           # the parts of the product, each on or off; see Services
     bind: 127.0.0.1
     allowed_hosts: []
     token: generated
+    hide_summary: false
   scheduler:
     enabled: true
   maintenance:
@@ -9142,6 +9143,7 @@ services:
     bind: 127.0.0.1
     allowed_hosts: []
     token: generated
+    hide_summary: false
   scheduler:
     enabled: true
   maintenance:
@@ -9282,6 +9284,11 @@ web-security conventions made configuration:
   reads the one named and serves under it, printing where it was read from
   and never the value, so a stored token outlives a restart; a store that does
   not hold it refuses to start with the command that stores it.
+- **`hide_summary`**, when `true`, leaves the Summary section that opens the
+  page off it entirely, and the other sections keep their order; unset or
+  `false`, the page shows it. It hides the section only: `/api/summary` still
+  answers and `yoyo status` still opens with the same summary. A change to it is
+  applied by the supervisor replacing the dashboard.
 
 **A bind outside loopback with a generated token is refused when the file
 loads**, with the reason, because a token printed to this terminal is exactly

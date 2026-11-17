@@ -109,6 +109,10 @@ services:
     # default 8765 and the page he has open stops updating.
     port: 8080
     token: file
+    # The summary at the top of the page is hidden until it is cleaned up, at
+    # the operator's request of 2026-11-07 (yoyodyne-lng2); delete this line to
+    # bring it back. yoyo status still opens with the same summary.
+    hide_summary: true
 
 execution:
   # Temporarily 2, down from 3, until the merge queue lands about as fast as

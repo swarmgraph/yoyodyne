@@ -37,7 +37,7 @@
   <div class="state state-ready">
     <p id="stale" class="stale" role="status" hidden></p>
     <p id="banner" class="banner" role="status" hidden></p>
-
+{{if not .HideSummary}}
     <section id="summary" class="panel summary" data-state="loading" aria-labelledby="summary-heading">
       <div class="panel-head">
         <h2 id="summary-heading">Summary</h2>
@@ -51,7 +51,7 @@
         <dl id="summary-answers" class="answers"></dl>
       </div>
     </section>
-
+{{end}}
     <section id="band" class="panel band" data-state="loading" aria-labelledby="band-heading">
       <div class="panel-head">
         <h2 id="band-heading">Where the harness stands</h2>
