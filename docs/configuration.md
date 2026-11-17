@@ -3793,11 +3793,22 @@ when one has ended any other way, or when `wait_limit` has passed since the
 push. Review starts only after every required check passed on that commit. Until the forge's results are themselves integration evidence (a later build), the full checks also run on this machine over the approved candidate before it is promoted, as they do for any change checked in part. A
 restart during the wait pushes nothing and carries on with the same wait.
 
-When the wait ends without a pass, or the switch is turned off during it, the
-run runs the full declared checks on this machine over the same commit and goes
-on from their result. A required check that failed on the forge is not yet
-handed to the developer with its output; the recorded failure and the other
-stages of the flow arrive in later builds.
+A required check that failed on the forge goes back to the developer as a
+failed check. The harness reads the forge's log, because a developer's sandbox
+has no network, and records on the run the failing checks, the failing tests
+the log names, and the end of each failing check's output, with secrets removed,
+in the shape a local failed check is recorded in (so each check keeps a share of
+the same 8 KiB a local check's output is held to). It spends one repair round.
+After the repair the short local check runs again, the new commit is pushed, and
+it needs a result of its own: a result for an earlier commit is never carried
+forward. If the log cannot be read, that is the forge being unreadable, not a
+failure of the change, and the next paragraph applies.
+
+When the wait ends any other way (a required check cancelled, skipped, not
+started or unfinished by `wait_limit`, the forge unreadable, or the switch
+turned off during the wait), the run runs the full declared checks on this
+machine over the same commit and goes on from their result. The other stages of
+the flow arrive in later builds.
 
 ```yaml
 execution:

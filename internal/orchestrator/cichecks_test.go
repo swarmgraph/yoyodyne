@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +25,11 @@ type fakeCIForge struct {
 	pushes []publish.PushRequest
 	drafts int
 	result publish.CheckResult
+	// failOn is a commit the forge reports failing whatever result says, so a
+	// repaired commit can pass where the one before it failed.
+	failOn string
+	// outputReads counts reads of a failing check's output.
+	outputReads int
 }
 
 func (f *fakeCIForge) PushBranch(_ context.Context, request publish.PushRequest) error {
@@ -45,9 +51,23 @@ func (f *fakeCIForge) RequiredChecks(_ context.Context, commit string, required 
 	defer f.mu.Unlock()
 	reading := publish.RequiredCheckReading{Commit: commit}
 	for _, name := range required {
-		reading.Checks = append(reading.Checks, publish.RequiredCheck{Name: name, Result: f.result, Commit: commit})
+		result := f.result
+		if f.failOn != "" {
+			result = publish.CheckPassed
+			if commit == f.failOn {
+				result = publish.CheckFailed
+			}
+		}
+		reading.Checks = append(reading.Checks, publish.RequiredCheck{Name: name, Result: result, Commit: commit, ID: 11})
 	}
 	return reading, nil
+}
+
+func (f *fakeCIForge) CheckOutput(_ context.Context, check publish.RequiredCheck) (publish.CheckOutput, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.outputReads++
+	return publish.CheckOutput{FailingTests: []string{"TestWidget"}, Tail: "--- FAIL: TestWidget (0.00s)\nFAIL\n"}, nil
 }
 
 func (f *fakeCIForge) setResult(result publish.CheckResult) {
@@ -69,6 +89,7 @@ type ciFixture struct {
 	forge                    *fakeCIForge
 	shortLog, fullLog        string
 	providers                []*orchestratortest.Backend
+	developed                int
 	mu                       sync.Mutex
 }
 
@@ -89,7 +110,11 @@ func newCIFixture(t *testing.T) *ciFixture {
 func (f *ciFixture) pipeline(t *testing.T, enabled bool) Pipeline {
 	t.Helper()
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
-		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+		f.mu.Lock()
+		f.developed++
+		content := fmt.Sprintf("implemented %d\n", f.developed)
+		f.mu.Unlock()
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte(content), 0o600)
 	}, approveVerdict)
 	f.mu.Lock()
 	f.providers = append(f.providers, provider)
@@ -268,20 +293,78 @@ func TestChecksOnCISwitchedOffDuringTheWaitRunsTheFullChecksOnTheSameCommit(t *t
 	}
 }
 
-// A required check that failed on the forge sends the run to the full local
-// checks on the same commit; the wait limit passing does the same.
-func TestChecksOnCIAFailedRequiredCheckFallsBackToTheFullChecks(t *testing.T) {
+// A required check that failed on the forge goes back to the developer as a
+// failed check, spends one repair round, runs the short check again, and the
+// repaired commit is pushed and needs a result of its own.
+func TestChecksOnCIAFailedRequiredCheckGoesBackToTheDeveloperAndSpendsOneRepairRound(t *testing.T) {
 	t.Parallel()
 	f := newCIFixture(t)
-	f.park(t)
-	f.forge.setResult(publish.CheckFailed)
+	_, parked := f.park(t)
+	f.forge.mu.Lock()
+	f.forge.failOn = parked.CIWait.Commit
+	f.forge.mu.Unlock()
 
 	outcome, err := f.pipeline(t, true).Run(context.Background(), f.tracker.Item.ID)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if outcome.Paused || logLines(t, f.fullLog) != 1 || f.forge.pushed() != 1 {
-		t.Fatalf("outcome=%#v full=%d pushes=%d, want the full checks once over the same commit", outcome, logLines(t, f.fullLog), f.forge.pushed())
+	if !outcome.Paused || outcome.PausedByCIWait == nil {
+		t.Fatalf("outcome = %#v, want the repaired commit waiting for its own result", outcome)
+	}
+	state, err := f.store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.RepairAttempts != 1 {
+		t.Fatalf("repair attempts = %d, want exactly one", state.RepairAttempts)
+	}
+	if state.CIWait.Commit == parked.CIWait.Commit || f.forge.pushed() != 2 {
+		t.Fatalf("waiting on %s after %d pushes, want a new commit pushed", state.CIWait.Commit, f.forge.pushed())
+	}
+	if logLines(t, f.shortLog) != 2 || logLines(t, f.fullLog) != 0 || f.reviewed() != 0 {
+		t.Fatalf("short=%d full=%d reviews=%d, want the short check again and nothing else", logLines(t, f.shortLog), logLines(t, f.fullLog), f.reviewed())
+	}
+	// The developer's repair prompt carries what was recorded: the failing
+	// checks, the failing tests, the end of the output and the commit.
+	var prompt string
+	f.mu.Lock()
+	for _, provider := range f.providers {
+		for _, request := range provider.RequestsForRole(domain.RoleDeveloper) {
+			if strings.Contains(request.Prompt, "repair attempt 1 of") {
+				prompt = request.Prompt
+			}
+		}
+	}
+	f.mu.Unlock()
+	for _, want := range []string{"checks on the forge: test, race", "TestWidget", "--- FAIL: TestWidget", parked.CIWait.Commit} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("repair prompt lacks %q:\n%s", want, prompt)
+		}
+	}
+	if state.CIWaitEnd == nil || state.CIWaitEnd.Passed || state.CIWaitEnd.Commit != parked.CIWait.Commit {
+		t.Fatalf("how the first wait ended = %#v", state.CIWaitEnd)
+	}
+	// The earlier commit's failure does not carry forward: the new commit passes
+	// on its own result and review then goes ahead.
+	end, err := f.pipeline(t, true).Run(context.Background(), f.tracker.Item.ID)
+	if err != nil || end.Paused || end.Status != runstate.StatusSucceeded {
+		t.Fatalf("after the repaired commit passed: outcome=%#v err=%v", end, err)
+	}
+	if f.reviewed() != 1 {
+		t.Fatalf("reviews = %d, want 1", f.reviewed())
+	}
+}
+
+func TestCIFailureResultKeepsTheOutputWithinTheRecordedBound(t *testing.T) {
+	t.Parallel()
+	big := strings.Repeat("a line of output that is long enough\n", 1000)
+	failed := []publish.RequiredCheck{{Name: "test", Result: publish.CheckFailed}, {Name: "race", Result: publish.CheckFailed}}
+	result := ciFailureResult(strings.Repeat("c", 40), failed, []publish.CheckOutput{{Tail: big, Cut: true}, {Tail: big}})
+	if len(result.FailureOutput) > runstate.MaxCheckOutputBytes {
+		t.Fatalf("output is %d bytes, over %d", len(result.FailureOutput), runstate.MaxCheckOutputBytes)
+	}
+	if !strings.Contains(result.FailureOutput, "Check test") || !strings.Contains(result.FailureOutput, "Check race") {
+		t.Fatalf("each failing check should keep a share of its output: %q", result.FailureOutput[:200])
 	}
 }
 
