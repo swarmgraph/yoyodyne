@@ -862,7 +862,8 @@ It works in a worktree of its own under the product's state directory and never
 touches your checkout. `yoyo status` says when the branch last passed them. A
 failure is not run again: it files a critical report naming the commit, the
 failing tests, the last commit that passed and the commits between, and the
-next run waits for the branch to move. While a run is under way, the supervisor
+next run waits for the branch to move. A run that could not run files a
+warning and is tried again ten minutes later. While a run is under way, the supervisor
 waits for it to finish before it moves onto a new build.
 [The checks run on main](configuration.md#the-checks-run-on-main) has the rest.
 
