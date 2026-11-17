@@ -18,13 +18,27 @@ package orchestrator
 // developer carries on itself, and the run goes without sub-agents until the
 // limit resets, its record saying why.
 //
-// An invocation given sub-agents is also told to use them: to plan the change
-// itself, hand the writing of code to them one bounded piece at a time, read
-// each piece, and verify the whole change before submitting. That instruction
-// is the Markdown file subagentInstructionFile, built into the program so every
-// project receives the same text and no project's files can change it, and it
-// follows the developer persona in the invocation's prompt. An invocation that
-// goes without sub-agents is not given it.
+// An invocation given sub-agents is also told how to use them, by one of three
+// Markdown files built into the program, so every project receives the same
+// text and no project's files can change it. Which one depends on the models
+// the invocation runs on (subagentInstructionFor), because what a hand-off
+// saves depends on which side of it costs more:
+//
+//   - developer-sub-agents-opus-main.md, for a developer on Opus with
+//     sub-agents on a cheaper model. Nearly all of such a run's cost is the
+//     main session reading its own context again on every turn, so the
+//     reading, the writing, and running the checks and fixing what fails go to sub-agents through
+//     a fixed brief and come back as a fixed few-line report, and the main
+//     session reviews diffs.
+//   - developer-sub-agents-sonnet-main.md, for a developer on Sonnet with
+//     sub-agents on Opus. The sub-agent is the expensive side, so it is
+//     consulted for planning and hard calls and never given the writing.
+//   - developer-sub-agents.md, for every other arrangement: plan, hand the
+//     writing over one bounded piece at a time, read each piece, and verify
+//     the whole change.
+//
+// The instruction follows the developer persona in the invocation's prompt. An
+// invocation that goes without sub-agents is not given one.
 
 import (
 	"context"
@@ -37,21 +51,61 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-// subagentInstructionFile is the instruction's file beside this one, named on
-// the run's record.
+// subagentInstructionFile is the instruction for an arrangement no other file
+// is written for, named on the run's record like the others.
 const subagentInstructionFile = "developer-sub-agents.md"
+
+// opusMainInstructionFile and sonnetMainInstructionFile are the instructions
+// for the two arrangements the package comment names.
+const (
+	opusMainInstructionFile   = "developer-sub-agents-opus-main.md"
+	sonnetMainInstructionFile = "developer-sub-agents-sonnet-main.md"
+)
 
 //go:embed developer-sub-agents.md
 var subagentInstruction string
 
-// withSubagentInstruction is prompt with the sub-agent instruction placed
-// straight after the developer persona's section where the prompt carries one,
-// and at its end where it does not — a repair resuming a session whose first
-// prompt carried the persona, or a project with no persona. It is added whatever
-// else the prompt holds: a work item that names this file has its text quoted in
-// the context bundle, and a quotation is not the instruction.
-func withSubagentInstruction(prompt, persona string) string {
-	instruction := strings.TrimSpace(subagentInstruction)
+//go:embed developer-sub-agents-opus-main.md
+var opusMainInstruction string
+
+//go:embed developer-sub-agents-sonnet-main.md
+var sonnetMainInstruction string
+
+// subagentInstructionFor is the file and text of the instruction for a
+// developer on mainModel with sub-agents on subagentModel. A model is read by
+// the family its name carries, so an alias such as "opus" and a full name such
+// as "claude-opus-4-7" are the same arrangement.
+func subagentInstructionFor(mainModel, subagentModel string) (file, text string) {
+	main, sub := modelFamily(mainModel), modelFamily(subagentModel)
+	switch {
+	case main == "opus" && (sub == "sonnet" || sub == "haiku"):
+		return opusMainInstructionFile, opusMainInstruction
+	case main == "sonnet" && sub == "opus":
+		return sonnetMainInstructionFile, sonnetMainInstruction
+	}
+	return subagentInstructionFile, subagentInstruction
+}
+
+// modelFamily is the Claude model family a model name carries, and empty for a
+// name that carries none.
+func modelFamily(model string) string {
+	model = strings.ToLower(model)
+	for _, family := range []string{"opus", "sonnet", "haiku"} {
+		if strings.Contains(model, family) {
+			return family
+		}
+	}
+	return ""
+}
+
+// withSubagentInstruction is prompt with instruction placed straight after the
+// developer persona's section where the prompt carries one, and at its end
+// where it does not — a repair resuming a session whose first prompt carried
+// the persona, or a project with no persona. It is added whatever else the
+// prompt holds: a work item that names an instruction's file has its text
+// quoted in the context bundle, and a quotation is not the instruction.
+func withSubagentInstruction(prompt, persona, instruction string) string {
+	instruction = strings.TrimSpace(instruction)
 	if section := personaSection(persona); section != "" {
 		if at := strings.Index(prompt, section); at >= 0 {
 			end := at + len(section)
@@ -61,20 +115,21 @@ func withSubagentInstruction(prompt, persona string) string {
 	return strings.TrimRight(prompt, "\n") + "\n\n" + instruction + "\n"
 }
 
-// instructSubagents adds the instruction to the prompt of an invocation given
-// sub-agents and notes on the run's record that it was given and the build it
-// came from. An invocation without them is given the prompt unchanged and
-// leaves the record as it was.
-func (a *activeRun) instructSubagents(prompt string, subagents *backend.SubagentRequest) string {
+// instructSubagents adds the instruction for the arrangement to the prompt of
+// an invocation on model given sub-agents, and notes on the run's record which
+// instruction it was given and the build it came from. An invocation without
+// them is given the prompt unchanged and leaves the record as it was.
+func (a *activeRun) instructSubagents(prompt, model string, subagents *backend.SubagentRequest) string {
 	if subagents == nil || a.state.Subagents == nil {
 		return prompt
 	}
+	file, instruction := subagentInstructionFor(model, subagents.Model)
 	a.state.Subagents.Instruction = &runstate.SubagentInstruction{
-		File:  subagentInstructionFile,
+		File:  file,
 		Build: a.pipeline.Build,
 		At:    a.pipeline.clock().Now(),
 	}
-	return withSubagentInstruction(prompt, a.pipeline.developer().Persona.Text)
+	return withSubagentInstruction(prompt, a.pipeline.developer().Persona.Text, instruction)
 }
 
 // settleSubagents records the run's sub-agent setting where it has none yet.

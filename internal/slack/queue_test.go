@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/notify"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -128,9 +129,17 @@ func TestAQueuedMessageSurvivesARestart(t *testing.T) {
 		defer close(served)
 		after.steering.serveQueue(ctx)
 	}()
-	<-answered
+	select {
+	case <-answered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the restarted sink did not answer the queued message within 30 seconds")
+	}
 	cancel()
-	<-served
+	select {
+	case <-served:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the restarted sink did not stop within 30 seconds of being told to")
+	}
 
 	if said := talker.delivered(); len(said) != 1 || said[0] != "what should we build next?" {
 		t.Fatalf("delivered = %q, want the message queued before the restart said after it", said)
@@ -242,7 +251,11 @@ func TestAMessageThatFindsATerminalTurnGoesBackInFrontAndIsDeliveredFirst(t *tes
 	talker := &turnHeldConversation{held: true, gate: make(chan struct{}), running: make(chan struct{})}
 	sink, posts := newConversingSink(t, talker)
 	sink.steering.handle(context.Background(), topLevel(testOperator, "<@"+testApp+"> first", "1750000001.000100"))
-	<-talker.running
+	select {
+	case <-talker.running:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the first message was not offered to the conversation within 30 seconds")
+	}
 	// The first is still being tried, so the second is queued behind it.
 	sink.steering.handle(context.Background(), topLevel(testOperator, "<@"+testApp+"> second", "1750000002.000100"))
 	close(talker.gate)
@@ -261,6 +274,27 @@ func TestAMessageThatFindsATerminalTurnGoesBackInFrontAndIsDeliveredFirst(t *tes
 
 	if said := talker.delivered(); len(said) != 2 || said[0] != "first" || said[1] != "second" {
 		t.Fatalf("delivered = %q, want first then second", said)
+	}
+}
+
+// A call's result is handed over only after the sink's turn has been given back,
+// so the next try made as soon as a result arrives is never refused the turn by
+// the call's own cleanup that has not run yet.
+func TestTheTurnIsFreeWhenACallsResultArrives(t *testing.T) {
+	t.Parallel()
+
+	talker := &turnHeldConversation{}
+	sink, _ := newConversingSink(t, talker)
+	for i := 0; i < 500; i++ {
+		_, _, landed := sink.steering.call(context.Background(), inboundMessage{}, "hello", true)
+		if !landed {
+			t.Fatalf("call %d did not land", i)
+		}
+		if !sink.steering.begin() {
+			t.Fatalf("call %d returned its result while still holding the turn", i)
+		}
+		sink.steering.finish()
+		<-sink.steering.wake
 	}
 }
 
