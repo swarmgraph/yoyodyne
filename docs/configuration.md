@@ -304,6 +304,8 @@ path_checks: []     # checks a change runs only when it touches what they vouch 
 install: []         # what installs the project's dependencies; see configuration/runs.md
 document_checks: [] # what a confirmed document's landing runs; see "The document checks"
 main_checks: []     # what runs whole on the branch's head every four hours; see "The checks run on main"
+merge_queue_checks: [] # which of the checks above the merge queue runs; see "The checks the merge queue runs"
+merge_queue_race_check: "" # the check the queue adds, narrowed, for a change with no passing result of it
 
 accounts:
   default: {}       # the provider account the agents below run under
@@ -3728,6 +3730,76 @@ started. While a run is under way the supervisor waits for it to finish before
 it moves onto a new build. A project that lists no `main_checks` runs nothing
 on its branch. Both keys may be changed by the development manager.
 
+### The checks the merge queue runs
+
+With `execution.merge_queue` on, the harness's merge queue runs checks on the
+candidate it lands. A project that says nothing has every configured check in
+`checks` run whole on exactly the candidate commit. `merge_queue_checks` names
+the ones the queue runs instead: each must be a command written exactly as
+`checks` writes it, and each is run whole on exactly the candidate commit.
+The list and its digest are recorded with the candidate's evidence, and a
+candidate lands only on the list in force when it lands.
+
+```yaml
+checks:
+  - make test
+  - make race CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
+main_checks:
+  - make race
+merge_queue_checks:
+  - make test
+merge_queue_race_check: make race CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
+```
+
+`merge_queue_race_check` is the one check the queue adds to the list for a
+candidate that needs it. It must be a configured check and must be left off
+`merge_queue_checks`, which it needs. The queue adds it when the change's
+approved head has no passing result of it and the change touches Go packages.
+It is run after the declared list passed and is told only the packages the
+change touches, through `YOYODYNE_CHANGED_GO_PACKAGES`, so no change lands
+without a race check on its own code. A change whose run recorded a passing
+result over the approved head, or whose record says it touches no Go package,
+is not checked by it again. Where the record cannot say, the check is added.
+
+A change whose own run narrowed its checks leaves the whole pass to the queue,
+as before. It lands only where the queue ran the declared list whole on the
+landing commit, every check on it passed, and the approved head carries a
+passing race result or the queue ran the narrowed race check; anything less is
+refused at the landing. Leave the race check off `merge_queue_checks` only once
+`main_checks` runs it on the branch, as above. The queue's checks of a confirmed document
+are `document_checks`, not these.
+
+### Checks on CI (`execution.ci_checks`)
+
+`execution.ci_checks` is the switch for moving most of a run's testing to the
+forge, described in `docs/designs/checks-on-ci.md`. It is off by default, and
+off (or absent) a run's checks, timing and records are exactly what they were.
+This setting is the switch and its validation. The GitHub adapter can push a
+run's branch, open or update its draft pull request, and read each required
+check's result and a failing check's output for a named commit; the wait, the
+recorded failure and the fallback arrive in later builds.
+
+```yaml
+execution:
+  ci_checks:
+    enabled: false
+    local: [make fmtcheck, make vet]   # declared checks still run on this machine
+    required: [test, race]             # forge checks that must pass on the change
+    wait_limit: 1h                     # how long to wait for them after the push
+```
+
+- `local` must name checks the project declares in `checks`, written exactly as
+  `checks` writes them; a name that is not one is refused when the file is read,
+  whether or not the switch is on.
+- `required` must not be empty while `enabled` is true.
+- `enabled: true` is refused when the project's forge adapter cannot push a
+  branch, open a draft pull request, and read check results and output for a
+  named commit. The refusal names what is missing. The GitHub adapter, the only
+  one shipped, does all four.
+- `wait_limit` is 1h when not set.
+
+`yoyo config show --origins` says which file each value came from.
+
 ### A check that could not run
 
 A check can end a third way besides passing and failing: it could not run at
@@ -7023,7 +7095,16 @@ still land the change, and leaves a request with no recorded answer to the next
 pass, which looks at what it did first. `hand-back` withdraws whatever the queue
 asked the forge for, as a transfer does, and ends the entry's turn with its
 change kept on its run for the development manager, so the entries behind it go
-on.
+on. Before it hands the change back, it looks for it on the target: where the
+target carries the approved head, or the run's own pull request reads as merged
+with the approved head as its head and its merge commit is on the target — a
+change merged by hand while the queue was stopped on it — the entry leaves the
+queue as landed instead, the run ends landed, and its work item is settled as
+after any landing, with nothing asked of the development manager. Where the
+target does not show the change, the hand-back's reason says what was found,
+such as a pull request that reads as merged with nothing of it on the target.
+A hand-back whose work item is already closed leaves the item closed and says
+so in a note, without stopping the run or asking anything.
 
 **Who works the queues.** A `yoyo work` session works every queue with an entry
 in it beside its pulls, one pass per queue at a time, each in its own

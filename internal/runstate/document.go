@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -126,6 +127,30 @@ func (s State) DocumentStoppedOnTime() bool {
 // candidate is not one the harness can publish. Trying it again unchanged is
 // refused the same way, so its conversation stops trying rather than keeping it.
 var ErrDocumentNotPublishable = errors.New("the document's confirmation no longer allows a reviewed publication")
+
+// DocumentLinksRevisedError marks a publication refused before any run was
+// opened for it, because a document it links to or supports was revised after
+// it was confirmed. Its owner revises it or says it still agrees, which writes
+// it again; the same text offered unchanged is refused the same way.
+type DocumentLinksRevisedError struct {
+	ConfirmedAt time.Time
+	Revised     []DocumentLinkRevised
+}
+
+// DocumentLinkRevised is one linked document and when it was last revised.
+type DocumentLinkRevised struct {
+	ID        string    `json:"id"`
+	Path      string    `json:"path"`
+	RevisedAt time.Time `json:"revised_at"`
+}
+
+func (e *DocumentLinksRevisedError) Error() string {
+	var named []string
+	for _, r := range e.Revised {
+		named = append(named, fmt.Sprintf("%s (%s) was revised at %s", r.ID, r.Path, r.RevisedAt.Local().Format("2006-01-02 15:04 MST")))
+	}
+	return fmt.Sprintf("documents it links to or supports were revised after it was confirmed at %s: %s", e.ConfirmedAt.Local().Format("2006-01-02 15:04 MST"), strings.Join(named, "; "))
+}
 
 // DocumentDelivery is the durable run result returned to its owning conversation.
 type DocumentDelivery struct {

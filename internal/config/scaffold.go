@@ -424,6 +424,19 @@ execution:
   # reviewer approve it, and lands exactly that. Turning it off admits nothing
   # new and still finishes what is already queued.
   merge_queue: %t
+  # Whether most of a run's testing happens on the forge instead of on this
+  # machine (docs/designs/checks-on-ci.md). Off, every run's checks run here
+  # before review, as they always have. "local" names the checks this machine
+  # still runs, each written as "checks" writes it; "required" names the forge
+  # checks that must pass on the change, and may not be empty while "enabled"
+  # is true; "wait_limit" is how long to wait for them after the push. Turning
+  # it on is refused for a forge adapter that cannot push a branch, open a draft
+  # pull request, and read check results and output for a commit.
+  ci_checks:
+    enabled: false
+    # local: [make fmtcheck]
+    # required: [test]
+    wait_limit: 1h
 
 # When work that has stopped moving is looked at, and what looking at it may
 # spend. An approved publication nobody has merged is docketed once it has sat
@@ -1204,6 +1217,18 @@ landing_checks: []
 #   main_checks:
 #     - go test -race ./...
 main_checks: []
+# The configured checks the harness's merge queue runs on a candidate, each run
+# whole on exactly the candidate commit, and the one check it adds, told only the
+# Go packages the change touches, to a candidate whose approved head has no
+# passing result of it. Each must be one of "checks" above, and the race check
+# must be left off "merge_queue_checks". Empty runs every configured check whole,
+# and adds nothing.
+#
+#   merge_queue_checks:
+#     - go vet ./...
+#   merge_queue_race_check: go test -race ${YOYODYNE_CHANGED_GO_PACKAGES-./...}
+merge_queue_checks: []
+merge_queue_race_check: ""
 `)
 }
 

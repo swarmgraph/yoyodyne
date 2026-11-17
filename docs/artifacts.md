@@ -151,7 +151,9 @@ what is allowed. The
 and what is refused.
 
 **An approval given on the command line lands through a reviewed run**, the
-way a document approved in a conversation does: the run changes only that
+way a document approved in a conversation does (unless a document it links to
+or supports was revised while it waited for a free document landing, in which
+case no run opens and the approval has to be given again; see below): the run changes only that
 document, adding your approval to its frontmatter, runs its own checks and an
 independent review, and lands it through the protected merge, or leaves it on
 its branch for you to merge where `approvals.integration` is not `automatic`.
@@ -539,6 +541,21 @@ that conversation, automatic publication stops. The owner receives that reason
 and must revise its plan; further submissions are saved as conversation
 events but open no more runs for that document in that conversation.
 
+**A document whose linked documents changed returns to its owner before any
+run.** Before a publishing run starts, a confirmed document is compared with
+every document it names as one it supports and every document it links to in its
+text. If one of them was revised after the document was confirmed, no run opens:
+the owning conversation is told which documents changed and when, in your local
+time. The owner writes the document again, revised where it no longer agrees, or
+with its text as it is and a reason saying it still agrees; that is confirmed
+afterwards and published. Nothing counts toward the limit of three returned
+runs, because no run judged the document. A retry the development manager
+decided has no conversation holding it, so the owning conversation is told
+directly. An approval given on the command line that waited for a document
+landing and met a revised linked document opens no run either: every
+conversation of the owning role is told, and the approval is given again with
+`yoyo artifact approve` once the document is settled.
+
 **A run that judged nothing is run again.** A run stopped by something that
 says nothing about the document — a check stopped by a time limit, a forge or
 network error, the machine or the harness stopping — is not a return. The
@@ -592,6 +609,9 @@ fresh run opens its own, and a fresh run that stops again without judging the
 document is continued by the harness. A retry is refused before any run
 starts when the target branch already carries a later confirmed revision of the
 same document, and the refusal names that revision and when it was confirmed.
+A retry whose text links to or supports a document revised since the text was
+confirmed also opens no run when the scheduler starts it: the owner is told, as
+described above, and writes the document again.
 An invariant's file records no confirmations, so for an invariant it is the
 copy's last revision, written after the text the run carries, that refuses the
 retry;

@@ -116,6 +116,20 @@ type Config struct {
 	// project that names none runs nothing on its branch, which is what every
 	// project did before this existed.
 	MainChecks []string `yaml:"main_checks,omitempty" json:"main_checks,omitempty"`
+	// MergeQueueChecks are the configured checks the harness's merge queue runs
+	// on a candidate, each run whole on exactly the candidate commit. A project
+	// that names none has every configured check run whole there, which is what
+	// every project did before this existed. Each must be one of Checks, so the
+	// queue never runs a command nobody configured for the project's changes.
+	// The list and its digest are recorded with the candidate's evidence.
+	MergeQueueChecks []string `yaml:"merge_queue_checks,omitempty" json:"merge_queue_checks,omitempty"`
+	// MergeQueueRaceCheck is the configured check, left off MergeQueueChecks,
+	// that the queue adds to a candidate whose approved head has no passing
+	// result of it, told only the Go packages the change touches
+	// (checks.ChangedGoPackagesVariable). It is how a change whose code was
+	// never race-checked on its own does not land without one while the whole
+	// check runs on main instead (MainChecks). Empty adds nothing.
+	MergeQueueRaceCheck string `yaml:"merge_queue_race_check,omitempty" json:"merge_queue_race_check,omitempty"`
 	// PathChecks are commands the per-run gate adds after Checks for a change
 	// that touches what they vouch for, and leaves out for one that touches none
 	// of it. Each names a file in the repository listing the paths it vouches
@@ -642,6 +656,14 @@ type Execution struct {
 	// new; entries already admitted are still drained in the mode each was
 	// admitted in.
 	MergeQueue bool `yaml:"merge_queue" json:"merge_queue"`
+	// CIChecks is the switch that moves most of a run's testing to the forge
+	// (cichecks.go). Absent or disabled, which is the default, a run's checks,
+	// timing and records are exactly what they were before the key existed: the
+	// block is left out of the serialized form that digests into the
+	// configuration revision while it holds only defaults, so a project that
+	// says nothing keeps the revision it had. `config show` still prints it,
+	// because the YAML form always carries it.
+	CIChecks CIChecks `yaml:"ci_checks" json:"ci_checks,omitzero"`
 }
 
 const (
@@ -1295,6 +1317,7 @@ func (c Config) Validate() error {
 	}
 	problems = append(problems, developerSlotProblems(c.Execution)...)
 	problems = append(problems, heavyCheckProblems(c)...)
+	problems = append(problems, ciCheckProblems(c)...)
 	problems = append(problems, developerModelProblems(c.Execution)...)
 	if c.Execution.RepairAttemptsBeforeReplan < 0 {
 		problems = append(problems, "repair_attempts_before_replan cannot be negative")
@@ -1631,6 +1654,7 @@ func (c Config) Validate() error {
 			problems = append(problems, fmt.Sprintf("main check %d cannot be empty", index))
 		}
 	}
+	problems = append(problems, c.mergeQueueCheckProblems()...)
 	for index, check := range c.PathChecks {
 		problems = append(problems, check.problems(index)...)
 	}
