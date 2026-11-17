@@ -1090,9 +1090,13 @@ warning  config-readers:dashboard  the dashboard service, running build 0364141b
 The comparison needs nothing of the older build but the list it recorded, so a
 newer doctor answers it for a part whose types it no longer has. A key it
 cannot read is named once, as the key the decoder stops on, and nothing under
-it is looked at. A mismatch on the scheduler is a problem, because a watch that
-cannot read the configuration chooses nothing; on any other part it is a
-warning, for the reason every service finding is. The remedy restarts the part
+it is looked at. A part whose build leaves out settings it does not know
+([a setting a running build does not know](configuration.md#a-setting-a-running-build-does-not-know))
+is said to go on without them rather than to fail every read. A mismatch on
+the scheduler whose build refuses the whole file is a problem, because a watch
+that cannot read the configuration chooses nothing; on a scheduler that goes on
+without the settings, and on any other part, it is a warning, for the reason
+every service finding is. The remedy restarts the part
 now; the watch restarts itself into a deployed build between runs, the
 supervisor restarts the sink between its passes, replaces the dashboard it
 runs, and takes up the deployed build itself after its maintenance pass is

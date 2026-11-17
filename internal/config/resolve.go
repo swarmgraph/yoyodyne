@@ -178,7 +178,7 @@ func loadResolved(path string, mode loadMode, activations RoleActivationReader) 
 	}
 	defer file.Close()
 
-	document, err := decodeDocument(file)
+	document, err := decodeDocumentAt(file, absolute, olderThanRepository(absolute), newerSettingsLog)
 	if err != nil {
 		return Resolved{}, err
 	}

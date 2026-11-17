@@ -4972,6 +4972,21 @@ lengthen under a draining session takes effect at the next wait rather than at
 the next restart, and a bound you tighten under a standing loop is heard at the
 next probe.
 
+### A setting a running build does not know
+
+A change can add a setting and set it in `.yoyodyne/config.yaml` at once,
+while the parts of the product still run the build from before it. Such a
+part checks whether the repository holding the file has moved past the commit
+its build was made from. If it has, the part treats each setting it does not
+know as one added since, leaves it out, names it once in its log, and reads
+the rest; `yoyo doctor` and `yoyo status` name the part, its build, and the
+settings until it moves onto a build that reads them. A build at the
+repository's own commit, or one that cannot place itself in the repository's
+history, refuses a setting it does not know as a misspelling, as it always
+has. So a misspelled setting is still refused by the current build, by every
+check, and by `yoyo config validate`. A part on a build from before this
+behaviour refuses the whole file until it moves onto a newer build.
+
 ### Why each run says why it was there
 
 Every run `yoyo work` starts records, in durable state, why that item was chosen:

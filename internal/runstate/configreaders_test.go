@@ -398,3 +398,54 @@ func TestConfigReaderReadsAnAgentOnARoleDefinitionLikeAnyOther(t *testing.T) {
 		t.Fatalf("MismatchesIn() = %+v, %v, want an agent on a definition read like any other", mismatches, err)
 	}
 }
+
+// A part whose build leaves out settings it does not know is still named, but
+// as going on without them rather than as unable to read the file.
+func TestConfigReaderMismatchSaysAPartThatLeavesOutNewerSettingsGoesOn(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("agents:\n  developer:\n    role: developer\n    effort: medium\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewConfigReaderStore(root, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store = store.WithProcessCheck(func(int) (bool, error) { return true, nil })
+	older := slices.DeleteFunc(config.SchemaKeys(), func(key string) bool { return key == "agents.*.effort" })
+	started := time.Date(2026, 11, 16, 23, 0, 0, 0, time.UTC)
+	for _, reader := range []ConfigReader{
+		{Service: "scheduler", PID: 201, Build: "0123456789abcdef", ConfigPath: configPath, StartedAt: started, Keys: older, LeavesOutNewerSettings: true},
+		{Service: "dashboard", PID: 202, Build: "0123456789abcdef", ConfigPath: configPath, StartedAt: started, Keys: older},
+	} {
+		if err := store.Record(reader); err != nil {
+			t.Fatalf("Record(%s) error = %v", reader.Service, err)
+		}
+	}
+	mismatches, err := store.Mismatches()
+	if err != nil || len(mismatches) != 2 {
+		t.Fatalf("Mismatches() = %+v, %v, want both parts", mismatches, err)
+	}
+	for _, mismatch := range mismatches {
+		says := mismatch.Says()
+		switch mismatch.Service {
+		case "scheduler":
+			if mismatch.Stops() || !strings.Contains(says, "goes on without those settings") || strings.Contains(says, "fails") {
+				t.Errorf("a part that leaves out newer settings is said as %q (stops %t)", says, mismatch.Stops())
+			}
+		case "dashboard":
+			if !mismatch.Stops() || !strings.Contains(says, "every read it makes of the configuration fails") {
+				t.Errorf("a part on a build that refuses the file is said as %q (stops %t)", says, mismatch.Stops())
+			}
+		}
+	}
+	templates, err := store.TemplateMismatches("internal/config/builtin/v1/bundle.yaml", []string{"agents.*.effort"})
+	if err != nil || len(templates) != 2 {
+		t.Fatalf("TemplateMismatches() = %+v, %v", templates, err)
+	}
+	for _, template := range templates {
+		if template.Service == "scheduler" && strings.Contains(template.Says(), "fail") {
+			t.Errorf("a part that leaves out newer settings is said to fail: %q", template.Says())
+		}
+	}
+}

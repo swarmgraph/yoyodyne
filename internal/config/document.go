@@ -397,12 +397,47 @@ type failoverDocument struct {
 }
 
 func decodeDocument(reader io.Reader) (configDocument, error) {
+	return decodeDocumentAt(reader, "", nil, nil)
+}
+
+// decodeDocumentAt is decodeDocument for a file kept at path, where a build
+// older than the file leaves out the settings it does not know rather than
+// refusing the file (see newersettings.go). An empty path and a nil older are a
+// reader that cannot tell, and refuse every unknown key. The settings left out
+// are said on log, once each for the life of the process.
+func decodeDocumentAt(reader io.Reader, path string, older olderBuild, log io.Writer) (configDocument, error) {
 	// The source is held rather than streamed so a file that fails the strict
 	// decode can be read a second time to tell an unknown key from a retired one.
 	source, err := io.ReadAll(reader)
 	if err != nil {
 		return configDocument{}, fmt.Errorf("decode config: %w", err)
 	}
+	document, err := decodeSource(source)
+	if err == nil {
+		return document, nil
+	}
+	if refusal := misplacedStateRoot(source); refusal != "" {
+		return configDocument{}, errors.New(refusal)
+	}
+	if migration := retiredSlackOperators(source); migration != "" {
+		return configDocument{}, errors.New(migration)
+	}
+	if pruned, leftOut, build := withoutNewerSettings(source, older); len(leftOut) > 0 {
+		document, prunedErr := decodeSource(pruned)
+		if prunedErr == nil {
+			sayNewerSettings(log, path, build, leftOut)
+			return document, nil
+		}
+	}
+	if refusal := unknownServices(source); refusal != "" {
+		return configDocument{}, errors.New(refusal)
+	}
+	return configDocument{}, err
+}
+
+// decodeSource decodes one configuration document strictly, refusing every key
+// the document types do not name.
+func decodeSource(source []byte) (configDocument, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(source))
 	decoder.KnownFields(true)
 
@@ -410,15 +445,6 @@ func decodeDocument(reader io.Reader) (configDocument, error) {
 	if err := decoder.Decode(&document); err != nil {
 		if errors.Is(err, io.EOF) {
 			return configDocument{}, errors.New("decode config: configuration is empty")
-		}
-		if refusal := misplacedStateRoot(source); refusal != "" {
-			return configDocument{}, errors.New(refusal)
-		}
-		if migration := retiredSlackOperators(source); migration != "" {
-			return configDocument{}, errors.New(migration)
-		}
-		if refusal := unknownServices(source); refusal != "" {
-			return configDocument{}, errors.New(refusal)
 		}
 		return configDocument{}, fmt.Errorf("decode config: %w", err)
 	}
