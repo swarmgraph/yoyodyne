@@ -8,9 +8,9 @@ package orchestrator
 // carries on, and never pushes a different commit or starts the wait again.
 //
 // Review starts only once every required check has passed on exactly that
-// commit. Where the wait ends any other way — a required check failed, was
-// cancelled or skipped, never started within the wait limit, the forge cannot
-// be read, or the switch was turned off — the run runs the full declared checks
+// commit. Where the wait ends any other way — a required check was cancelled
+// or skipped, never started within the wait limit, the forge cannot be read, or
+// the switch was turned off — the run runs the full declared checks
 // on this machine over the same commit and goes on from their result. That is
 // what the design gives for CI being down or slow and for switching off.
 //
@@ -38,7 +38,7 @@ import (
 
 // CIForge is what the wait asks of the forge: push a run's branch, open or
 // refresh its draft pull request, and read the required checks on a commit.
-// publish.GitHub does all three.
+// publish.GitHub does all four; the last reads the log of a failing check.
 type CIForge interface {
 	PushBranch(ctx context.Context, request publish.PushRequest) error
 	EnsureDraft(ctx context.Context, request publish.Request) (publish.PullRequest, error)
@@ -169,9 +169,10 @@ func (a *activeRun) pushAndWait(ctx context.Context) error {
 // settleCIWait is the first thing a run does once it has a slot again with a
 // wait recorded. It reads the forge for exactly the commit the wait names and
 // never pushes. Every required check passed: the wait ends and review goes on.
-// Still running within the limit: the run parks again. Anything else, or the
-// switch turned off, ends the wait and runs the full declared checks over the
-// same commit.
+// A required check that failed goes back to the developer as a failed check
+// (handBackCIFailure). Still running within the limit: the run parks again.
+// Anything else, or the switch turned off, ends the wait and runs the full
+// declared checks over the same commit.
 func (a *activeRun) settleCIWait(ctx context.Context) error {
 	p := a.pipeline
 	wait := *a.state.CIWait
