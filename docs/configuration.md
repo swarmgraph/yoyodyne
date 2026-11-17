@@ -304,6 +304,8 @@ path_checks: []     # checks a change runs only when it touches what they vouch 
 install: []         # what installs the project's dependencies; see configuration/runs.md
 document_checks: [] # what a confirmed document's landing runs; see "The document checks"
 main_checks: []     # what runs whole on the branch's head every four hours; see "The checks run on main"
+merge_queue_checks: [] # which of the checks above the merge queue runs; see "The checks the merge queue runs"
+merge_queue_race_check: "" # the check the queue adds, narrowed, for a change with no passing result of it
 
 accounts:
   default: {}       # the provider account the agents below run under
@@ -3727,6 +3729,45 @@ start a run early: the next run is due an interval after the latest one
 started. While a run is under way the supervisor waits for it to finish before
 it moves onto a new build. A project that lists no `main_checks` runs nothing
 on its branch. Both keys may be changed by the development manager.
+
+### The checks the merge queue runs
+
+With `execution.merge_queue` on, the harness's merge queue runs checks on the
+candidate it lands. A project that says nothing has every configured check in
+`checks` run whole on exactly the candidate commit. `merge_queue_checks` names
+the ones the queue runs instead: each must be a command written exactly as
+`checks` writes it, and each is run whole on exactly the candidate commit.
+The list and its digest are recorded with the candidate's evidence, and a
+candidate lands only on the list in force when it lands.
+
+```yaml
+checks:
+  - make test
+  - make race CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
+main_checks:
+  - make race
+merge_queue_checks:
+  - make test
+merge_queue_race_check: make race CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
+```
+
+`merge_queue_race_check` is the one check the queue adds to the list for a
+candidate that needs it. It must be a configured check and must be left off
+`merge_queue_checks`, which it needs. The queue adds it when the change's
+approved head has no passing result of it and the change touches Go packages.
+It is run after the declared list passed and is told only the packages the
+change touches, through `YOYODYNE_CHANGED_GO_PACKAGES`, so no change lands
+without a race check on its own code. A change whose run recorded a passing
+result over the approved head, or whose record says it touches no Go package,
+is not checked by it again. Where the record cannot say, the check is added.
+
+A change whose own run narrowed its checks leaves the whole pass to the queue,
+as before. It lands only where the queue ran the declared list whole on the
+landing commit, every check on it passed, and the approved head carries a
+passing race result or the queue ran the narrowed race check; anything less is
+refused at the landing. Leave the race check off `merge_queue_checks` only once
+`main_checks` runs it on the branch, as above. The queue's checks of a confirmed document
+are `document_checks`, not these.
 
 ### A check that could not run
 

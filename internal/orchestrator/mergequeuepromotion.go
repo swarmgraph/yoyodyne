@@ -447,7 +447,7 @@ func (q *queuePromotion) begin(ctx context.Context) error {
 			q.outcome.Refusal = fmt.Sprintf("run %s records no branch for the forge's queue to take the change from", q.entry.RunID)
 			return nil
 		}
-		if refusal := mergeQueueStandsIn(run, q.entry.Mode, runstate.MergeQueueGeneration{}, q.p.Pipeline.Config.PathChecks); refusal != "" {
+		if refusal := mergeQueueStandsIn(run, q.entry.Mode, runstate.MergeQueueGeneration{}, q.p.Pipeline.Config.PathChecks, q.p.Pipeline.declaration(q.entry)); refusal != "" {
 			q.outcome.Refusal, q.outcome.Uncovered = refusal, true
 			return nil
 		}
@@ -472,7 +472,7 @@ func (q *queuePromotion) begin(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("read run %s, whose checks the candidate's checks may stand in for: %w", q.entry.RunID, err)
 		}
-		if refusal := mergeQueueStandsIn(run, q.entry.Mode, generation, q.p.Pipeline.Config.PathChecks); refusal != "" {
+		if refusal := mergeQueueStandsIn(run, q.entry.Mode, generation, q.p.Pipeline.Config.PathChecks, q.p.Pipeline.declaration(q.entry)); refusal != "" {
 			q.outcome.Refusal, q.outcome.Uncovered = refusal, true
 			return nil
 		}

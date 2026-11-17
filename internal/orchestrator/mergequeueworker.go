@@ -766,10 +766,18 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 		}
 		return generation, false, nil
 	}
-	results, lastSequence, runErr := p.Checks.Run(ctx, checks.Request{
+	// The race check the queue adds for a change that owes one (config.
+	// MergeQueueRaceCheck) is the one check not run whole: it is told only the
+	// Go packages the change touches, after the declared list has passed.
+	raceCheck := w.addedRaceCheck(generation, remaining)
+	wholeCommands := remaining
+	if raceCheck != "" {
+		wholeCommands = slices.DeleteFunc(slices.Clone(remaining), func(command string) bool { return command == raceCheck })
+	}
+	request := checks.Request{
 		RunID:        generation.EventStream(),
 		Directory:    generation.Checkout,
-		Commands:     remaining,
+		Commands:     wholeCommands,
 		LastSequence: generation.LastSequence,
 		// The candidate is checked whole: it is what would land, and nothing
 		// narrows what a landing has to answer for.
@@ -798,7 +806,26 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 		// A candidate is checked for a landing, so its heavy checks are let
 		// start ahead of every run's gate (heavychecks.go).
 		Permit: checks.PermitRequest{Priority: domain.HeavyCheckForLanding},
-	}, w.Events)
+	}
+	var results []checks.Result
+	var lastSequence uint64
+	var runErr error
+	if len(wholeCommands) > 0 {
+		results, lastSequence, runErr = p.Checks.Run(ctx, request, w.Events)
+	} else {
+		lastSequence = generation.LastSequence
+	}
+	if raceCheck != "" && runErr == nil && allPassedOver(results, wholeCommands) {
+		narrowing, narrowErr := w.raceNarrowing(ctx, generation)
+		if narrowErr != nil {
+			runErr = narrowErr
+		} else {
+			request.Commands, request.Narrowing, request.LastSequence = []string{raceCheck}, &narrowing, lastSequence
+			var raced []checks.Result
+			raced, lastSequence, runErr = p.Checks.Run(ctx, request, w.Events)
+			results = append(results, raced...)
+		}
+	}
 	finished := w.now()
 	if lastSequence > generation.LastSequence {
 		generation.LastSequence = lastSequence
@@ -1175,4 +1202,43 @@ func boundedEvidence(text string) string {
 		cut--
 	}
 	return text[:cut]
+}
+
+// addedRaceCheck is the race check this candidate's run adds to the project's
+// declared list, among the checks still to run, and empty where it adds none:
+// the project declares a list, and the configured race check is on the
+// candidate's list without being on the declared one (mergequeuedeclared.go).
+func (w MergeQueueWorker) addedRaceCheck(generation runstate.MergeQueueGeneration, remaining []string) string {
+	race := w.Pipeline.Config.MergeQueueRaceCheck
+	declared := generation.Checks.Declared
+	if race == "" || declared == nil || slices.Contains(declared.Commands, race) || !slices.Contains(remaining, race) {
+		return ""
+	}
+	return race
+}
+
+// raceNarrowing is the Go packages the candidate's change touches, which the
+// race check the queue adds is told in place of the whole module. Where the
+// paths cannot be listed the check is told the whole module, which is slower
+// and never narrower than the change.
+func (w MergeQueueWorker) raceNarrowing(ctx context.Context, generation runstate.MergeQueueGeneration) (checks.Narrowing, error) {
+	changed, err := w.Candidates.CandidatePaths(ctx, generation.TargetBase, generation.Candidate)
+	if err != nil {
+		return checks.Narrowing{Whole: true, Reason: "the paths the candidate changes could not be listed"}, nil
+	}
+	return checks.NarrowGoPackages(generation.Checkout, changed), nil
+}
+
+// allPassedOver reports that every command has a result, and every one ran and
+// passed.
+func allPassedOver(results []checks.Result, commands []string) bool {
+	if len(results) != len(commands) {
+		return false
+	}
+	for _, result := range results {
+		if !result.Passed || result.CouldNotRun != "" {
+			return false
+		}
+	}
+	return true
 }

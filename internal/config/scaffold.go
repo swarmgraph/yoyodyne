@@ -1204,6 +1204,18 @@ landing_checks: []
 #   main_checks:
 #     - go test -race ./...
 main_checks: []
+# The configured checks the harness's merge queue runs on a candidate, each run
+# whole on exactly the candidate commit, and the one check it adds, told only the
+# Go packages the change touches, to a candidate whose approved head has no
+# passing result of it. Each must be one of "checks" above, and the race check
+# must be left off "merge_queue_checks". Empty runs every configured check whole,
+# and adds nothing.
+#
+#   merge_queue_checks:
+#     - go vet ./...
+#   merge_queue_race_check: go test -race ${YOYODYNE_CHANGED_GO_PACKAGES-./...}
+merge_queue_checks: []
+merge_queue_race_check: ""
 `)
 }
 

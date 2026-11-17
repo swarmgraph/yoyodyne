@@ -773,6 +773,14 @@ func (r *resolution) apply(applied layer) error {
 		r.config.MainChecks = append([]string(nil), (*document.MainChecks)...)
 		r.origins["main_checks"] = applied.origin
 	}
+	if document.MergeQueueChecks != nil {
+		r.config.MergeQueueChecks = append([]string(nil), (*document.MergeQueueChecks)...)
+		r.origins["merge_queue_checks"] = applied.origin
+	}
+	if document.MergeQueueRaceCheck != nil {
+		r.config.MergeQueueRaceCheck = strings.TrimSpace(*document.MergeQueueRaceCheck)
+		r.origins["merge_queue_race_check"] = applied.origin
+	}
 	if document.PathChecks != nil {
 		r.config.PathChecks = append([]PathCheck(nil), (*document.PathChecks)...)
 		r.origins["path_checks"] = applied.origin
