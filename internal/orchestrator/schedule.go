@@ -1654,7 +1654,9 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// mine is the items this pass has started and not yet collected, by work
 	// item. It exists because a run does not appear in the durable state until it
 	// reserves, which is several steps after it is started, and a pull that
-	// counted only the recorded runs would start the same slot twice.
+	// counted only the recorded runs would start the same slot twice. A start
+	// that has waited far longer than that, on a slow tracker, stops counting
+	// against the slots while its item stays taken (stalledStarts).
 	mine := make(map[string]int)
 	// remember puts one start on mine and notes when it was made, so a decision
 	// passed over because of it can say which start it was and how long ago it
@@ -2944,9 +2946,19 @@ pulling:
 		// (runstate.Store.HoldsDeveloperSlotNow), the same way the reservation does
 		// not count it. It stays in occupied, because its item still has a run
 		// standing over it and one item is never given two.
+		//
+		// A start of this session's own that has waited past the time a dispatch
+		// takes to reserve, the tracker keeping it waiting, is not counted against
+		// the slots either, and stays in occupied for the same reason
+		// (stalledStarts). uncounted is both, and is what every count of the free
+		// slots below leaves out.
 		gone := workersGone(pull.Runs, occupied, mine, s.now())
-		free := pull.Capacity - (len(occupied) - len(gone))
-		pullSlots.counted(free, slotNumbers(pull.slotsOf(withoutItems(occupied, gone), nil).Free()))
+		uncounted := stalledStarts(occupied, mine, schedule.Started, pull.Capacity, s.now())
+		for id := range gone {
+			uncounted[id] = true
+		}
+		free := pull.Capacity - (len(occupied) - len(uncounted))
+		pullSlots.counted(free, slotNumbers(pull.slotsOf(withoutItems(occupied, uncounted), nil).Free()))
 		// freed is the slots that came free since the last pull and whose runs had
 		// held them, which the line a filling poll writes says; heldElsewhere is how
 		// many slots another process's runs hold now, which decides what a session
@@ -3436,7 +3448,7 @@ pulling:
 		schedule.Blocked = refused
 
 		schedule.Capacity = pull.Capacity
-		schedule.Occupied = len(occupied) - len(gone)
+		schedule.Occupied = len(occupied) - len(uncounted)
 		// A probe is one run, whatever the capacity leaves free: what it is for is
 		// finding out whether the line is fine, and two of them would be two runs
 		// spent on one question.
@@ -3446,7 +3458,7 @@ pulling:
 		if free < 1 {
 			// Every slot is counted as taken, which is an empty slot only where one
 			// is counted for a start of this session that has no run on record.
-			pullSlots.say(countedAccount(withoutItems(occupied, gone), gone, mine, schedule.Started, s.now()))
+			pullSlots.say(countedAccount(withoutItems(occupied, uncounted), uncounted, mine, schedule.Started, s.now()))
 			session.emptySlots(pullSlots.account)
 			// A watch with a slot another process holds waits on the interval as
 			// well as on its own runs: that process's run ending frees a slot this
@@ -3615,7 +3627,7 @@ pulling:
 		// configured for it before a slot with no preference reaches it. It is
 		// read from what is in flight rather than remembered, like everything
 		// else here, and it is the same reading the standing status makes.
-		freeSlots := pull.slotsOf(withoutItems(occupied, gone), read.items).Free()
+		freeSlots := pull.slotsOf(withoutItems(occupied, uncounted), read.items).Free()
 		if len(freeSlots) > free {
 			freeSlots = freeSlots[:free]
 		}
@@ -8066,6 +8078,55 @@ func workersGone(runs ScheduleRuns, occupied map[string]runstate.State, mine map
 		}
 	}
 	return gone
+}
+
+// stalledStarts is the starts of this session's own that have gone past
+// countedGrace with no run on record, which a pull leaves out of the developer
+// slots it counts as busy: the oldest first, and at most capacity of them.
+//
+// A start holds no slot anybody else can see until its run reserves one. The
+// session counts one for it before then only so the next pull does not offer
+// the same slot again in the seconds a dispatch takes to reserve (see mine).
+// A start the tracker keeps waiting can stand there for an hour, and a count
+// that kept its slot all that time started nothing in it while the records
+// showed it empty and ready work waited.
+//
+// Leaving such a start out of the count never gives one slot to two runs. The
+// reservation counts the runs on record under its lock and refuses a run past
+// the capacity (runstate.Store.Reserve), and a run records a slot number only
+// where no other run holds it (claimDeveloperSlot). So where fresh work takes
+// the slot first, the stalled start is refused when it reaches its reservation,
+// recorded as declined, and its item tried again. Its item stays in occupied
+// meanwhile, so it is never started a second time beside the start that has
+// not come back.
+//
+// The bound keeps a tracker that makes every start wait from turning the slots
+// into a pile of starts: without it the session would begin another start
+// each grace period for as long as the tracker stayed slow. Past capacity
+// stalled starts, the rest are counted again and the session waits.
+func stalledStarts(occupied map[string]runstate.State, mine map[string]int, started []Started, capacity int, now time.Time) map[string]bool {
+	type waiting struct {
+		id    string
+		began time.Time
+	}
+	var stalled []waiting
+	for id, state := range occupied {
+		index, ours := mine[id]
+		if !ours || state.RunID != "" || index < 0 || index >= len(started) {
+			continue
+		}
+		if began := started[index].began; !began.IsZero() && now.Sub(began) >= countedGrace {
+			stalled = append(stalled, waiting{id: id, began: began})
+		}
+	}
+	slices.SortFunc(stalled, func(a, b waiting) int {
+		return cmp.Or(a.began.Compare(b.began), cmp.Compare(a.id, b.id))
+	})
+	set := make(map[string]bool, len(stalled))
+	for _, start := range stalled[:min(len(stalled), max(capacity, 0))] {
+		set[start.id] = true
+	}
+	return set
 }
 
 // withoutItems is occupied without the items named, as a copy.
