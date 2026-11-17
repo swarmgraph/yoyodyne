@@ -1,6 +1,7 @@
 // The page's own script: hold the token, fetch the read model with it, and
 // draw the nine sections, the summary first, and the merge queues where there are any, from what
-// comes back. It is served from this origin
+// comes back. A page served without the summary (services.dashboard.hide_summary)
+// draws the other eight and never asks for it. It is served from this origin
 // because the policy allows script from nowhere else.
 //
 // The token lives in localStorage and nowhere else. Local storage is scoped to
@@ -107,6 +108,9 @@ var standingWarningAgeSeconds = 5 * 60;
   // their detail open, so a reading taken since keeps them open.
   var summaryPeriod = "today";
   var summaryOpen = {};
+  // summaryShown is whether the page carries the summary at all; the server
+  // leaves it out where services.dashboard.hide_summary says so.
+  var summaryShown = document.getElementById("summary") !== null;
 
   // ---- small DOM helpers -------------------------------------------------
 
@@ -3151,6 +3155,9 @@ var standingWarningAgeSeconds = 5 * 60;
   }
 
   function renderSummary() {
+    if (!summaryShown) {
+      return;
+    }
     document.getElementById("summary-today").setAttribute("aria-pressed", summaryPeriod === "today" ? "true" : "false");
     document.getElementById("summary-week").setAttribute("aria-pressed", summaryPeriod === "week" ? "true" : "false");
     var summary = model.summary;
@@ -3194,8 +3201,10 @@ var standingWarningAgeSeconds = 5 * 60;
     }
   }
 
-  document.getElementById("summary-today").addEventListener("click", function () { chooseSummaryPeriod("today"); });
-  document.getElementById("summary-week").addEventListener("click", function () { chooseSummaryPeriod("week"); });
+  if (summaryShown) {
+    document.getElementById("summary-today").addEventListener("click", function () { chooseSummaryPeriod("today"); });
+    document.getElementById("summary-week").addEventListener("click", function () { chooseSummaryPeriod("week"); });
+  }
 
   // ---- the page -------------------------------------------------------------
 
@@ -3401,7 +3410,9 @@ var standingWarningAgeSeconds = 5 * 60;
     delays = { standing: every.standing, summary: every.summary, throughput: every.throughput, spend: every.spend };
     render();
     refresh("standing", current);
-    refresh("summary", current);
+    if (summaryShown) {
+      refresh("summary", current);
+    }
     refresh("throughput", current);
     refresh("spend", current);
   }

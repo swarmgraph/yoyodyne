@@ -51,6 +51,12 @@ type configDocument struct {
 	LandingChecks *[]string `yaml:"landing_checks"`
 	// DocumentChecks replaces an inherited list entirely, for the same reason.
 	DocumentChecks *[]string `yaml:"document_checks"`
+	// MainChecks replaces an inherited list entirely, for the same reason.
+	MainChecks *[]string `yaml:"main_checks"`
+	// MergeQueueChecks replaces an inherited list entirely, for the same reason.
+	MergeQueueChecks *[]string `yaml:"merge_queue_checks"`
+	// MergeQueueRaceCheck is one command, so it replaces an inherited one.
+	MergeQueueRaceCheck *string `yaml:"merge_queue_race_check"`
 	// PathChecks replaces an inherited list entirely, for the same reason.
 	PathChecks *[]PathCheck `yaml:"path_checks"`
 	// Install replaces an inherited list entirely, for the same reason.
@@ -130,6 +136,7 @@ type executionDocument struct {
 	LandingCheckTimeout                    *Duration `yaml:"landing_check_timeout"`
 	WorkPoll                               *Duration `yaml:"work_poll"`
 	ForgeCheckInterval                     *Duration `yaml:"forge_check_interval"`
+	MainCheckInterval                      *Duration `yaml:"main_check_interval"`
 	RedeployDrainLimit                     *Duration `yaml:"redeploy_drain_limit"`
 	FactoryStallAfter                      *Duration `yaml:"factory_stall_after"`
 	CouldNotRunBeforeStatus                *int      `yaml:"could_not_run_before_status"`
@@ -170,6 +177,17 @@ type executionDocument struct {
 	// existed, which leaves it off: a layer that does not supply it integrates
 	// approved work the way runs always have.
 	MergeQueue *bool `yaml:"merge_queue"`
+	// CIChecks is absent from every file written before checks on CI existed,
+	// which leaves it off. Each key inherits on its own, except that the two
+	// lists replace an inherited list wholesale, as the check lists do.
+	CIChecks *ciChecksDocument `yaml:"ci_checks"`
+}
+
+type ciChecksDocument struct {
+	Enabled   *bool     `yaml:"enabled"`
+	Local     *[]string `yaml:"local"`
+	Required  *[]string `yaml:"required"`
+	WaitLimit *Duration `yaml:"wait_limit"`
 }
 
 type triageDocument struct {
@@ -285,6 +303,7 @@ type dashboardServiceDocument struct {
 	// a set nobody decided.
 	AllowedHosts *[]string             `yaml:"allowed_hosts"`
 	Token        *DashboardTokenSource `yaml:"token"`
+	HideSummary  *bool                 `yaml:"hide_summary"`
 }
 
 type agentDocument struct {

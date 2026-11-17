@@ -107,6 +107,29 @@ type Config struct {
 	// The landing's check evidence names the digest of the list it ran
 	// (DocumentChecksDigest), so evidence from a different list is not evidence.
 	DocumentChecks []string `yaml:"document_checks,omitempty" json:"document_checks,omitempty"`
+	// MainChecks are the commands the supervisor runs whole on the head of the
+	// target branch on a schedule of its own, every
+	// execution.main_check_interval, whenever the branch has moved since the
+	// last run (internal/maincheck). They are for a check a project has taken
+	// off each change and wants run on what has landed instead; a failure is
+	// recorded with the commit and filed as a critical report naming it. A
+	// project that names none runs nothing on its branch, which is what every
+	// project did before this existed.
+	MainChecks []string `yaml:"main_checks,omitempty" json:"main_checks,omitempty"`
+	// MergeQueueChecks are the configured checks the harness's merge queue runs
+	// on a candidate, each run whole on exactly the candidate commit. A project
+	// that names none has every configured check run whole there, which is what
+	// every project did before this existed. Each must be one of Checks, so the
+	// queue never runs a command nobody configured for the project's changes.
+	// The list and its digest are recorded with the candidate's evidence.
+	MergeQueueChecks []string `yaml:"merge_queue_checks,omitempty" json:"merge_queue_checks,omitempty"`
+	// MergeQueueRaceCheck is the configured check, left off MergeQueueChecks,
+	// that the queue adds to a candidate whose approved head has no passing
+	// result of it, told only the Go packages the change touches
+	// (checks.ChangedGoPackagesVariable). It is how a change whose code was
+	// never race-checked on its own does not land without one while the whole
+	// check runs on main instead (MainChecks). Empty adds nothing.
+	MergeQueueRaceCheck string `yaml:"merge_queue_race_check,omitempty" json:"merge_queue_race_check,omitempty"`
 	// PathChecks are commands the per-run gate adds after Checks for a change
 	// that touches what they vouch for, and leaves out for one that touches none
 	// of it. Each names a file in the repository listing the paths it vouches
@@ -302,6 +325,15 @@ func (e Execution) ForgeCheckEvery() time.Duration {
 	return e.ForgeCheckInterval.Duration()
 }
 
+// MainCheckEvery is execution.main_check_interval, with zero read as the
+// default the way ForgeCheckEvery reads it.
+func (e Execution) MainCheckEvery() time.Duration {
+	if e.MainCheckInterval <= 0 {
+		return DefaultMainCheckInterval.Duration()
+	}
+	return e.MainCheckInterval.Duration()
+}
+
 // DocumentLandingLimit is execution.document_landings, with zero — a
 // configuration assembled without the resolver's defaults — read as the default.
 func (e Execution) DocumentLandingLimit() int {
@@ -454,6 +486,11 @@ type Execution struct {
 	// a minute is load on the forge for news nobody is waiting on. Zero, which a
 	// configuration built in code rather than loaded carries, is the default.
 	ForgeCheckInterval Duration `yaml:"forge_check_interval" json:"forge_check_interval"`
+	// MainCheckInterval is how often the supervisor runs main_checks on the
+	// head of the target branch. A run is started only when the branch has
+	// moved since the last one, so an idle branch costs nothing. Zero, which a
+	// configuration built in code rather than loaded carries, is the default.
+	MainCheckInterval Duration `yaml:"main_check_interval" json:"main_check_interval"`
 	// RedeployDrainLimit bounds how long a watch session that has found a build
 	// deployed over it waits out the runs it hosts before it restarts anyway.
 	// Past it the hosted runs are stopped and preserved — worktree, branch,
@@ -619,6 +656,14 @@ type Execution struct {
 	// new; entries already admitted are still drained in the mode each was
 	// admitted in.
 	MergeQueue bool `yaml:"merge_queue" json:"merge_queue"`
+	// CIChecks is the switch that moves most of a run's testing to the forge
+	// (cichecks.go). Absent or disabled, which is the default, a run's checks,
+	// timing and records are exactly what they were before the key existed: the
+	// block is left out of the serialized form that digests into the
+	// configuration revision while it holds only defaults, so a project that
+	// says nothing keeps the revision it had. `config show` still prints it,
+	// because the YAML form always carries it.
+	CIChecks CIChecks `yaml:"ci_checks" json:"ci_checks,omitzero"`
 }
 
 const (
@@ -686,6 +731,14 @@ const (
 	DefaultForgeCheckInterval = Duration(5 * time.Minute)
 	// MinForgeCheckInterval is the shortest a project may set.
 	MinForgeCheckInterval = Duration(time.Minute)
+	// DefaultMainCheckInterval is four hours, the interval the race check on
+	// main was ruled at (docs/designs/one-owner-for-each-guarantee.md, race
+	// point 4): it bounds how long a failure only the landed combination shows
+	// can sit on the branch before it is reported.
+	DefaultMainCheckInterval = Duration(4 * time.Hour)
+	// MinMainCheckInterval is the shortest a project may set. A whole suite run
+	// more often than this is mostly waiting behind itself.
+	MinMainCheckInterval = Duration(30 * time.Minute)
 	// defaultRedeployDrainLimit is measured in minutes, deliberately. On
 	// 2026-09-19 a session found a build deployed over it at 07:35Z and then did
 	// nothing for two hours, waiting out one hosted run whose race suite alone
@@ -1264,6 +1317,7 @@ func (c Config) Validate() error {
 	}
 	problems = append(problems, developerSlotProblems(c.Execution)...)
 	problems = append(problems, heavyCheckProblems(c)...)
+	problems = append(problems, ciCheckProblems(c)...)
 	problems = append(problems, developerModelProblems(c.Execution)...)
 	if c.Execution.RepairAttemptsBeforeReplan < 0 {
 		problems = append(problems, "repair_attempts_before_replan cannot be negative")
@@ -1339,6 +1393,9 @@ func (c Config) Validate() error {
 	}
 	if c.Execution.ForgeCheckInterval != 0 && c.Execution.ForgeCheckInterval < MinForgeCheckInterval {
 		problems = append(problems, fmt.Sprintf("execution.forge_check_interval must be at least %s", time.Duration(MinForgeCheckInterval)))
+	}
+	if c.Execution.MainCheckInterval != 0 && c.Execution.MainCheckInterval < MinMainCheckInterval {
+		problems = append(problems, fmt.Sprintf("execution.main_check_interval must be at least %s", time.Duration(MinMainCheckInterval)))
 	}
 	// Zero is not a choice here: a drain with no bound is a session that waits
 	// on whatever its hosted run happens to be doing, which on 2026-09-19 was two
@@ -1592,6 +1649,12 @@ func (c Config) Validate() error {
 			problems = append(problems, fmt.Sprintf("document check %d cannot be empty", index))
 		}
 	}
+	for index, check := range c.MainChecks {
+		if strings.TrimSpace(check) == "" {
+			problems = append(problems, fmt.Sprintf("main check %d cannot be empty", index))
+		}
+	}
+	problems = append(problems, c.mergeQueueCheckProblems()...)
 	for index, check := range c.PathChecks {
 		problems = append(problems, check.problems(index)...)
 	}

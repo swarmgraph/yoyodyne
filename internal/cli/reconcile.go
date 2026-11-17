@@ -229,6 +229,11 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// else of where its time went (beads.CallTally).
 	trackerCalls := &beads.CallTally{Slow: stderr, SlowAfter: slowReconcileTrackerCall}
 	parts.trackerCalls = trackerCalls
+	// The work items of the runs the sweep settles are read in one call before
+	// it settles them, and each settlement's first read of its item is answered
+	// from that call rather than waiting its own turn for the store
+	// (orchestrator.itemPrefetcher).
+	parts.trackerReads = &beads.ItemReads{}
 	ctx = beads.OnBehalfOf(ctx, "yoyo reconcile, which settles stopped and finished runs and runs in every maintenance pass")
 	// Typed by a person, this is the operator settling runs by hand; run by the
 	// supervisor's maintenance pass it is the harness's own sweep, and the pass

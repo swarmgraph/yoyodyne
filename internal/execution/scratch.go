@@ -1,7 +1,10 @@
 package execution
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -129,6 +132,110 @@ func PrepareDeveloperDirectories(repositoryRoot, workingDirectory, runID string)
 		return nil, fmt.Errorf("developer cache or scratch directory for run %s is redirected by a symlink", runID)
 	}
 	return []string{cache, scratch}, nil
+}
+
+// ClearOutwardScratchLinks removes from the scratch directory of the run named
+// by runID every symbolic link that leads outside the repository's Git
+// directory, and returns the paths it removed. A scratch directory that was
+// never made has nothing to clear.
+//
+// The scratch directory sits inside the Git directory, and a tool confined to
+// the repository can refuse it whole for one link that leads out. The git MCP
+// server does: given `--repository`, it walks every directory of the
+// repository's Git directory, every worktree's scratch included, and refuses
+// every call while any link there leads outside the repository. A run writes
+// such links without meaning to, the Codex CLI's `tmp/arg0` links to its own
+// program under a provider home made in scratch among them, and nothing else
+// removes them while the worktree is kept. So the harness clears them at the
+// end of each developer turn, before any call that turn asked for is made. A
+// link inside the Git directory, and every file, is left as it is.
+//
+// Each removal goes through a held directory and is made only while the entry
+// is still a link, so nothing outside the scratch directory and nothing that
+// is not a link is ever removed.
+func ClearOutwardScratchLinks(repositoryRoot, workingDirectory, runID string) ([]string, error) {
+	root, relative, err := scratchLocation(repositoryRoot, workingDirectory, runID)
+	if err != nil {
+		return nil, err
+	}
+	boundary, err := filepath.EvalSymlinks(root.Path())
+	if err != nil {
+		return nil, fmt.Errorf("resolve the Git directory for run %s: %w", runID, err)
+	}
+	gitDirectory, err := repowrite.OpenPinnedRoot(root.Path())
+	if err != nil {
+		return nil, fmt.Errorf("open the Git directory for run %s: %w", runID, err)
+	}
+	defer gitDirectory.Close()
+	scratch, err := gitDirectory.OpenDirectory(relative)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("open the scratch directory for run %s: %w", runID, err)
+	}
+	defer scratch.Close()
+	var removed []string
+	err = clearOutwardLinks(scratch, boundary, &removed)
+	return removed, err
+}
+
+func clearOutwardLinks(directory *repowrite.PinnedRoot, boundary string, removed *[]string) error {
+	entries, err := directory.ReadDirectory(".")
+	if err != nil {
+		return fmt.Errorf("read %s: %w", directory.Path(), err)
+	}
+	var problems []error
+	for _, entry := range entries {
+		name := entry.Name()
+		switch {
+		case entry.Type()&fs.ModeSymlink != 0:
+			if !leadsOutside(filepath.Join(directory.Path(), name), boundary) {
+				continue
+			}
+			info, err := directory.Lstat(name)
+			if err != nil || info.Mode()&fs.ModeSymlink == 0 {
+				continue
+			}
+			if err := directory.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				problems = append(problems, fmt.Errorf("remove the link %s: %w", filepath.Join(directory.Path(), name), err))
+				continue
+			}
+			*removed = append(*removed, filepath.Join(directory.Path(), name))
+		case entry.IsDir():
+			child, err := directory.OpenDirectory(name)
+			if err != nil {
+				problems = append(problems, fmt.Errorf("open %s: %w", filepath.Join(directory.Path(), name), err))
+				continue
+			}
+			problems = append(problems, clearOutwardLinks(child, boundary, removed))
+			child.Close()
+		}
+	}
+	return errors.Join(problems...)
+}
+
+// leadsOutside reports whether the link at path resolves outside boundary. A
+// link whose target does not exist is judged by where it names, as the git
+// server judges it.
+func leadsOutside(path, boundary string) bool {
+	target, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		named, readErr := os.Readlink(path)
+		if readErr != nil {
+			return false
+		}
+		if !filepath.IsAbs(named) {
+			named = filepath.Join(filepath.Dir(path), named)
+		}
+		target = filepath.Clean(named)
+	}
+	relative, err := filepath.Rel(boundary, target)
+	if err != nil {
+		return true
+	}
+	slashed := filepath.ToSlash(relative)
+	return slashed == ".." || strings.HasPrefix(slashed, "../")
 }
 
 // Directory creation holds the root's handle across the write. Resolve alone

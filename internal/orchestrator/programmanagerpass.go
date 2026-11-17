@@ -759,7 +759,37 @@ func describeEvent(event PassEvent) string {
 	if detail := strings.TrimSpace(event.Detail); detail != "" {
 		line += " — " + detail
 	}
-	return truncateLine(strings.Join(strings.Fields(line), " "), maxPassEventLineBytes)
+	line = strings.Join(strings.Fields(line), " ")
+	if event.Stop == nil || strings.TrimSpace(event.Stop.Run) == "" {
+		return truncateLine(line, maxPassEventLineBytes)
+	}
+	return describeStopLine(line, event.Stop.Run)
+}
+
+// maxPassStopLineBytes bounds one listed stoppage. It is wider than other
+// events' bound because the stop reason is what a post-mortem is written from,
+// and a reason cut before it names the failing check names no cause.
+const maxPassStopLineBytes = 1000
+
+// describeStopLine is a stoppage's line whole where it fits, and otherwise cut
+// with the cut declared — how much of the line is shown — and with where the
+// whole reason is read: run.inspect hands it back whole as stop_reason,
+// whatever size the run's record is.
+func describeStopLine(line, run string) string {
+	if len(line) <= maxPassStopLineBytes {
+		return line
+	}
+	note := func(shown int) string {
+		return fmt.Sprintf(" [the stop reason is cut here: %d of this line's %d bytes are shown; run.inspect on run %s returns the whole reason as stop_reason]", shown, len(line), run)
+	}
+	cut := maxPassStopLineBytes - len(note(len(line)))
+	if cut < 0 {
+		cut = 0
+	}
+	for cut > 0 && !utf8.RuneStart(line[cut]) {
+		cut--
+	}
+	return line[:cut] + note(cut)
 }
 
 // truncateLine cuts a line to a bound on a rune boundary, marking the cut.

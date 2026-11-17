@@ -955,8 +955,17 @@ previous attempt" was refused by a reviewer that was shown only that summary
 stands on its own and never points to an earlier one, because the reviewer
 judges the latest.
 
-Each saved copy retains at most 4 KiB, cutting on a character boundary and
-ending with a note when the rest was not recorded. It is shown as the
+Each saved copy retains at most 16 KiB, cutting on a character boundary and
+ending with a note that the harness cut it there; a cut copy also records how
+large the whole summary was. The bound was 4 KiB until ordinary summaries were
+cut before their answers to the item's done-conditions, and a reviewer sent a
+sound change back for answers the harness had dropped (`yoyodyne-h6t2`). The
+developer's contract states the bound and asks for the done-conditions to be
+answered first. Where a summary was cut, the review is told the harness cut it
+and how large it was, and the reviewer is told that such a cut is never by
+itself a reason to send the change back: a condition the cut text leaves
+unanswered is judged from the patch, the repository evidence, and the check
+results, or named as unverified. It is shown as the
 developer's own untrusted claims, and the reviewer is told what it may take
 from one and what it may not. It may take what the developer says it did and
 why — the decision behind a protected-path grant, the checks it says it ran,
@@ -2683,6 +2692,21 @@ as a run's own landing settles it — closed where the run's landing claim and i
 approval discharge the item, put back otherwise — and the run's own pull request
 is closed and its branch and the queue's candidate branch are deleted from the
 remote.
+
+**The next change is checked while the current one is.** Where a candidate lands
+as exactly its own commit — a project that does not publish, whose target the
+harness moves itself — the queue builds the next waiting change's candidate on
+top of the current candidate, as if it lands, and runs its protected-path check,
+checks and independent review beside the current one's. It checks at most one
+change ahead. That candidate is a commit of its own with its own base and its
+own evidence, and it lands only if, when the promotion takes its turn, the
+target is exactly the commit it was built on. Where the change before it fails,
+is withdrawn or handed back, or lands as any other commit, what was checked
+ahead is thrown away and the change is built again on the target as it stands,
+and nobody is charged for it. A project that publishes lands every candidate
+through a pull request, which the forge lands as a merge commit of its own
+rather than as the candidate, so nothing is checked ahead there and the queue
+works one change at a time.
 
 What can happen to a queued change instead:
 
