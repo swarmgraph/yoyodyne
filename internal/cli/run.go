@@ -834,6 +834,7 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// is a fact the harness records, and the role that decides about it is not
 		// the one that stopped.
 		Docket:   docketerFrom(parts),
+		Authors:  documentAuthorsFrom(parts),
 		NewRunID: runstate.NewRunID,
 		// Which of the configured accounts serves a fresh run. It is wired from
 		// here rather than held by the pipeline because choosing needs the run
@@ -1618,4 +1619,15 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 		Promoter: promoter,
 		Queues:   parts.mergeQueues,
 	}
+}
+
+// documentAuthorsFrom is how the pipeline reaches a document's owning role for a
+// handoff no conversation holds. It is nil where the conversation record cannot
+// be opened, which the pipeline reads as no way to tell the role.
+func documentAuthorsFrom(parts components) orchestrator.DocumentAuthors {
+	conversations, err := runstate.NewConversationStore(parts.stateRoot, parts.config.Product.ID)
+	if err != nil {
+		return nil
+	}
+	return conversations
 }
