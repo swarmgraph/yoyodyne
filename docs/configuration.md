@@ -3778,8 +3778,10 @@ are `document_checks`, not these.
 `execution.ci_checks` is the switch for moving most of a run's testing to the
 forge, described in `docs/designs/checks-on-ci.md`. It is off by default, and
 off (or absent) a run's checks, timing and records are exactly what they were.
-This setting is only the switch and its validation; the push, the wait and the
-reading of results arrive in later builds.
+This setting is the switch and its validation. The GitHub adapter can push a
+run's branch, open or update its draft pull request, and read each required
+check's result and a failing check's output for a named commit; the wait, the
+recorded failure and the fallback arrive in later builds.
 
 ```yaml
 execution:
@@ -3796,8 +3798,8 @@ execution:
 - `required` must not be empty while `enabled` is true.
 - `enabled: true` is refused when the project's forge adapter cannot push a
   branch, open a draft pull request, and read check results and output for a
-  named commit. The refusal names what is missing. The GitHub adapter cannot yet
-  open a draft pull request, so the switch cannot be turned on until it can.
+  named commit. The refusal names what is missing. The GitHub adapter, the only
+  one shipped, does all four.
 - `wait_limit` is 1h when not set.
 
 `yoyo config show --origins` says which file each value came from.
@@ -7097,7 +7099,16 @@ still land the change, and leaves a request with no recorded answer to the next
 pass, which looks at what it did first. `hand-back` withdraws whatever the queue
 asked the forge for, as a transfer does, and ends the entry's turn with its
 change kept on its run for the development manager, so the entries behind it go
-on.
+on. Before it hands the change back, it looks for it on the target: where the
+target carries the approved head, or the run's own pull request reads as merged
+with the approved head as its head and its merge commit is on the target — a
+change merged by hand while the queue was stopped on it — the entry leaves the
+queue as landed instead, the run ends landed, and its work item is settled as
+after any landing, with nothing asked of the development manager. Where the
+target does not show the change, the hand-back's reason says what was found,
+such as a pull request that reads as merged with nothing of it on the target.
+A hand-back whose work item is already closed leaves the item closed and says
+so in a note, without stopping the run or asking anything.
 
 **Who works the queues.** A `yoyo work` session works every queue with an entry
 in it beside its pulls, one pass per queue at a time, each in its own

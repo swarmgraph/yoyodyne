@@ -556,6 +556,9 @@ agents:
     persona:
       version: v2
       path: personas/development-manager.md
+    time_limits:
+      turn: 45m
+      message: 1h
     mcp_tools: [git.git_log, git.git_show, git.git_branch, slack.slack_get_channel_history, slack.slack_get_thread_replies]
   product-manager:
     role: product-manager

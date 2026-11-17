@@ -430,7 +430,8 @@ execution:
   # still runs, each written as "checks" writes it; "required" names the forge
   # checks that must pass on the change, and may not be empty while "enabled"
   # is true; "wait_limit" is how long to wait for them after the push. Turning
-  # it on is refused while the forge adapter cannot open a draft pull request.
+  # it on is refused for a forge adapter that cannot push a branch, open a draft
+  # pull request, and read check results and output for a commit.
   ci_checks:
     enabled: false
     # local: [make fmtcheck]
