@@ -22,7 +22,8 @@
 //
 // The schedule is kept in that record rather than in memory, so the supervisor
 // restarting into a new build neither starts a run early nor forgets one is
-// due: the next run is due an interval after the latest one started. A run
+// due: the next run is due an interval after the latest one started, or, after
+// a run that could not run, ten minutes after it ended. A run
 // under way holds the supervisor's move onto a new build back until it ends
 // (Underway), as a release cut does, because a whole race suite takes longer
 // than the gap between two landings.
@@ -159,7 +160,8 @@ func (c *Check) Underway() string {
 
 // Look starts a run when one is due and none is under way. It never returns an
 // error: a run that could not be made is recorded and said, and the next one
-// is due at the ordinary interval.
+// is due ten minutes after it ended (see finish); any other run is followed by
+// one at the ordinary interval.
 func (c *Check) Look(ctx context.Context, now time.Time) {
 	c.collect()
 	if c.running != nil {

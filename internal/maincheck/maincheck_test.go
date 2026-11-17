@@ -3,6 +3,7 @@ package maincheck_test
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -377,4 +378,91 @@ func askedFor(asked []string, prefix string) bool {
 		}
 	}
 	return false
+}
+
+// realGit runs the tests below against a real repository with real Git.
+func realGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// realFixture is a Check over a real repository with one commit and a fake
+// check runner, whose Git is the real process runner.
+func realFixture(t *testing.T) (*fixture, string, string) {
+	t.Helper()
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	realGit(t, repo, "init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("a"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	realGit(t, repo, "add", ".")
+	realGit(t, repo, "commit", "-q", "-m", "one")
+	commit := realGit(t, repo, "rev-parse", "HEAD")
+	f := newFixture(t, root)
+	f.check.Repository = repo
+	f.check.Git = execution.OSProcessRunner{}
+	f.check.WorkRoot = filepath.Join(root, "state", "main-check")
+	f.checks.results = []checks.Result{passing("make race")}
+	return f, repo, commit
+}
+
+func assertCheckedAndClean(t *testing.T, f *fixture, repo string) {
+	t.Helper()
+	outcome, ran := f.look(t)
+	if !ran || outcome.Run.Outcome != runstate.MainCheckPassed {
+		t.Fatalf("outcome = %+v; want the run to check after clearing the leftover", outcome)
+	}
+	if len(f.checks.requests) != 1 {
+		t.Fatalf("checks were asked %d times, want once", len(f.checks.requests))
+	}
+	if _, err := os.Stat(filepath.Join(f.check.WorkRoot, "main")); err == nil {
+		t.Fatal("the checkout is still there after the run")
+	}
+	if listed := realGit(t, repo, "worktree", "list", "--porcelain"); strings.Contains(listed, "main-check") {
+		t.Fatalf("a worktree record is left behind:\n%s", listed)
+	}
+}
+
+func TestARealLockedHalfWrittenCheckoutIsClearedAndTheNextRunChecks(t *testing.T) {
+	f, repo, commit := realFixture(t)
+	path := filepath.Join(f.check.WorkRoot, "main")
+	if err := os.MkdirAll(f.check.WorkRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// What an interrupted `git worktree add` leaves: registered, locked as
+	// initializing, and a partly written tree.
+	realGit(t, repo, "worktree", "add", "--detach", path, commit)
+	if err := os.WriteFile(filepath.Join(repo, ".git", "worktrees", "main", "locked"), []byte("initializing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(path, "a.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "partial.go"), []byte("package x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertCheckedAndClean(t, f, repo)
+}
+
+func TestARealLeftoverGitNoLongerListsIsClearedAndTheNextRunChecks(t *testing.T) {
+	f, repo, commit := realFixture(t)
+	path := filepath.Join(f.check.WorkRoot, "main")
+	realGit(t, repo, "worktree", "add", "--detach", path, commit)
+	// The record is gone but the directory, whose .git file points at it, stays.
+	if err := os.RemoveAll(filepath.Join(repo, ".git", "worktrees")); err != nil {
+		t.Fatal(err)
+	}
+	assertCheckedAndClean(t, f, repo)
 }
