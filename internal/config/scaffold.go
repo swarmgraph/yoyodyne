@@ -433,9 +433,9 @@ execution:
   # it on is refused while the forge adapter cannot open a draft pull request.
   ci_checks:
     enabled: false
-    local: []
-    required: []
-    wait_limit: 60m
+    # local: [make fmtcheck]
+    # required: [test]
+    wait_limit: 1h
 
 # When work that has stopped moving is looked at, and what looking at it may
 # spend. An approved publication nobody has merged is docketed once it has sat

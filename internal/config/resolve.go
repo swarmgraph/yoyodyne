@@ -339,6 +339,7 @@ func newResolution() *resolution {
 				Decisions:      DefaultDecisions,
 			},
 			Execution: Execution{
+				CIChecks:                   CIChecks{WaitLimit: DefaultCIWaitLimit},
 				MaxConcurrentDevelopers:    1,
 				DocumentLandings:           DefaultDocumentLandings,
 				RepairAttemptsBeforeReplan: 2,
@@ -484,8 +485,6 @@ func newResolution() *resolution {
 			"execution.declarative_delivery":                       OriginDefault,
 			"execution.merge_queue":                                OriginDefault,
 			"execution.ci_checks.enabled":                          OriginDefault,
-			"execution.ci_checks.local":                            OriginDefault,
-			"execution.ci_checks.required":                         OriginDefault,
 			"execution.ci_checks.wait_limit":                       OriginDefault,
 			"triage.stuck_merge_age":                               OriginDefault,
 			"triage.review_rounds_cap":                             OriginDefault,

@@ -3769,6 +3769,35 @@ refused at the landing. Leave the race check off `merge_queue_checks` only once
 `main_checks` runs it on the branch, as above. The queue's checks of a confirmed document
 are `document_checks`, not these.
 
+### Checks on CI (`execution.ci_checks`)
+
+`execution.ci_checks` is the switch for moving most of a run's testing to the
+forge, described in `docs/designs/checks-on-ci.md`. It is off by default, and
+off (or absent) a run's checks, timing and records are exactly what they were.
+This setting is only the switch and its validation; the push, the wait and the
+reading of results arrive in later builds.
+
+```yaml
+execution:
+  ci_checks:
+    enabled: false
+    local: [make fmtcheck, make vet]   # declared checks still run on this machine
+    required: [test, race]             # forge checks that must pass on the change
+    wait_limit: 1h                     # how long to wait for them after the push
+```
+
+- `local` must name checks the project declares in `checks`, written exactly as
+  `checks` writes them; a name that is not one is refused when the file is read,
+  whether or not the switch is on.
+- `required` must not be empty while `enabled` is true.
+- `enabled: true` is refused when the project's forge adapter cannot push a
+  branch, open a draft pull request, and read check results and output for a
+  named commit. The refusal names what is missing. The GitHub adapter cannot yet
+  open a draft pull request, so the switch cannot be turned on until it can.
+- `wait_limit` is 1h when not set.
+
+`yoyo config show --origins` says which file each value came from.
+
 ### A check that could not run
 
 A check can end a third way besides passing and failing: it could not run at

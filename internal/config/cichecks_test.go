@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -10,24 +9,21 @@ import (
 
 const ciProjectChecks = minimalProjectConfig + "checks:\n  - make fmtcheck\n  - make test\n"
 
-func TestChecksOnCIAreOffAndAbsentFromTheSerializedConfigurationByDefault(t *testing.T) {
+func TestChecksOnCIAreOffByDefaultAndShownWithTheirOrigin(t *testing.T) {
 	t.Parallel()
 
 	resolved := loadProject(t, minimalProjectConfig, nil)
 	if resolved.Config.Execution.CIChecks.Enabled {
 		t.Fatal("a project that wrote nothing has checks on CI enabled")
 	}
-	// Absent means today's records: the serialized form, and so the revision
-	// that names it, carries nothing of the setting.
-	asJSON, _ := json.Marshal(resolved.Config)
 	asYAML, err := yaml.Marshal(resolved.Config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(asJSON), "ci_checks") || strings.Contains(string(asYAML), "ci_checks") {
-		t.Errorf("a disabled setting is serialized:\n%s\n%s", asJSON, asYAML)
+	if !strings.Contains(string(asYAML), "ci_checks:") || !strings.Contains(string(asYAML), "enabled: false") {
+		t.Errorf("the effective configuration does not show the setting:\n%s", asYAML)
 	}
-	for _, key := range []string{"enabled", "local", "required", "wait_limit"} {
+	for _, key := range []string{"enabled", "wait_limit"} {
 		if origin := resolved.Origins["execution.ci_checks."+key]; origin != OriginDefault {
 			t.Errorf("origin of %s = %q, want %q", key, origin, OriginDefault)
 		}
