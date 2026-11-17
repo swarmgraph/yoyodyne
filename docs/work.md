@@ -2754,7 +2754,9 @@ and one the remote refuses hands back only its own entry. A change whose run
 will not take the hand-back is set aside with the reason, kept for the
 development manager, and the entries behind it go on. An entry the queue
 stopped on is taken up again with `yoyo queue retry` or handed back to its run
-with `yoyo queue hand-back`, each with a reason. `yoyo status` and the dashboard
+with `yoyo queue hand-back`, each with a reason; a hand-back of a change the
+target already carries, merged by hand, ends the entry as landed and settles its
+item instead. `yoyo status` and the dashboard
 show every queue and where each change in it stands.
 [The configuration guide](configuration.md#integrating-through-a-merge-queue)
 has the whole of it.

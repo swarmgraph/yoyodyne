@@ -72,6 +72,29 @@ const maxMergeQueueInstalls = 64
 type MergeQueueCheckConfiguration struct {
 	Commands []string `json:"commands"`
 	Digest   string   `json:"digest"`
+	// Declared is the list the project declared for the queue
+	// (config.MergeQueueChecks) and its digest, recorded beside what the
+	// candidate was checked by so a reader sees the declaration and not only its
+	// outcome; Commands is that list and anything the queue added to this
+	// candidate's run besides. Nil where the project declares none and every
+	// configured check is run whole. It is not part of what Same compares: the
+	// commands and their digest already are the checks.
+	Declared *MergeQueueDeclaredChecks `json:"declared,omitempty"`
+}
+
+// MergeQueueDeclaredChecks is a project's declared list of queue checks.
+type MergeQueueDeclaredChecks struct {
+	Commands []string `json:"commands"`
+	Digest   string   `json:"digest"`
+}
+
+// NewMergeQueueDeclaredConfiguration records the checks a candidate is verified
+// by where the project declared a list: commands is what runs, declared the
+// project's list, which commands may add to.
+func NewMergeQueueDeclaredConfiguration(commands, declared []string) MergeQueueCheckConfiguration {
+	configuration := NewMergeQueueCheckConfiguration(commands)
+	configuration.Declared = &MergeQueueDeclaredChecks{Commands: append([]string(nil), declared...), Digest: checkConfigurationDigest(declared)}
+	return configuration
 }
 
 // NewMergeQueueCheckConfiguration records a project's configured checks.

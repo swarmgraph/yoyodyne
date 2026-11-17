@@ -82,12 +82,17 @@ type Tracker struct {
 	// something rather than putting it back bare.
 	Blockers   []string
 	BlockerErr error
+
+	showMu sync.Mutex
 }
 
 // Show answers for the item this tracker holds and for anything else explicitly
 // put in it, and refuses everything else the way the real client does. Answering
 // for every identifier would make "the tracker has no such work item" untestable,
 // which is the case a landing's impediment marker has to be resolved against.
+//
+// It may be asked from two goroutines at once, as the merge queue's worker and
+// its check of the next candidate both read the tracker, so it holds showMu.
 func (f *Tracker) Show(_ context.Context, id string) (beads.WorkItem, error) {
 	f.showMu.Lock()
 	defer f.showMu.Unlock()

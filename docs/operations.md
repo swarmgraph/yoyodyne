@@ -853,6 +853,19 @@ alone cannot transfer ownership to the operator. The factory-flow program
 manager still watches unless her own pass is failing; the role named in the
 finding still resolves the cause.
 
+### The supervisor's checks on main
+
+For a project that lists `main_checks`, the supervisor also runs them whole on
+the head of the branch runs land on, every `execution.main_check_interval`,
+four hours by default, and only when the branch has moved since the last run.
+It works in a worktree of its own under the product's state directory and never
+touches your checkout. `yoyo status` says when the branch last passed them. A
+failure is not run again: it files a critical report naming the commit, the
+failing tests, the last commit that passed and the commits between, and the
+next run waits for the branch to move. While a run is under way, the supervisor
+waits for it to finish before it moves onto a new build.
+[The checks run on main](configuration.md#the-checks-run-on-main) has the rest.
+
 ### The supervisor's forge check
 
 Beside the maintenance pass, and apart from it, the supervisor checks the forge
@@ -4528,8 +4541,18 @@ ends: `the tracker took 47s to answer reading work item …`, or `the tracker di
 not answer listing the work items with status closed: it was stopped after
 2m0s, at its limit of 2m0s`. The maintenance pass bounds the sweep at fifteen
 minutes and records the end of what a sweep stopped at that bound wrote to
-standard error, so a timed-out reconcile's record names the reads that held it
-up rather than only that it timed out.
+standard error, so a timed-out reconcile's record names each read that took 30
+seconds or more rather than only that it timed out.
+bd lets one command into its store at a time, so every tracker call waits its
+turn behind every other process using the store, and the sweep takes as few
+turns as it can: before it settles any run it reads the work items of every
+outstanding run in one call — `reading 11 work items in one call, … first` where a
+read that slow is said — and each run's first read of its own item is answered
+from that. A later read of the same item, a read a write makes, and a read after
+anything in the pass wrote to the item still ask the tracker; nothing read
+ahead is given out more than five minutes after it was read; and a batch the
+tracker does not answer is not asked again, so each item is then read on its
+own as before.
 [The diagnosis](diagnoses/yoyodyne-ifd-428-126-4-14-1-reconcile-tracker-waits.md)
 says why those reads are slow. Until yoyodyne-ifd.429.38
 every recorded request that was not merged was asked about on every pass, one
@@ -6971,7 +6994,9 @@ summary](#where-things-stand-in-five-answers-the-summary), the four lines, the
 capacity state carried under them, what the harness is spending, and what
 landed — to a browser on this machine, as one page of nine sections opening
 with the summary, with a tenth, Merge queues, shown only where the product has
-a merge queue record, and keeps serving it until you stop it:
+a merge queue record, and keeps serving it until you stop it. With
+[`services.dashboard.hide_summary`](configuration.md#services) set, the page
+leaves the summary out and opens with the four lines:
 
 ```sh
 ./bin/yoyo dashboard              # a port the operating system chooses
@@ -7408,11 +7433,12 @@ applies it. Until yoyodyne-ifd.434.33 all of this was read once, as the
 dashboard started, and an operator bound after that was refused until somebody
 restarted it by hand.
 
-**A changed port, address, or token source is applied by the supervisor, with
-no new build.** These are what a dashboard holds from its start, because a
-new one is a new listener or a new shared token. The dashboard reads
-`services.dashboard.port`, `services.dashboard.bind`, and
-`services.dashboard.token` once, as it starts, and records the values it
+**A changed port, address, token source, or summary setting is applied by the
+supervisor, with no new build.** These are what a dashboard holds from its
+start, because a new one is a new listener, a new shared token, or a new page.
+The dashboard reads `services.dashboard.port`, `services.dashboard.bind`,
+`services.dashboard.token`, and `services.dashboard.hide_summary` once, as it
+starts, and records the values it
 started on beside the configuration keys it reads (under
 `projects/<product>/state/config-readers/`). Every thirty seconds, on the same
 look at builds, the supervisor reads the configuration again and compares it
@@ -8615,6 +8641,17 @@ its worker. A source that could not be read is said, and such an observation is
 never presented as a healthy one. The pass's record keeps the observation's
 identifier and the identity of each condition it carried, in the `health` field
 `yoyo sweeps --json` shows.
+
+**Every factory-flow program manager pass also shows the open pull requests
+and the documents waiting to land.** The harness reads the forge itself, since
+no role can, and lists every pull request it opened that is still open: what it
+carries, how long it has been open, whether it can merge, and its checks. Beside
+them are the document landings and who holds each, the documents waiting for one
+to free, and the approved documents waiting in the merge queue. A document with
+more than one open publication pull request, and every document landing held for
+longer than three hours, are added to the pass's account as findings of their
+own. A forge that could not be read is said as not known rather than shown as an
+empty list.
 
 **A development manager's pass carries what waits on you, beside her docket.**
 Every firing of her task, scheduled or summoned by the brake, has two sections

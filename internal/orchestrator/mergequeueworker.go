@@ -110,6 +110,9 @@ type MergeQueueRecords interface {
 	HoldStage(worker *runstate.Lease, key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration, stage runstate.MergeQueueStage) (*runstate.MergeQueueStageHold, error)
 	StageRunning(key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration, stage runstate.MergeQueueStage) (bool, string, error)
 	Landing(key runstate.MergeQueueKey, entryID string) (runstate.MergeQueueLanding, bool, error)
+	// RecordHandoff writes the wait from a landing to the next check
+	// (mergequeuehandoff.go).
+	RecordHandoff(ctx context.Context, key runstate.MergeQueueKey, handoff runstate.MergeQueueHandoff) (bool, error)
 }
 
 // ErrMergeQueueWorkerBusy is a queue another process is already working.
@@ -162,6 +165,10 @@ type MergeQueueVerification struct {
 	// Drift counts the generations this call invalidated because the target
 	// moved. It is reported apart because it is charged to nothing.
 	Drift int
+	// Choice is why this entry was the one worked: the rule that chose it, the
+	// waiting entries it went ahead of, and whether the tracker could not be
+	// read when it was chosen.
+	Choice MergeQueueChoice
 	// Waiting is what the call stopped short of starting a stage for, and
 	// empty where it started everything it had to. A later call takes it up.
 	Waiting string
@@ -199,11 +206,12 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 	}
 	defer func() { _ = lease.Release() }()
 
-	entry, found, err := w.next(ctx, key)
+	choice, found, err := w.next(ctx, key)
 	if err != nil || !found {
 		return MergeQueueVerification{}, err
 	}
-	outcome := MergeQueueVerification{Entry: entry}
+	entry := choice.Entry
+	outcome := MergeQueueVerification{Entry: entry, Choice: choice}
 	run, err := w.Pipeline.Store.Load(entry.RunID)
 	if err != nil {
 		return outcome, fmt.Errorf("read run %s, which merge queue entry %d was admitted for: %w", entry.RunID, entry.Order, err)
@@ -315,37 +323,59 @@ func (w MergeQueueWorker) validate() error {
 	return errors.Join(problems...)
 }
 
-// next is the first entry, in the order the queue is worked, that still waits,
-// passing over one that waits on its target being made to pass a check it
-// fails at the candidate's base: nothing about that entry can change until the
-// target moves, and the change that moves it may be behind it.
-func (w MergeQueueWorker) next(ctx context.Context, key runstate.MergeQueueKey) (runstate.MergeQueueEntry, bool, error) {
+// next is the entry the queue works next, chosen by the order in
+// mergequeueorder.go from the entries that still wait. An entry that waits on
+// its target being made to pass a check it fails at the candidate's base is
+// passed over: nothing about that entry can change until the target moves, and
+// the change that moves it may be behind it.
+func (w MergeQueueWorker) next(ctx context.Context, key runstate.MergeQueueKey) (MergeQueueChoice, bool, error) {
+	return w.chooseNext(ctx, key, "")
+}
+
+// chooseNext is next with the entry named by after left out. Where after
+// names an entry, the choice is the one the order would make once that entry
+// has landed (checking ahead, mergequeueahead.go), so an entry waiting on its
+// target to move is not passed over: that landing is what moves it.
+func (w MergeQueueWorker) chooseNext(ctx context.Context, key runstate.MergeQueueKey, after string) (MergeQueueChoice, bool, error) {
 	entries, err := w.Queue.Entries(key)
 	if err != nil {
-		return runstate.MergeQueueEntry{}, false, err
+		return MergeQueueChoice{}, false, err
 	}
 	target := ""
+	var waiting []runstate.MergeQueueEntry
+	started := map[string]bool{}
+	unlanded := map[string]bool{}
+	for _, entry := range entries {
+		if w.Waiting == nil || w.Waiting(entry) {
+			unlanded[entry.EntryID] = true
+		}
+	}
 	for _, entry := range runstate.MergeQueueWorkOrder(entries) {
-		if w.Waiting != nil && !w.Waiting(entry) {
+		if entry.EntryID == after || !unlanded[entry.EntryID] {
 			continue
 		}
 		generations, err := w.Queue.Generations(key, entry.EntryID)
 		if err != nil {
-			return runstate.MergeQueueEntry{}, false, err
+			return MergeQueueChoice{}, false, err
 		}
-		if count := len(generations); count > 0 && generations[count-1].WaitsOnTarget() {
+		if count := len(generations); after == "" && count > 0 && generations[count-1].WaitsOnTarget() {
 			if target == "" {
 				if target, err = w.Candidates.TargetCommit(ctx, key.TargetBranch); err != nil {
-					return runstate.MergeQueueEntry{}, false, fmt.Errorf("read where %s stands: %w", key.TargetBranch, err)
+					return MergeQueueChoice{}, false, fmt.Errorf("read where %s stands: %w", key.TargetBranch, err)
 				}
 			}
 			if generations[count-1].TargetBase == target {
 				continue
 			}
 		}
-		return entry, true, nil
+		started[entry.EntryID] = entryInProgress(generations, unlanded)
+		waiting = append(waiting, entry)
 	}
-	return runstate.MergeQueueEntry{}, false, nil
+	if len(waiting) == 0 {
+		return MergeQueueChoice{}, false, nil
+	}
+	order := queueOrder{pipeline: w.Pipeline, paths: w.Candidates.CandidatePaths, now: w.now()}
+	return order.choose(ctx, waiting, started), true, nil
 }
 
 func (w MergeQueueWorker) now() time.Time {
@@ -704,6 +734,7 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 	if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
 		return generation, false, fmt.Errorf("record that generation %d's checks began: %w", generation.Number, err)
 	}
+	w.recordHandoff(ctx, key, generation, generation.CheckRun.StartedAt)
 	if len(remaining) == 0 {
 		// Every check had passed before the attempt was cut off; only its
 		// record was lost.
@@ -735,10 +766,18 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 		}
 		return generation, false, nil
 	}
-	results, lastSequence, runErr := p.Checks.Run(ctx, checks.Request{
+	// The race check the queue adds for a change that owes one (config.
+	// MergeQueueRaceCheck) is the one check not run whole: it is told only the
+	// Go packages the change touches, after the declared list has passed.
+	raceCheck := w.addedRaceCheck(generation, remaining)
+	wholeCommands := remaining
+	if raceCheck != "" {
+		wholeCommands = slices.DeleteFunc(slices.Clone(remaining), func(command string) bool { return command == raceCheck })
+	}
+	request := checks.Request{
 		RunID:        generation.EventStream(),
 		Directory:    generation.Checkout,
-		Commands:     remaining,
+		Commands:     wholeCommands,
 		LastSequence: generation.LastSequence,
 		// The candidate is checked whole: it is what would land, and nothing
 		// narrows what a landing has to answer for.
@@ -767,7 +806,26 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 		// A candidate is checked for a landing, so its heavy checks are let
 		// start ahead of every run's gate (heavychecks.go).
 		Permit: checks.PermitRequest{Priority: domain.HeavyCheckForLanding},
-	}, w.Events)
+	}
+	var results []checks.Result
+	var lastSequence uint64
+	var runErr error
+	if len(wholeCommands) > 0 {
+		results, lastSequence, runErr = p.Checks.Run(ctx, request, w.Events)
+	} else {
+		lastSequence = generation.LastSequence
+	}
+	if raceCheck != "" && runErr == nil && allPassedOver(results, wholeCommands) {
+		narrowing, narrowErr := w.raceNarrowing(ctx, generation)
+		if narrowErr != nil {
+			runErr = narrowErr
+		} else {
+			request.Commands, request.Narrowing, request.LastSequence = []string{raceCheck}, &narrowing, lastSequence
+			var raced []checks.Result
+			raced, lastSequence, runErr = p.Checks.Run(ctx, request, w.Events)
+			results = append(results, raced...)
+		}
+	}
 	finished := w.now()
 	if lastSequence > generation.LastSequence {
 		generation.LastSequence = lastSequence
@@ -1144,4 +1202,43 @@ func boundedEvidence(text string) string {
 		cut--
 	}
 	return text[:cut]
+}
+
+// addedRaceCheck is the race check this candidate's run adds to the project's
+// declared list, among the checks still to run, and empty where it adds none:
+// the project declares a list, and the configured race check is on the
+// candidate's list without being on the declared one (mergequeuedeclared.go).
+func (w MergeQueueWorker) addedRaceCheck(generation runstate.MergeQueueGeneration, remaining []string) string {
+	race := w.Pipeline.Config.MergeQueueRaceCheck
+	declared := generation.Checks.Declared
+	if race == "" || declared == nil || slices.Contains(declared.Commands, race) || !slices.Contains(remaining, race) {
+		return ""
+	}
+	return race
+}
+
+// raceNarrowing is the Go packages the candidate's change touches, which the
+// race check the queue adds is told in place of the whole module. Where the
+// paths cannot be listed the check is told the whole module, which is slower
+// and never narrower than the change.
+func (w MergeQueueWorker) raceNarrowing(ctx context.Context, generation runstate.MergeQueueGeneration) (checks.Narrowing, error) {
+	changed, err := w.Candidates.CandidatePaths(ctx, generation.TargetBase, generation.Candidate)
+	if err != nil {
+		return checks.Narrowing{Whole: true, Reason: "the paths the candidate changes could not be listed"}, nil
+	}
+	return checks.NarrowGoPackages(generation.Checkout, changed), nil
+}
+
+// allPassedOver reports that every command has a result, and every one ran and
+// passed.
+func allPassedOver(results []checks.Result, commands []string) bool {
+	if len(results) != len(commands) {
+		return false
+	}
+	for _, result := range results {
+		if !result.Passed || result.CouldNotRun != "" {
+			return false
+		}
+	}
+	return true
 }

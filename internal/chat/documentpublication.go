@@ -115,6 +115,16 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 		publishing, release := withoutDeadline(ctx)
 		delivery, err := publisher.PublishDocument(publishing, *record.pending.Publication)
 		release()
+		var revised *runstate.DocumentLinksRevisedError
+		if errors.As(err, &revised) {
+			// No run was opened. A document it links to changed after it was
+			// confirmed, so it goes back to its owner, who revises it or says it
+			// still agrees, and that writes it again.
+			if err := s.returnLinksRevised(record, revised); err != nil {
+				return err
+			}
+			continue
+		}
 		if errors.Is(err, runstate.ErrDocumentNotPublishable) {
 			// No run was opened for it, and the confirmation it carries no
 			// longer holds — the policy or the integration setting changed since.
@@ -280,6 +290,30 @@ func (s *Session) tellMarkOverruled(record *writeRecord) error {
 	}
 	record.overruledTold = true
 	return s.carryResults(fmt.Sprintf("Document %s (%s) is marked consistent with intent and waits for the operator's approval all the same: %s. Tell the operator it is theirs to decide.\n", record.pending.ID, record.pending.Write.ID, why))
+}
+
+// returnLinksRevised hands a confirmed document back to its owner, naming each
+// document revised since it was confirmed and when, before any run was spent on
+// it. The owner answers by writing the document again: with the text changed
+// where it no longer agrees, or with the text as it is and a reason saying it
+// still agrees. Either is a new revision confirmed after the linked ones, so it
+// is published without being sent back for the same revisions. Nothing is
+// counted against the document's returns, because no run judged it.
+func (s *Session) returnLinksRevised(record *writeRecord, revised *runstate.DocumentLinksRevisedError) error {
+	title := record.pending.Publication.Candidate.Artifact.Title
+	var told strings.Builder
+	fmt.Fprintf(&told, "Document %s (%s) was not published and no run was opened for it: it was confirmed at %s, and since then", record.pending.ID, title, revised.ConfirmedAt.Local().Format("2006-01-02 15:04 MST"))
+	for _, r := range revised.Revised {
+		fmt.Fprintf(&told, "\n- %s (%s) was revised at %s", r.ID, r.Path, r.RevisedAt.Local().Format("2006-01-02 15:04 MST"))
+	}
+	fmt.Fprintf(&told, "\nThe %s must read what changed and write document %s again: revised where it no longer agrees, or with its text as it is and a reason saying it still agrees with the revised documents. It is then published.\n", s.state.Role.Title(), record.pending.Write.ID)
+	delivery := runstate.DocumentDelivery{Detail: told.String()}
+	if saved := s.emit(execution.EventDocumentDrafted, record.pending); saved != nil {
+		return saved
+	}
+	record.decided = true
+	s.keepHandedBack(record, delivery)
+	return s.carryResults(delivery.Detail)
 }
 
 // returnUnconfirmed settles a waiting document that is not to be confirmed and

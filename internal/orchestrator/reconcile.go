@@ -427,6 +427,11 @@ func (r Reconciler) Reconcile(ctx context.Context) ([]Reconciliation, error) {
 	if err != nil {
 		return nil, fmt.Errorf("discover outstanding runs: %w", err)
 	}
+	// Each run's settlement reads its work item, and the same runs are
+	// outstanding pass after pass, so their items are read together first and
+	// each settlement's first read of its item is answered from that one call
+	// (itemPrefetcher).
+	defer r.prefetchItems(ctx, outstanding)()
 	// The runs whose settlement asks the forge nothing — a run whose process
 	// died, one a redeploy drain preserved, one stopped on time — are settled
 	// before the ones that wait on the forge's answer about a merge, so a slow or
@@ -451,6 +456,41 @@ func (r Reconciler) Reconcile(ctx context.Context) ([]Reconciliation, error) {
 		}
 	}
 	return results, ctx.Err()
+}
+
+// itemPrefetcher is a tracker that can read several work items in one call and
+// answer the first read of each from it. It is satisfied by beads.Client.
+//
+// It is there because bd lets one command into its store at a time, reads
+// included, and a sweep that read each outstanding run's item on its own waited
+// its turn once per run: the runs a sweep finds outstanding are largely the same
+// ones every pass, such as a finished run whose clean-up keeps refusing, and
+// their one-item reads were most of the time a timed-out pass spent
+// (docs/diagnoses/yoyodyne-ifd-428-126-4-14-1-reconcile-tracker-waits.md).
+type itemPrefetcher interface {
+	PrefetchItems(ctx context.Context, ids []string) (release func())
+}
+
+// prefetchItems reads the work items of the runs about to be settled together,
+// where the tracker can, and returns what ends the hold on them. Runs that
+// publish a document or bring a file in are settled against a stand-in for
+// their item rather than the tracker (settle), so theirs are not read.
+func (r Reconciler) prefetchItems(ctx context.Context, outstanding []runstate.State) func() {
+	prefetcher, can := r.Tracker.(itemPrefetcher)
+	if !can {
+		return func() {}
+	}
+	var ids []string
+	seen := make(map[string]bool, len(outstanding))
+	for _, state := range outstanding {
+		id := state.WorkItemID
+		if state.Document != nil || state.OutsideFile != nil || !beads.ValidIssueID(id) || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	return prefetcher.PrefetchItems(ctx, ids)
 }
 
 // asksForge reports a run whose settlement may wait on the forge: a queued

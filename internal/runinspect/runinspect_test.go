@@ -267,3 +267,37 @@ func TestInspectAndVerifyReadARealStoreWithoutTakingTheLease(t *testing.T) {
 		t.Fatalf("Held() after inspecting = %v, %v", held, err)
 	}
 }
+
+// A stopped run's reason is handed back whole beside the record, however large
+// the record is and wherever it is cut, and a reason over its own bound is cut
+// with the cut declared and its whole size named.
+func TestInspectHandsBackTheWholeStopReasonBesideACutRecord(t *testing.T) {
+	t.Parallel()
+
+	state := runningState()
+	state.Status = runstate.StatusFailed
+	state.WorkItemTitle = strings.Repeat("padding ", MaxRecordBytes/4)
+	reason := "the check make test failed with secret-value in its output: " + strings.Repeat("output ", 300) + "FAIL TestTheNamedCheck"
+	state.Failure = reason
+	inspection := Inspector{Runs: fakeRuns{state: state}, RedactValues: []string{"secret-value"}, Now: func() time.Time { return observed }}.Inspect(context.Background(), state.RunID)
+	if !inspection.RecordCut {
+		t.Fatal("the record was not cut, so this proves nothing")
+	}
+	if inspection.StopReasonCut || !strings.HasSuffix(inspection.StopReason, "FAIL TestTheNamedCheck") || inspection.StopReasonBytes != len(reason) {
+		t.Fatalf("stop reason = %d bytes (cut %t), want it whole", len(inspection.StopReason), inspection.StopReasonCut)
+	}
+	if strings.Contains(inspection.StopReason, "secret-value") {
+		t.Fatal("the stop reason leaked a secret")
+	}
+
+	state.Failure = strings.Repeat("界", MaxStopReasonBytes)
+	long := inspector(fakeRuns{state: state}).Inspect(context.Background(), state.RunID)
+	if !long.StopReasonCut || len(long.StopReason) > MaxStopReasonBytes || long.StopReasonBytes != len(state.Failure) || strings.ContainsRune(long.StopReason, '�') {
+		t.Fatalf("a long reason: cut %t, kept %d, whole %d", long.StopReasonCut, len(long.StopReason), long.StopReasonBytes)
+	}
+
+	running := inspector(fakeRuns{state: runningState()}).Inspect(context.Background(), state.RunID)
+	if running.StopReason != "" {
+		t.Fatalf("a run in flight was given a stop reason: %q", running.StopReason)
+	}
+}

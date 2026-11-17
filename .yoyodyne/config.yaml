@@ -109,6 +109,10 @@ services:
     # default 8765 and the page he has open stops updating.
     port: 8080
     token: file
+    # The summary at the top of the page is hidden until it is cleaned up, at
+    # the operator's request of 2026-11-07 (yoyodyne-lng2); delete this line to
+    # bring it back. yoyo status still opens with the same summary.
+    hide_summary: true
 
 execution:
   # Temporarily 2, down from 3, until the merge queue lands about as fast as
@@ -411,6 +415,15 @@ checks:
   - make race CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
   - make vet
 
+# The whole race check, run on main's head every execution.main_check_interval
+# (four hours by default) when main has moved, so the race check can come off
+# each merge-queue candidate (yoyodyne-ifd.429.142) without losing it. Decided by
+# the Lead Product Manager on 2026-11-16 (report-e0f46040, for
+# yoyodyne-ifd.429.190), under the queue-speed fixes the operator agreed on
+# 2026-11-15. docs/configuration.md, "The checks run on main", says how it runs.
+main_checks:
+  - make race
+
 # What a confirmed document's landing runs in place of the checks above: every
 # test whose result depends on the governed documents -- the product
 # specifications, designs, and decisions homes with their invariants and
@@ -546,6 +559,9 @@ agents:
     persona:
       version: v2
       path: personas/development-manager.md
+    time_limits:
+      turn: 45m
+      message: 1h
     mcp_tools: [git.git_log, git.git_show, git.git_branch, slack.slack_get_channel_history, slack.slack_get_thread_replies]
   product-manager:
     role: product-manager

@@ -246,6 +246,13 @@ type Measurements interface {
 	Path() string
 }
 
+// Underway says what work in this process holds the move onto a deployed
+// build back, in words that finish "it moves onto it", and nothing where none
+// does. It is satisfied by *maincheck.Check.
+type Underway interface {
+	Underway() string
+}
+
 // Releaser is the release step: a decided release cut and its tag pushed. It
 // is satisfied by *releasecut.Cutter.
 type Releaser interface {
@@ -279,6 +286,11 @@ type Pass struct {
 	// Release cuts a decided release, and is nil where nothing is wired to;
 	// the step then says so.
 	Release Releaser
+	// MainCheck, where wired, is the run of the checks on main
+	// (internal/maincheck), which holds the move onto a deployed build back
+	// while a run is under way: the run is in this process, and a whole suite
+	// outlasts the gap between two landings.
+	MainCheck Underway
 	// Tracker is the primary checkout's tracker store and Cleanups the record
 	// of its cleanups; where either is nil the cleanup step says so. Cleanup is
 	// when one is due and how long it may hold the store, and its zero value is
@@ -1212,6 +1224,11 @@ func (p *Pass) takeUpWait() string {
 		// A finished cut not yet recorded would be lost from the pass log by a
 		// re-execution now; the next pass records it and takes the build up.
 		return "once the next maintenance pass has recorded the release cut that has finished"
+	}
+	if p.MainCheck != nil {
+		if wait := p.MainCheck.Underway(); wait != "" {
+			return wait
+		}
 	}
 	if held := p.hold(); held != "" {
 		return "once nothing holds restarts back; nothing is restarted while " + held

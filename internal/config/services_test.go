@@ -41,6 +41,7 @@ func TestAProjectThatSaysNothingAboutServicesGetsEveryServiceAtItsDefault(t *tes
 		"services.dashboard.bind",
 		"services.dashboard.allowed_hosts",
 		"services.dashboard.token",
+		"services.dashboard.hide_summary",
 		"services.scheduler.enabled",
 		"services.maintenance.enabled",
 		"services.maintenance.every",
@@ -75,6 +76,7 @@ services:
     bind: 192.168.1.20
     allowed_hosts: [yoyo.local, 192.168.1.20]
     token: keychain
+    hide_summary: true
   scheduler:
     enabled: false
 `, nil)
@@ -84,6 +86,12 @@ services:
 	}
 	if services.Dashboard.Bind != "192.168.1.20" || services.Dashboard.Token != DashboardTokenKeychain {
 		t.Errorf("dashboard = %+v, want the bind and token the file wrote", services.Dashboard)
+	}
+	if !services.Dashboard.HideSummary {
+		t.Errorf("dashboard = %+v, want the summary hidden as the file wrote", services.Dashboard)
+	}
+	if got := services.StartSettings(ServiceDashboard)[SettingDashboardHideSummary]; got != "true" {
+		t.Errorf("the dashboard's start settings carry hide_summary %q, want %q", got, "true")
 	}
 	if services.Dashboard.Port != DefaultDashboardPort {
 		t.Errorf("dashboard port = %d, want the default %d kept under a layer that did not restate it", services.Dashboard.Port, DefaultDashboardPort)
@@ -100,6 +108,7 @@ services:
 		"services.dashboard.bind":          resolved.Path,
 		"services.dashboard.allowed_hosts": resolved.Path,
 		"services.dashboard.token":         resolved.Path,
+		"services.dashboard.hide_summary":  resolved.Path,
 		"services.scheduler.enabled":       resolved.Path,
 		"services.dashboard.port":          OriginDefault,
 		"services.maintenance.enabled":     OriginDefault,

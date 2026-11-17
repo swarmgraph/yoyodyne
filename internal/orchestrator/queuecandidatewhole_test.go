@@ -214,7 +214,7 @@ func TestTheQueueStandsInOnlyForAWholeCheckItsOwnChecksCovered(t *testing.T) {
 			generation: func() runstate.MergeQueueGeneration { g := all; g.Candidate = "another"; return g }(), want: "no finished check of its own candidate"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got := mergeQueueStandsIn(test.run, test.mode, test.generation, paths)
+			got := mergeQueueStandsIn(test.run, test.mode, test.generation, paths, queueDeclaration{})
 			if test.want == "" && got != "" {
 				t.Fatalf("mergeQueueStandsIn() = %q, want it to stand in", got)
 			}

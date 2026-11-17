@@ -482,7 +482,7 @@ func TestScaffoldWritesEveryServiceAtItsDefault(t *testing.T) {
 	for _, want := range []string{
 		"\nservices:\n",
 		"  slack:\n    enabled: false\n",
-		"  dashboard:\n    enabled: false\n    port: 8765\n    bind: 127.0.0.1\n    allowed_hosts: []\n    token: generated\n",
+		"  dashboard:\n    enabled: false\n    port: 8765\n    bind: 127.0.0.1\n    allowed_hosts: []\n    token: generated\n    hide_summary: false\n",
 		"  scheduler:\n    enabled: true\n",
 		"  maintenance:\n    enabled: true\n",
 	} {

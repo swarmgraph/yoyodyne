@@ -350,6 +350,10 @@ execution:
   # moved past each. Reads the forge can answer conditionally are asked that
   # way, so an unchanged answer costs little. At least a minute.
   forge_check_interval: %s
+  # How often the supervisor runs the list under "main_checks" below on the
+  # head of the target branch, whenever the branch has moved since the last
+  # run. At least thirty minutes.
+  main_check_interval: %s
   # A watching session that finds a build deployed over it waits out the runs it
   # hosts before restarting into the new build -- for at most this long. Past it
   # the session restarts anyway and the hosted runs are stopped and preserved
@@ -420,6 +424,19 @@ execution:
   # reviewer approve it, and lands exactly that. Turning it off admits nothing
   # new and still finishes what is already queued.
   merge_queue: %t
+  # Whether most of a run's testing happens on the forge instead of on this
+  # machine (docs/designs/checks-on-ci.md). Off, every run's checks run here
+  # before review, as they always have. "local" names the checks this machine
+  # still runs, each written as "checks" writes it; "required" names the forge
+  # checks that must pass on the change, and may not be empty while "enabled"
+  # is true; "wait_limit" is how long to wait for them after the push. Turning
+  # it on is refused for a forge adapter that cannot push a branch, open a draft
+  # pull request, and read check results and output for a commit.
+  ci_checks:
+    enabled: false
+    # local: [make fmtcheck]
+    # required: [test]
+    wait_limit: 1h
 
 # When work that has stopped moving is looked at, and what looking at it may
 # spend. An approved publication nobody has merged is docketed once it has sat
@@ -526,6 +543,7 @@ approvals:
 		renderScaffoldDuration(effective.Execution.LandingCheckTimeout),
 		renderScaffoldDuration(effective.Execution.WorkPoll),
 		renderScaffoldDuration(effective.Execution.ForgeCheckInterval),
+		renderScaffoldDuration(effective.Execution.MainCheckInterval),
 		renderScaffoldDuration(effective.Execution.RedeployDrainLimit),
 		renderScaffoldDuration(effective.Execution.FactoryStallAfter),
 		effective.Execution.CouldNotRunBeforeStatus,
@@ -720,7 +738,8 @@ func renderScaffoldServices(builder *strings.Builder, services Services) {
 # bound under operators, and their tokens again every ten seconds, so changing
 # them needs no restart; a changed port, bind, or token source is applied by
 # the supervisor replacing the dashboard. The token itself is never written in
-# this file.
+# this file. hide_summary: true leaves the summary that opens the page off it,
+# and the supervisor replaces the dashboard to apply a change to it.
 #
 # The maintenance pass is the supervisor's own: every "every", it runs
 # yoyo reconcile, which settles what interrupted runs left behind and catches
@@ -750,6 +769,7 @@ services:
     bind: %s
     allowed_hosts: %s
     token: %s
+    hide_summary: %t
   scheduler:
     enabled: %t
   maintenance:
@@ -769,6 +789,7 @@ services:
 		services.Dashboard.Bind,
 		renderScaffoldList(services.Dashboard.AllowedHosts),
 		services.Dashboard.Token,
+		services.Dashboard.HideSummary,
 		services.Scheduler.Enabled,
 		services.Maintenance.Enabled,
 		renderScaffoldDuration(services.Maintenance.Every),
@@ -1187,6 +1208,27 @@ func renderScaffoldLandingChecks(builder *strings.Builder) {
 #   landing_checks:
 #     - go test -race ./...
 landing_checks: []
+# What the supervisor runs whole on the head of the target branch every
+# main_check_interval above, whenever the branch has moved: a check taken off
+# each change, run on what has landed instead. A failure is recorded with the
+# commit and filed as a critical report naming it and the failing tests. Empty
+# runs nothing on the branch.
+#
+#   main_checks:
+#     - go test -race ./...
+main_checks: []
+# The configured checks the harness's merge queue runs on a candidate, each run
+# whole on exactly the candidate commit, and the one check it adds, told only the
+# Go packages the change touches, to a candidate whose approved head has no
+# passing result of it. Each must be one of "checks" above, and the race check
+# must be left off "merge_queue_checks". Empty runs every configured check whole,
+# and adds nothing.
+#
+#   merge_queue_checks:
+#     - go vet ./...
+#   merge_queue_race_check: go test -race ${YOYODYNE_CHANGED_GO_PACKAGES-./...}
+merge_queue_checks: []
+merge_queue_race_check: ""
 `)
 }
 

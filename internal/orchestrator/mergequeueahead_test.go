@@ -146,6 +146,22 @@ func TestACandidateCheckedAheadIsRebuiltUnchargedWhenTheOneBeforeItFails(t *test
 	f, second := aheadFixture(t, "test ! -f feature.txt")
 	f.run.admittedRun.state.Branch = "change"
 	f.worker.Pipeline.Config.Execution.RepairAttemptsBeforeReplan = 2
+	// The first candidate's check fails at once, and a candidate checked ahead
+	// is stopped when the one before it does not end verified. Neither check
+	// starts until both have been asked for, so the candidate checked ahead has
+	// been built and recorded by the time the first one fails, however the two
+	// goroutines are scheduled; otherwise it may be stopped before it is built
+	// and the entry behind is only ever built once, on the real target.
+	bothAsked := make(chan struct{})
+	f.checks.before = func(call int) {
+		if call == 2 {
+			close(bothAsked)
+		}
+		select {
+		case <-bothAsked:
+		case <-time.After(30 * time.Second):
+		}
+	}
 	repair := &recordingRepair{}
 	f.promoter.Repair = repair
 	base := f.local("main")
@@ -234,5 +250,46 @@ func TestNothingIsCheckedAheadOnATargetThatLandsThroughAPullRequest(t *testing.T
 	}
 	if generations := f.generationsOf(second); len(generations) != 0 {
 		t.Fatalf("generations of the entry behind = %#v, want none built", generations)
+	}
+}
+
+// The candidate checked ahead is the entry the queue's order would take next,
+// not the next one admitted. With code, a design, code and a second design
+// admitted in that order, the worker takes the first design (the architect's
+// oldest document goes with priority 0 code), and once it has landed the order
+// takes the second design next, so that is the one checked ahead; in admission
+// order it would have been the code admitted between them.
+func TestTheCandidateCheckedAheadIsTheOneTheOrderTakesNext(t *testing.T) {
+	t.Parallel()
+
+	f := newPromotionFixture(t, landLocally)
+	f.worker.CheckAhead = true
+	f.tracker.Item.Priority = 4
+	f.tracker.Item.Description += "\nprotected-path grant: docs/designs/first.md\nprotected-path grant: docs/designs/second.md\n"
+	pipeline := f.worker.Pipeline
+	pipeline.Config.Checks = []string{"true"}
+	pipeline.Config.Product.Designs = "docs/designs"
+	base := gitLine(t, f.repository, "rev-parse", "main")
+	admitted := f.runs.(*admittedRun)
+	admitted.state.BaseCommit = gitLine(t, f.repository, "merge-base", "main", f.head)
+	firstDesign := f.admitAnother(queueKey, "first-design", "docs/designs/first.md", "# First\n")
+	admitted.others[firstDesign.RunID] = withBase(admitted.others[firstDesign.RunID], base)
+	between := f.admitAnother(queueKey, "between", "between.txt", "code admitted between the designs\n")
+	admitted.others[between.RunID] = withBase(admitted.others[between.RunID], base)
+	secondDesign := f.admitAnother(queueKey, "second-design", "docs/designs/second.md", "# Second\n")
+	admitted.others[secondDesign.RunID] = withBase(admitted.others[secondDesign.RunID], base)
+
+	verification, err := f.work()
+	if err != nil {
+		t.Fatalf("Work() error = %v", err)
+	}
+	if verification.Entry.EntryID != firstDesign.EntryID {
+		t.Fatalf("worked entry %d, want the first design, entry %d", verification.Entry.Order, firstDesign.Order)
+	}
+	if verification.Ahead == nil {
+		t.Fatalf("nothing was checked ahead (%q), want the second design, entry %d", verification.Waiting, secondDesign.Order)
+	}
+	if verification.Ahead.Entry.EntryID != secondDesign.EntryID {
+		t.Fatalf("checked entry %d ahead, want the second design, entry %d, which the order takes next (not entry %d, admitted next)", verification.Ahead.Entry.Order, secondDesign.Order, between.Order)
 	}
 }
