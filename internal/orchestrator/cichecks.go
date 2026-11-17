@@ -252,9 +252,10 @@ func (a *activeRun) handBackCIFailure(ctx context.Context, wait runstate.CIWait,
 	a.state.CIWaitEnd = &runstate.CIWaitEnd{Commit: wait.Commit, At: now,
 		Says: "required checks failed on the forge, so the change went back to its developer: " + strings.Join(names, ", ")}
 	a.state.UpdatedAt = now
-	if err := a.pipeline.Store.Save(a.state); err != nil {
-		return fmt.Errorf("record how the wait for the forge's checks ended: %w", err)
-	}
+	// Nothing is saved here: the repair loop records the failure and saves the
+	// run when it spends the repair round. A process that stops before then
+	// finds the wait still recorded, reads the same failure from the forge, and
+	// hands it back again.
 	return checkFailure{result: ciFailureResult(wait.Commit, failed, outputs)}
 }
 
