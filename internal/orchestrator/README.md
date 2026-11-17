@@ -202,7 +202,11 @@ field holds X" questions are answered in `internal/runstate/state.go`.
 `nextContinuations` asks `ForgeCIWaits` whether the forge has decided and
 continues the run; `settleCIWait` then reads the forge for the recorded commit
 without pushing, and either goes on to review, parks again, or ends the wait
-and runs the full checks (`endCIWaitWithFullChecks`).
+and runs the full checks (`endCIWaitWithFullChecks`). After that fallback
+`lateCIResult` reads the forge again for the same commit — once the local
+checks pass, and from `checkCandidateWhole` before promotion — records any
+answer on `runstate.CIWaitLate`, and returns a forge failure as a
+`checkFailure`. A refused push ends in `blockOnRefusedPush`.
 
 ### Where does a run move from checks to review, and back to the developer?
 `repairLoop`. Each round: `holdForDirective`, `holdForDependency`, then

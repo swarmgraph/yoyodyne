@@ -11,10 +11,17 @@ package orchestrator
 // commit. Where the wait ends any other way — a required check failed, was
 // cancelled or skipped, never started within the wait limit, the forge cannot
 // be read, or the switch was turned off — the run runs the full declared checks
-// on this machine over the same commit and goes on from their result. That is
-// what the design gives for CI being down or slow and for switching off. A
-// check that failed on the forge is not yet handed to the developer with its
-// output, which is a later build; until then the local full checks judge it.
+// on this machine over the same commit and goes on from their result (build 5,
+// the fallback). That is what the design gives for CI being down or slow and
+// for switching off, and none of it spends a repair round: only a check that
+// fails does. A check that failed on the forge is not yet handed to the
+// developer with its output, which is a later build; until then the local full
+// checks run and the forge's failure is counted beside them (lateCIResult).
+//
+// After a fallback the forge is read again for the same commit once the local
+// checks have passed and once more before an approved change is promoted. An
+// answer found then is recorded on the run (runstate.CIWaitLate), and a failure
+// from the forge counts as a failure even though the local checks passed.
 
 import (
 	"context"
@@ -25,6 +32,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/checks"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -85,7 +94,9 @@ func (a *activeRun) checkRound(ctx context.Context) error {
 		return err
 	}
 	if !a.ciFlow() {
-		return nil
+		// A commit whose wait already fell back to this machine is not pushed
+		// again, but what the forge has said about it since still counts.
+		return a.lateCIResult(ctx)
 	}
 	return a.pushAndWait(ctx)
 }
@@ -114,7 +125,7 @@ func (a *activeRun) pushAndWait(ctx context.Context) error {
 	}
 	if previous != commit {
 		if err := p.CIForge.PushBranch(ctx, publish.PushRequest{Branch: branch, Commit: commit, Previous: previous}); err != nil {
-			return stoppedBy(runstate.StopPublish, fmt.Errorf("push the candidate commit for the forge's checks: %w", err))
+			return a.blockOnRefusedPush(fmt.Errorf("push the candidate commit for the forge's checks: %w", err))
 		}
 	}
 	pushedAt := p.clock().Now()
@@ -127,7 +138,7 @@ func (a *activeRun) pushAndWait(ctx context.Context) error {
 			Mark:  forgeMark(ctx, p.Factory, p.Config.Product.ID),
 		})
 		if err != nil {
-			return stoppedBy(runstate.StopPublish, fmt.Errorf("open the draft pull request for the forge's checks: %w", err))
+			return a.blockOnRefusedPush(fmt.Errorf("open the draft pull request for the forge's checks: %w", err))
 		}
 		remote := strings.TrimSpace(p.Config.Execution.PushRemote)
 		if remote == "" {
@@ -158,12 +169,43 @@ func (a *activeRun) pushAndWait(ctx context.Context) error {
 	return ciWaitPause{wait: wait}
 }
 
+// blockOnRefusedPush holds a run whose push, or the draft pull request that
+// carries it, the forge refused. Integration would need the same forge, so
+// nothing is gained by checking the change on this machine instead: the item is
+// blocked for the development manager with the forge's own words, the branch
+// and worktree are kept, and no repair round is spent, because the refusal is
+// not the change's.
+func (a *activeRun) blockOnRefusedPush(refusal error) error {
+	if err := a.block(renderRefusedPushBlockerNotes(a.outcome, refusal)); err != nil {
+		return stoppedBy(runstate.StopPublish, withFailedRecord(refusal, fmt.Errorf("record the forge's refusal as a blocker: %w", err)))
+	}
+	return stoppedBy(runstate.StopPublish, refusal)
+}
+
+// renderRefusedPushBlockerNotes describes a run held because the forge
+// refused the push its checks on CI needed.
+func renderRefusedPushBlockerNotes(outcome Outcome, refusal error) string {
+	return strings.Join([]string{
+		"Yoyodyne did not send this item's change for review: the forge refused the push the change's checks on CI needed, and the change would have to reach the same forge to be merged.",
+		"No repair attempt was spent, because the refusal is the forge's and not the change's.",
+		"Run: " + outcome.RunID,
+		"Branch: " + outcome.Branch,
+		"Worktree: " + outcome.WorktreePath,
+		"The branch and worktree are kept. Once the forge accepts the push, the change can be run again from where it stopped.",
+		"What the forge said: " + refusal.Error(),
+	}, "\n")
+}
+
 // settleCIWait is the first thing a run does once it has a slot again with a
 // wait recorded. It reads the forge for exactly the commit the wait names and
 // never pushes. Every required check passed: the wait ends and review goes on.
 // Still running within the limit: the run parks again. Anything else, or the
 // switch turned off, ends the wait and runs the full declared checks over the
-// same commit.
+// same commit. A forge that cannot be read here is one of those: the run only
+// takes its slot back once a pull decided the wait (ForgeCIWaits.Decided, which
+// already waits out a short spell of failed reads) or after a restart, and
+// parking again on an unreadable forge would give the slot back to take it again
+// on the next pull.
 func (a *activeRun) settleCIWait(ctx context.Context) error {
 	p := a.pipeline
 	wait := *a.state.CIWait
@@ -176,10 +218,7 @@ func (a *activeRun) settleCIWait(ctx context.Context) error {
 	}
 	reading, err := p.CIForge.RequiredChecks(ctx, wait.Commit, wait.Required)
 	if err != nil {
-		if wait.Overdue(now) {
-			return a.endCIWaitWithFullChecks(ctx, wait, "the forge could not be read after the wait limit: "+err.Error())
-		}
-		return a.parkAgain(wait, "the forge could not be read: "+err.Error())
+		return a.endCIWaitWithFullChecks(ctx, wait, "the forge could not be read: "+err.Error())
 	}
 	if reading.Commit != wait.Commit {
 		return a.endCIWaitWithFullChecks(ctx, wait, "the forge answered for another commit")
@@ -234,7 +273,86 @@ func (a *activeRun) endCIWaitWithFullChecks(ctx context.Context, wait runstate.C
 	if err := a.pipeline.Store.Save(a.state); err != nil {
 		return fmt.Errorf("record how the wait for the forge's checks ended: %w", err)
 	}
-	return a.verify(ctx)
+	if err := a.verify(ctx); err != nil {
+		return err
+	}
+	// The local checks take long enough that the forge has often answered by
+	// now, and its answer is read before review rather than after it.
+	return a.lateCIResult(ctx)
+}
+
+// lateCIResult reads the forge once more for a commit whose wait ended without
+// its answer and the full checks ran on this machine instead, and records what
+// it finds. A required check that failed there is returned as a failing check,
+// so it is handed to the developer and spends a repair round like any failing
+// check: a failure from either the forge or this machine counts. An answer
+// still to come, or a forge that cannot be read, records nothing and holds
+// nothing up, because the local checks already stand for the commit. Once an
+// answer is recorded the forge is not read again for that commit, and a
+// recorded failure keeps counting for as long as the change stays at it.
+//
+// The answer is kept on the run's record in memory and written by the save
+// the run makes next — the failing check handed back, the review, or the
+// run's ending — rather than by a save of its own.
+func (a *activeRun) lateCIResult(ctx context.Context) error {
+	p := a.pipeline
+	end := a.state.CIWaitEnd
+	switch {
+	case end == nil || end.Passed:
+		return nil
+	case end.Commit != strings.ToLower(strings.TrimSpace(a.state.HarnessCommit)):
+		return nil
+	case end.Late != nil && end.Late.Passed:
+		return nil
+	case end.Late != nil:
+		// The forge already failed this commit and a repair left it as it was, so
+		// the failure still stands for it however the local checks went.
+		return lateCIFailure(end.Late.Says)
+	case !p.Config.Execution.CIChecks.Enabled || p.CIForge == nil || len(p.Config.Execution.CIChecks.Required) == 0:
+		return nil
+	}
+	reading, err := p.CIForge.RequiredChecks(ctx, end.Commit, p.Config.Execution.CIChecks.Required)
+	if err != nil || reading.Commit != end.Commit {
+		return nil
+	}
+	now := p.clock().Now()
+	if reading.AllPassed() {
+		end.Late = &runstate.CIWaitLate{At: now, Passed: true,
+			Says: "after the full checks ran on this machine, every required check passed on the forge too: " + strings.Join(p.Config.Execution.CIChecks.Required, ", ")}
+		a.state.UpdatedAt = now
+		return nil
+	}
+	var failed []publish.RequiredCheck
+	for _, check := range reading.Checks {
+		if check.Result == publish.CheckFailed {
+			failed = append(failed, check)
+		}
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	lines := make([]string, 0, len(failed)+1)
+	lines = append(lines, "The full checks passed on this machine, but these required checks failed on the forge for the same commit "+end.Commit+", and a failure from either counts:")
+	for _, check := range failed {
+		line := "- " + check.Name + " ended " + string(check.Result)
+		if check.URL != "" {
+			line += " (" + check.URL + ")"
+		}
+		lines = append(lines, line)
+	}
+	end.Late = &runstate.CIWaitLate{At: now, Says: strings.Join(lines, "\n")}
+	a.state.UpdatedAt = now
+	return lateCIFailure(end.Late.Says)
+}
+
+// lateCIFailure is the forge's later failure as a failing check, in the shape
+// a local failing check is handed to the developer in.
+func lateCIFailure(says string) error {
+	return checkFailure{result: checks.Result{
+		Command:       "the forge's required checks",
+		Process:       execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1},
+		FailureOutput: says + "\n",
+	}}
 }
 
 // ciWaitPause reports a run that pushed its candidate and waits for the forge's
@@ -304,6 +422,14 @@ func ciWaitDecided(wait runstate.CIWait, reading publish.RequiredCheckReading, n
 // run, so a pull every few seconds does not ask the forge that often.
 const ciPollEvery = time.Minute
 
+// ciUnreadableFor is how long the forge may go unreadable for one waiting run
+// before the wait is decided and the run falls back to the full checks on this
+// machine. A single failed read is waited out, because a network that drops
+// for a moment is not a forge that cannot be read; one that stays unreadable
+// this long is, and waiting out the whole wait limit for it would hold the
+// change for an hour with nothing to show.
+const ciUnreadableFor = 5 * time.Minute
+
 // ForgeCIWaits reads the forge for the runs a pull finds waiting. Enabled says
 // whether checks on CI is on now: a wait found with it off is decided at once,
 // and the run then runs the full checks on this machine.
@@ -317,11 +443,12 @@ type ForgeCIWaits struct {
 // said. It outlives any one reader because a pull builds its reader afresh, and
 // the limit of one read a minute for a run is across pulls.
 var ciPolls = struct {
-	mu      sync.Mutex
-	polled  map[string]time.Time
-	lastSay map[string]string
-	decided map[string]bool
-}{polled: map[string]time.Time{}, lastSay: map[string]string{}, decided: map[string]bool{}}
+	mu         sync.Mutex
+	polled     map[string]time.Time
+	lastSay    map[string]string
+	decided    map[string]bool
+	unreadable map[string]time.Time
+}{polled: map[string]time.Time{}, lastSay: map[string]string{}, decided: map[string]bool{}, unreadable: map[string]time.Time{}}
 
 // Decided reads the forge for the commit the run's wait names, at most once a
 // minute for one run.
@@ -350,13 +477,24 @@ func (f *ForgeCIWaits) Decided(ctx context.Context, state runstate.State) (bool,
 	ciPolls.mu.Unlock()
 	reading, err := f.Forge.RequiredChecks(ctx, wait.Commit, wait.Required)
 	if err != nil {
-		if wait.Overdue(now) {
+		ciPolls.mu.Lock()
+		since, ok := ciPolls.unreadable[state.RunID]
+		if !ok || now.Before(since) {
+			since = now
+			ciPolls.unreadable[state.RunID] = since
+		}
+		ciPolls.mu.Unlock()
+		switch {
+		case wait.Overdue(now):
 			return true, "the forge could not be read after the wait limit", nil
+		case now.Sub(since) >= ciUnreadableFor:
+			return true, fmt.Sprintf("the forge could not be read for %s", now.Sub(since).Round(time.Second)), nil
 		}
 		return false, "", err
 	}
 	decided, why := ciWaitDecided(*wait, reading, now)
 	ciPolls.mu.Lock()
+	delete(ciPolls.unreadable, state.RunID)
 	ciPolls.lastSay[state.RunID], ciPolls.decided[state.RunID] = why, decided
 	ciPolls.mu.Unlock()
 	return decided, why, nil

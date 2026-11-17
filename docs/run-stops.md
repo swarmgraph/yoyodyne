@@ -131,9 +131,12 @@ when a usable checkout may never have existed.
 A directive or unfinished dependency parks the run before another gate or
 promotion. With `execution.ci_checks.enabled`, a run that has pushed its
 candidate commit parks while the forge's required checks run, holding no
-developer slot; a later pull reads the forge and continues it, and the wait
-limit and the setting being switched off both end the wait with the full checks
-on this machine. An unreadable dependency read can park it for a tracker retry;
+developer slot; a later pull reads the forge and continues it. The wait limit
+passing, a required check ending cancelled, skipped or in another state that is
+neither a pass nor a failure, a forge that stays unreadable, and the setting
+being switched off each end the wait with the full checks on this machine,
+spending no repair round. A push the forge refuses blocks the item for the
+development manager with the forge's words. An unreadable dependency read can park it for a tracker retry;
 a spending hold parks it at the next provider boundary. Provider authentication
 or availability failures are probed without spending the repair, relaunch, or
 usage-pause budgets. These are waits, not terminal verdicts, and keep the branch,
@@ -253,7 +256,8 @@ describes the pass that applies those rules.
 ```text
 | File | Declaration | Signal | Count | Meaning |
 | --- | --- | --- | --- | --- |
-| `internal/orchestrator/cichecks.go` | `(*activeRun).pushAndWait` | `classified-stop` | 3 | Classifies a candidate commit that is not named in full, a push the forge refused, and a draft pull request it would not open as a publishing stop, held for the development manager with the forge's words. |
+| `internal/orchestrator/cichecks.go` | `(*activeRun).pushAndWait` | `classified-stop` | 1 | Classifies a candidate commit that is not named in full as a publishing stop. |
+| `internal/orchestrator/cichecks.go` | `(*activeRun).blockOnRefusedPush` | `classified-stop` | 2 | Blocks a run whose push, or the draft pull request carrying it, the forge refused, as a publishing stop held for the development manager with the forge's words and no repair round spent, including a failed blocker write. |
 | `internal/orchestrator/outsidefilelanding.go` | `(Pipeline).BringInOutsideFile` | `call:fail` | 2 | Ends the run that brings a pinned outside file in where its checkout could not be cut or the fetched file could not be written and committed; no developer slot is held, and the record is tried again after a wait or stopped and reported. |
 | `internal/orchestrator/outsidefilelanding.go` | `(Pipeline).BringInOutsideFile` | `classified-stop` | 1 | Classifies a checkout that could not be cut for that run as a harness stop. |
 | `internal/orchestrator/outsidefilelanding.go` | `(Pipeline).BringInOutsideFile` | `status-write` | 1 | Marks the run that brings a file in as running once its checkout is cut; changes no backlog item. |

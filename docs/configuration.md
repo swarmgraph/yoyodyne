@@ -3789,15 +3789,32 @@ commit, the push time and the required checks. The run then holds no developer
 slot. `yoyo status` and the dashboard list it as waiting for CI, with the time
 waited. A watching `yoyo work` session reads the forge for that exact commit
 about once a minute and continues the run when every required check has passed,
-when one has ended any other way, or when `wait_limit` has passed since the
-push. Review starts only after every required check passed on that commit. Until the forge's results are themselves integration evidence (a later build), the full checks also run on this machine over the approved candidate before it is promoted, as they do for any change checked in part. A
+when one has ended any other way, when the forge has stayed unreadable for about
+five minutes, or when `wait_limit` has passed since the push. Review starts only after every required check passed on that commit. Until the forge's results are themselves integration evidence (a later build), the full checks also run on this machine over the approved candidate before it is promoted, as they do for any change checked in part. A
 restart during the wait pushes nothing and carries on with the same wait.
 
-When the wait ends without a pass, or the switch is turned off during it, the
-run runs the full declared checks on this machine over the same commit and goes
-on from their result. A required check that failed on the forge is not yet
-handed to the developer with its output; the recorded failure and the other
-stages of the flow arrive in later builds.
+When the wait ends without a pass, the run runs the full declared checks on
+this machine over the same commit and goes on from their result, and the reason
+is recorded on the run. That happens when a required check has not finished, or
+never started, within `wait_limit`; ends cancelled, skipped, or in any state
+other than passed or failed; when the forge cannot be read for about five
+minutes running (a single failed read is waited out); and when the switch is
+turned off during the wait. None of these spends a repair round, because the
+cause is outside the change; only a check that fails does.
+
+After that fallback the harness reads the forge once more for the same commit,
+when the local checks have passed and again before the approved change is
+promoted. An answer it finds is recorded on the run too, and a failure from
+either the forge or this machine counts as a failure: a required check that
+failed on the forge goes back to the developer as a failing check and spends a
+repair round, even though the local checks passed. A required check that failed
+on the forge is not yet handed to the developer with its own output; that, and
+the other stages of the flow, arrive in later builds.
+
+A push the forge refuses, or a draft pull request it will not open, blocks the
+item for the development manager with the forge's own words, because merging
+the change would need the same forge. The branch and worktree are kept, and no
+repair round is spent.
 
 ```yaml
 execution:

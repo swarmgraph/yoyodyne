@@ -2528,6 +2528,9 @@ func (s *State) recordedTexts() []recordedText {
 	}
 	if s.CIWaitEnd != nil {
 		unstated("ci_wait_end.says", "ci_wait_end.says", &s.CIWaitEnd.Says, MaxRecordedTextBytes)
+		if s.CIWaitEnd.Late != nil {
+			unstated("ci_wait_end.late.says", "ci_wait_end.late.says", &s.CIWaitEnd.Late.Says, MaxRecordedTextBytes)
+		}
 	}
 	if s.TrackerPause != nil {
 		nested("tracker_pause.failure", "tracker_pause.failure", &s.TrackerPause.Failure, MaxRetryFailureBytes)
@@ -2846,6 +2849,21 @@ type CIWaitEnd struct {
 	// on to review. Otherwise the run ran the full checks on this machine instead.
 	Passed bool `json:"passed"`
 	// Says is what ended the wait, in a sentence a person reads.
+	Says string `json:"says"`
+	// Late is the forge's own answer for Commit, read after the wait ended
+	// without one and the full checks ran on this machine instead. It is
+	// recorded beside the local result rather than in place of it, and a failure
+	// in either counts as a failure. Empty while the forge has not finished.
+	Late *CIWaitLate `json:"late,omitempty"`
+}
+
+// CIWaitLate is a required-check result the forge gave for a commit after the
+// run had stopped waiting for it.
+type CIWaitLate struct {
+	At time.Time `json:"at"`
+	// Passed is true where every required check passed on the commit.
+	Passed bool `json:"passed"`
+	// Says is what the forge answered, in a sentence a person reads.
 	Says string `json:"says"`
 }
 

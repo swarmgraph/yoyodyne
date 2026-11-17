@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,11 +25,20 @@ type fakeCIForge struct {
 	pushes []publish.PushRequest
 	drafts int
 	result publish.CheckResult
+	// then, where set, is the result every read after the first answers with,
+	// so a test can have the forge answer once the run has stopped waiting.
+	then    publish.CheckResult
+	reads   int
+	readErr error
+	pushErr error
 }
 
 func (f *fakeCIForge) PushBranch(_ context.Context, request publish.PushRequest) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.pushErr != nil {
+		return f.pushErr
+	}
 	f.pushes = append(f.pushes, request)
 	return nil
 }
@@ -43,9 +53,17 @@ func (f *fakeCIForge) EnsureDraft(_ context.Context, request publish.Request) (p
 func (f *fakeCIForge) RequiredChecks(_ context.Context, commit string, required []string) (publish.RequiredCheckReading, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.readErr != nil {
+		return publish.RequiredCheckReading{}, f.readErr
+	}
+	result := f.result
+	if f.reads > 0 && f.then != "" {
+		result = f.then
+	}
+	f.reads++
 	reading := publish.RequiredCheckReading{Commit: commit}
 	for _, name := range required {
-		reading.Checks = append(reading.Checks, publish.RequiredCheck{Name: name, Result: f.result, Commit: commit})
+		reading.Checks = append(reading.Checks, publish.RequiredCheck{Name: name, Result: result, Commit: commit})
 	}
 	return reading, nil
 }
@@ -269,19 +287,26 @@ func TestChecksOnCISwitchedOffDuringTheWaitRunsTheFullChecksOnTheSameCommit(t *t
 }
 
 // A required check that failed on the forge sends the run to the full local
-// checks on the same commit; the wait limit passing does the same.
-func TestChecksOnCIAFailedRequiredCheckFallsBackToTheFullChecks(t *testing.T) {
+// checks on the same commit, and the forge's failure still counts as a failure
+// once they pass: it is handed back to the developer as a failing check.
+func TestChecksOnCIAFailedRequiredCheckFallsBackToTheFullChecksAndStillCounts(t *testing.T) {
 	t.Parallel()
 	f := newCIFixture(t)
-	f.park(t)
+	_, parked := f.park(t)
 	f.forge.setResult(publish.CheckFailed)
 
-	outcome, err := f.pipeline(t, true).Run(context.Background(), f.tracker.Item.ID)
-	if err != nil {
-		t.Fatalf("Run() error = %v", err)
+	outcome, _ := f.pipeline(t, true).Run(context.Background(), f.tracker.Item.ID)
+	if outcome.Paused || logLines(t, f.fullLog) < 1 || f.forge.pushed() != 1 {
+		t.Fatalf("outcome=%#v full=%d pushes=%d, want the full checks over the same commit", outcome, logLines(t, f.fullLog), f.forge.pushed())
 	}
-	if outcome.Paused || logLines(t, f.fullLog) != 1 || f.forge.pushed() != 1 {
-		t.Fatalf("outcome=%#v full=%d pushes=%d, want the full checks once over the same commit", outcome, logLines(t, f.fullLog), f.forge.pushed())
+	// The fixture's developer repairs nothing, so the commit the forge failed is
+	// the commit every later round offers, and it never lands.
+	if outcome.Status == runstate.StatusSucceeded || outcome.RepairAttempts < 1 || f.reviewed() != 0 {
+		t.Fatalf("status=%s repairs=%d reviews=%d, want the forge's failure to spend repair rounds and never reach review", outcome.Status, outcome.RepairAttempts, f.reviewed())
+	}
+	end, _ := f.store.Load(parked.RunID)
+	if end.CIWaitEnd == nil || end.CIWaitEnd.Late == nil || end.CIWaitEnd.Late.Passed {
+		t.Fatalf("how the wait ended = %#v, want the forge's failure recorded", end.CIWaitEnd)
 	}
 }
 
@@ -319,5 +344,183 @@ func TestACIWaitHoldsNoSlotUntilItTakesOneBack(t *testing.T) {
 	state.CIWait.SlotTaken = true
 	if !state.HoldsDeveloperSlot() {
 		t.Fatal("a run that took its slot back holds none")
+	}
+}
+
+// overdue moves a parked run's push back past its wait limit, as if the forge
+// had taken longer than the limit to answer.
+func (f *ciFixture) overdue(t *testing.T, runID string) {
+	t.Helper()
+	state, err := f.store.Load(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.CIWait.PushedAt = state.CIWait.PushedAt.Add(-2 * time.Hour)
+	if err := f.store.Save(state); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Each way the forge can leave the wait undecided — a required check cancelled,
+// skipped or in another state, still running or never started past the wait
+// limit, or a forge that cannot be read — runs the full declared checks on this
+// machine over the same commit, records why on the run, spends no repair round,
+// and goes on to review.
+func TestChecksOnCIFallsBackToTheFullChecksWithoutSpendingARepairRound(t *testing.T) {
+	t.Parallel()
+	for name, test := range map[string]struct {
+		result  publish.CheckResult
+		overdue bool
+		readErr error
+		says    string
+	}{
+		"cancelled":            {result: publish.CheckCancelled, says: "test ended cancelled on the forge"},
+		"skipped":              {result: publish.CheckSkipped, says: "test ended skipped on the forge"},
+		"another state":        {result: publish.CheckOther, says: "test ended other on the forge"},
+		"running past limit":   {result: publish.CheckPending, overdue: true, says: "test had not finished within the wait limit"},
+		"never started":        {result: publish.CheckNotStarted, overdue: true, says: "test had not finished within the wait limit"},
+		"forge cannot be read": {readErr: errors.New("gh: HTTP 502"), says: "the forge could not be read: gh: HTTP 502"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newCIFixture(t)
+			_, parked := f.park(t)
+			f.forge.mu.Lock()
+			f.forge.result, f.forge.readErr = test.result, test.readErr
+			f.forge.mu.Unlock()
+			if test.overdue {
+				f.overdue(t, parked.RunID)
+			}
+
+			outcome, err := f.pipeline(t, true).Run(context.Background(), f.tracker.Item.ID)
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if outcome.Paused || outcome.Status != runstate.StatusSucceeded {
+				t.Fatalf("outcome = %#v, want the run to fall back, be reviewed and finish", outcome)
+			}
+			if logLines(t, f.fullLog) != 1 || f.forge.pushed() != 1 || f.reviewed() != 1 {
+				t.Fatalf("full checks=%d pushes=%d reviews=%d, want the full checks once over the same commit, no second push, one review",
+					logLines(t, f.fullLog), f.forge.pushed(), f.reviewed())
+			}
+			end, _ := f.store.Load(parked.RunID)
+			if end.RepairAttempts != 0 || end.CheckFailure != nil {
+				t.Fatalf("repair attempts=%d check failure=%#v, want no repair round spent", end.RepairAttempts, end.CheckFailure)
+			}
+			if end.CIWaitEnd == nil || end.CIWaitEnd.Passed || end.CIWaitEnd.Commit != parked.CIWait.Commit ||
+				!strings.HasPrefix(end.CIWaitEnd.Says, test.says) || !strings.Contains(end.CIWaitEnd.Says, "full checks run on this machine") {
+				t.Fatalf("how the wait ended = %#v, want the reason %q recorded", end.CIWaitEnd, test.says)
+			}
+			if end.CIWaitEnd.Late != nil {
+				t.Fatalf("later answer = %#v, want none recorded while the forge has not answered", end.CIWaitEnd.Late)
+			}
+		})
+	}
+}
+
+// A forge that answers after the run fell back has its answer recorded beside
+// the local result: a pass is kept on the run, and a failure counts as a
+// failure even though the full checks passed on this machine.
+func TestChecksOnCIRecordsTheForgesLaterAnswerAndCountsItsFailure(t *testing.T) {
+	t.Parallel()
+	t.Run("passed", func(t *testing.T) {
+		t.Parallel()
+		f := newCIFixture(t)
+		_, parked := f.park(t)
+		f.forge.mu.Lock()
+		f.forge.result, f.forge.then = publish.CheckCancelled, publish.CheckPassed
+		f.forge.mu.Unlock()
+
+		outcome, err := f.pipeline(t, true).Run(context.Background(), f.tracker.Item.ID)
+		if err != nil || outcome.Status != runstate.StatusSucceeded {
+			t.Fatalf("Run() = %#v, %v, want the run to finish", outcome, err)
+		}
+		end, _ := f.store.Load(parked.RunID)
+		if end.CIWaitEnd == nil || end.CIWaitEnd.Late == nil || !end.CIWaitEnd.Late.Passed || end.RepairAttempts != 0 {
+			t.Fatalf("how the wait ended = %#v, repairs=%d, want the forge's later pass recorded and no repair", end.CIWaitEnd, end.RepairAttempts)
+		}
+	})
+	t.Run("failed", func(t *testing.T) {
+		t.Parallel()
+		f := newCIFixture(t)
+		_, parked := f.park(t)
+		f.forge.mu.Lock()
+		f.forge.result, f.forge.then = publish.CheckCancelled, publish.CheckFailed
+		f.forge.mu.Unlock()
+
+		// The fixture's developer repairs nothing, so the run spends its repair
+		// rounds on the forge's failure and stops; that stop is not the question.
+		_, _ = f.pipeline(t, true).Run(context.Background(), f.tracker.Item.ID)
+		if logLines(t, f.fullLog) < 1 {
+			t.Fatal("the full checks never ran on this machine")
+		}
+		end, _ := f.store.Load(parked.RunID)
+		if end.RepairAttempts < 1 || f.reviewed() != 0 {
+			t.Fatalf("repair attempts=%d reviews=%d, want the forge's later failure to spend repair rounds before any review", end.RepairAttempts, f.reviewed())
+		}
+		if end.CIWaitEnd == nil || end.CIWaitEnd.Commit != parked.CIWait.Commit {
+			t.Fatalf("how the wait ended = %#v", end.CIWaitEnd)
+		}
+		// The developer's repair prompt is what proves the forge's failure was
+		// handed back.
+		var handedBack bool
+		for _, provider := range f.providers {
+			for _, request := range provider.RequestsForRole(domain.RoleDeveloper) {
+				if strings.Contains(request.Prompt, "failed on the forge for the same commit") {
+					handedBack = true
+				}
+			}
+		}
+		if !handedBack {
+			t.Fatal("the forge's later failure never reached the developer")
+		}
+	})
+}
+
+// A push the forge refuses holds the run for the development manager with the
+// forge's own words, runs nothing on this machine instead, and spends no repair
+// round.
+func TestChecksOnCIARefusedPushHoldsTheRunForTheDevelopmentManager(t *testing.T) {
+	t.Parallel()
+	f := newCIFixture(t)
+	f.forge.pushErr = errors.New("remote: Permission to swarmgraph/yoyodyne.git denied")
+
+	outcome, _ := f.pipeline(t, true).Run(context.Background(), f.tracker.Item.ID)
+	if outcome.Paused || outcome.Status == runstate.StatusSucceeded {
+		t.Fatalf("outcome = %#v, want the run held", outcome)
+	}
+	if !f.tracker.Blocked || !strings.Contains(f.tracker.BlockReason, "Permission to swarmgraph/yoyodyne.git denied") {
+		t.Fatalf("blocked=%v reason=%q, want the item blocked with the forge's refusal", f.tracker.Blocked, f.tracker.BlockReason)
+	}
+	if logLines(t, f.fullLog) != 0 || f.reviewed() != 0 {
+		t.Fatalf("full checks=%d reviews=%d, want neither", logLines(t, f.fullLog), f.reviewed())
+	}
+	state, _ := f.store.Load(outcome.RunID)
+	if state.RepairAttempts != 0 {
+		t.Fatalf("repair attempts = %d, want none", state.RepairAttempts)
+	}
+}
+
+// A forge that fails one read is waited out; one that stays unreadable for
+// ciUnreadableFor decides the wait, so the run falls back without waiting out
+// the whole wait limit.
+func TestForgeCIWaitsDecidesAWaitOnAForgeThatStaysUnreadable(t *testing.T) {
+	t.Parallel()
+	forge := &fakeCIForge{readErr: errors.New("gh: connection reset")}
+	now := time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)
+	state := runstate.State{RunID: "run-unreadable-test", CIWait: &runstate.CIWait{Commit: strings.Repeat("c", 40), Branch: "b", PushedAt: now, Required: []string{"test"}, WaitLimitSeconds: 3600}}
+	read := func(at time.Time) (bool, error) {
+		reader := &ForgeCIWaits{Forge: forge, Enabled: func() bool { return true }, Now: func() time.Time { return at }}
+		decided, _, err := reader.Decided(context.Background(), state)
+		return decided, err
+	}
+	if decided, err := read(now.Add(time.Minute)); decided || err == nil {
+		t.Fatalf("first failed read: decided=%v err=%v, want undecided with the error", decided, err)
+	}
+	if decided, _ := read(now.Add(3 * time.Minute)); decided {
+		t.Fatal("decided after two minutes unreadable, want it waited out")
+	}
+	if decided, _ := read(now.Add(time.Minute + ciUnreadableFor)); !decided {
+		t.Fatalf("not decided after %s unreadable", ciUnreadableFor)
 	}
 }
