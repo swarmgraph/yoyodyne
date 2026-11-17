@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -42,6 +43,11 @@ type Backend struct {
 	// above, an attempt past the end of the list left nothing running.
 	DeveloperAfterReplyByAttempt []*execution.AfterReply
 	DeveloperAttempts            int
+
+	// mu guards Requests and the counters RoleBackend keeps: the merge queue
+	// reviews the candidate it checks ahead beside the current one, so two
+	// invocations of one fake can be served at once.
+	mu sync.Mutex
 }
 
 func (f *Backend) CheckAvailability(context.Context) (backend.Availability, error) {
@@ -56,7 +62,9 @@ func (*Backend) Capabilities() backend.Capabilities {
 }
 
 func (f *Backend) Run(_ context.Context, request backend.RunRequest) (backend.RunResult, error) {
+	f.mu.Lock()
 	f.Requests = append(f.Requests, request)
+	f.mu.Unlock()
 	result, err := f.Respond(request)
 	// A developer that recorded nothing it executed is refused before its change
 	// reaches a reviewer, so every fake developer here carries the record its
@@ -70,6 +78,8 @@ func (f *Backend) Run(_ context.Context, request backend.RunRequest) (backend.Ru
 }
 
 func (f *Backend) RequestsForRole(role domain.AgentRole) []backend.RunRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	var matching []backend.RunRequest
 	for _, request := range f.Requests {
 		if request.Role == role {
@@ -111,6 +121,8 @@ func RoleBackend(develop func(backend.RunRequest) error, verdicts ...string) *Ba
 			if err := develop(request); err != nil {
 				return backend.RunResult{}, err
 			}
+			provider.mu.Lock()
+			defer provider.mu.Unlock()
 			finalText := "implemented the work item"
 			if provider.DeveloperFinalText != "" {
 				finalText = provider.DeveloperFinalText
@@ -132,6 +144,8 @@ func RoleBackend(develop func(backend.RunRequest) error, verdicts ...string) *Ba
 				LastEvent:     request.LastSequence,
 			}, nil
 		case domain.RoleReviewer:
+			provider.mu.Lock()
+			defer provider.mu.Unlock()
 			verdict := verdicts[len(verdicts)-1]
 			if reviews < len(verdicts) {
 				verdict = verdicts[reviews]
@@ -154,7 +168,9 @@ func RoleBackend(develop func(backend.RunRequest) error, verdicts ...string) *Ba
 
 // RequestsMade is every invocation this backend served, in order.
 func (f *Backend) RequestsMade() []backend.RunRequest {
-	return f.Requests
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]backend.RunRequest(nil), f.Requests...)
 }
 
 // DeveloperSessionID is the session this backend reports serving the developer.
