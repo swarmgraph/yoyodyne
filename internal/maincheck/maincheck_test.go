@@ -2,6 +2,8 @@ package maincheck_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +29,8 @@ type git struct {
 	head     string
 	asked    []string
 	worktree []string
+	// addTimeout is the bound the last `worktree add` was given.
+	addTimeout time.Duration
 }
 
 func (g *git) Run(_ context.Context, command execution.Command, _ execution.OutputObserver) (execution.ProcessResult, error) {
@@ -51,6 +55,9 @@ func (g *git) Run(_ context.Context, command execution.Command, _ execution.Outp
 		return ok("2222222 Make the scheduler faster\n1234567 Tidy the queue\n")
 	case "worktree":
 		g.worktree = append(g.worktree, joined)
+		if command.Args[1] == "add" {
+			g.addTimeout = command.Timeout
+		}
 	}
 	return ok("")
 }
@@ -258,21 +265,98 @@ func TestARunUnderWayHoldsTheMoveOntoANewBuildBack(t *testing.T) {
 	}
 }
 
-func TestACheckThatCouldNotRunIsRecordedAndTriedAgainOnTheSameCommit(t *testing.T) {
+func TestACheckThatCouldNotRunIsRetriedSoonAndReportedOncePerOccurrence(t *testing.T) {
 	f := newFixture(t, t.TempDir())
 	f.checks.results = []checks.Result{{Command: "make race", CouldNotRun: "the race detector is not supported here", Process: execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 3}}}
+	start := f.now
 	outcome, _ := f.look(t)
 	if outcome.Run.Outcome != runstate.MainCheckCouldNotRun {
 		t.Fatalf("outcome = %+v; want could not run", outcome)
 	}
-	if filed, _ := f.reports.List(); len(filed) != 0 {
-		t.Fatalf("a check that could not run filed %d reports", len(filed))
+	if due := f.check.NextDue(); due.After(start.Add(15*time.Minute)) || !due.After(start) {
+		t.Fatalf("next due = %s; want a retry within 15 minutes of %s", due, start)
 	}
-	f.now = f.now.Add(4 * time.Hour)
+	filed, _ := f.reports.List()
+	if len(filed) != 1 || !strings.Contains(filed[0].Message, cleanCommit) || !strings.Contains(filed[0].Message, "race detector is not supported") {
+		t.Fatalf("reports = %+v; want one naming the commit and the reason", filed)
+	}
+	if outcome.Run.ReportID != filed[0].ID {
+		t.Fatalf("run records report %q, want %q", outcome.Run.ReportID, filed[0].ID)
+	}
+
+	// The retry finds the same trouble and files nothing more.
+	f.now = start.Add(11 * time.Minute)
+	outcome, ran := f.look(t)
+	if !ran || outcome.Run.Outcome != runstate.MainCheckCouldNotRun || outcome.Run.Commit != cleanCommit {
+		t.Fatalf("outcome = %+v; want the same commit tried again within the bound", outcome)
+	}
+	if filed, _ := f.reports.List(); len(filed) != 1 {
+		t.Fatalf("reports = %d; a retry of the same trouble files nothing more", len(filed))
+	}
+
+	f.now = f.now.Add(11 * time.Minute)
 	f.checks.results = []checks.Result{passing("make race")}
 	outcome, _ = f.look(t)
 	if outcome.Run.Outcome != runstate.MainCheckPassed || outcome.Run.Commit != cleanCommit {
 		t.Fatalf("outcome = %+v; want the same commit checked again and passing", outcome)
+	}
+	if want := f.now.Add(4 * time.Hour); !f.check.NextDue().Equal(want) {
+		t.Fatalf("next due = %s, want the regular %s", f.check.NextDue(), want)
+	}
+}
+
+func TestACouldNotRunIsRetriedSoonAfterARestartToo(t *testing.T) {
+	root := t.TempDir()
+	f := newFixture(t, root)
+	f.git.head = ""
+	f.checks.results = []checks.Result{{Command: "make race", CouldNotRun: "no space"}}
+	f.look(t)
+	again := newFixture(t, root)
+	again.now = f.now.Add(11 * time.Minute)
+	again.checks.results = []checks.Result{passing("make race")}
+	if _, ran := again.look(t); !ran {
+		t.Fatal("a restarted supervisor did not retry a run that could not run")
+	}
+}
+
+func TestTheCheckoutIsGivenMoreTimeThanASmallGitQuestion(t *testing.T) {
+	f := newFixture(t, t.TempDir())
+	f.checks.results = []checks.Result{passing("make race")}
+	f.look(t)
+	if f.git.addTimeout < 5*time.Minute {
+		t.Fatalf("worktree add was given %s; want at least the five-minute bound", f.git.addTimeout)
+	}
+}
+
+func TestAHalfMadeCheckoutAnEarlierRunLeftIsClearedAndTheNextRunChecks(t *testing.T) {
+	root := t.TempDir()
+	f := newFixture(t, root)
+	leftover := filepath.Join(f.check.WorkRoot, "main", "sub")
+	if err := os.MkdirAll(leftover, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(leftover, "partial.go"), []byte("package x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	neighbour := filepath.Join(f.check.WorkRoot, "other")
+	if err := os.WriteFile(neighbour, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.checks.results = []checks.Result{passing("make race")}
+	outcome, _ := f.look(t)
+	if outcome.Run.Outcome != runstate.MainCheckPassed {
+		t.Fatalf("outcome = %+v; want the run to check after clearing the leftover", outcome)
+	}
+	if _, err := os.Stat(filepath.Join(f.check.WorkRoot, "main")); err == nil {
+		t.Fatal("the half-made checkout is still there")
+	}
+	if _, err := os.Stat(neighbour); err != nil {
+		t.Fatalf("a path beside the checkout was touched: %v", err)
+	}
+	for _, want := range []string{"worktree unlock", "worktree remove --force --force", "worktree prune"} {
+		if !askedFor(f.git.worktree, want) {
+			t.Errorf("worktree questions = %v; want %q", f.git.worktree, want)
+		}
 	}
 }
 

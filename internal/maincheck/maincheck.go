@@ -44,6 +44,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/report"
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -51,11 +52,17 @@ import (
 const Name = "checks on main"
 
 // gitTimeout bounds each local Git question, and fetchTimeout each one that
-// reaches the remote.
+// reaches the remote. checkoutTimeout bounds writing a whole tree into a new
+// worktree, which on a loaded machine takes far longer than a small question.
 const (
-	gitTimeout   = time.Minute
-	fetchTimeout = 5 * time.Minute
+	gitTimeout      = time.Minute
+	fetchTimeout    = 5 * time.Minute
+	checkoutTimeout = 10 * time.Minute
 )
+
+// retryAfter is how soon after a run that could not run the next is tried,
+// instead of waiting out the whole interval. The regular schedule is unchanged.
+const retryAfter = 10 * time.Minute
 
 // maxCommitsBetween bounds how many commits a report lists between the last
 // commit that passed and the one that failed.
@@ -209,6 +216,15 @@ func (c *Check) finish(outcome Outcome) {
 	if outcome.Said != "" {
 		c.log("%s", outcome.Said)
 	}
+	if outcome.Recorded && outcome.Run.Outcome == runstate.MainCheckCouldNotRun {
+		c.nextDue = outcome.Run.EndedAt.Add(c.retryAfter())
+	}
+}
+
+// retryAfter is the wait before a run that could not run is tried again, never
+// longer than the interval.
+func (c *Check) retryAfter() time.Duration {
+	return min(retryAfter, c.every())
 }
 
 // dueFromRecord is an interval after the latest recorded run started, and zero
@@ -222,6 +238,9 @@ func (c *Check) dueFromRecord() time.Time {
 	latest := runstate.ReadMainCheckStanding(runs).Latest
 	if latest == nil {
 		return time.Time{}
+	}
+	if latest.Outcome == runstate.MainCheckCouldNotRun {
+		return latest.EndedAt.Add(c.retryAfter())
 	}
 	return latest.StartedAt.Add(c.every())
 }
@@ -271,6 +290,13 @@ func (c *Check) record(ctx context.Context, run runstate.MainCheckRun) Outcome {
 	run.SchemaVersion, run.ProductID = runstate.MainCheckRunSchemaVersion, c.Product
 	run.StartedAt, run.EndedAt = run.StartedAt.UTC(), c.now().UTC()
 	run.Detail = runstate.BoundMainCheckText(run.Detail)
+	if run.Outcome == runstate.MainCheckCouldNotRun && run.ReportID == "" {
+		if id, err := c.reportCouldNotRun(run); err != nil {
+			run.Detail = runstate.BoundMainCheckText(joinDetail(run.Detail, fmt.Sprintf("the report of this could not be filed: %v", err)))
+		} else {
+			run.ReportID = id
+		}
+	}
 	said := fmt.Sprintf("the checks on main %s", run.Outcome.Words())
 	if run.Commit != "" {
 		said += fmt.Sprintf(" on %s at %s", run.Branch, short(run.Commit))
@@ -282,6 +308,47 @@ func (c *Check) record(ctx context.Context, run runstate.MainCheckRun) Outcome {
 		return Outcome{Run: run, Said: said + fmt.Sprintf("; the run could not be recorded: %v", err)}
 	}
 	return Outcome{Run: run, Recorded: true, Said: said}
+}
+
+// reportCouldNotRun files the report a run that could not run owes, once for
+// each stretch of runs that could not run on one commit: a retry that finds the
+// same trouble files nothing more, and the first run that could not run after
+// one that did, or on another commit, does. It files nothing where no report
+// pile is wired or the earlier runs cannot be read, and says why.
+func (c *Check) reportCouldNotRun(run runstate.MainCheckRun) (string, error) {
+	if c.Reports == nil {
+		return "", errors.New("no report pile is wired")
+	}
+	runs, err := c.Runs.List()
+	if err != nil {
+		return "", fmt.Errorf("the record of earlier runs could not be read: %w", err)
+	}
+	if latest := runstate.ReadMainCheckStanding(runs).Latest; latest != nil &&
+		latest.Outcome == runstate.MainCheckCouldNotRun && latest.Commit == run.Commit && latest.Branch == run.Branch {
+		return "", nil
+	}
+	subject := "the head of " + run.Branch
+	if run.Commit != "" {
+		subject = run.Branch + " at " + run.Commit
+	}
+	reason := run.Detail
+	for _, check := range run.Checks {
+		if check.Outcome == runstate.MainCheckCouldNotRun {
+			reason = joinDetail(reason, check.Command+": "+check.Detail)
+		}
+	}
+	message := fmt.Sprintf("The checks on main could not run on %s: %s. Main has no check coverage until a run finishes; the next try is within %s.",
+		subject, firstOf(reason, "no reason was given"), c.retryAfter())
+	id, err := report.NewID()
+	if err != nil {
+		return "", err
+	}
+	return id, c.Reports.Append(report.Report{
+		SchemaVersion: report.SchemaVersion, ID: id, Role: report.HarnessReporter,
+		RunID: "main-check:" + firstOf(run.Commit, run.Branch), Build: c.Build,
+		ProductID: c.Product, RepositoryID: c.RepositoryID, Severity: report.SeverityWarning,
+		Message: oneline.Fold(message, report.MaxMessageBytes-len(oneline.Marker)), RecordedAt: c.now().UTC(),
+	})
 }
 
 // summarize is each check's ending, and the run's: failed where any check
@@ -452,14 +519,10 @@ func (c *Check) checkOut(ctx context.Context, commit string) ([]checks.Result, e
 		return nil, fmt.Errorf("create %s: %w", c.WorkRoot, err)
 	}
 	path := filepath.Join(c.WorkRoot, "main")
-	// A worktree an interrupted run left is removed before this one is made; it
-	// holds nothing but a checkout of a commit and what the checks built.
-	_, _ = c.git(ctx, gitTimeout, "worktree", "remove", "--force", path)
-	_, _ = c.git(ctx, gitTimeout, "worktree", "prune")
-	if _, err := os.Stat(path); err == nil {
-		return nil, fmt.Errorf("%s is in the way and is not a worktree Git could remove; remove it and the next run checks", path)
+	if err := c.clearLeftover(ctx, path); err != nil {
+		return nil, err
 	}
-	if _, err := c.git(ctx, gitTimeout, "worktree", "add", "--detach", path, commit); err != nil {
+	if _, err := c.git(ctx, checkoutTimeout, "worktree", "add", "--detach", path, commit); err != nil {
 		return nil, fmt.Errorf("check out %s: %w", short(commit), err)
 	}
 	defer func() {
@@ -478,6 +541,34 @@ func (c *Check) checkOut(ctx context.Context, commit string) ([]checks.Result, e
 		return nil, fmt.Errorf("the checks could not be run: %w", err)
 	}
 	return results, nil
+}
+
+// clearLeftover removes what an earlier run left at the run's own path: a
+// worktree Git still lists, one an interrupted `git worktree add` left locked
+// as initializing, and a half-written directory Git no longer lists. It only
+// ever removes the one directory named "main" inside WorkRoot, held open so
+// that nothing outside WorkRoot can be reached through it.
+func (c *Check) clearLeftover(ctx context.Context, path string) error {
+	// The lock an add ended part-way leaves is never somebody's to keep, and Git
+	// refuses to remove a locked worktree on one force.
+	_, _ = c.git(ctx, gitTimeout, "worktree", "unlock", path)
+	_, _ = c.git(ctx, gitTimeout, "worktree", "remove", "--force", "--force", path)
+	// The directory is resolved first because the primitive refuses a link in
+	// the path it is given, and the state directory may sit under one.
+	resolved, err := filepath.EvalSymlinks(c.WorkRoot)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", c.WorkRoot, err)
+	}
+	root, err := repowrite.OpenPinnedRoot(resolved)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", c.WorkRoot, err)
+	}
+	defer root.Close()
+	if err := root.RemoveAll(filepath.Base(path)); err != nil {
+		return fmt.Errorf("%s is in the way and could not be removed: %w", path, err)
+	}
+	_, _ = c.git(ctx, gitTimeout, "worktree", "prune")
+	return nil
 }
 
 func (c *Check) git(ctx context.Context, timeout time.Duration, args ...string) (string, error) {
