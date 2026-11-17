@@ -725,7 +725,8 @@ func renderScaffoldServices(builder *strings.Builder, services Services) {
 # bound under operators, and their tokens again every ten seconds, so changing
 # them needs no restart; a changed port, bind, or token source is applied by
 # the supervisor replacing the dashboard. The token itself is never written in
-# this file.
+# this file. hide_summary: true leaves the summary that opens the page off it,
+# and the supervisor replaces the dashboard to apply a change to it.
 #
 # The maintenance pass is the supervisor's own: every "every", it runs
 # yoyo reconcile, which settles what interrupted runs left behind and catches
@@ -755,6 +756,7 @@ services:
     bind: %s
     allowed_hosts: %s
     token: %s
+    hide_summary: %t
   scheduler:
     enabled: %t
   maintenance:
@@ -774,6 +776,7 @@ services:
 		services.Dashboard.Bind,
 		renderScaffoldList(services.Dashboard.AllowedHosts),
 		services.Dashboard.Token,
+		services.Dashboard.HideSummary,
 		services.Scheduler.Enabled,
 		services.Maintenance.Enabled,
 		renderScaffoldDuration(services.Maintenance.Every),

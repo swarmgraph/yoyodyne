@@ -6984,7 +6984,9 @@ summary](#where-things-stand-in-five-answers-the-summary), the four lines, the
 capacity state carried under them, what the harness is spending, and what
 landed — to a browser on this machine, as one page of nine sections opening
 with the summary, with a tenth, Merge queues, shown only where the product has
-a merge queue record, and keeps serving it until you stop it:
+a merge queue record, and keeps serving it until you stop it. With
+[`services.dashboard.hide_summary`](configuration.md#services) set, the page
+leaves the summary out and opens with the four lines:
 
 ```sh
 ./bin/yoyo dashboard              # a port the operating system chooses
@@ -7421,11 +7423,12 @@ applies it. Until yoyodyne-ifd.434.33 all of this was read once, as the
 dashboard started, and an operator bound after that was refused until somebody
 restarted it by hand.
 
-**A changed port, address, or token source is applied by the supervisor, with
-no new build.** These are what a dashboard holds from its start, because a
-new one is a new listener or a new shared token. The dashboard reads
-`services.dashboard.port`, `services.dashboard.bind`, and
-`services.dashboard.token` once, as it starts, and records the values it
+**A changed port, address, token source, or summary setting is applied by the
+supervisor, with no new build.** These are what a dashboard holds from its
+start, because a new one is a new listener, a new shared token, or a new page.
+The dashboard reads `services.dashboard.port`, `services.dashboard.bind`,
+`services.dashboard.token`, and `services.dashboard.hide_summary` once, as it
+starts, and records the values it
 started on beside the configuration keys it reads (under
 `projects/<product>/state/config-readers/`). Every thirty seconds, on the same
 look at builds, the supervisor reads the configuration again and compares it

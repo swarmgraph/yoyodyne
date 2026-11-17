@@ -225,6 +225,13 @@ type DashboardService struct {
 	// another device. `keychain` and `file` name the two stores the Slack tokens
 	// already use, under names that carry the product.
 	Token DashboardTokenSource `yaml:"token" json:"token"`
+	// HideSummary leaves the owner summary, the section that opens the page,
+	// out of the page altogether: no panel, heading, or request for it, and the
+	// other sections in their own order. Unset, the page carries it as always.
+	// Nothing behind the section changes — /api/summary still answers and
+	// `yoyo status` still opens with the same summary — so switching it back on
+	// is this one line.
+	HideSummary bool `yaml:"hide_summary" json:"hide_summary"`
 }
 
 // DashboardTokenSource is where the dashboard's bearer token is read from.
@@ -347,22 +354,27 @@ const (
 	SettingDashboardPort  = "services.dashboard.port"
 	SettingDashboardBind  = "services.dashboard.bind"
 	SettingDashboardToken = "services.dashboard.token"
+	// SettingDashboardHideSummary is read once as the dashboard starts, because
+	// it decides the page the dashboard serves.
+	SettingDashboardHideSummary = "services.dashboard.hide_summary"
 )
 
 // StartSettings is each setting the named part records as held from its start,
 // with its value here as the part would read it. The dashboard binds its port
-// and address and reads where its token comes from once, and records all three;
-// one started by hand records only its token source, because it serves on the
-// port it was given and binds loopback. The sink and the scheduler record none
+// and address and reads where its token comes from and whether its page carries
+// the summary once, and records all four; one started by hand records only its
+// token source and the summary, because it serves on the port it was given and
+// binds loopback. The sink and the scheduler record none
 // yet, so a change to a setting either holds from its start is not compared
 // with anything.
 func (s Services) StartSettings(name ServiceName) map[string]string {
 	switch name {
 	case ServiceDashboard:
 		return map[string]string{
-			SettingDashboardPort:  strconv.Itoa(s.Dashboard.Port),
-			SettingDashboardBind:  strings.TrimSpace(s.Dashboard.Bind),
-			SettingDashboardToken: string(s.Dashboard.Token),
+			SettingDashboardPort:        strconv.Itoa(s.Dashboard.Port),
+			SettingDashboardBind:        strings.TrimSpace(s.Dashboard.Bind),
+			SettingDashboardToken:       string(s.Dashboard.Token),
+			SettingDashboardHideSummary: strconv.FormatBool(s.Dashboard.HideSummary),
 		}
 	}
 	return nil

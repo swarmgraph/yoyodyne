@@ -288,6 +288,7 @@ type dashboardServiceDocument struct {
 	// a set nobody decided.
 	AllowedHosts *[]string             `yaml:"allowed_hosts"`
 	Token        *DashboardTokenSource `yaml:"token"`
+	HideSummary  *bool                 `yaml:"hide_summary"`
 }
 
 type agentDocument struct {

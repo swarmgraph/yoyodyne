@@ -437,6 +437,7 @@ func newResolution() *resolution {
 			"services.dashboard.bind":                              OriginDefault,
 			"services.dashboard.allowed_hosts":                     OriginDefault,
 			"services.dashboard.token":                             OriginDefault,
+			"services.dashboard.hide_summary":                      OriginDefault,
 			"services.scheduler.enabled":                           OriginDefault,
 			"services.maintenance.enabled":                         OriginDefault,
 			"services.maintenance.every":                           OriginDefault,
@@ -676,6 +677,7 @@ func (r *resolution) apply(applied layer) error {
 				r.config.Services.Dashboard.Token = DashboardTokenSource(strings.TrimSpace(string(*dashboard.Token)))
 				r.origins["services.dashboard.token"] = applied.origin
 			}
+			setValue(r.origins, "services.dashboard.hide_summary", dashboard.HideSummary, &r.config.Services.Dashboard.HideSummary, applied.origin)
 		}
 		if scheduler := services.Scheduler; scheduler != nil {
 			setValue(r.origins, "services.scheduler.enabled", scheduler.Enabled, &r.config.Services.Scheduler.Enabled, applied.origin)
