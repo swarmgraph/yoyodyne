@@ -516,6 +516,10 @@ agents:
     persona:
       version: v3
       path: personas/program-manager.md
+    # A pass here outlasts the 15-minute default turn, so it gets longer limits.
+    time_limits:
+      turn: 45m
+      message: 60m
     lane: factory-flow
     remit:
       version: r2
