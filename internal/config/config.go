@@ -656,6 +656,14 @@ type Execution struct {
 	// new; entries already admitted are still drained in the mode each was
 	// admitted in.
 	MergeQueue bool `yaml:"merge_queue" json:"merge_queue"`
+	// CIChecks is the switch that moves most of a run's testing to the forge
+	// (cichecks.go). Absent or disabled, which is the default, a run's checks,
+	// timing and records are exactly what they were before the key existed: the
+	// block is left out of the serialized form that digests into the
+	// configuration revision while it holds only defaults, so a project that
+	// says nothing keeps the revision it had. `config show` still prints it,
+	// because the YAML form always carries it.
+	CIChecks CIChecks `yaml:"ci_checks" json:"ci_checks,omitzero"`
 }
 
 const (
@@ -1309,6 +1317,7 @@ func (c Config) Validate() error {
 	}
 	problems = append(problems, developerSlotProblems(c.Execution)...)
 	problems = append(problems, heavyCheckProblems(c)...)
+	problems = append(problems, ciCheckProblems(c)...)
 	problems = append(problems, developerModelProblems(c.Execution)...)
 	if c.Execution.RepairAttemptsBeforeReplan < 0 {
 		problems = append(problems, "repair_attempts_before_replan cannot be negative")

@@ -177,6 +177,17 @@ type executionDocument struct {
 	// existed, which leaves it off: a layer that does not supply it integrates
 	// approved work the way runs always have.
 	MergeQueue *bool `yaml:"merge_queue"`
+	// CIChecks is absent from every file written before checks on CI existed,
+	// which leaves it off. Each key inherits on its own, except that the two
+	// lists replace an inherited list wholesale, as the check lists do.
+	CIChecks *ciChecksDocument `yaml:"ci_checks"`
+}
+
+type ciChecksDocument struct {
+	Enabled   *bool     `yaml:"enabled"`
+	Local     *[]string `yaml:"local"`
+	Required  *[]string `yaml:"required"`
+	WaitLimit *Duration `yaml:"wait_limit"`
 }
 
 type triageDocument struct {
