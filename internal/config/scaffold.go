@@ -424,6 +424,18 @@ execution:
   # reviewer approve it, and lands exactly that. Turning it off admits nothing
   # new and still finishes what is already queued.
   merge_queue: %t
+  # Whether most of a run's testing happens on the forge instead of on this
+  # machine (docs/designs/checks-on-ci.md). Off, every run's checks run here
+  # before review, as they always have. "local" names the checks this machine
+  # still runs, each written as "checks" writes it; "required" names the forge
+  # checks that must pass on the change, and may not be empty while "enabled"
+  # is true; "wait_limit" is how long to wait for them after the push. Turning
+  # it on is refused while the forge adapter cannot open a draft pull request.
+  ci_checks:
+    enabled: false
+    local: []
+    required: []
+    wait_limit: 60m
 
 # When work that has stopped moving is looked at, and what looking at it may
 # spend. An approved publication nobody has merged is docketed once it has sat

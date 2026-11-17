@@ -483,6 +483,10 @@ func newResolution() *resolution {
 			"execution.brake_probe_overdue_after":                  OriginDefault,
 			"execution.declarative_delivery":                       OriginDefault,
 			"execution.merge_queue":                                OriginDefault,
+			"execution.ci_checks.enabled":                          OriginDefault,
+			"execution.ci_checks.local":                            OriginDefault,
+			"execution.ci_checks.required":                         OriginDefault,
+			"execution.ci_checks.wait_limit":                       OriginDefault,
 			"triage.stuck_merge_age":                               OriginDefault,
 			"triage.review_rounds_cap":                             OriginDefault,
 			"exchange.max_rounds":                                  OriginDefault,
@@ -561,6 +565,20 @@ func (r *resolution) apply(applied layer) error {
 				r.config.Execution.HeavyChecks[name] = limit
 			}
 			r.origins["execution.heavy_checks"] = applied.origin
+		}
+		// Checks on CI inherits key by key; its two lists are replaced and copied
+		// like the check lists, for the same two reasons.
+		if ci := execution.CIChecks; ci != nil {
+			setValue(r.origins, "execution.ci_checks.enabled", ci.Enabled, &r.config.Execution.CIChecks.Enabled, applied.origin)
+			setValue(r.origins, "execution.ci_checks.wait_limit", ci.WaitLimit, &r.config.Execution.CIChecks.WaitLimit, applied.origin)
+			if ci.Local != nil {
+				r.config.Execution.CIChecks.Local = append([]string(nil), *ci.Local...)
+				r.origins["execution.ci_checks.local"] = applied.origin
+			}
+			if ci.Required != nil {
+				r.config.Execution.CIChecks.Required = append([]string(nil), *ci.Required...)
+				r.origins["execution.ci_checks.required"] = applied.origin
+			}
 		}
 		// And the label-to-model mapping, replaced and copied for the same two
 		// reasons: the order is the statement, and a layer's own slice must not
