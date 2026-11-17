@@ -186,6 +186,10 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 		}),
 			`document document-4.1, a new goals document v2-goals ("V2 goals") written by the ` + domain.RoleProductManager.Title() +
 				" in conversation chat-1, waits for the operator's approval, since " + localMoment(moment.Add(-time.Hour))},
+		AttentionUnreadableRun: {unreadableRunAttention(UnreadableRun{
+			RunID: "run-unreadable", Path: "/state/runs/run-unreadable.json", Reason: "invalid run state: stop_class is invalid",
+		}),
+			"the run record run-unreadable (/state/runs/run-unreadable.json) could not be read, so it is left out of the runs shown here: invalid run state: stop_class is invalid"},
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,
@@ -275,6 +279,7 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 		AttentionUnrunCheck:        "make codex-resume",
 		AttentionCapacityDegraded:  "default:seven_day",
 		AttentionKeptHeavyCheck:    "permit-0123456789abcdef",
+		AttentionUnreadableRun:     "run-unreadable",
 	} {
 		if got := fixtures[kind].entry.ID; got != want {
 			t.Errorf("%s: id = %q, want %q", kind, got, want)
