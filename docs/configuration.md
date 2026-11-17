@@ -7095,7 +7095,16 @@ still land the change, and leaves a request with no recorded answer to the next
 pass, which looks at what it did first. `hand-back` withdraws whatever the queue
 asked the forge for, as a transfer does, and ends the entry's turn with its
 change kept on its run for the development manager, so the entries behind it go
-on.
+on. Before it hands the change back, it looks for it on the target: where the
+target carries the approved head, or the run's own pull request reads as merged
+with the approved head as its head and its merge commit is on the target — a
+change merged by hand while the queue was stopped on it — the entry leaves the
+queue as landed instead, the run ends landed, and its work item is settled as
+after any landing, with nothing asked of the development manager. Where the
+target does not show the change, the hand-back's reason says what was found,
+such as a pull request that reads as merged with nothing of it on the target.
+A hand-back whose work item is already closed leaves the item closed and says
+so in a note, without stopping the run or asking anything.
 
 **Who works the queues.** A `yoyo work` session works every queue with an entry
 in it beside its pulls, one pass per queue at a time, each in its own
