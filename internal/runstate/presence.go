@@ -301,6 +301,8 @@ func DeadRunRemedy(state State, grace time.Duration) string {
 		return fmt.Sprintf("it is parked on the operator's pause, which the sweep leaves alone while it stands: `yoyo run %s` continues it, and once the pause is lifted `yoyo reconcile` settles it if nothing has continued it within %s", item, grace)
 	case state.DependencyPause != nil:
 		return fmt.Sprintf("it is paused because %s waits on unfinished work (%s): a watching `yoyo work` session continues it at the first pull after that work closes, and the sweep leaves it until then", item, state.DependencyPause.Summary())
+	case state.CIWait.Waiting():
+		return fmt.Sprintf("it is waiting for %s: a watching `yoyo work` session continues it once the forge has answered or the wait limit has passed, and the sweep leaves it until then", state.CIWait.Summary())
 	case state.UsageLimitResetsAt != nil && (state.PauseCause == PauseUsageLimit || state.PauseCause == PauseServerOverload || state.PauseCause == ""):
 		return fmt.Sprintf("it is waiting out %s until %s: `yoyo reconcile` continues it once that has passed, and `yoyo run %s` continues it sooner",
 			DescribePause(state.PauseCause, state.UsageLimitKind), state.UsageLimitResetsAt.UTC().Format(time.RFC3339), item)
