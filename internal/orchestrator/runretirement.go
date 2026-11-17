@@ -169,6 +169,9 @@ func retirementWait(state runstate.State) string {
 	if state.DependencyPause != nil {
 		waits = append(waits, "waiting on "+state.DependencyPause.Summary())
 	}
+	if state.CIWait != nil {
+		waits = append(waits, "waiting for "+state.CIWait.Summary())
+	}
 	if state.TrackerPause != nil {
 		waits = append(waits, state.TrackerPause.Summary())
 	}

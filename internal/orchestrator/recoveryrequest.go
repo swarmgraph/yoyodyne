@@ -58,7 +58,7 @@ func RecoveryContinuable(state runstate.State) error {
 	if state.OutsideFile != nil {
 		return errors.New("it brings an outside file in, which the scheduler continues at its next look at the record")
 	}
-	if pausedForUsageLimit(state) || pausedForDirective(state) || pausedForDependency(state) || pausedForTracker(state) ||
+	if pausedForUsageLimit(state) || pausedForDirective(state) || pausedForDependency(state) || pausedForCIWait(state) || pausedForTracker(state) ||
 		pausedForOperatorHold(state) || stoppedProviderIsResumable(state) || stoppedForRedeployIsResumable(state) ||
 		continuedAtCheckStage(state) || resumableRepair(state) {
 		return nil

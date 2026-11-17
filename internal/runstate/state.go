@@ -2526,6 +2526,9 @@ func (s *State) recordedTexts() []recordedText {
 	if s.DirectivePause != nil {
 		unstated("directive_pause.unresolved", "directive_pause.unresolved", &s.DirectivePause.Unresolved, MaxRecordedTextBytes)
 	}
+	if s.CIWaitEnd != nil {
+		unstated("ci_wait_end.says", "ci_wait_end.says", &s.CIWaitEnd.Says, MaxRecordedTextBytes)
+	}
 	if s.TrackerPause != nil {
 		nested("tracker_pause.failure", "tracker_pause.failure", &s.TrackerPause.Failure, MaxRetryFailureBytes)
 	}
@@ -2750,6 +2753,100 @@ func (d DependencyPause) Validate() error {
 		}
 	}
 	return nil
+}
+
+// CIWait is a run waiting for the forge's checks on the commit it pushed
+// (docs/designs/checks-on-ci.md). It is recorded when the push succeeds and
+// before the run returns, so the wait survives the process: the next process
+// reads the forge for this commit and carries on, and never pushes another one
+// or starts the wait again from zero.
+//
+// A run carrying one holds no developer slot (State.HoldsDeveloperSlot): nothing
+// of it is running, and a slot held through the wait would sit idle while ready
+// work waits for it. Continuing it takes a slot again (Store.ReclaimSlot).
+type CIWait struct {
+	// Commit is the full identifier of the commit pushed, which is the only
+	// commit a result counts for.
+	Commit string `json:"commit"`
+	// Branch is the branch the commit was pushed to.
+	Branch string `json:"branch"`
+	// PushedAt is when the push succeeded, which the wait limit is measured from.
+	PushedAt time.Time `json:"pushed_at"`
+	// Required names the forge's checks that must pass on Commit, as the
+	// configuration named them when the push was made.
+	Required []string `json:"required"`
+	// WaitLimitSeconds is the wait limit in force when the push was made.
+	WaitLimitSeconds int64 `json:"wait_limit_seconds,omitempty"`
+	// SlotTaken is set when the run has taken a developer slot back to carry on
+	// (Store.ReclaimSlot). The wait stays on the record until the run has read
+	// the forge and ended it, so a process that dies in between leaves a run
+	// that still knows which commit it waited on and holds the slot it took.
+	SlotTaken bool `json:"slot_taken,omitempty"`
+}
+
+// Waiting reports a wait the run is still outside of: it holds no developer
+// slot and nothing of it is running.
+func (w *CIWait) Waiting() bool { return w != nil && !w.SlotTaken }
+
+// Waited is how long the run has been waiting, measured from the push.
+func (w CIWait) Waited(now time.Time) time.Duration {
+	if now.Before(w.PushedAt) {
+		return 0
+	}
+	return now.Sub(w.PushedAt)
+}
+
+// Overdue reports whether the wait has gone past its limit. A wait recorded
+// with no limit is never overdue.
+func (w CIWait) Overdue(now time.Time) bool {
+	return w.WaitLimitSeconds > 0 && w.Waited(now) > time.Duration(w.WaitLimitSeconds)*time.Second
+}
+
+// Summary says what the run is waiting for, in one line, for a reader who needs
+// to know what to look at rather than the run's whole record.
+func (w CIWait) Summary() string {
+	commit := w.Commit
+	if len(commit) > 12 {
+		commit = commit[:12]
+	}
+	return fmt.Sprintf("the forge's checks (%s) on commit %s", strings.Join(w.Required, ", "), commit)
+}
+
+// Validate rejects a wait that cannot say which commit it waits on or for which
+// checks, because nothing could then read the forge for it.
+func (w CIWait) Validate() error {
+	var problems []error
+	if strings.TrimSpace(w.Commit) == "" {
+		problems = append(problems, errors.New("commit is required"))
+	}
+	if strings.TrimSpace(w.Branch) == "" {
+		problems = append(problems, errors.New("branch is required"))
+	}
+	if w.PushedAt.IsZero() {
+		problems = append(problems, errors.New("pushed_at is required"))
+	}
+	if len(w.Required) == 0 {
+		problems = append(problems, errors.New("required must name at least one check"))
+	}
+	for _, name := range w.Required {
+		if strings.TrimSpace(name) == "" {
+			problems = append(problems, errors.New("every required check must have a name"))
+			break
+		}
+	}
+	return errors.Join(problems...)
+}
+
+// CIWaitEnd is how the last wait for the forge's checks ended, kept so a
+// surface and a reviewer can say what the run did with it.
+type CIWaitEnd struct {
+	Commit string    `json:"commit"`
+	At     time.Time `json:"at"`
+	// Passed is true where every required check passed on Commit and the run went
+	// on to review. Otherwise the run ran the full checks on this machine instead.
+	Passed bool `json:"passed"`
+	// Says is what ended the wait, in a sentence a person reads.
+	Says string `json:"says"`
 }
 
 // TrackerPause is a run parked because the tracker would not answer the read it
@@ -4060,6 +4157,14 @@ type State struct {
 	// one because what lifts them differs: a directive is settled by a person
 	// deciding, and this is lifted by other work finishing.
 	DependencyPause *DependencyPause `json:"dependency_pause,omitempty"`
+	// CIWait records that the run pushed its candidate commit and is waiting for
+	// the forge's required checks on exactly that commit (checks on CI). It is a
+	// separate field from the pauses around it because it holds no developer slot
+	// and is lifted by the forge's answer, which a pull reads without the run.
+	// It is cleared as the run resumes.
+	CIWait *CIWait `json:"ci_wait,omitempty"`
+	// CIWaitEnd is how the last wait ended.
+	CIWaitEnd *CIWaitEnd `json:"ci_wait_end,omitempty"`
 	// TrackerPause records that the tracker would not answer the read this run
 	// makes at a gate boundary, for the whole of that boundary's recovery window.
 	// Like a dependency pause it is an instruction to resume later rather than a
@@ -4796,6 +4901,14 @@ func (s State) Validate() error {
 		// continuation nothing will ever make.
 		if s.Status.Terminal() {
 			problems = append(problems, errors.New("dependency_pause requires a run that is still in flight"))
+		}
+	}
+	if s.CIWait != nil {
+		if err := s.CIWait.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("ci_wait: %w", err))
+		}
+		if s.Status.Terminal() {
+			problems = append(problems, errors.New("ci_wait requires a run that is still in flight"))
 		}
 	}
 	if s.TrackerPause != nil {
@@ -5688,8 +5801,9 @@ func (s Status) InFlight() bool {
 }
 
 // HoldsDeveloperSlot reports a run counted against
-// execution.max_concurrent_developers: one in flight, and not paused on work its
-// item waits on. A dependency pause is recorded as the run exits, so the run
+// execution.max_concurrent_developers: one in flight, not paused on work its
+// item waits on, and not waiting for the forge's checks on a pushed commit
+// (CIWait, which gives its slot back for the same reason). A dependency pause is recorded as the run exits, so the run
 // behind it has no process and spends nothing until that work closes, and a slot
 // it went on holding would be throughput lost for as long as the wait lasts — on
 // 2026-09-27 that was nineteen hours beside a ready queue. It keeps its claim,
@@ -5707,7 +5821,7 @@ func (s Status) InFlight() bool {
 // Nor does a run that brings a file in, which is counted on its own
 // (HoldsOutsideFileLanding).
 func (s State) HoldsDeveloperSlot() bool {
-	return s.Status.InFlight() && s.DependencyPause == nil && !s.HarnessAuthored()
+	return s.Status.InFlight() && s.DependencyPause == nil && !s.CIWait.Waiting() && !s.HarnessAuthored()
 }
 
 // HoldsDocumentLanding reports a run counted against

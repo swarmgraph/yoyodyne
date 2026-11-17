@@ -596,6 +596,12 @@ type RunningRun struct {
 	// on Standing.PausedRuns.
 	WaitingOn   string    `json:"waiting_on,omitempty"`
 	PausedSince time.Time `json:"paused_since,omitempty"`
+	// WaitingForCI is set on a paused run that pushed its candidate commit and
+	// waits for the forge's required checks on it (checks on CI), and CIWaited is
+	// how long it has waited, measured from the push. WaitingOn then names the
+	// checks and the commit.
+	WaitingForCI bool          `json:"waiting_for_ci,omitempty"`
+	CIWaited     time.Duration `json:"ci_waited,omitempty"`
 }
 
 // DeveloperSlotStanding is one configured developer slot as the standing status
@@ -1055,7 +1061,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		NeedsHuman:   []Attention{},
 	}
 
-	running, paused, runningProblem := readRunning(sources, now)
+	running, paused, unreadableRuns, runningProblem := readRunning(sources, now)
 	standing.Running, standing.PausedRuns, standing.RunningProblem = running, paused, runningProblem
 	standing.Dispatching, standing.DispatchingProblem = readDispatching(sources, now)
 	// Which slot each run occupies, and which slots are free, from the reading
@@ -1439,6 +1445,15 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// reason is a step reserved for a person and that nothing else will ever take
 	// it. An operator who only read the queue's line would be reading a wait.
 	standing.NeedsHuman = append(needs, Gated(queue)...)
+	// A run record this reading read past is a factory problem, and on the
+	// attention line so `yoyo status` names it too: it is left out of every
+	// section that lists runs, so saying nothing would hide it. It is said once
+	// every section has read, whichever of them met it first.
+	for _, run := range readPastRuns(sources.Runs, unreadableRuns) {
+		entry := unreadableRunAttention(run)
+		standing.FactoryProblems = append(standing.FactoryProblems, entry)
+		standing.NeedsHuman = append(standing.NeedsHuman, entry)
+	}
 	// A pile that could not be read is said on the line the pile would have been
 	// said on, as well as in its own field. The field is what a script reads and
 	// the line is what a person reads, and a failure only the script can see is
@@ -1570,13 +1585,16 @@ func (s Standing) namedItems() []string {
 // A run paused on work its item waits on is returned apart, as the second list:
 // it holds no developer slot, so counting it as running would say a slot is
 // taken that the scheduler will fill.
-func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, string) {
+//
+// A run record that will not read is read past and returned as the third list
+// rather than failing every run in flight with it (unreadableruns.go).
+func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, []UnreadableRun, string) {
 	if sources.Runs == nil {
-		return nil, nil, "nothing was wired to read the runs in flight"
+		return nil, nil, nil, "nothing was wired to read the runs in flight"
 	}
-	states, err := sources.Runs.Incomplete()
+	states, unreadable, err := readInFlight(sources.Runs)
 	if err != nil {
-		return nil, nil, fmt.Sprintf("the runs in flight could not be read: %v", err)
+		return nil, nil, nil, fmt.Sprintf("the runs in flight could not be read: %v", err)
 	}
 	running := make([]RunningRun, 0, len(states))
 	var paused []RunningRun
@@ -1647,6 +1665,10 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 		if !state.HoldsDeveloperSlot() && !run.documentLanding {
 			if state.DependencyPause != nil {
 				run.WaitingOn = state.DependencyPause.Summary()
+			} else if state.CIWait.Waiting() {
+				run.WaitingOn = state.CIWait.Summary()
+				run.WaitingForCI = true
+				run.CIWaited = state.CIWait.Waited(now)
 			}
 			run.PausedSince = state.UpdatedAt
 			paused = append(paused, run)
@@ -1662,7 +1684,7 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 			return runs[first].RunID < runs[second].RunID
 		})
 	}
-	return running, paused, ""
+	return running, paused, unreadable, ""
 }
 
 // readDispatching is the dispatches standing in a wait on the tracker. A reading
@@ -1729,7 +1751,7 @@ func readSlotHolders(sources Sources, now time.Time) ([]runstate.SlotHolder, str
 	if sources.Runs == nil || !ok {
 		return nil, ""
 	}
-	states, err := sources.Runs.Incomplete()
+	states, _, err := readInFlight(sources.Runs)
 	if err != nil {
 		return nil, fmt.Sprintf("what holds the developer slots could not be read: %v", err)
 	}
@@ -2904,10 +2926,16 @@ func subagentCallsOf(runs any, state runstate.State, present bool, says string) 
 // listings once for the whole reading (runstate.Store.OneReading): every
 // section that lists the runs in flight, the runs owing a step, or every run
 // kept is then reading one listing rather than making its own, and all of them
-// the same moment. A store that cannot open a reading of its own, such as a
-// fixture, is used as it is.
+// the same moment. The reading reads past a run record that will not read
+// (runstate.Store.OneReadingPast), so one such record costs the standing that
+// record, named among the factory problems, rather than every section that
+// lists runs; the standing acts on no run, which is what makes that safe. A
+// store that cannot open a reading of its own, such as a fixture, is used as it
+// is.
 func (s Sources) oneRunReading() Sources {
-	if store, ok := s.Runs.(interface{ OneReading() *runstate.Store }); ok {
+	if store, ok := s.Runs.(interface{ OneReadingPast() *runstate.Store }); ok {
+		s.Runs = store.OneReadingPast()
+	} else if store, ok := s.Runs.(interface{ OneReading() *runstate.Store }); ok {
 		s.Runs = store.OneReading()
 	}
 	return s

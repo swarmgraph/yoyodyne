@@ -3780,8 +3780,24 @@ forge, described in `docs/designs/checks-on-ci.md`. It is off by default, and
 off (or absent) a run's checks, timing and records are exactly what they were.
 This setting is the switch and its validation. The GitHub adapter can push a
 run's branch, open or update its draft pull request, and read each required
-check's result and a failing check's output for a named commit; the wait, the
-recorded failure and the fallback arrive in later builds.
+check's result and a failing check's output for a named commit.
+
+With the switch on, a developer run's checks before review are only the ones
+named in `local`. When they pass, the harness pushes the candidate commit,
+opens or updates its draft pull request, and records the wait on the run: the
+commit, the push time and the required checks. The run then holds no developer
+slot. `yoyo status` and the dashboard list it as waiting for CI, with the time
+waited. A watching `yoyo work` session reads the forge for that exact commit
+about once a minute and continues the run when every required check has passed,
+when one has ended any other way, or when `wait_limit` has passed since the
+push. Review starts only after every required check passed on that commit. Until the forge's results are themselves integration evidence (a later build), the full checks also run on this machine over the approved candidate before it is promoted, as they do for any change checked in part. A
+restart during the wait pushes nothing and carries on with the same wait.
+
+When the wait ends without a pass, or the switch is turned off during it, the
+run runs the full declared checks on this machine over the same commit and goes
+on from their result. A required check that failed on the forge is not yet
+handed to the developer with its output; the recorded failure and the other
+stages of the flow arrive in later builds.
 
 ```yaml
 execution:

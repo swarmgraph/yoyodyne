@@ -933,6 +933,9 @@ var standingWarningAgeSeconds = 5 * 60;
     meta.appendChild(el("span", "sep", " · "));
     meta.appendChild(el("span", run.unknown_cost ? "spend spend-unknown" : "spend", spendOf(run)));
     card.appendChild(meta);
+    if (run.waiting_for_ci) {
+      card.appendChild(el("p", "card-meta", "Waiting for CI, " + age(run.ci_waited) + " so far: " + run.waiting_on + "."));
+    }
     if (run.no_process) {
       card.appendChild(el("p", "problem", "No process can be found behind this run: " + run.no_process + (run.no_process_remedy ? "; " + run.no_process_remedy : "") + "."));
     }
@@ -977,6 +980,10 @@ var standingWarningAgeSeconds = 5 * 60;
       return;
     }
     var running = standing.running_problem ? [] : standing.running;
+    // A run waiting for the forge's checks holds no developer slot, but it is
+    // still the operator's to see, with the time it has waited.
+    var waitingForCI = (standing.running_problem ? [] : (standing.paused_runs || [])).filter(function (run) { return run.waiting_for_ci; });
+    running = running.concat(waitingForCI);
     var working = standing.working_problem ? [] : standing.working;
     if (running.length === 0 && working.length === 0 && !standing.running_problem && !standing.working_problem) {
       section("live", "empty", "Nothing is running, and no conversation has a turn in flight.");

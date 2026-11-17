@@ -748,6 +748,9 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 			ToolUse: parts.toolUse(),
 		},
 		Publisher: forge,
+		// What checks on CI pushes and reads through; read only while
+		// execution.ci_checks.enabled is on.
+		CIForge: forge,
 		// The pull requests it opens name the factory: this product, the machine
 		// identity kept in the home, and the forge account the publisher acts as.
 		Factory: factoryIdentities(parts),

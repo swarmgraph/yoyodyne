@@ -694,7 +694,7 @@ func updateLostItsHost(state runstate.State) bool {
 		return false
 	}
 	if state.RedeployStop != nil || state.ProviderStop != "" || state.Environmental != nil || state.RecoveryHold != nil || recoveryContinuationDue(state) ||
-		pausedForUsageLimit(state) || pausedForDirective(state) || pausedForDependency(state) || pausedForTracker(state) || pausedForOperatorHold(state) {
+		pausedForUsageLimit(state) || pausedForDirective(state) || pausedForDependency(state) || pausedForCIWait(state) || pausedForTracker(state) || pausedForOperatorHold(state) {
 		return false
 	}
 	switch state.Phase {
