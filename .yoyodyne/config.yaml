@@ -136,8 +136,11 @@ execution:
     # sub-agents off, to see whether quality holds while using less of the weekly Opus limit; the
     # Opus-main, Sonnet-sub-agent trial (yoyodyne-wj4l) cost more without a quality gain. Opus is
     # named only because a pair needs an alternate; fallback stays off.
+    # Not dedicated for now, at the operator's direction of 2026-11-16: with two slots, the
+    # dashboard Summary switch-off (yoyodyne-lng2, priority 0) would otherwise wait behind slot 2's
+    # team-development work. It still prefers team-development below priority 0. "dedicated: true"
+    # comes back once lng2 has started.
     - prefer: [team-development]
-      dedicated: true
       routing:
         enabled: false
         primary: {provider: claude-code, model: sonnet}
