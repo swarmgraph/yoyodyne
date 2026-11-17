@@ -29,7 +29,7 @@ func (w SchedulingWait) Valid() bool {
 // RecordSchedulingWait updates one metadata value, leaving notes untouched.
 // An empty reason clears it. Repeating a reason does not reset either clock.
 func (c Client) RecordSchedulingWait(ctx context.Context, id, class, reason string, now time.Time) (WorkItem, error) {
-	item, err := c.Show(ctx, id)
+	item, err := c.live().Show(ctx, id)
 	if err != nil {
 		return WorkItem{}, err
 	}
