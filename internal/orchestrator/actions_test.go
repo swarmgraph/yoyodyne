@@ -981,6 +981,11 @@ func phasesDeclaredInRunstate(t *testing.T) []runstate.Phase {
 // fails the test, so the next person has to make the same judgement out loud
 // instead of the question never being asked.
 var notAStep = map[string]string{
+	// Checks on CI (cichecks.go): the round's checks are still candidate.check's
+	// verify, and the push and wait are parks of the same run rather than steps
+	// a definition could route.
+	"checkRound": "chooses between verify and settling a recorded wait for the forge's checks; the step it performs is candidate.check",
+	"ciFlow":     "reads whether checks on CI is on for this run, so verify runs only the short local check; it decides nothing a definition could route",
 	// How a run ends. None of these advances the work; they turn a stopped,
 	// refused, or finished step into the outcome the run reports, and a definition
 	// that could reorder them would be reordering the reporting rather than the

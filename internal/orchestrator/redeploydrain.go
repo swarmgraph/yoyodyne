@@ -367,7 +367,7 @@ func stoppedForRedeployIsResumable(state runstate.State) bool {
 	// owed what that park owed it, which the park's own marker already says how
 	// to continue. The stop is recorded beside it so the session that comes back
 	// picks the run up, and the park is honoured from there.
-	if pausedForUsageLimit(state) || pausedForOperatorHold(state) || pausedForDirective(state) || pausedForDependency(state) {
+	if pausedForUsageLimit(state) || pausedForOperatorHold(state) || pausedForDirective(state) || pausedForDependency(state) || pausedForCIWait(state) {
 		return true
 	}
 	switch state.Phase {

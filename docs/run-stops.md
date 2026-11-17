@@ -129,7 +129,11 @@ when a usable checkout may never have existed.
 ## Pauses that keep a run in flight
 
 A directive or unfinished dependency parks the run before another gate or
-promotion. An unreadable dependency read can park it for a tracker retry;
+promotion. With `execution.ci_checks.enabled`, a run that has pushed its
+candidate commit parks while the forge's required checks run, holding no
+developer slot; a later pull reads the forge and continues it, and the wait
+limit and the setting being switched off both end the wait with the full checks
+on this machine. An unreadable dependency read can park it for a tracker retry;
 a spending hold parks it at the next provider boundary. Provider authentication
 or availability failures are probed without spending the repair, relaunch, or
 usage-pause budgets. These are waits, not terminal verdicts, and keep the branch,
@@ -249,6 +253,7 @@ describes the pass that applies those rules.
 ```text
 | File | Declaration | Signal | Count | Meaning |
 | --- | --- | --- | --- | --- |
+| `internal/orchestrator/cichecks.go` | `(*activeRun).pushAndWait` | `classified-stop` | 3 | Classifies a candidate commit that is not named in full, a push the forge refused, and a draft pull request it would not open as a publishing stop, held for the development manager with the forge's words. |
 | `internal/orchestrator/outsidefilelanding.go` | `(Pipeline).BringInOutsideFile` | `call:fail` | 2 | Ends the run that brings a pinned outside file in where its checkout could not be cut or the fetched file could not be written and committed; no developer slot is held, and the record is tried again after a wait or stopped and reported. |
 | `internal/orchestrator/outsidefilelanding.go` | `(Pipeline).BringInOutsideFile` | `classified-stop` | 1 | Classifies a checkout that could not be cut for that run as a harness stop. |
 | `internal/orchestrator/outsidefilelanding.go` | `(Pipeline).BringInOutsideFile` | `status-write` | 1 | Marks the run that brings a file in as running once its checkout is cut; changes no backlog item. |
@@ -422,6 +427,7 @@ describes the pass that applies those rules.
 | `internal/orchestrator/pipeline.go` | `(*activeRun).pause` | `status-write` | 1 | Reports the pause as running, with change and session preserved; no terminal ending. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).pauseForProviderStop` | `status-write` | 1 | Reports the pause as running, with change and session preserved; no terminal ending. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).pauseForDirective` | `status-write` | 1 | Reports the pause as running, with change and session preserved; no terminal ending. |
+| `internal/orchestrator/cichecks.go` | `(*activeRun).pauseForCIWait` | `status-write` | 1 | Reports the wait for the forge's checks as running, with change and session preserved and no developer slot held; no terminal ending. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).pauseForDependency` | `status-write` | 1 | Reports the pause as running, with change and session preserved; no terminal ending. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).pauseForTracker` | `status-write` | 1 | Reports the pause as running, with change and session preserved; no terminal ending. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).pauseForOperatorHold` | `status-write` | 1 | Reports the pause as running, with change and session preserved; no terminal ending. |

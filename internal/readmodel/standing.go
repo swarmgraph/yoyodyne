@@ -596,6 +596,12 @@ type RunningRun struct {
 	// on Standing.PausedRuns.
 	WaitingOn   string    `json:"waiting_on,omitempty"`
 	PausedSince time.Time `json:"paused_since,omitempty"`
+	// WaitingForCI is set on a paused run that pushed its candidate commit and
+	// waits for the forge's required checks on it (checks on CI), and CIWaited is
+	// how long it has waited, measured from the push. WaitingOn then names the
+	// checks and the commit.
+	WaitingForCI bool          `json:"waiting_for_ci,omitempty"`
+	CIWaited     time.Duration `json:"ci_waited,omitempty"`
 }
 
 // DeveloperSlotStanding is one configured developer slot as the standing status
@@ -1647,6 +1653,10 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 		if !state.HoldsDeveloperSlot() && !run.documentLanding {
 			if state.DependencyPause != nil {
 				run.WaitingOn = state.DependencyPause.Summary()
+			} else if state.CIWait.Waiting() {
+				run.WaitingOn = state.CIWait.Summary()
+				run.WaitingForCI = true
+				run.CIWaited = state.CIWait.Waited(now)
 			}
 			run.PausedSince = state.UpdatedAt
 			paused = append(paused, run)

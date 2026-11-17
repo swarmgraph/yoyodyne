@@ -497,9 +497,10 @@ func parksTheRun(err error) bool {
 		directed directivePause
 		waiting  dependencyPause
 		held     operatorHoldPause
+		ciWait   ciWaitPause
 	)
 	return errors.As(err, &limited) || errors.As(err, &stopped) ||
-		errors.As(err, &directed) || errors.As(err, &waiting) || errors.As(err, &held)
+		errors.As(err, &directed) || errors.As(err, &waiting) || errors.As(err, &held) || errors.As(err, &ciWait)
 }
 
 // raisesAnEscalation reports an ending the definition has no outcome for at all:

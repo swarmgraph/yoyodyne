@@ -888,6 +888,9 @@ type Pull struct {
 	// item waits on once that work has closed. Optional; see
 	// ScheduleContinuations.
 	Continuations ScheduleContinuations
+	// CIWaits is what a pull reads about runs waiting for the forge's checks,
+	// continuing each once the forge has decided. Optional; see CIWaitReader.
+	CIWaits CIWaitReader
 	// Documents is the confirmed documents waiting for a document landing to
 	// free, which a pull starts as landings free whatever the developer slots
 	// hold. Optional; see ScheduleDocuments.

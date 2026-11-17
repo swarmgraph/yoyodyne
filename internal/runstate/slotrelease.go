@@ -305,6 +305,8 @@ func (s *Store) holderSays(state State, counted bool, now time.Time) string {
 	switch {
 	case state.DependencyPause != nil:
 		return "not counted: the run is paused on work its item waits on, and takes a slot again when it continues"
+	case state.CIWait.Waiting():
+		return "not counted: the run is waiting for the forge's checks on the commit it pushed, and takes a slot again when it continues"
 	case state.SlotRelease.releasesWorker(state.Worker):
 		return "not counted: " + state.SlotRelease.Says
 	case state.RedeployStop != nil:
