@@ -431,7 +431,7 @@ func TestDeveloperPromptKeepsTheHarnessContractAboveAnyPersona(t *testing.T) {
 		// Documentation the change falsifies is part of the work item itself, so
 		// it does not depend on a persona or on the bead author remembering it.
 		"Documentation that describes behavior you change is part of the assigned work",
-		// A key a landing adds is refused by every part still running an older
+		// A key a landing adds is not read by any part still running an older
 		// build, so the run that adds one says so.
 		"A change that adds a configuration key",
 		// A document the developer may not edit is corrected by proposing the

@@ -63,6 +63,11 @@ type ConfigReader struct {
 	StartedAt  time.Time `json:"started_at"`
 	// Keys is config.SchemaKeys as the part's own build derived it.
 	Keys []string `json:"keys"`
+	// LeavesOutNewerSettings says the part's build goes on without a setting
+	// it does not know once the repository has moved past it, rather than
+	// refusing the whole file (config.LeavesOutNewerSettings). A record from a
+	// build before that leaves it false, which is what such a build does.
+	LeavesOutNewerSettings bool `json:"leaves_out_newer_settings,omitempty"`
 	// SearchPath is the search path the part was started with, which is where
 	// any provider command it launches is looked for. It is empty on a record a
 	// build wrote before parts recorded it, which says nothing either way.
@@ -188,7 +193,14 @@ type ConfigMismatch struct {
 	// Keys are the file's keys the part's build does not read, with the file's
 	// own names in them.
 	Keys []string `json:"keys"`
+	// LeavesOut says the part goes on without those keys rather than failing
+	// every read of the file, as its record says of its build.
+	LeavesOut bool `json:"leaves_out,omitempty"`
 }
+
+// Stops says the part cannot read the configuration at all: its build
+// refuses the whole file for a key it does not know.
+func (m ConfigMismatch) Stops() bool { return !m.LeavesOut }
 
 func (m ConfigMismatch) InstanceID() string {
 	return configReaderInstanceID(m.Service, m.PID, m.StartedAt)
@@ -219,6 +231,9 @@ type ConfigTemplateMismatch struct {
 	StartedAt    time.Time `json:"started_at"`
 	TemplatePath string    `json:"template_path"`
 	Keys         []string  `json:"keys"`
+	// LeavesOut says the part would go on without those keys rather than
+	// failing every read, as ConfigMismatch.LeavesOut does.
+	LeavesOut bool `json:"leaves_out,omitempty"`
 }
 
 func (m ConfigTemplateMismatch) Says() string {
@@ -226,8 +241,12 @@ func (m ConfigTemplateMismatch) Says() string {
 	if m.Build != "" {
 		build = "build " + shortBuild(m.Build)
 	}
-	return fmt.Sprintf("the %s service, running %s as pid %d since %s, cannot read new template keys %s in %s; adopting those keys in %s would make its configuration reads fail",
-		m.Service, build, m.PID, m.StartedAt.Local().Format("2006-01-02 15:04 MST"), strings.Join(m.Keys, ", "), m.TemplatePath, m.ConfigPath)
+	consequence := "would make its configuration reads fail"
+	if m.LeavesOut {
+		consequence = "would leave it running without those settings until it runs a build that reads them"
+	}
+	return fmt.Sprintf("the %s service, running %s as pid %d since %s, cannot read new template keys %s in %s; adopting those keys in %s %s",
+		m.Service, build, m.PID, m.StartedAt.Local().Format("2006-01-02 15:04 MST"), strings.Join(m.Keys, ", "), m.TemplatePath, m.ConfigPath, consequence)
 }
 
 // Says is the mismatch in a sentence: the part, its build, and the keys.
@@ -236,8 +255,12 @@ func (m ConfigMismatch) Says() string {
 	if m.Build != "" {
 		build = "build " + shortBuild(m.Build)
 	}
-	return fmt.Sprintf("the %s service, running %s as pid %d since %s, cannot read %s in %s, so every read it makes of the configuration fails",
-		m.Service, build, m.PID, m.StartedAt.Local().Format("2006-01-02 15:04 MST"), strings.Join(m.Keys, ", "), m.ConfigPath)
+	consequence := "so every read it makes of the configuration fails"
+	if m.LeavesOut {
+		consequence = "so it goes on without those settings until it runs a build that reads them"
+	}
+	return fmt.Sprintf("the %s service, running %s as pid %d since %s, cannot read %s in %s, %s",
+		m.Service, build, m.PID, m.StartedAt.Local().Format("2006-01-02 15:04 MST"), strings.Join(m.Keys, ", "), m.ConfigPath, consequence)
 }
 
 // ConfigMismatchRemedy says what brings a part onto a build that reads the
@@ -607,6 +630,7 @@ func (s *ConfigReaderStore) TemplateMismatches(templatePath string, added []stri
 			Service: reader.Service, PID: reader.PID, Build: reader.Build,
 			ConfigPath: reader.ConfigPath, StartedAt: reader.StartedAt,
 			TemplatePath: templatePath, Keys: keys,
+			LeavesOut: reader.LeavesOutNewerSettings,
 		})
 	}
 	return mismatches, err
@@ -657,6 +681,7 @@ func (s *ConfigReaderStore) mismatchesIn(read func(string) ([]byte, error), clea
 			ConfigPath: reader.ConfigPath,
 			StartedAt:  reader.StartedAt,
 			Keys:       keys,
+			LeavesOut:  reader.LeavesOutNewerSettings,
 		})
 	}
 	return mismatches, errors.Join(problems...)

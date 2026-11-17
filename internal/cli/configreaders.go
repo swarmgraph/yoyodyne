@@ -68,6 +68,8 @@ func writeConfigReaderAt(resolved config.Resolved, service, stateRoot string, se
 		Keys:       config.SchemaKeys(),
 		SearchPath: os.Getenv("PATH"),
 		Settings:   settings,
+
+		LeavesOutNewerSettings: config.LeavesOutNewerSettings,
 	})
 }
 

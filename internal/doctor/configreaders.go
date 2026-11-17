@@ -61,7 +61,9 @@ func (d *diagnosis) checkConfigReaders(resolved config.Resolved) []Finding {
 	var findings []Finding
 	for _, mismatch := range mismatches {
 		status := StatusWarning
-		if mismatch.Service == string(config.ServiceScheduler) {
+		// A watch that cannot read the configuration chooses nothing; one that
+		// goes on without a newer setting still chooses.
+		if mismatch.Service == string(config.ServiceScheduler) && mismatch.Stops() {
 			status = StatusProblem
 		}
 		findings = append(findings, Finding{
