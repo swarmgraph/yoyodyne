@@ -573,6 +573,31 @@ stops on the change, as above. A run that cannot be replayed at all is handed
 back instead
 ([operations](../operations.md#recovering-interrupted-runs)).
 
+Before any of that, a queued merge whose checks on GitHub fail only in tests
+the change does not touch is given one more run of the failing job. The sweep
+reads GitHub's log of each failing job for the Go tests it names, and judges
+each test touched where the change changed a file in the test's own directory
+(or a Go file, `go.mod` or `go.sum` at the top of the repository). Where every
+failure is a named test, there are at most five, and none is touched, the sweep
+writes the request on the run and then asks GitHub to run the failing job once
+more on the same commit, leaving the merge queued: a pass lets GitHub make the
+merge with no repair attempt spent, and the run keeps the first failure beside
+the passing result. A commit is given one such run however often the harness
+restarts. A second failure, a failure that is not confined to untouched tests,
+or a job GitHub will not run again is settled as it would have been without the
+extra run, and the stop names the failing tests and says whether the change
+touched them.
+
+Where the repository uses GitHub's own merge queue, GitHub can drop a queued
+pull request because its checks failed on the merge commit the queue built,
+while the pull request's own head passes. Running the failed job again on that
+merge commit would not put the request back in the queue, so where those
+failing tests are all ones the change does not touch, the sweep queues the
+merge once more instead, writing that on the run first: GitHub builds a new
+merge commit and runs its checks again. A head is given one such second run;
+a second drop is settled as a dropped merge is, naming the failing tests and
+saying the change did not touch them.
+
 A replay that **conflicts** is never retried and never resolved automatically
 — which side of a conflict is right is a decision about the product, not a Git
 operation — and it goes back to the developer that wrote the change before it

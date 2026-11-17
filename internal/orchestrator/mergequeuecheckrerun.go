@@ -10,13 +10,6 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-// MergeQueueCandidateChecks reads the checks of a merge queue candidate's
-// pull request and runs one of them again. It is satisfied by publish.GitHub.
-type MergeQueueCandidateChecks interface {
-	Checks(ctx context.Context, number int, base string) (publish.CheckReading, error)
-	RerunCheck(ctx context.Context, checkRun int64) error
-}
-
 // MergeQueueCheckReruns is the record of the checks the queue ran again. It
 // is satisfied by *runstate.MergeQueueStore.
 type MergeQueueCheckReruns interface {
@@ -45,18 +38,14 @@ var unjudgedConclusions = map[string]bool{
 // the promotion's Waiting, which the pass records for status and the
 // dashboard.
 //
-// A promoter wired without check access, or a reading the forge would not
-// give, leaves the merge waiting as it was.
-func (q *queuePromotion) answerUnjudgedChecks(ctx context.Context) error {
+// The reading is the one readHeldChecks took of the candidate's pull request.
+// A promoter wired with no record of re-runs leaves the merge waiting as it
+// was.
+func (q *queuePromotion) answerUnjudgedChecks(ctx context.Context, reading publish.CheckReading) error {
 	if q.p.Checks == nil || q.p.Reruns == nil {
 		return nil
 	}
 	attempt := q.attempt()
-	reading, err := q.p.Checks.Checks(ctx, attempt.PullRequest, q.key.TargetBranch)
-	if err != nil {
-		q.outcome.Waiting += fmt.Sprintf("; its checks could not be read now: %v", err)
-		return nil
-	}
 	var unjudged []publish.FailedCheck
 	for _, failing := range reading.Failing {
 		if unjudgedConclusions[strings.ToLower(failing.Conclusion)] {
@@ -108,6 +97,20 @@ func (q *queuePromotion) answerUnjudgedChecks(ctx context.Context) error {
 	}
 	q.outcome.Waiting = fmt.Sprintf("the forge holds the merge of pull request %d queued; %s", attempt.PullRequest, strings.Join(says, "; "))
 	return nil
+}
+
+// judgedOnly is a reading without the checks that ended without judging the
+// change, which answerUnjudgedChecks has already answered, so that what is
+// left is weighed as failures of the change or of tests it does not touch.
+func judgedOnly(reading publish.CheckReading) publish.CheckReading {
+	failing := make([]publish.FailedCheck, 0, len(reading.Failing))
+	for _, check := range reading.Failing {
+		if !unjudgedConclusions[strings.ToLower(check.Conclusion)] {
+			failing = append(failing, check)
+		}
+	}
+	reading.Failing = failing
+	return reading
 }
 
 // ranAgain reports a check the queue already had run again on this pull

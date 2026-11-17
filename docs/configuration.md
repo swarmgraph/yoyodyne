@@ -6908,6 +6908,30 @@ manager to decide on. An entry that has left the queue holds up nothing behind
 it: if its run cannot be told, the pass says so, works the entries behind it,
 and tries again on the next pass.
 
+While GitHub holds a candidate's merge, each pass reads the candidate's checks
+on GitHub as well. A check that ended without judging the change is run again
+as the paragraph above says, and what follows is about the checks that did
+judge it. Where they fail only in tests the candidate does not touch —
+every failure in GitHub's log is a named Go test, there are at most five, and
+none is in a directory the candidate changes — the pass asks GitHub to run the
+failing job once more on the same commit, writing the request down on the
+entry first, so a restart never asks twice for one candidate. If that run
+passes, GitHub makes the merge and the entry lands. If it fails again, or the
+failure was anything else, or GitHub will not run the job again, the entry is
+withdrawn at once rather than after `triage.stuck_merge_age`, and the handback
+names the failing tests and says whether the candidate touched them; a failure
+in tests it does not touch is not put down to the change, and charges it
+nothing.
+
+The same goes for a candidate whose merge GitHub's own merge queue drops
+because its checks failed on the merge commit the queue built. Running the
+failed job again on that commit would not put the pull request back in GitHub's
+queue, so where the failure is confined to tests the candidate does not touch,
+the pass asks for the candidate's merge once more instead: GitHub builds a new
+merge commit and runs its checks again. That request is written on the entry
+first and made once per candidate; a second drop withdraws the entry, naming
+the tests.
+
 **Which queue an entry is in is chosen when it is admitted.** The harness runs
 the queue itself on any forge. The forge's own merge queue is used only where
 its adapter establishes, and the forge enforces before landing, everything the

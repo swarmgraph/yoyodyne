@@ -280,10 +280,12 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			continue
 		case promoted.Drift:
 			continue
-		case promoted.Dropped || promoted.Unjudged != "" || d.heldTooLong(promoted):
+		case promoted.Dropped || promoted.Unjudged != "" || promoted.ChecksFailed != "" || d.heldTooLong(promoted):
 			// A merge the forge dropped, one it can never make because a check
 			// on the candidate ended without judging the change again after
-			// being run again (mergequeuecheckrerun.go), or one it has held
+			// being run again (mergequeuecheckrerun.go), one whose checks failed
+			// (and, where only tests the change does not touch failed, failed
+			// again on GitHub's second run; forgererun.go), or one it has held
 			// queued past the limit on a queued merge's wait, is withdrawn and
 			// the entry released, so it stops standing at the head of the queue;
 			// the next step hands the change back to its run, kept, for the
@@ -294,6 +296,10 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 				why = "the forge stopped holding its merge without making it: " + promoted.Unresolved
 			case promoted.Unjudged != "":
 				why = promoted.Unjudged
+			case promoted.ChecksFailed != "":
+				// A failed check is withdrawn at once: waiting out the limit on a
+				// merge whose checks failed only holds every entry behind it.
+				why = promoted.ChecksFailed
 			}
 			withdrawn, err := d.Promoter.Withdraw(ctx, key, promoted.Entry.EntryID, why)
 			switch {
