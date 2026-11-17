@@ -744,3 +744,208 @@ func TestARunPulledIntoARoutedSlotRecordsItsSubagents(t *testing.T) {
 		t.Fatalf("recorded sub-agents %+v, want slot 2's setting", state.Subagents)
 	}
 }
+
+// writeRoutedFix is what a served repair writes: the feature and the file the
+// checks below ask for.
+func writeRoutedFix(request backend.RunRequest) error {
+	if err := writeRoutedFeature(request); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(request.WorkingDirectory, "fixed.txt"), []byte("fixed\n"), 0o600)
+}
+
+const routedFixCheck = "test -f fixed.txt || { echo fixed.txt is missing; exit 1; }"
+
+// A run that started before its project configured endpoint pairs is given the
+// slot it runs in and that slot's pair at its next repair, recorded once as a
+// migration. The repair is a genuine new operation with its own switch, and no
+// repair or review allowance is spent or reset by the assignment. Continued
+// after a configuration reload that pairs the slot differently, the run keeps
+// the pair it was given and the alternate its repair moved to.
+func TestARunStartedBeforePairsIsGivenItsSlotsPairAtItsRepairAndKeepsIt(t *testing.T) {
+	t.Parallel()
+	repository, worktreeRoot, store := restartableFixture(t)
+	tracker := routedTracker()
+	limit := backend.UsageLimit{Kind: "five_hour", ResetsAt: baseTime.Add(3 * time.Hour)}
+
+	// Before pairs: slot 1 has none, the run is developed once, and its checks
+	// fail with no repair allowed, so it stops.
+	before := newRoutedProvider(domain.BackendClaudeCode, "claude-session", refuseNothing, writeRoutedFeature)
+	unused := newRoutedProvider(domain.BackendCodex, "codex-session", refuseNothing, writeRoutedFeature)
+	unpaired := waiting(routedPipeline(t, repository, worktreeRoot, store, tracker, before, unused, routedSlots([2]*domain.EndpointSpec{nil, nil}, [2]*domain.EndpointSpec{nil, nil}), routedFixCheck),
+		&pausingClock{now: baseTime}, 6*time.Hour, time.Minute)
+	unpaired.Config.Execution.RepairAttemptsBeforeReplan = 0
+	stoppedOutcome, err := unpaired.Run(withDeveloperSlot(context.Background(), 1), tracker.Item.ID)
+	if err == nil {
+		t.Fatalf("Run() = %#v, want the run stopped on its failing checks", stoppedOutcome)
+	}
+	stopped, err := store.Load(stoppedOutcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped.RecordedSlot() != 1 || stopped.Routing.Developer != nil || len(before.developerRequests()) != 1 {
+		t.Fatalf("stopped run routing = %#v, developer asked %d time(s); want slot 1 recorded with no pair after one attempt", stopped.Routing, len(before.developerRequests()))
+	}
+
+	// The project now pairs slot 1, Claude Code first. Both endpoints are
+	// limited, so the repair moves to its alternate once and waits there.
+	claude := newRoutedProvider(domain.BackendClaudeCode, "claude-session", limitedModels(limit, "opus"), writeRoutedFix)
+	codex := newRoutedProvider(domain.BackendCodex, "codex-session", limitedModels(limit, routedCodexModel), writeRoutedFix)
+	paired := waiting(routedPipeline(t, repository, worktreeRoot, store, tracker, claude, codex,
+		routedSlots([2]*domain.EndpointSpec{claudeOpus, codexSol}, [2]*domain.EndpointSpec{codexSol, claudeOpus}), routedFixCheck),
+		&pausingClock{now: baseTime}, 6*time.Hour, time.Minute)
+	paired.Config.Execution.RepairAttemptsBeforeReplan = 0
+	if _, err := carryOutRepair(t, repository, worktreeRoot, store, tracker, stopped, DeveloperBackends{Configured: domain.BackendClaudeCode}, func() Pipeline { return paired }); err != nil {
+		t.Logf("the repair ended with %v", err)
+	}
+	if len(claude.developerRequests()) != 1 || len(codex.developerRequests()) != 1 {
+		t.Fatalf("claude %d, codex %d; want the repair refused once on the primary and once on the alternate", len(claude.developerRequests()), len(codex.developerRequests()))
+	}
+	if request := claude.developerRequests()[0]; request.LaunchGate == nil || request.AccountAlias != routedClaudeAlias {
+		t.Fatalf("the repair's primary attempt was launched ungated (%t) on account %q, want it routed", request.LaunchGate == nil, request.AccountAlias)
+	}
+	repaired, routing := loadRouting(t, store, stopped.RunID)
+	if repaired.RecordedSlot() != 1 || routing.Developer == nil || routing.Developer.Slot != 1 || routing.Developer.Origin != runstate.RoutingMigrated ||
+		routing.Developer.Primary.Provider != domain.BackendClaudeCode || routing.Developer.Alternate == nil || routing.Developer.Alternate.Provider != domain.BackendCodex {
+		t.Fatalf("routing = %#v, want slot 1 and its Claude-then-Codex pair recorded as given now", routing)
+	}
+	if repaired.RepairAttempts != stopped.RepairAttempts+1 || repaired.ReviewRounds != stopped.ReviewRounds {
+		t.Fatalf("repair attempts %d review rounds %d, want only the granted repair counted (%d, %d before)",
+			repaired.RepairAttempts, repaired.ReviewRounds, stopped.RepairAttempts, stopped.ReviewRounds)
+	}
+	operations := developerOperations(routing)
+	if len(operations) != 1 || operations[0].Kind != runstate.OperationRepair || operations[0].HistoryUnknown {
+		t.Fatalf("operations = %#v, want one genuine repair operation", operations)
+	}
+	operation := operations[0]
+	if operation.Switch == nil || operation.Switch.Trigger != runstate.SwitchUsageLimit || operation.SwitchAllowance != 0 ||
+		operation.Selected != runstate.EndpointAlternate || operation.Waiting == nil {
+		t.Fatalf("operation = %#v, want its one switch spent moving to the alternate, waiting there", operation)
+	}
+	pinned := routing.Developer.Digest
+
+	// A configuration reload pairs slot 1 the other way round and both
+	// endpoints serve; the continued run keeps what it was given.
+	claudeAgain := newRoutedProvider(domain.BackendClaudeCode, "claude-session", refuseNothing, writeRoutedFix)
+	codexAgain := newRoutedProvider(domain.BackendCodex, "codex-session", refuseNothing, writeRoutedFix)
+	reloaded := waiting(routedPipeline(t, repository, worktreeRoot, store, tracker, claudeAgain, codexAgain,
+		routedSlots([2]*domain.EndpointSpec{codexSol, claudeSonnet}, [2]*domain.EndpointSpec{claudeSonnet, codexSol}), routedFixCheck),
+		&pausingClock{now: limit.ResetsAt.Add(time.Minute)}, 6*time.Hour, time.Minute)
+	reloaded.Config.Execution.RepairAttemptsBeforeReplan = 0
+	outcome, err := reloaded.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("continued Run() error = %v", err)
+	}
+	if outcome.RunID != stopped.RunID || outcome.Integration == nil || !tracker.Closed {
+		t.Fatalf("outcome = %#v, want the same run continued and landed", outcome)
+	}
+	if len(claudeAgain.developerRequests()) != 0 || len(codexAgain.developerRequests()) != 1 {
+		t.Fatalf("continued invocations: claude %d, codex %d; want only the alternate the repair moved to", len(claudeAgain.developerRequests()), len(codexAgain.developerRequests()))
+	}
+	landed, routing := loadRouting(t, store, stopped.RunID)
+	if routing.Developer.Digest != pinned || routing.Developer.Origin != runstate.RoutingMigrated || len(routing.Reconfigurations) != 0 || landed.RecordedSlot() != 1 {
+		t.Fatalf("routing after the reload = %#v, want the pair given at the repair kept", routing)
+	}
+	operations = developerOperations(routing)
+	if len(operations) != 1 || operations[0].ID != operation.ID || operations[0].SwitchAllowance != 0 || operations[0].Switch.ID != operation.Switch.ID {
+		t.Fatalf("operations = %#v, want the one repair operation carried with its one switch", operations)
+	}
+	if landed.RepairAttempts != repaired.RepairAttempts || landed.ReviewRounds > repaired.ReviewRounds+1 {
+		t.Fatalf("repair attempts %d review rounds %d after the continuation, want no repair spent (%d before)", landed.RepairAttempts, landed.ReviewRounds, repaired.RepairAttempts)
+	}
+}
+
+// A run continued in the middle of a round it began before pairs were
+// configured is given its slot's pair at the continuation and runs on the
+// primary, but that round was already under way: it is recorded with its
+// history unknown and no switch, and no counter moves.
+func TestARunContinuedMidRoundIsGivenItsPairWithNoFreshSwitch(t *testing.T) {
+	t.Parallel()
+	repository, worktreeRoot, store := restartableFixture(t)
+	tracker := routedTracker()
+	limit := backend.UsageLimit{Kind: "five_hour", ResetsAt: baseTime.Add(2 * time.Hour)}
+
+	before := newRoutedProvider(domain.BackendClaudeCode, "claude-session", limitedModels(limit, testDeveloperModel), writeRoutedFeature)
+	unused := newRoutedProvider(domain.BackendCodex, "codex-session", refuseNothing, writeRoutedFeature)
+	unpaired := waiting(routedPipeline(t, repository, worktreeRoot, store, tracker, before, unused, routedSlots([2]*domain.EndpointSpec{nil, nil})),
+		&pausingClock{now: baseTime}, 6*time.Hour, time.Minute)
+	paused, err := unpaired.Run(withDeveloperSlot(context.Background(), 1), tracker.Item.ID)
+	if err != nil || !paused.Paused {
+		t.Fatalf("Run() = %#v, %v; want the run paused on its usage limit", paused, err)
+	}
+	pausedState, err := store.Load(paused.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pausedState.Routing.Developer != nil {
+		t.Fatalf("the paused run recorded a pair %#v before any was configured", pausedState.Routing.Developer)
+	}
+
+	claude := newRoutedProvider(domain.BackendClaudeCode, "claude-session", refuseNothing, writeRoutedFeature)
+	codex := newRoutedProvider(domain.BackendCodex, "codex-session", refuseNothing, writeRoutedFeature)
+	paired := waiting(routedPipeline(t, repository, worktreeRoot, store, tracker, claude, codex, routedSlots([2]*domain.EndpointSpec{claudeSonnet, codexSol})),
+		&pausingClock{now: limit.ResetsAt.Add(time.Minute)}, 6*time.Hour, time.Minute)
+	outcome, err := paired.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("continued Run() error = %v", err)
+	}
+	if outcome.RunID != paused.RunID || outcome.Integration == nil {
+		t.Fatalf("outcome = %#v, want the paused run continued and landed", outcome)
+	}
+	requests := claude.developerRequests()
+	if len(requests) != 1 || len(codex.developerRequests()) != 0 || requests[0].Model != "sonnet" || requests[0].LaunchGate == nil {
+		t.Fatalf("claude %#v, codex %d; want one gated attempt on the pair's Sonnet primary", requests, len(codex.developerRequests()))
+	}
+	if requests[0].SessionID != "" || !strings.Contains(requests[0].Prompt, reconstructedPromptHeading) {
+		t.Fatalf("the continuation on the pair was offered session %q, want a new session told what the run recorded", requests[0].SessionID)
+	}
+	state, routing := loadRouting(t, store, paused.RunID)
+	if state.RecordedSlot() != 1 || routing.Developer == nil || routing.Developer.Origin != runstate.RoutingMigrated {
+		t.Fatalf("routing = %#v, want slot 1's pair given at the continuation", routing)
+	}
+	operations := developerOperations(routing)
+	if len(operations) != 1 || operations[0].Kind != runstate.OperationDevelop || !operations[0].HistoryUnknown || operations[0].SwitchAllowance != 0 || operations[0].Completed == nil {
+		t.Fatalf("operations = %#v, want the first round recorded once with its history unknown and no switch", operations)
+	}
+	if state.RepairAttempts != 0 || state.TransientRelaunches != 0 {
+		t.Fatalf("repair attempts %d relaunches %d, want none spent", state.RepairAttempts, state.TransientRelaunches)
+	}
+}
+
+// A run continued in a project that configures no pairs keeps the routing it
+// always had: the configured developer, launched as before, and no pair or
+// operation on its record.
+func TestARunContinuedWithoutPairsKeepsItsRouting(t *testing.T) {
+	t.Parallel()
+	repository, worktreeRoot, store := restartableFixture(t)
+	tracker := routedTracker()
+	limit := backend.UsageLimit{Kind: "five_hour", ResetsAt: baseTime.Add(2 * time.Hour)}
+	slots := routedSlots([2]*domain.EndpointSpec{nil, nil})
+
+	before := newRoutedProvider(domain.BackendClaudeCode, "claude-session", limitedModels(limit, testDeveloperModel), writeRoutedFeature)
+	unused := newRoutedProvider(domain.BackendCodex, "codex-session", refuseNothing, writeRoutedFeature)
+	paused, err := waiting(routedPipeline(t, repository, worktreeRoot, store, tracker, before, unused, slots), &pausingClock{now: baseTime}, 6*time.Hour, time.Minute).
+		Run(withDeveloperSlot(context.Background(), 1), tracker.Item.ID)
+	if err != nil || !paused.Paused {
+		t.Fatalf("Run() = %#v, %v; want the run paused on its usage limit", paused, err)
+	}
+
+	claude := newRoutedProvider(domain.BackendClaudeCode, "claude-session", refuseNothing, writeRoutedFeature)
+	codex := newRoutedProvider(domain.BackendCodex, "codex-session", refuseNothing, writeRoutedFeature)
+	outcome, err := waiting(routedPipeline(t, repository, worktreeRoot, store, tracker, claude, codex, slots), &pausingClock{now: limit.ResetsAt.Add(time.Minute)}, 6*time.Hour, time.Minute).
+		Run(context.Background(), tracker.Item.ID)
+	if err != nil || outcome.RunID != paused.RunID || outcome.Integration == nil {
+		t.Fatalf("continued Run() = %#v, %v; want the paused run continued and landed", outcome, err)
+	}
+	requests := claude.developerRequests()
+	if len(requests) != 1 || len(codex.developerRequests()) != 0 || requests[0].Model != testDeveloperModel || requests[0].LaunchGate != nil {
+		t.Fatalf("claude %#v, codex %d; want the configured developer launched as before", requests, len(codex.developerRequests()))
+	}
+	state, err := store.Load(paused.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Routing == nil || state.RecordedSlot() != 1 || state.Routing.Developer != nil || len(state.Routing.Operations) != 0 {
+		t.Fatalf("routing = %#v, want slot 1 recorded and nothing pinned", state.Routing)
+	}
+}
