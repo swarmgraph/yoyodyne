@@ -717,7 +717,14 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 	// latest is the reply whose block is the turn's account: the work's own
 	// reply, or the one the request for a missing block drew.
 	latest := reply.Text
-	_, result, _, extractErr := sweep.Extract(reply.Text)
+	_, result, extraBlocks, extractErr := sweep.Extract(reply.Text)
+	// A reply with more than one sweep block lost nothing, but the role is told
+	// at the start of its next turn, so the slip is not repeated pass after pass.
+	if extraBlocks != "" {
+		if err := session.TellNextTurn(repeatedSweepNotice(extraBlocks)); err != nil {
+			turn.ResultProblem = appendProblem(turn.ResultProblem, err.Error())
+		}
+	}
 	if result == nil && extractErr == nil {
 		turn.MissingReport = true
 		if options.RetryReport {
@@ -739,6 +746,9 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 				turn.ResultProblem = appendProblem(turn.ResultProblem, "the closing report is still missing after the pass's one request for it, so this turn's findings remain unrecorded")
 			}
 			turn.ResultProblem = appendProblem(turn.ResultProblem, recovered.LaneReport.Refusal())
+			for _, refused := range recovered.RefusedBlocks {
+				turn.ResultProblem = appendProblem(turn.ResultProblem, refused)
+			}
 		}
 	}
 	// An account refused for its shape is handed back with the refusal's own
@@ -768,6 +778,9 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 	// rest of its reply carried out, so it is said beside the account and is
 	// not a failed turn.
 	for _, refused := range reply.RefusedAsks {
+		turn.ResultProblem = appendProblem(turn.ResultProblem, refused)
+	}
+	for _, refused := range reply.RefusedBlocks {
 		turn.ResultProblem = appendProblem(turn.ResultProblem, refused)
 	}
 	if refusal := reply.LaneReport.Refusal(); refusal != "" {
@@ -822,6 +835,13 @@ func servingModel(evidence chat.Evidence) string {
 	return strings.TrimSpace(evidence.RequestedModel)
 }
 
+// repeatedSweepNotice is what a role is told on its next turn about a reply
+// that carried more than one sweep block.
+func repeatedSweepNotice(note string) string {
+	return "# Your last pass's reply carried more than one sweep block\n\n" +
+		"Nothing was lost: " + note + ". Write the sweep block once, at the very end of your answer, after everything you ask the harness for.\n\n"
+}
+
 // readSweep reads the account a role gave of its pass out of what it answered,
 // and what the record should say about it. The two are not exclusive: a reply
 // that carried more than one block is read — the last block is its account —
@@ -835,7 +855,7 @@ func readSweep(role domain.AgentRole, reply string) (*sweep.Result, string) {
 	case result == nil:
 		return nil, fmt.Sprintf("the %s answered in prose without a sweep block, so what the pass found is only in the conversation", role)
 	case note != "":
-		return result, fmt.Sprintf("the %s answered with more than one sweep block: %s", role, note)
+		return result, fmt.Sprintf("the %s answered with more than one sweep block, which is not a failure: %s", role, note)
 	default:
 		return result, ""
 	}
