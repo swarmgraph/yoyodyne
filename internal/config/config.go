@@ -658,8 +658,12 @@ type Execution struct {
 	MergeQueue bool `yaml:"merge_queue" json:"merge_queue"`
 	// CIChecks is the switch that moves most of a run's testing to the forge
 	// (cichecks.go). Absent or disabled, which is the default, a run's checks,
-	// timing and records are exactly what they were before the key existed.
-	CIChecks CIChecks `yaml:"ci_checks" json:"ci_checks"`
+	// timing and records are exactly what they were before the key existed: the
+	// block is left out of the serialized form that digests into the
+	// configuration revision while it holds only defaults, so a project that
+	// says nothing keeps the revision it had. `config show` still prints it,
+	// because the YAML form always carries it.
+	CIChecks CIChecks `yaml:"ci_checks" json:"ci_checks,omitzero"`
 }
 
 const (

@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 )
@@ -37,6 +36,14 @@ type CIChecks struct {
 	// WaitLimit is how long to wait for the required checks to finish, measured
 	// from the push. Zero reads as DefaultCIWaitLimit; see WaitLimitInForce.
 	WaitLimit Duration `yaml:"wait_limit,omitempty" json:"wait_limit,omitempty"`
+}
+
+// IsZero reports whether the setting holds only what an absent one means: off,
+// no lists, and the default wait limit or none. Such a block is left out of the
+// form the configuration revision digests.
+func (c CIChecks) IsZero() bool {
+	return !c.Enabled && len(c.Local) == 0 && len(c.Required) == 0 &&
+		(c.WaitLimit == 0 || c.WaitLimit == DefaultCIWaitLimit)
 }
 
 // WaitLimitInForce is the wait limit a run uses: the configured one, or the
@@ -138,7 +145,6 @@ func ciCheckProblems(c Config) []string {
 		for i, capability := range missing {
 			names[i] = string(capability)
 		}
-		sort.Strings(names)
 		problems = append(problems, fmt.Sprintf("execution.ci_checks.enabled is true, but this project's forge adapter (%s) cannot %s, and checks on CI needs it", c.ProjectForgeAdapter(), strings.Join(names, " or ")))
 	}
 	return problems

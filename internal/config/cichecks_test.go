@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -91,5 +92,32 @@ func TestChecksOnCIPassValidationWhenTheAdapterCanDoEverything(t *testing.T) {
 	}
 	if origin := resolved.Origins["execution.ci_checks.enabled"]; origin == OriginDefault {
 		t.Errorf("origin of enabled = %q", origin)
+	}
+}
+
+// With the setting absent or left at its defaults, the form the configuration
+// revision digests carries nothing of it, so every record that stores the
+// revision is what it was before the key existed.
+func TestADefaultSettingLeavesTheConfigurationRevisionUnchanged(t *testing.T) {
+	t.Parallel()
+
+	absent := loadProject(t, minimalProjectConfig, nil).Config
+	written := loadProject(t, minimalProjectConfig+"execution:\n  ci_checks:\n    enabled: false\n    wait_limit: 1h\n", nil).Config
+	for name, cfg := range map[string]Config{"absent": absent, "written at defaults": written} {
+		encoded, err := json.Marshal(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(encoded), "ci_checks") {
+			t.Errorf("%s: the digested form carries ci_checks: %s", name, encoded)
+		}
+	}
+	if absent.Revision() != written.Revision() {
+		t.Error("writing the defaults changed the configuration revision")
+	}
+	set := loadProject(t, ciProjectChecks+"execution:\n  ci_checks:\n    required: [test]\n", nil).Config
+	plain := loadProject(t, ciProjectChecks, nil).Config
+	if set.Revision() == plain.Revision() {
+		t.Error("naming required checks did not change the configuration revision")
 	}
 }
