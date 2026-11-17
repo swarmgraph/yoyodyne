@@ -3525,8 +3525,11 @@ the operating system reports free, how many of each heavy check hold places, and
 every process whose command is one of the heavy checks but holds no place —
 which is a developer running `make test` inside its own session, where no place
 is asked for. Only the last 512 launches are kept. A measurement that cannot be
-written never stops a check, and a launch whose harness stopped before its end
-was written down is kept with no end rather than read as a pass.
+written never stops a check and never keeps its place: the write is tried three
+times, and if it still fails the run's own record says so in plain words. A
+launch whose end could not be written down carries the reason instead, and a
+launch whose harness stopped before its end was written down is kept with no
+end; neither is read as a pass.
 
 `yoyo heavy-checks measurements` reads them. For each heavy check it gives how
 its launches ended, how long they waited, the load they started under, how many
@@ -3546,6 +3549,9 @@ every name were running. And it proposes a number for each check:
   and **never more**: a check limited to two has never been seen running three
   at once, so nothing measured says three would hold.
 - Too few launches at the configured number propose nothing, and say so.
+- A launch whose end could not be written down is listed on its own, with the
+  run it belonged to and the reason the harness stored, and is left out of
+  every number proposed: how long it ran is not known.
 
 The command proposes and changes nothing. The development manager applies a
 proposed number through the reviewed path a configuration change takes. Until

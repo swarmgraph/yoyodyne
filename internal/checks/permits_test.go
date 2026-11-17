@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,13 +18,16 @@ import (
 // moving the test's clock by wait, and records what it was asked and how each
 // place ended.
 type fakePermits struct {
-	clock   *steppingClock
-	dir     string
-	heavy   map[string]bool
-	wait    time.Duration
-	refuse  error
-	asked   []PermitAsk
-	granted []*fakePermit
+	clock  *steppingClock
+	dir    string
+	heavy  map[string]bool
+	wait   time.Duration
+	refuse error
+	// unmeasured is what every permit given says its measurement could not
+	// be written for.
+	unmeasured error
+	asked      []PermitAsk
+	granted    []*fakePermit
 }
 
 func (f *fakePermits) Acquire(ctx context.Context, ask PermitAsk, waiting func(string, time.Time)) (Permit, error) {
@@ -45,7 +49,7 @@ func (f *fakePermits) Acquire(ctx context.Context, ask PermitAsk, waiting func(s
 	if err != nil {
 		return nil, err
 	}
-	permit := &fakePermit{check: ask.Command, waited: f.wait, hold: hold}
+	permit := &fakePermit{check: ask.Command, waited: f.wait, hold: hold, unmeasured: f.unmeasured}
 	f.granted = append(f.granted, permit)
 	return permit, nil
 }
@@ -57,6 +61,7 @@ type fakePermit struct {
 	registered bool
 	finished   *execution.ProcessResult
 	budget     time.Duration
+	unmeasured error
 }
 
 func (p *fakePermit) Check() string         { return p.check }
@@ -71,6 +76,8 @@ func (p *fakePermit) Finish(result execution.ProcessResult, budget time.Duration
 	p.budget = budget
 	return nil
 }
+
+func (p *fakePermit) MeasureProblem() error { return p.unmeasured }
 
 // gatingRunner is advancingRunner that also says which gate it was handed and
 // registers through it, the way the real runner does before a gate opens.
@@ -143,6 +150,40 @@ func TestAHeavyChecksWaitIsNotCountedAgainstItsBudgetOrItsStage(t *testing.T) {
 	}
 	if permit.budget != 5*time.Minute {
 		t.Fatalf("permit finished with budget %s, want the 5m the check launched with, for its measurement", permit.budget)
+	}
+}
+
+// A heavy check whose measurement could not be written is judged as it would
+// have been, and the run's record says why its measurement is missing.
+func TestAHeavyCheckWhoseMeasurementCannotBeWrittenIsSaidInTheRunsRecord(t *testing.T) {
+	t.Parallel()
+
+	clock := newPermitClock(t)
+	process := &gatingRunner{advancingRunner: advancingRunner{clock: clock, runs: time.Minute}}
+	permits := &fakePermits{clock: clock, dir: t.TempDir(), heavy: map[string]bool{"make race": true}, unmeasured: errors.New("the disk refused the write")}
+	var said []string
+	results, _, err := (Runner{Process: process, Clock: clock, Permits: permits}).Run(
+		context.Background(),
+		Request{RunID: "run-0123456789abcdef0123456789abcdef", Directory: t.TempDir(), Commands: []string{"make race"}},
+		func(event execution.Event) error {
+			if event.Type == execution.EventProcessOutput {
+				said = append(said, string(event.Payload))
+			}
+			return nil
+		},
+	)
+	if err != nil || len(results) != 1 || !results[0].Passed {
+		t.Fatalf("results = %#v, err = %v; want the check judged as it would have been", results, err)
+	}
+	if permits.granted[0].finished == nil {
+		t.Fatal("the permit was not finished, so its place was never given back")
+	}
+	found := false
+	for _, line := range said {
+		found = found || strings.Contains(line, "what make race cost could not all be written to the heavy check measurements") && strings.Contains(line, "the disk refused the write")
+	}
+	if !found {
+		t.Fatalf("output = %q, want the missing measurement said with its reason", said)
 	}
 }
 
