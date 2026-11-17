@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -16,6 +17,12 @@ var _ backend.Backend = (*Backend)(nil)
 // Backend is the provider with the agent taken out. Respond answers each
 // invocation, and Requests is every invocation it was asked for, in order.
 type Backend struct {
+	// mu guards what more than one invocation writes at once: Requests, and the
+	// counts RoleBackend keeps. The merge queue reviews a candidate checked
+	// ahead on a goroutine of its own while another review runs, so two
+	// invocations can overlap. Respond itself runs outside it, so a test whose
+	// answer waits on another invocation does not wait on this.
+	mu                   sync.Mutex
 	ReportedAvailability backend.Availability
 	Respond              func(backend.RunRequest) (backend.RunResult, error)
 	Requests             []backend.RunRequest
@@ -56,7 +63,9 @@ func (*Backend) Capabilities() backend.Capabilities {
 }
 
 func (f *Backend) Run(_ context.Context, request backend.RunRequest) (backend.RunResult, error) {
+	f.mu.Lock()
 	f.Requests = append(f.Requests, request)
+	f.mu.Unlock()
 	result, err := f.Respond(request)
 	// A developer that recorded nothing it executed is refused before its change
 	// reaches a reviewer, so every fake developer here carries the record its
@@ -71,7 +80,7 @@ func (f *Backend) Run(_ context.Context, request backend.RunRequest) (backend.Ru
 
 func (f *Backend) RequestsForRole(role domain.AgentRole) []backend.RunRequest {
 	var matching []backend.RunRequest
-	for _, request := range f.Requests {
+	for _, request := range f.RequestsMade() {
 		if request.Role == role {
 			matching = append(matching, request)
 		}
@@ -119,10 +128,12 @@ func RoleBackend(develop func(backend.RunRequest) error, verdicts ...string) *Ba
 				finalText = texts[min(provider.DeveloperAttempts, len(texts)-1)]
 			}
 			process := execution.ProcessResult{Status: execution.ProcessSucceeded}
+			provider.mu.Lock()
 			if attempt := provider.DeveloperAttempts; attempt < len(provider.DeveloperAfterReplyByAttempt) {
 				process.AfterReply = provider.DeveloperAfterReplyByAttempt[attempt]
 			}
 			provider.DeveloperAttempts++
+			provider.mu.Unlock()
 			return backend.RunResult{
 				Backend:       domain.BackendClaudeCode,
 				SessionID:     provider.DeveloperSession,
@@ -132,11 +143,13 @@ func RoleBackend(develop func(backend.RunRequest) error, verdicts ...string) *Ba
 				LastEvent:     request.LastSequence,
 			}, nil
 		case domain.RoleReviewer:
+			provider.mu.Lock()
 			verdict := verdicts[len(verdicts)-1]
 			if reviews < len(verdicts) {
 				verdict = verdicts[reviews]
 			}
 			reviews++
+			provider.mu.Unlock()
 			return backend.RunResult{
 				Backend:       domain.BackendClaudeCode,
 				SessionID:     provider.ReviewerSession,
@@ -154,7 +167,9 @@ func RoleBackend(develop func(backend.RunRequest) error, verdicts ...string) *Ba
 
 // RequestsMade is every invocation this backend served, in order.
 func (f *Backend) RequestsMade() []backend.RunRequest {
-	return f.Requests
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]backend.RunRequest(nil), f.Requests...)
 }
 
 // DeveloperSessionID is the session this backend reports serving the developer.
