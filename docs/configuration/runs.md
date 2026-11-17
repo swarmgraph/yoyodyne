@@ -378,7 +378,9 @@ run's record names it as not run because the change touches nothing that list
 covers. This repository's `.yoyodyne/config.yaml` names it with the provider
 CLIs left on its search path; a project adding the same entry restarts every
 running part of the product onto a build that reads `needs_provider_clis`
-first, because a part that cannot read a key refuses the whole file:
+first, because a part that cannot read a key goes on without it, or on a build
+from before parts could do that, refuses the whole file
+([a setting a running build does not know](../configuration.md#a-setting-a-running-build-does-not-know)):
 
 ```yaml
 path_checks:
