@@ -236,19 +236,24 @@ func (s *steering) call(ctx context.Context, message inboundMessage, said string
 		// still running is queued behind it instead of being sent to contend for a
 		// conversation it cannot have.
 		defer stop()
-		// A turn carried straight from the channel may have had messages queued
-		// behind it, so once it has given the turn back the queue is woken to pass
-		// them on at once. The queue's own tries do not wake it, so a try that has
-		// to wait waits for the retry interval rather than running again at once.
-		if requeue {
-			defer s.nudge()
-		}
-		defer s.finish()
 		answer, err := s.conversation.Say(bounded, said)
 		came := spoken{answer: answer, err: err}
 		if requeue && heldOnly(came) {
 			came.ahead, came.queueErr = s.requeue(message, said)
 			came.queued = came.queueErr == nil
+		}
+		// The turn is given back before the result is handed over, so whoever
+		// receives the result finds the turn free: a caller that went on to offer
+		// the next message straight away would otherwise be refused the turn by
+		// this goroutine's own cleanup that had not run yet, and the queue would
+		// read as not having tried.
+		s.finish()
+		// A turn carried straight from the channel may have had messages queued
+		// behind it, so once it has given the turn back the queue is woken to pass
+		// them on at once. The queue's own tries do not wake it, so a try that has
+		// to wait waits for the retry interval rather than running again at once.
+		if requeue {
+			s.nudge()
 		}
 		spoke <- came
 	}()
