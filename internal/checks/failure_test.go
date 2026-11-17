@@ -60,3 +60,14 @@ func TestFailureOutputWindowIsBoundedAroundTheFirstFailure(t *testing.T) {
 func processWith(stdout string) execution.ProcessResult {
 	return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stdout: stdout}
 }
+
+func TestFailingNamesLineIsReadBackByFailingNames(t *testing.T) {
+	t.Parallel()
+	got := FailingNames(Result{FailureOutput: FailingNamesLine([]string{"TestA", "TestB"}) + "rest\n"})
+	if len(got) != 2 || got[0] != "TestA" || got[1] != "TestB" {
+		t.Fatalf("FailingNames = %v", got)
+	}
+	if FailingNamesLine(nil) != "" {
+		t.Fatal("no names should give no line")
+	}
+}

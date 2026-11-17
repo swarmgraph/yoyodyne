@@ -3793,9 +3793,20 @@ when one has ended any other way, when the forge has stayed unreadable for about
 five minutes, or when `wait_limit` has passed since the push. Review starts only after every required check passed on that commit. Until the forge's results are themselves integration evidence (a later build), the full checks also run on this machine over the approved candidate before it is promoted, as they do for any change checked in part. A
 restart during the wait pushes nothing and carries on with the same wait.
 
-When the wait ends without a pass, the run runs the full declared checks on
-this machine over the same commit and goes on from their result, and the reason
-is recorded on the run. That happens when a required check has not finished, or
+A required check that failed on the forge goes back to the developer as a
+failed check. The harness reads the forge's log, because a developer's sandbox
+has no network, and records on the run the failing checks, the failing tests
+the log names, and the end of each failing check's output, with secrets removed,
+in the shape a local failed check is recorded in (so each check keeps a share of
+the same 8 KiB a local check's output is held to). It spends one repair round.
+After the repair the short local check runs again, the new commit is pushed, and
+it needs a result of its own: a result for an earlier commit is never carried
+forward. If the log cannot be read, that is the forge being unreadable, not a
+failure of the change, and the next paragraph applies.
+
+When the wait ends any other way, the run runs the full declared checks on this
+machine over the same commit and goes on from their result, and the reason is
+recorded on the run. That happens when a required check has not finished, or
 never started, within `wait_limit`; ends cancelled, skipped, or in any state
 other than passed or failed; when the forge cannot be read for about five
 minutes running (a single failed read is waited out); and when the switch is
@@ -3807,9 +3818,8 @@ when the local checks have passed and again before the approved change is
 promoted. An answer it finds is recorded on the run too, and a failure from
 either the forge or this machine counts as a failure: a required check that
 failed on the forge goes back to the developer as a failing check and spends a
-repair round, even though the local checks passed. A required check that failed
-on the forge is not yet handed to the developer with its own output; that, and
-the other stages of the flow, arrive in later builds.
+repair round, even though the local checks passed. The other stages of the flow
+arrive in later builds.
 
 A push the forge refuses, or a draft pull request it will not open, blocks the
 item for the development manager with the forge's own words, because merging
