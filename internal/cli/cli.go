@@ -755,6 +755,9 @@ func runConfigShow(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stdout, "# MCP tools for %s: %s\n", name, describeMCPTools(mcpTools))
 			}
 		}
+		if threads := resolved.Config.ReviewThreads; threads.Configured() {
+			fmt.Fprintf(stdout, "# review threads: requests for review go to Slack channel %s through %s, and %d listed reviewer(s)' replies are read every %s\n", threads.Channel, threads.Server, len(threads.Reviewers), threads.CheckEvery)
+		}
 		encoded, err := yaml.Marshal(resolved.Config)
 		if err != nil {
 			fmt.Fprintf(stderr, "render effective configuration: %v\n", err)

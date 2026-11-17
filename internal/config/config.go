@@ -83,6 +83,10 @@ type Config struct {
 	// project names one; omitted from the serialized form while empty, so a
 	// project that says nothing keeps the revision it had before the key existed.
 	MCP MCP `yaml:"mcp,omitempty" json:"mcp,omitzero"`
+	// ReviewThreads is the Slack review thread kept for each pull request a
+	// person merges (reviewthreads.go). It is the operator's, as the mcp section
+	// it points into is, and empty unless the project writes it.
+	ReviewThreads ReviewThreads `yaml:"review_threads,omitempty" json:"review_threads,omitzero"`
 	// Intent says which repository holds the governed documents. It is absent
 	// from a project whose own repository holds them, which is the default.
 	Intent Intent `yaml:"intent,omitempty" json:"intent,omitempty"`
@@ -1488,6 +1492,7 @@ func (c Config) Validate() error {
 	problems = append(problems, c.Research.problems()...)
 	problems = append(problems, c.OutsideFiles.problems()...)
 	problems = append(problems, c.mcpProblems()...)
+	problems = append(problems, c.reviewThreadProblems()...)
 
 	approvalValues := []struct {
 		name string

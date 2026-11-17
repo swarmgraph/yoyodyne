@@ -39,11 +39,15 @@ type configDocument struct {
 	// which addresses it reaches on a role's behalf is one statement, and a server
 	// assembled half from one layer and half from another is one nobody declared.
 	// It decodes straight into the effective type for the same reason.
-	MCP       *MCP               `yaml:"mcp"`
-	Intent    *intentDocument    `yaml:"intent"`
-	Team      *teamDocument      `yaml:"team"`
-	Approvals *approvalsDocument `yaml:"approvals"`
-	Checks    *[]string          `yaml:"checks"`
+	MCP *MCP `yaml:"mcp"`
+	// ReviewThreads replaces an inherited section entirely, for the same reason:
+	// a thread assembled half from one layer and half from another is one nobody
+	// declared.
+	ReviewThreads *ReviewThreads     `yaml:"review_threads"`
+	Intent        *intentDocument    `yaml:"intent"`
+	Team          *teamDocument      `yaml:"team"`
+	Approvals     *approvalsDocument `yaml:"approvals"`
+	Checks        *[]string          `yaml:"checks"`
 	// LandingChecks replaces an inherited list entirely rather than merging into
 	// it, for the reason Checks does: what runs after a landing is one
 	// statement, and a list half from a bundle and half from a project is not the

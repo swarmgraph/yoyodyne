@@ -630,6 +630,10 @@ func (r *resolution) apply(applied layer) error {
 		r.config.MCP = copyMCP(*document.MCP)
 		r.origins["mcp"] = applied.origin
 	}
+	if document.ReviewThreads != nil {
+		r.config.ReviewThreads = copyReviewThreads(*document.ReviewThreads)
+		r.origins["review_threads"] = applied.origin
+	}
 	if intent := document.Intent; intent != nil {
 		setValue(r.origins, "intent.repository", intent.Repository, &r.config.Intent.Repository, applied.origin)
 	}

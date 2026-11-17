@@ -41,21 +41,22 @@ import (
 // A later piece that hands any of this to a launch or a prompt adds its file
 // here, which is where a reviewer sees that it does.
 var mcpReaders = map[string]bool{
-	"internal/config/document.go":     true,
-	"internal/config/mcp.go":          true,
-	"internal/config/resolve.go":      true,
-	"internal/cli/cli.go":             true,
-	"internal/cli/mcp.go":             true,
-	"internal/cli/mcppath.go":         true,
-	"internal/doctor/mcp.go":          true,
-	"internal/cli/chatmcp.go":         true,
-	"internal/chat/mcp.go":            true,
-	"internal/mcpcall/describe.go":    true,
-	"internal/mcpcall/command.go":     true,
-	"internal/mcpcall/mcpcall.go":     true,
-	"internal/mcpcall/path.go":        true,
-	"internal/mcpcall/remote.go":      true,
-	"internal/orchestrator/mcpask.go": true,
+	"internal/config/document.go":      true,
+	"internal/config/mcp.go":           true,
+	"internal/config/reviewthreads.go": true,
+	"internal/config/resolve.go":       true,
+	"internal/cli/cli.go":              true,
+	"internal/cli/mcp.go":              true,
+	"internal/cli/mcppath.go":          true,
+	"internal/doctor/mcp.go":           true,
+	"internal/cli/chatmcp.go":          true,
+	"internal/chat/mcp.go":             true,
+	"internal/mcpcall/describe.go":     true,
+	"internal/mcpcall/command.go":      true,
+	"internal/mcpcall/mcpcall.go":      true,
+	"internal/mcpcall/path.go":         true,
+	"internal/mcpcall/remote.go":       true,
+	"internal/orchestrator/mcpask.go":  true,
 }
 
 func TestNothingOnTheLaunchOrInstructionPathReadsTheMCPConfiguration(t *testing.T) {

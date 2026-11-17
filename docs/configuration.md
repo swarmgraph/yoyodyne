@@ -7665,6 +7665,34 @@ agents:
   and never its arguments or result. The servers are asked for their listings
   once each time a conversation is opened.
 
+## Slack review threads
+
+A project whose pull requests a person merges can ask the harness to keep a
+Slack thread for each, using a server and two tools the `mcp` section above
+already declares. This section only says what loads; the design is
+[Slack review threads](designs/slack-review-threads.md), and nothing yet posts
+or reads a thread. With no `review_threads` section nothing changes.
+
+```yaml
+review_threads:
+  server: slack                 # a server declared under mcp
+  post_tool: post_message       # declared there as act
+  read_tool: read_thread        # declared there as read
+  channel: C0123456789          # Slack's id for the channel, never its name
+  reviewers: [U0AAAA1111]       # Slack member ids whose replies are told
+  check_every: 15m              # optional; at least 5m, at most 24h
+```
+
+- The configuration is refused when it loads, naming the setting, if `server`
+  is not declared under `mcp`, `post_tool` is not declared there as `act`,
+  `read_tool` is not declared there as `read`, `reviewers` is empty, or
+  `check_every` is under 5 minutes or over 24 hours. `channel` is also required.
+- `check_every` is 15 minutes when left out.
+- `yoyo config show` prints the section, and `yoyo doctor` says a section that
+  loads is set, or names the refused setting in plain words.
+- The key is yours alone: a role's write to the configuration is refused for
+  `review_threads`.
+
 ## Reading the repository from a conversation
 
 The three management roles — Lead Product Manager, architect, development manager —
