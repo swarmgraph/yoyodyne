@@ -204,6 +204,10 @@ type components struct {
 	// for a command that does not account for them; `yoyo reconcile` does
 	// (beads.CallTally).
 	trackerCalls beads.CallObserver
+	// trackerReads holds work items read ahead of need, for the first read of
+	// each, and is nil for every command but `yoyo reconcile`, which reads its
+	// outstanding runs' items in one call (beads.ItemReads).
+	trackerReads *beads.ItemReads
 	// interventions is the product's record of the operator's hand steps: what a
 	// verb that carries one out writes, and what a conversation's operator
 	// commands write (see intervention.go).
@@ -596,7 +600,7 @@ func primaryCheckout(repository, worktreeRoot string) (string, error) {
 // reads to say the tracker is not answering listings and since when, and every
 // call stopped at its limit is kept in the product's record of slow calls.
 func (c components) tracker() beads.Client {
-	return withTrackerRecords(beads.Client{Runner: c.runner, Dir: c.repository, Calls: c.trackerCalls}, c.trackerListings, c.trackerSlowCalls)
+	return withTrackerRecords(beads.Client{Runner: c.runner, Dir: c.repository, Calls: c.trackerCalls, Reads: c.trackerReads}, c.trackerListings, c.trackerSlowCalls)
 }
 
 // withTrackerRecords has a client write how its listings end, and each call
