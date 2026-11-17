@@ -311,11 +311,17 @@ type ForgeCIWaits struct {
 	Forge   CIForge
 	Enabled func() bool
 	Now     func() time.Time
+}
 
+// ciPolls is when each waiting run's forge was last read, and what that read
+// said. It outlives any one reader because a pull builds its reader afresh, and
+// the limit of one read a minute for a run is across pulls.
+var ciPolls = struct {
 	mu      sync.Mutex
 	polled  map[string]time.Time
 	lastSay map[string]string
-}
+	decided map[string]bool
+}{polled: map[string]time.Time{}, lastSay: map[string]string{}, decided: map[string]bool{}}
 
 // Decided reads the forge for the commit the run's wait names, at most once a
 // minute for one run.
@@ -334,17 +340,14 @@ func (f *ForgeCIWaits) Decided(ctx context.Context, state runstate.State) (bool,
 	if f.Forge == nil {
 		return wait.Overdue(now), "no forge is wired to read the checks", nil
 	}
-	f.mu.Lock()
-	if f.polled == nil {
-		f.polled, f.lastSay = map[string]time.Time{}, map[string]string{}
+	ciPolls.mu.Lock()
+	if at, ok := ciPolls.polled[state.RunID]; ok && now.Sub(at) < ciPollEvery && now.After(at) {
+		say, decided := ciPolls.lastSay[state.RunID], ciPolls.decided[state.RunID]
+		ciPolls.mu.Unlock()
+		return decided, say, nil
 	}
-	if at, ok := f.polled[state.RunID]; ok && now.Sub(at) < ciPollEvery && now.After(at) {
-		say := f.lastSay[state.RunID]
-		f.mu.Unlock()
-		return false, say, nil
-	}
-	f.polled[state.RunID] = now
-	f.mu.Unlock()
+	ciPolls.polled[state.RunID] = now
+	ciPolls.mu.Unlock()
 	reading, err := f.Forge.RequiredChecks(ctx, wait.Commit, wait.Required)
 	if err != nil {
 		if wait.Overdue(now) {
@@ -353,8 +356,8 @@ func (f *ForgeCIWaits) Decided(ctx context.Context, state runstate.State) (bool,
 		return false, "", err
 	}
 	decided, why := ciWaitDecided(*wait, reading, now)
-	f.mu.Lock()
-	f.lastSay[state.RunID] = why
-	f.mu.Unlock()
+	ciPolls.mu.Lock()
+	ciPolls.lastSay[state.RunID], ciPolls.decided[state.RunID] = why, decided
+	ciPolls.mu.Unlock()
 	return decided, why, nil
 }

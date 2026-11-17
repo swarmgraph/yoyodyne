@@ -210,9 +210,39 @@ func TestChecksOnCIReviewStartsOnlyOnceEveryRequiredCheckPassed(t *testing.T) {
 	if f.reviewed() != 1 || f.forge.pushed() != 1 {
 		t.Fatalf("reviews=%d pushes=%d, want 1 and 1", f.reviewed(), f.forge.pushed())
 	}
-	if logLines(t, f.shortLog) != 1 || logLines(t, f.fullLog) != 0 {
-		t.Fatalf("short=%d full=%d, want the short check once and no full check", logLines(t, f.shortLog), logLines(t, f.fullLog))
+	// The evidence from the short check alone is narrowed, so nothing lands on it:
+	// the whole candidate is checked on this machine before it is promoted.
+	if logLines(t, f.shortLog) != 2 || logLines(t, f.fullLog) != 1 {
+		t.Fatalf("short=%d full=%d, want the short check before the push and every configured check once over the candidate", logLines(t, f.shortLog), logLines(t, f.fullLog))
 	}
+}
+
+// Two pulls a few seconds apart read the forge once for one waiting run.
+func TestForgeCIWaitsReadsTheForgeOncePerMinuteAcrossReaders(t *testing.T) {
+	t.Parallel()
+	forge := &fakeCIForge{result: publish.CheckPending}
+	counting := &countingForge{fakeCIForge: forge}
+	now := time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)
+	state := runstate.State{RunID: "run-poll-test", CIWait: &runstate.CIWait{Commit: strings.Repeat("b", 40), Branch: "b", PushedAt: now, Required: []string{"test"}, WaitLimitSeconds: 3600}}
+	for _, at := range []time.Time{now.Add(time.Second), now.Add(5 * time.Second)} {
+		reader := &ForgeCIWaits{Forge: counting, Enabled: func() bool { return true }, Now: func() time.Time { return at }}
+		if decided, _, err := reader.Decided(context.Background(), state); err != nil || decided {
+			t.Fatalf("Decided() = %v, %v, want not decided", decided, err)
+		}
+	}
+	if counting.reads != 1 {
+		t.Fatalf("the forge was read %d times by two pulls seconds apart, want 1", counting.reads)
+	}
+}
+
+type countingForge struct {
+	*fakeCIForge
+	reads int
+}
+
+func (c *countingForge) RequiredChecks(ctx context.Context, commit string, required []string) (publish.RequiredCheckReading, error) {
+	c.reads++
+	return c.fakeCIForge.RequiredChecks(ctx, commit, required)
 }
 
 // Switching the setting off during the wait stops it: the full local checks run

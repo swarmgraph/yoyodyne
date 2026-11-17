@@ -3786,7 +3786,7 @@ slot. `yoyo status` and the dashboard list it as waiting for CI, with the time
 waited. A watching `yoyo work` session reads the forge for that exact commit
 about once a minute and continues the run when every required check has passed,
 when one has ended any other way, or when `wait_limit` has passed since the
-push. Review starts only after every required check passed on that commit. A
+push. Review starts only after every required check passed on that commit. Until the forge's results are themselves integration evidence (a later build), the full checks also run on this machine over the approved candidate before it is promoted, as they do for any change checked in part. A
 restart during the wait pushes nothing and carries on with the same wait.
 
 When the wait ends without a pass, or the switch is turned off during it, the

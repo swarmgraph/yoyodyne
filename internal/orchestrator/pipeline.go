@@ -6856,6 +6856,17 @@ func (a *activeRun) verify(ctx context.Context) error {
 	if !narrowing.Whole {
 		evidenceNarrowed = narrowing.Describe()
 	}
+	// With checks on CI only the short local check ran here, so the evidence says
+	// so: the promotion refuses narrowed evidence, and the whole candidate is
+	// checked on this machine before it lands (checkCandidateWhole) until typed
+	// forge results are integration evidence (a later build).
+	if a.ciFlow() {
+		short := "the short local check only (execution.ci_checks.local), because the forge runs the rest"
+		if evidenceNarrowed != "" {
+			short = evidenceNarrowed + "; " + short
+		}
+		evidenceNarrowed = short
+	}
 	configuredChecks := p.Config.Checks
 	if a.ciFlow() {
 		// Checks on CI: this machine runs the short local check, and the forge
