@@ -5122,7 +5122,7 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 	a.state.ProviderEffortDescription = p.Config.DescribeInvocationEffort(agent, effort, "", false)
 	a.outcome.ProviderEffortDescription = a.state.ProviderEffortDescription
 	subagents := a.subagentsFor(ctx, developerBackend, named)
-	prompt = a.instructSubagents(prompt, subagents)
+	prompt = a.instructSubagents(prompt, model, subagents)
 	attribution := a.spendAttribution(domain.RoleDeveloper, a.developmentPhase())
 	attribution.Backend = named
 	provider := spend.Metered{
