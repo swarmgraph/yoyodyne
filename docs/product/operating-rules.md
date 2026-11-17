@@ -35,6 +35,11 @@ revisions:
       at: 2026-11-10T04:31:29.765719Z
       reason: 'yoyodyne-ifd.437.19: intent: consistent. The rule against the word ''gate'' exempted the approved brief and goals documents until each was reworded. The brief, the v1 non-goals and the operations goals are now all reworded on main (yoyodyne-v3cy, yoyodyne-av7p), so that exemption is removed and only the stored-names exemption remains. No goal is added, removed or changed, so the goals admit and refuse exactly the work they did before.'
       intent: consistent
+    - action: amended
+      by: product-manager
+      at: 2026-11-15T23:17:16.013319Z
+      reason: 'yoyodyne-q2l: records Mason''s direction of November 15, 2026 on what makes a bug priority 0: it materially degrades usability (a stalled factory counts when the stall is frequent or likely to become so, not when it is an edge case hit once), or it raises total cost by 25% or more weighted by how often it happens. It narrows the reliability rule''s priority 0 only; its priority 1 side is unchanged. It is a rule he gave; no goal changes, so the goals admit and refuse exactly the work they did before.'
+      intent: consistent
 approvals:
     - revision: 1
       by: product-manager
@@ -56,6 +61,10 @@ approvals:
       by: product-manager
       at: 2026-11-10T04:31:29.765719Z
       reason: yoyodyne-ifd.437.19 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
+    - revision: 6
+      by: product-manager
+      at: 2026-11-15T23:17:16.013319Z
+      reason: yoyodyne-q2l - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
 ---
 
 # Operating rules
@@ -71,6 +80,7 @@ Lead Product Manager.
 - A work item's notes are append-only: nothing rewrites, reorders, or removes an earlier note; a correction is a new note. (da04b051)
 - The delivery workflow is configurable: the graph of what happens to a change is project-owned data, and the capability behind each step stays trusted code that no configuration widens. (18dfadd1, 2026-08-31)
 - Anything that blocks reliable execution is a defect: admitted with the reliability label at priority 0 or 1 ahead of feature work, and a developer seat prefers it. (5268040c, 2026-09-14; a43f7677 and d83b6391 for the seats)
+- A bug is priority 0 only if it materially degrades usability, or raises the factory's total cost by 25% or more once weighted by how often it happens. A stalled factory counts as degraded usability when the stall is frequent or likely to become so; a stall hit once, as an edge case, does not. Any other defect that blocks reliable execution is priority 1. (the operator, 2026-11-15, recorded on yoyodyne-q2l)
 - A run is never killed for a flaky network or a sleeping laptop: a transport that drops or a machine that sleeps is waited out, and only a person or a bound on the work itself ends a run. (fb5a74a9)
 - Slack, the dashboard, the scheduler, and maintenance are parts of one product: started, stopped, restarted, and moved onto a new build together, by the product and not by a person. (6de828a8)
 - Developer seats are tagged, and one seat is dedicated to reliability work. (a43f7677, d83b6391)
