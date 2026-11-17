@@ -24,6 +24,19 @@ type fakeCIForge struct {
 	pushes []publish.PushRequest
 	drafts int
 	result publish.CheckResult
+	// digest is the workflow digest the forge gives; reading another commit is
+	// answered as if the forge's checks had run on readCommit.
+	digest     string
+	readCommit string
+}
+
+func (f *fakeCIForge) WorkflowDigest(_ context.Context, _ string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.digest == "" {
+		return "sha256:workflows-v1", nil
+	}
+	return f.digest, nil
 }
 
 func (f *fakeCIForge) PushBranch(_ context.Context, request publish.PushRequest) error {
@@ -43,6 +56,9 @@ func (f *fakeCIForge) EnsureDraft(_ context.Context, request publish.Request) (p
 func (f *fakeCIForge) RequiredChecks(_ context.Context, commit string, required []string) (publish.RequiredCheckReading, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.readCommit != "" {
+		commit = f.readCommit
+	}
 	reading := publish.RequiredCheckReading{Commit: commit}
 	for _, name := range required {
 		reading.Checks = append(reading.Checks, publish.RequiredCheck{Name: name, Result: f.result, Commit: commit})
@@ -320,4 +336,107 @@ func TestACIWaitHoldsNoSlotUntilItTakesOneBack(t *testing.T) {
 	if !state.HoldsDeveloperSlot() {
 		t.Fatal("a run that took its slot back holds none")
 	}
+}
+
+func (f *ciFixture) reviewerPrompts() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var all strings.Builder
+	for _, provider := range f.providers {
+		for _, request := range provider.RequestsForRole(domain.RoleReviewer) {
+			all.WriteString(request.Prompt)
+			all.WriteString(request.SystemPrompt)
+		}
+	}
+	return all.String()
+}
+
+// A passing result is recorded with each required check, the commit it ran on,
+// and the digest of the workflow files at that commit, and the reviewer is shown
+// each required check's name, result and commit.
+func TestChecksOnCIRecordsPassingResultAsEvidenceAndShowsTheReviewer(t *testing.T) {
+	t.Parallel()
+	f := newCIFixture(t)
+	_, parked := f.park(t)
+	f.forge.setResult(publish.CheckPassed)
+
+	outcome, err := f.pipeline(t, true).Run(context.Background(), f.tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	state, err := f.store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	end := state.CIWaitEnd
+	if end == nil || !end.Passed || end.WorkflowDigest != "sha256:workflows-v1" || len(end.Checks) != 2 {
+		t.Fatalf("recorded end = %#v, want a pass with both checks and the workflow digest", end)
+	}
+	commit := parked.CIWait.Commit
+	if ok, why := end.CountsFor(commit, []string{"test", "race"}, "sha256:workflows-v1"); !ok {
+		t.Fatalf("the recorded result does not count for the candidate: %s", why)
+	}
+	prompts := f.reviewerPrompts()
+	for _, name := range []string{"test", "race"} {
+		line := "- " + name + ": passed, on commit " + commit
+		if !strings.Contains(prompts, line) {
+			t.Errorf("the reviewer was not shown %q", line)
+		}
+	}
+}
+
+// A result the forge gives for a commit other than the candidate is never taken
+// as the candidate's: it records no evidence and the run runs the full checks.
+func TestChecksOnCIResultForAnotherHeadGivesNoCredit(t *testing.T) {
+	t.Parallel()
+	f := newCIFixture(t)
+	f.park(t)
+	f.forge.setResult(publish.CheckPassed)
+	f.forge.mu.Lock()
+	f.forge.readCommit = strings.Repeat("c", 40)
+	f.forge.mu.Unlock()
+
+	outcome, err := f.pipeline(t, true).Run(context.Background(), f.tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	state, err := f.store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if end := state.CIWaitEnd; end == nil || end.Passed || len(end.Checks) != 0 || end.WorkflowDigest != "" {
+		t.Fatalf("recorded end = %#v, want no evidence from another head's result", end)
+	}
+	if logLines(t, f.fullLog) == 0 {
+		t.Fatal("the full checks did not run in place of the other head's result")
+	}
+}
+
+// If the workflow files change after the result was recorded, the reviewer is
+// told the result gives no credit.
+func TestChecksOnCIChangedWorkflowFileWithdrawsTheResultFromTheReviewer(t *testing.T) {
+	t.Parallel()
+	f := newCIFixture(t)
+	f.park(t)
+	f.forge.setResult(publish.CheckPassed)
+	pipeline := f.pipeline(t, true)
+	// The digest is read once to record the result and again for the reviewer; the
+	// forge answers differently the second time.
+	pipeline.CIForge = &changingDigestForge{fakeCIForge: f.forge}
+	if _, err := pipeline.Run(context.Background(), f.tracker.Item.ID); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if prompts := f.reviewerPrompts(); !strings.Contains(prompts, "give no credit as evidence for the candidate commit: the workflow files changed") {
+		t.Fatalf("the reviewer was not told the result gives no credit:\n%s", prompts)
+	}
+}
+
+type changingDigestForge struct {
+	*fakeCIForge
+	calls int
+}
+
+func (f *changingDigestForge) WorkflowDigest(_ context.Context, _ string) (string, error) {
+	f.calls++
+	return "sha256:workflows-v" + string(rune('0'+f.calls)), nil
 }
