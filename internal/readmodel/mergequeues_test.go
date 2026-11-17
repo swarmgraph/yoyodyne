@@ -136,6 +136,7 @@ type fixtureQueues struct {
 	unreadable  map[string]error
 	refusal     *runstate.MergeQueueRefusal
 	pass        *runstate.MergeQueuePass
+	readings    map[string]runstate.MergeQueueForgeReading
 }
 
 func (f fixtureQueues) Keys() ([]runstate.MergeQueueKey, error) { return f.keys, f.keysErr }
@@ -160,6 +161,11 @@ func (f fixtureQueues) LastPass(runstate.MergeQueueKey) (runstate.MergeQueuePass
 		return runstate.MergeQueuePass{}, false, nil
 	}
 	return *f.pass, true, nil
+}
+
+func (f fixtureQueues) ForgeReading(_ runstate.MergeQueueKey, entryID string) (runstate.MergeQueueForgeReading, bool, error) {
+	reading, found := f.readings[entryID]
+	return reading, found, nil
 }
 
 func fixtureEntry(order uint64, item, title string, mode runstate.MergeQueueMode) runstate.MergeQueueEntry {
@@ -270,5 +276,56 @@ func TestAnUnlistableQueueIsSaidBesideTheOthersAndNoQueuePrintsNothing(t *testin
 	}
 	if rendered := ReadStanding(context.Background(), Sources{}).RenderMergeQueues(); rendered != "" {
 		t.Fatalf("no queue store rendered as %q, want nothing", rendered)
+	}
+}
+
+// An entry whose merge GitHub holds is shown with what GitHub last said the
+// merge was waiting on, and with the time of that reading; a reading that
+// failed says GitHub could not be asked, and why, rather than a reason.
+func TestAMergeGitHubHoldsIsShownWithWhatGitHubLastSaidItWasWaitingOn(t *testing.T) {
+	t.Parallel()
+
+	key := runstate.MergeQueueKey{Repository: "yoyodyne", TargetBranch: "main"}
+	at := time.Date(2026, 11, 13, 14, 4, 0, 0, time.UTC)
+	held := func(order uint64, item string, pullRequest int) (runstate.MergeQueueEntry, runstate.MergeQueueLanding) {
+		entry := fixtureEntry(order, item, "Held by GitHub", runstate.MergeQueueHarness)
+		landing := runstate.NewMergeQueueLanding(entry)
+		landing.Attempts = []runstate.MergeQueuePromotionAttempt{{
+			Number: 1, Path: runstate.MergeQueueLandThroughPullRequest, Generation: 1, PullRequest: pullRequest, IntendedAt: at,
+			Mutations: []runstate.MergeQueueMutationRecord{{
+				Mutation: runstate.MergeQueueRequestMerge, RequestedAt: at,
+				Settled: &runstate.MergeQueueSettlement{Result: runstate.MergeQueueMutationQueued, At: at},
+			}},
+		}}
+		return entry, landing
+	}
+	pending, pendingLanding := held(1, "yoyodyne-ifd.1", 1828)
+	unread, unreadLanding := held(2, "yoyodyne-ifd.2", 1829)
+	queues := fixtureQueues{
+		keys:     []runstate.MergeQueueKey{key},
+		entries:  map[string][]runstate.MergeQueueEntry{"main": {pending, unread}},
+		landings: map[string]runstate.MergeQueueLanding{pending.EntryID: pendingLanding, unread.EntryID: unreadLanding},
+		readings: map[string]runstate.MergeQueueForgeReading{
+			pending.EntryID: {PullRequest: 1828, At: at, WaitingOn: `the required check "build" has not finished (GitHub's own words: merge state BLOCKED)`},
+			unread.EntryID:  {PullRequest: 1829, At: at, Unread: "x509: certificate signed by unknown authority"},
+		},
+	}
+	rendered := ReadStanding(context.Background(), Sources{MergeQueues: queues}).RenderMergeQueues()
+	for _, line := range []string{
+		"held by the forge, not landed yet",
+		`GitHub said the merge of pull request 1828 was waiting on: the required check "build" has not finished`,
+		at.Local().Format("2006-01-02 15:04 MST"),
+		"GitHub could not be asked about pull request 1829",
+		"x509: certificate signed by unknown authority",
+	} {
+		if !strings.Contains(rendered, line) {
+			t.Fatalf("rendered queues lack %q:\n%s", line, rendered)
+		}
+	}
+
+	// A reading of an earlier pull request is not said of this one.
+	queues.readings[pending.EntryID] = runstate.MergeQueueForgeReading{PullRequest: 1700, At: at, WaitingOn: "an old answer"}
+	if rendered := ReadStanding(context.Background(), Sources{MergeQueues: queues}).RenderMergeQueues(); strings.Contains(rendered, "an old answer") {
+		t.Fatalf("a reading of another pull request was shown:\n%s", rendered)
 	}
 }
