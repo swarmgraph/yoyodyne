@@ -54,6 +54,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/mcpcall"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -472,6 +473,8 @@ func printStanding(stdout io.Writer, standing *readmodel.Standing, summary *read
 		fmt.Fprint(stdout, standing.RenderProgramManagers())
 		fmt.Fprint(stdout, standing.RenderConversationPasses())
 		fmt.Fprint(stdout, standing.RenderMergeQueues())
+		fmt.Fprint(stdout, standing.RenderMCPCalls())
+		fmt.Fprint(stdout, standing.RenderMainChecks())
 		fmt.Fprint(stdout, standing.RenderServices())
 		fmt.Fprintln(stdout)
 	}
@@ -820,6 +823,11 @@ func standingSources(configPath string) readmodel.Sources {
 	if store, err := runstate.NewMergeQueueStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.MergeQueues = store
 	}
+	// The record of MCP calls, counted by tool and outcome with no content. A
+	// product that has made none prints nothing.
+	if record, err := mcpcall.NewRecords(stateRoot, cfg.Product.ID); err == nil {
+		sources.MCPCalls = record
+	}
 	// The product's supervisor and its record of the parts, so a part the
 	// supervisor has left down is said here with its reason.
 	if store, err := runstate.NewConfigReaderStore(stateRoot, cfg.Product.ID); err == nil {
@@ -827,6 +835,11 @@ func standingSources(configPath string) readmodel.Sources {
 	}
 	if store, err := runstate.NewDashboardStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Dashboards = store
+	}
+	// The checks run on the head of the target branch, so when it last passed
+	// them is said here. A product that has never run them prints nothing.
+	if store, err := runstate.NewMainCheckStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.MainChecks = store
 	}
 	if store, err := runstate.NewSupervisionStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Supervision = store

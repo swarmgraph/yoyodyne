@@ -302,3 +302,79 @@ func resolve(t *testing.T, path string) string {
 	}
 	return resolved
 }
+
+// The git MCP server, confined to a repository, walks the repository's whole Git
+// directory and refuses every call while any link there leads outside it. The
+// Codex CLI leaves exactly such links in a provider home made in scratch: under
+// tmp/arg0, to its own program. Those go, and with them a relative link that
+// climbs out and one whose target is gone; a link to somewhere inside the Git
+// directory, and every file, stay.
+func TestLinksLeadingOutOfTheGitDirectoryAreClearedFromScratch(t *testing.T) {
+	t.Parallel()
+
+	checkout, worktree := repositoryWithWorktree(t)
+	directory, err := PrepareScratchDirectory(checkout, worktree, "run-one")
+	if err != nil {
+		t.Fatalf("PrepareScratchDirectory() error = %v", err)
+	}
+	program := filepath.Join(t.TempDir(), "codex")
+	writeFile(t, program, "a program outside the repository\n")
+	arg0 := filepath.Join(directory, "home", "tmp", "arg0", "codex-arg0abc")
+	makeDirectory(t, arg0)
+	writeFile(t, filepath.Join(directory, "check.log"), "a log\n")
+	writeFile(t, filepath.Join(checkout, ".git", "HEAD"), "ref: refs/heads/main\n")
+
+	outward := []string{
+		filepath.Join(arg0, "apply_patch"),
+		filepath.Join(arg0, "codex-execve-wrapper"),
+		filepath.Join(directory, "climbs-out"),
+		filepath.Join(directory, "gone"),
+	}
+	links := map[string]string{
+		outward[0]:                        program,
+		outward[1]:                        program,
+		outward[2]:                        "../../../../../../../elsewhere",
+		outward[3]:                        filepath.Join(t.TempDir(), "nothing-here"),
+		filepath.Join(directory, "head"):  filepath.Join(checkout, ".git", "HEAD"),
+		filepath.Join(directory, "local"): "check.log",
+	}
+	for link, target := range links {
+		if err := os.Symlink(target, link); err != nil {
+			t.Skipf("this filesystem does not support symlinks: %v", err)
+		}
+	}
+
+	removed, err := ClearOutwardScratchLinks(checkout, worktree, "run-one")
+	if err != nil {
+		t.Fatalf("ClearOutwardScratchLinks() error = %v", err)
+	}
+	if len(removed) != len(outward) {
+		t.Errorf("removed %d links %v, want the %d leading out", len(removed), removed, len(outward))
+	}
+	for _, link := range outward {
+		if _, err := os.Lstat(link); !os.IsNotExist(err) {
+			t.Errorf("the link %s, leading out of the Git directory, is still there (err = %v)", link, err)
+		}
+	}
+	for _, kept := range []string{filepath.Join(directory, "head"), filepath.Join(directory, "local"), filepath.Join(directory, "check.log"), program} {
+		if _, err := os.Lstat(kept); err != nil {
+			t.Errorf("%s was removed, and it leads nowhere outside: %v", kept, err)
+		}
+	}
+
+	again, err := ClearOutwardScratchLinks(checkout, worktree, "run-one")
+	if err != nil || len(again) != 0 {
+		t.Fatalf("a second clearing removed %v (err = %v), want nothing", again, err)
+	}
+}
+
+// A run whose scratch directory was never made has nothing to clear.
+func TestClearingScratchThatWasNeverMadeIsNothing(t *testing.T) {
+	t.Parallel()
+
+	checkout, worktree := repositoryWithWorktree(t)
+	removed, err := ClearOutwardScratchLinks(checkout, worktree, "run-one")
+	if err != nil || len(removed) != 0 {
+		t.Fatalf("ClearOutwardScratchLinks() = %v, %v; want nothing and no error", removed, err)
+	}
+}

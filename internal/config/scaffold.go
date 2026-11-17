@@ -350,6 +350,10 @@ execution:
   # moved past each. Reads the forge can answer conditionally are asked that
   # way, so an unchanged answer costs little. At least a minute.
   forge_check_interval: %s
+  # How often the supervisor runs the list under "main_checks" below on the
+  # head of the target branch, whenever the branch has moved since the last
+  # run. At least thirty minutes.
+  main_check_interval: %s
   # A watching session that finds a build deployed over it waits out the runs it
   # hosts before restarting into the new build -- for at most this long. Past it
   # the session restarts anyway and the hosted runs are stopped and preserved
@@ -526,6 +530,7 @@ approvals:
 		renderScaffoldDuration(effective.Execution.LandingCheckTimeout),
 		renderScaffoldDuration(effective.Execution.WorkPoll),
 		renderScaffoldDuration(effective.Execution.ForgeCheckInterval),
+		renderScaffoldDuration(effective.Execution.MainCheckInterval),
 		renderScaffoldDuration(effective.Execution.RedeployDrainLimit),
 		renderScaffoldDuration(effective.Execution.FactoryStallAfter),
 		effective.Execution.CouldNotRunBeforeStatus,
@@ -1187,6 +1192,15 @@ func renderScaffoldLandingChecks(builder *strings.Builder) {
 #   landing_checks:
 #     - go test -race ./...
 landing_checks: []
+# What the supervisor runs whole on the head of the target branch every
+# main_check_interval above, whenever the branch has moved: a check taken off
+# each change, run on what has landed instead. A failure is recorded with the
+# commit and filed as a critical report naming it and the failing tests. Empty
+# runs nothing on the branch.
+#
+#   main_checks:
+#     - go test -race ./...
+main_checks: []
 `)
 }
 

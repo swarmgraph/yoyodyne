@@ -218,19 +218,19 @@ func TestAQuestionWithNoConversationToCarryItIsSaidRatherThanRecorded(t *testing
 	}
 }
 
-// A question that arrives while the product manager is mid-turn gets one
-// refusal and no promise: the turn is taken before the receipt is posted, so a
-// turn that cannot be taken never produces a receipt saying an answer follows.
-func TestAQuestionWhileTheProductManagerIsBusyGetsNoPromise(t *testing.T) {
+// A question that arrives while the product manager is mid-turn keeps its
+// promise: the receipt says an answer follows, the thread is told the question
+// is queued behind the turn, and the answer comes once the turn ends.
+func TestAQuestionWhileTheProductManagerIsBusyIsQueuedAndAnsweredAfter(t *testing.T) {
 	t.Parallel()
 
-	talker := &scriptedConversation{text: "I would not say this."}
+	const askedTS = "1750000001.000200"
+	talker := &scriptedConversation{text: "Yes, at 09:00."}
 	sink, directives, posts := newDiscriminatingSink(t, talker)
 	if !sink.steering.begin() {
 		t.Fatalf("could not take the turn to stand in for one in flight")
 	}
-	defer sink.steering.finish()
-	say(sink, reply(testOperator, "Did you restart?", "1750000001.000200"))
+	say(sink, reply(testOperator, "Did you restart?", askedTS))
 
 	if recorded, err := directives.List(); err != nil {
 		t.Fatalf("List() error = %v", err)
@@ -240,12 +240,27 @@ func TestAQuestionWhileTheProductManagerIsBusyGetsNoPromise(t *testing.T) {
 	if talker.turns() != 0 {
 		t.Fatalf("the product manager was asked %d time(s) while mid-turn", talker.turns())
 	}
-	answer := onlyPost(t, posts)
-	if !strings.Contains(answer.Text, "already answering something else") {
-		t.Fatalf("answer = %q, want the refusal saying the product manager is mid-turn", answer.Text)
+	if len(posts.requests) != 2 || !strings.Contains(posts.requests[1].Text, conversationQueued) {
+		t.Fatalf("posts = %#v, want the receipt and then the line saying the question is queued", posts.requests)
 	}
-	if strings.Contains(answer.Text, "answer follows") {
-		t.Fatalf("answer = %q, want no promise of an answer nothing will give", answer.Text)
+
+	sink.steering.finish()
+	sink.steering.drain(context.Background())
+
+	if talker.turns() != 1 || !strings.Contains(talker.saidTo(), "Did you restart?") {
+		t.Fatalf("said = %q over %d turn(s), want the queued question said once the turn ended", talker.saidTo(), talker.turns())
+	}
+	if len(posts.requests) != 4 {
+		t.Fatalf("posts = %#v, want the delivery line and the answer after the first two", posts.requests)
+	}
+	if !strings.Contains(posts.requests[2].Text, "has now been passed to the Lead Product Manager") {
+		t.Fatalf("post = %q, want the thread told the queued question was delivered", posts.requests[2].Text)
+	}
+	if !strings.Contains(posts.requests[3].Text, "Yes, at 09:00.") || posts.requests[3].ThreadTS != testThreadTS {
+		t.Fatalf("post = %#v, want the answer in the item's thread", posts.requests[3])
+	}
+	if worn := posts.wearing[askedTS]; !worn[notify.ReceiptSettled.Symbol()] {
+		t.Fatalf("the question wears %#v, want it settled once answered", worn)
 	}
 }
 

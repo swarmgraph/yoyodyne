@@ -619,6 +619,22 @@ func heldReasons(runs []runstate.State, escalated []runstate.Escalation, decided
 	}) {
 		reasons[workItemID] = heldFor(run.RunID, mergedPublication(run), decided.of(workItemID, run), stoppedAt(run))
 	}
+	// An approved change still in the merge queue. Its run ended succeeded when
+	// the change was admitted, so none of the stoppage rules above reads it, and
+	// it stays that way until the queue records a landing on it or hands the
+	// change back to it. Whatever the queue's own record says of the entry in the
+	// meantime — waiting, landing, released — the run's record is what says the
+	// work is not free: a hand-back the queue could not save on the run leaves
+	// the item blocked by the queue's own tracker write and the run still
+	// succeeded, and a fresh pull then duplicates a change already approved. It
+	// is asked of the item's latest run, so a later run on the item, the
+	// repair the hand-back hands it to among them, answers instead.
+	for workItemID, run := range latest {
+		if !awaitingMergeQueue(run) {
+			continue
+		}
+		reasons[workItemID] = backlog.Hold{Reason: queuedChange(run), Decided: true, Since: run.MergeQueue.AdmittedAt, RunID: run.RunID}
+	}
 	// A stop the development manager decided, last, because it is only ever about
 	// the item's latest run and says the most about what to do with it. Such a run
 	// ends cancelled with no blocker, which is a shape none of the rules above
@@ -1116,6 +1132,25 @@ func unmergedPublication(run runstate.State) string {
 	return fmt.Sprintf(
 		"run %s integrated its change into %s and the forge has not merged it, so what is outstanding is the publication rather than the work",
 		run.RunID, run.Integration.TargetBranch)
+}
+
+// awaitingMergeQueue reports an item's run whose approved change was admitted
+// to a merge queue and that nothing has since landed, handed back to it, or
+// retired (runstate.State.AwaitingMergeQueue).
+func awaitingMergeQueue(run runstate.State) bool {
+	return run.WorkItemID != "" && run.Retirement == nil && run.AwaitingMergeQueue()
+}
+
+// queuedChange says why an item whose approved change is still in the merge
+// queue is not something to pull. It leads with the run and the queue entry,
+// because a reason cut to one line has to keep what a reader goes to look at,
+// and says what releases it: the queue landing the change, or handing it back
+// to the run on the run's own record.
+func queuedChange(run runstate.State) string {
+	queued := run.MergeQueue
+	return fmt.Sprintf(
+		"run %s's approved change is in the merge queue for %s as entry %d, and neither a landing nor a hand-back is recorded on the run yet, so a fresh run would duplicate an approved change; the harness moves next, and the item stays out of every pull until the queue lands the change or the hand-back is recorded on the run",
+		run.RunID, queued.TargetBranch, queued.Order)
 }
 
 // redTargetPublication says why an item whose merge waits on its target's red

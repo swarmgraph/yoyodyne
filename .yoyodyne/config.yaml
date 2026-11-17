@@ -111,12 +111,15 @@ services:
     token: file
 
 execution:
-  # Temporarily 3, down from 4, until the merge queue's two speed fixes land:
-  # checks and review side by side (yoyodyne-ifd.429.143) and checking the
-  # next candidate ahead (yoyodyne-ifd.429.153). With four slots busy, queue
-  # candidates' checks ran far slower than at low load (operator, 2026-11-11).
-  # Return it to 4 once both have landed.
-  max_concurrent_developers: 3  # slot 1 reliability, slot 2 product, slot 3 team development
+  # Temporarily 2, down from 3, until the merge queue lands about as fast as
+  # developers fill it: the race check off each candidate (yoyodyne-ifd.429.142,
+  # after the race job on main, yoyodyne-ifd.429.190) and checks on CI
+  # (yoyodyne-ifd.429.185, yoyodyne-ifd.429.186). From Nov 10 to Nov 15 the queue
+  # took in about 23 entries a day and landed about 7, and its checks run on this
+  # machine beside the developer runs (operator, 2026-11-15). The product slot
+  # is the one taken out; the reliability slot and the Sonnet trial slot stay.
+  # Return it to 3 once those have landed.
+  max_concurrent_developers: 2  # slot 1 reliability, slot 2 team development (Sonnet trial)
   # One developer slot prefers the reliability label, per the operator's
   # direction of 2026-09-19: bugs, anything that keeps the system from
   # stalling, and anything that keeps the system from making mistakes. The
@@ -128,11 +131,7 @@ execution:
   # change: it selects what a slot pulls first, and never what it may do.
   developer_slots:
     - prefer: [reliability]   # slot 1 pulls reliability-labelled work first
-    # Slot 2 pulls usability-, product- and performance-labelled work first:
-    # how the chat and dashboard behave for the operator, product features,
-    # and delivery metrics, which P0 fixes would otherwise crowd out.
-    - prefer: [usability, product, performance]
-    # Slot 3 is dedicated to team-development by the development manager's decision of October 28.
+    # Slot 2 is dedicated to team-development by the development manager's decision of October 28.
     # At the operator's direction of 2026-11-14 it trials Sonnet as its main developer model, with
     # sub-agents off, to see whether quality holds while using less of the weekly Opus limit; the
     # Opus-main, Sonnet-sub-agent trial (yoyodyne-wj4l) cost more without a quality gain. Opus is
@@ -411,6 +410,15 @@ checks:
   - make test CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
   - make race CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
   - make vet
+
+# The whole race check, run on main's head every execution.main_check_interval
+# (four hours by default) when main has moved, so the race check can come off
+# each merge-queue candidate (yoyodyne-ifd.429.142) without losing it. Decided by
+# the Lead Product Manager on 2026-11-16 (report-e0f46040, for
+# yoyodyne-ifd.429.190), under the queue-speed fixes the operator agreed on
+# 2026-11-15. docs/configuration.md, "The checks run on main", says how it runs.
+main_checks:
+  - make race
 
 # What a confirmed document's landing runs in place of the checks above: every
 # test whose result depends on the governed documents -- the product

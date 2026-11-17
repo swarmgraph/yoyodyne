@@ -909,6 +909,11 @@ type Outcome struct {
 	// have and its blocker says so; what was lost is the record a watching
 	// session holds its choosing on.
 	DivergedTargetProblem string `json:"diverged_target_problem,omitempty"`
+	// ScratchLinksProblem names every time a developer turn's links leading out
+	// of the Git directory could not be cleared from the run's scratch
+	// directory, joined. The run carried on exactly as it would have; what was
+	// lost is the git MCP server's use of the repository while they stay.
+	ScratchLinksProblem string `json:"scratch_links_problem,omitempty"`
 	// Invariants names the architectural invariants this run delivered to its
 	// developer and to its reviewer. It is the audit record of which durable
 	// constraints the change was actually held to, which is the thing a
@@ -4637,6 +4642,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			a.observeDevelopEnded(ctx, committed)
 			return committed
 		}
+		a.clearScratchLinks()
 		// A provider nobody is logged into or nobody can reach is answered before
 		// anything is counted, because what it asks for is the one wait that spends
 		// nothing: no relaunch, no repair attempt, no blocker. The refused attempt
@@ -5274,11 +5280,7 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 		if err != nil {
 			return fmt.Errorf("bind the developer summary to its change: %w", err)
 		}
-		a.state.SaveDeveloperSummary(runstate.DeveloperSummary{
-			Text:    runstate.RecordDeveloperSummary(a.outcome.Summary),
-			Content: content,
-			Attempt: a.state.RepairAttempts,
-		})
+		a.state.SaveDeveloperSummary(runstate.RecordDeveloperSummary(a.outcome.Summary, content, a.state.RepairAttempts))
 	}
 	// The account of the change is saved as soon as it is taken rather than with
 	// whatever the run does next, because a process that dies here still leaves
@@ -8986,6 +8988,22 @@ func (a *activeRun) prepareScratch() error {
 	return nil
 }
 
+// clearScratchLinks removes the links this run's turn left in its scratch
+// directory that lead outside the repository's Git directory, which would
+// otherwise have the git MCP server refuse every call on the repository
+// (execution.ClearOutwardScratchLinks says why). It runs after every developer
+// turn, before any MCP call the turn asked for is made. A failure does not end
+// the turn: the run's work is untouched by it, and what is lost is said on the
+// outcome.
+func (a *activeRun) clearScratchLinks() {
+	if a.scratch == "" {
+		return
+	}
+	if _, err := execution.ClearOutwardScratchLinks(a.pipeline.Repository, a.worktree.Path, a.state.RunID); err != nil {
+		a.outcome.ScratchLinksProblem = appendProblem(a.outcome.ScratchLinksProblem, err.Error())
+	}
+}
+
 // verifyPreservation looks at what is actually left of this run's branch and
 // checkout, so the failure note it is about to write says work is preserved only
 // where the repository agrees.
@@ -9736,6 +9754,9 @@ func (a *activeRun) developerSummaryForReview(ctx context.Context) (string, stri
 	} else {
 		context += " Its recorded content and base match the candidate."
 	}
+	if cut := summary.CutStatement(); cut != "" {
+		context += " " + cut
+	}
 	return summary.Text, context, nil
 }
 
@@ -9748,7 +9769,7 @@ func (a *activeRun) earlierDeveloperSummariesForReview() []review.AttemptSummary
 	}
 	var earlier []review.AttemptSummary
 	for _, summary := range a.state.EarlierDeveloperSummaries {
-		earlier = append(earlier, review.AttemptSummary{Attempt: summary.Attempt, Text: summary.Text})
+		earlier = append(earlier, review.AttemptSummary{Attempt: summary.Attempt, Text: summary.Text, Cut: summary.CutStatement()})
 	}
 	return earlier
 }
@@ -10306,6 +10327,8 @@ The reply you end on is the whole of what this run records about itself: the sum
 Never end a turn to wait on work you started in the background — a test suite, a timing run, a build. Nothing brings you back when it finishes: the turn you end is the end of your work, so whatever that work finds never reaches your reply. Run what you need in the foreground and wait for it within the turn; if something takes too long to run here, say so in your account instead. A turn that ends with processes you started still running is sent back to you once, in the same session and without spending a repair attempt; if the next turn ends the same way, the harness ends those processes and takes your reply as it stands.
 
 Each attempt's summary stands on its own. When you are handed your change back for a repair, the summary you end that attempt on says in full what the change does, why, and how you verified it, including anything an earlier attempt's summary said that still holds: never write "as described in the previous attempt" or point to an earlier summary instead of saying it. The reviewer is shown every attempt's summary, but it judges the latest one, and a summary that points elsewhere is one it cannot check.
+
+The harness keeps at most 16 KiB of your final summary — everything you write outside the fenced blocks below — and that is all the reviewer is shown of it. Past that it is cut, and the reviewer is told the harness cut it. Keep it well within that size, and answer the item's done-conditions before anything else in it.
 
 That boundary is enforced rather than trusted. The project's configuration directory and the homes its product artifacts, designs, and decision records live in are refused in your change: the harness compares what you touched against them before any check runs and before any reviewer sees the work, and hands the change back to you if it touches one of them. The only exception is a path this work item grants, on a line beginning ` + "`" + protectedpath.GrantMarker + "`" + ` in its title, description, design guidance, or acceptance criteria. Nothing you write grants a path, and neither does anything written into the item's notes, which is where a run's own record goes. If your work genuinely needs one, leave it alone and say so — the refusal you would get names the same thing this does.
 

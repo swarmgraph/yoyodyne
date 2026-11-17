@@ -32,7 +32,7 @@ package slack
 // where somebody chose to wait, and wrong in a channel, where the only thing
 // distinguishable from a slow answer is a dead sink. So one turn gets
 // DefaultConversationDeadline and then the thread is told what happened, whether
-// that is capacity, the conversation being held elsewhere, or anything else.
+// that is capacity, the wait running out, or anything else.
 //
 // The shape of that bound is the point, and a deadline on a context is not it. A
 // context is a request to stop, and a callee that does not answer one — a
@@ -46,18 +46,19 @@ package slack
 // What that costs is stated rather than hidden. A call nobody is listening to
 // any more is still running and still holding the durable conversation, so the
 // turn's own guard is given back by the call when it finishes rather than by the
-// wait when it gives up — a message arriving in between is told the product
-// manager is still answering, which is true, instead of being sent to contend
-// for a lease it cannot win. The terminal meets the same hold: `yoyo chat`
-// queues behind a turn in flight and says so, so the overdue answer says that
+// wait when it gives up — a message arriving in between is queued behind it,
+// and told so, instead of being sent to contend for a lease it cannot win. The
+// terminal meets the same hold: `yoyo chat` queues behind a turn in flight and
+// says so, so the overdue answer says that
 // rather than sending the operator to a client that will make them wait without
 // having been told why. The abandoned call is deliberately not something the
 // sink's shutdown waits on: waiting on it is the hang this exists to remove.
 //
-// One turn at a time, said out loud. The durable conversation admits one holder,
-// so a second turn started while one is running would be refused by the lease
-// rather than queued; this refuses it a moment earlier and in words, which is the
-// same answer with somebody actually told.
+// One turn at a time, and the rest queued. The durable conversation admits one
+// holder, so a message that arrives while a turn is running — this sink's own, or
+// one held by another client — is kept in this sink's queue, told so in its
+// thread, and passed on once that turn ends, in the order such messages arrived.
+// queue.go holds that.
 //
 // And it runs off the connection. The connection is a read loop Slack expects to
 // keep reading, so a turn taken on it would hold every other message in the
@@ -72,7 +73,6 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/notify"
-	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // Conversation is the durable operator conversation this door speaks into: one
@@ -131,13 +131,6 @@ const DefaultConversationDeadline = config.DefaultSlackTurnTimeLimit
 // where the conversation actually is, because the whole point of it being one
 // conversation is that a client that could not answer is not the end of it.
 const (
-	conversationBusy = "The Lead Product Manager is already answering something else in this conversation — say it again once that lands, or carry on at `yoyo chat`."
-	// conversationHeld is a turn in flight in some other client — a `yoyo chat`
-	// answering at a terminal, or the harness delivering something. A `yoyo chat`
-	// waiting at its prompt is not one: what the conversation holds exclusive is a
-	// turn rather than a window, so what ends this is that turn landing rather
-	// than anybody closing anything.
-	conversationHeld = "The Lead Product Manager is mid-turn with another client right now — a `yoyo chat` answering at a terminal, or the harness delivering something to it — so nothing was said to it. Say it again once that turn lands; a `yoyo chat` waiting at its prompt does not hold the conversation, only one that is answering does."
 	// conversationOverdue is the bounded wait running out. The turn may yet land,
 	// and until it does it holds the conversation: `yoyo chat` does not read a
 	// turn that is still being written, it queues behind it and says so, and
@@ -175,20 +168,13 @@ const (
 // path out of the turn either answers in the thread or says in the sink's log why
 // it could not.
 func (s *steering) converse(ctx context.Context, message inboundMessage, said string) {
-	if !s.begin() {
-		s.answerOnce(ctx, message, conversationBusy, "a turn already in flight")
-		return
-	}
 	s.sink.log("this app was addressed by %s outside its own threads, saying %q, and is taking it to the Lead Product Manager",
 		message.user, singleLine(message.text, maxAskedBytes))
-	s.carry(ctx, message, said)
+	s.send(ctx, message, said)
 }
 
 // carry takes one thing said to the product manager, on a goroutine of its own,
-// with the turn already begun by whoever is calling. It is the half of converse
-// a question in a work item's thread shares: that door takes the turn before it
-// posts the receipt promising an answer, so that a turn it cannot take is a
-// refusal and never a promise.
+// with the turn already begun by whoever is calling, which is send in queue.go.
 //
 // Only the wait is counted. What the sink's shutdown waits for is the thread
 // being answered, which always happens; the call underneath may still be
@@ -202,9 +188,14 @@ func (s *steering) carry(ctx context.Context, message inboundMessage, said strin
 }
 
 // spoken is one finished call, carried back from the goroutine that made it.
+// queued says the call found the conversation held and put the message back on
+// the queue, and queueErr that it could not.
 type spoken struct {
-	answer Answer
-	err    error
+	answer   Answer
+	err      error
+	queued   bool
+	ahead    int
+	queueErr error
 }
 
 // take is one turn: the thinking face while it runs, the answer when it lands,
@@ -215,6 +206,22 @@ func (s *steering) take(ctx context.Context, message inboundMessage, said string
 	// not-listening. It is never a gate: a workspace that will not take a mark
 	// costs the message its mark and nothing else.
 	s.markIn(ctx, s.sink.conversationOf(message), message.ts, notify.ReceiptUnderConsideration)
+	came, bounded, landed := s.call(ctx, message, said, true)
+	if !landed {
+		s.gaveUp(ctx, message, bounded)
+		return
+	}
+	s.came(ctx, message, bounded, came)
+}
+
+// call makes one call to the conversation with the turn already begun, and
+// gives the turn back when the call finishes. It reports what came back, the
+// bounded context the call ran under, and whether the call finished inside the
+// deadline at all. requeue is set for a message carried straight from the
+// channel: one that finds the conversation held elsewhere is put back at the
+// front of the queue before the turn is given back, so nothing queued behind it
+// can be delivered first.
+func (s *steering) call(ctx context.Context, message inboundMessage, said string, requeue bool) (spoken, context.Context, bool) {
 	bounded, stop := context.WithTimeout(ctx, s.deadline)
 	// The call goes beside the wait rather than inside it, so what the operator
 	// waits for is this function's own deadline and not the callee's willingness
@@ -226,31 +233,49 @@ func (s *steering) take(ctx context.Context, message inboundMessage, said string
 		// Both of these belong to the call rather than to the wait: the context is
 		// released when the call it bounds is actually over, and the turn's guard
 		// is given back then too, so a message arriving while an abandoned call is
-		// still running is told the product manager is busy instead of being sent
-		// to contend for a conversation it cannot have.
+		// still running is queued behind it instead of being sent to contend for a
+		// conversation it cannot have.
 		defer stop()
+		// A turn carried straight from the channel may have had messages queued
+		// behind it, so once it has given the turn back the queue is woken to pass
+		// them on at once. The queue's own tries do not wake it, so a try that has
+		// to wait waits for the retry interval rather than running again at once.
+		if requeue {
+			defer s.nudge()
+		}
 		defer s.finish()
 		answer, err := s.conversation.Say(bounded, said)
-		spoke <- spoken{answer: answer, err: err}
+		came := spoken{answer: answer, err: err}
+		if requeue && heldOnly(came) {
+			came.ahead, came.queueErr = s.requeue(message, said)
+			came.queued = came.queueErr == nil
+		}
+		spoke <- came
 	}()
 	select {
 	case came := <-spoke:
-		s.came(ctx, message, bounded, came)
+		return came, bounded, true
 	case <-bounded.Done():
 		// An answer that landed in the same instant the wait ran out is still an
 		// answer, and a select between two ready cases picks at random. So the call
 		// is asked once more before the thread is told nothing came.
 		select {
 		case came := <-spoke:
-			s.came(ctx, message, bounded, came)
+			return came, bounded, true
 		default:
-			s.gaveUp(ctx, message, bounded)
+			return spoken{}, bounded, false
 		}
 	}
 }
 
 // came reports one call that finished: what it said, and what stopped it.
 func (s *steering) came(ctx context.Context, message inboundMessage, bounded context.Context, came spoken) {
+	// A message that found the conversation held is waiting rather than failed,
+	// and the thread is told so.
+	if came.queued {
+		s.toldQueued(ctx, message, came.ahead)
+		return
+	}
 	// What the turn managed to say before it failed is worth reading, so it goes
 	// into the thread ahead of the account of the failure rather than behind it.
 	if text := strings.TrimSpace(came.answer.Text); text != "" {
@@ -332,8 +357,8 @@ func (s *steering) failed(ctx context.Context, message inboundMessage, bounded c
 	switch {
 	case errors.Is(bounded.Err(), context.DeadlineExceeded):
 		s.answerOnce(ctx, message, fmt.Sprintf(conversationOverdue, s.deadline), "the wait running out")
-	case errors.Is(came.err, runstate.ErrConversationHeld):
-		s.answerOnce(ctx, message, conversationHeld, "the conversation being held elsewhere")
+	case came.queueErr != nil:
+		s.answerOnce(ctx, message, fmt.Sprintf(conversationUnqueued, came.queueErr), "why it could not be queued")
 	case came.answer.Harness:
 		s.answerOnce(ctx, message, fmt.Sprintf(decisionFailed, came.err), "why the decision could not be carried out")
 	default:
@@ -353,7 +378,9 @@ func (s *steering) begin() bool {
 	return true
 }
 
-// finish gives it back.
+// finish gives it back. It does not wake the queue: the queue's own tries end
+// here too, and a try that woke the queue would be followed by another at once,
+// forever. A turn carried straight from the channel wakes it instead, in call.
 func (s *steering) finish() {
 	s.turn.Lock()
 	defer s.turn.Unlock()

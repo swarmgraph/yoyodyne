@@ -133,7 +133,7 @@ func TestARecurringPassKeepsTheAgentsEffortOnTheTasksModel(t *testing.T) {
 		t.Fatalf("NewConversationStore() error = %v", err)
 	}
 	provider := &effortRecordingBackend{}
-	open := func(_ context.Context, role domain.AgentRole, _, model string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
+	open := func(_ context.Context, _ func() context.Context, role domain.AgentRole, _, model string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 		prepared := preparedChat{
 			parts:    components{config: cfg},
 			name:     "development-manager",

@@ -302,6 +302,7 @@ landing_checks: []  # what runs whole, once per landing; see "Where the whole su
 path_checks: []     # checks a change runs only when it touches what they vouch for
 install: []         # what installs the project's dependencies; see configuration/runs.md
 document_checks: [] # what a confirmed document's landing runs; see "The document checks"
+main_checks: []     # what runs whole on the branch's head every four hours; see "The checks run on main"
 
 accounts:
   default: {}       # the provider account the agents below run under
@@ -3689,6 +3690,43 @@ to a developer, and the document goes back to its owner as any document that
 did not land does. An entry with no command is refused when the
 configuration loads, and `document_landings` may not be negative.
 
+### The checks run on main
+
+`main_checks` is a list the supervisor runs whole on the head of the branch
+runs land on, on a schedule of its own: every `execution.main_check_interval`,
+four hours unless you say otherwise, and only when the branch has moved since
+the last run. It is for a check you have taken off each change and want run on
+what has landed instead, such as a race detector over the whole module.
+
+```yaml
+main_checks:
+  - make race
+execution:
+  main_check_interval: 4h   # the default; at least 30m
+```
+
+Each run reads where the remote has the branch, fetches it, and checks that
+commit out in a worktree of its own under the product's state directory. It
+never touches your checkout and never moves a branch. Where the remote cannot
+be reached it checks the local branch and says so in the run's record. Every
+check runs whole there with `execution.landing_check_timeout` as its budget and
+no bound on the list, and waits for a place like any other check where
+`execution.heavy_checks` names it. The worktree is removed afterwards.
+
+Every run is recorded with the commit, when it started and ended, and how each
+check ended, and `yoyo status` says when the branch last passed and what the
+latest run came to where it did not pass. A failure is not run again to make it
+pass. It files a critical report naming the commit, the failing tests, the last
+commit the checks passed on, and the commits that landed between them. The next
+run waits for the branch to move. A check that could not run is recorded as
+such, files nothing, and the same commit is tried again at the next interval.
+
+The schedule is kept in that record, so the supervisor restarting does not
+start a run early: the next run is due an interval after the latest one
+started. While a run is under way the supervisor waits for it to finish before
+it moves onto a new build. A project that lists no `main_checks` runs nothing
+on its branch. Both keys may be changed by the development manager.
+
 ### A check that could not run
 
 A check can end a third way besides passing and failing: it could not run at
@@ -3876,9 +3914,13 @@ thirteen in the same order, and a test fails when the two lists differ:
    readable, and only the architect's removal of the label releases it; a run
    already going on the item carries on, and one you name is not held.
 7. **A hold** withholds an item whose stopped run left its change on a branch,
-   or whose publication did not finish, until the development manager's
-   decision is carried out, the escalation is answered, or `yoyo reconcile`
-   settles the publication.
+   or whose publication did not finish, or whose approved change is still in
+   the merge queue, until the development manager's decision is carried out,
+   the escalation is answered, `yoyo reconcile` settles the publication, or the
+   queue lands the change or records handing it back on the run. A queue entry
+   that was released but whose hand-back the run does not record still holds
+   the item, so its blocked status is never cleared as left over and no fresh
+   run starts beside the approved change.
 8. **A step only a person can take** withholds an item that declares a
    `human-gate:` nobody has recorded taking, and only a person's
    `yoyo gate record <name> --for <item>` releases it; closing an item never does.
@@ -4706,8 +4748,10 @@ the session that comes back to land it. A run with a check running is left to
 finish that check — up to
 [`check_timeout`](#what-a-whole-check-stage-may-cost) as configured, or the
 shorter limit the check was given, however far the machine's load has scaled
-it or `check_stage_timeout` — and stops before its next check, so a new build
-never makes a check start over; a run waiting for a heavy check's place or
+it or `check_stage_timeout`, or ten minutes past the bound, whichever comes
+first — and stops before its next check, so a check that ends inside that wait
+is not started over on the new build; a check still running ten minutes past
+the bound is stopped and runs again on the new build; a run waiting for a heavy check's place or
 between checks is stopped at the bound. Every check that
 passed before the stop keeps its result, so the session that comes back runs
 only the checks that had not finished — and only when the change is exactly the
@@ -4723,7 +4767,7 @@ session waited two hours on one run's race suite under load, with its second
 seat empty and two recurring passes missed — a wait the restart drain limit
 caps at fifteen minutes by default, independently of load, apart from the one
 check a run is on, which is waited for no longer than `check_timeout` as
-configured. What a run the bound stops loses is the
+configured or ten minutes past the bound, whichever comes first. What a run the bound stops loses is the
 minutes its current phase had spent, and a developer attempt and a review
 resume where they were. Set it longer if that trade is wrong for your project, and never to
 nothing — a drain with no bound is the wait this exists to end, and the
@@ -6812,6 +6856,24 @@ candidate branch are deleted from the remote on the commit the harness last put
 there, so neither is left open; a failure to tidy them is said on the queue's
 pass and holds the landing up in nothing.
 
+**The next entry is checked while the first one is.** On a target the harness
+moves itself, in a project that does not publish, a candidate lands as exactly
+its own commit, so the queue builds the next waiting entry's candidate on top
+of the first entry's candidate, as if it lands, and runs its protected-path
+check, checks and review beside the first one's. It checks at most one entry
+ahead, and the pass lands the first entry once both are done. The candidate
+checked ahead is a commit of its own with its own recorded base, and its
+evidence is bound to it alone; it lands only if, as the promotion lease is
+taken, the target is exactly the commit it was built on. Where the entry before
+it fails, is withdrawn or handed back, or lands as any other commit, the
+candidate checked ahead is thrown away — recorded as `base_not_landed` — and
+built again on the target as it stands, and nothing is charged to its change;
+nothing found on it is handed back on its own account, and a check that fails
+on it is run on its base only once that base is the target. A project that
+publishes lands every candidate through a pull request, and the forge lands
+that with a merge commit of its own above the candidate, so the target never
+becomes the candidate: nothing is checked ahead there.
+
 **The candidate's checks and review pass the doors a run's do.** Nothing starts
 while the operator has paused harness activity (`yoyo pause`), and the review
 also waits out a provider nobody can reach, a usage limit already known for its
@@ -6947,11 +7009,23 @@ at a time: each step takes the queue's own worker lease, which is not the
 promotion lease, so a second session finds the queue taken and leaves it. Queues
 for different target branches move independently. A pass ends on its own — when
 nothing can move, when what is left waits on the operator, a provider or the
-forge, or when it stops on something that needs a look — and a session draining
-to restart into a new build waits for its passes like its recurring firings, and
+forge, or when it stops on something that needs a look. A pass that ends
+waiting goes round again by itself a minute later, without waiting for the
+session's next pull, so a merge the forge makes is noticed within a few minutes
+however long the session's pulls take while the tracker is slow. Recording a
+landing on its work item may take at most a minute; where the tracker has not
+answered by then, the queue goes on to the next entry and records the work item
+at a later pass, so a slow tracker never holds the next candidate. Each time a
+candidate's checks begin, the queue writes beside itself how long it waited
+since its last landing — from the forge's own merge time where the forge gave
+one — so the queue's weekly figures can count it. A session draining to restart
+into a new build stops its passes going round, waits for them like its recurring
+firings, and
 stops them past the drain bound — except a pass whose candidate's checks are
 running, which is let finish them, each check up to its configured
-`check_timeout`, so the check under way is not thrown away. A stage stopped
+`check_timeout`, so the check under way is not thrown away — and none for more
+than ten minutes past the drain bound, when the pass is stopped and the session
+restarts. A stage stopped
 part-way keeps the checks that had already passed, as long as the candidate's
 commit and its list of checks are unchanged, and the session that comes back
 runs only the others, the one cut off included; the cut-off check is recorded
@@ -7158,8 +7232,8 @@ agents:
 
 | Key | Who it is for | What it bounds | Default | Range |
 | --- | --- | --- | --- | --- |
-| `turn` | an agent that holds a conversation | One provider turn in the agent's conversation; it is the provider call's own total time. A recurring pass that wakes the agent waits for the conversation and takes its turn within it too. | 15 minutes | 1 minute to 4 hours |
-| `message` | an agent that holds a conversation | The elapsed time of one message, however many turns answering it takes, not counting time spent waiting out a provider that refused. | 45 minutes | 2 minutes to 8 hours |
+| `turn` | an agent that holds a conversation | One provider turn in the agent's conversation; it is the provider call's own total time. A recurring pass that wakes the agent starts counting it once the pass holds the conversation, so time spent waiting for the conversation to be free does not count against it. | 15 minutes | 1 minute to 4 hours |
+| `message` | an agent that holds a conversation | The elapsed time of one message, however many turns answering it takes, not counting time spent waiting out a provider that refused. It also bounds how long a recurring pass's turn may wait for the agent's conversation to be free; a pass whose wait reaches it is recorded as missed. | 45 minutes | 2 minutes to 8 hours |
 | `message_turns` | an agent that holds a conversation | How many provider turns one message may take. | 16 | 1 to 100 |
 | `message_spend_usd` | an agent that holds a conversation | What one message's turns may cost, where the provider reports a cost. | none | above 0 to 1000 |
 | `slack_turn` | an agent that holds a conversation | One turn taken from the Slack channel, from the message arriving to the answer being posted. The channel talks only to the Lead Product Manager, so hers is the one that applies. | 10 minutes | 1 minute to 4 hours |
@@ -7327,15 +7401,19 @@ in a row stop the record.
 
 ## MCP servers, and the tools each agent may ask for
 
-A project can declare MCP servers and list, for each agent, the exact tools that
-agent may ask the harness to call on its behalf
+A project can declare MCP (Model Context Protocol) servers, programs that offer
+named tools, and list, for each agent, the exact tools that agent may ask the
+harness to call on its behalf
 ([the design](designs/mcp-tools-through-the-harness.md)). No agent ever holds a
 server, a connection to one, or its credentials: the harness makes every call
 itself. **In this build a conversation — the Lead Product Manager, the
 architect, the development manager, or a program manager — can ask for the
-tools on its own agent's list; a developer run cannot ask yet.** A project that
+tools on its own agent's list, and a developer run can ask for the read tools
+on its own agent's list.** A project that
 says nothing has no servers and no lists, and runs exactly as it did before the
-keys existed.
+keys existed. [Using MCP servers](mcp.md) is the setup guide, in order, with a
+worked example to copy, and says what a result sent to an AI provider means for
+private data.
 
 ```yaml
 mcp:
@@ -7382,9 +7460,28 @@ agents:
   at your terminal with that folder as its working directory and its home. It
   is refused to a process the harness started for a role. A server with no
   login prints the command that stores its credential instead.
+- **A server confined to this repository** sees the repository's whole `.git`
+  directory, developer runs' scratch directories included. The official git
+  server, started with `--repository`, refuses every call while any symbolic
+  link in there leads outside the repository. So after each developer turn the
+  harness removes from that run's scratch directory every link leading outside
+  `.git`, such as the links to its own program the Codex CLI leaves under a
+  provider home made there. A link left by something else, or in a scratch
+  directory whose run has ended, stays until it is removed by hand or with its
+  worktree.
 - `yoyo config show` reports each agent's MCP tools beside its other tools, and
   `yoyo doctor` reports each server whose credential is missing, naming the
   server and the command to run. A missing credential stops nothing else.
+- **The record of calls** is kept under the product's state directory, in
+  `mcp-calls/`, one entry per call, and stays on this machine. `yoyo mcp calls`
+  lists it by who asked, the tool, and how each call ended, and prints a call's
+  arguments and result only for `--entry` or `--json`, which a process the
+  harness started for a role is refused. `yoyo status` and the dashboard show
+  the last 24 hours of calls by tool and outcome and never what a call sent or
+  returned; neither does anything the harness writes to the tracker or Slack.
+- **A server whose tool listing changes** from the one it gave at its last call
+  gets one note filed for the development manager, naming the server and the
+  two listings' digests.
 - Both keys are yours alone: a role's write to the configuration is refused for
   `mcp` and for any agent's `mcp_tools`.
 - **How a conversation asks.** An agent with tools on its list is told, in its

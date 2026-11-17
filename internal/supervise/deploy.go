@@ -115,6 +115,10 @@ func (b *DeployedBinary) Revision() (string, error) {
 	return revision, nil
 }
 
+// Written is when the binary was written, as the last good reading found it:
+// when the build it is landed on disk.
+func (b *DeployedBinary) Written() time.Time { return b.modTime }
+
 // Revision reads the revision a Go binary was built from out of the file, and
 // nothing where the build recorded none.
 func Revision(path string) (string, error) {
@@ -143,6 +147,20 @@ func (s *Supervisor) readDeployed() {
 		return
 	}
 	s.deployed = revision
+	s.deployedAt = s.Binary.Written()
+}
+
+// behindWait is what the record says the supervisor itself waits for before it
+// moves onto the deployed build, and nothing where it is on that build or
+// either build cannot be told.
+func (s *Supervisor) behindWait() string {
+	if s.Build == "" || s.deployed == "" || s.Build == s.deployed {
+		return ""
+	}
+	if s.takeUpWait != "" {
+		return s.takeUpWait
+	}
+	return "at its next look"
 }
 
 // deploy is one running child against the binary on disk: its build noted, and

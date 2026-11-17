@@ -41,6 +41,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
+	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/doctor"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -48,6 +49,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/forgecheck"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/launchd"
+	"github.com/mason-bryant/yoyodyne/internal/maincheck"
 	"github.com/mason-bryant/yoyodyne/internal/maintain"
 	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -106,6 +108,10 @@ type product struct {
 	// agent is this product's launch agent on a machine with launchd, and nil
 	// elsewhere and in a product assembled by a test.
 	agent *launchd.Agent
+	// verifies says whether this process can verify GitHub's certificate, and
+	// why not where it cannot (internal/cli/forgetrust.go). It is nil in a
+	// product assembled by a test that is not about it, which checks nothing.
+	verifies func() error
 }
 
 func runStart(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -202,6 +208,7 @@ func openProduct(configPath string) (*product, error) {
 		p.agent = launchd.AgentFor(resolved.Config.Product.ID, launchd.Controller{Runner: execution.OSProcessRunner{}, UserHomeDir: os.UserHomeDir, Getuid: os.Getuid})
 	}
 	p.children = p.realChildren
+	p.verifies = forgeTrustProbe
 	return p, nil
 }
 
@@ -263,6 +270,14 @@ func (p *product) start(ctx context.Context, stdout, stderr io.Writer, jsonOutpu
 	// launched rather than two.
 	if started, handled := p.startThroughAgent(ctx, stdout, stderr, jsonOutput, logRoot, logPath, retired, retireProblem); handled {
 		return started
+	}
+	// A supervisor detached from here is in whatever sandbox this command is,
+	// and so is every part it starts.
+	if p.verifies != nil {
+		if err := p.verifies(); err != nil {
+			fmt.Fprintln(stderr, forgeTrustRefusal(err))
+			return 1
+		}
 	}
 	pid, err := p.launcher.Launch(slack.Launch{
 		Program: p.program,
@@ -448,6 +463,7 @@ func (p *product) supervise(ctx context.Context, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "start failed: %v\n", err)
 		return 1
 	}
+	p.checkForgeTrust(log)
 	copies, err := runstate.NewConfigReaderStore(p.stateRoot, p.resolved.Config.Product.ID)
 	if err != nil {
 		fmt.Fprintf(stderr, "start failed: %v\n", err)
@@ -510,6 +526,33 @@ func (p *product) supervise(ctx context.Context, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// checkForgeTrust says in the supervisor's log, and once in a report, that this
+// supervisor cannot verify GitHub's certificate. It does not stop the
+// supervisor: the parts that need no forge still run, and the report says what
+// a person has to do.
+func (p *product) checkForgeTrust(log func(format string, args ...any)) {
+	if p.verifies == nil {
+		return
+	}
+	problem := p.verifies()
+	if problem == nil {
+		return
+	}
+	log("the supervisor cannot verify GitHub's certificate: %v; every check of GitHub its parts make fails until the product is started again from an ordinary terminal or through its launch agent", problem)
+	reports, err := runstate.NewReportStore(p.stateRoot, p.resolved.Config.Product.ID)
+	if err != nil {
+		log("the report that the supervisor cannot verify GitHub's certificate could not be filed: %v", err)
+		return
+	}
+	filed, err := reportForgeTrust(reports, p.resolved.Config.Product.ID, string(p.resolved.Config.Product.RepositoryID), p.build(), problem, p.now())
+	switch {
+	case err != nil:
+		log("the report that the supervisor cannot verify GitHub's certificate could not be filed: %v", err)
+	case filed != "":
+		log("filed %s for the development manager: the supervisor cannot verify GitHub's certificate", filed)
+	}
 }
 
 // selfBinary is the binary this process is running, for re-executing into a
@@ -693,6 +736,13 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 	if check, ok := p.forgeCheck(repository, log); ok {
 		residents = append(residents, check)
 	}
+	mainCheck, err := p.mainCheck(repository, log)
+	if err != nil {
+		return nil, nil, err
+	}
+	if mainCheck != nil {
+		residents = append(residents, mainCheck)
+	}
 	maintenance := p.resolved.Config.Services.Maintenance
 	if !maintenance.Enabled {
 		return residents, nil, nil
@@ -738,6 +788,9 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 	// not nil, and the pass reads a nil rebuilder as the reason above.
 	if rebuilder != nil {
 		pass.Rebuild = rebuilder
+	}
+	if mainCheck != nil {
+		pass.MainCheck = mainCheck
 	}
 	if p.runner != nil {
 		cutter, err := p.releaseCutter(repository, reports)
@@ -817,6 +870,49 @@ func (p *product) forgeCheck(repository string, log func(format string, args ...
 		Now:        p.now,
 		Log:        log,
 	}, true
+}
+
+// mainCheck is the run of the project's main_checks on the head of the branch
+// runs land on, on a schedule of its own every execution.main_check_interval,
+// whether or not the maintenance pass is enabled (internal/maincheck). A
+// project that lists no main checks, or a supervisor with no process runner,
+// has none, and nil is returned with no error.
+func (p *product) mainCheck(repository string, log func(format string, args ...any)) (*maincheck.Check, error) {
+	cfg := p.resolved.Config
+	if p.runner == nil || len(cfg.MainChecks) == 0 {
+		return nil, nil
+	}
+	runs, err := runstate.NewMainCheckStore(p.stateRoot, cfg.Product.ID)
+	if err != nil {
+		return nil, err
+	}
+	reports, err := runstate.NewReportStore(p.stateRoot, cfg.Product.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &maincheck.Check{
+		Every:      cfg.Execution.MainCheckEvery(),
+		Commands:   append([]string(nil), cfg.MainChecks...),
+		Repository: repository,
+		Remote:     cfg.Execution.Remote,
+		WorkRoot:   filepath.Join(home.ProductDirectory(p.stateRoot, string(cfg.Product.ID)), "main-check"),
+		Git:        p.runner,
+		Checks: checks.Runner{
+			Process:           p.runner,
+			Timeout:           cfg.Execution.LandingCheckTimeout.Duration(),
+			RedactValues:      execution.SensitiveEnvironmentValues(p.environ),
+			HiddenExecutables: providerExecutables(cfg),
+			Permits:           heavyCheckPermits(cfg, p.stateRoot, p.runner),
+		},
+		CheckTimeout: cfg.Execution.LandingCheckTimeout.Duration(),
+		Runs:         runs,
+		Reports:      reports,
+		Product:      cfg.Product.ID,
+		RepositoryID: string(cfg.Product.RepositoryID),
+		Build:        buildinfo.Commit(),
+		Now:          p.now,
+		Log:          log,
+	}, nil
 }
 
 // releaseCutter is the maintenance pass's release step: a release the Lead

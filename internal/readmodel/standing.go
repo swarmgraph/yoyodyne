@@ -384,11 +384,17 @@ type Sources struct {
 	// label, for the factory problems and the queue's refusal. Optional: a
 	// reading without it shows each waiting item without the time.
 	NeedsDesignLabelled NeedsDesignLabelled
-	RestartRequests     RestartRequests
-	LaneReports         LaneReports
-	Passes              Passes
-	Exchanges           Exchanges
-	FirstSeen           FirstSeen
+	// MCPCalls is the record of the MCP calls the harness made, counted with no
+	// content (mcpcalls.go); nil reads none.
+	MCPCalls MCPCallRecord
+	// MainChecks is the record of the checks run on the head of the target
+	// branch (maincheck.go); nil reads none.
+	MainChecks      MainCheckRecord
+	RestartRequests RestartRequests
+	LaneReports     LaneReports
+	Passes          Passes
+	Exchanges       Exchanges
+	FirstSeen       FirstSeen
 	// PassRequests is the requests made for each instance's pass, so whoever
 	// asked can read what became of one. Optional: a reading without it carries
 	// no instance's requests.
@@ -816,6 +822,13 @@ type Standing struct {
 	// taken. SlotHoldersProblem is why it could not be read.
 	SlotHolders        []runstate.SlotHolder `json:"slot_holders,omitempty"`
 	SlotHoldersProblem string                `json:"slot_holders_problem,omitempty"`
+	// EmptySlots is the scheduler's account of the developer slots it left
+	// empty while ready work waited, where one stands (emptyslots.go): the
+	// reason in its words, the slots, the ready items it passed over and why,
+	// since when, and who moves it. The running line says it as a problem.
+	// EmptySlotsProblem is why the watch log could not be read for it.
+	EmptySlots        *EmptySlots `json:"empty_slots,omitempty"`
+	EmptySlotsProblem string      `json:"empty_slots_problem,omitempty"`
 	// HeldLine is the brake's hold on new work with what it is costing, and nil
 	// where the brake holds nothing. It is what every pass of the development
 	// manager's is shown while the hold stands (heldline.go).
@@ -984,6 +997,15 @@ type Standing struct {
 	// this reading.
 	LandingHolds        []runstate.LandingHold `json:"landing_holds,omitempty"`
 	LandingHoldsProblem string                 `json:"landing_holds_problem,omitempty"`
+	// MCPCalls is the MCP calls of the last day, by tool and outcome, with no
+	// content; nil where the product has made none. See mcpcalls.go.
+	MCPCalls        *MCPCalls `json:"mcp_calls,omitempty"`
+	MCPCallsProblem string    `json:"mcp_calls_problem,omitempty"`
+	// MainChecks is when the target branch last passed the checks run on its
+	// head, and what the latest run came to; nil where none has run. See
+	// maincheck.go.
+	MainChecks        *MainChecks `json:"main_checks,omitempty"`
+	MainChecksProblem string      `json:"main_checks_problem,omitempty"`
 
 	// Titles is this reading's one listing of the tracker, which the rendered
 	// lines show every work item they name against. It is nil where no tracker
@@ -1125,6 +1147,20 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		standing.NotStartableForOperator = ForOperator(waits.groups)
 	}
 	standing.NotStartableProblem = notStartableProblem
+	slots := emptySlotsReading{free: -1, startable: standing.Startable, intake: switches.intake, held: switches.intakeHeld}
+	if notStartableProblem != "" {
+		slots.startable = -1
+	}
+	if runningProblem == "" && sources.Capacity > 0 {
+		busy := len(standing.Dispatching)
+		for _, run := range running {
+			if !run.documentLanding && run.HoldsNoSlot == "" {
+				busy++
+			}
+		}
+		slots.free = max(sources.Capacity-busy, 0)
+	}
+	standing.EmptySlots, standing.EmptySlotsProblem = readEmptySlots(sources, slots)
 	// The provider's usage window is read out of the same stall the refusals are
 	// worded from, rather than derived a second time here: one reading of one
 	// silence, said in two places, is the rule this whole package holds.
@@ -1283,6 +1319,8 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.ConversationPasses, standing.ConversationPassesProblem = ReadConversationPasses(sources)
 	standing.MergeQueues, standing.MergeQueuesProblem = ReadMergeQueues(sources.MergeQueues)
 	standing.LandingHolds, standing.LandingHoldsProblem = ReadLandingHolds(sources.LandingHolds, sources.now())
+	standing.MCPCalls, standing.MCPCallsProblem = ReadMCPCalls(sources.MCPCalls, now)
+	standing.MainChecks, standing.MainChecksProblem = ReadMainChecks(sources.MainChecks)
 	needs = append(needs, standing.Services.Attention()...)
 	needsProblem = joinProblems(needsProblem, standing.ServicesProblem)
 	// A running part whose build cannot read a key the configuration now
