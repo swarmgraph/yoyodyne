@@ -110,7 +110,8 @@ type MainCheckRun struct {
 	// Detail is what the run as a whole said: why it could not run, or where
 	// the head was read from when the remote could not be reached.
 	Detail string `json:"detail,omitempty"`
-	// ReportID is the report a failed run filed, where it filed one.
+	// ReportID is the report a failed run, or the first of a stretch of runs that
+	// could not run, filed, where it filed one.
 	ReportID string `json:"report_id,omitempty"`
 }
 

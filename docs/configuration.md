@@ -3722,7 +3722,11 @@ latest run came to where it did not pass. A failure is not run again to make it
 pass. It files a critical report naming the commit, the failing tests, the last
 commit the checks passed on, and the commits that landed between them. The next
 run waits for the branch to move. A check that could not run is recorded as
-such, files nothing, and the same commit is tried again at the next interval.
+such, files a warning naming the commit and the reason (once for a stretch of
+tries on one commit), and is tried again ten minutes later rather than at the
+next interval; the regular schedule is unchanged. Before each run, anything an
+earlier run left at its own checkout path, including a half-written one that
+Git no longer lists, is removed, and the checkout itself is given ten minutes.
 
 The schedule is kept in that record, so the supervisor restarting does not
 start a run early: the next run is due an interval after the latest one
@@ -3774,8 +3778,26 @@ are `document_checks`, not these.
 `execution.ci_checks` is the switch for moving most of a run's testing to the
 forge, described in `docs/designs/checks-on-ci.md`. It is off by default, and
 off (or absent) a run's checks, timing and records are exactly what they were.
-This setting is only the switch and its validation; the push, the wait and the
-reading of results arrive in later builds.
+This setting is the switch and its validation. The GitHub adapter can push a
+run's branch, open or update its draft pull request, and read each required
+check's result and a failing check's output for a named commit.
+
+With the switch on, a developer run's checks before review are only the ones
+named in `local`. When they pass, the harness pushes the candidate commit,
+opens or updates its draft pull request, and records the wait on the run: the
+commit, the push time and the required checks. The run then holds no developer
+slot. `yoyo status` and the dashboard list it as waiting for CI, with the time
+waited. A watching `yoyo work` session reads the forge for that exact commit
+about once a minute and continues the run when every required check has passed,
+when one has ended any other way, or when `wait_limit` has passed since the
+push. Review starts only after every required check passed on that commit. Until the forge's results are themselves integration evidence (a later build), the full checks also run on this machine over the approved candidate before it is promoted, as they do for any change checked in part. A
+restart during the wait pushes nothing and carries on with the same wait.
+
+When the wait ends without a pass, or the switch is turned off during it, the
+run runs the full declared checks on this machine over the same commit and goes
+on from their result. A required check that failed on the forge is not yet
+handed to the developer with its output; the recorded failure and the other
+stages of the flow arrive in later builds.
 
 ```yaml
 execution:
@@ -3792,8 +3814,8 @@ execution:
 - `required` must not be empty while `enabled` is true.
 - `enabled: true` is refused when the project's forge adapter cannot push a
   branch, open a draft pull request, and read check results and output for a
-  named commit. The refusal names what is missing. The GitHub adapter cannot yet
-  open a draft pull request, so the switch cannot be turned on until it can.
+  named commit. The refusal names what is missing. The GitHub adapter, the only
+  one shipped, does all four.
 - `wait_limit` is 1h when not set.
 
 `yoyo config show --origins` says which file each value came from.
@@ -7108,7 +7130,16 @@ still land the change, and leaves a request with no recorded answer to the next
 pass, which looks at what it did first. `hand-back` withdraws whatever the queue
 asked the forge for, as a transfer does, and ends the entry's turn with its
 change kept on its run for the development manager, so the entries behind it go
-on.
+on. Before it hands the change back, it looks for it on the target: where the
+target carries the approved head, or the run's own pull request reads as merged
+with the approved head as its head and its merge commit is on the target — a
+change merged by hand while the queue was stopped on it — the entry leaves the
+queue as landed instead, the run ends landed, and its work item is settled as
+after any landing, with nothing asked of the development manager. Where the
+target does not show the change, the hand-back's reason says what was found,
+such as a pull request that reads as merged with nothing of it on the target.
+A hand-back whose work item is already closed leaves the item closed and says
+so in a note, without stopping the run or asking anything.
 
 **Who works the queues.** A `yoyo work` session works every queue with an entry
 in it beside its pulls, one pass per queue at a time, each in its own

@@ -22,6 +22,9 @@ var resumeShapes = []func(runstate.State) bool{
 	pausedForUsageLimit,
 	pausedForDirective,
 	pausedForDependency,
+	// A run that pushed its candidate and waits for the forge's checks is
+	// continued once the forge has decided (cichecks.go).
+	pausedForCIWait,
 	pausedForTracker,
 	pausedForOperatorHold,
 	// A provider the harness stopped on time is owed the rest of the attempt

@@ -72,17 +72,22 @@ func CIForgeCapabilities() []ForgeCapability {
 }
 
 // forgeAdapterCapabilities is what each forge adapter the harness ships can do
-// today. GitHub is the only one. It pushes run branches and reads check results
-// and the output of a failed job, but it does not yet open a pull request as a
-// draft, so enabling the flow is refused until the forge adapter build adds
-// that and records it here.
+// today. GitHub is the only one. It is written by hand, so internal/publish
+// tests every entry against the adapter: each capability marked true is run
+// against a fake forge command there, and a capability added to
+// CIForgeCapabilities fails that test until the adapter does it.
 var forgeAdapterCapabilities = map[string]map[ForgeCapability]bool{
 	"github": {
 		ForgePushBranch:       true,
-		ForgeOpenDraftRequest: false,
+		ForgeOpenDraftRequest: true,
 		ForgeReadCheckResults: true,
 		ForgeReadCheckOutput:  true,
 	},
+}
+
+// ForgeAdapterCan reports whether the named forge adapter does a capability.
+func ForgeAdapterCan(adapter string, capability ForgeCapability) bool {
+	return forgeAdapterCapabilities[adapter][capability]
 }
 
 // ProjectForgeAdapter names the forge adapter the project's publishing uses.

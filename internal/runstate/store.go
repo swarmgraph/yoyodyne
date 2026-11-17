@@ -467,8 +467,8 @@ func HoldingDocumentLandings(states []State) int {
 	return holding
 }
 
-// ReclaimSlot is how a run paused on work its item waits on takes a developer
-// slot again before it continues. It is the reservation's capacity check made
+// ReclaimSlot is how a run paused on work its item waits on, or waiting for the
+// forge's checks on a pushed commit, takes a developer slot again before it continues. It is the reservation's capacity check made
 // for a run that already exists: under the same lock, against the same limit,
 // counting every other run that holds a slot, and it refuses with the same
 // CapacityError a fresh reservation does, so a continuation waits for a slot
@@ -482,7 +482,7 @@ func (s *Store) ReclaimSlot(ctx context.Context, state State, maxConcurrent int)
 	if maxConcurrent < 1 {
 		return state, errors.New("max concurrent developers must be greater than zero")
 	}
-	if state.DependencyPause == nil {
+	if state.DependencyPause == nil && !state.CIWait.Waiting() {
 		return state, nil
 	}
 	// The index is brought up to date before the lock is taken, so whatever
@@ -509,6 +509,13 @@ func (s *Store) ReclaimSlot(ctx context.Context, state State, maxConcurrent int)
 		return state, err
 	}
 	reclaimed.DependencyPause = nil
+	// A run waiting for the forge's checks takes its slot back here too, but
+	// keeps the wait on its record, marked as holding the slot: what the forge
+	// said is read, and the wait ended, by the run once it holds the slot
+	// (activeRun.settleCIWait).
+	if reclaimed.CIWait != nil {
+		reclaimed.CIWait.SlotTaken = true
+	}
 	if err := s.Save(reclaimed); err != nil {
 		return state, fmt.Errorf("clear the dependency pause: %w", err)
 	}

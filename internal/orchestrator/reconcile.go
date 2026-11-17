@@ -735,6 +735,15 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 			state.WorkItemID, state.DependencyPause.Summary())
 		return result, nil
 	}
+	// A run that pushed its candidate and waits for the forge's checks is not an
+	// interrupted run either: it recorded the commit and what it waits for, and a
+	// watching session's pull continues it once the forge has answered or the
+	// wait limit has passed.
+	if pausedForCIWait(state) {
+		result := reconciliationOf(state, ActionResumable)
+		result.Detail = fmt.Sprintf("the run is waiting for %s; a watching `yoyo work` session continues it once the forge has answered or the wait limit has passed", state.CIWait.Summary())
+		return result, nil
+	}
 	// A run parked because the tracker would not answer the read a gate boundary
 	// makes is not an interrupted run either. It recorded what went unanswered and
 	// is owed the rest of the gate once the store answers, so settling it here
@@ -2094,6 +2103,7 @@ func clearRecordedParks(state *runstate.State) {
 	state.ProviderStop = ""
 	state.DirectivePause = nil
 	state.DependencyPause = nil
+	state.CIWait = nil
 	state.TrackerPause = nil
 	state.OperatorHeldSince = nil
 }

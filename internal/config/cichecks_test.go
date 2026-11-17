@@ -66,8 +66,12 @@ func TestEnablingChecksOnCIRefusesAnEmptyRequiredList(t *testing.T) {
 }
 
 func TestEnablingChecksOnCINamesWhatTheForgeAdapterCannotDo(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: it swaps the adapter table.
+	saved := forgeAdapterCapabilities["github"]
+	defer func() { forgeAdapterCapabilities["github"] = saved }()
+	forgeAdapterCapabilities["github"] = map[ForgeCapability]bool{
+		ForgePushBranch: true, ForgeReadCheckResults: true, ForgeReadCheckOutput: true,
+	}
 	_, err := loadProjectError(t, ciProjectChecks+"execution:\n  ci_checks:\n    enabled: true\n    required: [test]\n", nil)
 	if err == nil || !strings.Contains(err.Error(), string(ForgeOpenDraftRequest)) {
 		t.Fatalf("the missing capability was not named: %v", err)
@@ -79,13 +83,19 @@ func TestEnablingChecksOnCINamesWhatTheForgeAdapterCannotDo(t *testing.T) {
 	}
 }
 
-func TestChecksOnCIPassValidationWhenTheAdapterCanDoEverything(t *testing.T) {
-	// Not parallel: it swaps the adapter table.
-	saved := forgeAdapterCapabilities["github"]
-	defer func() { forgeAdapterCapabilities["github"] = saved }()
-	forgeAdapterCapabilities["github"] = map[ForgeCapability]bool{
-		ForgePushBranch: true, ForgeOpenDraftRequest: true, ForgeReadCheckResults: true, ForgeReadCheckOutput: true,
+// The adapter the harness ships does everything checks on CI needs, so the
+// switch is no longer refused for want of a forge capability.
+func TestTheShippedForgeAdapterDoesEverythingChecksOnCINeeds(t *testing.T) {
+	t.Parallel()
+
+	if missing := (Config{}).MissingCIForgeCapabilities(); len(missing) != 0 {
+		t.Fatalf("the shipped adapter is missing %v", missing)
 	}
+}
+
+func TestChecksOnCIPassValidationWhenTheAdapterCanDoEverything(t *testing.T) {
+	t.Parallel()
+
 	resolved := loadProject(t, ciProjectChecks+"execution:\n  ci_checks:\n    enabled: true\n    local: [make fmtcheck]\n    required: [test]\n", nil)
 	if !resolved.Config.Execution.CIChecks.Enabled {
 		t.Fatal("enabled did not reach the effective configuration")

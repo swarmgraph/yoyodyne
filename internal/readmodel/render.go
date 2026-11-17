@@ -282,7 +282,8 @@ func withNoProcess(running []RunningRun) string {
 	return said
 }
 
-// renderPaused is the runs paused on work their items wait on, and nothing
+// renderPaused is the runs paused on work their items wait on, or waiting for
+// the forge's checks, and nothing
 // where there are none. They are said on a line of their own rather than on the
 // running line because they hold no developer slot: a run counted there would be
 // a slot said to be taken that the next pull fills.
@@ -294,6 +295,11 @@ func (s Standing) renderPaused() string {
 	fmt.Fprintf(&rendered, "Paused, holding no developer slot (%s):\n", count(len(s.PausedRuns), "developer run"))
 	listed, further := bound(len(s.PausedRuns))
 	for _, run := range s.PausedRuns[:listed] {
+		if run.WaitingForCI {
+			fmt.Fprintf(&rendered, "  %s — waiting for CI: %s, waited %s\n",
+				s.named(run.WorkItemID, ""), run.WaitingOn, age(run.CIWaited))
+			continue
+		}
 		fmt.Fprintf(&rendered, "  %s — waiting on unfinished work it depends on: %s, paused %s\n",
 			s.named(run.WorkItemID, ""), run.WaitingOn, pausedAgo(s.ObservedAt, run.PausedSince))
 	}
