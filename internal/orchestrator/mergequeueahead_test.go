@@ -146,6 +146,22 @@ func TestACandidateCheckedAheadIsRebuiltUnchargedWhenTheOneBeforeItFails(t *test
 	f, second := aheadFixture(t, "test ! -f feature.txt")
 	f.run.admittedRun.state.Branch = "change"
 	f.worker.Pipeline.Config.Execution.RepairAttemptsBeforeReplan = 2
+	// The first candidate's check fails at once, and a candidate checked ahead
+	// is stopped when the one before it does not end verified. Neither check
+	// starts until both have been asked for, so the candidate checked ahead has
+	// been built and recorded by the time the first one fails, however the two
+	// goroutines are scheduled; otherwise it may be stopped before it is built
+	// and the entry behind is only ever built once, on the real target.
+	bothAsked := make(chan struct{})
+	f.checks.before = func(call int) {
+		if call == 2 {
+			close(bothAsked)
+		}
+		select {
+		case <-bothAsked:
+		case <-time.After(30 * time.Second):
+		}
+	}
 	repair := &recordingRepair{}
 	f.promoter.Repair = repair
 	base := f.local("main")
