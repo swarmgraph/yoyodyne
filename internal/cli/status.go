@@ -828,6 +828,13 @@ func standingSources(configPath string) readmodel.Sources {
 	if record, err := mcpcall.NewRecords(stateRoot, cfg.Product.ID); err == nil {
 		sources.MCPCalls = record
 	}
+	// Where the target branch stands against the team's branch, which only a
+	// project with execution.upstream_branch set has a record of.
+	if cfg.Execution.UpstreamBranch != "" {
+		if store, err := runstate.NewTeamBranchUpdateStore(stateRoot, cfg.Product.ID); err == nil {
+			sources.TeamBranchUpdates = store
+		}
+	}
 	// The product's supervisor and its record of the parts, so a part the
 	// supervisor has left down is said here with its reason.
 	if store, err := runstate.NewConfigReaderStore(stateRoot, cfg.Product.ID); err == nil {
