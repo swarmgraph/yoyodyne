@@ -3722,7 +3722,11 @@ latest run came to where it did not pass. A failure is not run again to make it
 pass. It files a critical report naming the commit, the failing tests, the last
 commit the checks passed on, and the commits that landed between them. The next
 run waits for the branch to move. A check that could not run is recorded as
-such, files nothing, and the same commit is tried again at the next interval.
+such, files a warning naming the commit and the reason (once for a stretch of
+tries on one commit), and is tried again ten minutes later rather than at the
+next interval; the regular schedule is unchanged. Before each run, anything an
+earlier run left at its own checkout path, including a half-written one that
+Git no longer lists, is removed, and the checkout itself is given ten minutes.
 
 The schedule is kept in that record, so the supervisor restarting does not
 start a run early: the next run is due an interval after the latest one
