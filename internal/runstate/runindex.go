@@ -13,10 +13,12 @@ package runstate
 // The index answers those questions instead. It is one small file beside the
 // records holding, for each run, the few fields the questions are asked of. The
 // store writes it in the same act as the record, under the index's own lock
-// (writeIndexed), so it is never rebuilt on a read; it is rebuilt from the
-// records only when it is missing or written in a format this build does not
-// read, and a record file it does not name — one created by something that
-// went round the store — is read and added when a reader notices it.
+// (writeIndexed), so a routine read does not rebuild it. It is rebuilt from the
+// records when it is missing or written in a format this build does not read,
+// when a record it chose will not read, as a watch session starts, and on every
+// maintenance pass (RebuildRunIndex says why); and a record file it does not
+// name — one created by something that went round the store — is read and
+// added when a reader notices it.
 //
 // The index only chooses which records to read. Every answer still comes from
 // the records themselves, read again and held to the same predicate, so the
@@ -581,8 +583,14 @@ func (s *Store) writeIndexed(state State, write func() error) error {
 }
 
 // RebuildRunIndex builds the index again from every record, whatever the one
-// on disk says. It is maintenance's, for an index somebody has reason to doubt;
-// nothing routine calls it.
+// on disk says. The index is written in the same act as every record the store
+// writes, so what makes it out of date is a record changed by something that
+// went round the store — an older build still running through a redeploy is
+// the case that matters, since a run it made live again would be missing from
+// the runs in flight that reservations count. So the harness rebuilds it
+// itself, and no person ever has to remove the index file: when a record the
+// index chose will not read (rebuildingOnce), as a watch session starts, before
+// it counts any run in flight, and on every maintenance pass.
 func (s *Store) RebuildRunIndex() error {
 	unlock, err := s.lockRunIndex()
 	if err != nil {
@@ -604,6 +612,12 @@ func (s *Store) UnreadableRuns() ([]Unreadable, error) {
 	if err != nil {
 		return nil, err
 	}
+	return s.unreadableOf(index), nil
+}
+
+// unreadableOf is every record the index holds as unreadable, in run order,
+// each with its file and what refused it.
+func (s *Store) unreadableOf(index runIndex) []Unreadable {
 	ids := make([]string, 0, len(index.Unreadable))
 	for runID := range index.Unreadable {
 		ids = append(ids, runID)
@@ -611,33 +625,122 @@ func (s *Store) UnreadableRuns() ([]Unreadable, error) {
 	sort.Strings(ids)
 	unreadable := make([]Unreadable, 0, len(ids))
 	for _, runID := range ids {
-		unreadable = append(unreadable, Unreadable{Record: runID, Err: errors.New(index.Unreadable[runID].Reason)})
+		unreadable = append(unreadable, s.unreadableAt(runID, errors.New(index.Unreadable[runID].Reason)))
 	}
-	return unreadable, nil
+	return unreadable
+}
+
+// errChosenUnreadable is a record the index chose that would not read, which
+// says the index's entry for it is out of date: the record was changed by
+// something that went round the store. It is answered by rebuilding the index
+// and asking again, never seen by a caller.
+var errChosenUnreadable = errors.New("a record the run index chose would not read")
+
+// rebuildingOnce asks list, and where it finds a record the index chose that
+// would not read, rebuilds the index from every record and asks once more. The
+// rebuild records the record as unreadable, with what can still be made out of
+// it, so the second asking holds it to the same rule every unreadable record is
+// held to rather than to an entry written before it changed. That is how an
+// index entry nobody can read is cleared without a person removing the index.
+func rebuildingOnce[T any](s *Store, list func(last bool) (T, error)) (T, error) {
+	answer, err := list(false)
+	if !errors.Is(err, errChosenUnreadable) {
+		return answer, err
+	}
+	if err := s.RebuildRunIndex(); err != nil {
+		var none T
+		return none, err
+	}
+	return list(true)
 }
 
 // indexed reads the records the index chooses with choose, in run order, and
 // keeps the ones keep holds of the record itself. A record gone since the index
-// named it is no longer kept and is left out; one that will not read refuses
-// the answer as the listing always has, because a run the index chose is not an
-// old record and nobody can say it is safe to step over. An unreadable record
-// the index already knows is refused the same way where uncertain says it
-// could be one the answer has to hold.
+// named it is no longer kept and is left out. One that will not read means the
+// index's entry for it is out of date, so the index is rebuilt and the listing
+// asked again (rebuildingOnce); where it still will not read, it refuses the
+// answer as the listing always has, because nobody can say it is safe to step
+// over. An unreadable record the index already knows is refused the same way
+// where uncertain says it could be one the answer has to hold.
 func (s *Store) indexed(label string, choose func(runIndexEntry) bool, uncertain func(unreadableRun) bool, keep func(State) bool) ([]State, error) {
-	index, err := s.runIndex()
-	if err != nil {
-		return nil, err
-	}
-	unreadable := make([]string, 0)
-	for runID, left := range index.Unreadable {
-		if uncertain(left) {
-			unreadable = append(unreadable, runID)
+	return rebuildingOnce(s, func(last bool) ([]State, error) {
+		index, err := s.runIndex()
+		if err != nil {
+			return nil, err
 		}
+		unreadable := make([]string, 0)
+		for runID, left := range index.Unreadable {
+			if uncertain(left) {
+				unreadable = append(unreadable, runID)
+			}
+		}
+		if len(unreadable) > 0 {
+			sort.Strings(unreadable)
+			return nil, fmt.Errorf("discover %s runs: the run record %s could not be read and may be one of them: %s", label, unreadable[0], index.Unreadable[unreadable[0]].Reason)
+		}
+		states := make([]State, 0)
+		for _, runID := range chosenBy(index, choose) {
+			state, err := s.Read(runID)
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			if err != nil && !last {
+				return nil, errChosenUnreadable
+			}
+			if err != nil {
+				return nil, fmt.Errorf("discover %s runs: %w", label, err)
+			}
+			if keep(state) {
+				states = append(states, state)
+			}
+		}
+		return states, nil
+	})
+}
+
+// indexedReadable reads the records the index chooses as indexed does, except
+// that nothing unreadable refuses the answer: every record the index holds as
+// unreadable is returned beside it, and a chosen record that will not read has
+// the index rebuilt so that it is one of those (rebuildingOnce). The unreadable
+// records it names are the index's own list of them. A record that still will
+// not read after the rebuild — changed again in between — is named as well.
+func (s *Store) indexedReadable(label string, choose func(runIndexEntry) bool, keep func(State) bool) ([]State, []Unreadable, error) {
+	type answer struct {
+		states     []State
+		unreadable []Unreadable
 	}
-	if len(unreadable) > 0 {
-		sort.Strings(unreadable)
-		return nil, fmt.Errorf("discover %s runs: the run record %s could not be read and may be one of them: %s", label, unreadable[0], index.Unreadable[unreadable[0]].Reason)
+	read, err := rebuildingOnce(s, func(last bool) (answer, error) {
+		index, err := s.runIndex()
+		if err != nil {
+			return answer{}, err
+		}
+		read := answer{states: make([]State, 0), unreadable: s.unreadableOf(index)}
+		for _, runID := range chosenBy(index, choose) {
+			state, err := s.Read(runID)
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			if err != nil && !last {
+				return answer{}, errChosenUnreadable
+			}
+			if err != nil {
+				read.unreadable = append(read.unreadable, s.unreadableAt(runID, err))
+				continue
+			}
+			if keep(state) {
+				read.states = append(read.states, state)
+			}
+		}
+		return read, nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("discover %s runs: %w", label, err)
 	}
+	return read.states, read.unreadable, nil
+}
+
+// chosenBy is the runs the index names that choose holds of, in run order.
+func chosenBy(index runIndex, choose func(runIndexEntry) bool) []string {
 	ids := make([]string, 0)
 	for runID, entry := range index.Runs {
 		if choose(entry) {
@@ -645,20 +748,7 @@ func (s *Store) indexed(label string, choose func(runIndexEntry) bool, uncertain
 		}
 	}
 	sort.Strings(ids)
-	states := make([]State, 0, len(ids))
-	for _, runID := range ids {
-		state, err := s.Read(runID)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("discover %s runs: %w", label, err)
-		}
-		if keep(state) {
-			states = append(states, state)
-		}
-	}
-	return states, nil
+	return ids
 }
 
 // unreadableRunNotices says each unreadable record once per process, as
