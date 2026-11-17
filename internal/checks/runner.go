@@ -410,6 +410,19 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 				lastAccepted = sequence.Last()
 			}
 		}
+		// A measurement that could not be written leaves the check judged
+		// exactly as it would have been, and is said in the run's own record so
+		// the gap in the measurements is seen rather than found later.
+		if measured, ok := permit.(MeasuredPermit); ok && err == nil {
+			if problem := measured.MeasureProblem(); problem != nil {
+				if emitErr := emit(request.RunID, sequence, clock, sink, execution.EventProcessOutput, map[string]any{
+					"kind": "check", "command": safeCommand, "stream": execution.StreamStderr,
+					"text": MeasureProblemText(safeCommand, problem),
+				}); emitErr == nil {
+					lastAccepted = sequence.Last()
+				}
+			}
+		}
 		// The gate's copy of the hold is this runner's to let go of once the check
 		// has ended, whatever runner it was handed to: the process runner closes it
 		// as the check starts, and a runner that never started one may not have.
@@ -534,6 +547,12 @@ func (r Runner) acquire(ctx context.Context, request Request, command, safeComma
 		request.Permit.Granted(permit.Check(), permit.Waited())
 	}
 	return permit, took, false, nil
+}
+
+// MeasureProblemText is the line a run's record carries for a heavy check
+// whose measurement could not be written.
+func MeasureProblemText(command string, problem error) string {
+	return fmt.Sprintf("what %s cost could not all be written to the heavy check measurements; the check is judged as it would have been and its place is given back: %v", command, problem)
 }
 
 // finishPermit gives a heavy check's place back, where it had one.

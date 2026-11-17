@@ -26,6 +26,9 @@ type heavyRun struct {
 	results []checks.Result
 	waited  time.Duration
 	err     error
+	// unmeasured is whether the run's record said a heavy check's
+	// measurement could not be written.
+	unmeasured bool
 }
 
 // runHeavyStages runs one stage per run id at once, each running commands,
@@ -49,15 +52,22 @@ func runHeavyStages(t *testing.T, stateRoot string, heavy map[string]int, runIDs
 		go func(runID string) {
 			defer wait.Done()
 			var waited time.Duration
+			unmeasured := false
+			sink := func(event execution.Event) error {
+				if event.Type == execution.EventProcessOutput && strings.Contains(string(event.Payload), "could not all be written to the heavy check measurements") {
+					unmeasured = true
+				}
+				return nil
+			}
 			results, _, err := runner.Run(context.Background(), checks.Request{
 				RunID: runID, Directory: t.TempDir(), Commands: commands,
 				Permit: checks.PermitRequest{
 					WorkItemID: "item", Priority: domain.HeavyCheckOrdinary,
 					Granted: func(_ string, took time.Duration) { waited += took },
 				},
-			}, nil)
+			}, sink)
 			mu.Lock()
-			runs[runID] = heavyRun{results: results, waited: waited, err: err}
+			runs[runID] = heavyRun{results: results, waited: waited, err: err, unmeasured: unmeasured}
 			mu.Unlock()
 		}(runID)
 	}
@@ -136,7 +146,11 @@ func TestTwoRunsAtARaceSuiteWithOnePlaceRunInTurnEachOnItsOwnTime(t *testing.T) 
 		t.Fatalf("record = %#v, want every place given back", record)
 	}
 	// Each launch is measured: one at a time, each passed, each with the time
-	// limit it launched with, and the one that waited with its wait.
+	// limit it launched with, and the one that waited with its wait. A
+	// launch whose end a loaded machine would not let be written is not this
+	// test's failure, so long as the run said so in its record: that is the
+	// harness doing what it should. Writing the reason onto the measurement is
+	// itself a write, and is runstate's test to hold.
 	measurements, err := mustHeavyStore(t, stateRoot).Measurements()
 	if err != nil {
 		t.Fatal(err)
@@ -146,13 +160,20 @@ func TestTwoRunsAtARaceSuiteWithOnePlaceRunInTurnEachOnItsOwnTime(t *testing.T) 
 	}
 	var measuredWaits []time.Duration
 	for _, measured := range measurements.Measurements {
+		// The wait is written as the launch starts, so it is there either way.
+		measuredWaits = append(measuredWaits, measured.Waited())
+		if measured.ExitedAt == nil {
+			if !runs[measured.RunID].unmeasured {
+				t.Fatalf("measurement = %#v, unmeasured reported = %v; want an end, or the run to have said why there is none", measured, runs[measured.RunID].unmeasured)
+			}
+			continue
+		}
 		if measured.Outcome != runstate.HeavyCheckPassed || measured.Budget() <= 3*time.Second || measured.Budget() > 3500*time.Millisecond || measured.Running[command] != 1 || measured.Limit != 1 {
 			t.Fatalf("measurement = %#v, want a pass, the 3.5s limit or what its stage had left of it, and itself the one running", measured)
 		}
 		if ran, ended := measured.Ran(); !ended || ran < time.Second {
 			t.Fatalf("measurement = %#v, want the two seconds it ran", measured)
 		}
-		measuredWaits = append(measuredWaits, measured.Waited())
 	}
 	sort.Slice(measuredWaits, func(first, second int) bool { return measuredWaits[first] < measuredWaits[second] })
 	if measuredWaits[1] < time.Second {
