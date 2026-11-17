@@ -56,13 +56,24 @@ func (n Narrowing) Env() string {
 	return ChangedGoPackagesVariable + "=" + n.Value()
 }
 
+// NoGoPackages is how Describe opens for a change that touches no Go package,
+// so a record of what checks were told can be read for it
+// (TouchesNoGoPackage).
+const NoGoPackages = "no Go package"
+
+// TouchesNoGoPackage reports a recorded description (Describe) of a change that
+// touches no Go package, which a check narrowed to Go packages covers nothing of.
+func TouchesNoGoPackage(described string) bool {
+	return strings.HasPrefix(described, NoGoPackages)
+}
+
 // Describe says what the gate was narrowed to, for the record.
 func (n Narrowing) Describe() string {
 	switch {
 	case n.Whole:
 		return "the whole module (" + n.Reason + ")"
 	case len(n.Packages) == 0:
-		return "no Go package (the change touches none)"
+		return NoGoPackages + " (the change touches none)"
 	default:
 		return strings.Join(n.Packages, " ")
 	}

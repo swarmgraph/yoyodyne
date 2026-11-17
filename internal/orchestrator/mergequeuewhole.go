@@ -50,7 +50,7 @@ import (
 // for the whole check run left to it, and empty where it does or the run left
 // it nothing. mode is the entry's mode, and pathChecks the project's path
 // checks, which the queue does not run.
-func mergeQueueStandsIn(run runstate.State, mode runstate.MergeQueueMode, generation runstate.MergeQueueGeneration, pathChecks []config.PathCheck) string {
+func mergeQueueStandsIn(run runstate.State, mode runstate.MergeQueueMode, generation runstate.MergeQueueGeneration, pathChecks []config.PathCheck, declaration queueDeclaration) string {
 	passed := run.ChecksPassed
 	if passed == nil || !passed.WholeLeftToQueue {
 		return ""
@@ -67,6 +67,13 @@ func mergeQueueStandsIn(run runstate.State, mode runstate.MergeQueueMode, genera
 		results[result.Command] = result
 	}
 	wanted := leftToQueue(run, nil, pathChecks)
+	if declaration.declared() {
+		// The queue ran the list the project declared for it, so that list, and
+		// the narrowed race check where this change owes one, is what stands in
+		// for the whole check: a check the project took off the list is not owed
+		// by the queue (mergequeuedeclared.go).
+		wanted = declaration.wanted(run)
+	}
 	var unmet []string
 	for _, command := range wanted {
 		result, ran := results[command]

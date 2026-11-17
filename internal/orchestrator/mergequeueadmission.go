@@ -60,6 +60,10 @@ type MergeQueueAdmissions interface {
 // 3). A document entry is known by its item, which is its run's own identifier
 // (HarnessRunItems); no other entry's item is.
 //
+// A project that declares which of its checks the queue runs
+// (config.MergeQueueChecks) has exactly those run, and the narrowed race check
+// added where its change owes one (mergequeuedeclared.go).
+//
 // A change whose run left its whole check to the queue
 // (runstate.ChecksPassed.WholeLeftToQueue) is checked by every check that run
 // narrowed as well, those that could not run before review among them, where
@@ -73,6 +77,9 @@ type MergeQueueAdmissions interface {
 func (p *Pipeline) mergeQueueChecks(entry runstate.MergeQueueEntry) runstate.MergeQueueCheckConfiguration {
 	if entry.WorkItemID == entry.RunID && runstate.ValidRunID(entry.RunID) && len(p.Config.DocumentChecks) > 0 {
 		return runstate.NewMergeQueueCheckConfiguration(p.Config.DocumentChecks)
+	}
+	if p.Config.DeclaresMergeQueueChecks() {
+		return p.declaredQueueChecks(entry)
 	}
 	commands := append([]string(nil), p.Config.Checks...)
 	if p.Store != nil {

@@ -53,6 +53,10 @@ type configDocument struct {
 	DocumentChecks *[]string `yaml:"document_checks"`
 	// MainChecks replaces an inherited list entirely, for the same reason.
 	MainChecks *[]string `yaml:"main_checks"`
+	// MergeQueueChecks replaces an inherited list entirely, for the same reason.
+	MergeQueueChecks *[]string `yaml:"merge_queue_checks"`
+	// MergeQueueRaceCheck is one command, so it replaces an inherited one.
+	MergeQueueRaceCheck *string `yaml:"merge_queue_race_check"`
 	// PathChecks replaces an inherited list entirely, for the same reason.
 	PathChecks *[]PathCheck `yaml:"path_checks"`
 	// Install replaces an inherited list entirely, for the same reason.
