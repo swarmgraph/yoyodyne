@@ -375,12 +375,11 @@ func TestAnUnreadableRepositoryBlockIsReported(t *testing.T) {
 	session := openTestSession(t, options)
 
 	reply, err := session.Send(context.Background(), "Change CLAUDE.md.")
-	var unreadable *RepositoryError
-	if !errors.As(err, &unreadable) {
-		t.Fatalf("Send() error = %v, want a RepositoryError", err)
+	if err != nil {
+		t.Fatalf("Send() error = %v, want the block refused alone", err)
 	}
-	if !strings.Contains(unreadable.Error(), `action "write" is not one the harness performs`) {
-		t.Fatalf("error = %q", unreadable)
+	if len(reply.RefusedBlocks) != 1 || !strings.Contains(reply.RefusedBlocks[0], `action "write" is not one the harness performs`) {
+		t.Fatalf("refused blocks = %q", reply.RefusedBlocks)
 	}
 	if len(reader.asked) != 0 {
 		t.Fatalf("a refused block still read %d path(s)", len(reader.asked))

@@ -232,9 +232,11 @@ func TestAnUnreadableEvaluationBlockLosesOnlyTheRecord(t *testing.T) {
 	session := openTestSession(t, options)
 
 	reply, err := session.Send(context.Background(), "Is this worth doing?")
-	var unreadable *EvaluationError
-	if !errors.As(err, &unreadable) {
-		t.Fatalf("Send() error = %v, want an EvaluationError", err)
+	if err != nil {
+		t.Fatalf("Send() error = %v, want the evaluation refused alone", err)
+	}
+	if len(reply.RefusedBlocks) != 1 || !strings.Contains(reply.RefusedBlocks[0], "evaluation block was refused and nothing in it was carried out") {
+		t.Fatalf("refused blocks = %q, want the evaluation block refused", reply.RefusedBlocks)
 	}
 	if len(record.recorded) != 0 {
 		t.Fatalf("an unreadable block still recorded %d evaluation(s)", len(record.recorded))
