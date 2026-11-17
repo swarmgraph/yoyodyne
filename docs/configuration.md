@@ -3774,8 +3774,10 @@ are `document_checks`, not these.
 `execution.ci_checks` is the switch for moving most of a run's testing to the
 forge, described in `docs/designs/checks-on-ci.md`. It is off by default, and
 off (or absent) a run's checks, timing and records are exactly what they were.
-This setting is only the switch and its validation; the push, the wait and the
-reading of results arrive in later builds.
+This setting is the switch and its validation. The GitHub adapter can push a
+run's branch, open or update its draft pull request, and read each required
+check's result and a failing check's output for a named commit; the wait, the
+recorded failure and the fallback arrive in later builds.
 
 ```yaml
 execution:
@@ -3792,8 +3794,8 @@ execution:
 - `required` must not be empty while `enabled` is true.
 - `enabled: true` is refused when the project's forge adapter cannot push a
   branch, open a draft pull request, and read check results and output for a
-  named commit. The refusal names what is missing. The GitHub adapter cannot yet
-  open a draft pull request, so the switch cannot be turned on until it can.
+  named commit. The refusal names what is missing. The GitHub adapter, the only
+  one shipped, does all four.
 - `wait_limit` is 1h when not set.
 
 `yoyo config show --origins` says which file each value came from.

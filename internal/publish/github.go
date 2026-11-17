@@ -372,6 +372,12 @@ func (g GitHub) Ensure(ctx context.Context, request Request) (PullRequest, error
 		}
 		return existing, nil
 	}
+	return g.open(ctx, request, false)
+}
+
+// open creates the pull request for a branch that has none, as a draft where
+// asked, and returns it as the forge then reports it.
+func (g GitHub) open(ctx context.Context, request Request, draft bool) (PullRequest, error) {
 	scope, err := g.repoArgs(ctx)
 	if err != nil {
 		return PullRequest{}, err
@@ -380,11 +386,15 @@ func (g GitHub) Ensure(ctx context.Context, request Request) (PullRequest, error
 	if err != nil {
 		return PullRequest{}, err
 	}
-	created, err := g.exec(ctx, append([]string{"pr", "create"}, append(scope,
+	args := append([]string{"pr", "create"}, append(scope,
 		"--base", request.Base,
 		"--head", head,
 		"--title", boundedTitle(request.Title),
-		"--body", markedBody(request.Body, request.Mark))...)...)
+		"--body", markedBody(request.Body, request.Mark))...)
+	if draft {
+		args = append(args, "--draft")
+	}
+	created, err := g.exec(ctx, args...)
 	if err != nil {
 		return PullRequest{}, fmt.Errorf("open pull request for %s: %w", request.Head, err)
 	}
