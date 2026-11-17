@@ -72,6 +72,11 @@ type PullRequest struct {
 	// have landed on top of it: the remote target's tip is then somebody else's
 	// merge commit, and this is the one that carried this request.
 	MergeCommit string `json:"merge_commit,omitempty"`
+	// MergedAt is when the forge says it merged the request, and zero on one
+	// it has not merged or whose answer gave no time. It is what lets the
+	// merge queue count the wait from a merge to its next check from the
+	// merge itself rather than from when it noticed.
+	MergedAt time.Time `json:"merged_at,omitzero"`
 	// HeadBranch and BaseBranch are the branch the request carries and the branch
 	// it is opened against, as the forge names them. They are reported by the
 	// listing of every open request, which is read without knowing any branch
@@ -367,6 +372,12 @@ func (g GitHub) Ensure(ctx context.Context, request Request) (PullRequest, error
 		}
 		return existing, nil
 	}
+	return g.open(ctx, request, false)
+}
+
+// open creates the pull request for a branch that has none, as a draft where
+// asked, and returns it as the forge then reports it.
+func (g GitHub) open(ctx context.Context, request Request, draft bool) (PullRequest, error) {
 	scope, err := g.repoArgs(ctx)
 	if err != nil {
 		return PullRequest{}, err
@@ -375,11 +386,15 @@ func (g GitHub) Ensure(ctx context.Context, request Request) (PullRequest, error
 	if err != nil {
 		return PullRequest{}, err
 	}
-	created, err := g.exec(ctx, append([]string{"pr", "create"}, append(scope,
+	args := append([]string{"pr", "create"}, append(scope,
 		"--base", request.Base,
 		"--head", head,
 		"--title", boundedTitle(request.Title),
-		"--body", markedBody(request.Body, request.Mark))...)...)
+		"--body", markedBody(request.Body, request.Mark))...)
+	if draft {
+		args = append(args, "--draft")
+	}
+	created, err := g.exec(ctx, args...)
 	if err != nil {
 		return PullRequest{}, fmt.Errorf("open pull request for %s: %w", request.Head, err)
 	}
@@ -827,6 +842,7 @@ func (g GitHub) States(ctx context.Context, heads []string) (map[string]PullRequ
 			Merged:     strings.EqualFold(one.State, "MERGED") || strings.TrimSpace(one.MergedAt) != "",
 			HeadCommit: strings.TrimSpace(one.HeadRefOid),
 			AutoMerge:  one.AutoMergeRequest != nil,
+			MergedAt:   forgeTime(one.MergedAt),
 		}
 		if one.MergeCommit != nil {
 			found.MergeCommit = strings.TrimSpace(one.MergeCommit.OID)
@@ -1153,11 +1169,22 @@ func (g GitHub) find(ctx context.Context, head string) (PullRequest, bool, error
 		Merged:     strings.EqualFold(one.State, "MERGED") || strings.TrimSpace(one.MergedAt) != "",
 		HeadCommit: strings.TrimSpace(one.HeadRefOid),
 		AutoMerge:  one.AutoMergeRequest != nil,
+		MergedAt:   forgeTime(one.MergedAt),
 	}
 	if one.MergeCommit != nil {
 		found.MergeCommit = strings.TrimSpace(one.MergeCommit.OID)
 	}
 	return found, true, nil
+}
+
+// forgeTime reads a time the forge reported, in UTC, and is zero for one it
+// left empty or wrote in a form other than RFC 3339.
+func forgeTime(reported string) time.Time {
+	at, err := time.Parse(time.RFC3339, strings.TrimSpace(reported))
+	if err != nil {
+		return time.Time{}
+	}
+	return at.UTC()
 }
 
 // mergeQueueQuery asks whether a pull request is in its base branch's merge

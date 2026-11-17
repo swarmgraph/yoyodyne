@@ -339,6 +339,7 @@ func newResolution() *resolution {
 				Decisions:      DefaultDecisions,
 			},
 			Execution: Execution{
+				CIChecks:                   CIChecks{WaitLimit: DefaultCIWaitLimit},
 				MaxConcurrentDevelopers:    1,
 				DocumentLandings:           DefaultDocumentLandings,
 				RepairAttemptsBeforeReplan: 2,
@@ -362,6 +363,7 @@ func newResolution() *resolution {
 				LandingCheckTimeout:                   defaultLandingCheckTimeout,
 				WorkPoll:                              defaultWorkPoll,
 				ForgeCheckInterval:                    DefaultForgeCheckInterval,
+				MainCheckInterval:                     DefaultMainCheckInterval,
 				RedeployDrainLimit:                    defaultRedeployDrainLimit,
 				FactoryStallAfter:                     defaultFactoryStallAfter,
 				CouldNotRunBeforeStatus:               defaultCouldNotRunBeforeStatus,
@@ -436,6 +438,7 @@ func newResolution() *resolution {
 			"services.dashboard.bind":                              OriginDefault,
 			"services.dashboard.allowed_hosts":                     OriginDefault,
 			"services.dashboard.token":                             OriginDefault,
+			"services.dashboard.hide_summary":                      OriginDefault,
 			"services.scheduler.enabled":                           OriginDefault,
 			"services.maintenance.enabled":                         OriginDefault,
 			"services.maintenance.every":                           OriginDefault,
@@ -467,6 +470,7 @@ func newResolution() *resolution {
 			"execution.landing_check_timeout":                      OriginDefault,
 			"execution.work_poll":                                  OriginDefault,
 			"execution.forge_check_interval":                       OriginDefault,
+			"execution.main_check_interval":                        OriginDefault,
 			"execution.redeploy_drain_limit":                       OriginDefault,
 			"execution.factory_stall_after":                        OriginDefault,
 			"execution.could_not_run_before_status":                OriginDefault,
@@ -480,6 +484,8 @@ func newResolution() *resolution {
 			"execution.brake_probe_overdue_after":                  OriginDefault,
 			"execution.declarative_delivery":                       OriginDefault,
 			"execution.merge_queue":                                OriginDefault,
+			"execution.ci_checks.enabled":                          OriginDefault,
+			"execution.ci_checks.wait_limit":                       OriginDefault,
 			"triage.stuck_merge_age":                               OriginDefault,
 			"triage.review_rounds_cap":                             OriginDefault,
 			"exchange.max_rounds":                                  OriginDefault,
@@ -523,6 +529,7 @@ func (r *resolution) apply(applied layer) error {
 		setValue(r.origins, "execution.landing_check_timeout", execution.LandingCheckTimeout, &r.config.Execution.LandingCheckTimeout, applied.origin)
 		setValue(r.origins, "execution.work_poll", execution.WorkPoll, &r.config.Execution.WorkPoll, applied.origin)
 		setValue(r.origins, "execution.forge_check_interval", execution.ForgeCheckInterval, &r.config.Execution.ForgeCheckInterval, applied.origin)
+		setValue(r.origins, "execution.main_check_interval", execution.MainCheckInterval, &r.config.Execution.MainCheckInterval, applied.origin)
 		setValue(r.origins, "execution.redeploy_drain_limit", execution.RedeployDrainLimit, &r.config.Execution.RedeployDrainLimit, applied.origin)
 		setValue(r.origins, "execution.factory_stall_after", execution.FactoryStallAfter, &r.config.Execution.FactoryStallAfter, applied.origin)
 		setValue(r.origins, "execution.could_not_run_before_status", execution.CouldNotRunBeforeStatus, &r.config.Execution.CouldNotRunBeforeStatus, applied.origin)
@@ -557,6 +564,20 @@ func (r *resolution) apply(applied layer) error {
 				r.config.Execution.HeavyChecks[name] = limit
 			}
 			r.origins["execution.heavy_checks"] = applied.origin
+		}
+		// Checks on CI inherits key by key; its two lists are replaced and copied
+		// like the check lists, for the same two reasons.
+		if ci := execution.CIChecks; ci != nil {
+			setValue(r.origins, "execution.ci_checks.enabled", ci.Enabled, &r.config.Execution.CIChecks.Enabled, applied.origin)
+			setValue(r.origins, "execution.ci_checks.wait_limit", ci.WaitLimit, &r.config.Execution.CIChecks.WaitLimit, applied.origin)
+			if ci.Local != nil {
+				r.config.Execution.CIChecks.Local = append([]string(nil), *ci.Local...)
+				r.origins["execution.ci_checks.local"] = applied.origin
+			}
+			if ci.Required != nil {
+				r.config.Execution.CIChecks.Required = append([]string(nil), *ci.Required...)
+				r.origins["execution.ci_checks.required"] = applied.origin
+			}
 		}
 		// And the label-to-model mapping, replaced and copied for the same two
 		// reasons: the order is the statement, and a layer's own slice must not
@@ -673,6 +694,7 @@ func (r *resolution) apply(applied layer) error {
 				r.config.Services.Dashboard.Token = DashboardTokenSource(strings.TrimSpace(string(*dashboard.Token)))
 				r.origins["services.dashboard.token"] = applied.origin
 			}
+			setValue(r.origins, "services.dashboard.hide_summary", dashboard.HideSummary, &r.config.Services.Dashboard.HideSummary, applied.origin)
 		}
 		if scheduler := services.Scheduler; scheduler != nil {
 			setValue(r.origins, "services.scheduler.enabled", scheduler.Enabled, &r.config.Services.Scheduler.Enabled, applied.origin)
@@ -763,6 +785,18 @@ func (r *resolution) apply(applied layer) error {
 	if document.DocumentChecks != nil {
 		r.config.DocumentChecks = append([]string(nil), (*document.DocumentChecks)...)
 		r.origins["document_checks"] = applied.origin
+	}
+	if document.MainChecks != nil {
+		r.config.MainChecks = append([]string(nil), (*document.MainChecks)...)
+		r.origins["main_checks"] = applied.origin
+	}
+	if document.MergeQueueChecks != nil {
+		r.config.MergeQueueChecks = append([]string(nil), (*document.MergeQueueChecks)...)
+		r.origins["merge_queue_checks"] = applied.origin
+	}
+	if document.MergeQueueRaceCheck != nil {
+		r.config.MergeQueueRaceCheck = strings.TrimSpace(*document.MergeQueueRaceCheck)
+		r.origins["merge_queue_race_check"] = applied.origin
 	}
 	if document.PathChecks != nil {
 		r.config.PathChecks = append([]PathCheck(nil), (*document.PathChecks)...)

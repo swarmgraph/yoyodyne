@@ -683,8 +683,10 @@ func TestAPartialCompletionMakesOnlyWhatIsMissing(t *testing.T) {
 		t.Fatal("Promote() = nil, want the lost record reported")
 	}
 	f.tracker.CompleteFailures, f.tracker.TransientCompleteErr = 1, errors.New("the tracker is busy")
-	if _, err := f.promote(); err == nil {
-		t.Fatal("Promote() = nil, want the work item's refusal reported")
+	// A tracker that refuses holds up nothing: the landing is reported as not
+	// yet recorded on its work item, and the next call tries it again.
+	if refused, err := f.promote(); err != nil || refused.Completed || !strings.Contains(refused.Unrecorded, "the tracker is busy") {
+		t.Fatalf("Promote() = %#v, %v; want the work item's refusal reported as not yet recorded", refused, err)
 	}
 	// The refused closure changed nothing on the item; only the one that goes
 	// through is counted.

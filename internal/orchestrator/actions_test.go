@@ -1104,6 +1104,7 @@ var notAStep = map[string]string{
 	// separately orderable and must not become so.
 	"attemptDevelopment":         "one provider invocation inside candidate.develop",
 	"commitAttempt":              "records what one developer invocation left in the worktree, inside candidate.develop",
+	"clearScratchLinks":          "removes links leading out of the Git directory from the run's scratch after one developer invocation, inside candidate.develop",
 	"attemptReview":              "one provider invocation inside candidate.review",
 	"recordReviewVerdict":        "records a verdict against the item, charging a round where it sent the work back, inside candidate.review",
 	"gateProtectedPaths":         "the scope refusal candidate.check makes before it spends a suite",

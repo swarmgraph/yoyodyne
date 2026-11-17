@@ -34,6 +34,7 @@ const (
 	SourceEnvironment = "what each running copy recorded as it started"
 	SourcePasses      = "pass records"
 	SourceSlots       = "what holds each developer slot"
+	SourceEmptySlots  = "why a developer slot stands empty"
 )
 
 // launchesRoles is the parts that launch a provider's command: the scheduler,
@@ -159,6 +160,7 @@ func (o Observer) Observe(ctx context.Context, caller Caller, runs []string) Obs
 	r.source(SourceSlots, standing.SlotHoldersProblem)
 	r.slots = standing.SlotHolders
 	o.readFactory(r, standing)
+	o.readEmptySlots(r, standing)
 	o.readServices(r, standing)
 	passes := o.readPasses(r)
 	maintenance, since := o.readMaintenance(r, caller, passes)
@@ -401,6 +403,24 @@ func (o Observer) readFactory(r *reading, standing readmodel.Standing) {
 		r.add(Anomaly{Classification: ClassFactoryProblem, Identity: Identity{Condition: "factory-problem:" + string(entry.Kind) + ":" + entry.ID},
 			WorkItem: entry.WorkItemID, Says: entry.What(), Owner: entry.Mover, Needs: entry.Whose()})
 	}
+}
+
+// readEmptySlots says a developer slot the scheduler left empty while ready
+// work waited as a condition, with the reason the scheduler recorded, since
+// when, and who moves it. Its identity is the cause, so a different reason is a
+// different condition while the same one recurs across passes.
+func (o Observer) readEmptySlots(r *reading, standing readmodel.Standing) {
+	r.source(SourceEmptySlots, standing.EmptySlotsProblem)
+	if len(r.restricted) > 0 || standing.EmptySlots == nil {
+		return
+	}
+	empty := standing.EmptySlots
+	says := empty.Problem(standing.ObservedAt)
+	if counted := standing.EmptySlotsCountedFor(); len(counted) > 0 {
+		says += "; the slot is still counted for " + strings.Join(counted, ", ")
+	}
+	r.add(Anomaly{Classification: ClassEmptySlot, Identity: Identity{Condition: "empty-slot:" + string(empty.Cause)},
+		Says: says, Owner: empty.Owner.Owner, Needs: empty.Owner.Remedy})
 }
 
 func (o Observer) readServices(r *reading, standing readmodel.Standing) {

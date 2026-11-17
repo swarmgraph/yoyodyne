@@ -1,6 +1,7 @@
 // The page's own script: hold the token, fetch the read model with it, and
 // draw the nine sections, the summary first, and the merge queues where there are any, from what
-// comes back. It is served from this origin
+// comes back. A page served without the summary (services.dashboard.hide_summary)
+// draws the other eight and never asks for it. It is served from this origin
 // because the policy allows script from nowhere else.
 //
 // The token lives in localStorage and nowhere else. Local storage is scoped to
@@ -107,6 +108,9 @@ var standingWarningAgeSeconds = 5 * 60;
   // their detail open, so a reading taken since keeps them open.
   var summaryPeriod = "today";
   var summaryOpen = {};
+  // summaryShown is whether the page carries the summary at all; the server
+  // leaves it out where services.dashboard.hide_summary says so.
+  var summaryShown = document.getElementById("summary") !== null;
 
   // ---- small DOM helpers -------------------------------------------------
 
@@ -1525,6 +1529,54 @@ var standingWarningAgeSeconds = 5 * 60;
       list.appendChild(row);
     });
     section("queues", "ready");
+  }
+
+  // The MCP calls are shown only where the product has made some, as the
+  // merge queues are: a product that declares no MCP server shows no panel.
+  // Each tool is named with how its calls ended, in the read model's counts;
+  // nothing a call sent or returned is in the standing, so nothing of it can
+  // be drawn here.
+  function mcpOutcomes(counts) {
+    var parts = [];
+    if (counts.performed) { parts.push(counts.performed + " made"); }
+    if (counts.refused) { parts.push(counts.refused + " refused"); }
+    if (counts.failed) { parts.push(counts.failed + " failed"); }
+    if (counts.unknown) { parts.push(counts.unknown + " outcome not known"); }
+    return parts.join(", ");
+  }
+
+  function renderMCP() {
+    var standing = model.standing;
+    var node = document.getElementById("mcp");
+    var calls = standing && standing.mcp_calls;
+    var problem = standing && standing.mcp_calls_problem;
+    setHidden(node, !calls && !problem);
+    if (!calls) {
+      if (problem) {
+        section("mcp", "error", problem, whatToDoAboutTheStanding());
+      }
+      return;
+    }
+    listProblems("mcp-problems", [calls.unreadable ? calls.unreadable + " line(s) of the MCP call record" : ""]);
+    var list = document.getElementById("mcp-list");
+    clear(list);
+    var head = el("li", "held");
+    head.appendChild(el("h3", "held-title", calls.calls === 0
+      ? "No MCP calls in the last 24 hours; " + calls.recorded + " in the record"
+      : calls.calls + " MCP call(s) in the last 24 hours: " + mcpOutcomes(calls)));
+    var tools = el("ul", "held-list");
+    (calls.tools || []).forEach(function (tool) {
+      tools.appendChild(el("li", "held-reason", tool.tool + " (" + tool.class + "): " + mcpOutcomes(tool)));
+    });
+    if (calls.not_on_list) {
+      tools.appendChild(el("li", "held-reason", "asked for a tool not on the caller's list: " + calls.not_on_list + " refused"));
+    }
+    head.appendChild(tools);
+    if (calls.unknown_acts) {
+      head.appendChild(el("p", "held-reason", calls.unknown_acts + " act call(s) in the record may or may not have happened; check each before it is asked again, with yoyo mcp calls --unknown at your terminal."));
+    }
+    list.appendChild(head);
+    section("mcp", "ready");
   }
 
   function renderFactory() {
@@ -3103,6 +3155,9 @@ var standingWarningAgeSeconds = 5 * 60;
   }
 
   function renderSummary() {
+    if (!summaryShown) {
+      return;
+    }
     document.getElementById("summary-today").setAttribute("aria-pressed", summaryPeriod === "today" ? "true" : "false");
     document.getElementById("summary-week").setAttribute("aria-pressed", summaryPeriod === "week" ? "true" : "false");
     var summary = model.summary;
@@ -3146,8 +3201,10 @@ var standingWarningAgeSeconds = 5 * 60;
     }
   }
 
-  document.getElementById("summary-today").addEventListener("click", function () { chooseSummaryPeriod("today"); });
-  document.getElementById("summary-week").addEventListener("click", function () { chooseSummaryPeriod("week"); });
+  if (summaryShown) {
+    document.getElementById("summary-today").addEventListener("click", function () { chooseSummaryPeriod("today"); });
+    document.getElementById("summary-week").addEventListener("click", function () { chooseSummaryPeriod("week"); });
+  }
 
   // ---- the page -------------------------------------------------------------
 
@@ -3177,6 +3234,7 @@ var standingWarningAgeSeconds = 5 * 60;
     renderFactory();
     renderManagers();
     renderQueues();
+    renderMCP();
     // An open grouping, and an open entry card, are drawn again from the
     // reading just taken, so each stays as live as what it was opened from.
     renderGrouping();
@@ -3352,7 +3410,9 @@ var standingWarningAgeSeconds = 5 * 60;
     delays = { standing: every.standing, summary: every.summary, throughput: every.throughput, spend: every.spend };
     render();
     refresh("standing", current);
-    refresh("summary", current);
+    if (summaryShown) {
+      refresh("summary", current);
+    }
     refresh("throughput", current);
     refresh("spend", current);
   }

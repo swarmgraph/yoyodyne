@@ -3538,7 +3538,7 @@ func TestASessionWaitingOutAPromotionPastTheBoundSaysSoAgainWhileItWaits(t *test
 		if line.draining.Promoting != 1 || !line.draining.PromotingSince.Equal(since) || since.IsZero() {
 			t.Fatalf("line = %#v, want every line naming the one promotion and when the wait on it began", line)
 		}
-		if !strings.Contains(line.reason, "at their promotion since "+since.UTC().Format(time.RFC3339)) {
+		if !strings.Contains(line.reason, "at their promotion since "+runstate.LocalStamp(since)) {
 			t.Fatalf("reason = %q, want the promotion wait said with since when", line.reason)
 		}
 	}
@@ -4490,6 +4490,8 @@ type recordedTransition struct {
 	draining *runstate.WatchDrain
 	// pass is the recurring pass a note says the session has begun.
 	pass *runstate.WatchPass
+	// emptySlots is the account of empty developer slots a note carries.
+	emptySlots *runstate.EmptySlots
 }
 
 func (r *recordedSessions) Record(transition SessionState) error {
@@ -4513,6 +4515,7 @@ func (r *recordedSessions) Record(transition SessionState) error {
 		passedOver:     transition.PassedOver,
 		draining:       transition.Draining,
 		pass:           transition.RecurringPass,
+		emptySlots:     transition.EmptySlots,
 	})
 	return nil
 }
@@ -4545,6 +4548,11 @@ func (r *recordedSessions) states() []runstate.WatchState {
 	defer r.mu.Unlock()
 	states := make([]runstate.WatchState, 0, len(r.transitions))
 	for _, transition := range r.transitions {
+		// An account of empty slots is a note about the slots rather than a
+		// state the session entered, as every fold of the real log reads it.
+		if transition.emptySlots != nil {
+			continue
+		}
 		states = append(states, transition.state)
 	}
 	return states
@@ -5662,6 +5670,65 @@ func TestSchedulerPassesOverAnItemWhoseOnlyOutstandingStateIsAPublication(t *tes
 	}
 	if !strings.Contains(schedule.Deferred[0].Reason, "only the publication is unfinished") {
 		t.Fatalf("deferred reason = %q, want the publication named rather than a stoppage", schedule.Deferred[0].Reason)
+	}
+}
+
+// The Nov 11 case, at the grain the scheduler reads at. The merge-queue
+// stopping fix's approved change was entry 36 in the queue for main; the entry
+// was released, the queue blocked the item on its hand-back, and the hand-back
+// could not be saved on the run, so the run still reads succeeded with nothing
+// landed. The item's blocked status has no unfinished dependency behind it, so
+// it is exactly the status a claim would clear as left over. The pull passes it
+// over, naming the queued change, so nothing claims it, its status is never
+// cleared, and no fresh run starts beside the approved change; the slot goes to
+// the next item instead.
+func TestSchedulerPassesOverAnItemWhoseApprovedChangeIsStillInTheMergeQueue(t *testing.T) {
+	t.Parallel()
+
+	queued := beads.WorkItem{
+		ID: "yoyodyne-fo4v", Title: "Stop the merge queue cleanly", Status: "blocked", Priority: 0,
+	}
+	next := beads.WorkItem{
+		ID: "yoyodyne-ifd.301", Title: "An item closes on the confirmed merge", Status: "open", Priority: 1,
+	}
+	harness := newScheduleHarness(queued, next)
+	admitted := harness.now.Add(-2 * time.Hour)
+	harness.stoppages = haltedWork{runs: []runstate.State{{
+		RunID:      "run-52ead37b960b1c7d65089c47780b6a86",
+		WorkItemID: queued.ID,
+		// Admission ended the run succeeded with its branch and worktree kept;
+		// the hand-back that would have made it a stopped run was never saved.
+		Status:       runstate.StatusSucceeded,
+		StartedAt:    admitted.Add(-time.Hour),
+		UpdatedAt:    admitted,
+		Branch:       "yoyodyne/yoyodyne-fo4v/52ead37b",
+		WorktreePath: "/state/worktrees/yoyodyne-fo4v-52ead37b",
+		MergeQueue: &runstate.MergeQueueAdmissionRecord{
+			EntryID: "mqe-" + strings.Repeat("3", 32), Order: 36, Repository: "yoyodyne", TargetBranch: "main",
+			Mode: runstate.MergeQueueHarness, ApprovedHead: "43841801" + strings.Repeat("0", 32), AdmittedAt: admitted,
+		},
+	}}}
+
+	schedule, err := Scheduler{Open: harness.open}.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if len(schedule.Started) != 1 || schedule.Started[0].WorkItemID != next.ID {
+		t.Fatalf("started = %#v, want the next item pulled rather than the queued one: %s", schedule.Started, schedule.Render())
+	}
+	harness.mu.Lock()
+	order := append([]string(nil), harness.order...)
+	harness.mu.Unlock()
+	for _, started := range order {
+		if started == queued.ID {
+			t.Fatalf("started runs = %v, want no fresh run on the item whose approved change is queued", order)
+		}
+	}
+	if len(schedule.Deferred) != 1 || schedule.Deferred[0].WorkItemID != queued.ID {
+		t.Fatalf("deferred = %#v, want the queued change named", schedule.Deferred)
+	}
+	if reason := schedule.Deferred[0].Reason; !strings.Contains(reason, "merge queue") || !strings.Contains(reason, "entry 36") {
+		t.Fatalf("deferred reason = %q, want the queue entry named", reason)
 	}
 }
 

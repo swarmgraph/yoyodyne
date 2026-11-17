@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -48,6 +49,14 @@ type Inspection struct {
 	Record      string `json:"record,omitempty"`
 	RecordBytes int    `json:"record_bytes"`
 	RecordCut   bool   `json:"record_cut"`
+	// StopReason is the reason the run stopped, whole as the record keeps it,
+	// given apart from the record so it is read whole however large the record
+	// is and wherever the record is cut. It is empty for a run that has not
+	// stopped. StopReasonCut declares a reason longer than MaxStopReasonBytes,
+	// and StopReasonBytes is its whole size.
+	StopReason      string `json:"stop_reason,omitempty"`
+	StopReasonBytes int    `json:"stop_reason_bytes,omitempty"`
+	StopReasonCut   bool   `json:"stop_reason_cut,omitempty"`
 	// RecordProblem is why the record could not be read, and every answer below
 	// that depends on it is then missing or uncertain.
 	RecordProblem string          `json:"record_problem,omitempty"`
@@ -122,6 +131,10 @@ func (i Inspector) Inspect(ctx context.Context, runID string) Inspection {
 		inspection.RecordBytes = len(encoded)
 		inspection.Record, inspection.RecordCut = cut(string(encoded), MaxRecordBytes)
 	}
+	if reason := stopReasonOf(state); reason != "" {
+		inspection.StopReasonBytes = len(reason)
+		inspection.StopReason, inspection.StopReasonCut = cut(reason, MaxStopReasonBytes)
+	}
 	inspection.Status, inspection.Phase = state.Status, state.Phase
 	inspection.Worker = i.Runs.Worker(state, now)
 	found := readmodel.Looking(ctx, i.Remains, func() time.Time { return now })(state)
@@ -137,6 +150,7 @@ func (i Inspector) redactInspection(inspection Inspection) Inspection {
 	redactor := execution.NewRedactor(i.RedactValues...)
 	inspection.Record = redactor.Redact(inspection.Record)
 	inspection.RecordProblem = redactor.Redact(inspection.RecordProblem)
+	inspection.StopReason = redactor.Redact(inspection.StopReason)
 	inspection.LeaseHolderProblem = redactor.Redact(inspection.LeaseHolderProblem)
 	inspection.Worker.Says = redactor.Redact(inspection.Worker.Says)
 	if inspection.Remains != nil {
@@ -263,4 +277,23 @@ func lastRefusal(state runstate.State) *Refusal {
 		return &Refusal{Kind: "continuing after a silent stream", Says: state.StallContinuationRefused}
 	}
 	return nil
+}
+
+// stopReasonOf is the reason a run stopped, in the words every surface uses:
+// the reviewer's or the landing's escalation where the run was escalated, and
+// otherwise the run's own reason. It is empty for a run that has not ended or
+// that ended having succeeded.
+func stopReasonOf(state runstate.State) string {
+	if !state.Status.Terminal() {
+		return ""
+	}
+	if state.Escalated() {
+		if reason := strings.TrimSpace(state.EscalationReason()); reason != "" {
+			return reason
+		}
+	}
+	if state.Outcome() == runstate.OutcomeSucceeded {
+		return ""
+	}
+	return strings.TrimSpace(state.Reason())
 }

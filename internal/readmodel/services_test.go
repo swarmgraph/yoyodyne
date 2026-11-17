@@ -274,3 +274,30 @@ func TestMoreThanOneCopyAndACopyOnAnOldBuildAreInTheReadModel(t *testing.T) {
 		}
 	}
 }
+
+// A supervisor behind the binary on disk says so on its own line: which build
+// it is on, since when it has been behind — the moment the build was written,
+// in local time — and what it waits for before it moves. One on the deployed
+// build adds no such line.
+func TestStatusSaysWhatTheSupervisorWaitsForBeforeItMovesAndSinceWhen(t *testing.T) {
+	t.Parallel()
+	written := time.Date(2026, 11, 11, 4, 24, 0, 0, time.UTC)
+	record := runstate.Supervision{PID: 7045, Build: "d7993656aaaaaaaa", Deployed: "3ca5a10bbbbbbbbb", DeployedAt: written,
+		TakeUpWait: "once the dashboard has settled",
+		Children: []runstate.SupervisedChild{{Service: config.ServiceScheduler, State: runstate.ChildRunning, Build: "d7993656aaaaaaaa",
+			RestartingInto: "3ca5a10bbbbbbbbb", Redeploy: "on build d7993656aaaa, behind the deployed 3ca5a10bbbbb; it restarts itself into it between runs"}}}
+	rendered := (Standing{Services: &Services{Recorded: true, SupervisorRunning: true, Record: record}}).RenderServices()
+	for _, want := range []string{
+		"the binary on disk is build 3ca5a10bbbbb, written at " + localMoment(written),
+		"supervisor: on build d7993656aaaa, behind the deployed 3ca5a10bbbbb since " + localMoment(written) + "; it moves onto it once the dashboard has settled",
+		"behind the deployed 3ca5a10bbbbb; it restarts itself into it between runs",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("services = %s\nwant %q in it", rendered, want)
+		}
+	}
+	record.Build = record.Deployed
+	if rendered := (Standing{Services: &Services{Recorded: true, SupervisorRunning: true, Record: record}}).RenderServices(); strings.Contains(rendered, "supervisor: on build") {
+		t.Errorf("services = %s, want no line for a supervisor on the deployed build", rendered)
+	}
+}

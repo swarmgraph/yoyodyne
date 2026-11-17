@@ -37,12 +37,23 @@ func conversationMCP(parts components, stderr io.Writer) chat.MCPCalls {
 	if runtime.GOOS == "darwin" {
 		stores.Keychain = slack.Keychain{Runner: execution.OSProcessRunner{}}
 	}
-	return &mcpcall.Path{
+	path := &mcpcall.Path{
 		Config:        parts.config,
 		Stores:        stores,
 		Hold:          parts.holds,
 		Records:       records,
 		RedactValues:  parts.redactValues,
 		ClientVersion: buildinfo.Commit(),
+		Attribution:   passFailureAttribution(parts.config),
 	}
+	// A server whose tool listing changed since its last call is put to the
+	// development manager as one of the harness's own reports. The store is
+	// assigned only when there is one, since a nil store in the interface would
+	// read as present.
+	if parts.reports != nil {
+		path.Notes = parts.reports
+	} else {
+		fmt.Fprintln(stderr, "warning: a change to an MCP server's tool listing will not be reported from this conversation, because the report pile is not open here")
+	}
+	return path
 }

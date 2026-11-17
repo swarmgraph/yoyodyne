@@ -489,6 +489,11 @@ type SessionState struct {
 	// starts. It is a note in the same way a dispatch wait
 	// is; see runstate.WatchTransition.RecurringPass.
 	RecurringPass *runstate.WatchPass
+	// EmptySlots is the session's account of the developer slots it left empty
+	// while ready work waited, written when the account changes (emptyslots.go).
+	// It is a note in the same way a dispatch wait is; see
+	// runstate.WatchTransition.EmptySlots.
+	EmptySlots *runstate.EmptySlots
 	// Draining marks every transition the session makes while it waits out the
 	// runs it hosts to restart into a build deployed over it, with the bound on
 	// that wait. It is beside the state rather than a state because draining is
@@ -1076,6 +1081,10 @@ type Scheduler struct {
 	// injected apart from Sleep because it is raced against the run rather than
 	// waited out whole, and defaults to a timer.
 	Interval func(interval time.Duration) <-chan time.Time
+	// MergeQueueAgain is how long a merge queue pass that ended waiting waits
+	// before it goes round again on its own, without waiting for the next pull
+	// (mergeQueuePasses.work). Zero is mergeQueueAgainEvery; a test shortens it.
+	MergeQueueAgain time.Duration
 	// Now stamps the recorded transitions. It defaults to the wall clock.
 	Now func() time.Time
 	// FollowUps is the check runner, whose round each poll runs before any hold
@@ -1660,6 +1669,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// queuePasses is the merge queue passes in flight, one per queue, worked
 	// beside the pull as the firings are and collected the same way.
 	queuePasses := newMergeQueuePasses(session.passingBeside(ctx))
+	queuePasses.again = s.MergeQueueAgain
 	defer queuePasses.cancel()
 	// tried is every item this pass has already started, against the item as it
 	// read at the time and what became of the start. A drain never looks at that
@@ -1727,7 +1737,14 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			schedule.CarryOutReadProblem = joinProblem(schedule.CarryOutReadProblem, fmt.Sprintf("record why %s has not started: %v", workItemID, err))
 		}
 	}
+	// pullSlots is what the pull says about the developer slots it leaves empty,
+	// and whyPassed the reason it kept for each item it passed over, which that
+	// account names (emptyslots.go). Both are the pull's and are reset at the top
+	// of every pull.
+	pullSlots := newSlotAccount()
+	whyPassed := map[string]string{}
 	keepWait := func(workItemID string, class runstate.PassedOverClass, reason string) {
+		whyPassed[workItemID] = reason
 		passOver(workItemID, reason)
 		keepReason(workItemID, class, schedulingWaitReason(reason, waitItems))
 	}
@@ -2188,6 +2205,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// the interval this pull read. It reports false when the context ended, which
 	// is the operator stopping the session.
 	wait := func(pull Pull, state runstate.WatchState, said account) bool {
+		session.emptySlots(pullSlots.orElse(state, said.reason, false))
 		session.enter(state, said)
 		if running > 0 {
 			return collectUntilDue(pull)
@@ -2243,6 +2261,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		if running == 0 {
 			return wait(pull, runstate.WatchIdle, said)
 		}
+		session.emptySlots(pullSlots.orElse(runstate.WatchIdle, said.reason, false))
 		session.enter(runstate.WatchIdle, said)
 		return awaitRunOrPoll(pull)
 	}
@@ -2255,6 +2274,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// has to be noticed at the next interval rather than when the last of them
 	// finishes.
 	awaitProvider := func(pull Pull, said account) bool {
+		session.emptySlots(pullSlots.orElse(runstate.WatchIdle, said.reason, true))
 		session.enter(runstate.WatchIdle, said)
 		schedule.Polls++
 		if running == 0 {
@@ -2347,6 +2367,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	session.enter(runstate.WatchWatching, account{reason: s.opening()})
 pulling:
 	for {
+		pullSlots, whyPassed = newSlotAccount(), map[string]string{}
 		// A pull that read everything it needed clears the failures behind it. What
 		// the window measures is a store that has gone on being unreadable, rather
 		// than a count of the contended readings one session met over a long life.
@@ -2402,6 +2423,9 @@ pulling:
 				}
 			case replaced:
 				drain.begin(s.now())
+				// A pass going round on its own stops at its next turn, so the
+				// restart is not held for a queue waiting on the forge.
+				queuePasses.settle()
 				schedule.Drain = &ScheduleDrain{Since: drain.since, Bound: drain.limit}
 				session.draining(drain.record(running))
 				session.note(drain.found(running), running)
@@ -2430,7 +2454,7 @@ pulling:
 				// A merge queue pass in its candidate's checks is let finish them
 				// rather than having every check in the stage run again on the new
 				// build; every other pass is stopped (queueCheckStages).
-				queuePasses.stopForRestart(s.now())
+				queuePasses.stopForRestart(s.now(), drain.checksCeiling())
 			}
 			// Past the bound the session hosts nothing more. The runs still going
 			// are stopped where they are — each at a phase the session that comes
@@ -2461,7 +2485,7 @@ pulling:
 				// restart.
 				recheckSoon = s.stopHosted(&schedule, &drain, hosted, landings, mine, runs) > 0
 				drain.publishing += publications.active()
-				queueWaits = queuePasses.checkWaits(s.now())
+				queueWaits = queuePasses.checkWaits(s.now(), drain.checksCeiling())
 				drain.checkWaits = append(drain.checkWaits, queueWaits...)
 				for _, wait := range queueWaits {
 					if !slices.Contains(schedule.Drain.QueueChecksWaited, wait.Queue) {
@@ -2899,6 +2923,7 @@ pulling:
 		// standing over it and one item is never given two.
 		gone := workersGone(pull.Runs, occupied, mine, s.now())
 		free := pull.Capacity - (len(occupied) - len(gone))
+		pullSlots.counted(free, slotNumbers(pull.slotsOf(withoutItems(occupied, gone), nil).Free()))
 		// freed is the slots that came free since the last pull and whose runs had
 		// held them, which the line a filling poll writes says; heldElsewhere is how
 		// many slots another process's runs hold now, which decides what a session
@@ -3335,6 +3360,9 @@ pulling:
 				// polling and chooses nothing, and resumes in place when it is
 				// released. That is what makes holding intake something an operator
 				// can do to a session they are not sitting at.
+				if pullSlots.free > 0 {
+					pullSlots.say(pullSlots.holdAccount(hold))
+				}
 				if !wait(pull, runstate.WatchBraked, account{
 					reason: brakedReason(hold),
 					// This session's own runs: a held intake stops the choosing and
@@ -3393,6 +3421,10 @@ pulling:
 			free = 1
 		}
 		if free < 1 {
+			// Every slot is counted as taken, which is an empty slot only where one
+			// is counted for a start of this session that has no run on record.
+			pullSlots.say(countedAccount(withoutItems(occupied, gone), gone, mine, schedule.Started, s.now()))
+			session.emptySlots(pullSlots.account)
 			// A watch with a slot another process holds waits on the interval as
 			// well as on its own runs: that process's run ending frees a slot this
 			// session hears of only by reading the runs in flight again, so a wait on
@@ -3438,6 +3470,7 @@ pulling:
 		// drain as well as said, so the read model names the poll as the session
 		// restarting rather than as an idle session over a queue with work in it.
 		if remaining, declined := drain.declinesStarts(pull.Poll, s.now()); declined {
+			pullSlots.say(pullSlots.ruleAccount("the session is restarting onto a newly deployed build, so it starts nothing new into a free slot and the session that comes back fills it"))
 			schedule.Drain.Skipped++
 			skipped := drain.record(running)
 			skipped.PullSkipped = true
@@ -3488,6 +3521,7 @@ pulling:
 		// limit starts new work at the next pull with nothing to release
 		// (waitingpullrequests.go).
 		if waiting, reached := s.waitingPullRequestsReached(&schedule, pull); reached {
+			pullSlots.say(pullSlots.ruleAccount(waiting.Says()))
 			if !s.Watching {
 				schedule.Stopped = ScheduleWaitingPullRequests
 				break
@@ -3894,6 +3928,12 @@ pulling:
 			// reporting itself held while it works, which is the false half of the same
 			// misreading this exists to end.
 			window = providerWindow{}
+			if !probing {
+				// A pull that filled some free slots and left others empty says why
+				// about the ones it left, from what it passed over on the way; one
+				// that filled every free slot clears whatever it said before.
+				session.emptySlots(walkAccount(unfilledSlots(freeSlots, filled), queue, poll.passed, whyPassed, refused, heldProvider))
+			}
 			if probing {
 				// The line is still held: what started is the probe, and the session
 				// says so rather than saying it is choosing again. The hold is read
@@ -3954,6 +3994,7 @@ pulling:
 		// account that arrived an hour into the wait would arrive after the watchdog
 		// had already woken somebody over the silence.
 		passed := poll.passedOver(queue)
+		pullSlots.say(walkAccount(slotNumbers(freeSlots), queue, poll.passed, whyPassed, refused, heldProvider))
 		said := account{
 			reason:     readmodel.IdleLine(passed, len(occupied)),
 			running:    len(occupied),
@@ -4030,6 +4071,9 @@ collecting:
 		queuePasses.cancel()
 	}
 	s.collectFirings(&schedule, firings, &cadence, true)
+	// A queue pass going round on its own ends at its next turn rather than
+	// going round for as long as its queue waits.
+	queuePasses.settle()
 	s.collectQueuePasses(&schedule, queuePasses, true)
 	drain.stop()
 	// The last line, and whether it is an ending. A session stopping to be
@@ -7095,6 +7139,25 @@ func (d *redeployDrain) arm(limit time.Duration, now time.Time) {
 
 func (d redeployDrain) deadline() time.Time { return d.since.Add(d.limit) }
 
+// redeployCheckWaitCeiling is how long past the drain bound a session waits for
+// checks already running, in its runs and in its merge queues, before it stops
+// them too and restarts. Without it the wait runs to each check's own limit,
+// which can be an hour, and a merge queue's candidate goes on from one check to
+// the next; nothing is pulled once the bound has run out, so every developer
+// slot the drain emptied stays empty for all of it. A check stopped here runs
+// again on the new build, which costs the machine that check's time; ten
+// minutes is long enough for a check that is nearly done to finish and short
+// enough that the scheduler is on a landed build within the drain bound and
+// this of finding the deploy. A promotion and a document landing are still
+// waited for to their end, because stopping either part-way is worse than the
+// wait, and the session's line names each.
+const redeployCheckWaitCeiling = 10 * time.Minute
+
+// checksCeiling is the moment past which no running check holds the restart.
+func (d redeployDrain) checksCeiling() time.Time {
+	return d.deadline().Add(redeployCheckWaitCeiling)
+}
+
 // reached marks the bound as having run out, however that was found.
 func (d *redeployDrain) reached() { d.boundReached = true }
 
@@ -7346,7 +7409,7 @@ func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted m
 				unstopped++
 				continue
 			}
-			if wait, waiting := s.waitForRunningCheck(state, index, landings, stop, now); waiting {
+			if wait, waiting := s.waitForRunningCheck(state, index, landings, stop, now, drain.checksCeiling()); waiting {
 				drain.checkWaits = append(drain.checkWaits, wait)
 				if !slices.Contains(schedule.Drain.ChecksWaited, id) {
 					schedule.Drain.ChecksWaited = append(schedule.Drain.ChecksWaited, id)
@@ -7370,18 +7433,23 @@ func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted m
 // its next check where it is. The wait lasts until the check's own configured
 // limit (runstate.CheckStage.CheckRunningUntil) and checkYieldGrace beyond it,
 // for a check stopped at that limit to be recorded; a run still at that check
-// past then is stopped like any other.
+// past then is stopped like any other. No wait runs past ceiling
+// (redeployCheckWaitCeiling): a run whose check is still going then is stopped,
+// and that check runs again on the new build.
 // A stage with no check launched — waiting for a heavy check's place, or
 // between two checks — has nothing a stop would start over, so it is stopped
 // at once.
-func (s Scheduler) waitForRunningCheck(state runstate.State, index int, landings *hostedLandings, stop RedeployDrain, now time.Time) (runstate.WatchCheckWait, bool) {
+func (s Scheduler) waitForRunningCheck(state runstate.State, index int, landings *hostedLandings, stop RedeployDrain, now, ceiling time.Time) (runstate.WatchCheckWait, bool) {
 	stage := state.CheckStage
-	if stage == nil {
+	if stage == nil || !now.Before(ceiling) {
 		return runstate.WatchCheckWait{}, false
 	}
 	until, running := stage.CheckRunningUntil()
 	if !running || !now.Before(until.Add(checkYieldGrace)) {
 		return runstate.WatchCheckWait{}, false
+	}
+	if until.After(ceiling) {
+		until = ceiling
 	}
 	yield := landings.yieldAt(index)
 	if yield == nil {
@@ -7444,6 +7512,9 @@ type watchSession struct {
 	// every transition carries it while it lasts. It is nil for a session nothing
 	// was deployed over, which is most of them.
 	drain *runstate.WatchDrain
+	// slots is the account of its empty developer slots the session last wrote,
+	// and nil before it has written one (emptyslots.go).
+	slots *runstate.EmptySlots
 }
 
 // draining sets what every transition from here on carries about the drain. A

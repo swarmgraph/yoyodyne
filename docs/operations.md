@@ -169,6 +169,21 @@ rm ~/Library/LaunchAgents/com.yoyodyne.supervisor.<product>.plist
 On a platform without launchd, the step says so and `yoyo start` is typed after
 each restart.
 
+**Without the agent, start the product from an ordinary terminal.** A
+supervisor `yoyo start` detaches keeps the macOS sandbox of the shell it was
+typed in, if that shell has one, and so does every part it starts. An AI
+session's shell is such a sandbox, and inside it no Go program, `gh` included,
+can verify GitHub's certificate: every check of GitHub fails with
+`x509: OSStatus -26276`, among them the check for pull requests merged outside
+the merge queue, so those changes are never closed out. So on macOS, `yoyo start`
+refuses to detach a supervisor from a shell that cannot verify a certificate,
+and says why. A start through the launch agent is not refused, because launchd
+starts that supervisor outside the sandbox. A supervisor already running that
+way says so in its log and files one warning for the development manager; the
+fix is `yoyo stop`, then `yoyo start` from an ordinary terminal. While the
+merge queue cannot verify GitHub's certificate, its pass stops and says so
+rather than building an entry whose pull request may already be merged.
+
 **Starting the supervisor retires the operator's old maintenance job.** Before
 the supervisor, a launchd job of the operator's own, `com.yoyodyne.maintenance`,
 ran a script every ten minutes that started and restarted the scheduler,
@@ -529,7 +544,13 @@ Each pass takes eleven steps, in this order, and each is recorded:
   history older than thirty days where no stage did, because the listings are
   past the limit. A store at least twice the size on disk that the last
   finished squash left it is squashed the same way even where its listings are
-  within ten seconds. A squash that finishes where, on the measured copy, the
+  within ten seconds, and so is a live store whose size on disk is past
+  `services.maintenance.tracker_limits.store_megabytes`, or whose listings of
+  open and ready work by the harness over the hour before took longer than
+  `listing_seconds`. Those two are read as the **limits** step reads them,
+  from the disk and from the log of calls, because a listing on an idle copy
+  is quick however large the live store has grown, so the measurement alone
+  never finds the live store due. A squash that finishes where, on the measured copy, the
   listings were still past ten seconds after the same squash files one
   warning for the development manager with the figures: the listings' times at
   each stage and the store's size either side of the squash. It is not filed
@@ -552,7 +573,9 @@ Each pass takes eleven steps, in this order, and each is recorded:
   first fails and is tried again by its caller. So a squash whose time on the
   measured copy is longer than `execution.redeploy_drain_limit` (fifteen
   minutes by default) is not run, and the pass files one warning for the
-  development manager naming the step and that time. Otherwise the pass reads
+  development manager naming the step and that time, and, where the store's
+  size or the slow listings made it due, saying so with the store's size on
+  disk. Otherwise the pass reads
   the store's size on disk, which lists no work items and so answers however
   large the store is, and then holds new runs in `tracker-squash-hold.json`
   under the product's state: a watching session starts nothing while it
@@ -587,9 +610,17 @@ Each pass takes eleven steps, in this order, and each is recorded:
   on the request with what was done (above).
 - **redeploy** — the deployed build taken up. The parts are moved onto it by the
   supervisor's own looks, one at a time; what this step adds is the supervisor
-  itself, which re-executes into the new build once the pass is recorded,
-  leaving every part running to be reattached. It waits a pass where a part is
-  still being moved.
+  itself, which re-executes into the new build, leaving every part running to
+  be reattached. Between passes it does so at the first look nothing holds it
+  back — a part it is itself moving or starting again, a release cut under
+  way, or the provider guard — rather than waiting for the next pass; a pass
+  that falls due first takes it up once the pass is recorded. A scheduler
+  draining its runs to restart itself does not hold the supervisor back, since
+  the supervisor that follows reattaches it; only the moment it lets its lease
+  go to re-execute does. While the supervisor is behind, `yoyo status` prints a
+  `supervisor:` line under Services naming its build, since when it has been
+  behind (the time the deployed binary was written, in local time), and what
+  it waits for.
 - **slack** — where the sink stands: `yoyo slack ensure`, which the supervisor's
   own look at the sink already takes every few seconds.
 - **release** — a release the Lead Product Manager decided, cut and its tag
@@ -821,6 +852,20 @@ and files under `.yoyodyne/roles/`. An operator flag or ordinary repair prose
 alone cannot transfer ownership to the operator. The factory-flow program
 manager still watches unless her own pass is failing; the role named in the
 finding still resolves the cause.
+
+### The supervisor's checks on main
+
+For a project that lists `main_checks`, the supervisor also runs them whole on
+the head of the branch runs land on, every `execution.main_check_interval`,
+four hours by default, and only when the branch has moved since the last run.
+It works in a worktree of its own under the product's state directory and never
+touches your checkout. `yoyo status` says when the branch last passed them. A
+failure is not run again: it files a critical report naming the commit, the
+failing tests, the last commit that passed and the commits between, and the
+next run waits for the branch to move. A run that could not run files a
+warning and is tried again ten minutes later. While a run is under way, the supervisor
+waits for it to finish before it moves onto a new build.
+[The checks run on main](configuration.md#the-checks-run-on-main) has the rest.
 
 ### The supervisor's forge check
 
@@ -3652,19 +3697,28 @@ recording its verdict is still hosted past the bound:
   forge outage can hold a promotion for hours, and those hours cost the
   scheduler nothing but the seat the promotion holds.
 - A run with a check running is left to finish that check, and only that
-  check: a new build never makes a check start over. The session asks the run
+  check, so a check that ends within the wait is not started over on the new
+  build. The session asks the run
   to stop before its next check, and the run stops there by itself — between
   two checks, or once its last check has passed — at its checks, preserved like
   any stopped run. The wait is bounded by the running check's own configured
   limit, `execution.check_timeout`, or the shorter limit the check was given,
   plus five minutes for a check stopped at that limit to be recorded; a run
-  still at that check past then is stopped. Load can scale a check's limit, and
+  still at that check past then is stopped. And no wait on a running check, in
+  a run or in a merge queue, lasts more than ten minutes past the drain bound:
+  a check still going then is stopped and runs again on the new build, because
+  nothing is pulled into a free seat while the session waits, and a check limit
+  of an hour would leave every seat the drain emptied empty for that hour. So
+  the scheduler is on a deployed build within `execution.redeploy_drain_limit`
+  and ten minutes of finding it, except while a promotion or a document landing
+  run is waited out, which the session's line names with since when. Load can scale a check's limit, and
   the check stage's `execution.check_stage_timeout`, to hours, and neither is
   waited for in full: a check the load has let run past its configured limit
   is stopped there and runs again in the session that comes back. A run
   waiting for a heavy check's place, or between two checks, has nothing
   running and is stopped at the bound. However many builds are deployed while
-  the check runs, it runs once. Each check that passed before the
+  the check runs, it runs once, unless it is still running ten minutes past
+  the bound. Each check that passed before the
   stop keeps its result: the session that comes back runs only the checks that
   had not finished, and only when the change is exactly the one they passed on
   — same content, same commit, same repair attempt. A changed change runs every
@@ -3734,8 +3788,9 @@ recording its verdict is still hosted past the bound:
 
 What a stopped run loses is the minutes its current phase had spent: a
 developer attempt resumes in the session it was making, and a review is asked
-for again. No check is started over: the running one finishes first, and only
-the checks that had not run are run when the run is re-adopted. The bound stops
+for again. No check is started over unless it is still running ten minutes past
+the bound: the running one finishes first, and only the checks that had not
+run are run when the run is re-adopted. The bound stops
 a developer attempt and a review; a promotion, a running check, and a document
 landing run are waited out past it. An already-finished check
 stage gets up to a minute's grace to record its verdict and move to the next
@@ -3752,7 +3807,8 @@ back on its own — rather than reporting an idle session or no session, either
 of which would send you to start one that is already on its way back. While
 the session is waiting past the bound for a check running in a run it hosts,
 its line names each such run, the check, and the latest moment that check can
-run to under its own limit, and the not-startable line reads the session as
+run to under its own limit or the ten minutes past the bound, whichever comes
+first, every moment in the machine's local time with the zone named, and the not-startable line reads the session as
 restarting until two minutes past that moment; it is said again whenever the
 runs it waits on change, and every ten minutes while they do not. While it is
 waiting for a document landing run, its line says how many, and is said again
@@ -4486,8 +4542,18 @@ ends: `the tracker took 47s to answer reading work item …`, or `the tracker di
 not answer listing the work items with status closed: it was stopped after
 2m0s, at its limit of 2m0s`. The maintenance pass bounds the sweep at fifteen
 minutes and records the end of what a sweep stopped at that bound wrote to
-standard error, so a timed-out reconcile's record names the reads that held it
-up rather than only that it timed out.
+standard error, so a timed-out reconcile's record names each read that took 30
+seconds or more rather than only that it timed out.
+bd lets one command into its store at a time, so every tracker call waits its
+turn behind every other process using the store, and the sweep takes as few
+turns as it can: before it settles any run it reads the work items of every
+outstanding run in one call — `reading 11 work items in one call, … first` where a
+read that slow is said — and each run's first read of its own item is answered
+from that. A later read of the same item, a read a write makes, and a read after
+anything in the pass wrote to the item still ask the tracker; nothing read
+ahead is given out more than five minutes after it was read; and a batch the
+tracker does not answer is not asked again, so each item is then read on its
+own as before.
 [The diagnosis](diagnoses/yoyodyne-ifd-428-126-4-14-1-reconcile-tracker-waits.md)
 says why those reads are slow. Until yoyodyne-ifd.429.38
 every recorded request that was not merged was asked about on every pass, one
@@ -5374,6 +5440,31 @@ has the rule.
   derivation the scheduler fills the free slots from, so the slot this line
   calls free is the slot the scheduler will fill. Where no slot prefers a
   label the line reads exactly as above.
+
+  **A developer slot the scheduler left empty while ready work waits is said
+  as a problem.** Each time a watching scheduler leaves a slot empty while
+  open, ready work no run carries is waiting, it records why on the watch log —
+  a pull that fills some free slots says why about the ones it left —
+  and records it again only when the reason changes. The reason is one of five:
+  a hold on new work, naming who placed it; a rule keeping work out, naming the
+  item it kept out — work overlapping a run in flight, an item already tried,
+  the provider's limit, a restart onto a new build, or the limit on pull
+  requests waiting for a person; a slot still counted as taken, naming what it
+  is counted for; no eligible item, with why the first ready items were passed
+  over; or not known, which is never left blank. The line names it in its head
+  and under the runs, opening on `problem:`, with since when and whose move it
+  is, and lists each ready item passed over with why. It is dropped once the
+  scheduler finds every slot filled or no ready work left, once its session
+  stops, or once this reading finds every slot taken. The health check the
+  development manager's passes carry lists it as a condition, with the same
+  reason.
+
+  ```text
+  Running (2 developer runs, and developer slot 3 empty while ready work waits):
+    …
+    problem: developer slot 3 left empty with 2 ready items waiting, because of a rule keeping work out: a rule keeps yoyodyne-h0ou out: sequenced behind work in flight: … This has stood since 2026-11-09 18:17 PST (1 hour ago), and it is the harness's to move: nothing: the slot is filled at the first poll after what keeps the work out ends
+      passed over (P0, reliability) Provider search path (yoyodyne-h0ou): sequenced behind work in flight: …
+  ```
 
   **A run with no process behind it is named as one rather than as running.**
   Its record says `running` until something writes its ending, and a process
@@ -6904,7 +6995,9 @@ summary](#where-things-stand-in-five-answers-the-summary), the four lines, the
 capacity state carried under them, what the harness is spending, and what
 landed — to a browser on this machine, as one page of nine sections opening
 with the summary, with a tenth, Merge queues, shown only where the product has
-a merge queue record, and keeps serving it until you stop it:
+a merge queue record, and keeps serving it until you stop it. With
+[`services.dashboard.hide_summary`](configuration.md#services) set, the page
+leaves the summary out and opens with the four lines:
 
 ```sh
 ./bin/yoyo dashboard              # a port the operating system chooses
@@ -7341,11 +7434,12 @@ applies it. Until yoyodyne-ifd.434.33 all of this was read once, as the
 dashboard started, and an operator bound after that was refused until somebody
 restarted it by hand.
 
-**A changed port, address, or token source is applied by the supervisor, with
-no new build.** These are what a dashboard holds from its start, because a
-new one is a new listener or a new shared token. The dashboard reads
-`services.dashboard.port`, `services.dashboard.bind`, and
-`services.dashboard.token` once, as it starts, and records the values it
+**A changed port, address, token source, or summary setting is applied by the
+supervisor, with no new build.** These are what a dashboard holds from its
+start, because a new one is a new listener, a new shared token, or a new page.
+The dashboard reads `services.dashboard.port`, `services.dashboard.bind`,
+`services.dashboard.token`, and `services.dashboard.hide_summary` once, as it
+starts, and records the values it
 started on beside the configuration keys it reads (under
 `projects/<product>/state/config-readers/`). Every thirty seconds, on the same
 look at builds, the supervisor reads the configuration again and compares it
@@ -8444,6 +8538,16 @@ so a wait of more than a poll or two on a busy cadence is the thing to look at.
 A task's first pass, a summoned pass, and one recorded before passes carried it
 say nothing about waiting.
 
+Once taken, a pass may still wait for its role's conversation to be free — the
+operator mid-turn in it, or another process taking a turn there. The pass says
+that wait and its running time as two figures —
+`waited 16m0s for its conversation to be free, then ran 9m12s` — and `--json`
+carries them as `conversation_wait` and `ran`, in nanoseconds. A turn's time
+limit starts once the turn holds the conversation, so only the running counts
+against it; the wait is bounded by the agent's message limit instead, and a
+pass whose wait reaches that is recorded as missed rather than failed. A pass recorded
+before passes carried these says neither.
+
 A pass handed the work waiting in its role's conversation says under its header
 what it was handed, in the order it was handed it, with each item's priority and
 whether it was taken — `handed 4 items of the work waiting in the architect's
@@ -8538,6 +8642,17 @@ its worker. A source that could not be read is said, and such an observation is
 never presented as a healthy one. The pass's record keeps the observation's
 identifier and the identity of each condition it carried, in the `health` field
 `yoyo sweeps --json` shows.
+
+**Every factory-flow program manager pass also shows the open pull requests
+and the documents waiting to land.** The harness reads the forge itself, since
+no role can, and lists every pull request it opened that is still open: what it
+carries, how long it has been open, whether it can merge, and its checks. Beside
+them are the document landings and who holds each, the documents waiting for one
+to free, and the approved documents waiting in the merge queue. A document with
+more than one open publication pull request, and every document landing held for
+longer than three hours, are added to the pass's account as findings of their
+own. A forge that could not be read is said as not known rather than shown as an
+empty list.
 
 **A development manager's pass carries what waits on you, beside her docket.**
 Every firing of her task, scheduled or summoned by the brake, has two sections

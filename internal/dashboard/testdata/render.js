@@ -353,6 +353,8 @@ const pages = [
   { name: "pass-failures-unreadable", token: "t", standing: ok(fixture("standing-pass-failures-unreadable")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "queues", token: "t", standing: ok(fixture("standing-queues")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "queues-unreadable", token: "t", standing: ok(fixture("standing-queues-unreadable")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
+  { name: "mcp-calls", token: "t", standing: ok(fixture("standing-mcp-calls")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
+  { name: "mcp-calls-unreadable", token: "t", standing: ok(fixture("standing-mcp-calls-unreadable")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "run-steps", token: "t", standing: ok(fixture("standing-run-steps")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "signin", token: "", standing: pending, throughput: pending, spend: pending },
   { name: "loading", token: "t", standing: pending, throughput: pending, spend: pending },
@@ -401,7 +403,10 @@ const pages = [
   // record of them could not be read, which puts it there saying so.
   { name: "decisions", token: "t", standing: ok(fixture("standing-decisions")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "decisions-unreadable", token: "t", standing: ok(fixture("standing-decisions-unreadable")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
-  { name: "spend-stale", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), then: { "/api/spend": refused(503, "the state root could not be resolved") } }
+  { name: "spend-stale", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), then: { "/api/spend": refused(503, "the state root could not be resolved") } },
+  // The busy page served with services.dashboard.hide_summary set: the summary
+  // is not on it at all, and the page never asks for it.
+  { name: "summary-hidden", token: "t", hideSummary: true, standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) }
 ];
 
 const scenarios = pages.concat([
@@ -536,7 +541,16 @@ function settle() {
 // keeps it between its tabs and windows; without one, the page opens in a
 // browser that has never held anything for this origin.
 async function run(scenario, shared) {
-  const shell = fs.readFileSync(path.join(assets, "shell.html"), "utf8").replace(/\{\{\.Product\}\}/g, "yoyodyne");
+  // The shell is a Go template: the product's name, and the owner summary
+  // kept or left out as services.dashboard.hide_summary says, which a scenario
+  // names as hideSummary. Anything else in braces is a template this driver
+  // does not fill, and is said so rather than drawn as text.
+  const shell = fs.readFileSync(path.join(assets, "shell.html"), "utf8")
+    .replace(/\{\{\.Product\}\}/g, "yoyodyne")
+    .replace(/\{\{if not \.HideSummary\}\}([\s\S]*?)\{\{end\}\}/g, (whole, kept) => (scenario.hideSummary ? "" : kept));
+  if (shell.includes("{{")) {
+    throw new Error(`${scenario.name}: the shell carries a template this driver does not fill`);
+  }
   const document = parse(shell);
   const script = fs.readFileSync(path.join(assets, "dashboard.js"), "utf8");
 
@@ -696,13 +710,22 @@ async function run(scenario, shared) {
     throw new Error(`${scenario.name}: focus did not return to the opener after Escape`);
   }
 
-  const sections = ["summary", "band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"];
+  const matrix = { page: page.getAttribute("data-state"), sections: {}, popups: {} };
+  // A section the server left out of the page — the summary, where
+  // services.dashboard.hide_summary is set — is absent from the matrix's
+  // account of it and from the render.
+  const sections = ["summary", "band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"].filter((id) => {
+    if (document.getElementById(id) === null) {
+      matrix.sections[id] = "absent";
+      return false;
+    }
+    return true;
+  });
   // A section shown only where the product has what it lists is dropped from
   // the render and the matrix while it is hidden, so a page without it renders
   // exactly as it did before the section existed.
-  const shownWhenPresent = ["queues"];
+  const shownWhenPresent = ["queues", "mcp"];
   const popups = ["grouping", "card", "report", "decide"];
-  const matrix = { page: page.getAttribute("data-state"), sections: {}, popups: {} };
   sections.forEach((id) => {
     matrix.sections[id] = document.getElementById(id).getAttribute("data-state");
   });
@@ -874,6 +897,20 @@ async function main() {
     const rendered = await run(scenario);
     if (scenario.name === "snapshot-old") {
       await checkStandingWarning(scenario, rendered.standingWarningAgeSeconds);
+    }
+    // A page served without the summary carries no panel, heading, or control
+    // of it, never asks for it, and keeps the other eight sections in their
+    // order; the same page served with it opens on it.
+    if (scenario.name === "summary-hidden" || scenario.name === "busy") {
+      const hidden = scenario.name === "summary-hidden";
+      const order = Array.from(rendered.html.matchAll(/<section id="([a-z]+)" class="panel /g), (found) => found[1]);
+      const expected = ["summary", "band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"].filter((id) => !(hidden && id === "summary"));
+      assert.deepStrictEqual(order, expected, `${scenario.name} draws its sections in the order ${order.join(", ")}`);
+      for (const words of ['id="summary', ">Summary<", "summary-today", "summary-week"]) {
+        assert.strictEqual(rendered.html.includes(words), !hidden, `${scenario.name} ${hidden ? "carries" : "lacks"} ${words}`);
+      }
+      const askedForSummary = rendered.requests.some((request) => request.url.startsWith("/api/summary"));
+      assert.strictEqual(askedForSummary, !hidden, `${scenario.name} ${hidden ? "asked" : "never asked"} for the summary`);
     }
     // Exercise the four run histories through the actual page script, even
     // when this driver is called directly rather than through the Go suite.

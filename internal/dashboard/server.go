@@ -238,6 +238,16 @@ type Server struct {
 	// acts.go.
 	people []personToken
 	actor  Actor
+	// hideSummary leaves the owner summary out of the page, as
+	// services.dashboard.hide_summary says; fixed before Serve (HideSummary).
+	hideSummary bool
+}
+
+// HideSummary leaves the owner summary section out of the page the server
+// serves, for services.dashboard.hide_summary. It is called before Serve, and
+// changes the page alone: /api/summary still answers.
+func (s *Server) HideSummary(hide bool) {
+	s.hideSummary = hide
 }
 
 // New makes a server holding a fresh token for the read model it is handed. The
@@ -670,13 +680,18 @@ func sharedToken(candidate, token string) bool {
 // with an empty, a loading, and an error state of its own, and a tenth, the
 // merge queues, hidden until
 // the product has a merge queue record, and nothing of the read model in any of them.
-// It is static text the page's own script then fills from the JSON, so it is
-// served to a browser that has no token yet, which is every browser before it
-// signs in.
+// Where services.dashboard.hide_summary is set the summary is not in it at
+// all, and the script, finding no summary section, neither draws nor asks for
+// one. It is static text the page's own script then fills from the JSON, so it
+// is served to a browser that has no token yet, which is every browser before
+// it signs in.
 func (s *Server) servePage(writer http.ResponseWriter) {
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 	writer.WriteHeader(http.StatusOK)
-	_ = shell.Execute(writer, struct{ Product string }{Product: s.Product})
+	_ = shell.Execute(writer, struct {
+		Product     string
+		HideSummary bool
+	}{Product: s.Product, HideSummary: s.hideSummary})
 }
 
 // serveBacklogPage is the backlog page's shell, served without a token for the

@@ -39,20 +39,21 @@ type SubagentRecord struct {
 	// without sub-agents on its own endpoint; it lifts at the reset the
 	// provider named, and one that named none stands for the rest of the run.
 	Limit *SubagentLimit `json:"limit,omitempty"`
-	// Instruction is the built-in instruction to hand the coding to
-	// sub-agents, as the run's last developer invocation given it received it,
-	// and nil where no invocation of the run was given it. It stays when the run
+	// Instruction is the built-in instruction on how to use sub-agents, as the
+	// run's last developer invocation given one received it, and nil where no
+	// invocation of the run was given one. It stays when the run
 	// later goes without them, a move to another developer slot included, so the
 	// record still says the run was told.
 	Instruction *SubagentInstruction `json:"instruction,omitempty"`
 }
 
-// SubagentInstruction records that a developer invocation was given the
-// built-in instruction to hand the coding to its sub-agents, and which build
-// of the harness the text came from, so a trial and a reviewer can tell which
+// SubagentInstruction records that a developer invocation was given a
+// built-in instruction on how to use its sub-agents, which one, and which
+// build of the harness the text came from, so a trial and a reviewer can tell which
 // runs received which wording.
 type SubagentInstruction struct {
-	// File is the instruction's file in the harness's source.
+	// File is the instruction's file in the harness's source, which also says
+	// which arrangement of models it was written for.
 	File string `json:"file"`
 	// Build is the repository revision of the harness the text was built into,
 	// and empty for a binary that recorded none.
@@ -62,13 +63,13 @@ type SubagentInstruction struct {
 
 // Says is the instruction in words a person reads, for a run with sub-agents on.
 func (i SubagentInstruction) Says() string {
-	return "told to hand the coding to them by " + i.source()
+	return "given " + i.source()
 }
 
 // SaysEarlier is the instruction in words a person reads, for a run going
 // without sub-agents now.
 func (i SubagentInstruction) SaysEarlier() string {
-	return "an earlier attempt was told to hand the coding to sub-agents by " + i.source()
+	return "an earlier attempt was given " + i.source()
 }
 
 func (i SubagentInstruction) source() string {
@@ -76,7 +77,7 @@ func (i SubagentInstruction) source() string {
 	if i.Build != "" {
 		build = "build " + shortRevision(i.Build)
 	}
-	return "the built-in instruction " + i.File + " from " + build
+	return "the built-in sub-agent instruction " + i.File + " from " + build
 }
 
 func shortRevision(revision string) string {

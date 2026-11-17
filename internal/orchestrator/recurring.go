@@ -234,6 +234,11 @@ type Turn struct {
 	// gave. Where an earlier turn of the pass gave its account, the pass keeps it.
 	ProviderFailed bool   `json:"provider_failed,omitempty"`
 	ConversationID string `json:"conversation_id,omitempty"`
+	// Waited is how long the turn waited for the role's conversation to be free
+	// before it was allowed to start, which its time limit does not count. It is
+	// carried on a turn whose wait ended unanswered as well, so the pass's record
+	// says how long it waited either way (runstate.Sweep.ConversationWait).
+	Waited time.Duration `json:"waited,omitempty"`
 	// Turns counts answered provider turns, including a recovered report. It
 	// retains the first reply when the report request fails afterwards.
 	Turns         int  `json:"turns,omitempty"`
@@ -475,6 +480,13 @@ type Trigger struct {
 	// docs/designs/fresh-factory-health-and-preserved-run-recovery.md).
 	// Optional: a trigger wired without it hands those passes no observation.
 	Health func(ctx context.Context, role domain.AgentRole, agent string) (string, *runstate.SweepHealth)
+	// FactoryFlow reads, for every pass of the factory-flow program manager,
+	// the pull requests the harness opened that are still open and the
+	// documents waiting to land, and returns the section her message carries,
+	// the stalls found as findings the harness adds to her account, and what
+	// could not be read. Optional: a trigger wired without it hands her none of
+	// it. See factoryflow.go and internal/factoryflow.
+	FactoryFlow func(ctx context.Context) (string, []sweep.Finding, []string)
 	// ConversationWork is the role's live queue, read afresh for each recurring
 	// turn in backlog order rather than left to the conversation's old briefing.
 	// Optional: an unwired trigger wakes the role with its task alone.
@@ -1263,6 +1275,16 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		message = section + "\n\n" + message
 		recorded.Health = observed
 	}
+	// What the factory-flow program manager cannot read herself: the harness's
+	// open pull requests and the documents waiting to land, read once for the
+	// pass. The stalls it names join her account once her turns are over.
+	var flowFindings []sweep.Finding
+	if t.FactoryFlow != nil && task.Role == domain.RoleProgramManager && t.observesHealth(task.Role, f.agent) {
+		section, findings, flowProblems := t.FactoryFlow(ctx)
+		message = section + "\n\n" + message
+		flowFindings = findings
+		problems = append(problems, flowProblems...)
+	}
 	// The closed work to audit goes in the first turn's message only: a later
 	// turn of the same pass is a continuation of the audit, not a second list.
 	if t.ClosedWork != nil && task.Role == domain.RoleProductManager && f.agent == "" {
@@ -1324,6 +1346,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			message = strings.Join(docketLines(docket.Window()), "\n") + "\n" + message
 		}
 		answered, err := t.Roles.Wake(ctx, task.Role, f.agent, pass, task.ModelSelector(), message, options)
+		recorded.ConversationWait += max(answered.Waited, 0)
 		if err != nil {
 			recorded.FailureOutput = runstate.FailureOutputTail(answered.FailureOutput)
 		}
@@ -1591,6 +1614,11 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		problems = append(problems, describeSavedBeforeFailing(name, recorded.Saved))
 	}
 	recorded.EndedAt = t.now()
+	// The wait and the running are said apart, because only the running counts
+	// against a turn's time limit. The wait was measured on the process's own
+	// clock and the span on the trigger's, so the wait is held to the span.
+	recorded.ConversationWait = min(recorded.ConversationWait, max(recorded.EndedAt.Sub(recorded.StartedAt), 0))
+	recorded.Ran = max(recorded.EndedAt.Sub(recorded.StartedAt)-recorded.ConversationWait, 0)
 	if failed && t.Availability != nil {
 		if cause := t.Availability(recorded.StartedAt, recorded.EndedAt, name); cause.Why != "" {
 			problems = append(problems, "observations during the stopped response: "+cause.Why)
@@ -1610,6 +1638,8 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	// turns, so what the role said is intact and what the harness noticed is
 	// stated beside it, including when the conversation wait missed its turn.
 	problems = append(problems, t.noticeForge(ctx, task, &recorded))
+	problems = append(problems, addHarnessFindings(&recorded, task.Role, flowFindings,
+		"the stalls the harness found in the factory flow"))
 	// A pass whose own context was cancelled under it — the session carrying it
 	// stopped — did not fail on its own terms: it was stopped before it
 	// completed, and is recorded as a missed pass of the trigger that took it,

@@ -68,32 +68,17 @@ func (p *Pass) checkTrackerLimits() runstate.SweepStep {
 
 	if p.Calls == nil {
 		unchecked = append(unchecked, "no log of the harness's tracker calls is wired, so the listings' times are not checked")
-	} else if records, _, err := p.Calls.Read(now.Add(-callWindow), now); err != nil {
+	} else if timed, err := p.liveListings(now, limits); err != nil {
 		unchecked = append(unchecked, fmt.Sprintf("the log of the harness's tracker calls could not be read, so the listings' times are not checked: %v", err))
 	} else {
-		bound := time.Duration(limits.ListingSeconds) * time.Second
-		listings, over, slowest := 0, 0, runstate.TrackerCallRecord{}
-		for _, record := range records {
-			if !openOrReadyListing(record) {
-				continue
-			}
-			listings++
-			if record.Took > bound || record.StoppedAtLimit {
-				over++
-			}
-			if record.Took > slowest.Took {
-				slowest = record
-			}
-		}
 		switch {
-		case listings == 0:
+		case timed.listings == 0:
 			within = append(within, "the harness listed no open or ready work in the hour before")
-		case over > 0:
+		case timed.over > 0:
 			passed = append(passed, limitListings)
-			past = append(past, fmt.Sprintf("%d of the %d listings of open or ready work the harness made in the hour before took longer than their bound of %d seconds (services.maintenance.tracker_limits.listing_seconds); the slowest, %s for %s, took %s",
-				over, listings, limits.ListingSeconds, slowest.Call, slowest.Caller(), roundTook(slowest.Took)))
+			past = append(past, timed.saysOver(limits, "bound"))
 		default:
-			within = append(within, fmt.Sprintf("every listing of open or ready work in the hour before (%d of them) took at most %d seconds, the slowest %s", listings, limits.ListingSeconds, roundTook(slowest.Took)))
+			within = append(within, fmt.Sprintf("every listing of open or ready work in the hour before (%d of them) took at most %d seconds, the slowest %s", timed.listings, limits.ListingSeconds, roundTook(timed.slowest.Took)))
 		}
 	}
 
@@ -147,6 +132,47 @@ func (p *Pass) checkTrackerLimits() runstate.SweepStep {
 	p.limitsWarned = key
 	step.Detail += "; the development manager was warned"
 	return step
+}
+
+// timedListings is how the harness's own listings of open and ready work on
+// the live store went over the hour before a pass, as its log of calls records
+// them.
+type timedListings struct {
+	listings, over int
+	slowest        runstate.TrackerCallRecord
+}
+
+// liveListings reads the harness's listings of open and ready work over the
+// hour before now from its log of calls, counting those past the configured
+// listing bound or stopped at their own limit. It asks the store nothing. It
+// is used where p.Calls is wired.
+func (p *Pass) liveListings(now time.Time, limits config.TrackerLimits) (timedListings, error) {
+	records, _, err := p.Calls.Read(now.Add(-callWindow), now)
+	if err != nil {
+		return timedListings{}, err
+	}
+	bound := time.Duration(limits.ListingSeconds) * time.Second
+	var timed timedListings
+	for _, record := range records {
+		if !openOrReadyListing(record) {
+			continue
+		}
+		timed.listings++
+		if record.Took > bound || record.StoppedAtLimit {
+			timed.over++
+		}
+		if record.Took > timed.slowest.Took {
+			timed.slowest = record
+		}
+	}
+	return timed, nil
+}
+
+// saysOver says how many listings were past the configured listing bound, and
+// the slowest, calling the bound by word.
+func (t timedListings) saysOver(limits config.TrackerLimits, word string) string {
+	return fmt.Sprintf("%d of the %d listings of open or ready work the harness made in the hour before took longer than their %s of %d seconds (services.maintenance.tracker_limits.listing_seconds); the slowest, %s for %s, took %s",
+		t.over, t.listings, word, limits.ListingSeconds, t.slowest.Call, t.slowest.Caller(), roundTook(t.slowest.Took))
 }
 
 // openOrReadyListing reports a call that listed open or ready work, which is

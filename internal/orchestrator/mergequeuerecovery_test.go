@@ -783,13 +783,22 @@ func TestAWithdrawalConfirmedByAPromotionIsReleasedByTheNextRecovery(t *testing.
 	}
 }
 
-// validatingRun is the fixture's run store refusing, as the real store does,
-// any record that is not a valid run state.
-type validatingRun struct{ *recordingRun }
+// validatingRun is the fixture's run store refusing what the real store
+// refuses: a record that breaks a rule of the run's record, refused as
+// runstate.RefusedStateError before anything is written.
+type validatingRun struct {
+	*recordingRun
+	// refuseAll refuses every save, as a record broken in a way no hand-back
+	// mends is refused.
+	refuseAll bool
+}
 
 func (v validatingRun) Save(state runstate.State) error {
+	if v.refuseAll {
+		return runstate.RefusedStateError{Problem: errors.New("invalid run state: a rule this record breaks")}
+	}
 	if err := state.Validate(); err != nil {
-		return fmt.Errorf("invalid run state: %w", err)
+		return runstate.RefusedStateError{Problem: err}
 	}
 	return v.recordingRun.Save(state)
 }
@@ -819,7 +828,7 @@ func releasedRunHandback(t *testing.T) (*promotionFixture, validatingRun, runsta
 		At: at, Continuation: runstate.MergeQueueReleased, Mover: ownership.MoverHarness,
 		Reason: "the forge merge was withdrawn", Branch: "change", ApprovedHead: f.head,
 	}
-	return f, validatingRun{f.run}, handback
+	return f, validatingRun{recordingRun: f.run}, handback
 }
 
 func TestAReleasedCodeRunWithPassedChecksIsHandedBackAsFailedWithoutThem(t *testing.T) {
@@ -843,7 +852,7 @@ func TestAReleasedCodeRunWithPassedChecksIsHandedBackAsFailedWithoutThem(t *test
 	}
 }
 
-func TestAHandbackTriedAgainFindsItsNoteOnTheBlockedItemAndWritesItOnce(t *testing.T) {
+func TestAHandbackTriedAgainAfterItsRunWriteFailedWritesTheNoteOnce(t *testing.T) {
 	t.Parallel()
 
 	f, runs, handback := releasedRunHandback(t)
@@ -851,19 +860,31 @@ func TestAHandbackTriedAgainFindsItsNoteOnTheBlockedItemAndWritesItOnce(t *testi
 	f.run.failSaves = 1
 	given := MergeQueueRunHandback{Store: runs, Tracker: f.tracker}
 	if err := given.HandBack(context.Background(), f.entry, handback); err == nil {
-		t.Fatal("HandBack() = nil, want the refused run write reported")
+		t.Fatal("HandBack() = nil, want the failed run write reported")
 	}
-	// The tracker holds the note the way bd does once an item is blocked on it.
-	f.tracker.Item.Notes = f.tracker.BlockReason
-	calls := append([]string(nil), f.tracker.Calls...)
+	// The note follows the run's record, so a run write that failed leaves the
+	// item untouched.
+	if f.tracker.Blocked || len(f.tracker.NoteRecords) != 0 || f.tracker.Item.Notes != "" {
+		t.Fatalf("tracker calls %v, notes %q; want nothing written to the item before the run is saved", f.tracker.Calls, f.tracker.Item.Notes)
+	}
 	if err := given.HandBack(context.Background(), f.entry, handback); err != nil {
 		t.Fatalf("HandBack() again error = %v", err)
 	}
-	if len(f.tracker.NoteRecords) != 0 || strings.Join(f.tracker.Calls, " ") != strings.Join(calls, " ") {
-		t.Fatalf("tracker calls %v, notes %v; want nothing written to the item again", f.tracker.Calls, f.tracker.NoteRecords)
-	}
 	if f.run.latest().CheckFailure == nil || f.run.saveCount() != 1 {
 		t.Fatalf("run saved %d times, check failure %#v; want the second try to have recorded it", f.run.saveCount(), f.run.latest().CheckFailure)
+	}
+	marker := mergeQueueHandbackMarker(f.entry, handback)
+	if !f.tracker.Blocked || strings.Count(f.tracker.Item.Notes, marker) != 1 {
+		t.Fatalf("item notes %q; want it blocked with the hand-back's note once", f.tracker.Item.Notes)
+	}
+	// A third try finds the hand-back on the run and the note on the item, and
+	// writes neither again.
+	calls := append([]string(nil), f.tracker.Calls...)
+	if err := given.HandBack(context.Background(), f.entry, handback); err != nil {
+		t.Fatalf("HandBack() a third time error = %v", err)
+	}
+	if f.run.saveCount() != 1 || strings.Join(f.tracker.Calls, " ") != strings.Join(calls, " ") {
+		t.Fatalf("run saved %d times, tracker calls %v; want nothing written again", f.run.saveCount(), f.tracker.Calls)
 	}
 
 	// A blocked item whose notes lack this note still gets it.
@@ -874,5 +895,167 @@ func TestAHandbackTriedAgainFindsItsNoteOnTheBlockedItemAndWritesItOnce(t *testi
 	}
 	if len(other.tracker.NoteRecords) != 1 || !strings.Contains(other.tracker.NoteRecords[0], otherHandback.Reason) {
 		t.Fatalf("notes recorded %v, want the hand-back's note once", other.tracker.NoteRecords)
+	}
+}
+
+// passedDeveloperRun makes the fixture's run what the queue finds for a
+// developer's change: ended succeeded with its checks passed, keeping its
+// branch and session, and a record the real store would save.
+func (f *promotionFixture) passedDeveloperRun() {
+	f.t.Helper()
+	state := &f.run.admittedRun.state
+	state.SchemaVersion = runstate.StateSchemaVersion
+	state.Status = runstate.StatusSucceeded
+	state.ProductID, state.RepositoryID = "yoyodyne", "yoyodyne"
+	state.Backend = domain.BackendClaudeCode
+	started := time.Date(2026, 11, 10, 8, 0, 0, 0, time.UTC)
+	completed := started.Add(time.Hour)
+	state.StartedAt, state.UpdatedAt, state.CompletedAt = started, completed, &completed
+	if state.ReviewHeadCommit != "" && state.ReviewBaseCommit == "" {
+		state.ReviewBaseCommit = f.local("main")
+	}
+	state.TargetBranch = "main"
+	state.Branch = "change"
+	state.WorktreePath = f.repository
+	state.BaseCommit = f.local("main")
+	state.ChecksPassed = &runstate.ChecksPassed{
+		Content: strings.Repeat("c", 40), Attempt: state.RepairAttempts, Commands: []string{"make test"},
+		At: time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC),
+	}
+	if state.HarnessAuthored() {
+		f.t.Fatal("the fixture's run is harness-authored, want a developer's run")
+	}
+	if err := state.Validate(); err != nil {
+		f.t.Fatalf("the fixture's run would not be saved before any hand-back: %v", err)
+	}
+}
+
+func TestADevelopersRunThatPassedItsChecksIsHandedBackForAnyReason(t *testing.T) {
+	t.Parallel()
+
+	check := func(t *testing.T, f *promotionFixture, store validatingRun) {
+		t.Helper()
+		handback := f.landing().Handback
+		if handback == nil || handback.HandedBackAt == nil || handback.IsSetAside() {
+			t.Fatalf("handback = %#v, want it given to the run", handback)
+		}
+		saved := f.run.latest()
+		if err := saved.Validate(); err != nil {
+			t.Fatalf("the run was saved in a state its record refuses: %v", err)
+		}
+		if saved.ChecksPassed != nil || saved.CheckFailure == nil || !strings.Contains(saved.CheckFailure.Output, handback.Reason) {
+			t.Fatalf("run checks passed %#v, failure %#v; want only the failure, saying why it came back", saved.ChecksPassed, saved.CheckFailure)
+		}
+		if saved.Status != runstate.StatusFailed || !saved.HandedBack() || saved.Blocker == "" {
+			t.Fatalf("run status %s, handed back %v; want a stopped run with its change handed back", saved.Status, saved.HandedBack())
+		}
+		marker := mergeQueueHandbackMarker(f.entry, *handback)
+		if count := strings.Count(f.tracker.Item.Notes, marker); count != 1 {
+			t.Fatalf("the item carries the hand-back note %d times, want once: %q", count, f.tracker.Item.Notes)
+		}
+		// Asked again — a process that stopped before writing down that it had
+		// handed the change back — it writes nothing a second time.
+		saves, calls := f.run.saveCount(), len(f.tracker.Calls)
+		if err := f.promoter.Repair.HandBack(context.Background(), f.entry, *handback); err != nil {
+			t.Fatalf("HandBack() again = %v", err)
+		}
+		if f.run.saveCount() != saves || len(f.tracker.Calls) != calls {
+			t.Fatal("handing the same change back again wrote to the run or the item again")
+		}
+	}
+
+	t.Run("a check that failed on the candidate", func(t *testing.T) {
+		t.Parallel()
+		f, _ := failingFixture(t, 2, 1)
+		f.passedDeveloperRun()
+		store := validatingRun{recordingRun: f.run}
+		f.promoter.Repair = MergeQueueRunHandback{Store: store, Tracker: f.tracker}
+		if recovered, err := f.recover(); err != nil || recovered.Handback == nil || recovered.Handback.Continuation != runstate.MergeQueueContinueRepair {
+			t.Fatalf("Recover() = %#v, %v; want a repair handed back", recovered, err)
+		}
+		check(t, f, store)
+	})
+	t.Run("a merge withdrawn after the forge held it, stopped once before this fix", func(t *testing.T) {
+		t.Parallel()
+		f, _, _ := queuedMergeFixture(t)
+		f.passedDeveloperRun()
+		store := validatingRun{recordingRun: f.run}
+		f.promoter.Repair = MergeQueueRunHandback{Store: store, Tracker: f.tracker}
+		// The first pass meets a store it cannot write to: the entry is left owed
+		// to its run, as entry 30 was left by the hand-back the record refused,
+		// and the item is told nothing yet.
+		f.run.failSaves = 1
+		withdrawn, err := f.promoter.Withdraw(context.Background(), queueKey, f.entry.EntryID, "the forge held its merge queued for longer than triage.stuck_merge_age (2h0m0s)")
+		if err != nil || !withdrawn.Withdrawn {
+			t.Fatalf("Withdraw() = %#v, %v; want the merge withdrawn", withdrawn, err)
+		}
+		if _, err := f.recover(); err == nil {
+			t.Fatal("Recover() = nil with the run store unwritable, want it reported")
+		}
+		if owed := f.landing().Handback; owed == nil || owed.Continuation != runstate.MergeQueueReleased || owed.HandedBackAt != nil {
+			t.Fatalf("handback = %#v, want a release still owed to its run", owed)
+		}
+		if f.tracker.Item.Notes != "" {
+			t.Fatalf("the item was told of a hand-back its run never saved: %q", f.tracker.Item.Notes)
+		}
+		// The next pass takes it up from the records as they stand.
+		if recovered, err := f.recover(); err != nil || recovered.Handback == nil {
+			t.Fatalf("Recover() = %#v, %v; want the release handed to its run", recovered, err)
+		}
+		check(t, f, store)
+	})
+}
+
+func TestAHandbackItsRunsRecordRefusesIsSetAsideAndTheQueueGoesOn(t *testing.T) {
+	t.Parallel()
+
+	f, _ := failingFixture(t, 2, 1)
+	f.passedDeveloperRun()
+	f.promoter.Repair = MergeQueueRunHandback{Store: validatingRun{recordingRun: f.run, refuseAll: true}, Tracker: f.tracker}
+	recovered, err := f.recover()
+	if err != nil || recovered.Handback == nil {
+		t.Fatalf("Recover() = %#v, %v; want the refused hand-back set aside without stopping the queue", recovered, err)
+	}
+	handback := f.landing().Handback
+	if handback == nil || !handback.IsSetAside() || handback.HandedBackAt != nil ||
+		!strings.Contains(handback.SetAside, "could not hand this change back to run "+f.entry.RunID) || !strings.Contains(handback.SetAside, "development manager") {
+		t.Fatalf("handback = %#v, want it set aside for the development manager saying why", handback)
+	}
+	if f.run.saveCount() != 0 {
+		t.Fatal("a refused hand-back wrote to the run")
+	}
+	// The item is not blocked on a hand-back that never reached its run; it is
+	// told once that the change was set aside.
+	if strings.Contains(strings.Join(f.tracker.Calls, " "), "block") || len(f.tracker.NoteRecords) != 1 ||
+		!strings.Contains(f.tracker.NoteRecords[0], "set this change aside") {
+		t.Fatalf("tracker calls %v, notes %q; want one note saying the change was set aside", f.tracker.Calls, f.tracker.NoteRecords)
+	}
+	// Nothing is owed any longer, so the next recovery goes on past the entry and
+	// writes nothing again.
+	if again, err := f.recover(); err != nil || again.Entry.EntryID != "" || len(f.tracker.Calls) != 1 {
+		t.Fatalf("Recover() again = %#v, %v, tracker calls %v; want the entry passed over", again, err, f.tracker.Calls)
+	}
+}
+
+func TestAHandbackStoppedBeforeItsNoteWritesTheNoteOnce(t *testing.T) {
+	t.Parallel()
+
+	f, _ := failingFixture(t, 2, 1)
+	f.passedDeveloperRun()
+	f.promoter.Repair = MergeQueueRunHandback{Store: validatingRun{recordingRun: f.run}, Tracker: f.tracker}
+	f.tracker.BlockErr = errors.New("the tracker is busy")
+	if _, err := f.recover(); err == nil {
+		t.Fatal("Recover() = nil with the tracker refusing the block, want it reported")
+	}
+	if f.run.saveCount() != 1 || f.run.latest().CheckFailure == nil {
+		t.Fatal("the hand-back was not saved on the run before the item was written to")
+	}
+	f.tracker.BlockErr = nil
+	if recovered, err := f.recover(); err != nil || recovered.Handback == nil || f.landing().Handback.HandedBackAt == nil {
+		t.Fatalf("Recover() = %#v, %v; want the hand-back finished", recovered, err)
+	}
+	marker := mergeQueueHandbackMarker(f.entry, *f.landing().Handback)
+	if f.run.saveCount() != 1 || strings.Count(f.tracker.Item.Notes, marker) != 1 {
+		t.Fatalf("run saved %d times, item notes %q; want one save and one note", f.run.saveCount(), f.tracker.Item.Notes)
 	}
 }

@@ -190,6 +190,14 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 		return result
 	}
 	entries := [][]byte{data}
+	if !single && scanCut && bytes.IndexByte(data, '\n') < 0 {
+		// One entry longer than the whole scan bound: no part of it can be
+		// returned, because a part is cut from the entry with its secrets
+		// removed and that needs the whole entry. Rather than an empty read that
+		// names the same cursor forever, it is said, summarised where it is a
+		// pass, and the next read starts after it.
+		return r.oversizedEntry(file, result, request, data, start, redactor)
+	}
 	if !single {
 		// An incomplete final entry is not exposed: it may be a concurrent append
 		// or a secret cut by the scan bound. The next cursor repeats it.
@@ -254,6 +262,9 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 			if partStart > 0 {
 				// The last part of a record read in parts is returned alone.
 				result.Part = &Part{Start: partStart}
+				if request.Record == "pass" {
+					result.Summary = summarizePass([]byte(content), redactor)
+				}
 				stopped = true
 				break
 			}
@@ -263,6 +274,27 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 		result.Truncated = true
 		if result.Content != "" {
 			// Whole records only after the first; this one starts the next read.
+			break
+		}
+		if request.Record == "pass" {
+			result.Summary = summarizePass([]byte(content), redactor)
+		}
+		if room <= 0 {
+			// The reads before this one in the same reply spent what one reply
+			// may return, so nothing of this entry fits. It is said, rather than
+			// handed back as an empty part, and the next read asks for it again.
+			result.Problem = fmt.Sprintf("the reads before this one in the same reply returned the %d bytes one reply may, so none of this entry was returned; ask for the next read on its own", MaxBytesPerReply)
+			nextOffset = partStart
+			if partStart == 0 {
+				// Asked again from the cursor, with no offset into the entry.
+				next := request
+				cursor := result.NextCursor
+				next.Cursor = &cursor
+				next.Offset = 0
+				result.Next = &next
+				result.Bytes = 0
+				return result
+			}
 			break
 		}
 		// One record longer than this read returns comes back in parts. Each
@@ -367,4 +399,47 @@ func redactFields(data []byte, redactor execution.Redactor) string {
 		encoded = append(encoded, '\n')
 	}
 	return string(encoded)
+}
+
+// oversizedEntry answers a read whose cursor is at one entry longer than the
+// scan bound. The entry's end is found by reading on for its newline, so the
+// next read starts after it; a pass entry is summarised from what was scanned
+// of it. Nothing of the entry itself is returned.
+func (r Reader) oversizedEntry(file *os.File, result Result, request Request, scanned []byte, start int64, redactor execution.Redactor) Result {
+	result.Truncated = true
+	if request.Record == "pass" {
+		result.Summary = summarizePass(scanned, redactor)
+	}
+	end, found := entryEnd(file, start+int64(len(scanned)))
+	if !found {
+		result.Problem = fmt.Sprintf("the entry at the cursor is longer than the %d bytes one read scans and has no end yet, so it cannot be returned, even in parts; ask again once it is complete", MaxScanBytes)
+		return result
+	}
+	result.Problem = fmt.Sprintf("the entry at the cursor is %d bytes, longer than the %d bytes one read scans, so it cannot be returned, even in parts; the next read starts after it", end-start, MaxScanBytes)
+	result.NextCursor = end
+	if end < result.Size {
+		next := request
+		cursor := end
+		next.Cursor = &cursor
+		next.Offset = 0
+		result.Next = &next
+	}
+	return result
+}
+
+// entryEnd is the offset just past the newline that ends the entry the file is
+// read from, and whether one was found.
+func entryEnd(file *os.File, from int64) (int64, bool) {
+	buffer := make([]byte, 64<<10)
+	offset := from
+	for {
+		read, err := file.ReadAt(buffer, offset)
+		if index := bytes.IndexByte(buffer[:read], '\n'); index >= 0 {
+			return offset + int64(index) + 1, true
+		}
+		offset += int64(read)
+		if err != nil || read == 0 {
+			return 0, false
+		}
+	}
 }

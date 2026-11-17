@@ -1955,3 +1955,54 @@ func TestGitHubStatesAsksAboutManyBranchesInOneQuery(t *testing.T) {
 		t.Error("States() asked about more branches than one query may")
 	}
 }
+
+// The factory-flow program manager's view of the forge carries, for every open
+// request, its age, whether it can merge, and its checks counted from what the
+// forge reports.
+func TestGitHubListOpenStatusCarriesAgeMergeabilityAndChecks(t *testing.T) {
+	t.Parallel()
+
+	runner := &scriptedRunner{}
+	runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	runner.reply("pr list", execution.ProcessResult{
+		Status: execution.ProcessSucceeded,
+		Stdout: `[{"number":12,"url":"https://example.invalid/pull/12","title":"a document","headRefName":"yoyodyne/merge-queue/mqe-1","baseRefName":"main","headRefOid":"3333333333333333333333333333333333333333",
+		  "createdAt":"2026-10-13T08:00:00Z","isDraft":false,"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY",
+		  "statusCheckRollup":[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"},
+		                       {"__typename":"CheckRun","name":"vet","status":"COMPLETED","conclusion":"SUCCESS"},
+		                       {"__typename":"CheckRun","name":"race","status":"IN_PROGRESS","conclusion":""},
+		                       {"__typename":"StatusContext","context":"ci/legacy","state":"SUCCESS"}]}]`,
+	})
+	open, err := (GitHub{Runner: runner, Remote: "upstream"}).ListOpenStatus(context.Background())
+	if err != nil || len(open) != 1 {
+		t.Fatalf("ListOpenStatus() = %+v, %v", open, err)
+	}
+	request := open[0]
+	if request.Number != 12 || request.HeadBranch != "yoyodyne/merge-queue/mqe-1" || !request.CreatedAt.Equal(time.Date(2026, 10, 13, 8, 0, 0, 0, time.UTC)) {
+		t.Fatalf("request = %+v, want its number, branch, and when it was opened", request)
+	}
+	if request.Mergeable != "CONFLICTING" || request.MergeState != "DIRTY" {
+		t.Fatalf("mergeability = %q, %q", request.Mergeable, request.MergeState)
+	}
+	if request.Checks.Passed != 2 || request.Checks.Pending != 1 || len(request.Checks.Failed) != 1 || request.Checks.Failed[0] != "test" {
+		t.Fatalf("checks = %+v, want two passed, one running, and test failed", request.Checks)
+	}
+	if says := request.Checks.Says(); says != "1 of 4 failed (test)" {
+		t.Fatalf("checks say %q", says)
+	}
+	call := runner.matching("pr list")[0]
+	if !contains(call, "--repo") || !strings.Contains(strings.Join(call, " "), "statusCheckRollup") {
+		t.Fatalf("pr list args = %v, want the configured repository and the checks asked for", call)
+	}
+}
+
+func TestGitHubListOpenStatusSaysWhenTheForgeCannotBeRead(t *testing.T) {
+	t.Parallel()
+
+	runner := &scriptedRunner{}
+	runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	runner.reply("pr list", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "HTTP 502"})
+	if open, err := (GitHub{Runner: runner}).ListOpenStatus(context.Background()); err == nil || !strings.Contains(err.Error(), "HTTP 502") {
+		t.Fatalf("ListOpenStatus() = %+v, %v, want the forge's failure", open, err)
+	}
+}
