@@ -206,6 +206,9 @@ func WaitOf(state runstate.State) *Wait {
 		return &Wait{Kind: "the operator's pause", Since: state.OperatorHeldSince, Release: "the operator lifting the pause"}
 	case state.DependencyPause != nil:
 		return &Wait{Kind: "work its item waits on", Release: fmt.Sprintf("that work closing (%s)", state.DependencyPause.Summary())}
+	case state.CIWait != nil:
+		pushed := state.CIWait.PushedAt
+		return &Wait{Kind: "the forge's checks", Since: &pushed, Release: "the forge deciding, or the wait limit passing (" + state.CIWait.Summary() + ")"}
 	case state.UsageLimitResetsAt != nil || state.UsageLimitResetUnknown:
 		wait := &Wait{Kind: runstate.DescribePause(state.PauseCause, state.UsageLimitKind), Since: state.UsageLimitPausedSince}
 		if state.UsageLimitResetsAt != nil {

@@ -40,6 +40,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/followup/checkrun"
 	"github.com/mason-bryant/yoyodyne/internal/goal"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
+	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/readiness"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/redeploy"
@@ -940,6 +941,9 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// recording the continuation; the run store says whether a stop was
 		// recorded on the run, which is honoured before any continuation.
 		Continuations: pausedRunContinuations{Client: tracker, stops: parts.store},
+		// A run waiting for the forge's checks on the commit it pushed, continued
+		// once the forge has decided (checks on CI).
+		CIWaits: ciWaitReader(parts),
 		// A confirmed document whose reviewed run found every document landing
 		// taken, started as soon as one frees rather than at its conversation's
 		// next message. The run store holds the wait, and the pipeline built from
@@ -1299,4 +1303,17 @@ Options:
                      the harness has stopped (default 10m). It is the same number
                      "yoyo reconcile --stall-after" takes.
   --json             emit machine-readable JSON`)
+}
+
+// ciWaitReader reads the forge for the runs a pull finds waiting for its
+// checks. The wait is read with the configuration of this pull, so a wait found
+// after the setting was switched off is decided at once.
+func ciWaitReader(parts components) orchestrator.CIWaitReader {
+	forge := publish.GitHub{
+		Runner: parts.runner, Dir: parts.repository,
+		Remote: parts.config.Execution.Remote, PushRemote: parts.config.Execution.PushRemote,
+		RedactValues: parts.redactValues,
+	}
+	enabled := parts.config.Execution.CIChecks.Enabled
+	return &orchestrator.ForgeCIWaits{Forge: forge, Enabled: func() bool { return enabled }}
 }

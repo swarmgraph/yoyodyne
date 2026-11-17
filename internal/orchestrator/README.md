@@ -193,6 +193,17 @@ field holds X" questions are answered in `internal/runstate/state.go`.
 
 ## Questions developer runs keep asking
 
+### Where does a run wait for CI?
+
+`cichecks.go`. With `execution.ci_checks.enabled`, `repairLoop` calls
+`checkRound` instead of `verify`: `verify` over `shortLocalChecks`, then
+`pushAndWait` records `runstate.CIWait` and parks the run with `ciWaitPause`
+(`pauseForCIWait`), which holds no developer slot. A pull's
+`nextContinuations` asks `ForgeCIWaits` whether the forge has decided and
+continues the run; `settleCIWait` then reads the forge for the recorded commit
+without pushing, and either goes on to review, parks again, or ends the wait
+and runs the full checks (`endCIWaitWithFullChecks`).
+
 ### Where does a run move from checks to review, and back to the developer?
 `repairLoop`. Each round: `holdForDirective`, `holdForDependency`, then
 `verify`. A `reviewBoundRefusal` (in `reviewbound.go`) ends the run at once

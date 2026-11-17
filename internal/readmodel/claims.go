@@ -312,6 +312,7 @@ func AwaitingContinuation(run runstate.State) bool {
 		run.ProviderStop != "" ||
 		run.DirectivePause != nil ||
 		run.DependencyPause != nil ||
+		run.CIWait != nil ||
 		parkedOnTrackerRead(run) ||
 		run.OperatorHeldSince != nil ||
 		run.UpdatingQueuedHead()

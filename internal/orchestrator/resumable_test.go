@@ -59,6 +59,10 @@ func resumableRuns() map[string]runstate.State {
 	dependency.DependencyPause = &runstate.DependencyPause{}
 	runs["pausedForDependency"] = dependency
 
+	ciWait := preservedRun(runstate.PhaseChecking)
+	ciWait.CIWait = &runstate.CIWait{}
+	runs["pausedForCIWait"] = ciWait
+
 	tracker := preservedRun(runstate.PhaseChecking)
 	tracker.TrackerPause = &runstate.TrackerPause{Boundary: runstate.RetryDependencyRead}
 	runs["pausedForTracker"] = tracker

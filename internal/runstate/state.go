@@ -2526,6 +2526,9 @@ func (s *State) recordedTexts() []recordedText {
 	if s.DirectivePause != nil {
 		unstated("directive_pause.unresolved", "directive_pause.unresolved", &s.DirectivePause.Unresolved, MaxRecordedTextBytes)
 	}
+	if s.CIWaitEnd != nil {
+		unstated("ci_wait_end.says", "ci_wait_end.says", &s.CIWaitEnd.Says, MaxRecordedTextBytes)
+	}
 	if s.TrackerPause != nil {
 		nested("tracker_pause.failure", "tracker_pause.failure", &s.TrackerPause.Failure, MaxRetryFailureBytes)
 	}

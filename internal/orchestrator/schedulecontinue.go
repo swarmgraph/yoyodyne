@@ -100,7 +100,7 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 	}
 	var paused []runstate.State
 	for _, state := range incomplete {
-		if !pausedForDependency(state) {
+		if !pausedForDependency(state) && !state.CIWait.Waiting() {
 			continue
 		}
 		// A run this session is already continuing is in flight here under its
@@ -134,7 +134,37 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 		}
 		if stopped {
 			passOver(state.WorkItemID, fmt.Sprintf("run %s is paused waiting on %s and %s asked for it to stop, so it is not continued; the next `yoyo reconcile` ends it",
-				state.RunID, state.DependencyPause.Summary(), request.StoppedBy()))
+				state.RunID, waitSummary(state), request.StoppedBy()))
+			continue
+		}
+		if state.DependencyPause == nil {
+			// Waiting for the forge's checks: read the forge, which takes no slot,
+			// and continue once it has decided (cichecks.go).
+			decided, why, err := s.ciWaitDecided(ctx, pull, state)
+			if err != nil {
+				passOver(state.WorkItemID, fmt.Sprintf("run %s is waiting for %s and the forge could not be read: %v", state.RunID, waitSummary(state), err))
+				continue
+			}
+			if !decided {
+				passOver(state.WorkItemID, fmt.Sprintf("run %s is waiting for %s (waited %s): %s", state.RunID, waitSummary(state), state.CIWait.Waited(s.now()).Round(time.Second), why))
+				continue
+			}
+			_, holdsOne := occupied[state.WorkItemID]
+			if s.Limit > 0 && started+len(continuing) >= s.Limit {
+				break
+			}
+			if !holdsOne {
+				if free < 1 {
+					passOver(state.WorkItemID, fmt.Sprintf("run %s's forge checks are decided (%s) and it is continued when a developer slot is free", state.RunID, why))
+					continue
+				}
+				free--
+			}
+			continuing = append(continuing, pausedContinuation{
+				state:    state,
+				holdsOne: holdsOne,
+				reason:   fmt.Sprintf("run %s waited for %s since %s and the forge has decided (%s), so the harness is continuing it in its own worktree and developer session", state.RunID, waitSummary(state), state.CIWait.PushedAt.UTC().Format(time.RFC3339), why),
+			})
 			continue
 		}
 		item, err := pull.Continuations.Show(ctx, state.WorkItemID)
@@ -170,4 +200,28 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 		})
 	}
 	return continuing, nil
+}
+
+// waitSummary says what a paused run waits for, whichever kind of wait it is.
+func waitSummary(state runstate.State) string {
+	if state.DependencyPause != nil {
+		return state.DependencyPause.Summary()
+	}
+	if state.CIWait != nil {
+		return state.CIWait.Summary()
+	}
+	return "nothing recorded"
+}
+
+// ciWaitDecided asks whether the forge has decided a waiting run. Where no
+// reader is wired, only a wait past its limit is continued, and the run then
+// runs the full checks on this machine.
+func (s Scheduler) ciWaitDecided(ctx context.Context, pull Pull, state runstate.State) (bool, string, error) {
+	if pull.CIWaits == nil {
+		if state.CIWait.Overdue(s.now()) {
+			return true, "the wait limit has passed", nil
+		}
+		return false, "no forge is wired to read the checks", nil
+	}
+	return pull.CIWaits.Decided(ctx, state)
 }

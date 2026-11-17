@@ -415,6 +415,10 @@ type Pipeline struct {
 	// Publisher is required only when publishing is automatic, because a project
 	// that has not opted in never opens a pull request.
 	Publisher PullRequests
+	// CIForge is what checks on CI pushes and reads through (cichecks.go). It
+	// is read only where execution.ci_checks.enabled is on; nil leaves the flow
+	// off whatever the setting says.
+	CIForge CIForge
 	// Factory names the factory this pipeline is, for the pull request
 	// descriptions it opens (factory.go). Nil names none.
 	Factory FactoryIdentities
@@ -1038,6 +1042,9 @@ type Outcome struct {
 	// stopped before anything was claimed, and unlike the directive what lifts it
 	// is other work finishing rather than a person deciding.
 	PausedByDependency *runstate.DependencyPause `json:"paused_by_dependency,omitempty"`
+	// PausedByCIWait is the wait for the forge's checks this run parked on after
+	// pushing its candidate commit (cichecks.go).
+	PausedByCIWait *runstate.CIWait `json:"paused_by_ci_wait,omitempty"`
 	// PausedByTracker is the unanswered tracker read this run parked on: the gate
 	// boundary whose read went unanswered for the whole of its recovery window,
 	// what the window was spent on, and what the store last said. It carries the
@@ -1944,7 +1951,7 @@ func (p Pipeline) recordDependencyContinued(ctx context.Context, state runstate.
 // waits here too, and the run is left paused, holding no slot, exactly as it
 // was.
 func (p Pipeline) reclaimSlot(ctx context.Context, state runstate.State) (runstate.State, error) {
-	if state.DependencyPause == nil {
+	if state.DependencyPause == nil && !state.CIWait.Waiting() {
 		return state, nil
 	}
 	state.UpdatedAt = p.clock().Now()
@@ -1956,7 +1963,9 @@ func (p Pipeline) reclaimSlot(ctx context.Context, state runstate.State) (runsta
 	// run is going again — for the reason resumeRun gives for a caller that
 	// lifts it there: a continuation turned away for want of a slot writes
 	// nothing, and one that went on writes one note.
-	p.recordDependencyContinued(ctx, state)
+	if state.DependencyPause != nil {
+		p.recordDependencyContinued(ctx, state)
+	}
 	return reclaimed, nil
 }
 
@@ -2690,6 +2699,9 @@ type activeRun struct {
 	// checkingCandidate is set while verify runs over the approved merge
 	// candidate, whose checks are told the whole module (verifyCandidate).
 	checkingCandidate bool
+	// fullLocalCommit is the commit whose wait for the forge ended without the
+	// forge's pass, so its full checks run on this machine (cichecks.go).
+	fullLocalCommit string
 	// wholeHereBecause is why a change left to the merge queue's whole check is
 	// checked whole on this machine after all (wholeCheckOwedHere), said on the
 	// stage's record beside what the gate was narrowed to, and what has
@@ -3745,7 +3757,7 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 		if err := a.holdForDependency(ctx); err != nil {
 			return err
 		}
-		if err := a.verify(ctx); err != nil {
+		if err := a.checkRound(ctx); err != nil {
 			// A change too large for the reviewer's copy is not repair input: the
 			// bound is the harness's, so it ends the run where it was measured and
 			// goes to the development manager with the sizes.
@@ -6844,7 +6856,14 @@ func (a *activeRun) verify(ctx context.Context) error {
 	if !narrowing.Whole {
 		evidenceNarrowed = narrowing.Describe()
 	}
-	stageCommands, providerCLIs := withPathChecks(p.Config.Checks, added)
+	configuredChecks := p.Config.Checks
+	if a.ciFlow() {
+		// Checks on CI: this machine runs the short local check, and the forge
+		// runs the rest on the commit the harness pushes next (cichecks.go).
+		configuredChecks = shortLocalChecks(p.Config.Checks, p.Config.Execution.CIChecks.Local)
+		narrowed += "; the short local check only (execution.ci_checks.local), because the forge runs the rest"
+	}
+	stageCommands, providerCLIs := withPathChecks(configuredChecks, added)
 	if commands, declared := a.documentChecks(); declared {
 		stageCommands, providerCLIs = commands, nil
 		narrowed = "the document checks, in place of the configured checks, because the change is a confirmed document"
@@ -8334,6 +8353,10 @@ func (a *activeRun) stop(ctx context.Context, cause error) (Outcome, error) {
 	var waiting dependencyPause
 	if errors.As(cause, &waiting) {
 		return a.pauseForDependency(waiting)
+	}
+	var waitingForCI ciWaitPause
+	if errors.As(cause, &waitingForCI) {
+		return a.pauseForCIWait(waitingForCI)
 	}
 	var unanswered trackerPause
 	if errors.As(cause, &unanswered) {
