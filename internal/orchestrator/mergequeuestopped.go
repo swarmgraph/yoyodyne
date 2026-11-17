@@ -70,7 +70,10 @@ func (p MergeQueuePromoter) Retry(ctx context.Context, key runstate.MergeQueueKe
 // for the development manager, with the reason given, so the entries behind it
 // go on. Whatever the queue asked the forge for is withdrawn first, exactly as
 // Withdraw does, and the hand-back is refused while that withdrawal is not
-// confirmed.
+// confirmed. An entry whose change the target already carries — merged by hand
+// while the queue was stopped on it — leaves the queue as landed instead, and
+// its run and item are settled as after any landing (reachedTarget); one whose
+// landing cannot be confirmed is handed back saying why.
 func (p MergeQueuePromoter) HandBack(ctx context.Context, key runstate.MergeQueueKey, entryID, reason string) (MergeQueuePromotion, error) {
 	q, release, err := p.stoppedEntry(ctx, key, entryID, reason)
 	if err != nil {
@@ -97,10 +100,98 @@ func (p MergeQueuePromoter) HandBack(ctx context.Context, key runstate.MergeQueu
 	if refusal := q.landing.HeadRewriteRefusal(); refusal != "" {
 		return refuse("%s", refusal)
 	}
-	if err := q.handBackEntry(ctx, "handed back by hand: "+reason); err != nil {
+	// A person hands an entry back most often because they merged its change
+	// by hand. Where the target shows that it did, the entry leaves the queue as
+	// landed and its item is settled, rather than its run being stopped for a
+	// development manager decision nothing needs.
+	reached := q.reachedTarget(ctx)
+	if reached.landed {
+		err := q.landedOutside(ctx, reached.carrying, reached.how+"; it was handed back by hand ("+reason+")")
+		q.outcome.HandedBack = q.landing.Handback
+		return q.result(), err
+	}
+	if err := q.handBackEntry(ctx, "handed back by hand: "+reason+"; "+reached.unconfirmed); err != nil {
 		return q.result(), err
 	}
 	return q.result(), nil
+}
+
+// reachedTarget is what the target and the run's own pull request show of
+// whether an entry's change already landed on the target outside the queue.
+type reachedTarget struct {
+	// landed is the change confirmed on the target.
+	landed bool
+	// carrying is the commit found carrying it, or empty for the target as it
+	// stands; how says how it got there.
+	carrying, how string
+	// unconfirmed says in plain words why the change could not be confirmed on
+	// the target, where landed is false.
+	unconfirmed string
+}
+
+// reachedTarget looks for an entry's change on the target: its approved head
+// in the target's history, or the run's own pull request reading as merged
+// with that approved head as its head and its merge commit in the target's
+// history, which is how a squash merge shows. Only the target confirms a
+// landing; a pull request that reads as merged with nothing on the target to
+// show for it is not one.
+func (q *queuePromotion) reachedTarget(ctx context.Context) reachedTarget {
+	target, head := q.key.TargetBranch, q.entry.ApprovedHead
+	holds := func(commit string) (bool, string) {
+		if !fullCommitID.MatchString(commit) {
+			return false, fmt.Sprintf("%q is not a full commit id", commit)
+		}
+		held, err := q.p.Lander.TargetHolds(ctx, target, commit)
+		if err != nil {
+			return false, fmt.Sprintf("whether %s carries %s could not be read (%v)", target, commit, err)
+		}
+		return held, ""
+	}
+	headHeld, headProblem := holds(head)
+	var said []string
+	if headProblem != "" {
+		said = append(said, headProblem)
+	}
+
+	run, err := q.p.Pipeline.Store.Load(q.entry.RunID)
+	if published := run.PullRequest; err == nil && published != nil && published.Number > 0 &&
+		strings.TrimSpace(published.Branch) != "" && q.p.Pipeline.Publisher != nil {
+		observed, err := q.p.Pipeline.Publisher.State(ctx, published.Branch)
+		switch {
+		case err != nil:
+			said = append(said, fmt.Sprintf("pull request #%d could not be read (%v)", published.Number, err))
+		case observed.Number != published.Number:
+			said = append(said, fmt.Sprintf("the forge answers about pull request #%d for %s, not the run's own #%d", observed.Number, published.Branch, published.Number))
+		case observed.Merged:
+			merge := strings.TrimSpace(observed.MergeCommit)
+			if headHeld {
+				return reachedTarget{landed: true, carrying: merge,
+					how: fmt.Sprintf("pull request #%d, which carries this change, was merged into %s by hand, and %s carries its approved head %s", published.Number, target, target, head)}
+			}
+			mergeHeld, mergeProblem := holds(merge)
+			if mergeHeld && strings.TrimSpace(observed.HeadCommit) == head {
+				return reachedTarget{landed: true, carrying: merge,
+					how: fmt.Sprintf("pull request #%d, which carries this change at its approved head %s, was merged into %s by hand as %s", published.Number, head, target, merge)}
+			}
+			switch {
+			case mergeHeld:
+				said = append(said, fmt.Sprintf("pull request #%d reads as merged as %s, but its head was %s rather than the approved head %s", published.Number, merge, nonEmpty(strings.TrimSpace(observed.HeadCommit), "not reported"), head))
+			case mergeProblem != "":
+				said = append(said, fmt.Sprintf("pull request #%d reads as merged, but %s", published.Number, mergeProblem))
+			default:
+				said = append(said, fmt.Sprintf("pull request #%d reads as merged, but %s does not carry its merge commit %s", published.Number, target, merge))
+			}
+		default:
+			said = append(said, fmt.Sprintf("pull request #%d reads %s, not merged", published.Number, strings.ToLower(nonEmpty(strings.TrimSpace(observed.State), "with no state"))))
+		}
+	}
+	if headHeld {
+		return reachedTarget{landed: true, how: fmt.Sprintf("%s already carries the approved head %s, put there outside the merge queue", target, head)}
+	}
+	if headProblem == "" {
+		said = append([]string{fmt.Sprintf("%s does not carry the approved head %s", target, head)}, said...)
+	}
+	return reachedTarget{unconfirmed: "the queue could not confirm the change reached " + target + ": " + strings.Join(said, ", and ")}
 }
 
 // stoppedEntry takes the queue's worker lease and reads one unfinished entry,

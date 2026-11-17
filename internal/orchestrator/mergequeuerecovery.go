@@ -991,6 +991,19 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 	if err != nil {
 		return fmt.Errorf("read %s: %w", entry.WorkItemID, err)
 	}
+	if item.Status == "closed" {
+		// An item that is closed stays closed: one closed because its change
+		// merged is never reopened (docs/product/operating-rules.md), and nothing
+		// here can tell that closure from another. The hand-back is said on the
+		// item as a note, once, and neither the run nor the docket is changed.
+		if strings.Contains(item.Notes, marker) {
+			return nil
+		}
+		if _, err := h.Tracker.RecordOutcome(ctx, entry.WorkItemID, notes+" The item was already closed, so it is left closed."); err != nil {
+			return fmt.Errorf("note the merge queue's hand-back on the closed %s: %w", entry.WorkItemID, err)
+		}
+		return nil
+	}
 	if failure := state.CheckFailure; failure != nil && strings.Contains(failure.Output, marker) && strings.TrimSpace(state.Blocker) != "" {
 		return h.noteAndDocket(ctx, entry, item, state, marker, notes)
 	}
@@ -1039,6 +1052,13 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 		} else if strings.Contains(command, "review") && handbackCheck(handback.Reason) == "" {
 			state.StopClass = runstate.StopReview
 		}
+	}
+	if handback.Continuation == runstate.MergeQueueReleased && state.StopClass == "" {
+		// A released entry left the queue without its change landing, which is
+		// the stop a lost queue entry records too (runstate.MergeQueueEntryLost); left
+		// empty, the run would read as stopped by something its record does not
+		// name. The reason beside it says why the change did not land.
+		state.StopClass = runstate.StopIntegration
 	}
 	now := h.now()
 	// A run admitted to the queue ended succeeded once its change was approved;
