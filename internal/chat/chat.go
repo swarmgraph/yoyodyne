@@ -2179,8 +2179,14 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// The refusal of a block the role sent travels with whatever this round is
 		// already handing back, or waits for the next turn where it hands back
 		// nothing, the way a memory's result does.
+		// A question the harness could not read is the exception: its sender is
+		// told in this message, so it can correct the block and send it again,
+		// which counts against the message's asks like any other round.
 		if refusedNotice != "" {
-			if undelivered != "" || handBack {
+			if undelivered != "" || handBack || (refusedAskUnread(parsed.Refused) && asksTaken < s.options.askRounds()) {
+				if undelivered == "" && !handBack {
+					asksTaken++
+				}
 				undelivered += refusedNotice
 			} else if err := s.carryResults(refusedNotice); err != nil {
 				return reply, err

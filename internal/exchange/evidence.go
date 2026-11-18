@@ -283,7 +283,7 @@ func (e Evidence) resolveOne(ctx context.Context, reference Reference, scope Evi
 		attachment.Source = strings.TrimSpace(record.Source)
 	}
 	attachment.Revision = strings.TrimSpace(record.Revision)
-	attachment.Moved = attachment.NamedRevision != "" && attachment.Revision != "" && attachment.NamedRevision != attachment.Revision
+	attachment.Moved = attachment.NamedRevision != "" && attachment.Revision != "" && !sameRevision(attachment.NamedRevision, attachment.Revision)
 	text := strings.TrimSpace(record.Text)
 	if e.Redact != nil {
 		text = e.Redact(text)
@@ -365,6 +365,23 @@ func SplitTurn(id string) (string, int, error) {
 		return "", 0, fmt.Errorf("a turn is named as its conversation and number, such as chat-…#12, and %q is not", id)
 	}
 	return strings.TrimSpace(conversation), turn, nil
+}
+
+// sameRevision reports whether the revision an asker named is the one a record
+// is at now. A document is read as "revision 3 at <commit>", and an asker names
+// the revision it read as "revision 3" or "3", so a name the current revision
+// starts with, up to a word boundary, is the same revision rather than a move.
+func sameRevision(named, current string) bool {
+	named, current = strings.TrimSpace(named), strings.TrimSpace(current)
+	if named == current {
+		return true
+	}
+	for _, candidate := range []string{named, "revision " + named} {
+		if current == candidate || strings.HasPrefix(current, candidate+" ") || strings.HasPrefix(current, candidate+",") {
+			return true
+		}
+	}
+	return false
 }
 
 func evidenceKind(named string) (EvidenceKind, bool) {

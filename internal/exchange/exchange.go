@@ -457,7 +457,8 @@ type Ask struct {
 	// evidence: the role being asked reads it as what the asker thinks.
 	Context string `json:"context,omitempty"`
 	// Refers are the records this question rests on, each a kind, an identity
-	// within this product, and optionally the revision the asker read. The
+	// within this product, and the revision the asker read: required of a goal
+	// or a design, and optional of anything else (RequiresRevision). The
 	// harness reads every one from its own stores when the round is delivered and
 	// attaches it, for both parties, as evidence of what it held then (see
 	// evidence.go). Those named when an exchange opens are also what its
@@ -508,7 +509,7 @@ func (a Ask) Validate() error {
 	}
 	problems = append(problems, boundedText("context", a.Context, MaxContextBytes, false))
 	problems = append(problems, boundedText("settled", a.Settled, MaxSettledBytes, false))
-	problems = append(problems, validateReferences("refers", a.Refers))
+	problems = append(problems, validateReferences("refers", a.Refers), requireRevisions("refers", a.Refers))
 	// A closing ask asks nothing, so there is no round for records to go with.
 	if a.Closing() && len(a.Refers) > 0 {
 		problems = append(problems, errors.New(`"refers" names the records a question rests on, and an ask that settles an exchange asks nothing`))
@@ -553,17 +554,30 @@ type askDocument struct {
 // only from the fenced block: prose that wonders what the architect would say is
 // not an ask and reaches nobody, which is the whole point of having a block for
 // it.
+//
+// An ask the harness cannot read costs the reply nothing else. Whatever the
+// reason, the reply comes back whole apart from the ask, so the blocks around it
+// — memory writes, tracker actions, reports — are read exactly as they would have
+// been without it, and the error is the reason to hand back to the role that
+// asked. Where the block is too broken to lift out cleanly, as one never closed
+// is, the reply comes back as it was, broken block and all, rather than cut off
+// at it.
 func Extract(reply string) (string, *Ask, error) {
 	block, err := fenced.Split(reply, Fence, "ask")
 	if err != nil {
-		return block.Before, nil, err
+		// Two ask blocks are each well formed and both are lifted out; a block
+		// that cannot be read at all is left in place.
+		if all, _, allErr := fenced.SplitLast(reply, Fence, "ask"); allErr == nil {
+			return all.Rest, nil, err
+		}
+		return strings.TrimSpace(reply), nil, err
 	}
 	if !block.Found {
 		return block.Before, nil, nil
 	}
 	ask, err := Decode(block.Payload)
 	if err != nil {
-		return block.Before, nil, err
+		return block.Rest, nil, err
 	}
 	return block.Rest, &ask, nil
 }

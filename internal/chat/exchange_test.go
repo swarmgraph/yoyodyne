@@ -531,3 +531,57 @@ func TestARefusedAskIsHandedBackAndTheRestOfTheReplyIsCarriedOut(t *testing.T) {
 		}
 	}
 }
+
+// A question that names a goals document without the revision read is not put
+// to anybody, and costs the reply nothing else: the memory written beside it is
+// recorded, and the role that asked is told the reason in the same message.
+func TestAnAskWithoutADocumentRevisionIsRefusedAloneAndTheSenderIsTold(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	memories, err := runstate.NewMemoryStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewMemoryStore() error = %v", err)
+	}
+	answer := "I will remember this and ask the Lead Product Manager.\n\n" +
+		memoryBlock(`{"memories":[{"action":"remember","memory":"heavyweight-permit","text":"The permit ends with its run."}]}`) +
+		askBlock(`{"ask":{"role":"product-manager","question":"is this acceptable?","refers":[{"what":"document","id":"v1-goals"},{"what":"work-item","id":"yoyodyne-dfk"}]}}`)
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: answer},
+		{SessionID: "session-1", FinalText: "I will resend it with the revision."},
+	}}
+	options := testOptions(t, provider)
+	options.Role = domain.RoleArchitect
+	options.Agent = string(domain.RoleArchitect)
+	options.Store = newTestStore(t, root)
+	options.Memories = memories
+	options.Exchanges = &fakeExchanges{answers: []string{"never reached"}}
+	session := openTestSession(t, options)
+
+	reply, err := session.Send(context.Background(), "Carry on with the pass.")
+	if err != nil {
+		t.Fatalf("Send() error = %v, want only the ask refused", err)
+	}
+	if len(reply.Memories) != 1 || len(reply.Saved) != 1 {
+		t.Fatalf("memories = %+v, saved = %+v, want the memory written beside the refused ask", reply.Memories, reply.Saved)
+	}
+	if len(reply.RefusedBlocks) != 1 || !strings.Contains(reply.RefusedBlocks[0], "revision is required") {
+		t.Fatalf("refused blocks = %q, want the ask refused with its reason", reply.RefusedBlocks)
+	}
+	if len(provider.requests) < 2 || !strings.Contains(provider.requests[1].Prompt, "revision is required") {
+		t.Fatalf("requests = %d, want the reason handed back to the sender in the same message", len(provider.requests))
+	}
+}
+
+// A well-formed ask naming a work item and a goal with its revision is put.
+func TestAnAskNamingAWorkItemWithoutARevisionIsPut(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := splitReply(domain.RoleArchitect, askBlock(`{"ask":{"role":"product-manager","question":"is this acceptable?","refers":[{"what":"document","id":"v1-goals","revision":"revision 8"},{"what":"work-item","id":"yoyodyne-dfk"}]}}`))
+	if err != nil {
+		t.Fatalf("splitReply() error = %v", err)
+	}
+	if len(parsed.Refused) != 0 || parsed.Ask == nil || len(parsed.Ask.Refers) != 2 {
+		t.Fatalf("ask = %+v, refused = %+v, want the ask put with both references", parsed.Ask, parsed.Refused)
+	}
+}
