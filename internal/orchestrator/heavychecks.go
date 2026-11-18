@@ -88,6 +88,10 @@ func (p heavyCheckPermit) Register(process execution.StartedProcess) error {
 	return p.grant.Register(process)
 }
 
+// MeasureProblem is why this launch's measurement could not be written, for
+// the runner to say in the run's record (checks.MeasuredPermit).
+func (p heavyCheckPermit) MeasureProblem() error { return p.grant.MeasureProblem }
+
 // Finish records how the check ended, in the words a process result is read
 // in, and gives its place back once its processes are gone.
 func (p heavyCheckPermit) Finish(result execution.ProcessResult, budget time.Duration) error {

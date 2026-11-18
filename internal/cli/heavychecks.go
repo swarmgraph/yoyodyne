@@ -157,7 +157,7 @@ func heavyCheckMeasurements(args []string, stdout, stderr io.Writer) int {
 	if *jsonOutput {
 		return writeJSON(stdout, stderr, heavyChecksOutput{Limits: &limits})
 	}
-	if len(limits.Checks) == 0 {
+	if len(limits.Checks) == 0 && len(limits.Unsaved) == 0 {
 		fmt.Fprintln(stdout, "no heavy check launch has been measured on this machine yet")
 		return 0
 	}
@@ -203,6 +203,13 @@ func heavyCheckMeasurements(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, ", %d beside a suite run outside every place (at most %d such processes)", level.Outside, level.OutsideMost)
 		}
 		fmt.Fprintln(stdout)
+	}
+	if len(limits.Unsaved) > 0 {
+		fmt.Fprintf(stdout, "%d launches ended without their end written down, so how long they ran is not known and they are left out of every limit above:\n", len(limits.Unsaved))
+		for _, unsaved := range limits.Unsaved {
+			fmt.Fprintf(stdout, "  %s of run %s (%s), launched %s: %s\n", unsaved.Check, unsaved.RunID, unsaved.Product,
+				unsaved.LaunchedAt.Local().Format("Jan 2 15:04 MST"), singleLine(unsaved.Reason))
+		}
 	}
 	if limits.Unlisted > 0 {
 		fmt.Fprintf(stdout, "the machine's processes could not be listed for %d launches, so whether a suite ran outside every place beside them is not known\n", limits.Unlisted)
@@ -266,7 +273,8 @@ waited, how long it ran against its time limit, how it ended, the machine's load
 and free memory as it launched, and any suite running outside every place, such
 as a developer's own — and proposes the limit at which the check still finishes
 inside its time limit. It never proposes more than the limit it was measured
-under, and it changes nothing.
+under, and it changes nothing. A launch whose end could not be written down is
+listed with the reason and left out of every limit proposed.
 
 A kept place is given back by itself once the last of those processes goes.
 release gives it back now, recorded on the permit with who and why, for the
