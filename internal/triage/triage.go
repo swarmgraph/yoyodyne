@@ -1418,6 +1418,11 @@ type Entry struct {
 	// beside it is: it is settled as the run ends, which is before the entry
 	// exists.
 	Escalation *Escalation `json:"escalation,omitempty"`
+	// Stop is the stop this entry is about, as the run recorded it when it
+	// stopped: its cause decided then, and whether it was charged. Absent on an
+	// entry about a run that recorded no stop, which is every stop before stops
+	// were kept.
+	Stop *StopRecord `json:"stop,omitempty"`
 	// Environmental is the environment having refused this stoppage's last round,
 	// when it did. It is written into the entry rather than joined where the docket
 	// is read, unlike the re-run and the overrides beside it, because it is not a
@@ -1730,6 +1735,11 @@ func (e Entry) Validate() error {
 	}
 	if e.HarnessContinuesChecks && strings.TrimSpace(e.CheckStageStop) == "" {
 		problems = append(problems, errors.New("harness_continues_checks: only a stoppage the check stage bound made is continued at its checks, so it requires check_stage_stop"))
+	}
+	if e.Stop != nil {
+		if err := e.Stop.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("stop: %w", err))
+		}
 	}
 	if len(e.StallStop) > MaxMessageBytes {
 		problems = append(problems, fmt.Errorf("stall_stop is %d bytes, limit is %d", len(e.StallStop), MaxMessageBytes))
@@ -2077,6 +2087,7 @@ func (e Entry) Render() string {
 		rendered.WriteString(indented("No reason for this stop was recorded; read the run's record before deciding it", e.StopUnrecorded))
 	}
 	rendered.WriteString(e.renderStopRequested())
+	rendered.WriteString(e.renderStop())
 	if e.CheckStageStop != "" {
 		rendered.WriteString(indented("Check stage stopped by load", e.CheckStageStop))
 		if e.CheckStageFailure != "" {

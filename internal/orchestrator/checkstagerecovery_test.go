@@ -62,6 +62,8 @@ func TestAutomaticCheckContinuationKeepsArtifactsBeyondTheTailWhileDelayed(t *te
 		t.Run(gate, func(t *testing.T) {
 			s := crossRoleCheckStageState()
 			h := newUndecidedHarness(t, s)
+			// The run as stored, with the stop the store wrote as it was recorded.
+			s = loadRecoveryRun(t, h.runs, s.RunID)
 			if gate == "intake" {
 				if _, err := h.intake.Hold(runstate.IntakeHolderOperator, "held for this test", docketedNow); err != nil {
 					t.Fatal(err)

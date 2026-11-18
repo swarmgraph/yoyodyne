@@ -2392,6 +2392,23 @@ func (s *State) recordedTexts() []recordedText {
 			unstated(key+".findings[].file", at(path+".findings", index, "file"), &finding.File, MaxRecordedTextBytes)
 		}
 	}
+	// A stop's evidence is cut to its bound as the stop is written (runstop.go),
+	// and its findings are the reviewer's prose as the run's own are.
+	for index := range s.Stops {
+		evidence := &s.Stops[index].Evidence
+		for _, text := range []struct {
+			name string
+			text *string
+		}{{"says", &evidence.Says}, {"check_command", &evidence.CheckCommand}, {"check_output", &evidence.CheckOutput}, {"review_summary", &evidence.ReviewSummary}, {"provider", &evidence.Provider}} {
+			nested("stops[].evidence."+text.name, at("stops", index, "evidence."+text.name), text.text, MaxStopEvidenceBytes)
+		}
+		for findingIndex := range evidence.Findings {
+			finding := &evidence.Findings[findingIndex]
+			path := at("stops", index, "evidence.findings")
+			unstated("stops[].evidence.findings[].message", at(path, findingIndex, "message"), &finding.Message, MaxRecordedTextBytes)
+			unstated("stops[].evidence.findings[].file", at(path, findingIndex, "file"), &finding.File, MaxRecordedTextBytes)
+		}
+	}
 	if s.CheckFailure != nil {
 		nested("check_failure.output", "check_failure.output", &s.CheckFailure.Output, MaxCheckOutputBytes)
 		reviewBefore("check_failure.review_before", "check_failure.review_before", s.CheckFailure.ReviewBefore)
@@ -4357,6 +4374,14 @@ type State struct {
 	// stopped short of. Absent is a run nothing stopped, or a record written before
 	// the field existed. RecordedStopClass reads the latter as unknown.
 	StopClass StopClass `json:"stop_class,omitempty"`
+	// Stops is one entry for every time this run stopped, oldest first, each
+	// with the cause decided as it stopped. The store writes it and keeps it as
+	// stored whatever a caller's copy says (runstop.go), so a later step never
+	// changes a recorded cause. StopsDropped counts the oldest stops let go to
+	// keep the record inside its bound. Absent on a run that never stopped, and
+	// on every stop recorded before stops were kept.
+	Stops        []RunStop `json:"stops,omitempty"`
+	StopsDropped int       `json:"stops_dropped,omitempty"`
 	// Blocker is the durable blocker exactly as it was recorded on the work item
 	// when this run stopped on something no further attempt of the harness could
 	// resolve. The tracker holds the authoritative copy; this one is kept because
@@ -4683,6 +4708,20 @@ func (s State) Validate() error {
 	}
 	if s.StopClass != "" && !s.StopClass.Valid() {
 		problems = append(problems, UnknownValueError{Field: "stop_class", Value: string(s.StopClass)})
+	}
+	if len(s.Stops) > MaxRunStops {
+		problems = append(problems, fmt.Errorf("stops: %d recorded, more than %d", len(s.Stops), MaxRunStops))
+	}
+	if s.StopsDropped < 0 {
+		problems = append(problems, errors.New("stops_dropped cannot be negative"))
+	}
+	for index, stop := range s.Stops {
+		if !stop.Cause.Valid() {
+			problems = append(problems, UnknownValueError{Field: "stops.cause", Value: string(stop.Cause)})
+		}
+		if err := stop.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("stop %d: %w", index+1, err))
+		}
 	}
 	// A claim with no account of itself is the half of the record that would be
 	// read afterwards, so an outcome without one is refused here rather than

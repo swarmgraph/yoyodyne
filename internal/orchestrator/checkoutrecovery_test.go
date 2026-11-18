@@ -175,6 +175,8 @@ func TestRepairRestartRefusesAPartlyRestoredCheckout(t *testing.T) {
 	s := missingRecoveryState()
 	s.CheckoutRestorePending = true
 	h := newContinueHarness(t, s)
+	// The run as stored, with the stop the store wrote as it was recorded.
+	s = h.reload(t)
 	w := &orchestratortest.RecoveryCheckout{Ownership: h.ownership, Branch: true, Present: true, Dirty: true}
 	c := h.continuer()
 	c.Worktrees, c.Remains = w, w
@@ -196,6 +198,8 @@ func TestMissingCheckoutRecoveryWaitsForIntakeAndKeepsCheckStageSpend(t *testing
 	s.ReviewFindings, s.ReviewDecision, s.ReviewSummary = 0, "", ""
 	s.CheckStage = &runstate.CheckStage{StartedAt: s.StartedAt, BoundSeconds: 1800, Command: "make race", StoppedAtBound: true, ElapsedSeconds: 1800}
 	h := newContinueHarness(t, s)
+	// The run as stored, with the stop the store wrote as it was recorded.
+	s = h.reload(t)
 	w := &orchestratortest.RecoveryCheckout{Ownership: h.ownership, Branch: true}
 	c := h.continuer()
 	c.Worktrees, c.Remains = w, w
@@ -226,6 +230,8 @@ func TestCheckoutSweepKeepsOutstandingAndRefusedRecovery(t *testing.T) {
 	t.Parallel()
 	s := continuableState()
 	h := newContinueHarness(t, s)
+	// The run as stored, with the stop the store wrote as it was recorded.
+	s = h.reload(t)
 	r := Reconciler{Store: h.runs}
 	// No worktree manager is supplied: trying to retire anything would panic.
 	sweep, swept := r.sweepWorktree(context.Background(), s)

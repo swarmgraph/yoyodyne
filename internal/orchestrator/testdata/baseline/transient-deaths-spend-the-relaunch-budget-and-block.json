@@ -84,6 +84,20 @@
     },
     "status": "failed",
     "stop_class": "relaunch-budget",
+    "stops": [
+      {
+        "attempt": 1,
+        "cause": "outside",
+        "charged": false,
+        "evidence": {
+          "says": "the provider ended this run without judging the work after 2 of 2 permitted relaunch(es): api_error: API Error: the provider ended this invocation and named no reason for it"
+        },
+        "kept": true,
+        "reason": "relaunch-budget",
+        "step": "developing",
+        "stopped_at": "\u003ctime\u003e"
+      }
+    ],
     "target_branch": "main",
     "transient_relaunches": 2,
     "updated_at": "\u003ctime\u003e",

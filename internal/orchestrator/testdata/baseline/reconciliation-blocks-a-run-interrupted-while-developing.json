@@ -129,6 +129,21 @@
     },
     "status": "failed",
     "stop_class": "process-vanished",
+    "stops": [
+      {
+        "attempt": 2,
+        "candidate": "\u003ccommit-2\u003e",
+        "cause": "outside",
+        "charged": false,
+        "evidence": {
+          "says": "reconciled after an interrupted run: the run was interrupted in the developing phase with nothing integrated, and no attempt of the harness can finish it"
+        },
+        "kept": true,
+        "reason": "process-vanished",
+        "step": "developing",
+        "stopped_at": "\u003ctime\u003e"
+      }
+    ],
     "target_branch": "main",
     "updated_at": "\u003ctime\u003e",
     "verification": {

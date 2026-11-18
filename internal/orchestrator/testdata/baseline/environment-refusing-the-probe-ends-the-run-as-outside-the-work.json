@@ -106,6 +106,22 @@
     },
     "status": "failed",
     "stop_class": "sandbox-spawn-failure",
+    "stops": [
+      {
+        "attempt": 1,
+        "candidate": "\u003ccommit-2\u003e",
+        "cause": "outside",
+        "charged": false,
+        "evidence": {
+          "provider": "sandbox-spawn-failure: the developer could not start make build in this worktree: could not start /bin/sh: operation not permitted",
+          "says": "the developer could not start make build in this worktree: could not start /bin/sh: operation not permitted"
+        },
+        "kept": true,
+        "reason": "sandbox-spawn-failure",
+        "step": "developing",
+        "stopped_at": "\u003ctime\u003e"
+      }
+    ],
     "target_branch": "main",
     "updated_at": "\u003ctime\u003e",
     "verification": {

@@ -230,6 +230,11 @@ func (s *Store) storedHead(runID string) (storedRunHead, error) {
 		Status        Status          `json:"status"`
 		Routing       *RunRouting     `json:"routing"`
 		Worker        *WorkerIdentity `json:"worker"`
+		StopClass     StopClass       `json:"stop_class"`
+		CompletedAt   *time.Time      `json:"completed_at"`
+		Stops         []RunStop       `json:"stops"`
+		StopsDropped  int             `json:"stops_dropped"`
+		Integration   json.RawMessage `json:"integration"`
 	}
 	if err := json.Unmarshal(encoded, &stored); err != nil {
 		return storedRunHead{}, RefusedStateError{Problem: fmt.Errorf("the stored run %s cannot be read to compare its routing: %w", runID, err)}
@@ -240,7 +245,17 @@ func (s *Store) storedHead(runID string) (storedRunHead, error) {
 	if stored.Routing != nil && stored.Routing.Version > RoutingVersion {
 		return storedRunHead{}, RefusedStateError{Problem: fmt.Errorf("%w: run %s has routing version %d and this build reads %d", ErrUnsupportedRouting, runID, stored.Routing.Version, RoutingVersion)}
 	}
-	return storedRunHead{routing: stored.Routing, worker: stored.Worker, status: stored.Status, revision: stored.Revision}, nil
+	// Whether the stored record is stopped is read as State.stoppedNow reads it,
+	// short of the outcome: a terminal record is stopped unless it succeeded,
+	// integrated, with no stop reason.
+	integrated := len(stored.Integration) > 0 && string(stored.Integration) != "null"
+	stops := stopHistory{
+		stopped:     stored.Status.Terminal() && (stored.StopClass != "" || stored.Status != StatusSucceeded || !integrated),
+		completedAt: stored.CompletedAt,
+		stops:       stored.Stops,
+		dropped:     stored.StopsDropped,
+	}
+	return storedRunHead{routing: stored.Routing, worker: stored.Worker, status: stored.Status, revision: stored.Revision, stops: stops}, nil
 }
 
 // storedRunHead is what storedHead reads of the stored record.
@@ -249,6 +264,8 @@ type storedRunHead struct {
 	worker   *WorkerIdentity
 	status   Status
 	revision uint64
+	// stops is the stored record's stops, which a whole save keeps (runstop.go).
+	stops stopHistory
 }
 
 // checkRoutingWrite refuses a whole-record write whose routing is not what is

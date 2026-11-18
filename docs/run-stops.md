@@ -93,6 +93,24 @@ records it yet. The failure-storm brake leaves all four out of its count, with
 other causes in this section (`runstate.StopKeptOutOfHold`); `integration-budget`
 and `provider-budget` still count.
 
+Each stop also writes one entry in the run record's `stops` list, oldest
+first: the attempt that stopped it, the stop time, the step, the candidate
+commit, whether the change is kept, the evidence the run carried (its failure
+or blocker, the failing check and its output, the reviewer's summary and
+findings, including those of a review a later failing check came after, and how
+the AI provider's part ended), and one of three causes. A stop is `outside` the
+work when its class is one the hold leaves out, or one `runstate.StopSideOf`
+puts outside the work, which adds the harness's own failures around the run;
+`uncertain` when the run recorded that its change may have merged and nothing
+confirmed it; and `work` otherwise, including any class the harness does not
+recognise, which the entry marks as unrecognised. Only a stop about the work is
+marked charged against the item's repair attempts and review rounds. The store
+writes the list as the record is saved (`internal/runstate/runstop.go`) and
+keeps the stored entries whatever a later save carries, so nothing after the
+stop changes its cause; a run picked up again and stopped again gets a second
+entry. The development manager's list entry for a stopped run carries its
+current stop.
+
 The set of causes outside the work currently has nineteen values. A named cause alone does not forgive a
 round: normally the settlement must also find an empty delivery. With a change
 present it spends as an ordinary round does. `usage-window`,

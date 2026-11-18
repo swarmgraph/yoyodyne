@@ -2025,8 +2025,9 @@ func (d Docketer) stoppedRunEntryCarrying(state runstate.State, now time.Time, f
 		// would be the same fact twice on every ordinary stoppage.
 		Failure:         failure,
 		Summary:         docketSummary(state),
-		Findings:        docketFindings(state.ReviewFindingDetails),
+		Findings:        docketFindings(stopFindings(state)),
 		Check:           docketCheck(state.CheckFailure),
+		Stop:            docketStop(state),
 		Artifacts:       docketArtifacts(state, found),
 		Environmental:   docketEnvironmental(state.Environmental),
 		IntegrationStop: docketIntegrationStop(state.IntegrationStop),
@@ -2575,7 +2576,47 @@ func docketFailure(state runstate.State, found triage.Found) string {
 // for the reason the failure's cut does — the entry must not depend on a bound
 // somebody else was supposed to have applied, and an entry refused for its
 // length is a stopped run the development manager never hears about.
+// stopFindings are the reviewer's findings the entry carries: the run's own,
+// or, where a check failed after a review and the run's own were cleared for
+// the repair, the ones the stop kept from that review (yoyodyne-ifd.429.68).
+func stopFindings(state runstate.State) []runstate.Finding {
+	if len(state.ReviewFindingDetails) > 0 {
+		return state.ReviewFindingDetails
+	}
+	if stop, ok := state.CurrentStop(); ok {
+		return stop.Evidence.Findings
+	}
+	return nil
+}
+
+// docketStop carries the stop the run recorded as it stopped onto the entry,
+// with the cause decided then. A run picked up again since its last stop, or
+// one that stopped before stops were kept, carries none.
+func docketStop(state runstate.State) *triage.StopRecord {
+	stop, ok := state.CurrentStop()
+	if !ok {
+		return nil
+	}
+	return &triage.StopRecord{
+		Attempt:      stop.Attempt,
+		StoppedAt:    stop.StoppedAt,
+		Step:         string(stop.Step),
+		Candidate:    stop.Candidate,
+		Kept:         stop.Kept,
+		Reason:       stop.Reason.Name(),
+		Cause:        stop.Cause.Name(),
+		CauseSays:    stop.Cause.Describe(),
+		Charged:      stop.Charged,
+		Unrecognised: stop.Unrecognised,
+	}
+}
+
 func docketSummary(state runstate.State) string {
+	if len(state.ReviewFindingDetails) == 0 {
+		if stop, ok := state.CurrentStop(); ok && stop.Evidence.ReviewSummary != "" {
+			return runstate.RecordReviewSummary(stop.Evidence.ReviewSummary)
+		}
+	}
 	return runstate.RecordReviewSummary(state.ReviewSummary)
 }
 

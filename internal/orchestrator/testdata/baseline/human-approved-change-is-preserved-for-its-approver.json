@@ -157,6 +157,21 @@
     "started_at": "\u003ctime\u003e",
     "status": "succeeded",
     "stop_class": "integration-policy",
+    "stops": [
+      {
+        "attempt": 1,
+        "candidate": "\u003ccommit-2\u003e",
+        "cause": "work",
+        "charged": true,
+        "evidence": {
+          "review_summary": "the change matches the acceptance criteria"
+        },
+        "kept": true,
+        "reason": "integration-policy",
+        "step": "complete",
+        "stopped_at": "\u003ctime\u003e"
+      }
+    ],
     "updated_at": "\u003ctime\u003e",
     "verification": {
       "checks": [

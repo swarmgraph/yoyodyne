@@ -164,6 +164,24 @@
     },
     "status": "failed",
     "stop_class": "repair-budget",
+    "stops": [
+      {
+        "attempt": 1,
+        "candidate": "\u003ccommit-2\u003e",
+        "cause": "work",
+        "charged": true,
+        "evidence": {
+          "check_command": "exit 1",
+          "check_exit_code": 1,
+          "check_output": "No failing test or package was named in the captured output, so only its end is kept.",
+          "says": "verification failed after 2 of 2 permitted attempt(s): exit 1 exited with 1"
+        },
+        "kept": true,
+        "reason": "repair-budget",
+        "step": "checking",
+        "stopped_at": "\u003ctime\u003e"
+      }
+    ],
     "target_branch": "main",
     "updated_at": "\u003ctime\u003e",
     "verification": {
