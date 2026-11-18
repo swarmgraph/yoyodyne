@@ -22,7 +22,10 @@
 // A check that fails — a forge that cannot be reached, a tracker write that did
 // not go through — is said in the supervisor's log and changes nothing else:
 // the next check, at the ordinary interval, tries again. No run is stopped and
-// no other work waits on it.
+// no other work waits on it. The one exception is a check failing on the system
+// certificate store, which every check of a supervisor started from a shell that
+// cannot read it does: that is also recorded once, for `yoyo status` and the
+// dashboard (runstate.ForgeCertificateStore).
 package forgecheck
 
 import (
@@ -33,6 +36,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // Name is how the check is named in what the supervisor says.
@@ -47,6 +51,13 @@ const StartedBy = "the supervisor's forge check"
 // stopped and kept, and the next check that finds nothing hosting it hosts it
 // again.
 const CheckTimeout = 15 * time.Minute
+
+// CertificateRecord is where a check failing on the system certificate store is
+// recorded, and cleared. runstate.ForgeCertificateStore is one.
+type CertificateRecord interface {
+	Failed(pid int, at time.Time, detail string) error
+	Cleared() error
+}
 
 // Check is the forge check as a resident of the supervisor.
 type Check struct {
@@ -65,12 +76,19 @@ type Check struct {
 	Runner   execution.ProcessRunner
 	Now      func() time.Time
 	Log      func(format string, args ...any)
+	// Certificates records a check failing on the certificate store, with
+	// SupervisorPID as the supervisor that ran it. Nil records nothing.
+	Certificates  CertificateRecord
+	SupervisorPID int
 
-	nextDue time.Time
-	reading *check
-	hosting []*check
-	last    *Result
-	checks  int
+	// certificateSince is when the failure on the certificate store began, as
+	// this resident saw it, and zero while no check is failing that way.
+	certificateSince time.Time
+	nextDue          time.Time
+	reading          *check
+	hosting          []*check
+	last             *Result
+	checks           int
 }
 
 // Result is what one check came to.
@@ -81,6 +99,8 @@ type Result struct {
 	// to either way, from the end of its output.
 	Failed bool
 	Detail string
+	// CertificateStore says the check failed on the system certificate store.
+	CertificateStore bool
 }
 
 type check struct {
@@ -200,7 +220,27 @@ func (c *Check) finish(result Result) {
 	c.last = &result
 	if result.Failed {
 		c.log("forge check started at %s did not finish cleanly, and the next check tries again: %s", result.StartedAt.UTC().Format(time.RFC3339), result.Detail)
+		if result.CertificateStore {
+			if c.certificateSince.IsZero() {
+				c.certificateSince = result.EndedAt
+				c.log("every forge check is now failing on the system certificate store, so the supervisor cannot reach GitHub from the shell it was started in: %s", runstate.ForgeCertificateRemedy)
+			}
+			if c.Certificates != nil {
+				if err := c.Certificates.Failed(c.SupervisorPID, result.EndedAt, result.Detail); err != nil {
+					c.log("the forge check could not record its failure on the certificate store: %v", err)
+				}
+			}
+		}
 		return
+	}
+	if c.Certificates != nil {
+		if err := c.Certificates.Cleared(); err != nil {
+			c.log("the forge check could not clear its record of a failure on the certificate store: %v", err)
+		}
+	}
+	if !c.certificateSince.IsZero() {
+		c.certificateSince = time.Time{}
+		c.log("forge checks finish cleanly again, and the failure on the system certificate store is cleared")
 	}
 	c.log("forge check started at %s: %s", result.StartedAt.UTC().Format(time.RFC3339), result.Detail)
 }
@@ -234,7 +274,41 @@ func (c *Check) run(ctx context.Context, started *check) Result {
 	default:
 		ended.Detail = "yoyo forge-check " + describe(result)
 	}
+	if ended.Failed {
+		texts := []string{result.Stdout, result.Stderr}
+		if err != nil {
+			texts = append([]string{err.Error()}, texts...)
+		}
+		for _, text := range texts {
+			if line, ok := CertificateStoreFailure(text); ok {
+				ended.CertificateStore = true
+				if !strings.Contains(ended.Detail, line) {
+					ended.Detail += "; " + line
+				}
+				break
+			}
+		}
+	}
 	return ended
+}
+
+// CertificateStoreFailure reports text that says the system certificate store
+// could not be read, and the line that says so. Only Go's `x509: OSStatus` is
+// matched: it is what a process that cannot read the macOS store reports, and
+// an ordinary network failure, or an unknown authority behind a proxy, is a
+// different problem that starting the supervisor elsewhere would not mend and
+// that must not be read as this one.
+func CertificateStoreFailure(text string) (string, bool) {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, "x509: OSStatus") {
+			line = strings.TrimSpace(line)
+			if len(line) > 512 {
+				line = line[:512]
+			}
+			return line, true
+		}
+	}
+	return "", false
 }
 
 // describe is how a check's process ended, with the last line it said.

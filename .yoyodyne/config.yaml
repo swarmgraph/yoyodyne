@@ -438,6 +438,17 @@ checks:
 main_checks:
   - make race
 
+# What the merge queue runs on a candidate: the checks above without the race
+# check, each whole on the candidate commit, and the race check told only the Go
+# packages the change touches, added where the approved head has no passing race
+# result. The whole race check runs on main instead (main_checks above). Decided
+# by the development manager on 2026-11-16 (yoyodyne-ifd.429.212).
+merge_queue_checks:
+  - make fmtcheck
+  - make test CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
+  - make vet
+merge_queue_race_check: make race CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
+
 # What a confirmed document's landing runs in place of the checks above: every
 # test whose result depends on the governed documents -- the product
 # specifications, designs, and decisions homes with their invariants and
