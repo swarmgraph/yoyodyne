@@ -143,6 +143,14 @@ type MergeQueueWorker struct {
 	// on the current entry's candidate, while the current one's checks and
 	// review run (mergequeueahead.go). Off checks one entry at a time.
 	CheckAhead bool
+	// Publish pushes a candidate to its candidate branch on the forge, where
+	// the forge's required checks stand in for the full local run
+	// (mergequeuequick.go). It is satisfied by *gitworktree.Manager; nil leaves
+	// such a candidate unable to reach the forge, which the worker reports.
+	Publish MergeQueueCandidatePublisher
+	// ForgePoll is how often the forge's required checks are read while the
+	// candidate's review runs beside them; zero is defaultForgePoll.
+	ForgePoll time.Duration
 }
 
 // mergeQueueWait is a stage the worker did not start, and why: a process an
@@ -220,13 +228,20 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 	if author == "" {
 		return outcome, fmt.Errorf("run %s records no developer session, so no reviewer can be shown to be independent of it", entry.RunID)
 	}
-	configured := w.Pipeline.mergeQueueChecks(entry)
 	// A candidate checked ahead (mergequeueahead.go) runs beside this entry's
 	// stages and uses this call's worker lease, so it is ended and waited for
 	// before the call returns and the lease is let go.
 	var ahead aheadCheck
 	defer func() { result = ahead.collect(result) }()
 	for {
+		// The checks are chosen again for each candidate, because a candidate
+		// whose forge checks could not settle has the next one run the full
+		// local checks (mergequeuequick.go).
+		generations, err := w.Queue.Generations(key, entry.EntryID)
+		if err != nil {
+			return outcome, err
+		}
+		configured := w.Pipeline.mergeQueueChecks(entry, generations)
 		outcome, err = w.verify(ctx, lease, key, entry, run, author, configured, outcome, &ahead)
 		var wait mergeQueueWait
 		if errors.As(err, &wait) {
@@ -262,7 +277,10 @@ func (w MergeQueueWorker) verify(ctx context.Context, lease *runstate.Lease, key
 		outcome.Refusal = generation.Gate(configured).Error()
 		return outcome, nil
 	}
-	if w.CheckAhead && stagesLeft(generation) {
+	// A candidate whose forge checks stand in for the full check lands through
+	// a pull request, where nothing is checked ahead.
+	forge := len(generation.Checks.ForgeChecks) > 0
+	if w.CheckAhead && !forge && stagesLeft(generation) {
 		ahead.start(ctx, w, lease, key, entry, generation)
 	}
 	generation, moved, err := w.check(ctx, lease, key, generation)
@@ -275,9 +293,18 @@ func (w MergeQueueWorker) verify(ctx context.Context, lease *runstate.Lease, key
 			outcome.Generation = generation
 		}
 	}
+	fellBack := false
 	if err == nil && !moved && generation.CheckRun != nil && checksPassed(generation) {
-		generation, moved, err = w.review(ctx, lease, key, entry, run, generation)
+		if forge {
+			generation, moved, fellBack, err = w.reviewBesideForge(ctx, lease, key, entry, run, generation)
+		} else {
+			generation, moved, err = w.review(ctx, lease, key, entry, run, generation)
+		}
 		outcome.Generation = generation
+	}
+	if fellBack && err == nil && !moved {
+		// The next candidate runs the full local checks; the caller builds it.
+		return outcome, nil
 	}
 	if err != nil {
 		return outcome, err
