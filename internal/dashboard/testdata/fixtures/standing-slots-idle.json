@@ -1,0 +1,43 @@
+{
+  "observed_at": "2026-09-19T14:05:09Z",
+  "capacity_blocked": {
+    "runs": [],
+    "conversations": []
+  },
+  "running": [],
+  "working": [],
+  "developer_slots": [
+    {
+      "number": 1,
+      "preferred": [
+        "reliability"
+      ],
+      "says": "developer slot 1 is free and prefers the reliability label"
+    },
+    {
+      "number": 2,
+      "preferred": [
+        "usability",
+        "product",
+        "performance"
+      ],
+      "says": "developer slot 2 is free and prefers the usability, product or performance labels"
+    },
+    {
+      "number": 3,
+      "says": "developer slot 3 is free and prefers no label"
+    }
+  ],
+  "not_startable": [],
+  "admitted": 0,
+  "awaiting_decision": 0,
+  "awaiting_carry_out": 0,
+  "needs_human": [],
+  "reports": {
+    "collected": 0,
+    "unhandled": 0
+  },
+  "startable": 0,
+  "admitted_items": [],
+  "startable_items": []
+}
