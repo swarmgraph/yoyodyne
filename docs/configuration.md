@@ -4856,7 +4856,12 @@ execution:
   redeploy_drain_limit: 15m            # the default
 ```
 
-Past that bound the session restarts anyway. Each run it still hosts at its
+Past that bound the session restarts anyway. While it waits past the bound for
+a check that is still running — a run's, below, or a merge queue candidate's —
+the other runs it hosts are left working rather than stopped, because the
+restart cannot come before that check ends and a run stopped then would only
+sit idle in its seat; they are stopped together the first time no check is left
+to wait for, and the restart follows within seconds. Each run it still hosts at its
 developer attempt, its checks, or its review is stopped where it is and preserved whole:
 worktree, branch, claim, developer session, and every counter. The session that
 comes back re-adopts each one at its first pull, ahead of anything new, and
@@ -7186,13 +7191,17 @@ at a later pass, so a slow tracker never holds the next candidate. Each time a
 candidate's checks begin, the queue writes beside itself how long it waited
 since its last landing — from the forge's own merge time where the forge gave
 one — so the queue's weekly figures can count it. A session draining to restart
-into a new build stops its passes going round, waits for them like its recurring
-firings, and
-stops them past the drain bound — except a pass whose candidate's checks are
-running, which is let finish them, each check up to its configured
-`check_timeout`, so the check under way is not thrown away — and none for more
-than ten minutes past the drain bound, when the pass is stopped and the session
-restarts. A stage stopped
+into a new build stops its passes going round and waits for them like its
+recurring firings. Past the drain bound no pass starts, and none starts a check
+stage or a review; a pass whose candidate's checks are running is let finish
+them, each check up to its configured `check_timeout`, so the check under way is
+not thrown away — and none for more than ten minutes past the drain bound, when
+the pass is stopped and the session restarts. Every other pass is given thirty
+seconds at the restart to end the step it is in, which ends it waiting, and is
+stopped only after that. A pass its session stops part-way through a step is
+recorded as waiting on the next pass, never as stopped: whatever the stopped
+step then failed on, such as reading where the target stands, says nothing about
+the queue. A stage stopped
 part-way keeps the checks that had already passed, as long as the candidate's
 commit and its list of checks are unchanged, and the session that comes back
 runs only the others, the one cut off included; the cut-off check is recorded
