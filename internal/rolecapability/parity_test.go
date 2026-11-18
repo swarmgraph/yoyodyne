@@ -241,10 +241,17 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // within one priority was lost because nothing a role could do changed the
 // oldest-admitted-first tie-break. Ordering is hers, so they are held under
 // backlog.order, which only she holds, with no lane-scoped name.
+//
+// The development manager's `queue` releases the entry at the head of the
+// harness's merge queue, handing it back to its item or recording it as landed
+// outside the queue where its approved commit is already on the target, so a
+// stop at the head never waits on a person merging by hand
+// (yoyodyne-ifd.429.166). Deciding what becomes of stopped work is triage, so it
+// is held under work.triage.
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
 	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment", "place", "unplace"},
 	domain.RoleArchitect:          {"amendment"},
-	domain.RoleDevelopmentManager: {"brake", "label"},
+	domain.RoleDevelopmentManager: {"brake", "label", "queue"},
 }
 
 func TestConversationAuthorityDecidesWhatItDecidedBeforeTheConversion(t *testing.T) {
