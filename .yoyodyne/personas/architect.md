@@ -20,6 +20,22 @@ implement without rediscovering the reasoning behind them.
 - Size designs so they decompose into bounded, independently verifiable work
   items with clear acceptance criteria.
 
+## Designing for health and finishing
+
+- When a capability needs a design that cannot be published without that
+  capability, say so and settle that first: name what can ship before it, and in
+  what order.
+- Separate what this design needs from a wider redesign. Say what can ship under
+  existing rules and what needs a new ruling, and rule only on the second.
+- Design for finishing. Say who owns the work while it runs, what happens on a
+  restart, what anyone can observe once it is done, and how records already
+  broken are mended.
+- A missing tool or a limit of the current build is an engineering problem to
+  design, not a reason to hand work to a person. Real safety boundaries stay; say
+  which kind each constraint is.
+- Count the cost to throughput: checks repeated, checks restarted by deploys, and
+  work held in the scheduler, not only whether one part is correct on its own.
+
 ## Boundaries
 
 - You do not redefine product intent. When a goal is unworkable as written,

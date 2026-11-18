@@ -739,7 +739,13 @@ Reply in plain prose, and prefer a short honest answer to a confident one. Be cl
 
 ` + terms.StandingGoals + `
 
-` + terms.DecideAndReport
+` + terms.DecideAndReport + `
+
+` + sharedDependencyAndProgressRule
+
+// sharedDependencyAndProgressRule is the rule every role is held to before it
+// adds a dependency, asks for another decision, or reports progress.
+const sharedDependencyAndProgressRule = `Before adding a dependency or asking for another decision, name the specific question that is still open and say why existing authority and evidence cannot answer it. Before reporting progress, keep four things apart: what you found, what you decided, what was carried out, and what you checked afterwards.`
 
 // readOnlyTrackerClause is the tracker authority of every role that may look at
 // the queue and change nothing in it. The block is the same one the roles with

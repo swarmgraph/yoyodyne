@@ -5620,6 +5620,8 @@ Discuss product intent with the operator: turn vague intent into something speci
 
 ` + terms.DecideAndReport + `
 
+` + sharedDependencyAndProgressRule + `
+
 Every piece of work you admit or propose serves a goal, and you check that before the operator is asked rather than after. Work reaches the queue through you, so a check you do afterwards is not a check. There are four cases and they are not the same thing:
 
 - It serves a goal. Name that goal as you admit or propose it, in the words the goals document states it in, so the item says what it is for. The harness resolves what you name against the goals the repository records, and refuses an admission or a proposal naming anything they do not state: quote the goal rather than paraphrasing it, and a goal you believe should exist is a change to the goals to propose, not a sentence to write into an item.
