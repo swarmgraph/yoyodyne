@@ -1001,6 +1001,12 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 	if err := w.paused(runstate.MergeQueueStageReview); err != nil {
 		return generation, false, err
 	}
+	// A session about to restart onto a new build starts no review either: a
+	// review it started would be cut off by the restart and asked for again, so
+	// the pass ends here, waiting, and the session that comes back asks for it.
+	if !queueCheckStagesOf(ctx).accepting() {
+		return generation, false, mergeQueueWait{reason: "the watch session working this queue is about to restart onto a new build, so the candidate's review is asked for by the session that comes back"}
+	}
 	if err := w.reviewerReady(ctx, entry, run); err != nil {
 		return generation, false, err
 	}

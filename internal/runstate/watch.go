@@ -653,6 +653,17 @@ type WatchDrain struct {
 	// stopped. It is on the drain so a reader of the idle line it was said on
 	// knows the seat was left on purpose rather than for want of work.
 	PullSkipped bool `json:"pull_skipped,omitempty"`
+	// PausedSince is the first moment the session held anything back for the
+	// move: a pull into a free seat it declined, a recurring pass or merge queue
+	// pass it did not start, or a run it stopped. From then until the session
+	// that comes back writes its first line is the time the move cost, which is
+	// what BuildMoves reads. Zero is a drain that has held nothing back yet.
+	PausedSince time.Time `json:"paused_since,omitzero"`
+	// KeptGoing is how many of the runs the session hosts it left working past
+	// the bound, rather than stopping them, because a check it is waiting for
+	// was still running: stopped then, each would only have sat idle until the
+	// restart. They are stopped together once the waits end.
+	KeptGoing int `json:"kept_going,omitempty"`
 }
 
 // WatchCheckWait is one run, or one merge queue's candidate, a session past
@@ -730,8 +741,12 @@ func (d WatchDrain) Says() string {
 			if d.Promoting > 0 {
 				waits = append(waits, fmt.Sprintf("%d run(s) at their promotion, waited on since %s, because a promotion is never stopped part-way", d.Promoting, LocalStamp(d.PromotingSince)))
 			}
-			return fmt.Sprintf("%s; the bound has run out, so it is waiting for %s; it restarts the moment they finish, every other run is stopped and preserved for the session that comes back, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing",
-				said, strings.Join(waits, "; and for "))
+			others := "every other run is stopped and preserved for the session that comes back"
+			if d.KeptGoing > 0 {
+				others = fmt.Sprintf("%d other run(s) go on working meanwhile rather than sitting stopped, and are stopped and preserved for the session that comes back once the checks end", d.KeptGoing)
+			}
+			return fmt.Sprintf("%s; the bound has run out, so it is waiting for %s; it restarts the moment they finish, %s, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing",
+				said, strings.Join(waits, "; and for "), others)
 		}
 		if d.Checking > 0 {
 			return fmt.Sprintf("%s; the bound has run out, so it is waiting out a check stage in %d run(s) it hosts until %s at the latest, the check-stage bound, and stopping and preserving every other run at a developer attempt or a review for the session that comes back; nothing more is pulled into a free seat until it does, and its recurring tasks go on firing",
@@ -785,6 +800,9 @@ func (d WatchDrain) validate() error {
 	}
 	if d.Promoting > 0 && d.PromotingSince.IsZero() {
 		problems = append(problems, errors.New("draining waits out a promotion and names no moment that wait began"))
+	}
+	if d.KeptGoing < 0 {
+		problems = append(problems, fmt.Errorf("draining reports %d runs kept working past the bound, which is not a count", d.KeptGoing))
 	}
 	return errors.Join(problems...)
 }

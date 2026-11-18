@@ -3724,7 +3724,12 @@ recording its verdict is still hosted past the bound:
   a run or in a merge queue, lasts more than ten minutes past the drain bound:
   a check still going then is stopped and runs again on the new build, because
   nothing is pulled into a free seat while the session waits, and a check limit
-  of an hour would leave every seat the drain emptied empty for that hour. So
+  of an hour would leave every seat the drain emptied empty for that hour.
+  While the session waits on a running check, its other runs are not stopped
+  yet: the restart cannot come before the check ends, so a run stopped then
+  would only sit idle in its seat. They go on working, the session's line
+  says how many, and they are stopped and preserved together the first time no
+  check is left to wait for, with the restart a few seconds after. So
   the scheduler is on a deployed build within `execution.redeploy_drain_limit`
   and ten minutes of finding it, except while a promotion or a document landing
   run is waited out, which the session's line names with since when. Load can scale a check's limit, and
@@ -3757,8 +3762,14 @@ recording its verdict is still hosted past the bound:
   recorded on the candidate as cut off by the restart, not as a failure, and
   nothing is charged to the change for it. Where the record of the stopped
   attempt cannot say which checks passed on that same candidate, every check
-  runs again and the candidate's record says why. Every other queue pass is
-  stopped at the bound, and past it no queue starts a new check stage. The
+  runs again and the candidate's record says why. Past the bound no queue pass
+  starts, and none starts a check stage or a review. Every other pass is left
+  to end the step it is in — reading where the target stands, building a
+  candidate, asking the forge about a merge — and is stopped only if it is still
+  going thirty seconds into the restart. A pass its session stops part-way is
+  recorded as waiting on the next pass, never as a stop of the queue: what the
+  cut-off step failed on, such as reading where `main` stands, says nothing
+  about the queue, and the next pass carries on from the records. The
   session's line names the queue, the candidate's generation, the check, and
   until when.
 - A document landing run — a confirmed document a role wrote, landed through
@@ -8696,7 +8707,13 @@ to free, and the approved documents waiting in the merge queue. A document with
 more than one open publication pull request, and every document landing held for
 longer than three hours, are added to the pass's account as findings of their
 own. A forge that could not be read is said as not known rather than shown as an
-empty list.
+empty list. The same section says what moving onto new builds has cost since
+midnight, in this machine's zone: each move, from the moment its session first
+held work back for it — a pull into a free seat it declined, a recurring pass or
+merge queue pass it did not start, or a run it stopped — until the session on
+the new build wrote its first line, and the day's total against the thirty
+minutes a day may spend on them. The watch log records that moment on the
+drain, as `paused_since`.
 
 **A development manager's pass carries what waits on you, beside her docket.**
 Every firing of her task, scheduled or summoned by the brake, has two sections
