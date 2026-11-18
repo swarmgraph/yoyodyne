@@ -1621,6 +1621,10 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 			// where a candidate lands as its own commit; the worker checks
 			// nothing ahead on a target that lands through a pull request.
 			CheckAhead: true,
+			// With checks on CI on, a candidate is pushed for the forge's
+			// required checks once its quick checks pass, so its review runs
+			// beside them.
+			Publish: parts.worktrees,
 		},
 		Promoter: promoter,
 		Queues:   parts.mergeQueues,

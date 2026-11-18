@@ -267,9 +267,15 @@ func ClassifyMergeQueueFailure(evidence MergeQueueFailureEvidence) (MergeQueueFa
 			len(checksRun.Results), generation.Number, len(generation.Checks.Commands))
 		return failure, true, nil
 	}
+	if failure, failed := forgeFailure(failure, generation, evidence.SuspectedHeads); failed {
+		return failure, true, nil
+	}
 	verdict := generation.Review
 	switch {
 	case verdict == nil || verdict.FinishedAt == nil:
+		return MergeQueueFailure{}, false, nil
+	case len(generation.Checks.ForgeChecks) > 0 && verdict.Problem == "" && verdict.Decision == "approve":
+		// Approved, with the forge's checks still to finish: it has not failed.
 		return MergeQueueFailure{}, false, nil
 	case verdict.Binding != generation.Binding():
 		failure.Class = runstate.MergeQueueUnreadableEvidence
@@ -644,7 +650,7 @@ func (p MergeQueuePromoter) recover(ctx context.Context, key runstate.MergeQueue
 	}
 	failure, failed, err := ClassifyMergeQueueFailure(MergeQueueFailureEvidence{
 		Generations: generations, ReadErr: readErr,
-		Configured: p.Pipeline.mergeQueueChecks(entry),
+		Configured: p.Pipeline.mergeQueueChecks(entry, generations),
 		TargetRed:  p.targetRed(ctx, key.TargetBranch),
 	})
 	if err != nil {

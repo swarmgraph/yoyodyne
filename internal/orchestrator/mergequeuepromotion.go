@@ -504,7 +504,7 @@ func (q *queuePromotion) verified(target string) (runstate.MergeQueueGeneration,
 		return runstate.MergeQueueGeneration{}, "no candidate has been built and verified for this entry yet", nil
 	}
 	generation := generations[len(generations)-1]
-	if err := generation.Gate(q.p.Pipeline.mergeQueueChecks(q.entry)); err != nil {
+	if err := generation.Gate(q.p.Pipeline.mergeQueueChecks(q.entry, generations)); err != nil {
 		return generation, err.Error(), nil
 	}
 	if generation.TargetBase != target {
@@ -988,7 +988,7 @@ func (q *queuePromotion) standing(attempt *runstate.MergeQueuePromotionAttempt) 
 	if generation.Binding() != attempt.Binding {
 		return generation, fmt.Sprintf("generation %d is not the candidate the attempt was intended for", attempt.Generation), nil
 	}
-	if err := generation.Gate(q.p.Pipeline.mergeQueueChecks(q.entry)); err != nil {
+	if err := generation.Gate(q.p.Pipeline.mergeQueueChecks(q.entry, generations)); err != nil {
 		return generation, err.Error(), nil
 	}
 	return generation, "", nil
