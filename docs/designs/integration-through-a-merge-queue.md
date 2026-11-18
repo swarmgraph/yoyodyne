@@ -31,6 +31,10 @@ revisions:
       by: architect
       at: 2026-11-16T20:41:37.543491Z
       reason: 'yoyodyne-ifd.429.199: records the architect''s pick among the three ways out of the slow merge queue the operator was given on November 16, 2026 (keep the harness''s queue and let GitHub''s required checks on the exact candidate stand as its full check), why the other two were rejected, and the trial that switches it on for this repository: what it measures, how long it runs, when it switches back, what happens to the entries already waiting, and the settings in order. The section''s existing text is unchanged. Read whole at 101b2da5 before revising.'
+    - action: amended
+      by: architect
+      at: 2026-11-18T15:56:15.443629Z
+      reason: 'yoyodyne-ifd.429.224: a candidate''s pull request opens as a draft and is marked ready by the harness only once the reviewer has approved and every required check has passed on that exact commit, in the same step as the merge; the step is retried through GitHub outages like the merge and never hands an entry back; it returns to draft before a new commit is pushed or on withdrawal; a person''s merge of a ready candidate is followed like the harness''s own, and a merge the harness did not approve files a critical report. A label and a protection rule were rejected because each needs a setting only a person can change. Names one build piece. The rest of the section is copied unchanged from main 1d45a162, read whole before revising.'
 approvals:
     - revision: 0
       by: operator
@@ -61,6 +65,11 @@ approvals:
       by: harness
       at: 2026-11-16T20:41:37.543491Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2909, for document-2909.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-18T15:56:15.443629Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3018, for document-3018.1 under the automatic approval policy
 ---
 # Purpose
 
@@ -131,6 +140,32 @@ Alternatives rejected: running the race check on every document candidate, becau
 Before promotion, acquire the target promotion lease and reread the target and applicable holds, directives, dependencies and approval policy. Promote only if the target still equals the recorded base and the candidate's checks and review are valid for it. Use compare-and-swap or an equivalent protected publication operation; never force the target. Target movement invalidates the generation and its checks and review. Construct and verify a new generation without charging a repair merely for drift.
 
 For a protected target, land through its authorized pull-request path and follow the confirmed remote result locally by fast-forward. For an unprotected target, retain the existing local promotion and publication authority. Neither path may rewrite an authoritative branch or bypass repository protection.
+
+## A candidate's pull request cannot be merged before the harness is done
+
+On November 18, 2026 the reviewer reported that a candidate's pull request was opened ready to merge while its review was still running, so anyone with merge rights could land it before the harness's review and checks finished (yoyodyne-ifd.429.224). Where landing goes through a pull request, these rules close that path:
+
+- **It opens as a draft.** The harness opens every candidate's pull request as a draft. GitHub refuses to merge a draft, so nobody can merge it early. GitHub's required checks still run on a draft, so the wait for them is unchanged.
+- **The harness marks it ready, and only then.** The harness marks the pull request ready for review only when the reviewer has approved this exact candidate and every required check has passed on its exact commit, as the sections above and below require. It marks it ready and asks GitHub to merge it in one step, naming the candidate commit. No person is ever asked to mark it ready.
+- **An outage is waited out.** Marking ready and merging are retried through a GitHub outage exactly as the queue's merge step is, and the entry is never handed back for an outage. If GitHub refuses the merge because a required check on the same commit is running again, the harness waits for it as for any check on that commit, and spends no repair.
+- **It goes back to draft before anything changes.** Before the harness pushes a new generation to a candidate's pull request, and when it withdraws an entry, it first returns the pull request to draft and confirms GitHub shows it as a draft. Withdrawal also disables merging when ready and removes the entry from the queue, as before. An approval therefore never covers a commit it did not judge.
+- **A person's merge.** A person with merge rights may merge a candidate the harness has marked ready. The harness follows that landing exactly as it follows its own: it confirms the merge commit's first parent and files as the section below says, follows the result locally, and records the landing as merged by a person. If a candidate is merged when the harness had not marked it ready, it files a critical report naming the merge and whoever GitHub says merged it, because the landed revision may not be the one that was approved.
+
+This repository's CI jobs must run on draft pull requests and must not start again on the same commit when it is marked ready. A job that skips drafts would leave a required check never started, which the section below treats as a check to ask for once more and then replace with the full local checks. The workflow files were not read for this revision; the build piece below confirms both before it lands.
+
+Alternatives rejected: a label, because a label alone stops nobody merging; a branch protection rule, or a required status the harness posts, because each needs a repository setting that only a person can change, and the queue would stall on every candidate if that setting were missing or wrong; marking the pull request ready when review approves and then merging later, because a pull request ready while its checks still run could be merged before they pass.
+
+Build work: one piece, built and checked on its own. Candidate pull requests open as drafts; the harness marks one ready and merges it in one step, retried through outages; it returns to draft before a push and on withdrawal; a merge the harness did not mark ready files a critical report; and this repository's workflows run on drafts and do not start again on being marked ready.
+
+A reviewer can check:
+
+- a candidate's pull request is a draft from the moment it opens until the harness marks it ready;
+- the harness marks it ready only after the reviewer approved and every required check passed on the candidate commit, and asks for the merge in the same step;
+- a GitHub outage while marking ready or merging is waited out, and the entry is not handed back;
+- a pull request ready for review is returned to draft before a new commit is pushed to it and when its entry is withdrawn;
+- a person's merge of a ready candidate is confirmed and recorded like the harness's own merge;
+- a merge of a candidate the harness had not marked ready files a critical report naming the merge;
+- no repository setting is changed by the harness.
 
 # Checking one entry ahead
 
