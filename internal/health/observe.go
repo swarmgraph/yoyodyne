@@ -779,7 +779,7 @@ func redact(o *Observation, all []Anomaly, redact func(string) string) {
 		o.Failures[i] = redact(o.Failures[i])
 	}
 	for i := range all {
-		all[i].Says, all[i].Needs = cut(redact(all[i].Says), MaxTextBytes), cut(redact(all[i].Needs), MaxTextBytes)
+		all[i].Says, all[i].Needs = cut(redact(all[i].Says), MaxTextBytes), cut(redact(all[i].Needs), MaxNeedsBytes)
 	}
 	for i := range o.Services {
 		for j := range o.Services[i].Copies {
@@ -806,8 +806,10 @@ func oneLine(text string) string {
 	return cut(strings.Join(strings.Fields(text), " "), 400)
 }
 
-// cut keeps at most limit bytes of text, ending on a whole character, and
-// marks the cut.
+// cut keeps at most limit bytes of text, ending after a whole word, and marks
+// the cut. A word cut in half reads as a different word, or as none, so the cut
+// goes back to the last space; only text with no space in the room left is cut
+// inside a word, and then on a whole character.
 func cut(text string, limit int) string {
 	const marker = " […]"
 	if len(text) <= limit {
@@ -817,5 +819,8 @@ func cut(text string, limit int) string {
 	for end > 0 && !utf8.RuneStart(text[end]) {
 		end--
 	}
-	return text[:end] + marker
+	if space := strings.LastIndexByte(text[:end+1], ' '); space > 0 {
+		end = space
+	}
+	return strings.TrimRight(text[:end], " ") + marker
 }

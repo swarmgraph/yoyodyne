@@ -838,3 +838,37 @@ func TestAnEmptySlotWithReadyWorkWaitingIsAProblemWithItsReason(t *testing.T) {
 		t.Fatalf("observation says %q, want an empty slot never read as healthy", observation.Says)
 	}
 }
+
+// A decided re-run waiting on a slot is said whole: the kept change, the
+// decision standing over it, and the whole of why the harness has not carried
+// it out, which at the old bound was cut off at "is waiting o". Text too long
+// for the bound is cut between words, never inside one.
+func TestADecidedRerunsWaitIsSaidWholeAndACutNeverSplitsAWord(t *testing.T) {
+	t.Parallel()
+
+	wait := `the "rerun" the development manager decided about the stoppage of run run-273b7c4d85397b33f32706ac59590fee is waiting on developer capacity: every developer slot is occupied: 3 active, limit 3. What clears it: a developer slot freeing, which needs nobody; nothing was claimed, so the stoppage keeps its re-run`
+	reason := "run run-273b7c4d85397b33f32706ac59590fee stopped on it and its change is preserved (branch checked and there), so a fresh run would start over on top of work that is still there; " +
+		"the development manager has already decided what happens to it, so what is outstanding is the harness carrying that decision out rather than a decision; " +
+		"problem: the same reason has stood for more than 1h0m0s; first passed over at 2026-11-15 08:28 PST; current reason since 2026-11-15 09:23 PST: " + wait
+	if len(reason) <= MaxTextBytes {
+		t.Fatalf("the reason is %d bytes, want one longer than the %d bytes the old bound kept", len(reason), MaxTextBytes)
+	}
+	observer, _ := whole(t)
+	observer = withStanding(observer, readmodel.Standing{NotStartable: []readmodel.Refused{
+		{WorkItemID: "yoyodyne-7xx", Title: "Long harness output in yoyo chat", Kind: backlog.HeldForAPerson, RunID: "run-273b7c4d85397b33f32706ac59590fee", Reason: reason},
+	}})
+	observation := observer.Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+	held := find(t, observation, "yoyodyne/run-273b7c4d85397b33f32706ac59590fee/held-after-stoppage")
+	if held.Needs != reason {
+		t.Fatalf("needs = %q, want the whole reason %q", held.Needs, reason)
+	}
+	if rendered := Render([]Result{{Action: ActionObserve, Observation: &observation}}); !strings.Contains(rendered, "is waiting on developer capacity: every developer slot is occupied: 3 active, limit 3. What clears it: a developer slot freeing, which needs nobody; nothing was claimed, so the stoppage keeps its re-run") {
+		t.Fatalf("the rendered observation reads:\n%s\nwant the whole wait reason in it", rendered)
+	}
+
+	long := strings.Repeat("waiting ", MaxNeedsBytes/8+10)
+	got := cut(long, MaxNeedsBytes)
+	if len(got) > MaxNeedsBytes || !strings.HasSuffix(got, "waiting […]") {
+		t.Fatalf("cut = …%q (%d bytes), want at most %d bytes ending on a whole word and the mark", got[len(got)-30:], len(got), MaxNeedsBytes)
+	}
+}
