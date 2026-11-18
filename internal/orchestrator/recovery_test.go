@@ -487,18 +487,19 @@ func TestATrackerThatAnsweredIsNotWaitedOnAtAll(t *testing.T) {
 	}
 }
 
-// A forge that never comes back has to escalate rather than retry for ever, and
-// what it escalates has to say the network was retried: a run handed to a person
-// reporting the last reset as though it were the first is what took a day to
-// diagnose.
-func TestASpentRecoveryWindowEscalatesWithTheRetriesNamed(t *testing.T) {
+// A merge whose connection keeps dropping spends the boundary's own window
+// first, every wait inside it and the last one at the cap. Past the window the
+// run is not handed to a person for it any more: it waits for GitHub with the
+// promotion lease given back and asks the merge again in place until GitHub
+// answers (forgewait.go), and then lands with nothing outstanding.
+func TestASpentRecoveryWindowAtTheMergeIsFollowedByWaitingForGitHub(t *testing.T) {
 	t.Parallel()
 
 	repository, remote := publishedRepository(t)
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
-	// Far more resets than the window has room for, so what stops the run is the
-	// window rather than the forge recovering.
-	forge := &orchestratortest.Forge{Remote: remote, MergeResets: 1000}
+	// More resets than the window has room for, so the window is spent and the
+	// wait for GitHub is what outlasts the rest.
+	forge := &orchestratortest.Forge{Remote: remote, MergeResets: 40}
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, approveVerdict)
@@ -509,21 +510,18 @@ func TestASpentRecoveryWindowEscalatesWithTheRetriesNamed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	// The promotion is made and the item is closed: what could not finish is the
-	// publication, which is exactly what an outstanding one is for.
-	if outcome.PublishFailure == "" {
-		t.Fatal("outcome reports no publish failure; a forge that never answered has to leave one")
+	if outcome.PublishFailure != "" || outcome.PullRequest == nil || !outcome.PullRequest.Merged {
+		t.Fatalf("publish failure = %q, pull request = %#v; want the merge waited for and made", outcome.PublishFailure, outcome.PullRequest)
 	}
-	if !strings.Contains(outcome.PublishFailure, "handed to a person") ||
-		!strings.Contains(outcome.PublishFailure, runstate.RetryMerge) {
-		t.Errorf("publish failure does not say the network was retried and given up on:\n%s", outcome.PublishFailure)
+	if outcome.ForgeWaited == nil || outcome.ForgeWaited.Tries == 0 {
+		t.Fatalf("outcome wait = %#v, want the run to have waited for GitHub past the window", outcome.ForgeWaited)
 	}
 	state, err := store.Load(outcome.RunID)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	// Every wait is inside the window, and the last one reached the cap: a series
-	// that stopped short of either would be bounding something else.
+	// Every wait of the window is inside it, and the last one reached the cap: a
+	// series that stopped short of either would be bounding something else.
 	waited := state.RetryWaited(runstate.RetryMerge)
 	if waited > recovery.Window {
 		t.Errorf("waited %s at the merge, which is past the %s window", waited, recovery.Window)
