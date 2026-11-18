@@ -71,7 +71,10 @@ message from the command line, and every recurring role pass
     `AwaitConversation`, `ask`, `choose`, `await`.
 12. **Printing what a turn did.** `reportTrackerActions`, `reportResearch`,
     `reportRepositoryReads`, `reportPicture`, `reportEvaluation`,
-    `reportAdmitted`.
+    `reportAdmitted`. Each is written through `harnessBlock`
+    (`shorten.go`), which on a terminal shows a long block shortened and
+    keeps it whole for Ctrl-O (`showShortened`, called from `await` and
+    `composeDuringTurn` on `console.ErrExpand`).
 13. **Deciding in the console.** `raise` / `answerTo` (concerns), `decide`
     (one proposal per question, through `askone.go`), `undecidedCards`,
     `applyDecisions`, `decideOne`.
@@ -275,11 +278,13 @@ removes them from the record once a turn has delivered them.
 | `origin.go` | reading an admission's origin back out of an older item's notes, for `yoyo goals origins`; the origin an admission records is `creationOrigin` in `admission.go` |
 | `report.go`, `reportcoverage.go`, `lanereport.go` | reports roles file and read; program manager lane reports; `ForPass` |
 | `stopcause.go` | a program manager's post-mortems of stopped runs: counting the stops its pass was handed (`HandStops`) and filing each cause's one report, over `runstate/stopcause.go` |
+| `refusedblock.go` | a block other than the tracker's that cannot be read, or whose proposal fails its checks, is refused alone (`parsedReply.Refused`, `settleRefusedBlocks`): audited, recorded as `reply.block.refused`, said on `Reply.RefusedBlocks`, and told to the role with the round's results; a role without authority for the kind is still refused whole (`refusedBlockAuthority`) |
 | `exchange.go` | one role asking another (`conductAsk`) |
 | `freshness.go`, `refresh.go` | how old the role's picture of the product is, and refreshing it |
 | `research.go`, `repository.go` | outside research and repository reads at a commit |
 | `mcp.go` | MCP calls a role asks for in a `yoyodyne-mcp` block, made through `internal/mcpcall` (`performMCPCalls`), and the MCP section of the instructions of an agent holding tools (`mcpInstructions`, read by `systemPrompt` in `role.go`) |
 | `tool.go`, `runinspect.go`, `health.go`, `recover.go` | the audit every tool call passes (`auditTool`); `log.read`; `run.inspect` and `run.verify` over `internal/runinspect`; `health.observe` and `health.follow` over `internal/health`; `run.recover` over `internal/runrecover` (`performRecoveries`) |
+| `shorten.go` | showing a long block of the harness's output after an answer as its first lines on a terminal, and in full on Ctrl-O |
 | `stream.go`, `activity.go`, `wording.go`, `replycut.go` | showing a reply while it arrives; plain-words findings; cut replies |
 | `spend.go` | what a turn spends, attributed |
 

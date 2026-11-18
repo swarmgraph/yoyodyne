@@ -138,6 +138,12 @@ type Request struct {
 	// refused a change that owed a record, so an empty value here means the
 	// change touches nothing this project's checks read.
 	Verification string
+	// CIChecks is what the harness read from the forge about each required check
+	// on the candidate commit — name, result and the commit it ran on — and
+	// whether that counts as evidence, already rendered by the caller. It comes
+	// from the harness's own reading, not from the developer. It is empty where
+	// the run's checks did not wait on the forge.
+	CIChecks string
 	// DeveloperSummary is the latest completed account saved in the run record.
 	// DeveloperSummaryContext states its attempt and content relation to the
 	// candidate, or explains why no account is available.
@@ -1233,6 +1239,11 @@ func reviewEvidencePrompt(request Request) string {
 	prompt.WriteString(renderChanges(request.Changes, request.evidenceLocation()))
 	prompt.WriteString(renderRepository(request.Repository))
 	prompt.WriteString("\n# Check results\n\n")
+	if trimmed := strings.TrimSpace(request.CIChecks); trimmed != "" {
+		prompt.WriteString("## The forge's required checks\n\n")
+		prompt.WriteString(trimmed)
+		prompt.WriteString("\n\n## Checks run on this machine\n\n")
+	}
 	prompt.WriteString(renderChecks(request.Checks, request.CheckPatterns, execution.EventLogOf(request.RunID)))
 	return prompt.String()
 }

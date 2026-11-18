@@ -74,7 +74,7 @@ func TestACodexReviewIsNotRefusedForAReadWithNoSize(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			result, events, err := reviewWith(t, codex.Backend{Runner: test.stream, Clock: reviewClock{}}, t.TempDir())
+			result, events, err := reviewWith(t, codex.Backend{Runner: test.stream, Clock: reviewClock{}, ConfigDir: t.TempDir()}, t.TempDir())
 			if err != nil || result.Decision != DecisionApprove {
 				t.Fatalf("Review() = %#v, %v, want a judged approval", result, err)
 			}
@@ -98,7 +98,7 @@ func TestACodexReviewIsNotRefusedForAReadWithNoSize(t *testing.T) {
 		`{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"cat missing.go","status":"in_progress"}}`,
 		`{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"cat missing.go","exit_code":1,"status":"failed"}}`,
 	)
-	_, events, err := reviewWith(t, codex.Backend{Runner: failed, Clock: reviewClock{}}, t.TempDir())
+	_, events, err := reviewWith(t, codex.Backend{Runner: failed, Clock: reviewClock{}, ConfigDir: t.TempDir()}, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "1 read(s) that were refused or failed") {
 		t.Fatalf("Review() error = %v, want a Codex review whose only read failed refused", err)
 	}

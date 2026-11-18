@@ -315,7 +315,7 @@ func TestAFailureAfterAWholeReplyIsNotReportedAsAnInterruption(t *testing.T) {
 	if strings.Contains(transcript, replyCutOff) {
 		t.Fatalf("a complete answer was reported as cut off: %q", transcript)
 	}
-	if !strings.Contains(transcript, "Nothing was proposed as far as the harness is concerned") {
+	if !strings.Contains(transcript, "proposal block was refused and nothing in it was carried out") {
 		t.Fatalf("the unreadable block was not reported: %q", transcript)
 	}
 }

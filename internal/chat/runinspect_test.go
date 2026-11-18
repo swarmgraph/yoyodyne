@@ -220,8 +220,8 @@ func TestAnExpectedStateOffTheListRefusesTheBlock(t *testing.T) {
 	answer := "```yoyodyne-run\n" + `{"requests":[{"action":"verify","run":"run-1a2b3c4d","expect":"recovered"}]}` + "\n```"
 	options, _, inspector := runToolOptions(t, domain.BackendClaudeCode, domain.RoleDevelopmentManager, answer)
 	session := openTestSession(t, options)
-	if _, err := session.Send(context.Background(), "check it"); err == nil || !strings.Contains(err.Error(), "not one of") {
-		t.Fatalf("Send() error = %v, want the expected state refused", err)
+	if reply, err := session.Send(context.Background(), "check it"); err != nil || len(reply.RefusedBlocks) != 1 || !strings.Contains(reply.RefusedBlocks[0], "not one of") {
+		t.Fatalf("Send() = %q, %v, want the expected state refused as a block", reply.RefusedBlocks, err)
 	}
 	if inspector.calls != 0 {
 		t.Fatal("a refused block reached the inspector")

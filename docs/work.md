@@ -2099,7 +2099,8 @@ that firing, in the message that wakes her. A
 project that schedules nothing has none of this and its passes are unchanged.
 
 **A pass also wakes a role whose block of tracker actions the harness refused.**
-A block it cannot read is refused whole, so nothing in it happens. Most refusals
+A tracker block it cannot read is refused whole, so nothing in it happens,
+while the rest of the reply is carried out. Most refusals
 never reach a pass: the refusal is
 [handed back inside the message that earned it](conversation.md#the-conversation),
 and the role reissues the block before its reply ends. What reaches a pass is a
@@ -2727,9 +2728,13 @@ What can happen to a queued change instead:
 - **The candidate touches a protected path its item does not grant.** It is
   handed back before any check runs on it.
 - **The forge drops the candidate's merge, or holds it queued longer than
-  `triage.stuck_merge_age`.** The merge is withdrawn, and once the forge
-  confirms it is withdrawn the change is handed back to its run, kept, for the
-  development manager to decide on.
+  `triage.stuck_merge_age`.** The limit counts from when the harness asked
+  the forge for the merge, which happens only once the entry reaches the head
+  of the queue, so waiting behind other entries never counts toward it. The
+  merge is withdrawn, and once the forge confirms it is withdrawn the change is
+  handed back to its run, kept, for the development manager to decide on. The
+  withdrawal says how long the forge held the merge and how long the entry was
+  in the queue before that.
 - **Something no single run can take up** — a run that no longer has the branch
   or the session a repair continues from — goes on the development manager's
   docket by itself.

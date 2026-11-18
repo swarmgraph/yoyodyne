@@ -171,6 +171,18 @@ execution:
   # failing the run. Nothing here is a fault in the change, so a relaunch spends
   # no repair attempt. A run that spends this budget stops and records a blocker.
   transient_relaunches_before_blocking: 2
+  # Checks on CI (yoyodyne-ifd.429.76, docs/configuration.md, "Checks on CI"):
+  # a run's checks before review are the short local ones below, then the
+  # harness pushes the candidate and waits for GitHub's required checks on that
+  # exact commit. The local check is formatting, vet, a build, and the tests only
+  # macOS exercises (the keychain, launchd, file system and process handling),
+  # which CI's Ubuntu runners cannot stand in for. Each name is written as
+  # checks writes it. Values decided by the development manager.
+  ci_checks:
+    enabled: true
+    local: [make fmtcheck, make vet, make build, make test-macos]
+    required: [test, race, vet]
+    wait_limit: 60m
   worktree_root: auto
   # The remote publishing pushes to and opens pull requests against. It is only
   # consulted when approvals.publishing is automatic; a repository with no
@@ -414,6 +426,8 @@ checks:
   - make test CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
   - make race CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
   - make vet
+  - make build
+  - make test-macos
 
 # The whole race check, run on main's head every execution.main_check_interval
 # (four hours by default) when main has moved, so the race check can come off
@@ -423,6 +437,17 @@ checks:
 # 2026-11-15. docs/configuration.md, "The checks run on main", says how it runs.
 main_checks:
   - make race
+
+# What the merge queue runs on a candidate: the checks above without the race
+# check, each whole on the candidate commit, and the race check told only the Go
+# packages the change touches, added where the approved head has no passing race
+# result. The whole race check runs on main instead (main_checks above). Decided
+# by the development manager on 2026-11-16 (yoyodyne-ifd.429.212).
+merge_queue_checks:
+  - make fmtcheck
+  - make test CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
+  - make vet
+merge_queue_race_check: make race CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"
 
 # What a confirmed document's landing runs in place of the checks above: every
 # test whose result depends on the governed documents -- the product

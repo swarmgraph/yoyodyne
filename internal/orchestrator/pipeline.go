@@ -3930,20 +3930,28 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 // has been turned off since, the promotion has this run the whole pass here
 // after all, as with the switch off, and the stage's record says why
 // (promoteApproved, wholeCheckOwedHere, wholeHereBecause).
+//
+// Where the run's checks on CI fell back to the full checks on this machine,
+// the forge is read for the same commit first, and a required check that has
+// failed there since is handed back here as any failure found now is
+// (lateCIResult).
 func (a *activeRun) checkCandidateWhole(ctx context.Context, limit int) (bool, error) {
-	if a.state.ChecksPassed == nil || a.state.ChecksPassed.Narrowed == "" {
-		return false, nil
-	}
-	if a.wholeHereBecause == "" && a.queueChecksCandidateWhole() {
-		// Marked on the run as it is held here: the admission that follows saves
-		// it with the entry it admits, and a change held from the queue saves it
-		// with the hold (admitToMergeQueue).
-		a.state.ChecksPassed.WholeLeftToQueue = true
-		return false, nil
-	}
-	err := a.verifyCandidate(ctx)
+	err := a.lateCIResult(ctx)
 	if err == nil {
-		return false, nil
+		if a.state.ChecksPassed == nil || a.state.ChecksPassed.Narrowed == "" {
+			return false, nil
+		}
+		if a.wholeHereBecause == "" && a.queueChecksCandidateWhole() {
+			// Marked on the run as it is held here: the admission that follows saves
+			// it with the entry it admits, and a change held from the queue saves it
+			// with the hold (admitToMergeQueue).
+			a.state.ChecksPassed.WholeLeftToQueue = true
+			return false, nil
+		}
+		err = a.verifyCandidate(ctx)
+		if err == nil {
+			return false, nil
+		}
 	}
 	if !parksTheRun(err) {
 		a.observe(ctx, a.promotionState(), "superseded")
@@ -9639,6 +9647,7 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		// alone. It comes from the durable record for the reason the claim does: a
 		// repair round judges what the run currently holds.
 		Verification:            describeVerification(a.state),
+		CIChecks:                a.describeCIEvidence(ctx),
 		DeveloperSummary:        developerSummary,
 		DeveloperSummaryContext: summaryContext,
 		// Every earlier attempt's account too, so a repair's summary that leans

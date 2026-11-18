@@ -47,8 +47,8 @@ make release-notes VERSION=v0.3.1               # draft docs/releases/v0.3.1.md
 bash scripts/release-notes.sh v0.3.1 --print    # see it without writing it
 ```
 
-Every entry has one shape: the title and the id on the first line, the goal
-the item serves under it, then — only for an item that did not originate with
+Every entry the draft writes has one shape: the title and the id on the first
+line, the goal the item serves under it, then — only for an item that did not originate with
 a person — one line saying which persona asked for it and why, and then the
 item's description as its own paragraphs.
 
@@ -67,9 +67,16 @@ parent names the development manager, the parent, and the reason recorded. An
 item the operator asked for through the Lead Product Manager carries no such line.
 The three releases here today — [`v0.3.0.md`](v0.3.0.md),
 [`v0.4.0.md`](v0.4.0.md), and [`v0.5.0.md`](v0.5.0.md) — were drafted before
-this shape existed and carry titles and goals only; the next draft is the first
-written this way. [Redrafting one of those three](../developing-yoyo.md#every-cut-writes-its-notes)
+this shape existed and carry titles and goals only. [Redrafting one of those three](../developing-yoyo.md#every-cut-writes-its-notes)
 is a person's commit rather than a run's.
+
+The draft is where curation starts, not the shape the file has to keep. A
+release covering a long stretch can draft far past what a release page
+accepts: `v0.6.0`'s draft, from 632 closed items, ran to 1.3 million
+characters against the forge's 125,000. [`v0.6.0.md`](v0.6.0.md) therefore
+groups its items into entries by what they changed, each with a short
+account, the goals its items served, and every item's identifier, so nothing
+that shipped goes unnamed and the tracker still holds each item's own text.
 
 A release the Lead Product Manager decides has a work item of its own, titled
 for its version, and drafting and curating its notes is that item's reviewed

@@ -132,7 +132,8 @@ func (p mcpCallPart) head() string {
 	}
 	fmt.Fprintf(&text, ", attempt %d: %s\n", record.Caller.Attempt, cutAtBoundary(string(record.Outcome), maxMCPNameBytes))
 	if record.Refusal != "" {
-		fmt.Fprintf(&text, "Refused because: %s\n", cutAtBoundary(string(record.Refusal), maxMCPNameBytes))
+		// The stored code stays in the record; the reviewer reads why in words.
+		fmt.Fprintf(&text, "Refused because %s\n", record.Refusal.Plain())
 	}
 	if record.Reason != "" {
 		fmt.Fprintf(&text, "Reason: %s\n", boundedLine(record.Reason, maxMCPReasonBytes))

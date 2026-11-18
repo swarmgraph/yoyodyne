@@ -3,12 +3,14 @@ package runstate
 // What the merge queue keeps beside its entries for the parts of the harness
 // that work every queue at once and for the people reading about them: which
 // queues exist, an entry moved explicitly to the other queue mode, why a queue
-// last refused to admit a change, and what its worker's last pass found.
+// last refused to admit a change, what its worker's last pass found, and its
+// recent passes.
 // docs/designs/integration-through-a-merge-queue.md is the design; mergequeue.go
 // is the record these sit beside.
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -17,11 +19,15 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
 const (
 	mergeQueueRefusalName = "refusal.json"
 	mergeQueuePassName    = "pass.json"
+	// mergeQueuePassHistoryName is the queue's recent passes (recordPassHistory).
+	mergeQueuePassHistoryName = "pass-history.json"
 )
 
 // Keys reports every queue the product has a record for, by repository and
@@ -262,7 +268,29 @@ type MergeQueuePass struct {
 	WorkItemID string `json:"work_item_id,omitempty"`
 	// Says is what the pass ended on, in ordinary words.
 	Says string `json:"says,omitempty"`
+	// Moved is when the pass first got the queue moving: it started a
+	// candidate's checks or its review, landed an entry or handed one back, or
+	// found nothing in the queue to move. A pass that only waited — on the
+	// forge, on another process, on a stage an earlier start may still hold —
+	// has none. It is what says when the queue was working again after a move
+	// onto a new build (BuildMoves).
+	Moved *time.Time `json:"moved,omitempty"`
+	// ForRestart marks a pass that ended because its watch session was
+	// restarting onto a new build: cut off part-way, or left a check stage or a
+	// review for the session that comes back to start.
+	ForRestart bool `json:"for_restart,omitempty"`
 }
+
+// mergeQueuePassHistory is how many of a queue's passes its history keeps,
+// newest last: about twelve hours of a queue going round once a minute while
+// it waits, which reaches back past the longest a move onto a new build has
+// held a queue. Each is bounded (historySaysBytes), so the record stays far
+// inside the bound on one state record and costs little to write again at
+// every pass.
+const mergeQueuePassHistory = 720
+
+// historySaysBytes bounds what one pass in the history says.
+const historySaysBytes = 200
 
 // RecordPass writes what a queue's worker last found.
 func (s *MergeQueueStore) RecordPass(ctx context.Context, key MergeQueueKey, pass MergeQueuePass) error {
@@ -274,7 +302,65 @@ func (s *MergeQueueStore) RecordPass(ctx context.Context, key MergeQueueKey, pas
 	if pass.At.IsZero() || !pass.Outcome.valid() {
 		return fmt.Errorf("merge queue pass: a pass records when it ended and one of the outcomes a pass can have, not %q", pass.Outcome)
 	}
-	return s.writeSide(ctx, key, mergeQueuePassName, pass)
+	if pass.Moved != nil {
+		moved := pass.Moved.UTC()
+		pass.Moved = &moved
+	}
+	if err := s.writeSide(ctx, key, mergeQueuePassName, pass); err != nil {
+		return err
+	}
+	return s.recordPassHistory(ctx, key, pass)
+}
+
+// recordPassHistory adds a pass to the queue's history, keeping the newest
+// mergeQueuePassHistory. The latest pass alone says what the queue is doing
+// now; the history is what says, after the fact, what it was waiting on
+// across an hour, such as the time after a restart before it was working
+// again.
+func (s *MergeQueueStore) recordPassHistory(ctx context.Context, key MergeQueueKey, pass MergeQueuePass) error {
+	queueRoot, unlock, err := s.lockQueue(ctx, key)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	var history []MergeQueuePass
+	encoded, err := queueRoot.ReadFile(mergeQueuePassHistoryName)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		return fmt.Errorf("read the merge queue's pass history for %s: %w", key.TargetBranch, err)
+	default:
+		// A history that cannot be read is begun again rather than left to
+		// refuse every pass that follows: it is an account, not a gate.
+		_ = json.Unmarshal(encoded, &history)
+	}
+	pass.Says = oneline.Bound(pass.Says, historySaysBytes)
+	history = append(history, pass)
+	keep := s.passHistory
+	if keep <= 0 {
+		keep = mergeQueuePassHistory
+	}
+	if len(history) > keep {
+		history = history[len(history)-keep:]
+	}
+	written, err := encodeRecord("merge queue pass history", history)
+	if err != nil {
+		return err
+	}
+	if err := queueRoot.WriteFile(mergeQueuePassHistoryName, written, 0o600, false); err != nil {
+		return fmt.Errorf("write the merge queue's pass history for %s: %w", key.TargetBranch, err)
+	}
+	return queueRoot.Sync()
+}
+
+// PassHistory is a queue's recent passes, oldest first, and nothing where no
+// pass has been recorded since the history began to be kept.
+func (s *MergeQueueStore) PassHistory(key MergeQueueKey) ([]MergeQueuePass, error) {
+	var history []MergeQueuePass
+	if _, err := s.readSide(key, mergeQueuePassHistoryName, &history); err != nil {
+		return nil, err
+	}
+	return history, nil
 }
 
 // LastPass reports what a queue's worker last found, and false where no pass

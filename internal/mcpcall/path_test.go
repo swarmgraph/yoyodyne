@@ -227,6 +227,12 @@ func TestEveryRefusalIsOnTheClosedListAndCallsNothing(t *testing.T) {
 			if c.want == RefusedNotOnList && answer.Tool != "" {
 				t.Errorf("a refusal names the tool it refused: %+v", answer)
 			}
+			// What the role is handed says why in words, never the stored
+			// code, which only the record keeps.
+			if evidence := answer.Evidence(); !strings.Contains(evidence, ": refused because "+c.want.Plain()+"\n") ||
+				strings.Contains(evidence, "refused: ") || strings.Contains(evidence, string(RefusedNotOnList)) {
+				t.Errorf("the refusal handed back does not say why in words: %s", evidence)
+			}
 			// The tools this caller may not use are the two off its list; no
 			// refusal names either, and none lists any other tool.
 			for _, words := range []string{answer.Reason, answer.Evidence()} {
