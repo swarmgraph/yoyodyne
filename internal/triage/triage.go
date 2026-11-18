@@ -976,14 +976,22 @@ const WaitLandedDecision = "waited-work-landed"
 // on her docket again.
 const EscalationReturnedDecision = "escalation-returned"
 
+// WaitNeverEndsDecision is the word on the closure that ends a wait on named
+// work that can never end: the item waited on is the stopped item's own parent
+// or an item above it, which cannot close while the stopped item is open. It is
+// the harness's, not a triage decision, and like the closure ending a wait on
+// landed work it holds nothing, so the stoppage is a question on the
+// development manager's docket again.
+const WaitNeverEndsDecision = "wait-never-ends"
+
 // Holds reports the decision still standing at a moment. A closure with no
 // revisit time holds forever, which is what settling a stoppage means; one with
 // a revisit time holds until it, and after that the entry is a question again.
 // A wait on named work has no revisit time and holds until a later closure ends
 // it, and the closure that ends it holds nothing; nor does the closure that
-// hands an escalation back.
+// hands an escalation back, nor the one ending a wait that could never end.
 func (c Closure) Holds(at time.Time) bool {
-	if strings.TrimSpace(c.Landed) != "" || c.ReturnsEscalation() {
+	if strings.TrimSpace(c.Landed) != "" || c.ReturnsEscalation() || c.EndsNeverEndingWait() {
 		return false
 	}
 	if c.RevisitAfter.IsZero() {
@@ -999,6 +1007,12 @@ func (c Closure) WaitsOnWork() bool { return strings.TrimSpace(c.WaitsOn) != "" 
 // development manager (EscalationReturnedDecision).
 func (c Closure) ReturnsEscalation() bool {
 	return strings.TrimSpace(c.Decision) == EscalationReturnedDecision
+}
+
+// EndsNeverEndingWait reports the closure ending a wait on the stopped item's
+// own parent or an item above it (WaitNeverEndsDecision).
+func (c Closure) EndsNeverEndingWait() bool {
+	return strings.TrimSpace(c.Decision) == WaitNeverEndsDecision
 }
 
 // The words the harness's own closure carries when it takes the stopped work on
@@ -1029,8 +1043,9 @@ func (c Closure) TakesTheWorkOn() bool {
 // stoppage is then no question for anybody, and a wait left standing would put
 // it back in front of the development manager when its time to look again came.
 // A wait on named work also gives way to the closure saying the item it waits
-// on has landed, and to the entry's own item closing, since a closed item asks
-// nobody anything. The one settled decision that gives way is an escalation
+// on has landed, to the entry's own item closing, since a closed item asks
+// nobody anything, and to the harness finding it waits on an item that cannot
+// close while the entry's own item is open (WaitNeverEndsDecision). The one settled decision that gives way is an escalation
 // handed back for naming the operator without a closed-list reason: the
 // harness's closure saying so supersedes the settlement it answers, and
 // nothing else does.
@@ -1043,6 +1058,9 @@ func (c Closure) Supersedes(standing Closure) bool {
 	}
 	if !standing.WaitsOnWork() {
 		return false
+	}
+	if c.EndsNeverEndingWait() {
+		return true
 	}
 	if landed := strings.TrimSpace(c.Landed); landed != "" {
 		return landed == strings.TrimSpace(standing.WaitsOn)

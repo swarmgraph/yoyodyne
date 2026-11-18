@@ -68,6 +68,10 @@ type reconcileOutput struct {
 	// each is about is one the tracker holds as closed. A count, for the reason
 	// Docketed is one.
 	ClosedWithItem int `json:"closed_with_item"`
+	// NeverEndingWaits is how many docket entries this sweep put back in front of
+	// the development manager because the wait standing over each named its own
+	// item's parent or an item above it, which cannot close while it is open.
+	NeverEndingWaits int `json:"never_ending_waits,omitempty"`
 	// ListingCut says, in plain words, that the tracker's listing of closed
 	// work stopped at bd's default limit, and that the items it left out were
 	// read one at a time. Empty where the listing was whole.
@@ -147,6 +151,9 @@ type reconcileSweep struct {
 	NotDocketed []orchestrator.NotDocketed
 	// ClosedWithItem is how many docket entries the sweep closed with their item.
 	ClosedWithItem int
+	// NeverEndingWaits is how many entries the sweep put back on the docket
+	// because their wait named an item above their own.
+	NeverEndingWaits int
 	// ListingCut says the tracker's listing of closed work was cut, and what the
 	// sweep did about it.
 	ListingCut string
@@ -326,6 +333,12 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// what says why on the item, and what the channel reads it from.
 	escalationsEnded, escalationsErr := reconciler.EndEscalations(ctx)
 	err = errors.Join(err, escalationsErr)
+	// A wait standing on a stopped item's own parent, or an item above it, can
+	// never end, since that item cannot close while the stopped one is open. A
+	// new one is refused as it is decided; one recorded before that is put back
+	// on the development manager's docket here as needing a new decision.
+	neverEndingWaits, neverEndingErr := reconciler.EndNeverEndingWaits(ctx)
+	err = errors.Join(err, neverEndingErr)
 	// The exchanges the roles have put to each other are recovered here for the
 	// same reason the runs are: a process died holding something, and this is the
 	// sweep that finds out. It takes each exchange's own lease, so one a live
@@ -364,6 +377,7 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 		Unrecorded:         docketed.Unrecorded,
 		NotDocketed:        docketed.NotDocketed,
 		ClosedWithItem:     closedWithItem,
+		NeverEndingWaits:   neverEndingWaits,
 		ListingCut:         listingCut,
 		UnreadReport:       unreadReport,
 		EscalationsEnded:   escalationsEnded,
@@ -736,6 +750,7 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			Unrecorded:         sweep.Unrecorded,
 			NotDocketed:        sweep.NotDocketed,
 			ClosedWithItem:     sweep.ClosedWithItem,
+			NeverEndingWaits:   sweep.NeverEndingWaits,
 			ListingCut:         sweep.ListingCut,
 			UnreadReport:       sweep.UnreadReport,
 			EscalationsEnded:   sweep.EscalationsEnded,
@@ -842,6 +857,9 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		}
 		if sweep.ClosedWithItem > 0 {
 			fmt.Fprintf(stdout, "%d triage docket entry(s) closed because the tracker holds their item as closed\n", sweep.ClosedWithItem)
+		}
+		if sweep.NeverEndingWaits > 0 {
+			fmt.Fprintf(stdout, "%d stopped run(s) put back on the development manager's list, because each waited on its own item's parent or an item above it, which cannot close while it is open\n", sweep.NeverEndingWaits)
 		}
 		if sweep.ListingCut != "" {
 			fmt.Fprintf(stderr, "closing the docket entries of closed work: %s\n", sweep.ListingCut)

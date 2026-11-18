@@ -381,6 +381,16 @@ func waitEnded(waitsOn string, closedAt time.Time) string {
 		waitsOn, when, awaitingDecisionClause)
 }
 
+// waitNeverEnds is the clause that takes waitStands' place where the work
+// waited on is the held item's own parent or an item above it. That item cannot
+// close while the held one is open, so the wait can never end, and the stoppage
+// is counted as awaiting her decision; the reconcile sweep puts its docket entry
+// back in front of her (orchestrator's EndWaitsOnAncestors).
+func waitNeverEnds(waitsOn, ancestry string) string {
+	return fmt.Sprintf("the development manager decided to wait on %s, and that wait can never end, because %s and an item cannot close while work under it is still open, so the stoppage needs her decision: %s",
+		waitsOn, ancestry, awaitingDecisionClause)
+}
+
 // waitUnread is the clause that takes waitStands' place where whether the work
 // waited on is closed could not be read: a reading that could not ask does not
 // say the stoppage still waits.
@@ -398,8 +408,10 @@ func waitUnread(waitsOn, problem string) string {
 // So the tracker is asked as the hold is read.
 //
 // A wait whose work is closed is no longer a wait, so its hold names nothing
-// waited on and is counted as awaiting her decision. One nothing could ask about
-// keeps what it waits on, since it may still stand, and says it could not tell.
+// waited on and is counted as awaiting her decision, and so is one on the held
+// item's own parent or an item above it, which can never end. One nothing could
+// ask about keeps what it waits on, since it may still stand, and says it could
+// not tell.
 func endWaits(ctx context.Context, held map[string]backlog.Hold, waited WaitedOn) {
 	type state struct {
 		closed   bool
@@ -407,6 +419,18 @@ func endWaits(ctx context.Context, held map[string]backlog.Hold, waited WaitedOn
 		problem  string
 	}
 	read := make(map[string]state)
+	items := make(map[string]beads.WorkItem)
+	show := func(id string) (beads.WorkItem, bool, error) {
+		if item, seen := items[id]; seen {
+			return item, true, nil
+		}
+		item, err := waited.Show(ctx, id)
+		if err != nil {
+			return beads.WorkItem{}, false, err
+		}
+		items[id] = item
+		return item, true, nil
+	}
 	ask := func(waitsOn string) state {
 		if known, seen := read[waitsOn]; seen {
 			return known
@@ -435,7 +459,12 @@ func endWaits(ctx context.Context, held map[string]backlog.Hold, waited WaitedOn
 			replacement = waitEnded(waitsOn, found.closedAt)
 			hold.WaitsOn = ""
 		default:
-			continue
+			chain, err := beads.AncestorChain(workItemID, waitsOn, show)
+			if err != nil || chain == nil {
+				continue
+			}
+			replacement = waitNeverEnds(waitsOn, beads.DescribeAncestry(workItemID, chain))
+			hold.WaitsOn = ""
 		}
 		// Both of the clauses a standing wait is said in are replaced: the plain
 		// one, and the one a carried-out re-run closes on.
