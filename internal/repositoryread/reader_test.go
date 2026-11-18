@@ -471,3 +471,57 @@ func TestReaderOffsetsAreCountedInTheFilesBytesWhenSecretsAreRemoved(t *testing.
 		t.Fatalf("the parts covered %d bytes of the file's %d", covered, len(strings.TrimRight(long, "\n")))
 	}
 }
+
+// A secret is never returned in pieces: a part that would end inside one ends
+// before it, a part asked to start inside one starts after it, and neither the
+// parts nor any two of them joined hold a piece of it longer than a few bytes.
+func TestReaderNeverReturnsAPieceOfASecretAcrossPartsOrFromAnOffset(t *testing.T) {
+	t.Parallel()
+
+	const secret = "s3cr3t-value-QWERTYUIOP-zxcvbnmklj"
+	// A line length that puts a secret over the end of the first part.
+	filler := strings.Repeat("a", MaxContentBytes-10)
+	long := filler + secret + "\nordinary words\n" + strings.Repeat("0123456789abcdef\n", 4000)
+	repository := newRepository(t, map[string]string{"long.md": long})
+	reader := Reader{Process: execution.OSProcessRunner{}, Directory: repository, RedactValues: []string{secret}}
+
+	holdsPiece := func(text string) bool {
+		for size := 8; size <= len(secret); size++ {
+			for from := 0; from+size <= len(secret); from++ {
+				if strings.Contains(text, secret[from:from+size]) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	read := func(offset int) Result {
+		results, err := reader.Read(context.Background(), []Request{{Action: ActionRead, Path: "long.md", Offset: offset}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if results[0].Problem != "" {
+			t.Fatalf("read at %d refused: %s", offset, results[0].Problem)
+		}
+		return results[0]
+	}
+
+	first := read(0)
+	if !first.Truncated || holdsPiece(first.Content) {
+		t.Fatalf("the first part is cut %v and holds a piece of the secret %v", first.Truncated, holdsPiece(first.Content))
+	}
+	if first.Returned != len(filler) {
+		t.Fatalf("the first part covers %d bytes, want it to end where the secret starts at %d", first.Returned, len(filler))
+	}
+	second := read(first.Returned)
+	if second.Offset != first.Returned || holdsPiece(second.Content) || holdsPiece(first.Content+second.Content) {
+		t.Fatalf("the second part starts at %d and holds a piece of the secret", second.Offset)
+	}
+	// An offset chosen inside the secret starts after it.
+	for _, inside := range []int{len(filler) + 1, len(filler) + len(secret)/2, len(filler) + len(secret) - 1} {
+		part := read(inside)
+		if part.Offset != len(filler)+len(secret) || holdsPiece(part.Content) {
+			t.Fatalf("a read from inside the secret at %d starts at %d and holds a piece of it: %v", inside, part.Offset, holdsPiece(part.Content))
+		}
+	}
+}

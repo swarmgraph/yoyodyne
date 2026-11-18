@@ -259,7 +259,32 @@ func (r Reader) readFile(ctx context.Context, result *Result, offset int, redact
 	if start > len(content) {
 		start = len(content)
 	}
+	// A part never starts or ends inside a secret: redacting a part alone would
+	// leave the piece of a secret the cut left in it, so a start inside one moves
+	// to its end, and an end inside one moves back to its start. Where a secret
+	// is longer than the part, the end moves past it instead, so a part is never
+	// empty on account of one.
+	spans := redactor.Spans(content)
+	for _, span := range spans {
+		if span[0] < start && start < span[1] {
+			start = span[1]
+		}
+	}
 	bounded, truncatedBy := bound(content[start:], size-start, *remaining)
+	if truncatedBy != "" {
+		end := start + len(bounded)
+		for _, span := range spans {
+			if span[0] < end && end < span[1] {
+				if span[0] > start {
+					end = span[0]
+				} else {
+					end = span[1]
+				}
+				break
+			}
+		}
+		bounded = content[start:end]
+	}
 	result.Content = redactor.Redact(bounded)
 	result.Truncated = truncatedBy != ""
 	result.TruncatedBy = truncatedBy

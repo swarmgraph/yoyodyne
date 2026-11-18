@@ -593,7 +593,9 @@ func (w PendingWrite) Held() bool {
 // file. So the documents a conversation keeps are also bounded together, by
 // the bytes the record stores for them (MaxPendingWriteStoredBytes, counted by
 // PendingWriteStoredBytes); a document that would take the total past it is
-// refused with the reason, as a ninth document is.
+// refused with the reason, as a ninth document is. The total is checked where a
+// document is added and not when a record is validated, so a record written
+// before it existed, which the file limit already allowed, still loads and saves.
 //
 // The byte bound matches what the write contract accepts, so a document the
 // harness took from a reply is never one it then cannot write down.
@@ -911,9 +913,6 @@ func (c Conversation) Validate() error {
 	if waiting := len(c.PendingWrites) - held; waiting > 2*MaxPendingWrites {
 		problems = append(problems, fmt.Errorf("%d undecided revisions are recorded, limit is %d",
 			waiting, 2*MaxPendingWrites))
-	}
-	if stored := PendingWriteStoredBytes(c.PendingWrites); stored > MaxPendingWriteStoredBytes {
-		problems = append(problems, fmt.Errorf("the documents recorded take %d bytes, limit is %d", stored, MaxPendingWriteStoredBytes))
 	}
 	if held > MaxHeldWrites {
 		problems = append(problems, fmt.Errorf("%d documents held for sending are recorded, limit is %d",
