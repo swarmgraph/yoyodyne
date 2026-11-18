@@ -4797,6 +4797,42 @@ only copy of that work left, so deleting one is your decision rather than the
 sweep's. A re-run closes the same request itself at the moment its fresh run
 integrates, so the forge's open list stays honest between sweeps.
 
+Right after that step, the same sweep takes the requests it cannot reach: the
+request of a run retired after its item merged, the request of a run whose item
+was closed or retired in the tracker with no landing the harness recorded, and
+a request whose change is already on the target branch through another pull
+request (a different commit with the same content, found by merging the run's
+head into the target in memory and seeing nothing change). Each open request of
+an ended run is decided on three facts — whether its change is on the target and
+through which pull request, whether its item is open, closed or retired, and
+whether a replacement is on record — and the rules are these:
+
+- A request whose change landed through another pull request is closed naming
+  that pull request, whatever the state of its item.
+- Otherwise a request whose item is open is never touched, whether it is waiting
+  in a merge queue, held for the development manager, or about to be repaired.
+- A closed item's request is closed where its change is on the target or a
+  replacement is on record (the merge a retirement names, or a later run of the
+  item that landed). Where neither holds it is **kept**, with its branch and
+  checkout: an item can be closed while its work never reached the target, and
+  that request is then the only copy. The reason is written on the item and the
+  run is put on the development manager's list to decide.
+- A retired item's request with neither is kept the same way on the first pass,
+  and closed on a later pass once the development manager has been shown it, with
+  a comment saying the item was retired; its branches are kept.
+
+Every close comment names the work item by its title and identifier and says
+why, the close is recorded on the run's `pull_request` and as a note on the item,
+and where the work landed or was replaced the run's remote branch, checkout and
+local branch are let go — the checkout's uncommitted work kept on a run-scoped ref
+first, each branch deleted only at the exact commit the request carried, which the
+forge keeps on the closed request. A close the forge refuses is recorded on the
+run and the item and put on the development manager's list; one refused because
+the harness's forge account lacks the right is put to you, as a repository
+setting, saying which request to close. Document requests are left to the
+document clean-up. `yoyo reconcile --json` carries each one under
+`convergence.closed_items`.
+
 The same sweep retires the leftover checkouts, which is what makes the worktree
 registrations a machine carries live runs, outstanding recovery, and a bounded tail rather than
 something that grows with the harness's history. That growth is not cosmetic: an
@@ -4809,7 +4845,8 @@ including when a gate refused to carry the decision out; a stopped integration
 keeps them too. An outstanding automatic continuation at checks or after a silent
 provider stall also keeps them, including while intake or capacity delays it.
 A run retired because another run confirmed its item's merge keeps its branch
-and checkout too, regardless of the cleanup tail. A recovery record that cannot
+and checkout too, regardless of the cleanup tail, until the step above closes
+its pull request naming that merge and lets them go. A recovery record that cannot
 be read keeps the artifacts rather than granting
 retirement. Registrations whose
 checkout is no longer on disk are pruned, whichever run or person left them

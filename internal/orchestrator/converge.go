@@ -76,8 +76,13 @@ type Convergence struct {
 	// them. They are named so that what is open is a list somebody has read;
 	// deciding each one is a person's.
 	Unsuperseded []OpenPublication `json:"unsuperseded"`
-	Worktrees    []WorktreeSweep   `json:"worktrees"`
-	Branches     []BranchSweep     `json:"branches"`
+	// ClosedItems is the pull requests earlier runs left open that this sweep
+	// closed or kept because their work item is closed or retired, or because
+	// their change is already on the target through another pull request
+	// (closeditems.go).
+	ClosedItems []ClosedItemPublication `json:"closed_items"`
+	Worktrees   []WorktreeSweep         `json:"worktrees"`
+	Branches    []BranchSweep           `json:"branches"`
 	// Findings revisits saved obligations even when their original operation
 	// has finished and no artifact sweep returns a result for the run.
 	Findings []ReconcileFindingMaintenance `json:"findings"`
@@ -221,6 +226,7 @@ func (r Reconciler) Converge(ctx context.Context) (Convergence, error) {
 		Targets:       make([]gitworktree.Catchup, 0),
 		Publications:  make([]PublicationSweep, 0),
 		Unsuperseded:  make([]OpenPublication, 0),
+		ClosedItems:   make([]ClosedItemPublication, 0),
 		Worktrees:     make([]WorktreeSweep, 0),
 		Branches:      make([]BranchSweep, 0),
 		Registrations: RegistrationSweep{Pruned: make([]string, 0), Unfinished: make([]gitworktree.UnfinishedRegistration, 0)},
@@ -246,6 +252,17 @@ func (r Reconciler) Converge(ctx context.Context) (Convergence, error) {
 			convergence.Publications = append(convergence.Publications, sweep)
 		}
 	}
+	// The requests the sweep above cannot reach — a retired run's, a closed or
+	// retired item's with no landing on record, one whose change landed through
+	// another pull request — are decided next, leaving alone every run it acted
+	// on so no request is closed twice in one pass.
+	handled := make(map[string]bool, len(convergence.Publications))
+	for _, publication := range convergence.Publications {
+		handled[publication.RunID] = true
+	}
+	closedItems, closedItemsErr := r.sweepClosedItemPublications(ctx, recorded, handled)
+	convergence.ClosedItems = closedItems
+	convergence.Unsuperseded = withoutClosed(convergence.Unsuperseded, closedItems)
 	for _, state := range sweepableWorktrees(recorded) {
 		sweep, swept := r.sweepWorktree(ctx, state)
 		if swept {
@@ -273,7 +290,25 @@ func (r Reconciler) Converge(ctx context.Context) (Convergence, error) {
 		result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, result.RunID, runstate.ReconcileBranch, strings.Join(nonEmptyProblems(result.Failure, result.RecordProblem, result.ItemProblem), "; "))
 	}
 	convergence.Findings, err = r.maintainReconcileFindings(ctx)
-	return convergence, err
+	return convergence, errors.Join(err, closedItemsErr)
+}
+
+// withoutClosed drops from the list of requests left open the ones the
+// closed-item step has since closed.
+func withoutClosed(open []OpenPublication, closed []ClosedItemPublication) []OpenPublication {
+	gone := make(map[string]bool, len(closed))
+	for _, result := range closed {
+		if result.Closed {
+			gone[result.RunID] = true
+		}
+	}
+	kept := make([]OpenPublication, 0, len(open))
+	for _, publication := range open {
+		if !gone[publication.RunID] {
+			kept = append(kept, publication)
+		}
+	}
+	return kept
 }
 
 // sweepPublication retires one superseded run's pull request, and reports
