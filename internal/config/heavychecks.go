@@ -60,6 +60,7 @@ func heavyCheckProblems(c Config) []string {
 	commands = append(commands, c.LandingChecks...)
 	commands = append(commands, c.DocumentChecks...)
 	commands = append(commands, c.MainChecks...)
+	commands = append(commands, c.Intent.Checks...)
 	for _, check := range c.PathChecks {
 		commands = append(commands, check.Command)
 	}
@@ -89,7 +90,7 @@ func heavyCheckProblems(c Config) []string {
 			}
 		}
 		if !matched {
-			problems = append(problems, fmt.Sprintf("execution.heavy_checks names %q, which is no configured check: name a check the way checks, landing_checks, document_checks, main_checks, path_checks, or install write it, such as %q for \"make race RACE_PACKAGES=...\"", key, "make race"))
+			problems = append(problems, fmt.Sprintf("execution.heavy_checks names %q, which is no configured check: name a check the way checks, landing_checks, document_checks, main_checks, intent.checks, path_checks, or install write it, such as %q for \"make race RACE_PACKAGES=...\"", key, "make race"))
 		}
 	}
 	return problems

@@ -35,11 +35,18 @@ func Looking(ctx context.Context, remains Remains, now func() time.Time) Look {
 		if !found.Recorded() {
 			return found
 		}
-		if remains == nil {
+		// The repository asked here is the project's. A run in the companion intent
+		// repository has its branch and checkout there, so asking would answer for
+		// a repository the run is not in; its record is read as written instead and
+		// says that nothing looked.
+		if remains == nil || run.Repository == runstate.RepositoryIntent {
 			recorded := run.Artifacts()
 			found.BranchThere = recorded.Branch != "" && !recorded.BranchRemoved
 			found.WorktreeThere = recorded.WorktreePath != "" && !recorded.WorktreeRemoved
 			found.Unchecked = "nothing was wired to look in the repository"
+			if run.Repository == runstate.RepositoryIntent {
+				found.Unchecked = "the run is in the companion intent repository, which this reading does not look in"
+			}
 			return found
 		}
 		survives, err := remains.Survives(ctx, gitworktree.Worktree{
