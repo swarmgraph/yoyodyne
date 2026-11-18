@@ -74,9 +74,18 @@ type MergeQueueAdmissions interface {
 // left out: the queue never runs one, and its result before review is already
 // its whole one. A run record that cannot be read adds nothing here; the
 // promotion reads it again and refuses on what it cannot read.
-func (p *Pipeline) mergeQueueChecks(entry runstate.MergeQueueEntry) runstate.MergeQueueCheckConfiguration {
+//
+// Where checks on CI is on, every other entry runs only the quick local checks
+// and the forge's required checks on its candidate stand in for the rest
+// (quickQueueChecks, mergequeuequick.go), until one of its candidates finds the
+// forge's checks unable to settle; generations is the entry's candidates so
+// far, which say whether one has.
+func (p *Pipeline) mergeQueueChecks(entry runstate.MergeQueueEntry, generations []runstate.MergeQueueGeneration) runstate.MergeQueueCheckConfiguration {
 	if entry.WorkItemID == entry.RunID && runstate.ValidRunID(entry.RunID) && len(p.Config.DocumentChecks) > 0 {
 		return runstate.NewMergeQueueCheckConfiguration(p.Config.DocumentChecks)
+	}
+	if p.forgeChecksStandIn() && forgeChecksFellBack(generations) == "" {
+		return p.quickQueueChecks(entry)
 	}
 	if p.Config.DeclaresMergeQueueChecks() {
 		return p.declaredQueueChecks(entry)

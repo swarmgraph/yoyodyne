@@ -1063,6 +1063,10 @@ type Scheduler struct {
 	// waits for the runs it stopped to report back; zero is stoppedRunGrace's
 	// default. It is a field only so a test can shorten it.
 	stoppedRunGrace time.Duration
+	// queueStepGrace is how long a session restarting past its drain bound
+	// gives its merge queue passes to end on their own; zero is
+	// queueStepGrace's default. It is a field only so a test can shorten it.
+	queueStepGrace time.Duration
 	// Watchdog notices that this product has started nothing at all while work
 	// was ready, and records it where every surface reads it back. It is called
 	// once per pull, from this loop's own goroutine and before anything is
@@ -2470,6 +2474,7 @@ pulling:
 				publications.close()
 			}
 			if running == 0 && drain.expired(s.now()) && publications.active() == 0 {
+				drain.paused(s.now())
 				firings.cancel(RedeployDrain{At: s.now(), Bound: drain.limit, SessionID: s.SessionID})
 				// A merge queue pass in its candidate's checks is let finish them
 				// rather than having every check in the stage run again on the new
@@ -2497,15 +2502,18 @@ pulling:
 				// carry the mark `yoyo status` names the restart from — whichever
 				// of the timer and the clock found the bound out.
 				drain.reached()
+				// The merge queues' running checks are read first, because a run is
+				// left working rather than stopped while the restart waits on one
+				// (stopHosted).
+				queueWaits = queuePasses.checkWaits(s.now(), drain.checksCeiling())
 				// A run still before its claim has no phase to read and nothing yet
 				// to preserve, so it is left to reach one and stopped at the next
 				// look rather than cancelled into a dispatch that never became a
 				// run — and the look comes sooner than a poll. The look comes
 				// before the line is said, so it names the runs stopped for the
 				// restart.
-				recheckSoon = s.stopHosted(&schedule, &drain, hosted, landings, mine, runs) > 0
+				recheckSoon = s.stopHosted(&schedule, &drain, hosted, landings, mine, runs, len(queueWaits) > 0) > 0
 				drain.publishing += publications.active()
-				queueWaits = queuePasses.checkWaits(s.now(), drain.checksCeiling())
 				drain.checkWaits = append(drain.checkWaits, queueWaits...)
 				for _, wait := range queueWaits {
 					if !slices.Contains(schedule.Drain.QueueChecksWaited, wait.Queue) {
@@ -2625,6 +2633,8 @@ pulling:
 		if concurrent, beside := pull.Recurring.(ScheduleRecurringConcurrent); beside {
 			if !drain.active || running > 0 {
 				cadence.hold(s.startFirings(ctx, &schedule, concurrent, firings, &cadence))
+			} else {
+				drain.paused(s.now())
 			}
 		} else {
 			cadence.hold(s.fire(session.passing(ctx), &schedule, pull))
@@ -2636,7 +2646,12 @@ pulling:
 		// that would spend. A session draining to restart that hosts no run
 		// starts no new pass.
 		if pull.MergeQueues != nil && (!drain.active || running > 0) {
-			s.startQueuePasses(&schedule, pull.MergeQueues, queuePasses)
+			// A session stopping its passes for a restart starts none, and a
+			// queue with work and no pass going that it turns away is work held
+			// back for the move like any other.
+			if s.startQueuePasses(&schedule, pull.MergeQueues, queuePasses) {
+				drain.paused(s.now())
+			}
 		}
 		// And a role whose tracker block the harness refused is woken here, last of
 		// the three. It is placed after the other two because it is the cheapest to
@@ -3074,7 +3089,17 @@ pulling:
 		// carry a decision out either: the run it would start is one the drain
 		// stops at its next look, and the record offers the decision again to the
 		// session that comes back.
-		closed := closedGates{intake: held, pause: paused, capacity: free < 1}
+		//
+		// The capacity gate is shut only where the runs on record hold every slot
+		// as well (recordedSlotsFull). The session's own count also holds a slot
+		// for each start of its own that has not reserved one yet, and a
+		// carry-out the tracker keeps waiting is such a start for as long as the
+		// tracker takes; read alone, that count kept a decided re-run a full
+		// harness once refused from ever being tried again while slots stood
+		// empty, as every newer decision was tried and started ahead of it. The
+		// re-run action and the reservation count from the records, so they are
+		// what decides whether the attempt finds a slot.
+		closed := closedGates{intake: held, pause: paused, capacity: capacityGateShut(free, pull.Runs, occupied, pull.Capacity, s.now())}
 		// A decided recovery of the hold's own test run is kept for the hold's next
 		// start rather than attempted beside the queue and refused by the hold
 		// (testRunRecovery), where a watching session works the brake's hold.
@@ -3493,6 +3518,7 @@ pulling:
 		// drain as well as said, so the read model names the poll as the session
 		// restarting rather than as an idle session over a queue with work in it.
 		if remaining, declined := drain.declinesStarts(pull.Poll, s.now()); declined {
+			drain.paused(s.now())
 			pullSlots.say(pullSlots.ruleAccount("the session is restarting onto a newly deployed build, so it starts nothing new into a free slot and the session that comes back fills it"))
 			schedule.Drain.Skipped++
 			skipped := drain.record(running)
@@ -4089,9 +4115,16 @@ collecting:
 	// their turns first, as it stopped its runs, so the restart waits only for
 	// each to record itself as stopped for the restart rather than for its turns
 	// to end.
+	//
+	// Its merge queue passes are not stopped with them: each is given a short
+	// grace to end the step it is in, which ends it waiting, and only one still
+	// going after that is stopped (endQueuePasses). Cut off part-way, a pass's
+	// step fails on the cancellation, and that failure says nothing about the
+	// queue.
 	if schedule.Stopped == ScheduleRedeployed && drain.boundReached {
 		firings.cancel(RedeployDrain{At: s.now(), Bound: drain.limit, SessionID: s.SessionID})
-		queuePasses.cancel()
+		queuePasses.checks.close()
+		s.endQueuePasses(&schedule, queuePasses, s.queueGrace())
 	}
 	s.collectFirings(&schedule, firings, &cadence, true)
 	// A queue pass going round on its own ends at its next turn rather than
@@ -5977,9 +6010,12 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 			// harness is recorded where the development manager reads it; what
 			// keeps the rest back then is the runs holding the slots, not that
 			// attempt, and the reason says so.
-			if free < 1 {
+			switch {
+			case free < 1 && closed.capacity:
 				pass(task, fmt.Sprintf("no developer slot was free at this pull: all %d are held by runs in flight, so the pull started nothing and tried the decisions ahead of this one only to record that the slots are full", pull.Capacity))
-			} else {
+			case free < 1:
+				pass(task, fmt.Sprintf("this session counted all %d developer slots taken, its own starts that hold no slot on record yet among them, while the runs on record leave a slot free; the pull tried the decision ahead of this one in that slot, and this one goes at the next pull", pull.Capacity))
+			default:
 				pass(task, fmt.Sprintf("every developer slot this pull had was spent on %d decision(s) ahead of it on the docket", len(newSlots)))
 			}
 			slotBound = true
@@ -7139,6 +7175,12 @@ type redeployDrain struct {
 	// every look.
 	checkWaits []runstate.WatchCheckWait
 	publishing int
+	// keptGoing is how many hosted runs the last look past the bound left
+	// working because a check it waits for was still running (stopHosted), and
+	// pausedSince the first moment the session held anything back for the move
+	// (paused).
+	keptGoing   int
+	pausedSince time.Time
 	// due fires when the bound runs out. It is nil until the drain is armed with
 	// a bound, and a nil channel is one a select never chooses.
 	due   <-chan time.Time
@@ -7199,6 +7241,16 @@ func (d redeployDrain) checksCeiling() time.Time {
 
 // reached marks the bound as having run out, however that was found.
 func (d *redeployDrain) reached() { d.boundReached = true }
+
+// paused marks the first moment the session held anything back for the move:
+// a pull into a free seat it declined, a recurring pass or merge queue pass it
+// did not start, or a run it stopped. What the move cost is reckoned from it
+// (runstate.BuildMoves), so later moments leave it as it is.
+func (d *redeployDrain) paused(now time.Time) {
+	if d.active && d.pausedSince.IsZero() {
+		d.pausedSince = now
+	}
+}
 
 // promoted records how many hosted runs a look past the bound left going at
 // their promotion. The wait is dated from the first look that found one and
@@ -7289,7 +7341,9 @@ func (d redeployDrain) record(hosting int) *runstate.WatchDrain {
 	}
 	if d.boundReached {
 		recorded.Publishing = d.publishing
+		recorded.KeptGoing = d.keptGoing
 	}
+	recorded.PausedSince = d.pausedSince
 	return recorded
 }
 
@@ -7395,9 +7449,20 @@ func (s Scheduler) stopGrace() time.Duration {
 // unverified and files nothing — while the suite it is running is the one the
 // landing budget allows hours for, which is exactly the wait this bound exists
 // to refuse.
-func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted map[int]context.CancelCauseFunc, landings *hostedLandings, mine map[string]int, runs ScheduleRuns) int {
+//
+// While the restart waits for a running check — one of these runs', or a merge
+// queue candidate's, which queueChecking reports — every other run is left
+// working rather than stopped. The restart cannot happen before that check
+// ends, so a run stopped now would only sit idle in its seat until then, and
+// a run kept working loses nothing it would not have lost anyway: it is
+// stopped, at whatever phase it has reached, the first time a look finds no
+// check left to wait for, and the restart follows within seconds. That keeps
+// what the move costs — the time the session holds work back — to the moments
+// around the restart itself rather than the whole of the wait.
+func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted map[int]context.CancelCauseFunc, landings *hostedLandings, mine map[string]int, runs ScheduleRuns, queueChecking bool) int {
 	drain.reached()
 	schedule.Drain.BoundReached = true
+	drain.keptGoing = 0
 	if runs == nil {
 		return 0
 	}
@@ -7414,6 +7479,12 @@ func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted m
 	drain.checkWaits, drain.publishing = nil, 0
 	defer func() { drain.promoted(promoting, now) }()
 	stop := RedeployDrain{At: now, Bound: drain.limit, SessionID: s.SessionID}
+	type stoppable struct {
+		id     string
+		index  int
+		cancel context.CancelCauseFunc
+	}
+	var stopping []stoppable
 	for id, index := range mine {
 		cancel, live := hosted[index]
 		if !live {
@@ -7456,9 +7527,17 @@ func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted m
 				continue
 			}
 		}
-		cancel(stop)
-		delete(hosted, index)
-		schedule.Drain.Stopped = append(schedule.Drain.Stopped, id)
+		stopping = append(stopping, stoppable{id: id, index: index, cancel: cancel})
+	}
+	if len(stopping) > 0 && (len(drain.checkWaits) > 0 || queueChecking) {
+		drain.keptGoing = len(stopping)
+		stopping = nil
+	}
+	for _, run := range stopping {
+		drain.paused(now)
+		run.cancel(stop)
+		delete(hosted, run.index)
+		schedule.Drain.Stopped = append(schedule.Drain.Stopped, run.id)
 	}
 	slices.SortFunc(drain.checkWaits, func(a, b runstate.WatchCheckWait) int { return strings.Compare(a.RunID, b.RunID) })
 	slices.Sort(schedule.Drain.Stopped)
@@ -8066,6 +8145,28 @@ func workersGone(runs ScheduleRuns, occupied map[string]runstate.State, mine map
 		}
 	}
 	return gone
+}
+
+// capacityGateShut reports the capacity gate shut for a decision it already
+// refused: no slot free by this session's count, and none by the records'
+// either. See the call in Scheduler.Schedule for why both are asked.
+func capacityGateShut(free int, runs ScheduleRuns, occupied map[string]runstate.State, capacity int, now time.Time) bool {
+	return free < 1 && recordedSlotsFull(runs, occupied, capacity, now)
+}
+
+// recordedSlotsFull reports the runs on record in occupied holding every
+// developer slot, counted by the rule the reservation and the re-run action
+// count by (holdsDeveloperSlot). An entry with no run recorded is a start of
+// this session's that has not reserved yet, which holds no slot anybody else
+// can see, so it is not counted here.
+func recordedSlotsFull(runs ScheduleRuns, occupied map[string]runstate.State, capacity int, now time.Time) bool {
+	holding := 0
+	for _, state := range occupied {
+		if state.RunID != "" && holdsDeveloperSlot(runs, state, now) {
+			holding++
+		}
+	}
+	return holding >= capacity
 }
 
 // withoutItems is occupied without the items named, as a copy.
