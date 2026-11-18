@@ -16,8 +16,9 @@ make build
 ./bin/yoyo chat
 ```
 
-`make check` is `fmtcheck`, `test`, `race`, and `vet`, and it is the gate CI
-runs. Those same four are what this project declares as its
+`make check` is `fmtcheck`, `test`, `race`, and `vet`, and CI runs the same
+four: `test`, `race` and `vet` as jobs of those names, which are the forge checks
+`execution.ci_checks.required` waits for, and `fmtcheck` in the `build` job. Those same four are what this project declares as its
 [checks](configuration.md), and a run applies them one at a time before it will
 let a change reach review or integration — so anything a run has to exercise has
 to reach one of the four, and for content that is not Go that means `make test`.
