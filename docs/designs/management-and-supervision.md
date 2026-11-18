@@ -50,6 +50,10 @@ revisions:
       by: architect
       at: 2026-10-21T02:45:40.744644Z
       reason: 'Carries approved amendment-966ce251 from yoyodyne-ifd.412: the supervisor is the process yoyo start runs, and the triage and management-loop dispatchers run inside the scheduler''s watch loop rather than as children of their own; the residency paragraph stops calling the chat process the supervisor. Two phrases the word check now refuses are reworded (a provider''s usage limit; the intake hold). Approved amendment-97e14527 was already written on September 6. Nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-18T17:37:58.48112Z
+      reason: 'yoyodyne-ifd.428.161: records the architect''s ruling on how moves onto a new build stay within 30 minutes a day: at most one move every three hours (a project setting held in code between one and twenty-four hours) onto the newest build, a due move waits out a running queue check and the queue starts no new one, and only the restart itself holds new starts, counted from the start of the hold. Adds the rejected alternatives, three build pieces and reviewer lines; the rest of the section is copied unchanged from main 1242c9cf.'
 approvals:
     - policy: approvals.designs
       revision: 7
@@ -71,6 +75,11 @@ approvals:
       by: harness
       at: 2026-10-21T02:45:40.744644Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1241, for document-1241.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 11
+      by: harness
+      at: 2026-11-18T17:37:58.48112Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3024, for document-3024.1 under the automatic approval policy
 ---
 # Management and supervision: the typed request contract and process residency
 
@@ -165,6 +174,29 @@ A role resolves what its own authority covers, and requests the role that owns w
 The long-term shape is **one durable interaction and state service**, with local chat, Slack, and the CLI as conversational clients and the dashboard as a projection whose only acts are the operator's own decisions, carried out by the same code the command line runs — "one pane" means shared state and supervision, not one literal interface. The residency: `yoyo chat` is the single entry point for a person; the resident processes, the Slack sink included, run under one supervisor, the process `yoyo start` runs (yoyodyne-ifd.413), under launchd on macOS, the tested platform; and chat is a thin attach-detach client of them rather than the process that starts them. The supervising process holds the Slack tokens and **constructs every child's environment by allowlist, never inheritance**, so no provider subprocess ever receives them; that construction is the enforced boundary and is covered by a test. Separately started services are acceptable while they keep clean service boundaries and health/readiness hooks; model sessions are execution details and are never the durable conversation record. Process separation now must not force a new state model later.
 
 A watch session takes up a build installed over it by itself: between runs, never interrupting one. The takeover happens only at a boundary where the process has nothing in flight; the new process reattaches through the normal lease machinery; and pinned workflow instances continue on their pinned definitions and authority — a new binary changes the executor, never in-flight work's contract. This is settled here rather than deferred: a later headless supervisor inherits this behavior rather than re-deciding it.
+
+**How often a move happens, and what waits for it** *(yoyodyne-ifd.428.161)*. On November 18, 2026, five moves onto new builds between midnight and 05:30 PST held back new work and the merge queue for 58 minutes, against a figure of 30 minutes a day, and one of them cut off a queue check about a minute before it would have finished. Main lands about once an hour, so moving on every landing spends the day's allowance in a few hours. The ruling has three parts:
+
+1. **A move happens at most once every three hours.** The least time between two moves is a project setting, three hours unless the project sets otherwise, and the code refuses a value under one hour or over twenty-four hours when the configuration is read. When that time is up and a newer build is installed, the watch session moves onto the newest build installed at that moment; the builds that landed in between are never moved onto one by one.
+2. **A due move waits out a queue check already running.** A check the merge queue started before the move fell due runs to its own end or to its own time limit, whichever comes first, and the move never cuts it off. While a move is due, the queue starts no new candidate check, so the wait always ends.
+3. **Only the restart itself holds new work.** While a move waits for a queue check, developer runs keep starting as usual. New starts are held only from the moment the restart begins until the new process is running, and the time held is counted from that moment, not from when the build was found.
+
+All of this waiting and timing stays inside the harness: no person times or starts a move. It rests on the fix that stops a move cancelling working runs (yoyodyne-ifd.428.153); a move still never interrupts a run.
+
+Rejected: moving after a fixed number of landings, because a quiet day would leave the factory on an old build for hours with fixes waiting in it, while a busy day would still move every hour; making each move shorter alone, because every move would still cut off or delay a queue check; cutting a queue check off at a fixed bound, which is what threw away the check started at 05:17 PST.
+
+Build pieces, for the Lead Product Manager to admit:
+
+- the least time between moves as a project setting with its limits held in code, and moving onto the newest installed build;
+- a due move waits for a running queue check to end or reach its own time limit, and the queue starts no new candidate check while a move is due;
+- new starts held only during the restart itself, with the held time recorded from the start of the hold and shown, with the day's total, on the factory health check.
+
+A reviewer can check:
+
+- two builds landing an hour apart give one move, onto the later build, no sooner than three hours after the previous move;
+- a setting under one hour or over twenty-four hours is refused when the configuration is read;
+- a queue check running when a move falls due finishes, and no new one starts until the move is done;
+- developer runs start while the move waits, and the held time recorded for a move covers only the restart.
 
 **The supervision tree.** One supervisor per product: the process `yoyo start` runs, which yoyodyne-ifd.412 made a command and a process of its own. Its children: the Slack reporter, the scheduler's watch loop, and — where started — the dashboard command. The triage dispatcher and the management-loop dispatcher are not children of their own: they run as steps of each pass of the watch loop, inside the scheduler's process, so they start, stop and restart with it. The supervisor owns start, stop, restart, and the health/readiness of children; each child owns its own domain and none owns workflow truth, per the standing invariants. **Children survive supervisor death**: they are independent processes with recorded presence, and a returning supervisor reattaches through those records and the lease machinery rather than killing and respawning — the same rule a returning chat client already follows. A child that crashes is restarted with backoff; a child that fails repeatedly is not restarted indefinitely — it is left down and reported as **degraded**, reaching the operator through the standing ladder rather than a restart loop. **The escalation ladder is the governed one and the supervisor invents no new verb**: report, then status banners, then a direct message in the degraded class. Operator stopping remains the three existing verbs — hold intake, pause spending, stop everything — and the supervisor is their executor, never a fourth path.
 
