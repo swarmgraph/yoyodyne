@@ -214,6 +214,30 @@
     },
     "status": "failed",
     "stop_class": "integration-budget",
+    "stops": [
+      {
+        "attempt": 1,
+        "candidate": "\u003ccommit-3\u003e",
+        "cause": "work",
+        "charged": true,
+        "evidence": {
+          "findings": [
+            {
+              "file": "feature.txt",
+              "line": 1,
+              "message": "add the missing file",
+              "severity": "blocker"
+            }
+          ],
+          "review_summary": "the change misses the acceptance criteria",
+          "says": "the change replayed onto its moved target stopped on the change with 1 of 0 permitted replay stop(s) spent: independent review requires repair: the change misses the acceptance criteria"
+        },
+        "kept": true,
+        "reason": "integration-budget",
+        "step": "reviewing",
+        "stopped_at": "\u003ctime\u003e"
+      }
+    ],
     "target_branch": "main",
     "updated_at": "\u003ctime\u003e",
     "verification": {

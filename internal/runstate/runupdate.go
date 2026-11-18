@@ -66,6 +66,7 @@ func (s *Store) Update(ctx context.Context, runID string, update RunUpdate) (Sta
 		return State{}, RefusedStateError{Problem: fmt.Errorf("%w: run %s is recorded %s and this update would make it %s", ErrMadeLiveWithoutASlot, runID, stored.Status, next.Status)}
 	}
 	next.Worker = s.workerToWrite(runID, stored.Worker)
+	next = next.withStopRecorded(stopHistoryOf(stored))
 	if next, err = next.withRecordedTextsBounded(); err != nil {
 		return State{}, err
 	}
