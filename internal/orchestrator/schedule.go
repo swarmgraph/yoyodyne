@@ -673,8 +673,9 @@ type ScheduleCorrectionsConcurrent interface {
 
 // ScheduleLandings closes the items a conversation carries whose landing is
 // already in the repository — a revision of a document the conversation's role
-// owns, opening with the item's identifier. It is satisfied by
-// ConversationLander.
+// owns, opening with the item's identifier, in each document the item's text
+// names. It is satisfied by ConversationLander, which reads each item's text
+// from items, the tracker's reading the queue was ordered from.
 //
 // It is optional, and a pull wired without one pulls exactly the same work:
 // what is lost is the closing, so a design-only item waits on the product
@@ -682,7 +683,7 @@ type ScheduleCorrectionsConcurrent interface {
 // them waited on before this existed — and what two of them cost a turn each
 // for, one of them after a developer run had been spent on it.
 type ScheduleLandings interface {
-	Settle(ctx context.Context, entries []backlog.Entry) (LandingSweep, error)
+	Settle(ctx context.Context, entries []backlog.Entry, items map[string]beads.WorkItem) (LandingSweep, error)
 }
 
 // ScheduleClaims audits the items the tracker says are claimed against the runs
@@ -3473,6 +3474,12 @@ pulling:
 			// is counted for a start of this session that has no run on record.
 			pullSlots.say(countedAccount(withoutItems(occupied, gone), gone, mine, schedule.Started, s.now()))
 			session.emptySlots(pullSlots.account)
+			// Closing a conversation-carried item whose document has landed needs
+			// no slot, so a full machine does not hold it back: the queue is read
+			// here for the landing sweep alone (landWithoutChoosing). Without this,
+			// an item stayed open for as long as every slot was busy, which on a
+			// busy day was until somebody closed it by hand.
+			s.landWithoutChoosing(ctx, &schedule, pull, readEarly)
 			// A watch with a slot another process holds waits on the interval as
 			// well as on its own runs: that process's run ending frees a slot this
 			// session hears of only by reading the runs in flight again, so a wait on
@@ -3571,6 +3578,9 @@ pulling:
 		// (waitingpullrequests.go).
 		if waiting, reached := s.waitingPullRequestsReached(&schedule, pull); reached {
 			pullSlots.say(pullSlots.ruleAccount(waiting.Says()))
+			// The limit holds back new work, and a landing's close is not new
+			// work; see landWithoutChoosing.
+			s.landWithoutChoosing(ctx, &schedule, pull, readEarly)
 			if !s.Watching {
 				schedule.Stopped = ScheduleWaitingPullRequests
 				break
@@ -3606,7 +3616,7 @@ pulling:
 		// pull as work still waiting on somebody opening a conversation.
 		waitTracker = pull.Tracker
 		waitItems = read.items
-		queue.Entries = s.land(ctx, &schedule, pull, queue.Entries)
+		queue.Entries = s.land(ctx, &schedule, pull, queue.Entries, read.items)
 		// Work the tracker leaves out of its ready set is never asked about by a
 		// slot, so its reason is kept here, over the whole queue; see
 		// keepUnreadyWaits.
@@ -6595,6 +6605,24 @@ func diedTogether(died []runstate.ReleasedClaim) runstate.BrakeBlockedRun {
 	}
 }
 
+// landWithoutChoosing runs the landing sweep on a pull that chooses nothing,
+// because every developer slot is held or the limit on pull requests waiting
+// for a person is reached. Closing an item whose document has landed starts no
+// run and takes no slot, so neither condition is a reason to leave it open. The
+// queue comes from read, the pull's one shared reading, which reads nothing
+// while intake is held or everything is paused; a reading that fails is left
+// to the next pull, as an unreadable queue is everywhere else.
+func (s Scheduler) landWithoutChoosing(ctx context.Context, schedule *Schedule, pull Pull, read func() *pulled) {
+	if pull.Landings == nil {
+		return
+	}
+	reading := read()
+	if reading == nil {
+		return
+	}
+	reading.queue.Entries = s.land(ctx, schedule, pull, reading.queue.Entries, reading.items)
+}
+
 // land closes the conversation-carried entries whose landing is in the
 // repository, records what it did on the schedule, and returns the queue with
 // the closed entries taken out of it.
@@ -6605,11 +6633,11 @@ func diedTogether(died []runstate.ReleasedClaim) runstate.BrakeBlockedRun {
 // what this sweep found, and cleared by a sweep that found nothing wrong —
 // every pull reads every landing, so a sweep with no problems means the
 // problem before it is gone or the item it was about is closed.
-func (s Scheduler) land(ctx context.Context, schedule *Schedule, pull Pull, entries []backlog.Entry) []backlog.Entry {
+func (s Scheduler) land(ctx context.Context, schedule *Schedule, pull Pull, entries []backlog.Entry, items map[string]beads.WorkItem) []backlog.Entry {
 	if pull.Landings == nil {
 		return entries
 	}
-	sweep, err := pull.Landings.Settle(ctx, entries)
+	sweep, err := pull.Landings.Settle(ctx, entries, items)
 	var problems []string
 	if err != nil {
 		problems = append(problems, fmt.Sprintf("the landings of conversation-carried work could not be read, so an item whose design has landed stays open until somebody closes it: %v", err))
