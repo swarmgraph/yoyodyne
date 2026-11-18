@@ -921,6 +921,11 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		},
 		"mcp-calls-unreadable": {"Could not be read: the record of MCP calls could not be read: read the MCP call record 20260919-4242.jsonl: permission denied"},
 		"busy": {
+			// Each run names the developer slot it is in and what that slot
+			// prefers, a slot with no preference included.
+			`<p class="card-slot">In developer slot 1, which prefers the reliability label.</p>`,
+			`<p class="card-slot">In developer slot 2, which prefers the usability, product or performance labels.</p>`,
+			`<p class="card-slot">In developer slot 3, which prefers no label.</p>`,
 			// Each account's provider usage at the top of the band, in the
 			// model's own sentence, and an account with none said in words.
 			"default: 41% of the week used (fable 62%), resets 2026-09-24 20:00 PDT",
@@ -966,9 +971,23 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"What to do: nothing needs doing",
 			"no reset named, and nothing probes: the run stopped",
 		},
-		"quiet":      {"The harness is idle", "Nothing is running, and no conversation has a turn in flight.", "The backlog is empty", "Nothing ran in the last 7 days", "Nothing is recorded as spent: no run, conversation, branch review, side thread, or exchange here has a priced record.", "No run or conversation is waiting on provider capacity", `<p id="managers-empty" class="empty">No instance of the program manager role is configured, and none has a restart request open.</p>`},
-		"degraded":   {`<span class="figure">—</span>`, `<li class="stage stage-unreadable">`, "Could not be read: the admitted work could not be read", `<button class="grouping-open pile-label" type="button" data-grouping="stage:developing">developing</button>`},
-		"unreadable": {"Could not be read: the recorded runs could not be read: open runs: input/output error", "Could not be read: the spend could not be read: open streams: input/output error", "yoyo doctor says whether bd answers in this checkout"},
+		// Each run names its developer slot and what that slot prefers, a slot
+		// with no preference says so, and an idle slot is still listed.
+		"slots": {
+			`<p class="card-slot">In developer slot 1, which prefers the reliability label.</p>`,
+			`<li class="slot-idle">Developer slot 2 is free and prefers the usability, product or performance labels.</li>`,
+			`<li class="slot-idle">Developer slot 3 is free and prefers no label.</li>`,
+		},
+		"slots-idle": {
+			`<li class="slot-idle">Developer slot 1 is free and prefers the reliability label.</li>`,
+			`<li class="slot-idle">Developer slot 2 is free and prefers the usability, product or performance labels.</li>`,
+			`<li class="slot-idle">Developer slot 3 is free and prefers no label.</li>`,
+			"no developer run is in flight, and no conversation has a turn in flight.",
+		},
+		"grouping-slots": {"developing, 15m elapsed, in developer slot 1, which prefers the reliability label"},
+		"quiet":          {"The harness is idle", "Nothing is running, and no conversation has a turn in flight.", "The backlog is empty", "Nothing ran in the last 7 days", "Nothing is recorded as spent: no run, conversation, branch review, side thread, or exchange here has a priced record.", "No run or conversation is waiting on provider capacity", `<p id="managers-empty" class="empty">No instance of the program manager role is configured, and none has a restart request open.</p>`},
+		"degraded":       {`<span class="figure">—</span>`, `<li class="stage stage-unreadable">`, "Could not be read: the admitted work could not be read", `<button class="grouping-open pile-label" type="button" data-grouping="stage:developing">developing</button>`},
+		"unreadable":     {"Could not be read: the recorded runs could not be read: open runs: input/output error", "Could not be read: the spend could not be read: open streams: input/output error", "yoyo doctor says whether bd answers in this checkout"},
 		// Nothing waits on the operator and everything waits on a role or the
 		// harness: the commonest real case. The operator's figure is zero, and
 		// no role's count is said as his.
@@ -1048,7 +1067,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			`<h2 id="card-heading" class="popup-title">(P1, dashboard) Dashboard 3 of 3: the page, five sections, with its empty, loading, and error states (yoyodyne-ifd.141.3)</h2>`,
 			"<dt>Id</dt>", "<dt>Title</dt>", "<dt>Status</dt>", "<dt>Priority</dt>", "<dt>Labels</dt>", "<dt>Parent</dt>", "<dt>Description</dt>", "<dt>Design</dt>", "<dt>Acceptance criteria</dt>", "<dt>Notes</dt>", "<dt>Run</dt>",
 			"<dd>in_progress</dd>", "<dd>P1 (0 is the most urgent, 4 the least)</dd>", "<dd>dashboard</dd>", "<dd>yoyodyne-ifd.141</dd>",
-			`<p class="card-run-flight">in flight — developing, 12m elapsed, $3.41 so far</p>`,
+			`<p class="card-run-flight">in flight — developing, 12m elapsed, $3.41 so far, in developer slot 1, which prefers the reliability label</p>`,
 			"branch: yoyodyne/yoyodyne-ifd-141-3/c07d6849",
 			"developer session: 0f2c41ab-7e05-4c3d-9a1b-6e8f0d2a4c71",
 		},
