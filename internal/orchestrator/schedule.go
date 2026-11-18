@@ -3074,7 +3074,17 @@ pulling:
 		// carry a decision out either: the run it would start is one the drain
 		// stops at its next look, and the record offers the decision again to the
 		// session that comes back.
-		closed := closedGates{intake: held, pause: paused, capacity: free < 1}
+		//
+		// The capacity gate is shut only where the runs on record hold every slot
+		// as well (recordedSlotsFull). The session's own count also holds a slot
+		// for each start of its own that has not reserved one yet, and a
+		// carry-out the tracker keeps waiting is such a start for as long as the
+		// tracker takes; read alone, that count kept a decided re-run a full
+		// harness once refused from ever being tried again while slots stood
+		// empty, as every newer decision was tried and started ahead of it. The
+		// re-run action and the reservation count from the records, so they are
+		// what decides whether the attempt finds a slot.
+		closed := closedGates{intake: held, pause: paused, capacity: capacityGateShut(free, pull.Runs, occupied, pull.Capacity, s.now())}
 		// A decided recovery of the hold's own test run is kept for the hold's next
 		// start rather than attempted beside the queue and refused by the hold
 		// (testRunRecovery), where a watching session works the brake's hold.
@@ -5977,9 +5987,12 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 			// harness is recorded where the development manager reads it; what
 			// keeps the rest back then is the runs holding the slots, not that
 			// attempt, and the reason says so.
-			if free < 1 {
+			switch {
+			case free < 1 && closed.capacity:
 				pass(task, fmt.Sprintf("no developer slot was free at this pull: all %d are held by runs in flight, so the pull started nothing and tried the decisions ahead of this one only to record that the slots are full", pull.Capacity))
-			} else {
+			case free < 1:
+				pass(task, fmt.Sprintf("this session counted all %d developer slots taken, its own starts that hold no slot on record yet among them, while the runs on record leave a slot free; the pull tried the decision ahead of this one in that slot, and this one goes at the next pull", pull.Capacity))
+			default:
 				pass(task, fmt.Sprintf("every developer slot this pull had was spent on %d decision(s) ahead of it on the docket", len(newSlots)))
 			}
 			slotBound = true
@@ -8066,6 +8079,28 @@ func workersGone(runs ScheduleRuns, occupied map[string]runstate.State, mine map
 		}
 	}
 	return gone
+}
+
+// capacityGateShut reports the capacity gate shut for a decision it already
+// refused: no slot free by this session's count, and none by the records'
+// either. See the call in Scheduler.Schedule for why both are asked.
+func capacityGateShut(free int, runs ScheduleRuns, occupied map[string]runstate.State, capacity int, now time.Time) bool {
+	return free < 1 && recordedSlotsFull(runs, occupied, capacity, now)
+}
+
+// recordedSlotsFull reports the runs on record in occupied holding every
+// developer slot, counted by the rule the reservation and the re-run action
+// count by (holdsDeveloperSlot). An entry with no run recorded is a start of
+// this session's that has not reserved yet, which holds no slot anybody else
+// can see, so it is not counted here.
+func recordedSlotsFull(runs ScheduleRuns, occupied map[string]runstate.State, capacity int, now time.Time) bool {
+	holding := 0
+	for _, state := range occupied {
+		if state.RunID != "" && holdsDeveloperSlot(runs, state, now) {
+			holding++
+		}
+	}
+	return holding >= capacity
 }
 
 // withoutItems is occupied without the items named, as a copy.
