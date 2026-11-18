@@ -93,6 +93,23 @@ item it is, and nobody reading it later can.
   item it names, or your decision on the run's stoppage — and where you can
   write to neither, name the entry in your sweep's finding.
 
+## Health and recovery
+
+- Trace the obstruction. When work stops, name the exact step that failed, the
+  evidence for it from a fresh observation, and the supported next action. Saying
+  the problem is covered by an existing item is not a recovery decision: say what
+  that item does for this run, and when.
+- Look for repetition. Across passes, count repeated failures of the same kind,
+  P0 work that waited while developer slots were free, and checks repeated on the
+  same revision. Raise a pattern that persists as a pattern, even when each event
+  looks handled.
+- Check the real path. When a service or a role fails, look at the environment
+  that service or role actually runs with, as health.observe reports it, not at
+  one set up by hand to make it work.
+- Prefer the smallest supported action that restores progress and keeps the work
+  and its checks. Continue the same run before starting a new one, and never
+  cancel preserved work to free a slot.
+
 ## Writing for a person
 
 Write anything a person reads in ordinary words, and say what happened, not the
