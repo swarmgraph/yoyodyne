@@ -43,6 +43,13 @@ const (
 	// heavyCheckOutsideKept bounds how many processes running a heavy check
 	// outside any place one launch names; the count beside it is whole.
 	heavyCheckOutsideKept = 8
+	// heavyCheckMeasureTries is how many times a launch's measurement is
+	// written before the failure is given up on, and heavyCheckMeasureRetry
+	// how long is waited between tries. Each try reads the file again. They
+	// are tried under the record of places' lock, so the bound is what every
+	// other run asking for a place could be held up by.
+	heavyCheckMeasureTries = 3
+	heavyCheckMeasureRetry = 50 * time.Millisecond
 )
 
 // HeavyCheckOutcome is how a measured launch ended.
@@ -136,6 +143,11 @@ type HeavyCheckMeasurement struct {
 	// meaningful only where Machine.Listed is true.
 	Outside     int                     `json:"outside,omitempty"`
 	OutsideSeen []HeavyCheckProcessSeen `json:"outside_seen,omitempty"`
+	// Unsaved is why the launch's end could not be written down, where it
+	// could not after every try: the launch ended, and how long it ran is not
+	// known. Such a launch is shown with this reason and left out of every
+	// limit proposed from the measurements.
+	Unsaved string `json:"unsaved,omitempty"`
 }
 
 // Waited is how long the launch waited for its place.
@@ -225,10 +237,32 @@ func readHeavyCheckMeasurements(root *repowrite.PinnedRoot, strict bool) (HeavyC
 }
 
 // measure changes the measurement of one permit, or adds it where change is
-// given none, and writes the file back keeping the last few. It is called under
-// the record of places' lock. A failure is returned for the caller to set
-// aside: no check waits on its own measurement.
+// given none, and writes the file back keeping the last few, trying
+// heavyCheckMeasureTries times before giving up. It is called under the record
+// of places' lock. A failure is returned for the caller to report: no check
+// waits on its own measurement.
 func (h *heavyCheckSession) measure(permit string, change func(*HeavyCheckMeasurement) bool) error {
+	var err error
+	for try := 1; try <= heavyCheckMeasureTries; try++ {
+		if err = h.measureOnce(permit, change, true); err == nil {
+			return nil
+		}
+		if try < heavyCheckMeasureTries {
+			time.Sleep(heavyCheckMeasureRetry)
+		}
+	}
+	return fmt.Errorf("tried %d times: %w", heavyCheckMeasureTries, err)
+}
+
+// measureOnce is one try. faulted is false only for the write that records why
+// an end could not be written, which a test's fault (measureFault) is never
+// put in the way of: it is the write of the end a test makes fail.
+func (h *heavyCheckSession) measureOnce(permit string, change func(*HeavyCheckMeasurement) bool, faulted bool) error {
+	if faulted && h.store.measureFault != nil {
+		if err := h.store.measureFault(permit); err != nil {
+			return err
+		}
+	}
 	record, err := readHeavyCheckMeasurements(h.root, true)
 	if err != nil {
 		return err
@@ -304,9 +338,13 @@ func (h *heavyCheckSession) measureLaunch(permit HeavyCheckPermit, reading Heavy
 	})
 }
 
-// measureExit finishes a launch's measurement as its main process ends.
+// measureExit finishes a launch's measurement as its main process ends. Where
+// that cannot be written after every try, the reason is written onto the
+// measurement instead, so the launch is shown as one whose end is not known
+// rather than as one still running, and the failure is returned in words a
+// person reads for the run to report.
 func (h *heavyCheckSession) measureExit(permit HeavyCheckPermit, outcome HeavyCheckOutcome, budget time.Duration) error {
-	return h.measure(permit.ID, func(m *HeavyCheckMeasurement) bool {
+	err := h.measure(permit.ID, func(m *HeavyCheckMeasurement) bool {
 		if m.LaunchedAt.IsZero() || m.ExitedAt != nil {
 			// A launch never written down as started has nothing to finish,
 			// and one already finished keeps what it was finished with.
@@ -314,11 +352,26 @@ func (h *heavyCheckSession) measureExit(permit HeavyCheckPermit, outcome HeavyCh
 		}
 		m.ExitedAt = permit.ExitedAt
 		m.Outcome = outcome
+		m.Unsaved = ""
 		if budget > 0 {
 			m.BudgetMS = budget.Milliseconds()
 		}
 		return true
 	})
+	if err == nil {
+		return nil
+	}
+	reason := boundedReason(fmt.Sprintf("the end of %s could not be written to the heavy check measurements, so how long it ran is not known and it is left out of every limit proposed from them: %v", permit.Check, err))
+	if markErr := h.measureOnce(permit.ID, func(m *HeavyCheckMeasurement) bool {
+		if m.LaunchedAt.IsZero() || m.ExitedAt != nil {
+			return false
+		}
+		m.Unsaved = reason
+		return true
+	}, false); markErr != nil {
+		return fmt.Errorf("%s; the reason could not be written onto the measurement either: %v", reason, markErr)
+	}
+	return errors.New(reason)
 }
 
 // Measurements is the measurements as they stand, read without the lock: what

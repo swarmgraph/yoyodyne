@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -103,6 +104,52 @@ func TestAKeptHeavyCheckPlaceIsListedAndGivenBackByHand(t *testing.T) {
 	}
 	stdout, _, code = runCLI(t, "heavy-checks", "measurements", "--json", "--config", configPath)
 	if code != 0 || !strings.Contains(stdout, `"limits"`) || !strings.Contains(stdout, `"check":"make race"`) {
+		t.Fatalf("measurements --json code = %d, stdout = %q", code, stdout)
+	}
+}
+
+// A launch whose end could not be written down is listed with the reason the
+// harness stored, and left out of the limit proposed, which is then read from
+// the launches that did finish.
+func TestHeavyCheckMeasurementsListALaunchWhoseEndWasNotWritten(t *testing.T) {
+	stateRoot := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
+	configPath := writeConfig(t, validConfig)
+	store, err := runstate.NewHeavyCheckStore(stateRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	launched := time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)
+	exited := launched.Add(time.Minute)
+	finished := runstate.HeavyCheckMeasurement{
+		Permit: "permit-0123456789abcdef", Product: "yoyodyne", RunID: "run-a", Check: "make race", Command: "make race",
+		Priority: domain.HeavyCheckOrdinary, Limit: 1, AskedAt: launched, GrantedAt: launched, LaunchedAt: launched,
+		ExitedAt: &exited, BudgetMS: (20 * time.Minute).Milliseconds(), Outcome: runstate.HeavyCheckPassed,
+		Running: map[string]int{"make race": 1},
+	}
+	unsaved := finished
+	unsaved.Permit, unsaved.RunID, unsaved.ExitedAt, unsaved.BudgetMS, unsaved.Outcome = "permit-fedcba9876543210", "run-b", nil, 0, ""
+	unsaved.Unsaved = "the end of make race could not be written to the heavy check measurements: the disk refused the write"
+	encoded, err := json.Marshal(runstate.HeavyCheckMeasurements{
+		SchemaVersion: runstate.HeavyCheckMeasurementSchemaVersion, Measurements: []runstate.HeavyCheckMeasurement{finished, unsaved},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(store.Root(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Root(), "measurements.json"), encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := runCLI(t, "heavy-checks", "measurements", "--config", configPath)
+	if code != 0 || !strings.Contains(stdout, "make race: 1 launches, limit 1 at once") ||
+		!strings.Contains(stdout, "1 launches ended without their end written down, so how long they ran is not known and they are left out of every limit above") ||
+		!strings.Contains(stdout, "make race of run run-b (yoyodyne), launched") || !strings.Contains(stdout, "the disk refused the write") {
+		t.Fatalf("measurements code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+	stdout, _, code = runCLI(t, "heavy-checks", "measurements", "--json", "--config", configPath)
+	if code != 0 || !strings.Contains(stdout, `"unsaved"`) || !strings.Contains(stdout, `"run_id":"run-b"`) {
 		t.Fatalf("measurements --json code = %d, stdout = %q", code, stdout)
 	}
 }

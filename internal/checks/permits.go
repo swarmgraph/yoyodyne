@@ -55,6 +55,16 @@ type Permit interface {
 	Finish(result execution.ProcessResult, budget time.Duration) error
 }
 
+// MeasuredPermit is a Permit that can say why its launch's measurement — what
+// the check cost, kept so its limit can be set from evidence — could not be
+// written. A permit that does not say is taken to have had none.
+type MeasuredPermit interface {
+	Permit
+	// MeasureProblem is why the measurement could not be written after
+	// Finish, in words a person reads, or nil where it was.
+	MeasureProblem() error
+}
+
 // PermitRequest is what one stage's checks ask their places with. A request
 // that leaves it out asks in the ordinary order.
 type PermitRequest struct {

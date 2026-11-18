@@ -3,6 +3,9 @@
 package runstate
 
 import (
+	"errors"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -123,6 +126,97 @@ func TestAHeavyCheckReleasedBeforeItFinishesIsStillMeasuredToItsExit(t *testing.
 	measured := measurements.Measurements[0]
 	if _, ended := measured.Ran(); !ended || measured.Outcome != HeavyCheckPassed || measured.Budget() != 20*time.Minute {
 		t.Fatalf("measurement = %#v, want it finished as passed with its 20m time limit", measured)
+	}
+}
+
+// A check's end that cannot be written to the measurements, try as the harness
+// might, is reported in words a person reads and written onto the measurement
+// as the reason its end is not known, and the check's place is given back all
+// the same.
+func TestAHeavyCheckEndThatCannotBeWrittenIsReportedAndItsPlaceGivenBack(t *testing.T) {
+	t.Parallel()
+	store := newHeavyCheckStoreForTest(t)
+	var failing atomic.Bool
+	var tries atomic.Int32
+	store.measureFault = func(string) error {
+		if !failing.Load() {
+			return nil
+		}
+		tries.Add(1)
+		return errors.New("the disk refused the write")
+	}
+
+	grant := acquireSoon(t, store, heavyAsk("run-a", "make race", 1, domain.HeavyCheckOrdinary))
+	command := launchHeld(t, grant, "exit 0")
+	_ = command.Wait()
+	failing.Store(true)
+	grant.Measure(HeavyCheckPassed, 20*time.Minute)
+	finished, err := grant.Finish("succeeded, exit code 0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finished.State != HeavyCheckReleased {
+		t.Fatalf("permit = %#v, want its place given back though its end could not be measured", finished)
+	}
+	if got := tries.Load(); got != heavyCheckMeasureTries {
+		t.Fatalf("tried %d times, want %d", got, heavyCheckMeasureTries)
+	}
+	if grant.MeasureProblem == nil || !strings.Contains(grant.MeasureProblem.Error(), "the end of make race could not be written to the heavy check measurements") ||
+		!strings.Contains(grant.MeasureProblem.Error(), "the disk refused the write") {
+		t.Fatalf("measure problem = %v, want the failure reported with its reason", grant.MeasureProblem)
+	}
+	record, err := store.Record()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(record.Holding("")) != 0 {
+		t.Fatalf("record = %#v, want no place held", record)
+	}
+	measurements, err := store.Measurements()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(measurements.Measurements) != 1 {
+		t.Fatalf("measurements = %#v, want the one launch", measurements)
+	}
+	measured := measurements.Measurements[0]
+	if _, ended := measured.Ran(); ended || !strings.Contains(measured.Unsaved, "the disk refused the write") {
+		t.Fatalf("measurement = %#v, want no end and the reason it has none", measured)
+	}
+}
+
+// A write of a check's end that fails once and then succeeds is tried again,
+// and the end is written down with nothing to report.
+func TestAHeavyCheckEndIsWrittenOnALaterTry(t *testing.T) {
+	t.Parallel()
+	store := newHeavyCheckStoreForTest(t)
+	var failing atomic.Bool
+	store.measureFault = func(string) error {
+		if failing.CompareAndSwap(true, false) {
+			return errors.New("the disk refused the write once")
+		}
+		return nil
+	}
+	grant := acquireSoon(t, store, heavyAsk("run-a", "make race", 1, domain.HeavyCheckOrdinary))
+	command := launchHeld(t, grant, "exit 0")
+	_ = command.Wait()
+	failing.Store(true)
+	grant.Measure(HeavyCheckPassed, 20*time.Minute)
+	if _, err := grant.Finish("succeeded, exit code 0"); err != nil {
+		t.Fatal(err)
+	}
+	if grant.MeasureProblem != nil {
+		t.Fatalf("measure problem = %v, want the second try to have written the end", grant.MeasureProblem)
+	}
+	measurements, err := store.Measurements()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(measurements.Measurements) != 1 {
+		t.Fatalf("measurements = %#v, want the one launch", measurements)
+	}
+	if measured := measurements.Measurements[0]; measured.Outcome != HeavyCheckPassed || measured.Unsaved != "" {
+		t.Fatalf("measurement = %#v, want it finished as passed", measured)
 	}
 }
 
