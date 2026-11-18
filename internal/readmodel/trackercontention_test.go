@@ -154,12 +154,8 @@ type noHolders struct{}
 
 func (noHolders) Holders(context.Context, string) ([]beads.StoreHolder, error) { return nil, nil }
 
-// trackerContention runs readers status readers, each reading where things
-// stand rounds times, and exporters worktree exports, all at once and each
-// with tracker clients of its own as separate processes would be, and a write
-// to one item once they are all under way. It returns how the write ended; how long
-// it waited is the runner's to say, in the store's own time.
-func trackerContention(t *testing.T, runner *storeRunner, shared bool, readers, rounds, exporters int, writeLimit time.Duration) error {
+// newRepository is a directory a tracker client can name its store from.
+func newRepository(t *testing.T) string {
 	t.Helper()
 	repository := t.TempDir()
 	if err := os.Mkdir(filepath.Join(repository, ".beads"), 0o700); err != nil {
@@ -168,12 +164,32 @@ func trackerContention(t *testing.T, runner *storeRunner, shared bool, readers, 
 	if err := os.WriteFile(filepath.Join(repository, ".beads", "metadata.json"), []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	return repository
+}
+
+// trackerContention runs readers status readers, each reading where things
+// stand rounds times, and exporters worktree exports, all at once and each
+// with tracker clients of its own as separate processes would be, and a write
+// to one item once they are all under way. It returns how the write ended; how long
+// it waited is the runner's to say, in the store's own time.
+func trackerContention(t *testing.T, runner *storeRunner, shared bool, readers, rounds, exporters int, writeLimit time.Duration) error {
+	t.Helper()
+	repository := newRepository(t)
 	readings, err := runstate.NewTrackerReadingStore(t.TempDir(), domain.ProductID("yoyodyne"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := func(limit time.Duration) beads.Client {
-		return beads.Client{Runner: runner, Dir: repository, Timeout: limit, Holders: noHolders{}}
+	// Readings that ask for themselves stand for separate processes, so each
+	// has a repository of its own: clients of one repository in one process
+	// share a listing being read (beads.Client.runListing), which separate
+	// processes cannot. The stand-in store is still the one every command
+	// queues on.
+	client := func(limit time.Duration, own bool) beads.Client {
+		dir := repository
+		if own && !shared {
+			dir = newRepository(t)
+		}
+		return beads.Client{Runner: runner, Dir: dir, Timeout: limit, Holders: noHolders{}}
 	}
 
 	var contenders sync.WaitGroup
@@ -181,7 +197,7 @@ func trackerContention(t *testing.T, runner *storeRunner, shared bool, readers, 
 		contenders.Go(func() {
 			for range rounds {
 				sources := quietSources()
-				sources.Tracker = client(contenderLimit)
+				sources.Tracker = client(contenderLimit, true)
 				sources.TrackerTimeout = contenderLimit
 				if shared {
 					sources.TrackerReadings = readings
@@ -192,7 +208,7 @@ func trackerContention(t *testing.T, runner *storeRunner, shared bool, readers, 
 	}
 	for range exporters {
 		contenders.Go(func() {
-			err := client(contenderLimit).RefreshExport(context.Background())
+			err := client(contenderLimit, true).RefreshExport(context.Background())
 			// With every reading asking for itself the store is held long enough
 			// that, on a loaded machine, an export queued behind another can wait
 			// past its own limit for the export lock: that is the same long hold the
@@ -206,21 +222,23 @@ func trackerContention(t *testing.T, runner *storeRunner, shared bool, readers, 
 	defer contenders.Wait()
 
 	// Every contender is queued on the store before the write arrives: each
-	// reading asking for itself has asked for every item and for what is
-	// ready, which it asks at once, and the first export has asked, or, where
-	// the readings share, the first of them has. The exports take the export
-	// lock one at a time, so only one of them asks at first. Waiting for fewer
-	// asks than that lets the write in ahead of the readings that have not
-	// asked yet, where it can be answered inside its limit. This is waited on
-	// rather than slept for, so a loaded machine cannot let the write in ahead
-	// of them either.
+	// reading asking for itself has asked for its first listing, and each
+	// export has asked, or, where the readings share, the first of them has. A
+	// reading's two listings take its store's listing lock one at a time
+	// (beads.Client.runListing), and the store answers nothing until the write
+	// has queued, so only the first of them asks at first; the exports each
+	// name a store of their own and all ask at once. Waiting for fewer asks
+	// than that lets the write in ahead of the contenders that have not asked
+	// yet, where it can be answered inside its limit. This is waited on rather
+	// than slept for, so a loaded machine cannot let the write in ahead of them
+	// either.
 	if shared {
 		runner.waitForCalls(1)
 	} else {
-		runner.waitForCalls(2*readers + min(exporters, 1))
+		runner.waitForCalls(readers + exporters)
 	}
 	return runner.writeAmongTheAsked(func() error {
-		_, err := client(writeLimit).RecordOutcome(context.Background(), "yoyodyne-1", "landed")
+		_, err := client(writeLimit, false).RecordOutcome(context.Background(), "yoyodyne-1", "landed")
 		return err
 	})
 }
@@ -245,7 +263,9 @@ func TestATrackerWriteFinishesInsideItsLimitBesideStatusReadingsAndExports(t *te
 
 	t.Run("each reading asking for itself", func(t *testing.T) {
 		t.Parallel()
-		runner := newStoreRunner(hold)
+		// Twice the hold, so the queue the write waits behind is as long as it was
+		// before listings in one process shared a read.
+		runner := newStoreRunner(2 * hold)
 		// A write stopped at its limit is read back and asked again, so what
 		// says it was stopped is the store's record of it, not how it ended.
 		err := trackerContention(t, runner, false, readers, rounds, exporters, writeLimit)
