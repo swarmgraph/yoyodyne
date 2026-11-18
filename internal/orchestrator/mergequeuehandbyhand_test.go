@@ -123,7 +123,7 @@ func TestAnEntryHandedBackWhoseMergeTheTargetDoesNotShowIsHandedBackSayingWhy(t 
 	if handback == nil || handback.Continuation != runstate.MergeQueueReleased {
 		t.Fatalf("handback = %#v, want the entry handed back as before", handback)
 	}
-	for _, want := range []string{"merged by hand as #1926", "could not confirm the change reached main", "does not carry the approved head " + f.head, "pull request #1926 reads as merged"} {
+	for _, want := range []string{"merged by hand as #1926", "could not confirm the change reached main", "main was brought up to date from the remote first", "does not carry the approved head " + f.head, "pull request #1926 reads as merged"} {
 		if !strings.Contains(handback.Reason, want) {
 			t.Fatalf("reason = %q, want it to say %q", handback.Reason, want)
 		}
@@ -175,5 +175,34 @@ func TestAHandbackOfAnEntryWhoseItemIsClosedLeavesItClosed(t *testing.T) {
 	}
 	if f.run.saveCount() != 0 {
 		t.Fatalf("run saved %d times, want its record left as it is", f.run.saveCount())
+	}
+}
+
+func TestAHandMergeOnTheRemoteButNotYetOnTheLocalTargetEndsAsLanded(t *testing.T) {
+	t.Parallel()
+
+	f, _ := queueStoppedOnMerge(t)
+	base := f.local("main")
+	runPipelineGit(t, f.repository, "merge", "--no-ff", "-m", "Merge pull request #1926", f.head)
+	merged := f.local("main")
+	// The merge is on the remote, as after a merge on the forge, and the local
+	// copy of the target has not followed it.
+	runPipelineGit(t, f.repository, "push", f.remote, "main")
+	runPipelineGit(t, f.repository, "reset", "--hard", base)
+	if f.local("main") != base {
+		t.Fatalf("main = %s, want it put back at %s", f.local("main"), base)
+	}
+	repair := f.runPullRequestReads(publish.PullRequest{Number: 1926, State: "MERGED", Merged: true, MergeCommit: merged, HeadCommit: f.head})
+
+	f.handBackByHand("merged by hand as #1926")
+	handback := f.landing().Handback
+	if handback == nil || handback.Continuation != runstate.MergeQueueLandedOutside || handback.TargetBase != merged {
+		t.Fatalf("handback = %#v, want the entry landed at %s", handback, merged)
+	}
+	if f.local("main") != merged {
+		t.Fatalf("main = %s, want it brought up to date to %s", f.local("main"), merged)
+	}
+	if !f.tracker.Closed || f.tracker.Blocked || repair.count() != 0 {
+		t.Fatalf("item closed %v, blocked %v, repairs %d; want it settled as landed", f.tracker.Closed, f.tracker.Blocked, repair.count())
 	}
 }

@@ -224,6 +224,7 @@ type reachedTarget struct {
 // show for it is not one.
 func (q *queuePromotion) reachedTarget(ctx context.Context) reachedTarget {
 	target, head := q.key.TargetBranch, q.entry.ApprovedHead
+	freshness := q.catchUpTarget(ctx)
 	holds := func(commit string) (bool, string) {
 		if !fullCommitID.MatchString(commit) {
 			return false, fmt.Sprintf("%q is not a full commit id", commit)
@@ -278,7 +279,31 @@ func (q *queuePromotion) reachedTarget(ctx context.Context) reachedTarget {
 	if headProblem == "" {
 		said = append([]string{fmt.Sprintf("%s does not carry the approved head %s", target, head)}, said...)
 	}
-	return reachedTarget{unconfirmed: "the queue could not confirm the change reached " + target + ": " + strings.Join(said, ", and ")}
+	return reachedTarget{unconfirmed: "the queue could not confirm the change reached " + target + " (" + freshness + "): " + strings.Join(said, ", and ")}
+}
+
+// catchUpTarget brings the local target branch up to date from the remote
+// before the target is read for a hand merge, because a merge made on the
+// forge is on the remote before it is on the local copy. It says in plain
+// words how that went, for the reason given when the change is still not
+// found. A copy that could not be brought up to date is read as it stands.
+func (q *queuePromotion) catchUpTarget(ctx context.Context) string {
+	target := q.key.TargetBranch
+	lease, err := q.p.Pipeline.Store.LeasePromotion(ctx, target)
+	if err != nil {
+		return fmt.Sprintf("%s could not be brought up to date from the remote first, because the turn to move it was not available (%v)", target, err)
+	}
+	defer func() { _ = lease.Release() }()
+	catchup, err := q.p.Lander.CatchUpTarget(ctx, target)
+	switch {
+	case err != nil:
+		return fmt.Sprintf("%s could not be brought up to date from the remote first (%v)", target, err)
+	case catchup.Held != "":
+		return fmt.Sprintf("%s was not brought up to date from the remote first: %s", target, catchup.Held)
+	case catchup.Advanced:
+		return fmt.Sprintf("%s was brought up to date from the remote first, to %s", target, catchup.RemoteCommit)
+	}
+	return fmt.Sprintf("%s was brought up to date from the remote first and was already current", target)
 }
 
 // releaseLandedOutside ends the turn of an entry whose approved commit the
