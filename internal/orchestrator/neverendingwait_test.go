@@ -17,7 +17,7 @@ func TestAWaitOnTheStoppedItemsParentOrAboveIsPutBackOnTheDocket(t *testing.T) {
 	t.Parallel()
 
 	tree := map[string]beads.WorkItem{
-		docketedItem:     {ID: docketedItem, Status: "open", Parent: "yoyodyne-area.7"},
+		docketedItem:      {ID: docketedItem, Status: "open", Parent: "yoyodyne-area.7"},
 		"yoyodyne-area.7": {ID: "yoyodyne-area.7", Status: "open", Parent: "yoyodyne-area"},
 		"yoyodyne-area":   {ID: "yoyodyne-area", Status: "open"},
 		"yoyodyne-other":  {ID: "yoyodyne-other", Status: "open"},

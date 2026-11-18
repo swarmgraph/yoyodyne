@@ -2921,7 +2921,14 @@ hold says that rather than that the stoppage still waits. The
 named item has to be one the tracker holds as unfinished and not the item the
 stoppage is about: a wait on closed work would come straight back, and one on an
 item the tracker cannot read would never come back, so either is refused and
-nothing is recorded. A wait that names nothing keeps the window. While such a
+nothing is recorded. Nor may it be the stopped item's own parent or any item
+above it: an item cannot close while work under it is still open, so such a
+wait could never end, and the refusal names the item and the line of parents
+that makes it so. A wait of that shape recorded before this refusal existed is
+put back on her docket by the next `yoyo reconcile` sweep, as a stoppage needing
+a new decision, with her earlier reasoning and why the wait could never end; the
+item's hold already reads it that way, and `yoyo status` counts it as awaiting
+her decision. A wait that names nothing keeps the window. While such a
 wait stands, [`yoyo status`](operations.md#where-the-harness-stands-the-four-lines)
 counts the item as waiting on admitted work rather than as awaiting her
 decision, and counts it as awaiting her decision again once the work is closed.
