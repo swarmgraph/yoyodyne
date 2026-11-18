@@ -177,9 +177,11 @@ var recoverablePhrases = []string{
 	"exit code -1:",
 }
 
-// AuthenticationRefusedDetail reports text in which a remote refused the
-// credential the harness presented: an SSH key the server would not take, or a
-// forge that turned an HTTPS login away. It is the other closed reading this
+// AuthenticationRefusedDetail reports text in which the harness could not reach
+// a remote as itself: an SSH key the server would not take, a forge that turned
+// an HTTPS login away, a machine that could not name the user the harness runs
+// as (so SSH never started), or a GitHub command line tool that is not logged
+// in. It is the other closed reading this
 // package makes, and the opposite verdict: asking again earns the identical
 // answer until somebody loads the key or renews the login, so it is never waited
 // out, and it is never a verdict on the work either.
@@ -210,4 +212,12 @@ var authenticationPhrases = []string{
 	"could not read password",
 	// GitHub's own words for a credential with no write access to the repository.
 	"remote: permission to ",
+	// The machine unable to look up the user the harness runs as, which SSH
+	// reports before it opens any connection: there is no identity to present
+	// until the machine can name its user again.
+	"no user exists for uid",
+	// The GitHub command line tool with no login, in its own words and in the
+	// harness's when it found the tool unauthenticated before publishing.
+	"not logged into any github hosts",
+	"gh auth login",
 }

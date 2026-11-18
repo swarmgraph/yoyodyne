@@ -183,6 +183,7 @@ var pauseMarkersTakenUp = map[string]string{
 // already happened rather than a pause of its own.
 var pauseMarkersNotTakenUp = map[string]string{
 	"IntegrationStop":     "an integration stop is resumed by the integration resumer (integrationresume.go), not by a new dispatch",
+	"IdentityStop":        "a run stopped publishing because GitHub would not answer the harness's identity is taken up at its checks by GitHubIdentityStops (githubidentity.go) once GitHub answers, not by a new dispatch",
 	"RecoveryHold":        "a hold the development manager left standing waits on that decision; what it orders is a continuation (recoveryContinuationDue)",
 	"Readopted":           "not a marker but the redeploy stop a resumed run cleared, kept for reading later stalls",
 	"RepairContinuations": "the history of repair grants; a run re-entered in its repair loop is resumed by resumableRepair",
