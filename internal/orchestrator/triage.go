@@ -753,6 +753,16 @@ func docketedRunsOf(entries []triage.Entry) map[string]bool {
 	return runs
 }
 
+// decidedAtOf is when the decision a carry-out finding is about was recorded:
+// the decision on the item's record where there is one, and otherwise the time
+// the finding itself carries.
+func decidedAtOf(counters runstate.TriageCounters, runID string, recorded runstate.TriageCarryOut) time.Time {
+	if decision, decided := counters.DecisionOf(runID); decided {
+		return decision.DecidedAt
+	}
+	return recorded.DecidedAt
+}
+
 // undocketedCarryOut is the carry-out finding about the item's latest decision
 // where that decision names a run the docket holds no entry for, in the shape an
 // entry of the same item carries it. It is taken only while the decision is the
@@ -780,6 +790,7 @@ func undocketedCarryOut(entry triage.Entry, counters runstate.TriageCounters, do
 		Attempts:    recorded.Attempts,
 		RefusedAt:   recorded.RefusedAt,
 		Unattempted: recorded.Unattempted,
+		DecidedAt:   decidedAtOf(counters, latest.RunID, recorded),
 	}
 }
 
@@ -811,6 +822,7 @@ func docketedCarryOut(entry triage.Entry, counters runstate.TriageCounters) *tri
 		Attempts:    recorded.Attempts,
 		RefusedAt:   recorded.RefusedAt,
 		Unattempted: recorded.Unattempted,
+		DecidedAt:   decidedAtOf(counters, entry.RunID, recorded),
 	}
 }
 

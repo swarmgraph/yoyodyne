@@ -15,7 +15,7 @@ package orchestrator
 //
 // So the carry-out asks, before it offers a recovery and again before it
 // executes one, whether the recovery still applies. It does not where the item
-// is closed and one of three records says its work is settled:
+// is closed and one of these records says its work is settled:
 //
 //   - the run itself succeeded, and its merge is confirmed and complete;
 //   - a later run of the item has a confirmed, complete merge into the same
@@ -26,14 +26,21 @@ package orchestrator
 //   - nobody has decided anything about the run, and the harness already
 //     settled its docket entry: closed with its item, or with its publication.
 //
-// Each is a record of settled work rather than the item's status, which is
-// asked as well and never alone: an item closed by hand with no settled work
-// keeps the recovery the action would have refused anyway, and an item that is
-// open again — reopened explicitly — keeps every recovery, so a reopening is
-// never mistaken for obsolete work. The confirmed merge is the one
-// runretirement.go reads (confirmedCompletedPublication), so a later run
-// retired from its integration and an older run's recovery found not to apply
-// are judged by the same evidence.
+// Nor does it apply where the item closed at or after the recovery was decided,
+// whatever closed it, or where another item holds the run's work as its
+// replacement while the item is open (recoverySettled says how each is read).
+// A recovery carried out beside a replacement is the same change built,
+// reviewed and checked twice at once, which is what happened on October 18
+// to owning roles deciding their own amendments (yoyodyne-i92).
+//
+// Each is asked of a record rather than of the item's status alone: an item
+// closed before the recovery was decided, with no settled work, keeps the
+// recovery the action would have refused anyway, and an item that is open
+// again — reopened explicitly — keeps every recovery but one a replacement
+// holds, so a reopening is never mistaken for obsolete work. The confirmed
+// merge is the one runretirement.go reads (confirmedCompletedPublication), so a
+// later run retired from its integration and an older run's recovery found not
+// to apply are judged by the same evidence.
 //
 // What is recorded is a carry-out finding with its own cause
 // (triage.CarryOutNoLongerApplies), on the item's triage record where every
@@ -192,28 +199,209 @@ func preservedAccount(runID string, recorded []runstate.State) string {
 // would change that. Nobody has to do anything; only a reopening does.
 const noLongerAppliesClears = "Nobody needs to do anything about it. Only reopening the item and the development manager recording a new decision about this run would make a recovery of it apply again"
 
-// recoverySettled reports a recovery about task's run that no longer applies:
-// the item is closed and settledWorkOf finds its work settled. An item or a
-// record that cannot be read establishes nothing, and the recovery is left to
-// the action, whose own gates refuse what they always refused.
-func (c CarryOut) recoverySettled(ctx context.Context, task CarryOutTask, closure *triage.Closure, counters runstate.TriageCounters, recorded []runstate.State, item func(context.Context, string) (beads.WorkItem, bool)) (string, bool) {
+// recoverySettled reports a recovery about task's run that no longer applies,
+// with the account the finding records. It does not apply where:
+//
+//   - the item is closed and settledWorkOf finds its work settled;
+//   - the item closed at or after the recovery was decided, whatever settled it
+//     (closedSinceDecided): a recovery decided on a stopped run is about that
+//     item's work, and once the item is closed or retired there is nothing left
+//     on it for the recovery to do. Carrying it out was refused by the action
+//     every pass, for weeks, and handed back as a decision to make again;
+//   - another item holds the run's work as its replacement (replacementOf), so
+//     carrying the recovery out would build, review and check the same change
+//     twice at once, the replacement's run beside the old run's.
+//
+// An item or a record that cannot be read establishes nothing, and the
+// recovery is left to the action, whose own gates refuse what they always
+// refused.
+func (c CarryOut) recoverySettled(ctx context.Context, task CarryOutTask, closure *triage.Closure, counters runstate.TriageCounters, recorded []runstate.State, item func(context.Context, string) (beads.WorkItem, bool), unfinished func(context.Context) ([]beads.WorkItem, bool)) (notApplying, bool) {
 	if task.Harness {
-		return "", false
-	}
-	settled, found := settledWorkOf(task.RunID, task.WorkItemID, recorded, closure, counters, c.now())
-	if !found {
-		return "", false
+		return notApplying{}, false
 	}
 	read, ok := item(ctx, task.WorkItemID)
-	if !ok || read.ID != task.WorkItemID || read.Status != "closed" {
-		return "", false
+	if !ok || read.ID != task.WorkItemID {
+		return notApplying{}, false
 	}
 	title := strings.TrimSpace(read.Title)
 	if title == "" {
 		title = read.ID
 	}
-	return fmt.Sprintf("%s (%s) is closed and %s. Nothing was started and nothing was spent, and nothing was removed: %s, and its history and the item's notes are kept. The merge says the change landed; it does not say the item's acceptance criteria were met, and anything the item records as unfinished still stands",
-		title, read.ID, settled.account, preservedAccount(task.RunID, recorded)), true
+	kept := fmt.Sprintf("Nothing was started and nothing was spent, and nothing was removed: %s, and its history and the item's notes are kept", preservedAccount(task.RunID, recorded))
+	if read.Status == "closed" {
+		if settled, found := settledWorkOf(task.RunID, task.WorkItemID, recorded, closure, counters, c.now()); found {
+			return notApplying{account: fmt.Sprintf("%s (%s) is closed and %s. %s. The merge says the change landed; it does not say the item's acceptance criteria were met, and anything the item records as unfinished still stands",
+				title, read.ID, settled.account, kept), clears: noLongerAppliesClears}, true
+		}
+		if closedSinceDecided(read, task.DecidedAt) {
+			return notApplying{account: fmt.Sprintf("%s (%s) %s, %s, so there is nothing left on the item for the %q about run %s to do. %s",
+				title, read.ID, closedSays(read), decidedSays(task), task.Decision, task.RunID, kept), clears: noLongerAppliesClears}, true
+		}
+		return notApplying{}, false
+	}
+	if replacement, found := replacementOf(ctx, task, counters, item, unfinished); found {
+		return notApplying{account: fmt.Sprintf("the %q about run %s of %s (%s), %s, was set aside for the replacement %s: %s. Carrying it out would build, review and check the same change twice at once. %s. The replacement's own run is what carries the work now",
+			task.Decision, task.RunID, title, read.ID, decidedSays(task), replacement.names(), replacement.how, kept), clears: setAsideClears(replacement.id)}, true
+	}
+	return notApplying{}, false
+}
+
+// notApplying is a recovery found not to apply: the account the finding
+// records, and what would make a recovery of the run apply again.
+type notApplying struct {
+	account string
+	clears  string
+}
+
+// setAsideClears is what would make a recovery set aside for a replacement
+// apply again. Nobody has to do anything: the replacement carries the work.
+func setAsideClears(replacementID string) string {
+	return fmt.Sprintf("Nobody needs to do anything about it: %s carries the work. Only the development manager recording a new decision about this run, after the replacement, would make a recovery of it apply again", replacementID)
+}
+
+// closedSinceDecided reports an item that closed at or after the recovery about
+// one of its runs was decided. An item whose close time the tracker does not
+// give, or a recovery whose decision time is not recorded, is taken as closed
+// since: the close is what stands now, and nothing says the recovery was
+// decided past it. A recovery decided after the item closed is somebody
+// deciding past the close, which only a reopening makes sense of, and it is
+// left to the action.
+func closedSinceDecided(item beads.WorkItem, decidedAt time.Time) bool {
+	return item.ClosedAt.IsZero() || decidedAt.IsZero() || !item.ClosedAt.Before(decidedAt)
+}
+
+// closedSays is when and why an item closed, as far as the tracker says.
+func closedSays(item beads.WorkItem) string {
+	said := "is closed"
+	if !item.ClosedAt.IsZero() {
+		said = "closed at " + item.ClosedAt.UTC().Format(time.RFC3339)
+	}
+	if reason := strings.TrimSpace(item.CloseReason); reason != "" {
+		said += " (" + singleLine(reason, 512) + ")"
+	}
+	return said
+}
+
+// decidedSays is when the recovery was decided or asked for, where that is
+// recorded.
+func decidedSays(task CarryOutTask) string {
+	if task.DecidedAt.IsZero() {
+		return "decided at a time its record does not give"
+	}
+	return "decided at " + task.DecidedAt.UTC().Format(time.RFC3339)
+}
+
+// replacement is another item that holds a run's work as its replacement, and
+// how that is known.
+type replacement struct {
+	id, title, status string
+	how               string
+}
+
+// names is the replacement as a reader reads it: its title, its identifier, and
+// where it stands.
+func (r replacement) names() string {
+	said := r.id
+	if title := strings.TrimSpace(r.title); title != "" {
+		said = fmt.Sprintf("%s (%s)", title, r.id)
+	}
+	if status := strings.TrimSpace(r.status); status != "" {
+		said += ", which is " + strings.ReplaceAll(status, "_", " ")
+	}
+	return said
+}
+
+// replacementOf is the item that holds task's run's work as its replacement,
+// where one does. Two records say so:
+//
+//   - the development manager's stop decision naming the item that does this
+//     item's work instead (recordedSupersession), recorded no earlier than the
+//     recovery; or
+//   - an unfinished item broken out of the run's own item after the recovery
+//     was decided, whose title or description names the run and says it
+//     replaces, rebuilds or supersedes that run's change (rebuildsRun). That is
+//     how the development manager rebuilds a stopped change from the current
+//     target as an item of its own.
+//
+// A recovery decided after either is somebody deciding past the replacement,
+// and it stands. A listing that cannot be read establishes nothing.
+func replacementOf(ctx context.Context, task CarryOutTask, counters runstate.TriageCounters, item func(context.Context, string) (beads.WorkItem, bool), unfinished func(context.Context) ([]beads.WorkItem, bool)) (replacement, bool) {
+	if stop, found := recordedSupersession(counters, task.RunID); found && !stop.DecidedAt.Before(task.DecidedAt) {
+		if id := strings.TrimSpace(stop.SupersededBy); id != task.WorkItemID {
+			found := replacement{id: id, how: fmt.Sprintf("the development manager recorded that it does this item's work instead, in the %q %s", stop.Decision, stop.Cite())}
+			if other, ok := item(ctx, id); ok && other.ID == id {
+				found.title, found.status = other.Title, other.Status
+			}
+			return found, true
+		}
+	}
+	if unfinished == nil {
+		return replacement{}, false
+	}
+	items, ok := unfinished(ctx)
+	if !ok {
+		return replacement{}, false
+	}
+	for _, candidate := range items {
+		if rebuildsRun(candidate, task) {
+			return replacement{id: candidate.ID, title: candidate.Title, status: candidate.Status,
+				how: fmt.Sprintf("it was broken out of %s at %s, after the recovery was decided, and says it replaces the change of run %s", task.WorkItemID, candidate.CreatedAt.UTC().Format(time.RFC3339), task.RunID)}, true
+		}
+	}
+	return replacement{}, false
+}
+
+// replacingWords are the stems an item's own text uses to say it replaces a
+// run's change rather than builds on it. An item broken out of a stopped run's
+// item that only builds on that change, or cites the run as evidence, says none
+// of them, and its parent's recovery stands: the child may be waiting on it.
+var replacingWords = []string{"replac", "rebuil", "supersed"}
+
+// rebuildsRun reports an unfinished item, other than the run's own, broken out
+// of the run's item no earlier than the recovery was decided, whose title or
+// description names the run and says it replaces, rebuilds or supersedes it.
+func rebuildsRun(candidate beads.WorkItem, task CarryOutTask) bool {
+	if candidate.ID == "" || candidate.ID == task.WorkItemID || candidate.Status == "closed" ||
+		candidate.DecomposedFrom() != task.WorkItemID {
+		return false
+	}
+	if !task.DecidedAt.IsZero() && !candidate.CreatedAt.IsZero() && candidate.CreatedAt.Before(task.DecidedAt) {
+		return false
+	}
+	text := candidate.Title + "\n" + candidate.Description
+	if strings.TrimSpace(task.RunID) == "" || !strings.Contains(text, task.RunID) {
+		return false
+	}
+	lower := strings.ToLower(text)
+	for _, word := range replacingWords {
+		if strings.Contains(lower, word) {
+			return true
+		}
+	}
+	return false
+}
+
+// unfinishedReader lists the unfinished items once per sweep through the
+// tracker wired as Unfinished. A carry-out wired without one, or a listing
+// that fails, finds no replacement item that way.
+func (c CarryOut) unfinishedReader() func(context.Context) ([]beads.WorkItem, bool) {
+	var listed []beads.WorkItem
+	asked, failed := false, false
+	return func(ctx context.Context) ([]beads.WorkItem, bool) {
+		if c.Unfinished == nil || failed {
+			return nil, false
+		}
+		if asked {
+			return listed, true
+		}
+		items, err := c.Unfinished.ListUnfinished(ctx)
+		if err != nil {
+			failed = true
+			return nil, false
+		}
+		listed, asked = items, true
+		return listed, true
+	}
 }
 
 // itemReader reads each item once per sweep through the tracker the carry-out
@@ -253,15 +441,19 @@ func docketClosure(entries []triage.Entry, key string) *triage.Closure {
 // settledTask is a recovery the sweep found no longer applies, with the account
 // the finding records.
 type settledTask struct {
-	task    CarryOutTask
-	account string
+	task CarryOutTask
+	notApplying
 }
 
 // recordNoLongerApplies writes the finding that one recovery does not apply onto
 // the item's triage record, with a note on the item, and returns the account of
 // it. It is written under a context detached from the caller's, as every other
 // finding is (stopped).
-func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, account string) CarriedOut {
+func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, found notApplying) CarriedOut {
+	account, clears := found.account, found.clears
+	if clears == "" {
+		clears = noLongerAppliesClears
+	}
 	carried := CarriedOut{
 		WorkItemID: task.WorkItemID,
 		RunID:      task.RunID,
@@ -270,7 +462,22 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 		Cause:      triage.CarryOutNoLongerApplies,
 		Gate:       runstate.TriageGateWorkItem,
 		Problem: fmt.Sprintf("the %q recorded about run %s was not carried out because it no longer applies: %s. %s",
-			task.Decision, task.RunID, strings.TrimSpace(account), noLongerAppliesClears),
+			task.Decision, task.RunID, strings.TrimSpace(account), clears),
+	}
+	if task.Decision == DecisionFinishMerge {
+		// The request is the development manager's, written on the run rather than
+		// on the triage record, so the run is where it is answered: written onto
+		// the request as not carried out, which ends it being asked every pass, and
+		// noted on the item by the same writer.
+		if setter, ok := c.Integrations.(interface {
+			SetAside(context.Context, string, string) error
+		}); ok {
+			why := fmt.Sprintf("it was not carried out because it no longer applies: %s. %s", strings.TrimSpace(account), clears)
+			if err := setter.SetAside(ctx, task.RunID, why); err != nil {
+				carried.RecordProblem = fmt.Sprintf("and that could not be written onto run %s's request, so the next pass finds it again: %v", task.RunID, err)
+			}
+			return carried
+		}
 	}
 	if harnessOwnTask(task.Decision) {
 		// Nobody decided a harness continuation, so there is no decision on the
@@ -280,7 +487,7 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 			return carried
 		}
 		note := fmt.Sprintf("Yoyodyne did not continue run %s itself, because continuing it no longer applies: %s. %s",
-			task.RunID, strings.TrimSpace(account), noLongerAppliesClears)
+			task.RunID, strings.TrimSpace(account), clears)
 		noting, stopNoting := trackerRecordContext(ctx)
 		defer stopNoting()
 		item, err := c.Notes.Show(noting, task.WorkItemID)
@@ -301,7 +508,7 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 		Decision:  task.Decision,
 		Gate:      runstate.TriageGateWorkItem,
 		Refusal:   singleLine(account, runstate.MaxTriageCarryOutRefusalBytes),
-		Clears:    noLongerAppliesClears,
+		Clears:    clears,
 	}, c.now()); err != nil {
 		carried.RecordProblem = fmt.Sprintf("and that could not be written onto %s's triage record, so the next pass finds it again: %v", task.WorkItemID, err)
 		return carried
@@ -318,14 +525,14 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 
 // settledNow asks recoverySettled of the records as they stand at execution,
 // for one task. A record that cannot be read establishes nothing.
-func (c CarryOut) settledNow(ctx context.Context, task CarryOutTask, counters runstate.TriageCounters) (string, bool) {
+func (c CarryOut) settledNow(ctx context.Context, task CarryOutTask, counters runstate.TriageCounters) (notApplying, bool) {
 	recorded, err := c.Runs.Recorded()
 	if err != nil {
-		return "", false
+		return notApplying{}, false
 	}
 	var closure *triage.Closure
 	if entries, err := c.Docket.List(); err == nil {
 		closure = docketClosure(entries, task.DocketKey)
 	}
-	return c.recoverySettled(ctx, task, closure, counters, recorded, c.itemReader())
+	return c.recoverySettled(ctx, task, closure, counters, recorded, c.itemReader(), c.unfinishedReader())
 }

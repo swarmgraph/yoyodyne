@@ -2001,6 +2001,31 @@ out: 1 refused, 1 unattempted* — because the two are fixed in different places
 The re-runs recorded for yoyodyne-ifd.192 and .187 on 2026-09-19 sat in that
 third ending for a week with nothing anywhere saying so;
 [the diagnosis](diagnoses/yoyodyne-ifd-428-39-unattempted-carry-outs.md) is how.
+Her docket says when each such decision was made and how long it had waited
+with no run taking it up, and a request to finish a merge that is waiting says
+on the item when she asked and how long ago, so a decision standing for hours
+reads as that rather than as a fresh wait.
+
+**A recovery is set aside, not carried out, once its work is elsewhere.** A
+repair, a re-run, or a request to finish a merge through `run.recover`, about a
+stopped run, is neither offered nor carried out, and nothing is spent, where:
+
+- the run's item has closed since the recovery was decided, whatever closed
+  it: the finding says when it closed and why; or
+- another item holds the run's work as its replacement: one she named in a
+  stop decision as doing the item's work instead, or an unfinished item broken
+  out of the run's item after the recovery was decided whose title or
+  description names the run and says it replaces, rebuilds or supersedes its
+  change. Carrying the recovery out beside it would build, review and check the
+  same change twice at once.
+
+It is written onto the item's triage record as no longer applying, naming the
+closed item or the replacement, with a note on the item, and her docket says
+it was set aside and for which item; a request to finish a merge is written
+onto the run's own request as not carried out, so it is not asked again. A
+recovery she decides after the close or after the replacement was made is her
+deciding past it, and is carried out as before. A child item that builds on the
+run's change, or only cites the run, sets nothing aside.
 
 This holds whatever became of the docket entry for the decision's run. A
 decision about a run whose entry an earlier decision closed — a re-run recorded

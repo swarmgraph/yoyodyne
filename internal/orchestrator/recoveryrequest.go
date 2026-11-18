@@ -227,8 +227,9 @@ func (r RecoveredIntegrations) Wait(ctx context.Context, runID, why string) erro
 	if err := r.Runs.Save(state); err != nil {
 		return fmt.Errorf("record what finishing run %s's merge waits on: %w", runID, err)
 	}
-	return r.note(ctx, state.WorkItemID, fmt.Sprintf("Finishing the merge of run %s, which the development manager asked for through run.recover (request %s), is waiting: %s. Nothing is refused; the next pull that can take it tries again.",
-		runID, state.RecoveryContinuation.RequestID, strings.TrimSpace(why)))
+	asked := state.RecoveryContinuation
+	return r.note(ctx, state.WorkItemID, fmt.Sprintf("Finishing the merge of run %s, which the development manager asked for through run.recover (request %s) at %s, is waiting, %s after she asked, with no run taking it up: %s. Nothing is refused; the next pull that can take it tries again.",
+		runID, asked.RequestID, asked.RequestedAt.UTC().Format(time.RFC3339), r.now().Now().Sub(asked.RequestedAt).Round(time.Minute), strings.TrimSpace(why)))
 }
 
 func (r RecoveredIntegrations) note(ctx context.Context, workItemID, note string) error {
@@ -264,6 +265,19 @@ func (r RecoveredIntegrations) Finish(ctx context.Context, runID string) (Integr
 		result.RecordProblem = strings.TrimSpace(result.RecordProblem + " " + recordErr.Error())
 	}
 	return result, err
+}
+
+// SetAside writes onto the run's outstanding request to finish its merge that
+// it was not carried out and why, as a refusal the work session will not retry
+// by itself, and notes it on the item. It is what the carry-out records where
+// the request no longer applies (recoveryapplicability.go): the item closed, or
+// another item holds the run's work as its replacement.
+func (r RecoveredIntegrations) SetAside(ctx context.Context, runID, why string) error {
+	asked, due, err := r.Asked(runID)
+	if err != nil || !due {
+		return err
+	}
+	return r.refuse(ctx, runID, asked.RequestID, why)
 }
 
 func (r RecoveredIntegrations) refuse(ctx context.Context, runID, requestID, why string) error {
@@ -316,6 +330,9 @@ func (c CarryOut) finishMergeTask(entry triage.Entry, item outstandingItem) (Car
 		DocketKey:  entry.Key,
 		Decision:   DecisionFinishMerge,
 		Reason:     "the development manager asked through run.recover for this approved change's integration to be finished",
+		// When she asked is what a replacement item or the item's close is
+		// compared with (recoveryapplicability.go), as a decision's time is.
+		DecidedAt: asked.RequestedAt,
 	}, true, nil
 }
 
