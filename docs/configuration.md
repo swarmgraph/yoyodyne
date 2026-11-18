@@ -3774,6 +3774,11 @@ refused at the landing. Leave the race check off `merge_queue_checks` only once
 `main_checks` runs it on the branch, as above. The queue's checks of a confirmed document
 are `document_checks`, not these.
 
+With checks on CI on (`execution.ci_checks`, below) and the project publishing,
+the queue runs neither list on a change's candidate: it runs the quick checks
+`execution.ci_checks.local` names, and GitHub's required checks on the
+candidate's own commit stand in for the rest, as the next section says.
+
 ### Checks on CI (`execution.ci_checks`)
 
 `execution.ci_checks` is the switch for moving most of a run's testing to the
@@ -3826,6 +3831,28 @@ A push the forge refuses, or a draft pull request it will not open, blocks the
 item for the development manager with the forge's own words, because merging
 the change would need the same forge. The branch and worktree are kept, and no
 repair round is spent.
+
+With `execution.merge_queue` on as well, and the project publishing, the merge
+queue checks each change's candidate the same way rather than running its full
+checks on this machine too. The candidate runs only the checks `local` names,
+in the order `checks` lists them, and, while no name in `required` is a word of
+`merge_queue_race_check` (as `race` is of `make race`), that race check told only
+the packages the change touches, where the change owes it. Once those pass, the
+harness pushes the candidate to its candidate branch and opens the pull request
+that carries it, so GitHub runs the required checks on that exact commit. The
+independent review runs while GitHub's checks do; the harness reads them every
+30 seconds meanwhile, and a required check that fails on the candidate stops the
+review. The candidate lands only once its review approved it and every required
+check passed on its own commit, read by the harness with the workflow files'
+digest and with the target still at the candidate's base. A required check
+still running is waited for on the queue's next pass, holding no developer slot.
+A failure is the change's, and goes back to its run for a repair, only where the
+same check passed at the candidate's base on GitHub; where it failed there too,
+the entry waits for the target to move. A required check that ends cancelled,
+skipped or any way but passed or failed, or has not finished within `wait_limit`
+of the push, has the entry's next candidate run the full checks on this machine
+instead, with the reason recorded and no repair spent. A confirmed document's
+candidate still runs `document_checks`.
 
 ```yaml
 execution:

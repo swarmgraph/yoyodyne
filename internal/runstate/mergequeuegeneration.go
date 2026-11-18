@@ -98,14 +98,24 @@ type MergeQueueCheckConfiguration struct {
 func NewMergeQueueForgeConfiguration(commands, quick, forge []string) MergeQueueCheckConfiguration {
 	configuration := NewMergeQueueDeclaredConfiguration(commands, quick)
 	configuration.ForgeChecks = append([]string(nil), forge...)
+	configuration.Digest = configuration.digest()
+	return configuration
+}
+
+// digest is what the configuration's Digest must be: its commands', and with
+// the forge's required checks covered too where it names any.
+func (c MergeQueueCheckConfiguration) digest() string {
+	commands := checkConfigurationDigest(c.Commands)
+	if len(c.ForgeChecks) == 0 {
+		return commands
+	}
 	sum := sha256.New()
 	writeBound(sum, "merge-queue-checks-with-forge/1")
-	writeBound(sum, configuration.Digest)
-	for _, name := range forge {
+	writeBound(sum, commands)
+	for _, name := range c.ForgeChecks {
 		writeBound(sum, name)
 	}
-	configuration.Digest = hex.EncodeToString(sum.Sum(nil))
-	return configuration
+	return hex.EncodeToString(sum.Sum(nil))
 }
 
 // MergeQueueDeclaredChecks is a project's declared list of queue checks.
@@ -639,7 +649,7 @@ func (g MergeQueueGeneration) validateBinding() error {
 	if len(g.Checks.Commands) == 0 {
 		problems = append(problems, errors.New("a candidate is verified by at least one configured check"))
 	}
-	if g.Checks.Digest != checkConfigurationDigest(g.Checks.Commands) {
+	if g.Checks.Digest != g.Checks.digest() {
 		problems = append(problems, errors.New("the check configuration's digest is not its commands'"))
 	}
 	if err := mergeQueueText("author session", g.AuthorSession, true); err != nil {

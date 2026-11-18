@@ -40,6 +40,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -58,10 +59,12 @@ type MergeQueueCandidatePublisher interface {
 
 // forgeChecksStandIn reports whether the forge's required checks stand in for
 // the full local run of a queue candidate: checks on CI is on, names the checks
-// that must pass, and there is a forge to push to and read.
+// that must pass, the project publishes, so a candidate lands through the
+// forge, and there is a forge to push to and read.
 func (p *Pipeline) forgeChecksStandIn() bool {
 	ci := p.Config.Execution.CIChecks
-	return ci.Enabled && len(ci.Required) > 0 && p.CIForge != nil && p.Publisher != nil
+	return ci.Enabled && len(ci.Required) > 0 && p.Config.Approvals.Publishing == domain.ApprovalAutomatic &&
+		p.CIForge != nil && p.Publisher != nil
 }
 
 // quickQueueChecks is the checks a code entry's candidate runs on this machine
