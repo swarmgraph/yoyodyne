@@ -51,6 +51,9 @@ type CIForge interface {
 	EnsureDraft(ctx context.Context, request publish.Request) (publish.PullRequest, error)
 	RequiredChecks(ctx context.Context, commit string, required []string) (publish.RequiredCheckReading, error)
 	CheckOutput(ctx context.Context, check publish.RequiredCheck) (publish.CheckOutput, error)
+	// WorkflowDigest is the digest of the forge's workflow files at a commit,
+	// recorded with a passing result so a change to them withdraws it.
+	WorkflowDigest(ctx context.Context, commit string) (string, error)
 }
 
 var fullCommit = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
@@ -231,9 +234,19 @@ func (a *activeRun) settleCIWait(ctx context.Context) error {
 		return a.endCIWaitWithFullChecks(ctx, wait, "the forge answered for another commit")
 	}
 	if reading.AllPassed() {
+		evidence, err := ciEvidenceFrom(ctx, p.CIForge, wait, reading)
+		if err != nil {
+			if wait.Overdue(now) {
+				return a.endCIWaitWithFullChecks(ctx, wait, "the passing result could not be recorded as evidence after the wait limit: "+err.Error())
+			}
+			return a.parkAgain(wait, "the passing result could not be recorded as evidence: "+err.Error())
+		}
 		a.state.CIWait = nil
 		a.state.CIWaitEnd = &runstate.CIWaitEnd{Commit: wait.Commit, At: now, Passed: true,
-			Says: "every required check passed on the commit pushed: " + strings.Join(wait.Required, ", ")}
+			Says:           "every required check passed on the commit pushed: " + strings.Join(wait.Required, ", "),
+			Checks:         evidence.checks,
+			WorkflowDigest: evidence.digest,
+		}
 		a.state.UpdatedAt = now
 		if err := p.Store.Save(a.state); err != nil {
 			return fmt.Errorf("record that the forge's checks passed: %w", err)
@@ -330,6 +343,73 @@ func ciFailureResult(commit string, failed []publish.RequiredCheck, outputs []pu
 		Process:       execution.ProcessResult{ExitCode: 1},
 		FailureOutput: boundedTail(header+body.String(), runstate.MaxCheckOutputBytes),
 	}
+}
+
+type ciEvidence struct {
+	checks []runstate.CICheckEvidence
+	digest string
+}
+
+// ciEvidenceFrom makes a passing reading into evidence for the commit the wait
+// names. Every check the wait required must be in the reading, passed, and ran on
+// that exact commit; a reading that is not is an error rather than evidence. The
+// workflow digest is read from the forge for the same commit.
+func ciEvidenceFrom(ctx context.Context, forge CIForge, wait runstate.CIWait, reading publish.RequiredCheckReading) (ciEvidence, error) {
+	byName := map[string]publish.RequiredCheck{}
+	for _, check := range reading.Checks {
+		byName[check.Name] = check
+	}
+	var evidence ciEvidence
+	for _, name := range wait.Required {
+		check, ok := byName[strings.TrimSpace(name)]
+		if !ok || check.Result != publish.CheckPassed || strings.ToLower(check.Commit) != wait.Commit {
+			return ciEvidence{}, fmt.Errorf("%s did not read as passed on %s", name, wait.Commit)
+		}
+		evidence.checks = append(evidence.checks, runstate.CICheckEvidence{Name: check.Name, Result: string(check.Result), Commit: check.Commit})
+	}
+	digest, err := forge.WorkflowDigest(ctx, wait.Commit)
+	if err != nil {
+		return ciEvidence{}, err
+	}
+	evidence.digest = digest
+	return evidence, nil
+}
+
+// describeCIEvidence is what the reviewer is shown of the forge's checks: each
+// required check's name, result and the commit it ran on, and whether the result
+// counts as evidence for the candidate. The workflow digest is read from the
+// forge again here, so a result recorded against workflow files that have since
+// changed is shown as giving no credit. It is empty when the run did not wait on
+// the forge.
+func (a *activeRun) describeCIEvidence(ctx context.Context) string {
+	end := a.state.CIWaitEnd
+	p := a.pipeline
+	if end == nil || !p.Config.Execution.CIChecks.Enabled {
+		return ""
+	}
+	candidate := strings.ToLower(strings.TrimSpace(a.state.HarnessCommit))
+	var digest string
+	var readErr error
+	if p.CIForge != nil && candidate != "" {
+		digest, readErr = p.CIForge.WorkflowDigest(ctx, candidate)
+	}
+	counts, why := end.CountsFor(candidate, p.Config.Execution.CIChecks.Required, digest)
+	if readErr != nil {
+		counts, why = false, "the workflow files could not be read to confirm it: "+readErr.Error()
+	}
+	var text strings.Builder
+	if counts {
+		text.WriteString("The harness read these results from the forge for the candidate commit, and they count as evidence:\n")
+	} else {
+		text.WriteString("These results give no credit as evidence for the candidate commit: " + why + ".\n")
+	}
+	for _, check := range end.Checks {
+		fmt.Fprintf(&text, "- %s: %s, on commit %s\n", check.Name, check.Result, check.Commit)
+	}
+	if len(end.Checks) == 0 {
+		text.WriteString("- no required check result was recorded; " + end.Says + "\n")
+	}
+	return text.String()
 }
 
 // parkAgain returns a run that was continued before the forge had decided to

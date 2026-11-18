@@ -2855,6 +2855,64 @@ type CIWaitEnd struct {
 	// recorded beside the local result rather than in place of it, and a failure
 	// in either counts as a failure. Empty while the forge has not finished.
 	Late *CIWaitLate `json:"late,omitempty"`
+	// Checks is each required check's standing as the harness read it from the
+	// forge for Commit, and WorkflowDigest is the digest of the forge's workflow
+	// files at Commit. Both are recorded only where Passed is true; together with
+	// Commit they are the CI evidence CountsFor judges.
+	Checks         []CICheckEvidence `json:"checks,omitempty"`
+	WorkflowDigest string            `json:"workflow_digest,omitempty"`
+}
+
+// CICheckEvidence is one required check as the forge reported it: its name, how
+// it ended, and the commit it ran on.
+type CICheckEvidence struct {
+	Name   string `json:"name"`
+	Result string `json:"result"`
+	Commit string `json:"commit"`
+}
+
+// CountsFor reports whether this wait's result is evidence for the candidate
+// commit under the required checks now configured and the workflow digest the
+// forge now gives for that commit, and says why not when it is not. It counts
+// only when the wait ended with every check passing, the commit is exactly the
+// candidate, the checks recorded are exactly the required set and each passed
+// on that commit, and the workflow digest recorded is the one still current. A
+// change to the candidate, to the required set or to the workflow files
+// therefore withdraws it, and so does a result read for any other commit.
+func (e *CIWaitEnd) CountsFor(candidate string, required []string, workflowDigest string) (bool, string) {
+	candidate = strings.ToLower(strings.TrimSpace(candidate))
+	switch {
+	case e == nil:
+		return false, "no result was read from the forge"
+	case !e.Passed:
+		return false, "the wait did not end with every required check passing"
+	case candidate == "" || strings.ToLower(strings.TrimSpace(e.Commit)) != candidate:
+		return false, "the result was read for a commit other than the candidate"
+	case strings.TrimSpace(e.WorkflowDigest) == "":
+		return false, "no digest of the workflow files was recorded with it"
+	case e.WorkflowDigest != workflowDigest:
+		return false, "the workflow files changed after the result was read"
+	}
+	want := map[string]bool{}
+	for _, name := range required {
+		want[strings.TrimSpace(name)] = true
+	}
+	got := map[string]bool{}
+	for _, check := range e.Checks {
+		if check.Result != "passed" || strings.ToLower(strings.TrimSpace(check.Commit)) != candidate {
+			return false, fmt.Sprintf("%s did not pass on the candidate commit", check.Name)
+		}
+		got[strings.TrimSpace(check.Name)] = true
+	}
+	if len(want) == 0 || len(want) != len(got) {
+		return false, "the required checks changed after the result was read"
+	}
+	for name := range want {
+		if !got[name] {
+			return false, "the required checks changed after the result was read"
+		}
+	}
+	return true, ""
 }
 
 // CIWaitLate is a required-check result the forge gave for a commit after the
