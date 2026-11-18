@@ -204,6 +204,9 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 	if parts.mergeQueues != nil {
 		flow.Queues = parts.mergeQueues
 	}
+	if parts.watch != nil {
+		flow.Watch = parts.watch
+	}
 	if parts.config.Approvals.Publishing == domain.ApprovalAutomatic {
 		flow.Forge = publish.GitHub{
 			Runner:       parts.runner,
