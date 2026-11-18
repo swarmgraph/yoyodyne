@@ -9647,6 +9647,7 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		// alone. It comes from the durable record for the reason the claim does: a
 		// repair round judges what the run currently holds.
 		Verification:            describeVerification(a.state),
+		CIChecks:                a.describeCIEvidence(ctx),
 		DeveloperSummary:        developerSummary,
 		DeveloperSummaryContext: summaryContext,
 		// Every earlier attempt's account too, so a repair's summary that leans
