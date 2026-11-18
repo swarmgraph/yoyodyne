@@ -149,6 +149,7 @@ func repositoryReadPayload(result repositoryread.Result) map[string]any {
 		if result.Offset > 0 {
 			payload["offset"] = result.Offset
 		}
+		payload["returned"] = result.Returned
 		if result.Remaining > 0 {
 			payload["remaining"] = result.Remaining
 		}

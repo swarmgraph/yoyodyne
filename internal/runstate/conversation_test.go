@@ -1506,3 +1506,45 @@ func TestConversationBoundsHeldDocumentsApart(t *testing.T) {
 		t.Fatalf("Validate() error = %v, want the fifth held document refused", err)
 	}
 }
+
+// The documents a conversation may keep, at the largest the contract allows, are
+// still a record the store saves and reloads, even when the quotes and newlines
+// in them are escaped; one byte past what the record gives them is refused with
+// the reason before it could make the record too big to save.
+func TestTheLargestAllowedSetOfWaitingDocumentsSavesAndReloads(t *testing.T) {
+	t.Parallel()
+
+	store := newConversationStore(t, t.TempDir())
+	line := "A \"quoted\" line of the design.\n"
+	body := strings.Repeat(line, MaxPendingWriteBytes/len(line))
+	body += strings.Repeat("x", MaxPendingWriteBytes-len(body))
+	if len(body) != MaxPendingWriteBytes {
+		t.Fatalf("body is %d bytes", len(body))
+	}
+	conversation := testConversation(t)
+	for index := 0; index < MaxHeldWrites; index++ {
+		id := fmt.Sprintf("design-%d", index)
+		conversation.PendingWrites = append(conversation.PendingWrites, PendingWrite{
+			ID: id, Turn: 1, Action: "revise", Artifact: id, Body: body, Reason: "why",
+			Hold: &artifact.SendingHold{UntilClosed: "yoyodyne-fix", Reason: "waits for the fix"},
+		})
+	}
+	if stored := PendingWriteStoredBytes(conversation.PendingWrites); stored != MaxPendingWriteStoredBytes {
+		t.Fatalf("the set takes %d bytes, expected it to sit at the limit of %d", stored, MaxPendingWriteStoredBytes)
+	}
+	if err := store.Save(conversation); err != nil {
+		t.Fatalf("Save() of the largest allowed set error = %v", err)
+	}
+	loaded, err := store.Load(conversation.Identity())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(loaded.PendingWrites) != MaxHeldWrites {
+		t.Fatalf("reloaded %d documents, want %d", len(loaded.PendingWrites), MaxHeldWrites)
+	}
+
+	conversation.PendingWrites[0].Body += "y"
+	if err := store.Save(conversation); err == nil || !strings.Contains(err.Error(), "the documents recorded take") {
+		t.Fatalf("Save() past the bound error = %v, want the bound named", err)
+	}
+}

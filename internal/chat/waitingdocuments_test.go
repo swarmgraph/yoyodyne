@@ -372,3 +372,29 @@ func TestEveryWriteIsAnsweredAndAnUnansweredOneIsReported(t *testing.T) {
 		t.Fatalf("the defect was reported %d times, want once", len(reports.appended))
 	}
 }
+
+// Waiting documents are also bounded by the bytes the conversation's record
+// stores for them, so a few documents of the largest size cannot make the record
+// too big to save: the one that would take it past the room is refused with the
+// reason, while a document of ordinary size still has its place.
+func TestADocumentThatWouldOverfillTheRecordIsRefusedWithTheReason(t *testing.T) {
+	t.Parallel()
+
+	big := strings.Repeat("x", 100<<10)
+	var records []*writeRecord
+	standings := map[string]runstate.DocumentStanding{}
+	for index := 1; index <= 2; index++ {
+		writeID := fmt.Sprintf("document-%d.1", index)
+		records = append(records, confirmedRecord(t, fmt.Sprintf("design-%d", index), writeID, "# Design\n\n"+big, ""))
+		standings[writeID] = running(fmt.Sprintf("run-%d", index))
+	}
+	session, _ := standingSession(t, standings, records...)
+
+	err := session.refuseWrites(context.Background(), []artifact.Write{landedWrite("design-3", "# Design\n\n"+big)})
+	if err == nil || !strings.Contains(err.Error(), "bytes of the") || !strings.Contains(err.Error(), `"withdraw"`) {
+		t.Fatalf("refuseWrites(a third large document) = %v, want it refused with the room named and what to do", err)
+	}
+	if err := session.refuseWrites(context.Background(), []artifact.Write{landedWrite("rules", "# Rules")}); err != nil {
+		t.Fatalf("a small document was refused: %v", err)
+	}
+}

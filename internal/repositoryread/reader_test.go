@@ -385,15 +385,15 @@ func TestReaderReadsALongFileInPartsByOffset(t *testing.T) {
 			}
 		}
 		if part.Truncated {
-			if part.Remaining != len(long)-part.Offset-len(part.Content) || part.Remaining <= 0 {
-				t.Fatalf("remaining = %d, want %d", part.Remaining, len(long)-part.Offset-len(part.Content))
+			if part.Remaining != len(long)-part.Offset-part.Returned || part.Remaining <= 0 {
+				t.Fatalf("remaining = %d, want %d", part.Remaining, len(long)-part.Offset-part.Returned)
 			}
-			if rendered := Render(results, AsEvidence); !strings.Contains(rendered, fmt.Sprintf(`"offset":%d`, part.Offset+len(part.Content))) {
+			if rendered := Render(results, AsEvidence); !strings.Contains(rendered, fmt.Sprintf(`"offset":%d`, part.Offset+part.Returned)) {
 				t.Fatalf("the rendering does not say where to read next: %q", rendered[:300])
 			}
 		}
 		assembled.WriteString(part.Content)
-		offset = part.Offset + len(part.Content)
+		offset = part.Offset + part.Returned
 		if !part.Truncated {
 			break
 		}
@@ -420,5 +420,54 @@ func TestReaderReadsALongFileInPartsByOffset(t *testing.T) {
 	}
 	if err := (Request{Action: ActionList, Path: "x", Offset: 1}).Validate(); err == nil {
 		t.Fatal("an offset on a list was accepted")
+	}
+}
+
+// Secrets are removed from what a part returns, which changes its length, so
+// the next offset is counted in the file's bytes and not in the returned text:
+// reading on from it reaches every byte once.
+func TestReaderOffsetsAreCountedInTheFilesBytesWhenSecretsAreRemoved(t *testing.T) {
+	t.Parallel()
+
+	const secret = "s3cr3t-value-abcdef-0123456789"
+	line := "token=" + secret + " and some ordinary words\n"
+	long := strings.Repeat(line, (2*MaxContentBytes/len(line))+50)
+	repository := newRepository(t, map[string]string{"long.md": long})
+	reader := Reader{Process: execution.OSProcessRunner{}, Directory: repository, RedactValues: []string{secret}}
+
+	offset, covered := 0, 0
+	for parts := 0; parts < 10; parts++ {
+		results, err := reader.Read(context.Background(), []Request{{Action: ActionRead, Path: "long.md", Offset: offset}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		part := results[0]
+		if part.Problem != "" {
+			t.Fatalf("part at %d refused: %s", offset, part.Problem)
+		}
+		if strings.Contains(part.Content, secret) {
+			t.Fatal("a secret reached the role")
+		}
+		if part.Offset != covered {
+			t.Fatalf("part starts at %d, the bytes before it are %d", part.Offset, covered)
+		}
+		if part.Returned == len(part.Content) {
+			t.Fatalf("the redaction did not change the length, so this test proves nothing")
+		}
+		if !part.Truncated {
+			covered += part.Returned
+			break
+		}
+		if want := len(long) - part.Offset - part.Returned; part.Remaining != want {
+			t.Fatalf("remaining = %d, want %d", part.Remaining, want)
+		}
+		if rendered := Render(results, AsEvidence); !strings.Contains(rendered, fmt.Sprintf(`"offset":%d`, part.Offset+part.Returned)) {
+			t.Fatalf("the rendering names the wrong next offset: %q", rendered)
+		}
+		covered += part.Returned
+		offset = covered
+	}
+	if covered != len(strings.TrimRight(long, "\n")) {
+		t.Fatalf("the parts covered %d bytes of the file's %d", covered, len(strings.TrimRight(long, "\n")))
 	}
 }

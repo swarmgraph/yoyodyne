@@ -270,7 +270,12 @@ type Result struct {
 	// Remaining is how many bytes of the file lie past the end of it, so a part
 	// says where it sits and a read of the next one is "offset" set to
 	// Offset plus the bytes returned. Both are on a read only.
+	//
+	// Returned is how many bytes of the file the content covers. It is the
+	// number the next offset is counted from: Content has secrets removed from
+	// it, which can change its length, so its own length is not.
 	Offset    int `json:"offset,omitempty"`
+	Returned  int `json:"returned,omitempty"`
 	Remaining int `json:"remaining,omitempty"`
 	// Truncated says the content or the listing was cut to fit, and
 	// TruncatedBy says which bound cut it, so a bounded answer is never read as
@@ -401,9 +406,9 @@ func Render(results []Result, framing Framing) string {
 			fmt.Fprintf(&rendered, "%d bytes at this commit", result.Size)
 			switch {
 			case result.Truncated:
-				fmt.Fprintf(&rendered, "; bytes %d to %d are below, cut %s, and %d bytes remain after them. The rest is not somewhere else in this turn: read it with the same request and \"offset\":%d", result.Offset, result.Offset+len(result.Content), result.TruncatedBy, result.Remaining, result.Offset+len(result.Content))
+				fmt.Fprintf(&rendered, "; bytes %d to %d are below, cut %s, and %d bytes remain after them. The rest is not somewhere else in this turn: read it with the same request and \"offset\":%d", result.Offset, result.Offset+result.Returned, result.TruncatedBy, result.Remaining, result.Offset+result.Returned)
 			case result.Offset > 0:
-				fmt.Fprintf(&rendered, "; bytes %d to %d are below, which is the end of the file", result.Offset, result.Offset+len(result.Content))
+				fmt.Fprintf(&rendered, "; bytes %d to %d are below, which is the end of the file", result.Offset, result.Offset+result.Returned)
 			}
 			rendered.WriteString(":\n\n")
 			rendered.WriteString(strings.TrimRight(result.Content, "\n") + "\n")
@@ -433,7 +438,7 @@ func (r Result) Describe() string {
 	case r.Action == ActionList:
 		line += fmt.Sprintf(" — %d name(s)", len(r.Entries))
 	case r.Truncated:
-		line += fmt.Sprintf(" — bytes %d to %d of %d, cut", r.Offset, r.Offset+len(r.Content), r.Size)
+		line += fmt.Sprintf(" — bytes %d to %d of %d, cut", r.Offset, r.Offset+r.Returned, r.Size)
 	default:
 		line += fmt.Sprintf(" — %d bytes", r.Size)
 	}

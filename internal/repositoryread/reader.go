@@ -263,6 +263,7 @@ func (r Reader) readFile(ctx context.Context, result *Result, offset int, redact
 	result.Content = redactor.Redact(bounded)
 	result.Truncated = truncatedBy != ""
 	result.TruncatedBy = truncatedBy
+	result.Returned = len(bounded)
 	if start > 0 || result.Truncated {
 		result.Offset = start
 	}
