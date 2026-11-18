@@ -518,9 +518,82 @@ with the new package's binary. One pass each at a load that moved is not
 evidence either way. What the move does show is the new binary passing in about
 a minute and a half, beside the package rather than inside it.
 
+### The fourth group: reconciliation and recovery (yoyodyne-ifd.429.14.4)
+
+On commit 21f0bfe0, `go run ./scripts/movetests` counted 85 tests in the five
+files of item 4 in the plan below that still exist, and 61 of them could move.
+This change moved 59 into `internal/orchestrator/recoverytests`. They cover
+reconciling a run a killed process left behind with what the target branch
+holds, a repair continuing a run that stalled or was stopped, an approved
+change the environment stopped being resumed at its promotion, a forge or
+tracker call carried across a dropped connection or a restart, and the settled
+checkouts and branches the sweep retires. Each keeps its name and its
+assertions.
+
+| file | tests | moved | stay |
+| --- | --- | --- | --- |
+| `reconcile_test.go` | 23 | 18 | 5 |
+| `recovery_test.go` | 17 | 15 | 2 |
+| `converge_test.go` | 16 | 10 | 6 |
+| `runretirement_test.go` | 8 | 2 | 6 |
+| `integrationresume_test.go` | 21 | 14 | 7 |
+
+24 of the 26 that stay reach `handedBackRepair`, `resumesAtOf`,
+`continuableRepair`, `continuableStall`, `vanishedRefusal`,
+`boundedFailureDetail`, `pausedForTracker`, `sweepWorktree`, `sweepBranch`,
+`sweepableWorktrees`, `settledWorktreeTail`, `resumedDocketDecision`,
+`resumableIntegration`, `integrationStopCauseOf`, `worktreeOf`, `newInFlight`,
+`occupiedItems`, or `slotFree`, among others. Two could move and stay:
+
+- `TestAnIntegrationStoppedRunIsNeitherReleasedNorRestartedAndItsResumePromotesIt`
+  drives the scheduler's test harness, `scheduleHarness`, which is the largest
+  helper in the package's tests. Exporting it for one test would have put most
+  of `schedule_test.go`'s helpers into `testharness`; it moves with the
+  scheduler group.
+- `TestARepairContinuesAFirstAttemptStallInItsOwnSession` is the exchange the
+  earlier groups met: with it moved, Git drew `reconcile_test.go`'s diff with
+  34 added lines, and with it kept the diff is removals alone.
+
+Four helpers whose exported names would have collided with a method or field
+of the same type were renamed in `testharness`, the first two to names it
+already used: `memoryDocket.close` is `CloseKey`, `pausingClock.now` is
+`Instant`, and `recordedDecisions`'s `counters` and `claimed` are
+`CountersByItem` and `ClaimedByItem`. The new tests come to 170 KB in six
+files, the largest 46 KB: the moved `reconcile_test.go` was 69 KB, so its tests
+of a stopped or paused run are in `reconcilestopped_test.go`. The helpers they
+added to `testharness` come to about 20 KB. Three of those helpers carry a
+run's ending and two look like authority checks to the sweeps described in
+`testharness`'s package comment, so `docs/run-stops.md` and
+`docs/authority-inventory.md` list them as test fixtures.
+
+The change was first written on 21f0bfe0 and then carried onto main at
+f4a2f23c, where the five files still held the same counts. A test added to
+`itemprefetch_test.go` in between uses `refusingCleanup`, a fixture this group
+moved out of `reconcile_test.go`, so the package keeps its own copy of it there.
+
+Timed side by side from 06:42 PST on 2026-11-16, with
+`go test -count=1 -json`, at a one-minute load between 11 and 70:
+
+| tree | `internal/orchestrator` | `internal/orchestrator/recoverytests` |
+| --- | --- | --- |
+| before, 21f0bfe0 | passed, 1,182s (1,025s in the binary) | |
+| after, this change | passed, 1,138s (1,065s in the binary) | passed, 270s (257s in the binary) |
+
+The first figure is the whole command, compile included; the one in brackets
+is the time `go test` reports for the test binary itself. The 59 tests' own
+elapsed times add up to 866 of the before run's 11,812 seconds, about 7
+percent. As with the third group, one pass each at a load that moved is not
+evidence of a change to the package's own time, either way: the whole command
+was 44 seconds faster after, and the binary 40 seconds slower. What the move
+shows is the moved tests passing in a binary of their own in about four and a
+half minutes, beside the package rather than inside it.
+
 ### What is left
 
-About 950 tests that can move, in groups of the size above. By subject and by
+On the tree of the fourth group, `go run ./scripts/movetests` counts 1,703
+tests, 593 of them reaching internals, so 1,110 can still move, in groups of
+the size above. (It counted about 950 when this plan was written; tests have
+been added since faster than the groups have taken them away.) By subject and by
 what they cost, a plan the development manager can take or change:
 
 1. The other 43 movable tests in `pipeline_test.go`, in one change.
@@ -531,7 +604,8 @@ what they cost, a plan the development manager can take or change:
    `landing_test.go`. Moved by the third group above.
 4. Reconciliation and recovery: `reconcile_test.go`, `recovery_test.go`,
    `converge_test.go`, `runretirement_test.go`, `supersession_test.go`, and
-   `integrationresume_test.go`.
+   `integrationresume_test.go`. Moved by the fourth group above;
+   `supersession_test.go` had already gone whole with the third.
 5. `schedule_test.go`'s 103 movable tests, in two changes, and `rerun_test.go`
    and `triage_test.go` beside them.
 6. The rest, a few files a change.
