@@ -529,3 +529,37 @@ func TestTheReviewIsShownTheRunsMCPCalls(t *testing.T) {
 		})
 	}
 }
+
+// The line the run's event stream gets for a developer's ask says why each
+// refused call was refused in words, for every reason the call path can give,
+// and never shows the stored code, which the MCP call record keeps.
+func TestTheEventStreamSaysWhyADevelopersCallWasRefusedInWords(t *testing.T) {
+	for _, reason := range mcpcall.RefusalReasons {
+		answer := mcpcall.Answer{Tool: "mail.search", Outcome: mcpcall.OutcomeRefused, Refusal: reason}
+		line := askOutcome(answer)
+		if want := "mail.search: refused because " + reason.Plain(); line != want {
+			t.Fatalf("%s: line %q, want %q", reason, line, want)
+		}
+		if refusalCodeShown(strings.Replace(line, reason.Plain(), "", 1), reason) {
+			t.Fatalf("%s: the line shows the stored code: %q", reason, line)
+		}
+	}
+	if line := askOutcome(mcpcall.Answer{Outcome: mcpcall.OutcomeRefused, Refusal: mcpcall.RefusedNotOnList}); strings.Contains(line, "not_on_list") || !strings.HasPrefix(line, "a tool not on its list: refused because ") {
+		t.Fatalf("a call off the list reads %q", line)
+	}
+	if line := askOutcome(mcpcall.Answer{Tool: "mail.search", Outcome: mcpcall.OutcomePerformed}); line != "mail.search: performed" {
+		t.Fatalf("a call that was made reads %q", line)
+	}
+}
+
+// refusalCodeShown says whether text holds the stored code as a word of its own.
+func refusalCodeShown(text string, reason mcpcall.RefusalReason) bool {
+	for _, field := range strings.FieldsFunc(text, func(r rune) bool {
+		return !(r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
+	}) {
+		if field == string(reason) {
+			return true
+		}
+	}
+	return false
+}

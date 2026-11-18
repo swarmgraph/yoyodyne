@@ -164,6 +164,21 @@ func (a *activeRun) carryOutAsk(ctx context.Context, ask mcpcall.Ask, sessionID 
 	return mcpAnswersPrompt(answers, ask.Problem), nil
 }
 
+// askOutcome is what became of one call, as the run's event stream says it:
+// the tool, the outcome, and for a refusal why in words. The stored code stays
+// in the MCP call record and is not shown here.
+func askOutcome(answer mcpcall.Answer) string {
+	name := answer.Tool
+	if name == "" {
+		name = "a tool not on its list"
+	}
+	outcome := fmt.Sprintf("%s: %s", name, answer.Outcome)
+	if answer.Refusal != "" {
+		outcome += " because " + answer.Refusal.Plain()
+	}
+	return outcome
+}
+
 // recordAsk writes into the run's event stream that the developer asked, what
 // became of each call, and that the session is being resumed. The calls
 // themselves are in the MCP call record; this is what lets a reader of the run
@@ -177,15 +192,7 @@ func (a *activeRun) recordAsk(ask mcpcall.Ask, answers []mcpcall.Answer, problem
 	} else {
 		outcomes := make([]string, 0, len(answers))
 		for _, answer := range answers {
-			name := answer.Tool
-			if name == "" {
-				name = "a tool not on its list"
-			}
-			outcome := fmt.Sprintf("%s: %s", name, answer.Outcome)
-			if answer.Refusal != "" {
-				outcome += " (" + string(answer.Refusal) + ")"
-			}
-			outcomes = append(outcomes, outcome)
+			outcomes = append(outcomes, askOutcome(answer))
 		}
 		fmt.Fprintf(&text, " (%s)", strings.Join(outcomes, "; "))
 	}
