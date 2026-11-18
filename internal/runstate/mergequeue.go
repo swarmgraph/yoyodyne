@@ -410,6 +410,9 @@ type MergeQueueStore struct {
 	stateRoot string
 	anchor    string
 	productID domain.ProductID
+	// passHistory is how many passes a queue's history keeps; zero is
+	// mergeQueuePassHistory. It is a field only so a test can keep fewer.
+	passHistory int
 	// save writes a queue's record. It is a field only so a test can make a
 	// write fail before or after it lands; every store the harness builds
 	// writes through writeQueue.

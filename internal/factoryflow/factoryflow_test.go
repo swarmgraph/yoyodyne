@@ -64,6 +64,7 @@ func (f fakeRuns) DocumentWaits() ([]runstate.DocumentWait, error) { return f.wa
 
 type fakeQueues struct {
 	entries []runstate.MergeQueueEntry
+	passes  []runstate.MergeQueuePass
 }
 
 func (f fakeQueues) Keys() ([]runstate.MergeQueueKey, error) {
@@ -72,6 +73,10 @@ func (f fakeQueues) Keys() ([]runstate.MergeQueueKey, error) {
 
 func (f fakeQueues) Entries(runstate.MergeQueueKey) ([]runstate.MergeQueueEntry, error) {
 	return f.entries, nil
+}
+
+func (f fakeQueues) PassHistory(runstate.MergeQueueKey) ([]runstate.MergeQueuePass, error) {
+	return f.passes, nil
 }
 
 var now = time.Date(2026, 10, 13, 18, 0, 0, 0, time.UTC)
@@ -211,5 +216,54 @@ func TestUnreadableRunRecordsAreSaidAsUnknown(t *testing.T) {
 	}
 	if len(reading.Problems) != 2 {
 		t.Fatalf("problems = %v", reading.Problems)
+	}
+}
+
+type fakeWatch struct {
+	transitions []runstate.WatchTransition
+	err         error
+}
+
+func (f fakeWatch) List() ([]runstate.WatchTransition, error) { return f.transitions, f.err }
+
+// What moving onto new builds cost today is said in plain words: each move,
+// when it began holding work back and when the session on the new build was
+// working, and the day's total against what a day may spend on them. A move
+// from before midnight is not today's, and a watch log that could not be read
+// is said as not known.
+func TestTheTimeMovesOntoNewBuildsCostTodayIsSaid(t *testing.T) {
+	local := now.Local()
+	midnight := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, local.Location())
+	at := midnight.Add(2 * time.Hour)
+	if !at.Before(now) {
+		at = midnight
+	}
+	transitions := []runstate.WatchTransition{
+		{SessionID: "watch-yesterday", State: runstate.WatchStopped, At: midnight.Add(-time.Hour), Restarting: true},
+		{SessionID: "watch-one", State: runstate.WatchWatching, At: midnight.Add(-50 * time.Minute)},
+		{SessionID: "watch-one", State: runstate.WatchStopped, At: at, Restarting: true,
+			Draining: &runstate.WatchDrain{Since: at.Add(-15 * time.Minute), BoundSeconds: 900, Until: at, PausedSince: at.Add(-2 * time.Minute)}},
+		{SessionID: "watch-two", State: runstate.WatchWatching, At: at.Add(time.Minute)},
+	}
+	// The main queue's work was set aside by the restart and it was working
+	// again four minutes after the new session's first line, so the move costs
+	// those minutes too.
+	queueMoved := at.Add(5 * time.Minute)
+	queues := fakeQueues{passes: []runstate.MergeQueuePass{
+		{At: at, Outcome: runstate.MergeQueuePassWaiting, ForRestart: true},
+		{At: at.Add(6 * time.Minute), Outcome: runstate.MergeQueuePassWaiting, Moved: &queueMoved},
+	}}
+	reading := Reader{Runs: fakeRuns{}, Queues: queues, Watch: fakeWatch{transitions: transitions}, Landings: 2, Now: func() time.Time { return now }}.Read(context.Background())
+	for _, words := range []string{"### Time lost to moving onto new builds today", "1 move(s) onto a new build since midnight", "for 7 minutes in all", "within the 30 minutes a day may spend on them",
+		"- 7 minutes: held work back from " + at.Add(-2*time.Minute).Local().Format("15:04 MST"),
+		"the merge queue for main, whose work the restart set aside, was working again at " + queueMoved.Local().Format("15:04 MST")} {
+		if !strings.Contains(reading.Section, words) {
+			t.Fatalf("section does not say %q:\n%s", words, reading.Section)
+		}
+	}
+
+	unread := Reader{Runs: fakeRuns{}, Watch: fakeWatch{err: errors.New("permission denied")}, Landings: 2, Now: func() time.Time { return now }}.Read(context.Background())
+	if !strings.Contains(unread.Section, "NOT KNOWN") || !strings.Contains(unread.Section, "permission denied") || len(unread.Problems) == 0 {
+		t.Fatalf("an unreadable watch log was not said as not known: %s, %v", unread.Section, unread.Problems)
 	}
 }

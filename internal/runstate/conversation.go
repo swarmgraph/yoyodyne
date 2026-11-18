@@ -695,7 +695,7 @@ type PendingPicture struct {
 // is stated here rather than taken from the package that assembles the context:
 // this package is below that one and the dependency may not run the other way.
 // TestThePendingPictureBoundSitsAboveTheBundleItKeeps refuses any drift apart.
-const MaxPendingPictureBytes = 3 << 20
+const MaxPendingPictureBytes = 4 << 20
 
 // MaxPendingNotices bounds the account of harness activity one conversation
 // carries forward. It matches the bound the conversation itself keeps, so what

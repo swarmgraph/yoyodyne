@@ -738,6 +738,7 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 		return generation, false, err
 	}
 	defer hold.Close()
+	queueMoving(ctx, w.now())
 	// Checks that passed on this same generation before an earlier attempt was
 	// set aside keep their results, and only the others run (keptQueueChecks).
 	kept, runWhole := keptQueueChecks(generation)
@@ -1028,6 +1029,12 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 	if err := w.paused(runstate.MergeQueueStageReview); err != nil {
 		return generation, false, err
 	}
+	// A session about to restart onto a new build starts no review either: a
+	// review it started would be cut off by the restart and asked for again, so
+	// the pass ends here, waiting, and the session that comes back asks for it.
+	if !queueCheckStagesOf(ctx).accepting() {
+		return generation, false, mergeQueueWait{reason: "the watch session working this queue is about to restart onto a new build, so the candidate's review is asked for by the session that comes back"}
+	}
 	if err := w.reviewerReady(ctx, entry, run); err != nil {
 		return generation, false, err
 	}
@@ -1056,6 +1063,7 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 		return generation, false, err
 	}
 	defer hold.Close()
+	queueMoving(ctx, w.now())
 	generation.Review = &runstate.MergeQueueReviewEvidence{Binding: generation.Binding(), StartedAt: w.now()}
 	if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
 		return generation, false, fmt.Errorf("record that generation %d's review began: %w", generation.Number, err)

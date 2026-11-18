@@ -732,8 +732,8 @@ func (q *restartQueues) TakeHeld(context.Context) MergeQueueHeldPass { return Me
 // out is let finish them rather than having every check run again on the new
 // build: the session waits for that pass, says which queue's check it is
 // waiting on, and restarts once it has ended. A queue pass that is not in its
-// checks is stopped at the limit as before, and no queue starts a new check
-// stage past it.
+// checks is given a short grace at the restart to end its step and stopped
+// after it, and no queue starts a new check stage past the limit.
 func TestARestartLetsAMergeQueueCandidatesChecksFinish(t *testing.T) {
 	t.Parallel()
 
@@ -785,7 +785,10 @@ func TestARestartLetsAMergeQueueCandidatesChecksFinish(t *testing.T) {
 		pull.MergeQueues = queues
 		return pull, err
 	}
-	scheduler := Scheduler{Open: open, Watching: true, Sleep: harness.sleep, Now: harness.clock, Sessions: sessions, SessionID: "watch-drain", Deployment: deployment}
+	// The pass at its review never ends on its own here, so it is stopped once
+	// the grace the restart gives a pass to end its step has run out, which the
+	// test makes short.
+	scheduler := Scheduler{Open: open, Watching: true, Sleep: harness.sleep, Now: harness.clock, Sessions: sessions, SessionID: "watch-drain", Deployment: deployment, queueStepGrace: 20 * time.Millisecond}
 	schedule, err := scheduler.Schedule(context.Background())
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
@@ -797,7 +800,7 @@ func TestARestartLetsAMergeQueueCandidatesChecksFinish(t *testing.T) {
 		t.Fatal("the candidate's checks were stopped, so they would run again on the new build")
 	}
 	if !queues.reviewStopped.Load() {
-		t.Fatal("the queue pass at its review was not stopped at the restart limit")
+		t.Fatal("the queue pass at its review was not stopped once its grace at the restart ran out")
 	}
 	if got := schedule.Drain.QueueChecksWaited; len(got) != 1 || got[0] != "main" {
 		t.Fatalf("queue checks waited = %v, want the main queue's candidate", got)
@@ -906,4 +909,120 @@ func latest(a, b time.Time) time.Time {
 		return b
 	}
 	return a
+}
+
+// Past the drain bound, while a merge queue candidate's check is still running
+// and the restart waits for it, a run the session hosts is left working rather
+// than stopped to sit idle in its seat: the restart cannot come sooner, so
+// stopping it then would only cost it the wait. Once the check has ended the
+// run is stopped and preserved and the session restarts, and its last line
+// says when it first held work back for the move, which is what the move is
+// reckoned to have cost from.
+func TestARestartKeepsARunWorkingWhileItWaitsForAMergeQueueCheck(t *testing.T) {
+	t.Parallel()
+
+	const id = "yoyodyne-developing"
+	harness := newScheduleHarness(readyItems(id)...)
+	harness.drainLimit = 15 * time.Minute
+	harness.poll = 5 * time.Millisecond
+	deployment := &deployedOver{}
+	sessions := &recordedSessions{}
+	began := harness.clock()
+	queues := &restartQueues{
+		checking:  runstate.MergeQueueKey{Repository: "yoyodyne", TargetBranch: "main"},
+		reviewing: runstate.MergeQueueKey{Repository: "yoyodyne", TargetBranch: "release"},
+		started:   make(chan struct{}),
+		release:   make(chan struct{}),
+		at:        harness.clock,
+	}
+	hostedRun := make(chan context.Context, 1)
+	var stage atomic.Int32
+	var pullsPastBound atomic.Int32
+	var releasedAt atomic.Int64
+	harness.onPull = func(h *scheduleHarness, pulls int) {
+		switch stage.Load() {
+		case 0:
+			if pulls == 0 {
+				return
+			}
+			<-queues.started
+			deployment.deploy()
+			stage.Store(1)
+		case 1:
+			h.mu.Lock()
+			h.now = latest(h.now, began.Add(h.drainLimit+time.Minute))
+			h.mu.Unlock()
+			stage.Store(2)
+		case 2:
+			if pullsPastBound.Add(1) < 5 {
+				return
+			}
+			select {
+			case hosted := <-hostedRun:
+				if hosted.Err() != nil {
+					t.Errorf("the run was stopped while the restart was still waiting on the queue's check: %v", context.Cause(hosted))
+				}
+			default:
+				t.Error("the run never started")
+			}
+			h.mu.Lock()
+			h.now = h.now.Add(2 * time.Minute)
+			releasedAt.Store(h.now.UnixNano())
+			h.mu.Unlock()
+			stage.Store(3)
+			close(queues.release)
+		}
+	}
+	harness.hostedRun = func(ctx context.Context, h *scheduleHarness, id string) (Outcome, error) {
+		h.mu.Lock()
+		state := h.inFlight[id]
+		state.Phase = runstate.PhaseDeveloping
+		h.inFlight[id] = state
+		h.mu.Unlock()
+		hostedRun <- ctx
+		<-ctx.Done()
+		var drained RedeployDrain
+		if !errors.As(context.Cause(ctx), &drained) {
+			return Outcome{WorkItemID: id, Status: runstate.StatusCancelled}, nil
+		}
+		return Outcome{WorkItemID: id, Status: runstate.StatusRunning, Paused: true, RedeployStop: &runstate.RedeployStop{At: drained.At, Phase: runstate.PhaseDeveloping, BoundSeconds: int64(drained.Bound / time.Second), SessionID: drained.SessionID}}, nil
+	}
+	open := func(ctx context.Context) (Pull, error) {
+		pull, err := harness.open(ctx)
+		pull.MergeQueues = queues
+		return pull, err
+	}
+	scheduler := Scheduler{Open: open, Watching: true, Sleep: harness.sleep, Now: harness.clock, Sessions: sessions, SessionID: "watch-drain", Deployment: deployment, queueStepGrace: 20 * time.Millisecond}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if schedule.Stopped != ScheduleRedeployed || !sessions.restarted() {
+		t.Fatalf("stopped = %q, want the session restarted once the queue's check ended: %s", schedule.Stopped, schedule.Render())
+	}
+	if queues.checkStopped.Load() {
+		t.Fatal("the candidate's check was stopped, so it would run again on the new build")
+	}
+	if got := schedule.Drain.Stopped; len(got) != 1 || got[0] != id {
+		t.Fatalf("drain stopped = %v, want the run stopped and preserved once the check ended", got)
+	}
+	keptGoing := false
+	var last recordedTransition
+	for _, transition := range sessions.recorded() {
+		if drain := transition.draining; drain != nil {
+			if drain.KeptGoing == 1 && strings.Contains(drain.Says(), "go on working meanwhile") {
+				keptGoing = true
+			}
+			last = transition
+		}
+	}
+	if !keptGoing {
+		t.Fatal("no line the session wrote said the run was kept working while the queue's check was waited for")
+	}
+	// Nothing was held back before the run was stopped: no seat was free and
+	// the run kept the recurring passes going. So the move is reckoned from
+	// the stop, after the check ended.
+	if paused := last.draining.PausedSince; paused.IsZero() || paused.Before(time.Unix(0, releasedAt.Load())) {
+		t.Fatalf("the last drain says work was first held back at %s, want it once the check had ended, at or after %s", paused, time.Unix(0, releasedAt.Load()))
+	}
 }
