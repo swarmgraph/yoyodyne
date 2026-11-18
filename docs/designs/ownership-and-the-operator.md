@@ -46,6 +46,10 @@ revisions:
       by: architect
       at: 2026-11-07T07:27:34.871541Z
       reason: 'The scheduled message intake design (yoyodyne-ifd.435.41) promises this in its list of documents it changes: the table and the list of kinds gain the intake question, owned as the query says, and the wording of the human-gate and protected-file reasons widens to cover a step a query reserved for a person and a section of the configuration that every role''s write refuses. No reason is added to the closed list. One enforced check and one build note go with it. Written against main at 45a44e76; nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-18T19:01:53.106676Z
+      reason: 'yoyodyne-la2d: the closed list of reasons the operator owns gains `install`, for a program that has to be installed or put on the search path on the harness''s machine; the outage rule returns it for a provider program that cannot be found, instead of `credential`; every surface shows each reason''s plain wording. The invariant already admits an act only a person can physically perform, so its text does not change. Answers the developer''s report-6e42263e and the reviewer''s report-cd0ca6fd. Written against main at 4a1fe6db; only this section changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -92,6 +96,11 @@ approvals:
       by: harness
       at: 2026-11-07T07:27:34.871541Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2422, for document-2422.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 10
+      by: harness
+      at: 2026-11-18T19:01:53.106676Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3029, for document-3029.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -274,13 +283,14 @@ is recorded.
 
 ## The operator's closed list
 
-The operator is the owner only for one of these reasons, named as the code
-names them:
+The operator is the owner only for one of these reasons, named as the code names them:
 
 - `fundamental-intent`: a change to what the goals admit or refuse, drafted by
   the Lead Product Manager, or an amendment to the brief or the goals that does
   not say which kind it is.
 - `credential`: a credential or an external account only a person holds.
+- `install`: a program that has to be installed, or put on the search path, on
+  the machine the harness runs on.
 - `repository-setting`: a forge or repository setting the harness's token
   cannot change.
 - `protected-file`: a file beyond every grant, which today means Claude Code's
@@ -303,6 +313,62 @@ the rules are the Lead Product Manager's. The list lives in
 invariant
 [the-operator-owns-only-what-only-he-can-do](../decisions/invariants/the-operator-owns-only-what-only-he-can-do.md),
 never a code change on its own.
+
+### A provider program that cannot be found
+
+*(yoyodyne-la2d)*
+
+When a provider's program cannot be found on the machine the harness runs on,
+the rule for an outage returns the operator with the reason `install`, and the
+remedy names the program and says it has to be installed or put on the search
+path the harness runs with. It no longer returns `credential`, which made
+every surface call a missing program a login problem. An expired login stays
+`credential`.
+
+The invariant needed no change to admit `install`: it already lets the
+operator own an act only a person can physically perform, and installing
+software outside the repository is beyond what any role or run can write.
+This revision is the record of the addition.
+
+Rejected: keeping `credential` with plain wording printed beside it, because
+the stored name would still be wrong in every record and every report that
+quotes it; and giving the step to a role, because no role or run can install
+a program on the harness's machine.
+
+### How a reason is shown
+
+A surface that shows a reason to a person shows its plain wording, never the
+stored name alone:
+
+| Stored name | What a person reads |
+| --- | --- |
+| `fundamental-intent` | a change to what the product is for |
+| `credential` | a login or account only you hold |
+| `install` | a program needs installing on this machine |
+| `repository-setting` | a repository setting only you can change |
+| `protected-file` | a file no role may change |
+| `human-gate` | a step set aside for you to take |
+| `own-hold` | a hold you placed yourself |
+| `diverged-history` | which history of the branch is right |
+
+The wording lives beside the closed set in `internal/ownership`, and every
+surface takes it from there. A role that names a reason still writes the
+stored name exactly, as the operating rules require.
+
+Enforced in code: a test fails where a reason on the closed list has no plain
+wording, and another renders an entry owned by the operator under each reason
+on every surface that shows one and fails where the stored name appears
+without its wording.
+
+Build, for the Lead Product Manager to admit:
+
+1. The registry's closed set and its test accept `install`, and the rule for
+   an outage returns it for a provider program that cannot be found, with a
+   test that drives a missing program through the rule.
+2. The plain wording for every reason, and each place that renders a reason
+   taking it from there, with the two tests above.
+3. The shipped role contracts and personas, and the harness's check of the
+   reason a role gives when it names the operator, list `install`.
 
 ## A role's decision that needs the operator's hand
 
