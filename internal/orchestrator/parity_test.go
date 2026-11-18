@@ -87,6 +87,9 @@ type parityScenario struct {
 	// that stop before the first state. A scenario carrying it has no transcript,
 	// and the trace is held to having no run behind it.
 	unexpressible string
+	// stoppedBeforeChecks is a path whose check state was entered and ended by
+	// a stop before any of the project's commands ran.
+	stoppedBeforeChecks bool
 }
 
 // The states of the built-in definitions, by the names the files declare them
@@ -296,13 +299,13 @@ func parityScenarios() []parityScenario {
 			steps: []parityStep{
 				{parityClaim, "claimed"},
 				{parityDevelop, "produced"},
-				{parityCheck, "passed"},
-				// The stop is taken at the reviewer's own boundary, before a verdict
-				// is bought: the state was entered and produced no judgement, which is
-				// why the witness counts it as a review that obtained nothing.
-				{parityReview, "stopped"},
+				// The stop is taken at the boundary in front of the checks, before
+				// any command runs: the check state was entered and judged nothing,
+				// which the definition calls unrunnable (promptstop.go).
+				{parityCheck, "unrunnable"},
 			},
-			terminal: "abandoned",
+			stoppedBeforeChecks: true,
+			terminal:            "abandoned",
 		},
 		{
 			trace:    "verdict-fields-the-schema-does-not-name-are-recorded-as-drift",
@@ -935,7 +938,7 @@ func witnessTranscript(t *testing.T, scenario parityScenario, trace parityTrace)
 		case parityCheck:
 			// A change refused for what it touched is refused in front of the
 			// checks, so that round ran no commands at all.
-			if !strings.HasPrefix(step.outcome, "refused") {
+			if !strings.HasPrefix(step.outcome, "refused") && !scenario.stoppedBeforeChecks {
 				commanded++
 			}
 		case parityIntegrate:
