@@ -26,11 +26,12 @@ and `make test-macos`. It also turns on `execution.ci_checks`, so a run does not
 apply all six before review. It applies the short local check named in
 `execution.ci_checks.local` (`make fmtcheck`, `make vet`, `make build` and
 `make test-macos`), then the harness pushes the candidate and waits for the
-`test`, `race` and `vet` jobs on GitHub. The whole suite therefore runs on GitHub
-rather than on this machine; it runs here only as the fallback, when a required
-check does not finish, is cancelled or never starts. Anything a run has to
-exercise has to reach one of those jobs or the local check, and for content that
-is not Go that means `make test`.
+`test`, `race` and `vet` jobs on GitHub before review. The full declared checks
+still run on this machine over the approved merge candidate before it is
+promoted, and over the same commit as the fallback when a required check does
+not finish, is cancelled or never starts. Anything a run has to exercise has to
+reach one of those jobs or the local check, and for content that is not Go that
+means `make test`.
 
 `make test` and `make race` take the Go packages a change touches as
 `CHANGED_GO_PACKAGES`, and are the whole module when nothing names them, which
@@ -38,11 +39,9 @@ is what `make check`, CI, and a person's own run want. Where the full checks run
 here, the harness names them: it hands every check the packages the change
 touches as `YOYODYNE_CHANGED_GO_PACKAGES`, and the check list passes them on as
 `make test CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"` and the
-same for `make race`. With checks on CI off, or on the fallback, the harness runs
-the list again over the merge candidate told `./...` once the reviewer approves,
-so the whole suite runs on this machine before anything is promoted; with it on,
-a merge-queue candidate gets the short local check and then GitHub's required
-checks on that exact commit. See
+same for `make race`. Once the reviewer approves, the harness runs the list again over the merge
+candidate told `./...`, with checks on CI on or off, so the whole suite runs on
+this machine before anything is promoted. See
 [where the whole suite runs](configuration.md#where-the-whole-suite-runs). The
 unset-only default is what makes those lines safe to run outside the harness —
 the probe and the evidence a developer records in its worktree, or your own
