@@ -49,7 +49,16 @@ import (
 // recorded on every pass — and what brings the set down is yoyodyne-ifd.117.4,
 // which removes the text README.md and docs/configuration.md carry that the
 // split guides also carry.
-const ShippedDocumentationCeiling = 2 << 20
+//
+// Raised from 2 MiB to 3 MiB on 2026-11-17 (yoyodyne-ifd.437.65). The set was
+// 2,042,033 bytes, 55,119 under the old ceiling, with dozens of guide changes
+// queued, so make test would soon have failed every run. The Lead Product
+// Manager decided on 2026-11-15 to raise the limit, as yoyodyne-ifd.240 did,
+// rather than stop runs to trim; the new ceiling leaves 1,103,695 bytes of
+// room. Trimming the guides continues as its own work (yoyodyne-ifd.437.20,
+// yoyodyne-ifd.117.5). At 3 MiB the set alone is roughly 786,000 tokens at four
+// bytes a token, so the cost note above applies more, not less.
+const ShippedDocumentationCeiling = 3 << 20
 
 // ShippedDocumentationMargin is how far under the ceiling the warning starts.
 // Within it, the test that measures the set says so in its output and the
