@@ -234,14 +234,14 @@ func (c CarryOut) recoverySettled(ctx context.Context, task CarryOutTask, closur
 				title, read.ID, settled.account, kept), clears: noLongerAppliesClears}, true
 		}
 		if closedSinceDecided(read, task.DecidedAt) {
-			return notApplying{account: fmt.Sprintf("%s (%s) %s, %s, so there is nothing left on the item for the %q about run %s to do. %s",
-				title, read.ID, closedSays(read), decidedSays(task), task.Decision, task.RunID, kept), clears: noLongerAppliesClears}, true
+			return notApplying{account: fmt.Sprintf("%s (%s) %s, %s, so there is nothing left on the item for %s to do. %s",
+				title, read.ID, closedSays(read), decidedSays(task), recoverySays(task), kept), clears: noLongerAppliesClears}, true
 		}
 		return notApplying{}, false
 	}
 	if replacement, found := replacementOf(ctx, task, counters, item, unfinished); found {
-		return notApplying{account: fmt.Sprintf("the %q about run %s of %s (%s), %s, was set aside for the replacement %s: %s. Carrying it out would build, review and check the same change twice at once. %s. The replacement's own run is what carries the work now",
-			task.Decision, task.RunID, title, read.ID, decidedSays(task), replacement.names(), replacement.how, kept), clears: setAsideClears(replacement.id)}, true
+		return notApplying{account: fmt.Sprintf("%s of %s (%s), %s, was set aside for the replacement %s: %s. Carrying it out would build, review and check the same change twice at once. %s. The replacement's own run is what carries the work now",
+			recoverySays(task), title, read.ID, decidedSays(task), replacement.names(), replacement.how, kept), clears: setAsideClears(replacement.id)}, true
 	}
 	return notApplying{}, false
 }
@@ -268,6 +268,15 @@ func setAsideClears(replacementID string) string {
 // left to the action.
 func closedSinceDecided(item beads.WorkItem, decidedAt time.Time) bool {
 	return item.ClosedAt.IsZero() || decidedAt.IsZero() || !item.ClosedAt.Before(decidedAt)
+}
+
+// recoverySays names the recovery a finding is about in words: a request to
+// finish a merge by what it asked for, and a triage decision by its name.
+func recoverySays(task CarryOutTask) string {
+	if task.Decision == DecisionFinishMerge {
+		return fmt.Sprintf("the request to finish the merge of run %s", task.RunID)
+	}
+	return fmt.Sprintf("the %q about run %s", task.Decision, task.RunID)
 }
 
 // closedSays is when and why an item closed, as far as the tracker says.
@@ -472,7 +481,7 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 		if setter, ok := c.Integrations.(interface {
 			SetAside(context.Context, string, string) error
 		}); ok {
-			why := fmt.Sprintf("it was not carried out because it no longer applies: %s. %s", strings.TrimSpace(account), clears)
+			why := fmt.Sprintf("%s%s. %s", finishMergeSetAside, strings.TrimSpace(account), clears)
 			if err := setter.SetAside(ctx, task.RunID, why); err != nil {
 				carried.RecordProblem = fmt.Sprintf("and that could not be written onto run %s's request, so the next pass finds it again: %v", task.RunID, err)
 			}
@@ -521,6 +530,33 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 		}
 	}
 	return carried
+}
+
+// finishMergeSetAside opens what is written onto a request to finish a merge
+// that was set aside because it no longer applies. The docket reads it back by
+// this opening (setAsideFinishMerge), so the development manager is told on the
+// run's entry, as she is of a repair or re-run set aside, even though the
+// request lives on the run rather than on the item's triage record.
+const finishMergeSetAside = "it was not carried out because it no longer applies: "
+
+// setAsideFinishMerge is the docket's finding for a run whose request to
+// finish its merge was set aside since the entry was recorded, and nil for
+// every other run.
+func setAsideFinishMerge(entry triage.Entry, run runstate.State) *triage.CarryOut {
+	asked := run.RecoveryContinuation
+	if asked == nil || asked.Action != runstate.RecoverFinishMerge || asked.RefusedAt == nil ||
+		!strings.HasPrefix(asked.Refused, finishMergeSetAside) || asked.RefusedAt.Before(entry.RecordedAt) {
+		return nil
+	}
+	return &triage.CarryOut{
+		Cause:     triage.CarryOutNoLongerApplies,
+		Decision:  DecisionFinishMerge,
+		Gate:      runstate.TriageGateWorkItem,
+		Refusal:   fmt.Sprintf("you asked for it as request %s, and it was not carried out: %s", asked.RequestID, strings.TrimPrefix(asked.Refused, finishMergeSetAside)),
+		Clears:    "Nothing needs to be done about it; what would make it apply again is said above",
+		RefusedAt: *asked.RefusedAt,
+		DecidedAt: asked.RequestedAt,
+	}
 }
 
 // settledNow asks recoverySettled of the records as they stand at execution,

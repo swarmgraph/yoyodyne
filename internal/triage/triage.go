@@ -1284,6 +1284,11 @@ func SpanInWords(span time.Duration) string {
 	}
 }
 
+// FinishMergeRequest is the decision a finding names where it is about the
+// development manager's request, through run.recover, to finish a run's merge.
+// That request is recorded on the run rather than as a triage decision.
+const FinishMergeRequest = "finish-merge"
+
 // NoLongerApplies reports a finding that the recovery about this stoppage does
 // not apply, because the item is closed with its work settled. It asks nobody
 // anything, so it neither puts a settled entry back on the docket nor leads it.
@@ -2688,8 +2693,12 @@ func (e Entry) renderCarryOut() string {
 			e.WorkItemID, stopped.RunID)
 	}
 	if stopped.NoLongerApplies() {
-		fmt.Fprintf(&rendered, "      The %q recorded about run %s no longer applies, as the harness found at %s: %s\n",
-			stopped.Decision, e.RunID, stopped.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(stopped.Refusal))
+		what := fmt.Sprintf("The %q recorded about run %s", stopped.Decision, e.RunID)
+		if stopped.Decision == FinishMergeRequest {
+			what = fmt.Sprintf("Your request to finish the merge of run %s", e.RunID)
+		}
+		fmt.Fprintf(&rendered, "      %s no longer applies, as the harness found at %s: %s\n",
+			what, stopped.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(stopped.Refusal))
 		if clears := strings.TrimSpace(stopped.Clears); clears != "" {
 			fmt.Fprintf(&rendered, "      Nothing was attempted or spent. %s.\n", strings.TrimSuffix(clears, "."))
 		} else {

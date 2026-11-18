@@ -154,7 +154,7 @@ func droppedMergeUnfinished(state runstate.State) error {
 // DecisionFinishMerge is the task a carry-out fires for a run.recover request to
 // finish a merge. It is the development manager's decision, recorded on the run
 // rather than on the item's triage record, so it is never written there.
-const DecisionFinishMerge = "finish-merge"
+const DecisionFinishMerge = triage.FinishMergeRequest
 
 // CarryOutIntegrations finishes the merges the development manager asked for
 // through run.recover. It is satisfied by RecoveredIntegrations.

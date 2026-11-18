@@ -508,6 +508,34 @@ func finishMergeFixture(t *testing.T, itemStatus string, closedAt time.Time, lis
 	return harness, carry, tracker
 }
 
+// finishDocket is the docket the development manager reads for the fixture's
+// run, joined with the item's record and the run's own record.
+func finishDocket(t *testing.T, harness *resumeHarness) []triage.Entry {
+	t.Helper()
+	entries, err := harness.docket.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	run := harness.reload(t)
+	docketer := Docketer{Decisions: harness.runs.Triage(), Reruns: harness.runs.Reruns()}
+	if problems := docketer.joinDecisions(entries, docketedRunsOf(entries), nil, map[string]runstate.State{run.RunID: run}); len(problems) != 0 {
+		t.Fatalf("joinDecisions() problems = %v", problems)
+	}
+	return entries
+}
+
+// docketSays is the rendered docket entry for the fixture's stopped run.
+func docketSays(t *testing.T, harness *resumeHarness) string {
+	t.Helper()
+	for _, entry := range finishDocket(t, harness) {
+		if entry.RunID == docketedRunID && entry.Class == triage.ClassStoppedRun {
+			return entry.Render()
+		}
+	}
+	t.Fatal("the docket holds no entry for the stopped run")
+	return ""
+}
+
 // The October 17 shape itself: a request to finish an approved change's merge,
 // asked through run.recover, and a replacement item rebuilding the change from
 // current main. The request is not carried out; it is written onto the run's
@@ -536,6 +564,13 @@ func TestAFinishRequestIsSetAsideForAnItemThatRebuildsTheRunsChange(t *testing.T
 	if again, err := carry.Outstanding(); err != nil || len(again) != 0 {
 		t.Fatalf("Outstanding() again = %#v, %v", again, err)
 	}
+	// Her docket says it in plain words, naming the replacement.
+	rendered := docketSays(t, harness)
+	if !strings.Contains(rendered, "Your request to finish the merge of run "+docketedRunID+" no longer applies") ||
+		!strings.Contains(rendered, "request dm-1017-finish") || !strings.Contains(rendered, "set aside for the replacement") ||
+		!strings.Contains(rendered, replacementItem) || strings.Contains(rendered, `"finish-merge"`) {
+		t.Fatalf("docket renders %q; want it to say her request was set aside and for which item", rendered)
+	}
 }
 
 // Condition 4's shape: a request decided on a stopped run whose item has since
@@ -559,6 +594,10 @@ func TestARequestWhoseItemClosedSinceIsSetAsideAndOthersAreCarriedOut(t *testing
 	}
 	if len(tracker.notes) != 1 || !strings.Contains(tracker.notes[0], "closed at") {
 		t.Fatalf("notes = %#v", tracker.notes)
+	}
+	if rendered := docketSays(t, harness); !strings.Contains(rendered, "Your request to finish the merge of run "+docketedRunID+" no longer applies") ||
+		!strings.Contains(rendered, "closed at "+closedAt.Format(time.RFC3339)) {
+		t.Fatalf("docket renders %q; want it to say her request was set aside because the item closed, and when", rendered)
 	}
 
 	for name, setup := range map[string]struct {
