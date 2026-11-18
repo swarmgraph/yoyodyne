@@ -80,6 +80,42 @@ type MergeQueueCheckConfiguration struct {
 	// configured check is run whole. It is not part of what Same compares: the
 	// commands and their digest already are the checks.
 	Declared *MergeQueueDeclaredChecks `json:"declared,omitempty"`
+	// ForgeChecks is the forge's required checks that stand in for the full
+	// local run, set only where checks on CI chose the quick local checks as
+	// Commands ("GitHub's required checks as the queue's full check" in
+	// docs/designs/integration-through-a-merge-queue.md). A candidate verified
+	// by such a configuration lands only where those checks passed on its own
+	// commit (Gate). They are part of the digest, so a configuration that adds
+	// or drops them is a different check set.
+	ForgeChecks []string `json:"forge_checks,omitempty"`
+}
+
+// NewMergeQueueForgeConfiguration records the quick local checks a candidate
+// is verified by where the forge's required checks stand in for the rest:
+// commands is what runs on this machine, quick the project's short list it was
+// drawn from, and forge the required checks the candidate's own commit must
+// pass on the forge.
+func NewMergeQueueForgeConfiguration(commands, quick, forge []string) MergeQueueCheckConfiguration {
+	configuration := NewMergeQueueDeclaredConfiguration(commands, quick)
+	configuration.ForgeChecks = append([]string(nil), forge...)
+	configuration.Digest = configuration.digest()
+	return configuration
+}
+
+// digest is what the configuration's Digest must be: its commands', and with
+// the forge's required checks covered too where it names any.
+func (c MergeQueueCheckConfiguration) digest() string {
+	commands := checkConfigurationDigest(c.Commands)
+	if len(c.ForgeChecks) == 0 {
+		return commands
+	}
+	sum := sha256.New()
+	writeBound(sum, "merge-queue-checks-with-forge/1")
+	writeBound(sum, commands)
+	for _, name := range c.ForgeChecks {
+		writeBound(sum, name)
+	}
+	return hex.EncodeToString(sum.Sum(nil))
 }
 
 // MergeQueueDeclaredChecks is a project's declared list of queue checks.
@@ -189,6 +225,9 @@ type MergeQueueGeneration struct {
 	// it is never part of the binding and never replaces the configured checks'
 	// own record.
 	CIChecks *MergeQueueCIEvidence `json:"ci_checks,omitempty"`
+	// ForgePush is the candidate pushed to the forge for its required checks,
+	// where they stand in for the full local run (Checks.ForgeChecks).
+	ForgePush *MergeQueueForgePush `json:"forge_push,omitempty"`
 	// BaseCheck is a check that failed on the candidate, asked of the target at
 	// the candidate's base, which is what says whether the failure is the
 	// change's or the target's (ClassifyMergeQueueFailure in the orchestrator).
@@ -546,6 +585,19 @@ func (g MergeQueueGeneration) Gate(configured MergeQueueCheckConfiguration) erro
 			return refuse("%s did not pass", result.Command)
 		}
 	}
+	// Where only the quick checks ran here, the forge's required checks on this
+	// exact commit are the rest of the full check, and nothing lands without
+	// them. The workflow digest is the one recorded with the reading: the
+	// candidate is one commit, so its workflow files cannot change under it.
+	if forge := g.Checks.ForgeChecks; len(forge) > 0 {
+		digest := ""
+		if g.CIChecks != nil {
+			digest = g.CIChecks.WorkflowDigest
+		}
+		if counts, why := g.CIChecksCount(forge, digest, g.TargetBase); !counts {
+			return refuse("only the quick checks ran here, and the forge's required checks do not stand in for the rest: %s", why)
+		}
+	}
 	verdict := g.Review
 	switch {
 	case verdict == nil:
@@ -597,7 +649,7 @@ func (g MergeQueueGeneration) validateBinding() error {
 	if len(g.Checks.Commands) == 0 {
 		problems = append(problems, errors.New("a candidate is verified by at least one configured check"))
 	}
-	if g.Checks.Digest != checkConfigurationDigest(g.Checks.Commands) {
+	if g.Checks.Digest != g.Checks.digest() {
 		problems = append(problems, errors.New("the check configuration's digest is not its commands'"))
 	}
 	if err := mergeQueueText("author session", g.AuthorSession, true); err != nil {
@@ -662,6 +714,11 @@ func (g MergeQueueGeneration) validate() error {
 	}
 	if g.CIChecks != nil {
 		if err := g.CIChecks.validate(binding); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	if g.ForgePush != nil {
+		if err := g.ForgePush.validate(binding, g.Candidate); err != nil {
 			problems = append(problems, err)
 		}
 	}
@@ -1113,6 +1170,71 @@ type MergeQueueCIEvidence struct {
 	// WorkflowDigest is the digest of the forge's workflow files at Commit,
 	// recorded only where every required check passed.
 	WorkflowDigest string `json:"workflow_digest,omitempty"`
+	// AtBase is the forge's result, on the candidate's base commit, of each
+	// required check that failed on the candidate, read when it failed: what
+	// says whether the failure is the change's or the target's, as a local
+	// check's base check does (BaseCheck).
+	AtBase []CICheckEvidence `json:"at_base,omitempty"`
+	// FellBack is why the forge's checks could not settle this candidate — one
+	// that ended without judging it, or one still unfinished past the wait
+	// limit — so the entry's next candidate runs the full local checks instead.
+	// It is empty where they settled or are still being waited for.
+	FellBack string `json:"fell_back,omitempty"`
+}
+
+// FailedOnForge is the required checks the forge recorded as failed on the
+// candidate commit itself, in the order read.
+func (e *MergeQueueCIEvidence) FailedOnForge() []string {
+	if e == nil {
+		return nil
+	}
+	var failed []string
+	for _, check := range e.Checks {
+		if check.Result == "failed" && check.Commit == e.Commit {
+			failed = append(failed, check.Name)
+		}
+	}
+	return failed
+}
+
+// ResultAtBase is a required check's result on the candidate's base, and
+// false where it was not read.
+func (e *MergeQueueCIEvidence) ResultAtBase(name string) (string, bool) {
+	if e == nil {
+		return "", false
+	}
+	for _, check := range e.AtBase {
+		if check.Name == name && check.Commit == e.Base {
+			return check.Result, true
+		}
+	}
+	return "", false
+}
+
+// MergeQueueForgePush is a candidate pushed to the forge so its required
+// checks run on it, and the pull request that carries it. The promotion pushes
+// the same commit to the same branch later, which changes nothing.
+type MergeQueueForgePush struct {
+	Binding     string    `json:"binding"`
+	Branch      string    `json:"branch"`
+	Commit      string    `json:"commit"`
+	PushedAt    time.Time `json:"pushed_at"`
+	PullRequest int       `json:"pull_request,omitempty"`
+	URL         string    `json:"url,omitempty"`
+}
+
+func (p *MergeQueueForgePush) validate(binding, candidate string) error {
+	var problems []error
+	if p.Binding != binding || p.PushedAt.IsZero() {
+		problems = append(problems, errors.New("its push to the forge is not a whole record of this generation"))
+	}
+	if p.Commit != candidate {
+		problems = append(problems, fmt.Errorf("its push to the forge names %q, not the candidate", p.Commit))
+	}
+	if len(p.Branch) > maxMergeQueueEvidenceText || len(p.URL) > maxMergeQueueEvidenceText {
+		problems = append(problems, errors.New("its push to the forge names a branch or address past its bound"))
+	}
+	return errors.Join(problems...)
 }
 
 func (e *MergeQueueCIEvidence) validate(binding string) error {
@@ -1133,10 +1255,16 @@ func (e *MergeQueueCIEvidence) validate(binding string) error {
 			problems = append(problems, errors.New("a required check's name exceeds its bound"))
 		}
 	}
-	for _, check := range e.Checks {
+	if len(e.AtBase) > maxMergeQueueCIChecks {
+		problems = append(problems, fmt.Errorf("its forge check reading names %d checks at the base, and a generation keeps at most %d", len(e.AtBase), maxMergeQueueCIChecks))
+	}
+	for _, check := range append(slices.Clone(e.Checks), e.AtBase...) {
 		if len(check.Name) > maxMergeQueueEvidenceText || len(check.Result) > maxMergeQueueEvidenceText {
 			problems = append(problems, errors.New("a forge check's text exceeds its bound"))
 		}
+	}
+	if len(e.FellBack) > maxMergeQueueEvidenceText {
+		problems = append(problems, errors.New("why the forge's checks could not settle exceeds its bound"))
 	}
 	return errors.Join(problems...)
 }

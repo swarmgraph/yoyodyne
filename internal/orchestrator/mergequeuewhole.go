@@ -58,6 +58,12 @@ func mergeQueueStandsIn(run runstate.State, mode runstate.MergeQueueMode, genera
 	if mode == runstate.MergeQueueForge {
 		return fmt.Sprintf("run %s left checking its change over the whole module to this harness's merge queue, and the change is now in the forge's own merge queue, which lands a commit this harness never checks; it lands once it is back in the harness's queue, or is checked whole by its run", run.RunID)
 	}
+	if len(generation.Checks.ForgeChecks) > 0 && generation.Gate(generation.Checks) == nil {
+		// The forge's required checks passed on this exact candidate and stand in
+		// for the full check, the whole check the run left to the queue among it
+		// (mergequeuequick.go).
+		return ""
+	}
 	checked := generation.CheckRun
 	if checked == nil || checked.FinishedAt == nil || checked.Problem != "" || checked.Binding != generation.Binding() {
 		return fmt.Sprintf("run %s left checking its change over the whole module to this harness's merge queue, and generation %d has no finished check of its own candidate", run.RunID, generation.Number)

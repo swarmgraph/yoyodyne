@@ -198,7 +198,10 @@ func (w MergeQueueWorker) checkAhead(ctx context.Context, lease *runstate.Lease,
 	if author == "" {
 		return skip(fmt.Sprintf("run %s records no developer session, so no reviewer can be shown to be independent of it", next.RunID))
 	}
-	configured := w.Pipeline.mergeQueueChecks(next)
+	// A record that cannot be read here is read again, and reported, when the
+	// candidate is built.
+	nextGenerations, _ := w.Queue.Generations(key, next.EntryID)
+	configured := w.Pipeline.mergeQueueChecks(next, nextGenerations)
 	generation, found, why, err := w.aheadGeneration(ctx, lease, key, next, author, configured, base, &outcome.CheckoutRetries)
 	outcome.Generation = generation
 	var conflict *gitworktree.QueueCandidateConflict
