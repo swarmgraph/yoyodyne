@@ -1720,8 +1720,10 @@ nothing in the block read. A search counts against the same six requests and
 six paths; one read returns at most 48 KiB of a file, and one reply's reads
 together at most 96 KiB; a listing returns at most 400 names; and one message
 reads at most twice before it has to answer. A file longer than a read may
-return is cut with the cut declared and the file's whole size named — not split
-across reads — so a role that wants the rest asks by a narrower question. There
+return is cut with the cut declared, the file's whole size named, where the part
+starts, and how many bytes remain; a role reads the next part by asking again
+with `"offset"` set to where the last part ended, and each part is recorded as
+its own read. There
 is no key that widens any of it, and none that switches the capability off: what
 is bounded is the size of a prompt, which is the protocol's, and a role that may
 not have the harness read for it is one whose bundle does not hold the

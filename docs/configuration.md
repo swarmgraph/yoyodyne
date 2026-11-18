@@ -7735,8 +7735,8 @@ whatever the persona said.
 `max_queries_per_turn` cannot be raised past four: what is bounded is the size
 of a prompt. One reply names at most six paths; one read returns at most 48 KiB
 of a file and one reply's reads together at most 96 KiB, a file beyond that
-being cut with the cut declared and its whole size named rather than split
-across reads; a listing returns at most 400 names; one message reads at most
+being cut with the cut declared, its whole size named, and the bytes that remain
+counted, and read on in parts by naming `"offset"` in the next request; a listing returns at most 400 names; one message reads at most
 twice. A `research`-style block for it would be a bound a project could
 configure past, which is the thing this section exists to say there is not.
 

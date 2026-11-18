@@ -500,8 +500,9 @@ that round submits another refused document, its refusal waits in the durable
 conversation for the role's next turn instead of starting another round. The
 limit remains eight waiting documents; a refusal confirms none of them.
 
-A revision is the same action, carrying the document whole — or, for a
-document longer than a role can read, carrying one section. A revision that
+A revision is the same action, carrying the document whole, which may be up to
+128 KiB, or carrying one section. A role reads a file longer than one read
+returns (48 KiB) in parts, naming `"offset"` for the next one. A revision that
 names a `section`, by its heading as the document writes it, carries only the
 new text under that heading, its subsections included; the harness reads the
 rest of the document from the copy in the project's checkout when it confirms

@@ -153,6 +153,9 @@ func (r Request) Validate() error {
 	action := strings.TrimSpace(r.Action)
 	switch action {
 	case ActionRead, ActionList:
+		if r.Offset != 0 && action != ActionRead {
+			problems = append(problems, fmt.Errorf("offset is taken on a %q alone", ActionRead))
+		}
 		if r.Pattern != "" || r.Regexp {
 			problems = append(problems, fmt.Errorf("pattern and regexp are taken on a %q alone", ActionSearch))
 		}
@@ -396,8 +399,11 @@ func Render(results []Result, framing Framing) string {
 			}
 		default:
 			fmt.Fprintf(&rendered, "%d bytes at this commit", result.Size)
-			if result.Truncated {
-				fmt.Fprintf(&rendered, "; the first %d are below, cut %s. The rest was not returned and is not somewhere else in this turn: ask again by a narrower question if you need it", len(result.Content), result.TruncatedBy)
+			switch {
+			case result.Truncated:
+				fmt.Fprintf(&rendered, "; bytes %d to %d are below, cut %s, and %d bytes remain after them. The rest is not somewhere else in this turn: read it with the same request and \"offset\":%d", result.Offset, result.Offset+len(result.Content), result.TruncatedBy, result.Remaining, result.Offset+len(result.Content))
+			case result.Offset > 0:
+				fmt.Fprintf(&rendered, "; bytes %d to %d are below, which is the end of the file", result.Offset, result.Offset+len(result.Content))
 			}
 			rendered.WriteString(":\n\n")
 			rendered.WriteString(strings.TrimRight(result.Content, "\n") + "\n")
@@ -427,7 +433,7 @@ func (r Result) Describe() string {
 	case r.Action == ActionList:
 		line += fmt.Sprintf(" — %d name(s)", len(r.Entries))
 	case r.Truncated:
-		line += fmt.Sprintf(" — %d of %d bytes, cut", len(r.Content), r.Size)
+		line += fmt.Sprintf(" — bytes %d to %d of %d, cut", r.Offset, r.Offset+len(r.Content), r.Size)
 	default:
 		line += fmt.Sprintf(" — %d bytes", r.Size)
 	}
