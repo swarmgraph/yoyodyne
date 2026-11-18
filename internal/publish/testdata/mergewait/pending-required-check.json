@@ -1,0 +1,5 @@
+{"data":{"repository":{"pullRequest":{"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","isDraft":false,"reviewDecision":null,"mergeQueueEntry":null,"commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
+{"__typename":"CheckRun","name":"build","status":"IN_PROGRESS","conclusion":null,"databaseId":5521,"isRequired":true},
+{"__typename":"CheckRun","name":"race","status":"COMPLETED","conclusion":"SUCCESS","databaseId":5522,"isRequired":true},
+{"__typename":"CheckRun","name":"docs-preview","status":"QUEUED","conclusion":null,"databaseId":5523,"isRequired":false}
+]}}}}]}}}}}

@@ -1,0 +1,4 @@
+{"data":{"repository":{"pullRequest":{"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeQueueEntry":null,"commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
+{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS","databaseId":6101,"isRequired":true},
+{"__typename":"StatusContext","context":"ci/lint","state":"SUCCESS","isRequired":true}
+]}}}}]}}}}}
