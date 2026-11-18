@@ -957,6 +957,13 @@ type MergeQueueRunHandback struct {
 	Docket *Docketer
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+	// CatchUp and Capacity are what give a change handed back only because its
+	// target moved under it its run's one attempt to catch up, in place of a
+	// stop (mergequeuecatchup.go); Capacity is
+	// execution.max_concurrent_developers. Nil, or a capacity below one, gives
+	// every such hand-back the stop instead.
+	CatchUp  MergeQueueCatchUpRuns
+	Capacity int
 }
 
 var _ MergeQueueRepair = MergeQueueRunHandback{}
@@ -977,8 +984,22 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 		return fmt.Errorf("read run %s: %w", entry.RunID, err)
 	}
 	marker := mergeQueueHandbackMarker(entry, handback)
+	// A head that would not merge only because the target moved under it is
+	// first given the run's one attempt to catch up, in place of this stop; a
+	// hand-back already made for this candidate is only finished below.
+	var notCaught string
+	if !h.handedBack(state, marker) {
+		var caught bool
+		caught, notCaught, err = h.catchUp(ctx, entry, handback, state, marker)
+		if caught || err != nil {
+			return err
+		}
+	}
 	notes := fmt.Sprintf("The merge queue handed this change back. %s\n%s\nRun %s keeps its branch %s and its approved head %s.",
 		handback.Reason, marker, entry.RunID, nonEmpty(handback.Branch, "(none recorded)"), handback.ApprovedHead)
+	if notCaught != "" {
+		notes += fmt.Sprintf(" It was not given an attempt to bring the change up to date with %s by itself, because %s.", entry.TargetBranch, notCaught)
+	}
 	if handback.Continuation == runstate.MergeQueueBudgetExhausted {
 		notes += fmt.Sprintf(" It has spent %d of its %d repair attempts, so what follows is the development manager's decision.", handback.RepairAttempts, handback.RepairBudget)
 	}
@@ -1004,10 +1025,7 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 		}
 		return nil
 	}
-	if failure := state.CheckFailure; failure != nil && strings.Contains(failure.Output, marker) && strings.TrimSpace(state.Blocker) != "" {
-		return h.noteAndDocket(ctx, entry, item, state, marker, notes)
-	}
-	if conflict := state.ReplayConflict; conflict != nil && strings.Contains(conflict.Detail, marker) && strings.TrimSpace(state.Blocker) != "" {
+	if h.handedBack(state, marker) {
 		return h.noteAndDocket(ctx, entry, item, state, marker, notes)
 	}
 	command := "the merge queue candidate's review"
@@ -1081,6 +1099,18 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 		return fmt.Errorf("record the hand-back on run %s: %w", entry.RunID, err)
 	}
 	return h.noteAndDocket(ctx, entry, item, state, marker, notes)
+}
+
+// handedBack reports a run that already carries the hand-back the marker names.
+func (h MergeQueueRunHandback) handedBack(state runstate.State, marker string) bool {
+	if strings.TrimSpace(state.Blocker) == "" {
+		return false
+	}
+	if failure := state.CheckFailure; failure != nil && strings.Contains(failure.Output, marker) {
+		return true
+	}
+	conflict := state.ReplayConflict
+	return conflict != nil && strings.Contains(conflict.Detail, marker)
 }
 
 // noteAndDocket says on the item, as it was read before the run changed, that

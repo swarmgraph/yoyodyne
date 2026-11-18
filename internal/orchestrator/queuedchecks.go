@@ -679,6 +679,11 @@ func updatingQueuedHead(state runstate.State) bool {
 // takes it up again from that step, under its lease — the lease being free is
 // the evidence that the process hosting it is gone.
 //
+// A run the harness's merge queue handed back to catch up with its target
+// (mergequeuecatchup.go) is hosted the same way, from the developer attempt
+// it was put back at onwards; catchUpNotTakenUp tells the first hosting of it
+// from one that lost its process.
+//
 // A run carrying a park, a stop, or a request for the development manager is
 // left to whatever that says continues it.
 func updateLostItsHost(state runstate.State) bool {
@@ -686,7 +691,7 @@ func updateLostItsHost(state runstate.State) bool {
 		return false
 	}
 	switch state.IntegrationResumptions[len(state.IntegrationResumptions)-1].Cause {
-	case runstate.CauseQueuedHeadBehind, runstate.CausePersonMergeBehind:
+	case runstate.CauseQueuedHeadBehind, runstate.CausePersonMergeBehind, runstate.CauseMergeQueueBehind:
 	default:
 		return false
 	}
@@ -792,6 +797,22 @@ func (r Reconciler) ContinueUpdates(ctx context.Context) ([]UpdateContinuation, 
 		case !owedUpdateContinuation(state):
 			lease.Release()
 			result.Detail = "the run is no longer waiting at its promotion, so it is left as it stands"
+		case catchUpNotTakenUp(state):
+			// The merge queue put this run back for its one attempt to catch up
+			// with its target and nothing has taken it up yet: this is its first
+			// hosting, not a lost one, so the item already carries the queue's note.
+			retired, handled, retirementErr := (RunRetirer{Runs: r.Store, Tracker: r.Tracker, Now: r.clock().Now()}).Retire(ctx, state)
+			lease.Release()
+			switch {
+			case retirementErr != nil:
+				result.Failure = retirementErr.Error()
+			case handled:
+				result.Retired = retired.Retirement != nil
+				result.Detail = retirementReason(retired)
+			default:
+				result.Continued = true
+				result.Detail = state.IntegrationResumptions[len(state.IntegrationResumptions)-1].Reason
+			}
 		case updateLostItsHost(state):
 			retired, handled, retirementErr := (RunRetirer{Runs: r.Store, Tracker: r.Tracker, Now: r.clock().Now()}).Retire(ctx, state)
 			lease.Release()
