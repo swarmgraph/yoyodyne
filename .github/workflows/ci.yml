@@ -17,6 +17,48 @@ permissions:
   contents: read
 
 jobs:
+  # Each of these three runs one declared check on every pull request and merge
+  # group, under the job name this repository's configuration lists as required.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test
+        run: make test
+
+  race:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # race-skip.sh compares with main to skip a change that is only
+          # documents, so the history has to be there.
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Race
+        run: make race
+
+  vet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Vet
+        run: make vet
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -46,8 +88,13 @@ jobs:
       - name: Verify dependencies
         run: go mod verify
 
-      - name: Check
-        run: make check
+      # The tests, the race detector and vet run as jobs of their own, named
+      # test, race and vet, because those are the names
+      # execution.ci_checks.required waits for on a run's candidate commit
+      # (docs/designs/checks-on-ci.md); this job keeps formatting, the build and
+      # the release and install checks.
+      - name: Check formatting
+        run: make fmtcheck
 
       - name: Build
         run: make build

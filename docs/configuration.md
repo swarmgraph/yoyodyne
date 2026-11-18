@@ -3404,9 +3404,10 @@ no packages to stand in for it. A package that depends on a changed one, or a
 test that reads a file outside every package and is missing from that list, is
 still run by the whole check of the merge candidate before anything is
 promoted. This project names no `landing_checks`: the whole
-check of the merge candidate is the whole suite on this machine, and CI's
-required build check runs `make check` on every pull request, as it did before
-the gate was narrowed.
+check of the merge candidate is the whole suite on this machine, and CI runs
+the same four checks on every pull request as separate jobs: `test`, `race` and
+`vet`, which `execution.ci_checks.required` names, and formatting in the `build`
+job.
 
 **Read the variable with the shell's unset-only default, `${…-./...}`.** The
 variable is set only by the harness's check runner, and the declared checks
