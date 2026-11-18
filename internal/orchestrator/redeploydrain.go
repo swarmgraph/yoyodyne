@@ -10,8 +10,9 @@ package orchestrator
 // it turns a stopped step into an ending, and instead of the cancelled run a
 // killed process leaves — item still claimed, work to be developed again from
 // scratch — it records a stop the session that comes back can continue from:
-// the phase it was at, in the worktree and developer session it already has,
-// with every counter as it was.
+// the phase it was at, in the worktree and developer session it already has
+// (a developer attempt stopped before its provider reported a session resumes
+// in a new session in the same worktree), with every counter as it was.
 //
 // It is the same shape as a provider the harness stopped on time, and
 // deliberately so: both are the harness's own clock ending an invocation the
@@ -281,8 +282,8 @@ func (p *passPublications) active() int {
 // back.
 //
 // The stop is made durable first, and only where the run can be continued from
-// it: a run stopped before it recorded a developer session, or at a phase
-// nothing knows how to re-enter, has nothing a continuation could pick up, and
+// it: a run stopped at its checks or its review before it recorded a developer
+// session, or at a phase nothing knows how to re-enter, has nothing a continuation could pick up, and
 // is ended as cancelled with its branch and worktree preserved and its reason
 // naming the redeploy — never left in flight with a marker nothing can act on,
 // and never silently held.
@@ -353,8 +354,8 @@ func stoppedChecks(drained RedeployDrain, results []checks.Result) *runstate.Red
 
 // stoppedForRedeployIsResumable reports a run its hosting session stopped for a
 // redeploy and which can be continued from durable state. A run at its
-// developer attempt continues in the session that attempt established, so it
-// needs one recorded; a run at its checks or its review re-earns the gate from
+// developer attempt continues in the session that attempt established, or in a
+// new one in the same worktree where none was reported; a run at its checks or its review re-earns the gate from
 // the checks, in the worktree the developer left, and needs the session for
 // the independence integration later demands. A run at its promotion is never
 // stopped for a redeploy, so it is never one of these.
@@ -375,7 +376,12 @@ func stoppedForRedeployIsResumable(state runstate.State) bool {
 	default:
 		return false
 	}
-	if state.ProviderSessionID == "" {
+	// A developer attempt stopped before the provider reported a session has
+	// nothing to resume in, but it also has nothing a fresh session would lose:
+	// what the attempt wrote is in the preserved worktree, and the continuation
+	// starts a new developer session there. Cancelling it instead would end a
+	// run for a new build, which is not a reason to end one.
+	if state.ProviderSessionID == "" && state.Phase != runstate.PhaseDeveloping {
 		return false
 	}
 	return state.WorktreePath != "" && state.Branch != "" && state.BaseCommit != ""
@@ -407,6 +413,10 @@ func renderRedeployStopNotes(outcome Outcome) string {
 		default:
 			said += " No check was running when the run stopped, so none was cut short."
 		}
+	}
+	said += fmt.Sprintf(" This run is waiting to resume on the new build from its %s step; no repair attempt or re-run is spent on it.", stopped.Phase)
+	if outcome.ProviderSessionID == "" && stopped.Phase == runstate.PhaseDeveloping {
+		said += " The developer had not reported a session when it was stopped, so it resumes in a new session in the same worktree, with what it had written kept."
 	}
 	lines := []string{
 		said,
