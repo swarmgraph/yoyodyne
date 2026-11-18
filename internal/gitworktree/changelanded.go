@@ -185,8 +185,11 @@ func (m *Manager) earliestCarrying(ctx context.Context, tip, head string) (strin
 		return "", fmt.Errorf("list the history of %s failed with exit code %d: %s", tip, listed.ExitCode, strings.TrimSpace(listed.Stderr))
 	}
 	line := strings.Fields(listed.Stdout)
-	if len(line) == 0 || line[0] != tip {
-		return "", fmt.Errorf("the history of %s begins at %q", tip, strings.Join(line[:min(len(line), 1)], ""))
+	if len(line) == 0 {
+		return "", fmt.Errorf("the history of %s lists no commits", tip)
+	}
+	if line[0] != tip {
+		return "", fmt.Errorf("the history of %s begins at %s", tip, line[0])
 	}
 	// line is newest first. lo is known to carry the change; hi is the oldest
 	// index still to rule out.
