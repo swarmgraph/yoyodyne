@@ -7698,9 +7698,19 @@ slowly or not at all`.
    [no process behind it](#where-the-harness-stands-the-four-lines) says `no
    process behind it` in place of the phase, with why under it, and its card
    carries a dashed rule a running card does not. The title and the id
-   each open [the item's card](#opening-a-work-item). A conversation card says
-   the agent, its role, how long the turn has been in flight, and how many turns
-   are recorded before it.
+   each open [the item's card](#opening-a-work-item). A run's card also names
+   the developer slot it is in and what that slot prefers, from
+   `execution.developer_slots` in the configuration the dashboard read —
+   `In developer slot 1, which prefers the reliability label.`, or
+   `In developer slot 3, which prefers no label.` for a slot with no
+   preference — whether or not any slot prefers a label. Under the cards, each
+   developer slot with no run in it is listed with what it prefers,
+   `Developer slot 2 is free and prefers the usability label.`, so a slot
+   standing idle stays in view; with every slot idle the section lists them
+   rather than saying it is empty. The Running list the pipeline opens and an
+   item's card name the slot beside a run in flight the same way. A
+   conversation card says the agent, its role, how long the turn has been in
+   flight, and how many turns are recorded before it.
 4. **Where the work stands** — the pipeline, read left to right: admitted items;
    how many are held back — not startable now — split into the read model's
    groups by what each waits on, exactly as the terminal's `-` lines under

@@ -65,19 +65,61 @@ func TestAFreePreferringSlotIsNamedUnderAnEmptyRunningLine(t *testing.T) {
 	}
 }
 
-// A project whose slots prefer nothing reads exactly as it did: no slot is
-// carried and none is named.
-func TestSlotsPreferringNothingAreNotNamed(t *testing.T) {
+// A project whose slots prefer nothing reads on the running line exactly as it
+// did, and still carries every slot, said as preferring no label, for the
+// dashboard to list.
+func TestSlotsPreferringNothingAreCarriedButNotNamedOnTheLine(t *testing.T) {
 	t.Parallel()
 	sources := quietSources()
 	sources.Capacity = 2
 	sources.Slots = []domain.DeveloperSlot{{}, {}}
+	sources.Runs = fakeRuns{incomplete: []runstate.State{
+		{RunID: "run-a", WorkItemID: "yoyodyne-ifd.1", Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping, StartedAt: moment.Add(-time.Hour)},
+	}}
 	standing := ReadStanding(context.Background(), sources)
-	if standing.DeveloperSlots != nil {
-		t.Fatalf("developer slots = %+v, want none carried where none prefers a label", standing.DeveloperSlots)
+	if len(standing.DeveloperSlots) != 2 || standing.DeveloperSlots[1].Says != "developer slot 2 is free and prefers no label" {
+		t.Fatalf("developer slots = %+v, want both carried, the free one said as preferring no label", standing.DeveloperSlots)
+	}
+	if got := standing.Running[0].SlotSays; got != "in developer slot 1, which prefers no label" {
+		t.Fatalf("slot says = %q, want the run's slot said as preferring no label", got)
 	}
 	if rendered := standing.Render(); strings.Contains(rendered, "developer slot") {
 		t.Fatalf("rendered names slots:\n%s", rendered)
+	}
+}
+
+// Every slot carries its preference in words for the dashboard: a run's slot
+// with what it prefers, a slot with no preference said so, and an idle slot
+// listed with its preference.
+func TestEverySlotIsSaidWithItsPreferenceInWords(t *testing.T) {
+	t.Parallel()
+	sources := quietSources()
+	sources.Capacity = 3
+	sources.Slots = []domain.DeveloperSlot{{Prefer: []string{"reliability"}}, {Prefer: []string{"usability", "product", "performance"}}, {}}
+	sources.Runs = fakeRuns{incomplete: []runstate.State{
+		{RunID: "run-a", WorkItemID: "yoyodyne-ifd.1", Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping, StartedAt: moment.Add(-2 * time.Hour), WorkItemLabels: []string{"reliability"}},
+		{RunID: "run-b", WorkItemID: "yoyodyne-ifd.2", Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping, StartedAt: moment.Add(-time.Hour)},
+	}}
+	standing := ReadStanding(context.Background(), sources)
+	says := map[string]string{}
+	for _, run := range standing.Running {
+		says[run.RunID] = run.SlotSays
+	}
+	if says["run-a"] != "in developer slot 1, which prefers the reliability label" || says["run-b"] != "in developer slot 3, which prefers no label" {
+		t.Fatalf("runs' slots = %v", says)
+	}
+	want := []string{
+		"developer slot 1, which prefers the reliability label",
+		"developer slot 2 is free and prefers the usability, product or performance labels",
+		"developer slot 3, which prefers no label",
+	}
+	if len(standing.DeveloperSlots) != len(want) {
+		t.Fatalf("developer slots = %+v", standing.DeveloperSlots)
+	}
+	for index, slot := range standing.DeveloperSlots {
+		if slot.Says != want[index] {
+			t.Errorf("slot %d says %q, want %q", index+1, slot.Says, want[index])
+		}
 	}
 }
 

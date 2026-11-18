@@ -1,0 +1,64 @@
+{
+  "observed_at": "2026-09-19T14:05:09Z",
+  "capacity_blocked": {
+    "runs": [],
+    "conversations": []
+  },
+  "running": [
+    {
+      "run_id": "run-3f0a8c2e5d7b4e19a6c1d0f2b8e4a7c3",
+      "work_item_id": "yoyodyne-6u6",
+      "title": "The dashboard shows each developer slot's preferred labels",
+      "backend": "claude-code",
+      "model": "claude-opus-5",
+      "account": "default",
+      "phase": "developing",
+      "started_at": "2026-09-19T13:50:00Z",
+      "elapsed": 909000000000,
+      "cost_usd": 1.12,
+      "developer_slot": 1,
+      "slot_prefers": [
+        "reliability"
+      ],
+      "slot_says": "in developer slot 1, which prefers the reliability label",
+      "stage": "developing"
+    }
+  ],
+  "working": [],
+  "developer_slots": [
+    {
+      "number": 1,
+      "preferred": [
+        "reliability"
+      ],
+      "run_id": "run-3f0a8c2e5d7b4e19a6c1d0f2b8e4a7c3",
+      "work_item_id": "yoyodyne-6u6",
+      "says": "developer slot 1, which prefers the reliability label"
+    },
+    {
+      "number": 2,
+      "preferred": [
+        "usability",
+        "product",
+        "performance"
+      ],
+      "says": "developer slot 2 is free and prefers the usability, product or performance labels"
+    },
+    {
+      "number": 3,
+      "says": "developer slot 3 is free and prefers no label"
+    }
+  ],
+  "not_startable": [],
+  "admitted": 0,
+  "awaiting_decision": 0,
+  "awaiting_carry_out": 0,
+  "needs_human": [],
+  "reports": {
+    "collected": 0,
+    "unhandled": 0
+  },
+  "startable": 0,
+  "admitted_items": [],
+  "startable_items": []
+}
