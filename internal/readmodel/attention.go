@@ -414,6 +414,10 @@ type OwedStep struct {
 	// SchedulingWaitClearFailure is the clearing of the scheduler's kept reason
 	// for the item, which the run's start could not write and reconcile retries.
 	SchedulingWaitClearFailure string `json:"scheduling_wait_clear_failure,omitempty"`
+	// MergeQueueNoteOwed is the note recording the merge queue admission, which
+	// the run could not write on its item and reconcile writes; the change waits
+	// in the queue meanwhile.
+	MergeQueueNoteOwed *runstate.MergeQueueNoteOwed `json:"merge_queue_note_owed,omitempty"`
 	// EndedAt is when the run ended, which is when the step began to be owed.
 	// It is absent on a record that names no ending.
 	EndedAt                    time.Time                  `json:"ended_at,omitzero"`
@@ -547,6 +551,9 @@ func (a Attention) What() string {
 		if step := a.OwedStep; step != nil {
 			if step.SchedulingWaitClearFailure != "" {
 				return fmt.Sprintf("the old scheduling reason for %s could not be cleared: %s", a.WorkItemID, step.SchedulingWaitClearFailure)
+			}
+			if owed := step.MergeQueueNoteOwed; owed != nil {
+				return fmt.Sprintf("the approved change for %s waits in the merge queue, but %s", a.WorkItemID, owed.Describe())
 			}
 			if len(step.ReconcileFindings) > 0 {
 				return reconcileFindingWhat(a.WorkItemID, step.ReconcileFindings)
@@ -772,6 +779,9 @@ func (a Attention) Whose() string {
 		if step := a.OwedStep; step != nil {
 			if step.SchedulingWaitClearFailure != "" {
 				return a.Mover.Possessive() + " — the old reason this item had not started could not be removed; the run went ahead and `yoyo reconcile` will remove it"
+			}
+			if step.MergeQueueNoteOwed != nil {
+				return a.Mover.Possessive() + " — nothing is stopped: the queue lands the change or hands it back as it would have, and `yoyo reconcile` writes the note on the item"
 			}
 			if len(step.ReconcileFindings) > 0 {
 				return reconcileFindingWhose(a.Mover, step.ReconcileFindings)
@@ -1129,6 +1139,10 @@ func owedStepAttention(state runstate.State) Attention {
 	step := &OwedStep{SchedulingWaitClearFailure: state.SchedulingWaitClearFailure, ReconcileFindings: state.ReconcileFindings, Status: state.Status, Phase: state.Phase, EndedAt: runEnded(state), PullRequest: state.PullRequest, MergeDrop: state.MergeDrop, CleanupFailure: state.CleanupFailure, LandingChecks: state.LandingChecks, CompletionRecordingFailure: state.CompletionRecordingFailure, ConfigComparison: state.ConfigComparison}
 	if state.Integration != nil {
 		step.TargetBranch = state.Integration.TargetBranch
+	} else {
+		// Once the change lands its landing note says the same, so the note is
+		// owed only before then (runstate.State.Outstanding).
+		step.MergeQueueNoteOwed = state.MergeQueueNoteOwed
 	}
 	return resolved(Attention{
 		Kind:       AttentionOwedStep,

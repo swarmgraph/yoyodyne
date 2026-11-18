@@ -217,7 +217,7 @@ func TestAnAdmissionWaitingOnTheTrackerKeepsWhatTheQueueRecorded(t *testing.T) {
 		t.Errorf("the queue's retirement is lost: pull request = %+v", final.PullRequest)
 	case final.MergeQueue == nil || final.MergeQueue.EntryID != entry.EntryID:
 		t.Errorf("the admission is lost: merge queue = %+v", final.MergeQueue)
-	case final.RetryAttempts(runstate.RetryTrackerWrite) != 1:
+	case final.RetryAttempts(runstate.RetryMergeQueueNote) != 1:
 		t.Errorf("the retry is lost: retries = %+v", final.Retries)
 	}
 	if len(tracker.NoteRecords) != 1 {

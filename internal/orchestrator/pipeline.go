@@ -820,6 +820,10 @@ type Outcome struct {
 	// SchedulingWaitClearFailure is the clearing of the scheduler's kept reason
 	// this run still owes; see runstate.State.SchedulingWaitClearFailure.
 	SchedulingWaitClearFailure string `json:"scheduling_wait_clear_failure,omitempty"`
+	// MergeQueueNoteOwed says, where the note recording the merge queue
+	// admission could not be written on the item, that it is owed and how hard
+	// it was tried; see runstate.MergeQueueNoteOwed.
+	MergeQueueNoteOwed string `json:"merge_queue_note_owed,omitempty"`
 
 	// continuationAccepted is set only after an adopted run has passed its
 	// resume preconditions. A pre-adoption pause can name an existing run

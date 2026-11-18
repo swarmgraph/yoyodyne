@@ -2462,6 +2462,10 @@ func (s *State) recordedTexts() []recordedText {
 		unstated("landing_checks.problem", "landing_checks.problem", &s.LandingChecks.Problem, MaxRecordedTextBytes)
 	}
 	own("scheduling_wait_clear_failure", &s.SchedulingWaitClearFailure, MaxChannelProblemBytes, channelProblemCutNote)
+	if s.MergeQueueNoteOwed != nil {
+		nested("merge_queue_note_owed.note", "merge_queue_note_owed.note", &s.MergeQueueNoteOwed.Note, MaxBlockerBytes)
+		nested("merge_queue_note_owed.failure", "merge_queue_note_owed.failure", &s.MergeQueueNoteOwed.Failure, MaxRetryFailureBytes)
+	}
 	own("report_problem", &s.ReportProblem, MaxChannelProblemBytes, channelProblemCutNote)
 	own("amendment_problem", &s.AmendmentProblem, MaxChannelProblemBytes, channelProblemCutNote)
 	for index := range s.RepairContinuations {
@@ -3334,6 +3338,11 @@ type State struct {
 	// retry leaves alone a reason a later pass recorded after it.
 	SchedulingWaitClearAt      *time.Time `json:"scheduling_wait_clear_at,omitempty"`
 	SchedulingWaitClearFailure string     `json:"scheduling_wait_clear_failure,omitempty"`
+	// MergeQueueNoteOwed is the note saying the run's approved change was
+	// admitted to the merge queue, where the run could not write it on the item.
+	// The change waits in the queue all the same; reconcile writes the note. See
+	// MergeQueueNoteOwed.
+	MergeQueueNoteOwed *MergeQueueNoteOwed `json:"merge_queue_note_owed,omitempty"`
 	// Retirement ends obsolete work without removing its branch or checkout.
 	Retirement    *RunRetirement `json:"retirement,omitempty"`
 	SchemaVersion int            `json:"schema_version"`
@@ -4387,6 +4396,13 @@ func (s State) Validate() error {
 			problems = append(problems, fmt.Errorf("merge_queue: %w", err))
 		}
 	}
+	if s.MergeQueueNoteOwed != nil {
+		if s.MergeQueue == nil {
+			problems = append(problems, errors.New("merge_queue_note_owed: only a run admitted to the merge queue owes a note about its admission"))
+		} else if err := s.MergeQueueNoteOwed.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("merge_queue_note_owed: %w", err))
+		}
+	}
 	if s.Document != nil {
 		if err := s.Document.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("document publication: %w", err))
@@ -5343,6 +5359,11 @@ func (s State) OperatorHeld() time.Duration {
 // run itself is over, and what it did with it has to be found out.
 func (s State) Outstanding() bool {
 	if s.SchedulingWaitClearFailure != "" {
+		return true
+	}
+	// A note about the merge queue admission the run could not write is owed
+	// until the change lands, whose own note on the item says the same and more.
+	if s.MergeQueueNoteOwed != nil && s.Integration == nil {
 		return true
 	}
 	if s.Retirement != nil {
