@@ -327,8 +327,35 @@ func addressedReportRule(r Record) (Answer, bool) {
 // the development manager deciding what becomes of a run's work: a closed item
 // with no confirmed merged publication, or a merged branch whose deletion would
 // lose commits somebody may want.
+// The words the clean-up of earlier runs' pull requests puts in a finding
+// (internal/orchestrator's closeditems.go), so this registry and that code
+// agree on whose a finding is. PublicationKeptForDecision is a pull request
+// kept open with its branch and checkout because nothing showed its work
+// landed; PublicationNotClosed is a close the forge refused. Both are the
+// development manager's. PublicationNeedsForgeHand is a refusal only somebody
+// with rights on the repository can lift, which is the operator's.
+const (
+	PublicationKeptForDecision = "is kept open with its branch and checkout for the development manager"
+	PublicationNotClosed       = "could not be closed"
+	PublicationNeedsForgeHand  = "needs a person with rights on the repository"
+)
+
+// reconcileNeedsForgeHand reports a finding only a person acting on the forge
+// can settle.
+func reconcileNeedsForgeHand(findings []string) bool {
+	for _, problem := range findings {
+		if strings.Contains(problem, PublicationNeedsForgeHand) {
+			return true
+		}
+	}
+	return false
+}
+
 func reconcileNeedsDevelopmentManager(findings []string) bool {
 	for _, problem := range findings {
+		if strings.Contains(problem, PublicationKeptForDecision) || strings.Contains(problem, PublicationNotClosed) {
+			return true
+		}
 		if strings.Contains(problem, "closed but has no later confirmed merged publication") {
 			return true
 		}
@@ -340,6 +367,9 @@ func reconcileNeedsDevelopmentManager(findings []string) bool {
 }
 
 func owedStepRule(r Record) (Answer, bool) {
+	if reconcileNeedsForgeHand(r.UnresolvedFindings) {
+		return operator(OperatorRepositorySetting, "give the harness's forge account the right to close pull requests on the repository, or close the pull request named by hand", "")
+	}
 	if reconcileNeedsDevelopmentManager(r.UnresolvedFindings) {
 		return owned(MoverDevelopmentManager, "decide what becomes of the run's preserved work", "triage decision")
 	}

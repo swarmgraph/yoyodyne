@@ -28,7 +28,10 @@ package orchestrator
 // on a guess — the work may have landed by a vehicle nothing here recorded, or
 // may be pending on the preserved branch — and it is named instead, so what is
 // left open at the forge is a list a person can decide rather than a list
-// nobody has read.
+// nobody has read. The step after this one (closeditems.go) decides those
+// requests on more evidence than this one reads — the item's state in the
+// tracker and whether the change is on the target by its content — and closes
+// or keeps each on its own rules.
 
 import (
 	"context"

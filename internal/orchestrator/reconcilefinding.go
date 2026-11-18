@@ -245,7 +245,10 @@ func reconcileFindingResolved(state runstate.State, step runstate.ReconcileStep)
 	case runstate.ReconcileRecovery:
 		return published != nil && state.PublishFailure == "" && (published.Merged || published.MergeQueued)
 	case runstate.ReconcileSuperseded:
-		return published != nil && published.Superseded != ""
+		// A request the harness closed records what replaced it; one somebody
+		// closed or merged by hand records only the forge's answer, and is just as
+		// settled: nothing is left open for anybody to decide.
+		return published != nil && (published.Superseded != "" || published.Merged || strings.EqualFold(strings.TrimSpace(published.State), "CLOSED"))
 	case runstate.ReconcileWorktree:
 		return state.WorktreeRemoved && (state.PreservedWorkRef == "" || state.PreservedWorkNotedAt != nil)
 	case runstate.ReconcileEscalation:

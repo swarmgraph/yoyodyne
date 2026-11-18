@@ -13,9 +13,10 @@
 //
 // This notices and does nothing else. Each request it finds is stated as a
 // finding on the pass, keyed on the request so it is said once rather than
-// once an hour, and closing it is somebody's decision rather than this code's:
-// a request the forge holds open is a thing a person may still want, and the
-// harness's part is to make sure they know it is there.
+// once an hour. Closing is not this package's: the maintenance sweep closes the
+// requests a recorded run opened, on the rules in internal/orchestrator's
+// closeditems.go, and a request no run of this harness opened is somebody
+// else's, so the harness's part is to make sure they know it is there.
 package forgehygiene
 
 import (

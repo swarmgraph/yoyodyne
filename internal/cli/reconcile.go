@@ -795,6 +795,9 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		if output.Convergence.Unsuperseded == nil {
 			output.Convergence.Unsuperseded = []orchestrator.OpenPublication{}
 		}
+		if output.Convergence.ClosedItems == nil {
+			output.Convergence.ClosedItems = []orchestrator.ClosedItemPublication{}
+		}
 		if output.Convergence.Branches == nil {
 			output.Convergence.Branches = []orchestrator.BranchSweep{}
 		}
@@ -905,6 +908,9 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			printReconcileFinding(stdout, stderr, result.Finding, result.FindingProblem)
 		}
 		for _, result := range convergence.Publications {
+			printReconcileFinding(stdout, stderr, result.Finding, result.FindingProblem)
+		}
+		for _, result := range convergence.ClosedItems {
 			printReconcileFinding(stdout, stderr, result.Finding, result.FindingProblem)
 		}
 		for _, result := range convergence.Worktrees {
@@ -1200,6 +1206,23 @@ func printConvergence(stdout, stderr io.Writer, convergence orchestrator.Converg
 		case publication.Closed:
 			fmt.Fprintf(stdout, "pull request #%d of %s closed: %s superseded it\n",
 				publication.Number, publication.WorkItemID, publication.SupersededBy.Vehicle())
+		}
+	}
+	for _, closed := range convergence.ClosedItems {
+		item := readmodel.RecordedWorkItemTitle(closed.WorkItemID, closed.WorkItemTitle)
+		switch {
+		case closed.Failure != "":
+			fmt.Fprintln(stderr, item.Cite(fmt.Sprintf("pull request #%d of %s not closed: %s", closed.Number, closed.WorkItemID, closed.Failure)))
+		case closed.Closed:
+			fmt.Fprintln(stdout, item.Cite(fmt.Sprintf("pull request #%d of %s closed: %s", closed.Number, closed.WorkItemID, closed.Why)))
+			if closed.ReleaseKept != "" {
+				fmt.Fprintf(stdout, "  kept: %s\n", closed.ReleaseKept)
+			}
+		case closed.Kept:
+			fmt.Fprintln(stdout, item.Cite(fmt.Sprintf("pull request #%d of %s kept: %s", closed.Number, closed.WorkItemID, closed.Why)))
+		}
+		if closed.ItemProblem != "" {
+			fmt.Fprintf(stderr, "%s not told: %s\n", closed.WorkItemID, closed.ItemProblem)
 		}
 	}
 	printUnsuperseded(stdout, convergence.Unsuperseded)
