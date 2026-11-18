@@ -78,7 +78,7 @@ const untypedIssueType = "task"
 // the bundle may be, plus the largest thing an operator may say, plus room for
 // the system prompt, which the failures above measured at well under 128 KiB.
 // TestTheTurnBackstopSitsAboveWhatItBackstops refuses any future drift apart.
-const MaxTurnInputBytes = 3 << 20
+const MaxTurnInputBytes = 4 << 20
 
 // MaxOperatorMessageBytes bounds one thing an operator says. It is generous for
 // prose and small enough that a mis-piped file is refused rather than sent.
