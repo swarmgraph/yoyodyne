@@ -118,9 +118,13 @@ type requestDecision struct {
 // closedItemCandidate reports a run holding a pull request this step may
 // decide about: harness-opened by being on a run record, open as far as the
 // record says, not merged, queued, handed back or already retired by anything,
-// and from a run that has ended. A run that succeeded without integrating is
-// one waiting for a person or a merge queue, and is theirs unless the harness
-// retired it. A document's request is the document clean-up's.
+// and from a run that has ended. A run that integrated is its own request's
+// landing, and a run admitted to the harness's merge queue has that queue close
+// its request (mergequeueretire.go), so neither is decided here. A run that
+// succeeded and waits for a person to merge is a candidate like any other: the
+// decision leaves it alone while its item is open and its change has not
+// landed through another pull request. A document's request is the document
+// clean-up's.
 func closedItemCandidate(state runstate.State) bool {
 	published := state.PullRequest
 	if published == nil || state.Document != nil {
@@ -132,7 +136,7 @@ func closedItemCandidate(state runstate.State) bool {
 	if !state.Status.Terminal() {
 		return false
 	}
-	if state.Retirement == nil && (state.Integration != nil || state.Status == runstate.StatusSucceeded) {
+	if state.Retirement == nil && (state.Integration != nil || state.MergeQueue != nil) {
 		return false
 	}
 	return true
@@ -380,6 +384,20 @@ func (r Reconciler) actOnClosedItemPublication(ctx context.Context, recorded run
 		return result, true
 	}
 	state = updated
+	// A run waiting for a person to merge its request stops waiting once the
+	// harness has closed that request. Left waiting, the forge check would read
+	// the close as somebody declining the change and give the item back.
+	if state.WaitingForPersonMerge() && state.PersonMerge.Number == published.Number {
+		now := r.clock().Now()
+		ended, err := r.Store.Update(ctx, state.RunID, runstate.PersonMergeReturned{
+			Number: published.Number, ClosedBy: "Yoyodyne", ClosedAt: now, ForgeState: "CLOSED", At: now,
+		})
+		if err != nil {
+			result.Failure = fmt.Sprintf("pull request #%d was closed and run %s could not be recorded as no longer waiting for a person to merge it: %v", published.Number, state.RunID, err)
+			return result, true
+		}
+		state = ended
+	}
 	if decision.release {
 		r.releaseReplacedRun(ctx, &state, landings, &result)
 	}

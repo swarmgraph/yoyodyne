@@ -33,6 +33,15 @@ func earlierRun(number int) runstate.State {
 	}
 }
 
+// waitingForPerson is a run that finished and waits for a person to merge its
+// pull request.
+func waitingForPerson(number int) runstate.State {
+	state := earlierRun(number)
+	state.Status = runstate.StatusSucceeded
+	state.PersonMerge = &runstate.PersonMerge{Number: number, Since: *state.CompletedAt}
+	return state
+}
+
 func closedItem(reason string) *beads.WorkItem {
 	return &beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "closed", CloseReason: reason}
 }
@@ -59,10 +68,13 @@ func TestClosedItemCandidatesAreOnlyEndedRunsWithAnOpenRequest(t *testing.T) {
 		"a handed-back request": func(s *runstate.State) {
 			s.PullRequest.HandedBack = &runstate.PublicationHandBack{}
 		},
-		"a document's request":       func(s *runstate.State) { s.Document = &runstate.DocumentPublication{} },
-		"a run that integrated":      func(s *runstate.State) { s.Integration = &runstate.Integration{TargetBranch: "main"} },
-		"a run waiting for a person": func(s *runstate.State) { s.Status = runstate.StatusSucceeded },
-		"a run with no request":      func(s *runstate.State) { s.PullRequest = nil },
+		"a document's request":  func(s *runstate.State) { s.Document = &runstate.DocumentPublication{} },
+		"a run that integrated": func(s *runstate.State) { s.Integration = &runstate.Integration{TargetBranch: "main"} },
+		"a run admitted to the harness's merge queue": func(s *runstate.State) {
+			s.Status = runstate.StatusSucceeded
+			s.MergeQueue = &runstate.MergeQueueAdmissionRecord{}
+		},
+		"a run with no request": func(s *runstate.State) { s.PullRequest = nil },
 	}
 	for name, change := range cases {
 		state := earlierRun(5)
@@ -70,6 +82,11 @@ func TestClosedItemCandidatesAreOnlyEndedRunsWithAnOpenRequest(t *testing.T) {
 		if closedItemCandidate(state) {
 			t.Errorf("%s is a candidate", name)
 		}
+	}
+	waiting := earlierRun(5)
+	waiting.Status = runstate.StatusSucceeded
+	if !closedItemCandidate(waiting) {
+		t.Error("a finished run waiting for a person to merge is not a candidate")
 	}
 	retired := earlierRun(5)
 	retired.Status = runstate.StatusCancelled
@@ -117,6 +134,12 @@ func TestClosedItemDecisions(t *testing.T) {
 			landing: landedThrough(1535), action: closeRequest, release: true, says: []string{"#1535", "already on main"}},
 		{name: "a closed item whose change landed through another pull request", state: earlierRun(5), item: closedItem("done"),
 			landing: landedThrough(1535), action: closeRequest, release: true, says: []string{"#1535"}},
+		{name: "a finished run waiting for a person, its item open and its change landed through another pull request", state: waitingForPerson(5), item: nil,
+			landing: landedThrough(1535), action: closeRequest, release: true, says: []string{"#1535"}},
+		{name: "a finished run waiting for a person, its item open and its change not on the target", state: waitingForPerson(5), item: nil,
+			landing: &gitworktree.ChangeLanding{}, action: leaveRequest},
+		{name: "a finished run waiting for a person whose item closed with its work replaced", state: waitingForPerson(5), item: closedItem("done"),
+			replacement: "pull request #9", action: closeRequest, release: true, says: []string{"#9"}},
 		{name: "an open item whose change landed through its own pull request is not closed", state: earlierRun(5), item: nil,
 			landing: landedThrough(5), action: leaveRequest},
 	}
@@ -397,4 +420,57 @@ func TestConvergeRecordsACloseTheForgeRefused(t *testing.T) {
 	if notes := fixture.tracker.Record().Notes; !strings.Contains(notes, ownership.PublicationNotClosed) {
 		t.Errorf("item notes = %q, want the refusal recorded on the item", notes)
 	}
+}
+
+// A finished run waiting for a person to merge its pull request is closed once
+// its change landed through another pull request, and stops waiting, so the
+// forge check does not read the close as the change being declined. While its
+// change is not on the target and its item is open, it is left exactly as it is.
+func TestConvergeClosesAWaitingRequestWhoseChangeLandedElsewhereAndLeavesOneThatDidNot(t *testing.T) {
+	t.Parallel()
+
+	fixture := newQueuedFixture(t)
+	landed := fixture.waitingRun(t, "run-11112222333344445555666677778888", 1496, "chart.js")
+	pending := fixture.waitingRun(t, "run-aaaa1111aaaa1111aaaa1111aaaa1111", 1497, "other.txt")
+	fixture.squashOnRemote(t, landed.PullRequest.HeadCommit, "Bring in Chart.js (#1535)")
+
+	result := onlyClosedItem(t, fixture.convergeWithClosed(t, closedWork{}))
+	if result.RunID != landed.RunID || !result.Closed || result.Failure != "" || !strings.Contains(result.ReplacedBy, "#1535") {
+		t.Fatalf("result = %#v, want #1496 closed naming #1535", result)
+	}
+	closed, err := fixture.store.Load(landed.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if closed.WaitingForPersonMerge() || closed.PullRequest.State != "CLOSED" {
+		t.Errorf("record = %#v, %#v, want the request closed and the wait ended", closed.PullRequest, closed.PersonMerge)
+	}
+	untouched, err := fixture.store.Load(pending.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !untouched.WaitingForPersonMerge() || untouched.PullRequest.State != "OPEN" || untouched.PullRequest.Superseded != "" {
+		t.Errorf("record = %#v, want the request whose change is not on the target left waiting", untouched.PullRequest)
+	}
+	if got := fixture.forge.ClosedRequests(); len(got) != 1 || got[0].Number != 1496 {
+		t.Errorf("closed = %#v, want only #1496", got)
+	}
+}
+
+// waitingRun is publishedRun finished and waiting for a person to merge.
+func (f queuedFixture) waitingRun(t *testing.T, runID string, number int, file string) runstate.State {
+	t.Helper()
+	state := f.publishedRun(t, "yoyodyne-task", runID, number, file)
+	state.Status = runstate.StatusSucceeded
+	state.Phase = runstate.PhaseComplete
+	state.Failure = ""
+	state.PersonMerge = &runstate.PersonMerge{Number: number, Since: *state.CompletedAt}
+	if err := f.store.Save(state); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	loaded, err := f.store.Load(runID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	return loaded
 }
