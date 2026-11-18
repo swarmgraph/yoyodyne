@@ -55,7 +55,7 @@ PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64
 # outgrows it is a package to split.
 TEST_TIMEOUT ?= 43m
 
-.PHONY: build test race vet fmt fmtcheck cachecheck check doccheck adoption validate-machine-home codex-resume dist dist-verify clean-dist release release-notes
+.PHONY: build test race vet test-macos fmt fmtcheck cachecheck check doccheck adoption validate-machine-home codex-resume dist dist-verify clean-dist release release-notes
 .NOTPARALLEL: check
 
 # Every Go command below writes what it compiles to the build cache before it
@@ -250,6 +250,24 @@ race: cachecheck
 	if [ -n "$$packages" ]; then \
 		sh scripts/race-run.sh '$(GO)' '$(TEST_TIMEOUT)' '$(RACE_PARTS)' $$packages; \
 	fi
+
+# The tests only macOS exercises: the keychain, launchd, and the file system,
+# process and terminal handling that behave differently there. CI runs on
+# Ubuntu and cannot stand in for them (docs/designs/checks-on-ci.md), so with
+# execution.ci_checks on, this target is part of every run's short local check.
+# It runs the packages that hold macOS-only code whole, and the one test in
+# internal/beads that reproduces the developer sandbox under sandbox-exec. On
+# any other system there is nothing to run, and it says so and passes.
+MACOS_TEST_PACKAGES = ./internal/console ./internal/mcpcredential ./internal/maintenancejob ./internal/supervise ./internal/execution ./internal/gitworktree ./internal/runstate
+
+test-macos: cachecheck
+	@if [ "$$(uname -s)" != Darwin ]; then \
+		echo "test-macos: this is not macOS, so there are no macOS-only tests to run here"; \
+		exit 0; \
+	fi; \
+	echo "$(GO) test -timeout $(TEST_TIMEOUT) $(MACOS_TEST_PACKAGES)"; \
+	$(GO) test -timeout $(TEST_TIMEOUT) $(MACOS_TEST_PACKAGES) || exit 1; \
+	$(GO) test -timeout $(TEST_TIMEOUT) -run TestTheOperatingSystemProbeTriesTheConnectionUnderTheDeveloperSandbox ./internal/beads
 
 vet: cachecheck
 	$(GO) vet ./...
