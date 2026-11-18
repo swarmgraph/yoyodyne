@@ -10,8 +10,9 @@ package orchestrator
 // it turns a stopped step into an ending, and instead of the cancelled run a
 // killed process leaves — item still claimed, work to be developed again from
 // scratch — it records a stop the session that comes back can continue from:
-// the phase it was at, in the worktree and developer session it already has,
-// with every counter as it was.
+// the phase it was at, in the worktree and developer session it already has
+// (a developer attempt stopped before its provider reported a session resumes
+// in a new session in the same worktree), with every counter as it was.
 //
 // It is the same shape as a provider the harness stopped on time, and
 // deliberately so: both are the harness's own clock ending an invocation the
@@ -281,8 +282,8 @@ func (p *passPublications) active() int {
 // back.
 //
 // The stop is made durable first, and only where the run can be continued from
-// it: a run stopped before it recorded a developer session, or at a phase
-// nothing knows how to re-enter, has nothing a continuation could pick up, and
+// it: a run stopped at its checks or its review before it recorded a developer
+// session, or at a phase nothing knows how to re-enter, has nothing a continuation could pick up, and
 // is ended as cancelled with its branch and worktree preserved and its reason
 // naming the redeploy — never left in flight with a marker nothing can act on,
 // and never silently held.

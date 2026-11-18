@@ -3677,14 +3677,19 @@ recording its verdict is still hosted past the bound:
 
 - Each run it still hosts at its developer attempt, its checks, or its review is
   stopped where it is and **preserved whole** — worktree, branch, claim,
-  developer session, repair attempts, relaunches, review rounds, every counter.
+  developer session where the provider had reported one, repair attempts,
+  relaunches, review rounds, every counter. The item's note says in plain words
+  that the run is waiting to resume on the new build and from which step, and
+  that no repair attempt or re-run is spent on it.
   The run's record carries a `redeploy_stop` naming the phase, the bound, and
   the session that stopped it; the work item gets a note saying the run was
   paused for a redeploy, not failed.
 - The session that comes back **re-adopts** each of them at its first pull,
   ahead of anything new and into the seat the run already holds, and continues
   it from the recorded phase: a developer attempt resumes in the same session,
-  and a run stopped at its checks or its review re-earns the gate from the
+  or, where the provider had not yet reported one when the run was stopped, in a
+  new developer session in the same worktree with what the attempt had written
+  kept, and a run stopped at its checks or its review re-earns the gate from the
   checks — where it was stopped at its checks, keeping the checks that had
   already passed on the same change, as the next point but one says. Its selection reason says it was handed over rather than chosen. A
   re-adoption the pipeline could not take at that moment — a lease another
@@ -3795,7 +3800,9 @@ recording its verdict is still hosted past the bound:
   the pass again at its first pull rather than a whole interval later, telling
   it of any writes the stopped pass already saved.
 - A run the bound stops **before it recorded anything a continuation could pick
-  up** — no developer session yet — is not held with a marker nothing can act
+  up** — at its checks or its review with no developer session, or at a step
+  nothing can re-enter (a developer attempt with no session is not one of
+  these: it is kept and resumes in a new session) — is not held with a marker nothing can act
   on. It is recorded as cancelled, with its branch and worktree preserved and
   its reason naming the redeploy, exactly as a run a killed process leaves:
   `yoyo status --failed` lists it, the item's note says why, and the item stays
