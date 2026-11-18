@@ -73,6 +73,13 @@ the machine's load;
 is the arithmetic, and [where the whole suite runs](configuration.md#where-the-whole-suite-runs)
 is the arrangement.
 
+`make test-macos` runs the tests only macOS exercises (the keychain, launchd,
+and file system, process and terminal handling) in the packages that hold them.
+This repository turns on `execution.ci_checks`, so a run's short local check is
+`make fmtcheck`, `make vet`, `make build` and `make test-macos`, and GitHub's
+required checks cover the rest; CI runs on Ubuntu and cannot stand in for these.
+Off macOS it says so and passes.
+
 `make adoption` is the fifth thing and deliberately not one of them. It runs
 [`scripts/walk-adoption.sh`](../scripts/walk-adoption.sh), which executes the
 README's "Getting started" against a throwaway Python project — its own scratch
