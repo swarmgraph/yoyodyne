@@ -16,22 +16,33 @@ make build
 ./bin/yoyo chat
 ```
 
-`make check` is `fmtcheck`, `test`, `race`, and `vet`, and CI runs the same
-four: `test`, `race` and `vet` as jobs of those names, which are the forge checks
-`execution.ci_checks.required` waits for, and `fmtcheck` in the `build` job. Those same four are what this project declares as its
-[checks](configuration.md), and a run applies them one at a time before it will
-let a change reach review or integration — so anything a run has to exercise has
-to reach one of the four, and for content that is not Go that means `make test`.
+`make check` is `fmtcheck`, `test`, `race`, and `vet`, and it is what a person
+runs before handing work over. CI runs the same four: `test`, `race` and `vet` as
+jobs of those names, which are the forge checks `execution.ci_checks.required`
+waits for, and `fmtcheck` in the `build` job.
+
+This project declares six [checks](configuration.md): those four, `make build`
+and `make test-macos`. It also turns on `execution.ci_checks`, so a run does not
+apply all six before review. It applies the short local check named in
+`execution.ci_checks.local` (`make fmtcheck`, `make vet`, `make build` and
+`make test-macos`), then the harness pushes the candidate and waits for the
+`test`, `race` and `vet` jobs on GitHub. The whole suite therefore runs on GitHub
+rather than on this machine; it runs here only as the fallback, when a required
+check does not finish, is cancelled or never starts. Anything a run has to
+exercise has to reach one of those jobs or the local check, and for content that
+is not Go that means `make test`.
 
 `make test` and `make race` take the Go packages a change touches as
 `CHANGED_GO_PACKAGES`, and are the whole module when nothing names them, which
-is what `make check`, CI, and a person's own run want. A run's gate names them:
-the harness hands every check the packages the change touches as
-`YOYODYNE_CHANGED_GO_PACKAGES`, and the check list passes them on as
+is what `make check`, CI, and a person's own run want. Where the full checks run
+here, the harness names them: it hands every check the packages the change
+touches as `YOYODYNE_CHANGED_GO_PACKAGES`, and the check list passes them on as
 `make test CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"` and the
-same for `make race`. Once the reviewer approves, the harness runs the list
-again over the merge candidate told `./...`, so the whole suite runs on this
-machine before anything is promoted; see
+same for `make race`. With checks on CI off, or on the fallback, the harness runs
+the list again over the merge candidate told `./...` once the reviewer approves,
+so the whole suite runs on this machine before anything is promoted; with it on,
+a merge-queue candidate gets the short local check and then GitHub's required
+checks on that exact commit. See
 [where the whole suite runs](configuration.md#where-the-whole-suite-runs). The
 unset-only default is what makes those lines safe to run outside the harness —
 the probe and the evidence a developer records in its worktree, or your own
@@ -81,7 +92,7 @@ This repository turns on `execution.ci_checks`, so a run's short local check is
 required checks cover the rest; CI runs on Ubuntu and cannot stand in for these.
 Off macOS it says so and passes.
 
-`make adoption` is the fifth thing and deliberately not one of them. It runs
+`make adoption` is deliberately not one of the declared checks. It runs
 [`scripts/walk-adoption.sh`](../scripts/walk-adoption.sh), which executes the
 README's "Getting started" against a throwaway Python project — its own scratch
 repository and state directory, removed when it exits — and asserts what each
@@ -112,7 +123,7 @@ every time. Instead it is a [path check](configuration.md#checks-a-change-runs-o
 place the paths it vouches for are declared — the README, the walk itself, the
 Makefile and module files, and the program under `cmd` and `internal` less its
 tests and test fixtures — and a run whose change touches any of them runs
-`make adoption` after the four declared checks, as a fifth check whose result
+`make adoption` after the declared checks, as a further check whose result
 the review is shown. A change touching none of them, a document elsewhere or a
 test, does not pay for it, and a change that edits the list runs the walk
 whatever the edited list says. With that entry in the configuration, this closes
@@ -914,7 +925,7 @@ time when a failure would mean a botched or missing release.
 
 ## What the checks cover, and what they own up to not covering
 
-The four declared checks are Go commands, so on their own they read none of the
+The declared checks are Go commands, so on their own they read none of the
 shell, Markdown, workflow YAML, or Makefile this repository is also made of. A
 change made entirely of those passed every gate a run applied with nothing having
 exercised it, which is not a gate that was weak — it is a gate that never ran.
