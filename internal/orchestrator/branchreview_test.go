@@ -14,6 +14,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -688,5 +689,80 @@ func TestReviewIntentPathChangesUseTheCandidateInsteadOfThePrimaryCheckout(t *te
 		if strings.Contains(text, "Added: docs/product/unrelated.md") {
 			t.Errorf("%s used primary checkout", scope)
 		}
+	}
+}
+
+func TestReviewCandidateReviewsACommitRangeThatIsNotABranchAndRecordsIt(t *testing.T) {
+	t.Parallel()
+
+	repository := accumulatedRepository(t)
+	base := gitLine(t, repository, "rev-parse", "refs/heads/main")
+	head := gitLine(t, repository, "rev-parse", "refs/heads/milestone")
+	provider := branchProvider(`{"decision":"approve","summary":"the merge is faithful"}` + "\n" +
+		"```yoyodyne-report\n{\"reports\":[{\"severity\":\"note\",\"message\":\"the merge carries three commits\"}]}\n```")
+	reviewer, reviews, reports := newBranchReviewer(t, repository, provider)
+	manager := reviewer.Worktrees.(*gitworktree.Manager)
+	change, err := manager.CandidateChanges(context.Background(), base, head, gitworktree.DiffLimits{})
+	if err != nil {
+		t.Fatalf("CandidateChanges() error = %v", err)
+	}
+	shown := []checks.Result{{Command: "make check", Passed: true, Process: execution.ProcessResult{Status: execution.ProcessSucceeded}}}
+
+	outcome, err := reviewer.ReviewCandidate(context.Background(), CandidateReviewRequest{
+		Name: "main-into-staging", BaseCommit: base, HeadCommit: head, Change: change,
+		Context: "This change brings the team's merged work into staging.\n\n",
+		Checks:  shown, WorktreePath: repository,
+	})
+	if err != nil {
+		t.Fatalf("ReviewCandidate() error = %v", err)
+	}
+	if !outcome.Approved() || outcome.Branch != "main-into-staging" || outcome.BaseCommit != base || outcome.HeadCommit != head || outcome.Commits != 3 {
+		t.Fatalf("ReviewCandidate() = %#v", outcome)
+	}
+	if outcome.SessionID != "branch-review-session" || outcome.Model != testReviewerModel {
+		t.Errorf("independence evidence = %#v", outcome)
+	}
+	requests := provider.RequestsForRole(domain.RoleReviewer)
+	if len(requests) != 1 {
+		t.Fatalf("reviewer invocations = %d, want one", len(requests))
+	}
+	for _, want := range []string{"brings the team's merged work into staging", "make check", "b/store.go"} {
+		if !strings.Contains(requests[0].Prompt, want) {
+			t.Errorf("the reviewer was not shown %q", want)
+		}
+	}
+	if strings.Contains(requests[0].Prompt, "No deterministic checks were run for this review") {
+		t.Error("the reviewer was given a branch review's account of itself rather than the candidate's")
+	}
+	recorded, err := reviews.List()
+	if err != nil || len(recorded) != 1 || !recorded[0].Approved() || recorded[0].Branch != "main-into-staging" || recorded[0].BaseCommit != base || recorded[0].HeadCommit != head {
+		t.Fatalf("recorded reviews = %#v, %v", recorded, err)
+	}
+	collected, err := reports.List()
+	if err != nil || len(collected) != 1 || collected[0].RunID != branchReviewID || collected[0].Role != domain.RoleReviewer {
+		t.Fatalf("collected reports = %#v, %v", collected, err)
+	}
+}
+
+func TestReviewCandidateRefusesAChangeThatIsNotTheRangeAskedFor(t *testing.T) {
+	t.Parallel()
+
+	repository := accumulatedRepository(t)
+	base := gitLine(t, repository, "rev-parse", "refs/heads/main")
+	head := gitLine(t, repository, "rev-parse", "refs/heads/milestone")
+	provider := branchProvider(`{"decision":"approve","summary":"fine"}`)
+	reviewer, reviews, _ := newBranchReviewer(t, repository, provider)
+	change, err := reviewer.Worktrees.(*gitworktree.Manager).CandidateChanges(context.Background(), base, head, gitworktree.DiffLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = reviewer.ReviewCandidate(context.Background(), CandidateReviewRequest{
+		Name: "main-into-staging", BaseCommit: base, HeadCommit: base, Change: change, Context: "context\n", WorktreePath: repository,
+	})
+	if err == nil || len(provider.Requests) != 0 {
+		t.Fatalf("ReviewCandidate() error = %v, reviewer invocations = %d; want a refusal before any review", err, len(provider.Requests))
+	}
+	if saved, listErr := reviews.List(); listErr != nil || len(saved) != 0 {
+		t.Fatalf("review records = %#v, %v", saved, listErr)
 	}
 }
