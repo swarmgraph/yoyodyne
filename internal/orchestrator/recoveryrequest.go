@@ -229,7 +229,7 @@ func (r RecoveredIntegrations) Wait(ctx context.Context, runID, why string) erro
 	}
 	asked := state.RecoveryContinuation
 	return r.note(ctx, state.WorkItemID, fmt.Sprintf("Finishing the merge of run %s, which the development manager asked for through run.recover (request %s) at %s, is waiting, %s after she asked, with no run taking it up: %s. Nothing is refused; the next pull that can take it tries again.",
-		runID, asked.RequestID, asked.RequestedAt.UTC().Format(time.RFC3339), r.now().Now().Sub(asked.RequestedAt).Round(time.Minute), strings.TrimSpace(why)))
+		runID, asked.RequestID, asked.RequestedAt.UTC().Format(time.RFC3339), triage.SpanInWords(r.now().Now().Sub(asked.RequestedAt)), strings.TrimSpace(why)))
 }
 
 func (r RecoveredIntegrations) note(ctx context.Context, workItemID, note string) error {

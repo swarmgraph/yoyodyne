@@ -1253,7 +1253,35 @@ func (c *CarryOut) waitedSays() string {
 		return ""
 	}
 	return fmt.Sprintf("      You decided it at %s; it had waited %s by then with no run taking it up.\n",
-		c.DecidedAt.UTC().Format(time.RFC3339), c.RefusedAt.Sub(c.DecidedAt).Round(time.Minute))
+		c.DecidedAt.UTC().Format(time.RFC3339), SpanInWords(c.RefusedAt.Sub(c.DecidedAt)))
+}
+
+// SpanInWords says a length of time in words, to the minute, such as
+// "6 hours 20 minutes" or "2 days 3 hours", rather than as Go prints one.
+func SpanInWords(span time.Duration) string {
+	if span < time.Minute {
+		return "less than a minute"
+	}
+	unit := func(count int, singular string) string {
+		if count == 1 {
+			return "1 " + singular
+		}
+		return strconv.Itoa(count) + " " + singular + "s"
+	}
+	minutes := int(span / time.Minute)
+	days, hours, mins := minutes/(24*60), minutes/60%24, minutes%60
+	switch {
+	case days > 0 && hours > 0:
+		return unit(days, "day") + " " + unit(hours, "hour")
+	case days > 0:
+		return unit(days, "day")
+	case hours > 0 && mins > 0:
+		return unit(hours, "hour") + " " + unit(mins, "minute")
+	case hours > 0:
+		return unit(hours, "hour")
+	default:
+		return unit(mins, "minute")
+	}
 }
 
 // NoLongerApplies reports a finding that the recovery about this stoppage does
