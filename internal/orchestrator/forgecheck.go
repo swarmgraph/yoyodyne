@@ -20,9 +20,11 @@ import (
 // that it reads each pull request into the team's branch that an outside tool
 // carries those changes in, closing the items of one merged, giving back those of
 // one closed without merging, and adding to an open one the items it carries but
-// nobody named (SettleTeamPullRequests). The claim, team pause and records
-// references the design adds with team mode are not read: team mode does not
-// exist yet, and the check covers them once it does.
+// nobody named (SettleTeamPullRequests). Last, it reads the reviews and
+// comments on each of those still open and puts what asks for something on the
+// development manager's list, starting nothing (TakeUpTeamFeedback). The claim,
+// team pause and records references the design adds with team mode are not
+// read: team mode does not exist yet, and the check covers them once it does.
 //
 // Two rules make a check safe to repeat and safe to fail:
 //
@@ -61,6 +63,9 @@ type ForgeCheck struct {
 	// Feedback is what was said on each of them since the head was pushed, and
 	// what the check did about it.
 	Feedback []FeedbackSettlement `json:"feedback"`
+	// TeamFeedback is what was said on each tracked pull request into the team's
+	// branch, and what the check did about it.
+	TeamFeedback []TeamFeedbackSettlement `json:"team_feedback"`
 }
 
 // Failures counts the requests the check could not read or finish acting on,
@@ -92,6 +97,11 @@ func (c ForgeCheck) Failures() int {
 			failures++
 		}
 	}
+	for _, settled := range c.TeamFeedback {
+		if settled.Failure != "" {
+			failures++
+		}
+	}
 	return failures
 }
 
@@ -102,10 +112,11 @@ func (c ForgeCheck) Failures() int {
 func (r Reconciler) CheckForge(ctx context.Context) (ForgeCheck, error) {
 	r.RetryAtNextCheck = true
 	var check ForgeCheck
-	var mergeErr, requestErr, teamErr, feedbackErr error
+	var mergeErr, requestErr, teamErr, feedbackErr, teamFeedbackErr error
 	check.PersonMerges, mergeErr = r.SettlePersonMerges(ctx)
 	check.TeamPullRequests, requestErr = r.SettleTeamPullRequests(ctx)
 	check.TeamMerges, teamErr = r.SettleTeamMerges(ctx)
 	check.Feedback, feedbackErr = r.TakeUpFeedback(ctx)
-	return check, errors.Join(mergeErr, requestErr, teamErr, feedbackErr)
+	check.TeamFeedback, teamFeedbackErr = r.TakeUpTeamFeedback(ctx)
+	return check, errors.Join(mergeErr, requestErr, teamErr, feedbackErr, teamFeedbackErr)
 }

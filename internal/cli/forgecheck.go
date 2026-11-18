@@ -114,6 +114,7 @@ func printForgeCheckFindings(stdout, stderr io.Writer, output forgeCheckOutput) 
 	printTeamPullRequests(stdout, stderr, output.TeamPullRequests)
 	printTeamMerges(stdout, stderr, output.TeamMerges)
 	printFeedback(stdout, stderr, output.Feedback)
+	printTeamFeedback(stdout, stderr, output.TeamFeedback)
 	fmt.Fprintln(stdout, describeForgeCheck(output))
 }
 
@@ -157,6 +158,19 @@ func describeForgeCheck(output forgeCheckOutput) string {
 	return said
 }
 
+// printTeamFeedback says what the check did about the feedback on each tracked
+// pull request into the team's branch.
+func printTeamFeedback(stdout, stderr io.Writer, settlements []orchestrator.TeamFeedbackSettlement) {
+	for _, settled := range settlements {
+		switch {
+		case settled.Failure != "":
+			fmt.Fprintf(stderr, "feedback on pull request #%d into the team's branch: %s\n", settled.Number, settled.Failure)
+		case settled.New > 0:
+			fmt.Fprintf(stdout, "feedback on pull request #%d into the team's branch: %s\n", settled.Number, settled.Detail)
+		}
+	}
+}
+
 // printTeamMerges says what the check found of each change waiting for the
 // team to merge it into their branch.
 func printTeamMerges(stdout, stderr io.Writer, merges []orchestrator.TeamMergeSettlement) {
@@ -194,6 +208,9 @@ func reportForgeCheck(stdout, stderr io.Writer, jsonOutput bool, output forgeChe
 		}
 		if output.Feedback == nil {
 			output.Feedback = []orchestrator.FeedbackSettlement{}
+		}
+		if output.TeamFeedback == nil {
+			output.TeamFeedback = []orchestrator.TeamFeedbackSettlement{}
 		}
 		if output.Updates == nil {
 			output.Updates = []orchestrator.UpdateContinuation{}
