@@ -415,3 +415,35 @@ func TestTheConfigurationTableMatchesWhatTheAdapterDoes(t *testing.T) {
 		}
 	}
 }
+
+// The digest of the workflow files at a commit changes when any workflow file's
+// content changes, does not depend on the order the forge lists them, and is an
+// error where there is nothing to digest.
+func TestWorkflowDigestChangesWithAnyWorkflowFileAndNeedsOne(t *testing.T) {
+	t.Parallel()
+
+	digest := func(listing string) (string, error) {
+		runner := ciRunner()
+		runner.reply("/contents/.github/workflows?ref="+ciCommit, execution.ProcessResult{Status: succeeded, Stdout: listing})
+		return (GitHub{Runner: runner}).WorkflowDigest(context.Background(), ciCommit)
+	}
+	a := `{"path":".github/workflows/a.yml","sha":"aaa","type":"file"}`
+	b := `{"path":".github/workflows/b.yml","sha":"bbb","type":"file"}`
+	first, err := digest("[" + a + "," + b + "]")
+	if err != nil || first == "" {
+		t.Fatalf("digest = %q, %v", first, err)
+	}
+	if reordered, _ := digest("[" + b + "," + a + "]"); reordered != first {
+		t.Errorf("the digest depends on listing order: %q vs %q", reordered, first)
+	}
+	changed := `{"path":".github/workflows/b.yml","sha":"ccc","type":"file"}`
+	if edited, _ := digest("[" + a + "," + changed + "]"); edited == first {
+		t.Error("a changed workflow file left the digest as it was")
+	}
+	if _, err := digest("[]"); err == nil {
+		t.Error("a commit with no workflow files was given a digest")
+	}
+	if _, err := (GitHub{Runner: ciRunner()}).WorkflowDigest(context.Background(), "0123456"); err == nil {
+		t.Error("a commit named by a prefix was accepted")
+	}
+}

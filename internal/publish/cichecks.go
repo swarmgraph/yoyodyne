@@ -2,10 +2,13 @@ package publish
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -299,6 +302,53 @@ func (g GitHub) RequiredChecks(ctx context.Context, commit string, required []st
 		})
 	}
 	return reading, nil
+}
+
+// WorkflowDigest is a digest of the forge's workflow files as they stand at one
+// commit, named in full: each file's path and the forge's identifier for its
+// content, in path order. A check result is recorded beside it, so a change to
+// any workflow file withdraws the result. A commit with no workflow files, or an
+// answer that cannot be read, is an error: a result with nothing to say which
+// workflow produced it is not recorded.
+func (g GitHub) WorkflowDigest(ctx context.Context, commit string) (string, error) {
+	commit = strings.ToLower(strings.TrimSpace(commit))
+	if !fullCommitPattern.MatchString(commit) {
+		return "", fmt.Errorf("commit %q is not a full commit identifier, and the workflow files are read at one", commit)
+	}
+	listed, err := g.api(ctx, "repos/{owner}/{repo}/contents/.github/workflows?ref="+commit)
+	if err != nil {
+		return "", fmt.Errorf("ask the forge for the workflow files at %s: %w", commit, err)
+	}
+	if listed.Status != execution.ProcessSucceeded {
+		return "", g.forgeFailure(fmt.Sprintf("ask the forge for the workflow files at %s", commit), listed)
+	}
+	if listed.OutputTruncation != "" {
+		return "", fmt.Errorf("the forge's list of workflow files at %s was cut and is not read: %s", commit, listed.OutputTruncation)
+	}
+	var files []struct {
+		Path string `json:"path"`
+		SHA  string `json:"sha"`
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(listed.Stdout)), &files); err != nil {
+		return "", fmt.Errorf("decode the workflow files at %s: %w", commit, err)
+	}
+	var lines []string
+	for _, file := range files {
+		if file.Type != "" && file.Type != "file" {
+			continue
+		}
+		if strings.TrimSpace(file.Path) == "" || strings.TrimSpace(file.SHA) == "" {
+			return "", fmt.Errorf("the forge listed a workflow file at %s without a path or content identifier", commit)
+		}
+		lines = append(lines, file.Path+"\x00"+file.SHA+"\n")
+	}
+	if len(lines) == 0 {
+		return "", fmt.Errorf("the forge has no workflow files at %s", commit)
+	}
+	sort.Strings(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "")))
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 // checkResult maps the forge's status and conclusion to a CheckResult. Only a
