@@ -55,6 +55,9 @@ const (
 	// keyTab completes a command's name where the list of commands is showing
 	// (commands.go), and is ignored everywhere else.
 	keyTab
+	// keyExpand is Ctrl-O, which asks for the harness's output that was shown
+	// shortened to be shown in full (ErrExpand). It changes nothing being typed.
+	keyExpand
 )
 
 type key struct {
@@ -106,6 +109,11 @@ func decodeKey(buffer []byte) (key, int, bool) {
 		return key{code: keyEnd}, 1, true
 	case 0x0b:
 		return key{code: keyKillToEnd}, 1, true
+	case 0x0f:
+		// Ctrl-O is the discard key where IEXTEN is set, which cbreak clears
+		// (tty_unix.go), so it arrives here as the key Claude Code also uses to
+		// show a tool's output in full.
+		return key{code: keyExpand}, 1, true
 	case 0x19:
 		// Ctrl-Y is the delayed suspend on the BSDs, macOS among them, but only
 		// with IEXTEN set, which cbreak clears (tty_unix.go), so it arrives here.
