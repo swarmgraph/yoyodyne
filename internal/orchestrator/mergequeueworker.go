@@ -711,6 +711,7 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 		return generation, false, err
 	}
 	defer hold.Close()
+	queueMoving(ctx, w.now())
 	// Checks that passed on this same generation before an earlier attempt was
 	// set aside keep their results, and only the others run (keptQueueChecks).
 	kept, runWhole := keptQueueChecks(generation)
@@ -1035,6 +1036,7 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 		return generation, false, err
 	}
 	defer hold.Close()
+	queueMoving(ctx, w.now())
 	generation.Review = &runstate.MergeQueueReviewEvidence{Binding: generation.Binding(), StartedAt: w.now()}
 	if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
 		return generation, false, fmt.Errorf("record that generation %d's review began: %w", generation.Number, err)

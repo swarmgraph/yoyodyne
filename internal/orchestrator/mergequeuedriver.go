@@ -145,8 +145,19 @@ func (d MergeQueueDriver) heldTooLong(promoted MergeQueuePromotion) bool {
 // Pass works one queue as far as it can go now, records what it ended on, and
 // reports it. It never returns an error: what stopped it is the pass's account.
 func (d MergeQueueDriver) Pass(ctx context.Context, key runstate.MergeQueueKey) runstate.MergeQueuePass {
-	pass := d.pass(ctx, key)
+	progress := &queueProgress{}
+	pass := d.pass(withQueueProgress(ctx, progress), key)
 	pass.At = d.now()
+	// When the pass got the queue moving: the first check stage or review it
+	// started, or, for a pass that did neither, its end where it landed or
+	// handed back an entry or found nothing to move.
+	if moved, ok := progress.moved(); ok {
+		pass.Moved = &moved
+	} else if pass.Outcome == runstate.MergeQueuePassLanded || pass.Outcome == runstate.MergeQueuePassHandedBack || pass.Outcome == runstate.MergeQueuePassIdle {
+		moved := pass.At
+		pass.Moved = &moved
+	}
+	pass.ForRestart = pass.Outcome == runstate.MergeQueuePassWaiting && queueCheckStagesOf(ctx).restarting()
 	if err := d.Queues.RecordPass(context.WithoutCancel(ctx), key, pass); err != nil && pass.Outcome != runstate.MergeQueuePassStopped {
 		pass.Says = fmt.Sprintf("%s; and what the pass found could not be recorded: %v", pass.Says, err)
 	}
@@ -356,6 +367,41 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 	return done(runstate.MergeQueuePassWaiting, runstate.MergeQueueEntry{}, fmt.Sprintf("the pass took its %d steps; the next pass carries on", maxMergeQueuePassSteps))
 }
 
+// queueProgressKey is the context key a pass's queueProgress travels under.
+type queueProgressKey struct{}
+
+// queueProgress is when a pass first got its queue moving: the worker marks it
+// as a candidate's check stage or review begins (queueMoving). It is marked
+// from the pass's own goroutine and read once the pass has ended, and guarded
+// all the same, because a candidate checked ahead runs beside the pass.
+type queueProgress struct {
+	mu    sync.Mutex
+	first time.Time
+}
+
+func withQueueProgress(ctx context.Context, progress *queueProgress) context.Context {
+	return context.WithValue(ctx, queueProgressKey{}, progress)
+}
+
+// queueMoving marks the queue moving at now, where the pass asked to be told.
+func queueMoving(ctx context.Context, now time.Time) {
+	progress, _ := ctx.Value(queueProgressKey{}).(*queueProgress)
+	if progress == nil {
+		return
+	}
+	progress.mu.Lock()
+	defer progress.mu.Unlock()
+	if progress.first.IsZero() {
+		progress.first = now
+	}
+}
+
+func (p *queueProgress) moved() (time.Time, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.first, !p.first.IsZero()
+}
+
 // cutShortSays is what a pass says that its own session stopped part-way
 // through a step, in place of the stop that step would otherwise have ended
 // on. Stopping a pass cancels whatever it was doing — a check, a review, a git
@@ -545,11 +591,24 @@ func (m *mergeQueuePasses) release(key runstate.MergeQueueKey) {
 
 // startQueuePasses launches a pass of every queue with work in it and no pass
 // in flight, and a look at the held changes where one is due.
-func (s Scheduler) startQueuePasses(schedule *Schedule, queues ScheduleMergeQueues, passes *mergeQueuePasses) {
+//
+// It reports whether it declined to start a pass a queue with work in it would
+// otherwise have had, because the session is stopping its passes for a
+// restart: that is work the move held back.
+func (s Scheduler) startQueuePasses(schedule *Schedule, queues ScheduleMergeQueues, passes *mergeQueuePasses) (declined bool) {
 	// A session stopping its passes for a restart starts none: the session that
 	// comes back works the queues from their records.
 	if !passes.accepting() {
-		return
+		pending, err := queues.Pending()
+		if err != nil {
+			return false
+		}
+		for _, key := range pending {
+			if !passes.inFlight[key] {
+				return true
+			}
+		}
+		return false
 	}
 	if now := s.now(); !passes.held && (passes.heldAt.IsZero() || now.Sub(passes.heldAt) >= mergeQueueHeldEvery) {
 		passes.held, passes.heldAt = true, now
@@ -563,7 +622,7 @@ func (s Scheduler) startQueuePasses(schedule *Schedule, queues ScheduleMergeQueu
 	pending, err := queues.Pending()
 	if err != nil {
 		schedule.QueueProblem = fmt.Sprintf("the merge queues could not be read, so nothing queued moves until they can: %v", err)
-		return
+		return false
 	}
 	for _, key := range pending {
 		if passes.inFlight[key] || len(passes.inFlight) >= maxMergeQueuePassesInFlight {
@@ -576,6 +635,7 @@ func (s Scheduler) startQueuePasses(schedule *Schedule, queues ScheduleMergeQueu
 			passes.done <- mergeQueuePassDone{key: key, pass: passes.work(passCtx, queues, key)}
 		}(key)
 	}
+	return false
 }
 
 // collectQueuePasses takes every pass that has ended into the schedule, and

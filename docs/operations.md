@@ -8711,9 +8711,15 @@ empty list. The same section says what moving onto new builds has cost since
 midnight, in this machine's zone: each move, from the moment its session first
 held work back for it — a pull into a free seat it declined, a recurring pass or
 merge queue pass it did not start, or a run it stopped — until the session on
-the new build wrote its first line, and the day's total against the thirty
-minutes a day may spend on them. The watch log records that moment on the
-drain, as `paused_since`.
+the new build wrote its first line and every merge queue whose work the restart
+set aside was working again, and the day's total against the thirty minutes a
+day may spend on them. The watch log records that first moment on the drain, as
+`paused_since`. A queue is working again once a pass on the new build starts a
+candidate's checks or review, lands or hands back an entry, or finds nothing to
+move; each queue keeps its last 720 passes beside it, in `pass-history.json`,
+each saying when it got the queue moving (`moved`) and whether it ended because
+of a restart (`for_restart`), which is what the account reads and what says,
+afterwards, what a queue was waiting on.
 
 **A development manager's pass carries what waits on you, beside her docket.**
 Every firing of her task, scheduled or summoned by the brake, has two sections

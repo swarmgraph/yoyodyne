@@ -28,7 +28,7 @@ func TestBuildMovesReckonEachMoveFromWhenWorkWasFirstHeldBack(t *testing.T) {
 		// A move whose next session has not written yet.
 		{SessionID: "watch-four", State: WatchStopped, At: at.Add(90 * time.Minute), Build: "ccc", Restarting: true},
 	}
-	moves := BuildMoves(transitions)
+	moves := BuildMoves(transitions, nil)
 	if len(moves) != 3 {
 		t.Fatalf("BuildMoves() = %#v, want three moves", moves)
 	}
@@ -48,5 +48,55 @@ func TestBuildMovesReckonEachMoveFromWhenWorkWasFirstHeldBack(t *testing.T) {
 	}
 	if !moves[0].Found.Equal(at.Add(5 * time.Minute)) {
 		t.Fatalf("first move found the build at %s, want when its drain began", moves[0].Found)
+	}
+}
+
+// A move whose restart set a merge queue's work aside is not over when the
+// session on the new build writes its first line: it ends when that queue is
+// working again. Here, as on November 17, the session restarts at 16:52, the
+// new session writes at 16:53, and the queue only waits until 17:24, when a
+// pass starts the candidate's checks; the move costs all of it. A queue that
+// was only waiting on the forge across the move, with no pass ended for the
+// restart, is not counted.
+func TestABuildMoveRunsUntilTheQueueItSetAsideIsWorkingAgain(t *testing.T) {
+	t.Parallel()
+
+	pst := time.FixedZone("PST", -8*60*60)
+	at := func(hour, minute int) time.Time { return time.Date(2026, 11, 17, hour, minute, 0, 0, pst) }
+	transitions := []WatchTransition{
+		{SessionID: "watch-old", State: WatchWatching, At: at(16, 0)},
+		{SessionID: "watch-old", State: WatchStopped, At: at(16, 52), Restarting: true,
+			Draining: &WatchDrain{Since: at(16, 26), BoundSeconds: 900, Until: at(16, 41), BoundReached: true, PausedSince: at(16, 50)}},
+		{SessionID: "watch-new", State: WatchWatching, At: at(16, 53)},
+	}
+	checksBegan := at(17, 24)
+	queues := map[string][]MergeQueuePass{
+		"main": {
+			{At: at(16, 52), Outcome: MergeQueuePassWaiting, ForRestart: true},
+			{At: at(16, 54), Outcome: MergeQueuePassWaiting, Says: "waiting"},
+			{At: at(17, 10), Outcome: MergeQueuePassWaiting, Says: "waiting"},
+			{At: at(17, 40), Outcome: MergeQueuePassWaiting, Moved: &checksBegan},
+		},
+		"release": {
+			{At: at(16, 30), Outcome: MergeQueuePassWaiting, Says: "the forge holds its merge"},
+		},
+	}
+	moves := BuildMoves(transitions, queues)
+	if len(moves) != 1 {
+		t.Fatalf("BuildMoves() = %#v, want one move", moves)
+	}
+	move := moves[0]
+	if len(move.QueuesHeld) != 1 || move.QueuesHeld[0] != "main" || !move.QueuesMoving.Equal(checksBegan) {
+		t.Fatalf("move = %#v, want only the main queue held, working again at %s", move, checksBegan)
+	}
+	if got, want := move.Cost(at(18, 0)), 34*time.Minute; got != want {
+		t.Fatalf("Cost() = %s, want %s: from 16:50 PST until the queue was working again at 17:24 PST", got, want)
+	}
+
+	// Before the queue has moved again, the move is still costing.
+	queues["main"] = queues["main"][:3]
+	still := BuildMoves(transitions, queues)[0]
+	if !still.End().IsZero() || still.Cost(at(17, 20)) != 30*time.Minute {
+		t.Fatalf("move = %#v costing %s, want it still costing while the queue has not moved", still, still.Cost(at(17, 20)))
 	}
 }

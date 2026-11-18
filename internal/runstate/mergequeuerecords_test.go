@@ -217,3 +217,41 @@ func TestATornMergeQueueRecordIsReportedUnreadableNotDropped(t *testing.T) {
 		t.Fatalf("Keys() reported a torn record as a missing one: %v", err)
 	}
 }
+
+// Every pass recorded is kept in the queue's history as well, oldest first,
+// up to the history's bound; a history torn by a crash is begun again rather
+// than refusing every pass after it.
+func TestAQueueKeepsItsRecentPasses(t *testing.T) {
+	t.Parallel()
+
+	store := newMergeQueueStore(t, t.TempDir())
+	store.passHistory = 5
+	at := time.Date(2026, 11, 17, 16, 0, 0, 0, time.UTC)
+	for index := range store.passHistory + 3 {
+		pass := MergeQueuePass{At: at.Add(time.Duration(index) * time.Minute), Outcome: MergeQueuePassWaiting, Says: strings.Repeat("waiting ", 100)}
+		if index == store.passHistory+2 {
+			moved := pass.At
+			pass.Outcome, pass.Moved = MergeQueuePassIdle, &moved
+		}
+		if err := store.RecordPass(context.Background(), mainQueue, pass); err != nil {
+			t.Fatalf("RecordPass() = %v", err)
+		}
+	}
+	history, err := store.PassHistory(mainQueue)
+	if err != nil || len(history) != store.passHistory {
+		t.Fatalf("PassHistory() = %d passes, %v; want the newest %d", len(history), err, store.passHistory)
+	}
+	if !history[0].At.Equal(at.Add(3*time.Minute)) || history[len(history)-1].Moved == nil || len(history[0].Says) > historySaysBytes {
+		t.Fatalf("PassHistory() runs from %s to %#v, want the oldest kept first, the newest last, and each bounded", history[0].At, history[len(history)-1])
+	}
+
+	if err := os.WriteFile(filepath.Join(store.Root(), mainQueue.directory(), mergeQueuePassHistoryName), []byte(`[{"at": "2026-`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordPass(context.Background(), mainQueue, MergeQueuePass{At: at, Outcome: MergeQueuePassIdle}); err != nil {
+		t.Fatalf("RecordPass() over a torn history = %v, want the history begun again", err)
+	}
+	if history, err := store.PassHistory(mainQueue); err != nil || len(history) != 1 {
+		t.Fatalf("PassHistory() after a torn history = %#v, %v; want the one new pass", history, err)
+	}
+}

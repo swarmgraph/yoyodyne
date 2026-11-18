@@ -2646,7 +2646,12 @@ pulling:
 		// that would spend. A session draining to restart that hosts no run
 		// starts no new pass.
 		if pull.MergeQueues != nil && (!drain.active || running > 0) {
-			s.startQueuePasses(&schedule, pull.MergeQueues, queuePasses)
+			// A session stopping its passes for a restart starts none, and a
+			// queue with work and no pass going that it turns away is work held
+			// back for the move like any other.
+			if s.startQueuePasses(&schedule, pull.MergeQueues, queuePasses) {
+				drain.paused(s.now())
+			}
 		}
 		// And a role whose tracker block the harness refused is woken here, last of
 		// the three. It is placed after the other two because it is the cheapest to

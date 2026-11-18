@@ -61,6 +61,12 @@ func TestARestartDuringAQueueCheckRecordsNoStopAndTheNextPassCarriesItOn(t *test
 	if err != nil || !found || recorded.Outcome == runstate.MergeQueuePassStopped {
 		t.Fatalf("LastPass() = %#v, %t, %v; want no stop recorded for the queue", recorded, found, err)
 	}
+	// The pass is marked as ended for the restart, and as having got the queue
+	// moving when its check stage began, so a move's cost can be read off the
+	// queue's history.
+	if !recorded.ForRestart || recorded.Moved == nil {
+		t.Fatalf("LastPass() = %#v, want it marked as ended for the restart, with when its checks began", recorded)
+	}
 
 	f.checks.finished = nil
 	landed := f.passAgain(queueKey)
@@ -77,6 +83,14 @@ func TestARestartDuringAQueueCheckRecordsNoStopAndTheNextPassCarriesItOn(t *test
 	}
 	if f.local("main") != last.Candidate {
 		t.Fatalf("main = %s, want the candidate that landed, %s", f.local("main"), last.Candidate)
+	}
+	history, err := f.queue.PassHistory(queueKey)
+	if err != nil || len(history) < 2 {
+		t.Fatalf("PassHistory() = %#v, %v; want the cut pass and the pass on the new build", history, err)
+	}
+	first, final := history[0], history[len(history)-1]
+	if !first.ForRestart || final.ForRestart || final.Outcome != runstate.MergeQueuePassLanded || final.Moved == nil || final.Moved.Before(first.At) {
+		t.Fatalf("PassHistory() = %#v, want the cut pass for the restart first and the landing on the new build, moving after it, last", history)
 	}
 }
 
@@ -129,5 +143,38 @@ func TestAPassItsSessionStoppedRecordsNoStop(t *testing.T) {
 	pass := f.driver().Pass(ctx, queueKey)
 	if pass.Outcome == runstate.MergeQueuePassStopped || !strings.Contains(pass.Says, "the session working the queue stopped") {
 		t.Fatalf("Pass() = %#v, want it waiting, saying its session stopped", pass)
+	}
+}
+
+// pendingQueues is queues with work in them, and nothing else.
+type pendingQueues struct{ keys []runstate.MergeQueueKey }
+
+func (q pendingQueues) Pending() ([]runstate.MergeQueueKey, error) { return q.keys, nil }
+func (q pendingQueues) Pass(context.Context, runstate.MergeQueueKey) runstate.MergeQueuePass {
+	return runstate.MergeQueuePass{Outcome: runstate.MergeQueuePassIdle}
+}
+func (q pendingQueues) TakeHeld(context.Context) MergeQueueHeldPass { return MergeQueueHeldPass{} }
+
+// A session stopping its passes for a restart says it turned a queue away only
+// where a queue with work in it had no pass going: that is work the move held
+// back. A queue whose one pass is still going was turned away from nothing.
+func TestAQueueTurnedAwayForARestartIsWorkHeldBack(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	passes := newMergeQueuePasses(ctx)
+	passes.checks.close()
+	queues := pendingQueues{keys: []runstate.MergeQueueKey{queueKey}}
+	var schedule Schedule
+	if !(Scheduler{}).startQueuePasses(&schedule, queues, passes) {
+		t.Fatal("a queue with work and no pass going was turned away without it being said")
+	}
+	passes.inFlight[queueKey] = true
+	if (Scheduler{}).startQueuePasses(&schedule, queues, passes) {
+		t.Fatal("a queue whose pass is still going was said to be turned away")
+	}
+	if len(schedule.QueuePasses) != 0 || len(passes.stops) != 0 {
+		t.Fatal("a pass was started once the session was stopping its passes for a restart")
 	}
 }

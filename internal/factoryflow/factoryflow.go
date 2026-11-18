@@ -70,6 +70,9 @@ type Runs interface {
 type MergeQueues interface {
 	Keys() ([]runstate.MergeQueueKey, error)
 	Entries(key runstate.MergeQueueKey) ([]runstate.MergeQueueEntry, error)
+	// PassHistory is a queue's recent passes, read for when a queue whose work
+	// a move onto a new build set aside was working again.
+	PassHistory(key runstate.MergeQueueKey) ([]runstate.MergeQueuePass, error)
 }
 
 // WatchLog is the watch sessions' log, as this reading takes it. It is
@@ -348,7 +351,11 @@ func (r Reader) writeBuildMoves(section *strings.Builder, now time.Time) string 
 	local := now.Local()
 	midnight := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, local.Location())
 	var today []runstate.BuildMove
-	for _, move := range runstate.BuildMoves(transitions) {
+	queues, problem := r.queuePasses()
+	if problem != "" {
+		section.WriteString(cutLine(problem, 2*maxLineBytes) + "\n")
+	}
+	for _, move := range runstate.BuildMoves(transitions, queues) {
 		if move.Restarted.Before(midnight) {
 			continue
 		}
@@ -370,12 +377,20 @@ func (r Reader) writeBuildMoves(section *strings.Builder, now time.Time) string 
 	if total > BuildMoveBudget {
 		verdict = "over"
 	}
-	fmt.Fprintf(section, "%d move(s) onto a new build since midnight, which together held back pulling new work, starting recurring passes, or working the merge queues for %s in all; that is %s the %s a day may spend on them. A move holds work back from the moment the session first declines a pull into a free seat, does not start a recurring pass or a merge queue pass, or stops a run for it, until the session on the new build writes its first line.\n\n",
+	fmt.Fprintf(section, "%d move(s) onto a new build since midnight, which together held back pulling new work, starting recurring passes, or working the merge queues for %s in all; that is %s the %s a day may spend on them. A move holds work back from the moment the session first declines a pull into a free seat, does not start a recurring pass or a merge queue pass, or stops a run for it, until the session on the new build writes its first line and every merge queue whose work the restart set aside is working again: a pass on the new build has started a candidate's checks or review, landed or handed back an entry, or found nothing to move.\n\n",
 		len(today), minutes(total), verdict, minutes(BuildMoveBudget))
 	for _, move := range today {
 		resumed := "the session on the new build has not written a line yet"
 		if !move.Resumed.IsZero() {
 			resumed = "working again on the new build at " + localTime(move.Resumed)
+		}
+		if len(move.QueuesHeld) > 0 {
+			queues := strings.Join(move.QueuesHeld, ", ")
+			if move.QueuesMoving.IsZero() {
+				resumed += fmt.Sprintf("; the merge queue for %s, whose work the restart set aside, has not started a candidate's checks or found nothing to move since", queues)
+			} else {
+				resumed += fmt.Sprintf("; the merge queue for %s, whose work the restart set aside, was working again at %s", queues, localTime(move.QueuesMoving))
+			}
 		}
 		line := fmt.Sprintf("- %s: held work back from %s, restarted at %s, %s", minutes(move.Cost(now)), localTime(move.HeldBack), localTime(move.Restarted), resumed)
 		if !move.Found.IsZero() {
@@ -384,6 +399,33 @@ func (r Reader) writeBuildMoves(section *strings.Builder, now time.Time) string 
 		section.WriteString(cutLine(line, maxLineBytes) + "\n")
 	}
 	return ""
+}
+
+// queuePasses is every merge queue's recent passes by target branch, and what
+// could not be read. A queue whose passes cannot be read is left out, which
+// can only leave a move's cost short, so it is said.
+func (r Reader) queuePasses() (map[string][]runstate.MergeQueuePass, string) {
+	if r.Queues == nil {
+		return nil, ""
+	}
+	keys, err := r.Queues.Keys()
+	if err != nil {
+		return nil, fmt.Sprintf("The merge queues could not be read, so the time a queue took to work again after a move is left out of what each move cost: %v", err)
+	}
+	passes := map[string][]runstate.MergeQueuePass{}
+	var unread []string
+	for _, key := range keys {
+		history, err := r.Queues.PassHistory(key)
+		if err != nil {
+			unread = append(unread, fmt.Sprintf("%s (%v)", key.TargetBranch, err))
+			continue
+		}
+		passes[key.TargetBranch] = history
+	}
+	if len(unread) > 0 {
+		return passes, "The recent passes of the merge queue for " + strings.Join(unread, ", ") + " could not be read, so the time that queue took to work again after a move is left out of what each move cost."
+	}
+	return passes, ""
 }
 
 // minutes is a duration in whole minutes, or under a minute.

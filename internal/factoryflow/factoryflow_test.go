@@ -64,6 +64,7 @@ func (f fakeRuns) DocumentWaits() ([]runstate.DocumentWait, error) { return f.wa
 
 type fakeQueues struct {
 	entries []runstate.MergeQueueEntry
+	passes  []runstate.MergeQueuePass
 }
 
 func (f fakeQueues) Keys() ([]runstate.MergeQueueKey, error) {
@@ -72,6 +73,10 @@ func (f fakeQueues) Keys() ([]runstate.MergeQueueKey, error) {
 
 func (f fakeQueues) Entries(runstate.MergeQueueKey) ([]runstate.MergeQueueEntry, error) {
 	return f.entries, nil
+}
+
+func (f fakeQueues) PassHistory(runstate.MergeQueueKey) ([]runstate.MergeQueuePass, error) {
+	return f.passes, nil
 }
 
 var now = time.Date(2026, 10, 13, 18, 0, 0, 0, time.UTC)
@@ -240,9 +245,18 @@ func TestTheTimeMovesOntoNewBuildsCostTodayIsSaid(t *testing.T) {
 			Draining: &runstate.WatchDrain{Since: at.Add(-15 * time.Minute), BoundSeconds: 900, Until: at, PausedSince: at.Add(-2 * time.Minute)}},
 		{SessionID: "watch-two", State: runstate.WatchWatching, At: at.Add(time.Minute)},
 	}
-	reading := Reader{Runs: fakeRuns{}, Watch: fakeWatch{transitions: transitions}, Landings: 2, Now: func() time.Time { return now }}.Read(context.Background())
-	for _, words := range []string{"### Time lost to moving onto new builds today", "1 move(s) onto a new build since midnight", "for 3 minutes in all", "within the 30 minutes a day may spend on them",
-		"- 3 minutes: held work back from " + at.Add(-2*time.Minute).Local().Format("15:04 MST")} {
+	// The main queue's work was set aside by the restart and it was working
+	// again four minutes after the new session's first line, so the move costs
+	// those minutes too.
+	queueMoved := at.Add(5 * time.Minute)
+	queues := fakeQueues{passes: []runstate.MergeQueuePass{
+		{At: at, Outcome: runstate.MergeQueuePassWaiting, ForRestart: true},
+		{At: at.Add(6 * time.Minute), Outcome: runstate.MergeQueuePassWaiting, Moved: &queueMoved},
+	}}
+	reading := Reader{Runs: fakeRuns{}, Queues: queues, Watch: fakeWatch{transitions: transitions}, Landings: 2, Now: func() time.Time { return now }}.Read(context.Background())
+	for _, words := range []string{"### Time lost to moving onto new builds today", "1 move(s) onto a new build since midnight", "for 7 minutes in all", "within the 30 minutes a day may spend on them",
+		"- 7 minutes: held work back from " + at.Add(-2*time.Minute).Local().Format("15:04 MST"),
+		"the merge queue for main, whose work the restart set aside, was working again at " + queueMoved.Local().Format("15:04 MST")} {
 		if !strings.Contains(reading.Section, words) {
 			t.Fatalf("section does not say %q:\n%s", words, reading.Section)
 		}
