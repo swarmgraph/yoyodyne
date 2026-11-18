@@ -160,6 +160,11 @@ type Authority struct {
 	// the operator take outside the harness (intervention.go): a role that both
 	// files reports and keeps a lane report, which is the program manager.
 	Interventions bool
+	// ReadModel is whether this role reads the read model: whether its passes
+	// open with it and its reply may name one query to be answered in full. It
+	// is the program manager's readmodel.read, and a block from any other role is
+	// refused with nothing read.
+	ReadModel bool
 }
 
 // MayAct reports whether this role may ask for one tracker action.
@@ -254,6 +259,7 @@ func authorityFrom(role domain.AgentRole, owns string, holds []capability.Capabi
 		RepositoryReads:  has(capability.RepositoryRead) && has(capability.RepositoryList),
 		RepositorySearch: has(capability.RepositoryRead) && has(capability.RepositoryList) && has(capability.RepositorySearch),
 		LogReads:         has(capability.LogRead),
+		ReadModel:        has(capability.ReadModelRead),
 		MCPCalls:         has(capability.MCPRead) || has(capability.MCPAct),
 		RunInspects:      has(capability.RunInspect),
 		RunVerifies:      has(capability.RunVerify),
@@ -455,6 +461,13 @@ func (s *Session) authorize(parsed parsedReply) error {
 	}
 	if parsed.Restart != nil && !authority.RestartRequests {
 		return blockRefusal(authority, blockRestart)
+	}
+	if parsed.ReadModel != nil && !authority.ReadModel {
+		return &AuthorityError{
+			Role:    authority.Role,
+			Refused: "a read-model query to be answered",
+			Reason:  "the read model's queries are the program manager's, and this role reasons over the evidence it was given",
+		}
 	}
 	if parsed.StopCauses != nil && !authority.StopCauses {
 		return blockRefusal(authority, blockPostMortem)
@@ -909,8 +922,10 @@ A cap that refuses you is one you may cross yourself, ` + maxDelegatedCapCrossin
 // design will make true: the role reads, asks, remembers, reports, rewrites its
 // lane report, writes to the tracker inside its lane, which the harness
 // enforces at the act (lane.go), may record a restart request that nothing
-// acts on yet (restart.go), and may write down a hand step it noticed the
-// operator take outside the harness (intervention.go).
+// acts on yet (restart.go), may write down a hand step it noticed the
+// operator take outside the harness (intervention.go), and files one digest per
+// pass (report/digest.go). Its read-model query is described by the tool
+// catalog's descriptor for readmodel.read.
 var programManagerContract = `You are a program manager for this product, in a direct conversation with the operator who owns it.
 
 You own one outcome that cuts across the other roles — the line not stalling, spend not being wasted, the writing staying clear, whichever this instance was configured for — and you watch it. What you may change is bounded by a lane: one tracker label this instance owns, under which you may admit and shape work, and outside which you change nothing and ask instead. The lane is written into the harness's authority table rather than into anything you are sent, and the harness enforces it on every action you ask for.
@@ -939,7 +954,9 @@ You own nothing upstream. The brief, the goals, and what is admitted to the back
 
 ` + interventionContract + `
 
-` + reportClause
+` + reportClause + `
+
+` + report.DigestContract
 
 // developerContract and reviewerContract are what the two roles that work inside
 // runs carry when an operator addresses one directly. Neither has any authority

@@ -72,7 +72,7 @@ func auditTool[T any](ctx context.Context, s *Session, id capability.Capability,
 	// These handlers already enforce their round bound and explain its ending.
 	// Keep their refusal wording and bookkeeping during this migration slice.
 	handlerBoundsRounds := id == capability.RepositoryRead || id == capability.RepositoryList || id == capability.RepositorySearch || id == capability.ResearchCommission || id == capability.LogRead ||
-		id == capability.RunInspect || id == capability.RunVerify || id == capability.HealthObserve || id == capability.HealthFollow || id == capability.RunRecover
+		id == capability.ReadModelRead || id == capability.RunInspect || id == capability.RunVerify || id == capability.HealthObserve || id == capability.HealthFollow || id == capability.RunRecover
 	if !allowed {
 		performed = errors.New("the role holds no grant for this tool")
 	} else if !handlerBoundsRounds && use.rounds > audit.Bounds.RoundsPerMessage || use.requests > audit.Bounds.RequestsPerReply {
@@ -146,6 +146,9 @@ func (s *Session) refuseToolBlocks(answer string, parsed parsedReply, alreadyPer
 	}
 	if parsed.PassRequest != nil {
 		add(capability.PassRequest, 1)
+	}
+	if parsed.ReadModel != nil {
+		add(capability.ReadModelRead, 1)
 	}
 	if parsed.StopCauses != nil {
 		add(capability.StopCauseRecord, 1)
