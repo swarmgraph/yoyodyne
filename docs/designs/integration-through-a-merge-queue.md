@@ -27,6 +27,10 @@ revisions:
       by: architect
       at: 2026-11-15T03:03:26.58645Z
       reason: 'Adds the placed-first rule ruled on November 13 for the queue-order item (yoyodyne-ifd.429.154), which the revision that landed as dd131700 did not carry: within the priority 0 step and within each priority of other code, an item the Lead Product Manager placed first goes ahead, earliest placement first, read at the moment of choosing; there is no command to move an entry. Answers the Lead Product Manager''s November 12 note. Section read whole at f5c47b24.'
+    - action: amended
+      by: architect
+      at: 2026-11-16T20:41:37.543491Z
+      reason: 'yoyodyne-ifd.429.199: records the architect''s pick among the three ways out of the slow merge queue the operator was given on November 16, 2026 (keep the harness''s queue and let GitHub''s required checks on the exact candidate stand as its full check), why the other two were rejected, and the trial that switches it on for this repository: what it measures, how long it runs, when it switches back, what happens to the entries already waiting, and the settings in order. The section''s existing text is unchanged. Read whole at 101b2da5 before revising.'
 approvals:
     - revision: 0
       by: operator
@@ -52,6 +56,11 @@ approvals:
       by: harness
       at: 2026-11-15T03:03:26.58645Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2805, for document-2805.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-16T20:41:37.543491Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2909, for document-2909.1 under the automatic approval policy
 ---
 # Purpose
 
@@ -149,6 +158,51 @@ This repository's CI jobs pass at once for a pull request that changes only docu
 The evidence stays bound to one exact commit, so [integration requires revision-bound evidence](../decisions/invariants/integration-requires-revision-bound-evidence.md) holds unchanged.
 
 Alternatives rejected: accepting the checks on the pull request's head, because that head is not the candidate; keeping the full local run as well, because it checks the same commit twice and holds the queue for it; trusting a check GitHub skipped, because a skipped check proves nothing about the candidate.
+
+## Why this way out of the slow queue
+
+On November 16, 2026 the operator asked for three ways out of the slow merge queue to be weighed, one picked, and the pick tried for a few days (yoyodyne-ifd.429.199). The facts he was given: about 11 changes landed a day on GitHub's merge queue with the harness's replay (October 26 to November 7), and about 12 a day on the harness's own queue (November 9 to 15). About 50 approved entries had waited two days or more, and about 10 a day were handed back. GitHub's CI already runs the full make check on every pull request, in a median of 19 minutes. The harness's queue runs it again on this machine, one candidate at a time, in about 81 minutes, more than half of it the race check, beside developer runs.
+
+The pick is this section: keep the harness's queue, and stop repeating GitHub's checks on this machine. It removes the 81 minute local step, which is the cost the facts point to, and keeps every rule the queue holds now: one candidate built by the harness, checks and an independent review bound to that exact commit, and one promotion at a time.
+
+Rejected:
+
+- **Going back to the setup before November 8,** with `execution.merge_queue` off and GitHub's merge queue required again. The replay path still runs the full checks on this machine before handing a change to GitHub, so the 81 minute step stays, and the record before November 8 shows no faster landing.
+- **Handing approved changes straight to GitHub's merge queue with no check here.** GitHub builds its own combined commit and lands it, and the harness cannot bind its checks and review to that commit, as the section on GitHub's own merge queue below says. It would land a revision nobody's review judged, against [integration requires revision-bound evidence](../decisions/invariants/integration-requires-revision-bound-evidence.md).
+
+## The trial on this repository
+
+**What must have landed first.** The setting, off by default (yoyodyne-ifd.429.76.1); reading GitHub's required checks for the exact candidate commit, with workflow digests and the base recorded (yoyodyne-ifd.429.185); the quick local checks, with the review beside the wait (yoyodyne-ifd.429.186); CI results counting only for the exact candidate commit and shown to the reviewer (yoyodyne-ifd.429.76.7); and confirming the merge commit after landing (yoyodyne-ifd.429.187). Each lands with the setting off, so nothing about the queue changes until the switch.
+
+**The order of the switch.**
+
+1. The builds above land, with the setting off.
+2. The architect compares what this repository's CI jobs run with what the full local check runs, and records any test the local check runs that GitHub does not. Each one either joins the quick local checks or is named as a known gap before the trial starts.
+3. The operator's assistant confirms, on his direction, that the protection on `main` requires exactly the CI job names the harness reads, and that GitHub's own merge queue stays off for `main`, as the section on it below requires. Repository settings are changed only by a person, never by an agent.
+4. The change that turns the setting on for this repository (yoyodyne-ifd.429.76.8) lands. That landing starts the trial.
+5. At the end, the architect records the result in this design.
+
+**What it measures,** each against the three days before the trial, read from the queue's own records of each choice and each landing:
+
+- changes landed per day;
+- the median time from approval to landing;
+- the number of entries waiting two days or more;
+- entries handed back, by cause: a real failure, a check that fails and then passes on the same commit, or a conflict;
+- minutes per candidate, from being chosen to landing;
+- any break on `main` from a change that passed GitHub's checks.
+
+**How long.** Three working days or 40 landings, whichever comes later.
+
+**When it switches back.** At once on a break on `main` that the full local check would have caught; or when fewer than 11 changes land a day for two days running. Switching back is one configuration change, the setting off again, made by the operator's assistant on his direction. Nothing else changes back, because every other rule of the queue stays as it was.
+
+**The entries already waiting.** They stay in the queue in the order [the order the queue takes entries in](#the-order-the-queue-takes-entries-in) gives, and from the switch onward go through the new path; most have waited past eight hours, so they go oldest first under its first rule. An entry whose candidate is being checked when the switch happens finishes in the way it started.
+
+A reviewer can check:
+
+- with the setting off, the queue runs exactly as before, whatever has landed;
+- the trial starts only with the change that turns the setting on for this repository, after the protection on `main` was confirmed;
+- each figure above is read from the queue's records, not estimated;
+- switching back needs only the setting turned off.
 
 # Forge-native queue
 
