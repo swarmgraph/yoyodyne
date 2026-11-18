@@ -31,6 +31,9 @@ type HeavyCheckPermits struct {
 	// Machine, where set, reads the machine as each heavy check launches, for
 	// the measurements its limit is set from (runstate's heavycheckmeasure.go).
 	Machine func() runstate.HeavyCheckReading
+	// LandingNeeds, where set, says which heavy checks the merge queue still
+	// needs, so a place is kept free for them (QueuedHeavyChecks.Needs).
+	LandingNeeds func() map[string]bool
 }
 
 // Acquire asks for a place for a heavy command, waiting for it.
@@ -45,7 +48,7 @@ func (h HeavyCheckPermits) Acquire(ctx context.Context, ask checks.PermitAsk, wa
 	}
 	grant, err := h.Store.Acquire(ctx, runstate.HeavyCheckAsk{
 		Product: string(h.Product), RunID: ask.RunID, WorkItemID: ask.WorkItemID, Commit: ask.Commit,
-		Check: name, Command: ask.Command, Limit: limit, Priority: priority, Read: h.Machine,
+		Check: name, Command: ask.Command, Limit: limit, Priority: priority, Read: h.Machine, LandingNeeds: h.LandingNeeds,
 	}, func(permit runstate.HeavyCheckPermit) {
 		if waiting != nil {
 			waiting(permit.Check, permit.AskedAt)
