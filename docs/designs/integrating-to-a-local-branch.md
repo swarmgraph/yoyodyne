@@ -14,6 +14,10 @@ revisions:
       by: architect
       at: 2026-11-15T04:46:30.240554Z
       reason: 'yoyodyne-ifd.429.169: records in section 3 the ruling of November 12, 2026 that the harness''s own merge of the team''s branch, bound by its recorded parents and a tree identical to the merge the harness builds again under the landing lease, stands as acceptance on protected paths; anything a run writes keeps the ordinary check, checks and review still run, and the evidence invariant keeps no list of exceptions so it needs no pointer.'
+    - action: amended
+      by: architect
+      at: 2026-11-17T02:17:03.413365Z
+      reason: 'yoyodyne-ifd.429.176 and yoyodyne-ifd.429.198: records the architect''s ruling of November 13, 2026, extended November 16, on how the development manager''s decision to repair an item whose run has ended is recorded, paid for and run. It is a decision of its own kind bound to the list entry it answers, refused once the item has closed; it starts a new run, from the target branch''s head for an item waiting on the team''s merge and from the kept branch for an item waiting on a pull request the harness opened (the case from yoyodyne-ifd.429.120); it spends one of the item''s attempts, except a conflict repair, which spends one of the update''s three rounds. Section 2, section 3''s conflict paragraph, the enforced list, the reviewer checks and build items 3 and 4 change; the rest is copied unchanged from main 668e95f1.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -25,6 +29,11 @@ approvals:
       by: harness
       at: 2026-11-15T04:46:30.240554Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2777, for document-2777.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-11-17T02:17:03.413365Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2922, for document-2922.1 under the automatic approval policy
 ---
 # Integrating to a local branch and handing landed work to the team
 
@@ -83,12 +92,34 @@ An item can be carried by one tracked pull request at a time. Recording it on a 
 
 Feedback is read as section 2 of the contributors design reads it, ignoring only what the harness wrote. A tracked pull request carries many items, and their runs have ended, so feedback is never turned into a repair round on its own:
 
-- **A review that requests changes, or a comment on a line of the change,** is put on the development manager's list, naming the pull request, the comment, and the items whose landed commits touched the file it is about.
+- **A review that requests changes, or a comment on a line of the change,** is put on the development manager's list as one entry, naming the pull request, the comment, and the items whose landed commits touched the file it is about.
 - **An ordinary comment** is put on her list in the same way, with no item named.
-- **Her decision** to repair names one item. It starts a run of that item on the target branch, with the feedback given to the developer as evidence, never as an instruction that widens what the run may do. The run goes through the configured checks and the independent reviewer as any run does, and is charged to that item's repair budget. Its change lands on the target branch, where the outside tool picks it up.
+- **Her decision** to repair names one item, and is recorded and carried out as the next part of this section says.
 - **A person's approval** is recorded as information and never stands in for the independent reviewer.
 
 Tracked pull requests are not counted against `execution.max_waiting_pull_requests`. That limit stops new work while the harness's own pull requests wait, and work landing on the target branch does not wait on the team's merge.
+
+### Deciding a repair of an item whose run has ended
+
+The development manager's other decisions are each bound to a stopped run waiting for her. An item waiting for the team's merge has none: its run ended as integrated and freed its slot. So a repair from feedback is a decision of its own kind on the fixed list of decisions she can record, bound to the list entry it answers rather than to a run.
+
+- **What is recorded.** The decision names the entry it answers, one item, and her reason, with who decided and when. It is refused, in plain words, when that entry already has a decision, when the item has closed, when the item is not waiting on a merge, or when the item has no attempts left. An entry is answered once; later feedback on the same pull request makes a new entry.
+- **A new run, never a continued one.** The decision starts a new run of the item. The earlier run stays ended as integrated, exactly as it was recorded. The new run's record names the decision and the entry it answers, so a reader can follow the chain from the team's feedback to the change it caused.
+- **Where the run starts, and where its change goes.**
+  - An item landed on the target branch and waiting for the team's merge starts from the target branch's current head. Its change lands on the target branch, the item stays waiting for the team's merge, and the tracked pull request picks the new landing commit up by the rule for items found among its commits.
+  - An item whose change waits on a pull request the harness opened, for a person to merge (section 1 of the contributors design), starts from the head of that pull request's kept branch and updates the same pull request rather than opening another. This is the same gap the item for deciding a repair of such an item raised (yoyodyne-ifd.429.120, now folded into yoyodyne-ifd.429.176), and one kind of decision covers both.
+- **What the developer is given.** The feedback is given to the developer as evidence, never as an instruction that widens what the run may do.
+- **Who pays.** The run spends one of the item's attempts, counted in the same unit as the development manager's other repair and re-run grants, as the fixed list of decisions in stopped-run recovery is built (yoyodyne-ifd.428.99.4). An item with no attempts left goes to the Lead Product Manager, as any item that has used its attempts does.
+- **When it runs.** A freed developer slot takes it as it takes any decided repair, ahead of fresh work, under the operating rule that work on a change a run already wrote goes first.
+- **Checks and review.** The run goes through the configured checks and the independent reviewer as any run does. A person's comment or approval never stands in for either.
+
+A conflict while bringing the target branch up to date (section 3) is decided with the same kind of decision, bound to the conflict's entry. It differs only in who pays, as that section says.
+
+Rejected:
+
+- **Continuing the run that landed.** It ended as integrated, its slot is freed and its checkout may be gone; reopening it would give one run two endings and break the record of what landed when.
+- **Admitting a new item for each piece of feedback.** It loses the link between the feedback and the item it is about, and spends a Lead Product Manager decision on routine repair.
+- **Charging the repair to no budget.** Feedback on a busy pull request could then start runs without limit.
 
 ## 3. Keeping the target branch current with the team's branch
 
@@ -102,7 +133,7 @@ This happens at most once per forge check, and one merge covers everything the t
 
 Each update is recorded beside the target branch's landing records: the team's commit brought in, the target commit the merge was built on, the merge commit and its tree, the checks, the reviewer's verdict, and when it landed. The status line shows when the target branch was last brought up to date, and the update waiting, if any.
 
-**A conflict** is not resolved by the harness. The update waits, and the development manager's list gets one entry naming the conflicting paths and the items on the target branch whose landed commits touched them. Her decision names one item, and starts a run of it that resolves the conflict on the target branch. That run is counted against a limit of its own, three rounds, and not against the item's repair budget, as section 3 of the contributors design rules, because another contributor's work caused it. Work keeps landing on the target branch while the update waits.
+**A conflict** is not resolved by the harness. The update waits, and the development manager's list gets one entry naming the conflicting paths and the items on the target branch whose landed commits touched them. Her decision is the same kind as a repair from feedback (section 2), bound to this entry: it names one item, and starts a new run of it, from the target branch's current head, that resolves the conflict on the target branch. That run is counted against a limit of its own, three rounds for the update, and not against the item's attempts, as section 3 of the contributors design rules, because another contributor's work caused it. Work keeps landing on the target branch while the update waits.
 
 ### The check on protected paths for this merge
 
@@ -161,6 +192,7 @@ A script does not need the hold if it builds its batch from a commit it has chos
 - With it set, an item landing on the target branch is never closed by the landing; it closes only on a merge of the pull request carrying it or on its landing commit being found on the team's branch.
 - A pull request is tracked only after the forge read in section 2 confirms it, and an item not found among its commits is recorded only when marked unverified.
 - Feedback on a tracked pull request never starts a run without the development manager's decision.
+- A repair of an item whose run has ended starts only from the development manager's decision bound to the list entry it answers, always as a new run; it is refused once the item has closed or the entry already has a decision, and it spends one of the item's attempts, except a conflict repair, which spends one of the update's three rounds.
 - An update of the target branch lands only with configured checks and an independent review of the exact merge commit, through the remote's compare and swap, and never by rebase or force.
 - A landing hold is read under the landing lease before every guarded change to its target branch, and expires on its own.
 
@@ -173,19 +205,22 @@ A script does not need the hold if it builds its batch from a commit it has chos
 - An item that lands while a tracked pull request's head is the target branch is added to that record with a note.
 - Squash merging a tracked pull request closes its items.
 - A line comment on a tracked pull request reaches the development manager's list naming the items that touched that file, and starts no run until she decides.
+- Her decision to repair from that entry starts a new run whose record names the decision and the entry, spends one of the item's attempts, starts from the target branch's head, and lands on the target branch, where the tracked pull request picks the new commit up; the item stays waiting for the team's merge.
+- The same decision for an item that has closed, or a second decision for an entry already answered, is refused in plain words and starts nothing.
+- For an item waiting on a pull request the harness opened, the decision starts a new run from that pull request's kept branch and updates the same pull request.
 - When the team's branch moves, the target branch gains one merge commit that passed the checks and the reviewer, and the status line shows when.
-- A conflict while bringing the target branch up to date reaches the development manager's list naming paths and items, and landing on the target branch carries on.
+- A conflict while bringing the target branch up to date reaches the development manager's list naming paths and items, and landing on the target branch carries on; her decision on it spends one of the update's three rounds and none of the item's attempts.
 - With a landing hold set, nothing lands on that target branch, checks and reviews carry on, and the hold ends at its expiry with nobody releasing it.
 
 ## Build items, for the Lead Product Manager to admit under `team-development`
 
 1. The team's branch setting and the state of waiting for the team's merge: kept open on landing, never pulled again, met for dependents on the same target branch, closed when the landing commit is found on the team's branch, and shown on every surface.
 2. Tracking a pull request: `yoyo pull-request track` and `untrack`, the forge read at recording, merged and closed handling on each forge check, and items found among its commits added.
-3. Feedback on a tracked pull request put on the development manager's list with the items that touched the file, and her decision starting a run of one item on the target branch. It builds on build item 2 of the contributors design and on yoyodyne-ifd.429.125.
-4. Bringing the target branch up to date: the merge, its checks and review, landing by compare and swap, the update record and status line, and conflicts put on the development manager's list with a repair limit of three rounds.
+3. Feedback on a tracked pull request put on the development manager's list with the items that touched the file, and the decision to repair an item whose run has ended (section 2): recorded against the entry it answers, refused once the item has closed or the entry is answered, starting a new run from the target branch's head or, for an item waiting on a pull request the harness opened, from that pull request's kept branch, and spending one of the item's attempts. It builds on build item 2 of the contributors design, on yoyodyne-ifd.429.125, and on the fixed list of decisions in stopped-run recovery (yoyodyne-ifd.428.99.4).
+4. Bringing the target branch up to date: the merge, its checks and review, landing by compare and swap, the update record and status line, and conflicts put on the development manager's list, decided with the same kind of decision as build item 3, under a limit of three rounds for the update.
 5. The landing hold: `yoyo landing hold` and `release`, the four-hour bound, reading it under the landing lease, and the status line.
 6. A validation on a scratch repository with a target branch and a team's branch, covering every check under What a reviewer can check.
 
-Items 2, 3 and 4 need item 1. Item 4 needs the fetch before each run and the forge check on its own schedule from the contributors design (its build items 3 and 10). Item 5 stands alone.
+Items 2, 3 and 4 need item 1. Item 4 needs the fetch before each run and the forge check on its own schedule from the contributors design (its build items 3 and 10), and its conflict decision needs build item 3. Item 5 stands alone.
 
-This design changes no other document and adds no invariant: the two rules linked above already bind every landing it describes.
+This design adds no invariant: the two rules linked above already bind every landing it describes. It changes no other document; the contributors design's section 2 should point to the decision in section 2 here at its next revision, for the case of a pull request the harness opened.
