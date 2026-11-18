@@ -1,6 +1,6 @@
-# The adoption walkthrough, run against this README
+# The getting-started walkthrough, run against this README
 
-*The recorded output of `make adoption` — [`scripts/walk-adoption.sh`](walk-adoption.sh) —
+*The recorded output of `make getting-started` — [`scripts/walk-getting-started.sh`](walk-getting-started.sh) —
 against the README this change delivers. It is here because yoyodyne-ifd.121.5
 made it the gate on the README split's reduction rather than leaving the
 reduced README to review alone: a section that moved out of the README is a
@@ -8,13 +8,17 @@ step somebody following it can no longer take, and only executing the section
 says whether that happened.*
 
 **This is a record and not a check.** It goes stale the moment the README's
-install or getting-started sections move. Re-run `make adoption` and replace
+install or getting-started sections move. Re-run `make getting-started` and replace
 this file rather than citing it if they have — and note that since
 yoyodyne-ifd.121.6 the walkthrough is a merge gate in its own right: the
-`adoption` job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
+`getting-started` job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 runs it on every pull request. So this file is a readable snapshot of what the
 walkthrough prints, and CI rather than this file is what stands behind the
 claim that the documented path works.
+
+The walkthrough was called `adoption` — the CI job, `make adoption`, and
+`scripts/walk-adoption.sh` — when the runs recorded below were made, so they
+name it that way.
 
 **Re-run by yoyodyne-ifd.121.6**, which edited the paragraph above `### 1.
 Install yoyo` to say that CI runs the walkthrough. That edit changes

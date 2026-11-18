@@ -46,11 +46,11 @@ const (
 // that had executed it was a CI step after review.
 const installScriptSuitePath = "../../scripts/install-test.sh"
 
-// adoptionWalkthroughPath is the README's "Getting started" executed against a
-// throwaway project. `make adoption` runs the whole of it; what is run from
+// gettingStartedWalkthroughPath is the README's "Getting started" executed
+// against a throwaway project. `make getting-started` runs the whole of it; what is run from
 // here is its refusal of a scratch root inside a git repository, which needs
 // none of what the rest of the walk needs.
-const adoptionWalkthroughPath = "../../scripts/walk-adoption.sh"
+const gettingStartedWalkthroughPath = "../../scripts/walk-getting-started.sh"
 
 // TestThisRepositoryIsAllAccountedFor is the audit. Every file this repository
 // carries belongs to a content class, every class recognizes something, and
@@ -125,7 +125,7 @@ func TestEveryWorkflowInThisRepositoryIsShapedLikeOne(t *testing.T) {
 }
 
 // TestEveryWorkflowInThisRepositoryPinsWhatItInstalls covers the other way a
-// workflow goes red without this repository having changed. The adoption job
+// workflow goes red without this repository having changed. The getting-started job
 // installs the tracker, and while it did so at `@latest` a release somebody
 // else cut failed every open pull request at a step none of them had touched.
 // The version is pinned now; what this holds is that it stays a version rather
@@ -184,15 +184,15 @@ func TestTheInstallScriptDoesWhatItSaysOnAMachineThatHasNothing(t *testing.T) {
 	}
 }
 
-// TestTheAdoptionWalkthroughRefusesAScratchRootInsideARepository holds the one
-// part of the walkthrough a declared check can reach. `make adoption` is not
+// TestTheGettingStartedWalkthroughRefusesAScratchRootInsideARepository holds the one
+// part of the walkthrough a declared check can reach. `make getting-started` is not
 // one of the four, and the walk itself needs a tracker and a scratch clone that
 // a run's worktree is not given -- but the refusal happens before any of that,
 // so it costs a temporary repository and nothing else. It is worth the line
 // because the case it refuses is the one a run is in: a run's TMPDIR points
 // inside the repository's .git, and before this refusal existed that read as a
-// broken adoption path rather than as a misplaced temporary directory.
-func TestTheAdoptionWalkthroughRefusesAScratchRootInsideARepository(t *testing.T) {
+// broken getting-started walk rather than as a misplaced temporary directory.
+func TestTheGettingStartedWalkthroughRefusesAScratchRootInsideARepository(t *testing.T) {
 	t.Parallel()
 
 	requireTool(t, "bash")
@@ -203,13 +203,13 @@ func TestTheAdoptionWalkthroughRefusesAScratchRootInsideARepository(t *testing.T
 	}
 	// The refusal is immediate, so the walk is given a deadline rather than the
 	// run of the machine: a refusal that stopped working would otherwise walk
-	// the whole adoption path from inside `make test`, which is minutes, a
+	// the whole getting-started walk from inside `make test`, which is minutes, a
 	// tracker, and a network this has no business needing.
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
-	walkthrough, err := filepath.Abs(adoptionWalkthroughPath)
+	walkthrough, err := filepath.Abs(gettingStartedWalkthroughPath)
 	if err != nil {
-		t.Fatalf("Abs(%q) error = %v", adoptionWalkthroughPath, err)
+		t.Fatalf("Abs(%q) error = %v", gettingStartedWalkthroughPath, err)
 	}
 	walk := exec.CommandContext(ctx, "bash", walkthrough)
 	walk.Env = append(os.Environ(), "TMPDIR="+root)
@@ -222,11 +222,11 @@ func TestTheAdoptionWalkthroughRefusesAScratchRootInsideARepository(t *testing.T
 	walk.Dir = t.TempDir()
 	report, err := walk.CombinedOutput()
 	if err == nil {
-		t.Fatalf("%s walked a scratch root inside a git repository:\n%s", adoptionWalkthroughPath, report)
+		t.Fatalf("%s walked a scratch root inside a git repository:\n%s", gettingStartedWalkthroughPath, report)
 	}
 	var exit *exec.ExitError
 	if !errors.As(err, &exit) || exit.ExitCode() != 2 {
-		t.Fatalf("%s did not refuse the root (%v); its prerequisite refusals exit 2:\n%s", adoptionWalkthroughPath, err, report)
+		t.Fatalf("%s did not refuse the root (%v); its prerequisite refusals exit 2:\n%s", gettingStartedWalkthroughPath, err, report)
 	}
 	// The refusal has to say which of the two things it is, because a walk that
 	// simply stopped is what this replaced.

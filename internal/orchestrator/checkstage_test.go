@@ -825,8 +825,8 @@ func writeCommitted(t *testing.T, repository, relative, content string) {
 }
 
 // A path check joins the gate for a change that touches what it vouches for,
-// and costs a change that touches none of it nothing: the adoption walk runs
-// for a change to the program it documents and not for one to a document
+// and costs a change that touches none of it nothing: the getting-started walk
+// runs for a change to the program it documents and not for one to a document
 // elsewhere. Where it runs, its result is a check result like any other, so the
 // review is shown it, and the stage's record says which path added it; where
 // it does not run, the record says so and why.
@@ -910,11 +910,11 @@ func TestTheRecordSaysWhichPathChecksDidNotRunAndWhy(t *testing.T) {
 		}
 	}
 	configured := []config.PathCheck{
-		{Command: "make adoption", Paths: "scripts/walk.paths"},
+		{Command: "make getting-started", Paths: "scripts/walk.paths"},
 		{Command: "make codex-resume", Paths: "scripts/codex.paths", NeedsProviderCLIs: true},
 	}
 	said := describePathChecks(configured, pathChecksFor(root, configured, []string{"internal/cli/status.go"}))
-	want := "; make adoption added because the change touches internal/cli/status.go, which scripts/walk.paths lists" +
+	want := "; make getting-started added because the change touches internal/cli/status.go, which scripts/walk.paths lists" +
 		"; make codex-resume not run because the change touches nothing scripts/codex.paths lists"
 	if said != want {
 		t.Fatalf("describePathChecks() = %q, want %q", said, want)
@@ -932,8 +932,8 @@ func TestTheRecordSaysWhichPathChecksDidNotRunAndWhy(t *testing.T) {
 func TestAPathCheckWhoseListIsMissingRuns(t *testing.T) {
 	t.Parallel()
 
-	added := pathChecksFor(t.TempDir(), []config.PathCheck{{Command: "make adoption", Paths: "scripts/gone.paths"}}, []string{"docs/notes.md"})
-	if len(added) != 1 || added[0].command != "make adoption" || !strings.Contains(added[0].reason, "could not be read") {
+	added := pathChecksFor(t.TempDir(), []config.PathCheck{{Command: "make getting-started", Paths: "scripts/gone.paths"}}, []string{"docs/notes.md"})
+	if len(added) != 1 || added[0].command != "make getting-started" || !strings.Contains(added[0].reason, "could not be read") {
 		t.Fatalf("added = %#v, want the check run and the unreadable list named", added)
 	}
 }
@@ -989,7 +989,7 @@ func TestAChangeThatNarrowsAPathChecksListStillRunsIt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "scripts", "walk.paths"), []byte("/README.md\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	configured := []config.PathCheck{{Command: "make adoption", Paths: "scripts/walk.paths"}}
+	configured := []config.PathCheck{{Command: "make getting-started", Paths: "scripts/walk.paths"}}
 	if added := pathChecksFor(root, configured, []string{"./scripts/walk.paths", "internal/cli/status.go"}); len(added) != 1 {
 		t.Fatalf("added = %#v, want the check run for a change narrowing its list", added)
 	}
@@ -1012,12 +1012,12 @@ func TestOnlyAPathCheckNeedingProviderCLIsIsMarkedForThem(t *testing.T) {
 		t.Fatal(err)
 	}
 	configured := []config.PathCheck{
-		{Command: "make adoption", Paths: "scripts/codex.paths"},
+		{Command: "make getting-started", Paths: "scripts/codex.paths"},
 		{Command: "make codex-resume", Paths: "scripts/codex.paths", NeedsProviderCLIs: true},
 	}
 	added := pathChecksFor(root, configured, []string{"internal/backend/codex/args.go"})
 	commands, providerCLIs := withPathChecks([]string{"make codex-resume", "make test"}, added)
-	want := []string{"make codex-resume", "make test", "make adoption", "make codex-resume"}
+	want := []string{"make codex-resume", "make test", "make getting-started", "make codex-resume"}
 	if strings.Join(commands, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("commands = %q, want %q", commands, want)
 	}

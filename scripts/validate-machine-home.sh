@@ -58,7 +58,7 @@ cleanup() {
 trap cleanup EXIT
 
 # The repositories are made under this root, so it has to be outside every Git
-# repository, for the reason walk-adoption.sh gives: `bd`, which `yoyo init`
+# repository, for the reason walk-getting-started.sh gives: `bd`, which `yoyo init`
 # and a start ask, discovers an enclosing repository's tracker.
 if enclosing="$(git -C "$scratch" rev-parse --absolute-git-dir 2>/dev/null)"; then
   {
