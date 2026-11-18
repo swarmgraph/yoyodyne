@@ -200,3 +200,24 @@ func TestMCPCallsCountAgainstTheWholeReviewInput(t *testing.T) {
 		t.Error("the call section was not kept, or the repository evidence was not bounded around it")
 	}
 }
+
+// The reviewer is told why each of the developer's calls was refused in words,
+// for every reason the call path can give, and not shown the stored code.
+func TestTheReviewSaysWhyACallWasRefusedInWords(t *testing.T) {
+	for _, reason := range mcpcall.RefusalReasons {
+		record := mcpCall("mail.search", `{}`, "", 0)
+		record.Outcome, record.Refusal = mcpcall.OutcomeRefused, reason
+		head := mcpCallPart{number: 1, record: record}.head()
+		if !strings.Contains(head, "Refused because "+reason.Plain()+"\n") {
+			t.Fatalf("%s: the review lacks the sentence: %q", reason, head)
+		}
+		rest := strings.Replace(head, reason.Plain(), "", 1)
+		for _, field := range strings.FieldsFunc(rest, func(r rune) bool {
+			return !(r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
+		}) {
+			if field == string(reason) {
+				t.Fatalf("%s: the review shows the stored code: %q", reason, head)
+			}
+		}
+	}
+}
