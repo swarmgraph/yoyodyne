@@ -42,6 +42,10 @@ revisions:
       by: architect
       at: 2026-10-30T11:02:57.974046Z
       reason: 'Approves amendment-37d821dd from the developer on the landing-conflict fix (yoyodyne-ifd.429.96): a lost race whose replay applied cleanly onto the newer target branch and passed its checks is not counted toward the five, each retry starts from the target branch as it stands then, and a conflict at landing gets one reconciliation attempt not charged to repair attempts. Step 1 only; rests on that item''s conditions for being done, not its code. Nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-18T15:52:07.594856Z
+      reason: 'yoyodyne-ifd.428.160 and yoyodyne-ifd.428.99.26: step 1 now states plainly that a stop with an unrecognised reason and the harness''s own failures charge no repair attempt, are listed at once with the change kept, and count toward the hold on new work, read from the specific cause rather than the three-way cause (reviewer reports 297c50db and 94a66ddb). A new subsection rules that the two stored logs, docket.jsonl and docket-closed.jsonl, are retired in steps rather than kept as a rebuilt copy, and that slice 2 comes before slice 3 (reports dfabb4ae and 316cac33). Read at commit 11ccc6a1. No other section changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -88,6 +92,11 @@ approvals:
       by: harness
       at: 2026-10-30T11:02:57.974046Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1969, for document-1969.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 9
+      by: harness
+      at: 2026-11-18T15:52:07.594856Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3007, for document-3007.1 under the automatic approval policy
 ---
 # Stopped run recovery: every step from the stop to the run going on, and what each step may never do
 
@@ -128,7 +137,7 @@ Ruled on October 29, approving the developer's proposed change amendment-37d821d
 
 Every cause in the list outside the work is kept out of the hold on new work's count, as recoverable-and-terminal-failures says. A cause that recoverable-and-terminal-failures places outside the work is added to this list in the same decision, so the two designs never disagree about which stops the hold counts. A provider account that cannot be used stops every run on that account the same way; it is kept out of the hold's count because the harness's pause on new work for provider capacity is what holds work for it (yoyodyne-ifd.435.10), and counting it as well would hold the same work twice for one cause.
 
-Ruled on October 19, answering the reviewer's report-40dbc3db: these stops are not on the list above and count toward the hold on new work, as a failure of the harness itself does:
+Ruled on October 19, answering the reviewer's report-40dbc3db: the stops below count toward the hold on new work, as a failure of the harness itself does. They are not on the list above, because that list is the causes the hold leaves out; for what a stop charges, they are treated as outside the work, as the ruling of November 18 below says:
 
 - **The process carrying the run died.** The run record cannot tell whether the harness's own process failed or the machine was shut down, and a harness process that keeps dying is what the hold exists to stop. Runs whose processes are found dead together when the watch session starts count as one stop, so one restart of the machine counts once and not once for each run it ended.
 - **A cancellation whose origin is not recorded.** A cancellation is kept out only when the run record says it came from a person, from a recorded decision, or from the product restarting onto a new build, which is the redeploy named above. The harness records the origin of every cancellation it makes, and a cancellation that names none counts, as an unrecognised cause does.
@@ -137,9 +146,51 @@ Ruled on October 19, answering the reviewer's report-40dbc3db: these stops are n
 
 Counting a stop toward the hold changes only the hold. Whether a stop charges a repair attempt is decided by the three causes above, and none of these charges one, because nothing about the change was judged.
 
+**Ruled on November 18** for the item settling how these stops are charged (yoyodyne-ifd.428.160), answering the reviewer's reports 297c50db and 94a66ddb on the first slice (yoyodyne-ifd.428.99.2), which said a stop with an unrecognised reason is about the work and charged:
+
+- A stop whose reason the harness does not recognise charges no repair attempt and no review round. It is listed at once with its change kept, as a stop outside the work is, and it counts toward the hold on new work.
+- Each of the harness's own failures in the list just above is the same: outside the work for what it charges, counted toward the hold.
+- So such a stop records its cause as outside the work, and whether it counts toward the hold is read from its specific cause, as what failed records it, never from the three causes alone. The code that counts for the hold keeps out exactly the causes on the list outside the work and the cancellations whose origin is recorded, and counts every other stop.
+
+Why: charging a repair attempt says the change was judged and found wanting. Nothing judged the change when the harness cannot say why the run stopped, or when the harness itself failed, and an attempt spent on it is taken from a developer who had nothing to mend (rule 5). Counting it toward the hold is what stops a harness that keeps failing in ways it cannot name from starting more work into the same failure, so the hold, and not the developer's attempts, is where such a stop costs.
+
+Alternatives rejected:
+
+- **Charging an unrecognised stop as about the work,** as the first slice's fourth condition said. A cause nobody can name is not evidence about the change, and a run that met it repeatedly would spend all its attempts and be given back for a fault in the harness.
+- **A fourth cause for the harness's own failures.** Every step reads three causes, and a fourth would change them all for a difference only the hold needs; what failed already carries it.
+- **Leaving these stops out of the hold as well.** A harness failing in a way nobody recognises would then keep starting work into the same failure.
+
 A redeploy that the watch session picks up again at its next start, as it did for the change letting owning roles decide proposed changes on October 15, is not listed: the run goes on by step 5 by itself. It is listed only if picking it up is refused.
 
-Must never: count a check stopped by its time limit as a failing check; charge a repair attempt or a review round for a cause outside the work; end a run without writing a stop; write a stop that drops the reviewer's findings when a later check fails (yoyodyne-ifd.429.68); write a stop without what failed; count a replay stopped on the change itself as outside the work because the replay setting ran out; count toward the five lost races a replay that applied cleanly onto the newer target branch and passed its checks; charge the one reconciliation attempt for a conflict at landing against the repair attempts.
+Must never: count a check stopped by its time limit as a failing check; charge a repair attempt or a review round for a cause outside the work; charge a repair attempt or a review round for a stop whose reason the harness does not recognise, or for the harness's own failure; decide whether a stop counts toward the hold from the three causes alone; end a run without writing a stop; write a stop that drops the reviewer's findings when a later check fails (yoyodyne-ifd.429.68); write a stop without what failed; count a replay stopped on the change itself as outside the work because the replay setting ran out; count toward the five lost races a replay that applied cleanly onto the newer target branch and passed its checks; charge the one reconciliation attempt for a conflict at landing against the repair attempts.
+
+### Where stops and decisions are kept while the slices are built
+
+Ruled on November 18 for the item asking what becomes of the two stored logs (yoyodyne-ifd.428.99.26), answering the developer's report dfabb4ae and the development manager's report 316cac33. Read at commit 11ccc6a1: `internal/runstate/docket.go`. As built, the development manager's list is kept per product in the state directory in two logs: `docket.jsonl`, one line for each stop, and `docket-closed.jsonl`, one line for each decision or wait recorded about a stop, joined to the stops by their key when the list is read. A third file, `docket-window.json`, records where the development manager's last reading of the list stopped.
+
+The two logs are retired, not kept as a copy rebuilt from run records, in three steps:
+
+1. **Slice 2** writes each stop only on its run record and works the list out from run records, as rule 1 says. It writes nothing new to `docket.jsonl`. Lines already there are still read, so a stop recorded before the slice landed is not lost, but only where no run record carries that stop, so no stop is shown twice. Decisions and waits stay in `docket-closed.jsonl` for this slice, joined to a stop by its key and its time exactly as `DocketStore.List` joins them today.
+2. **Slice 3** writes each decision and wait on the run record, bound to the stop it answers, as step 3 says, and writes nothing new to `docket-closed.jsonl`. Lines already there are still read for stops recorded before the slice landed.
+3. **Once no stop on the list is read from either log,** the development manager admits one small item that stops reading them. The files are left in place, unchanged, as the history they are.
+
+Every reader keeps one way in: the one function that lists stops with their decisions, which `DocketStore.List` is today. The slices change what it reads, not what its callers call, so neither slice has to change every file that reads the list. `docket-window.json` stays: it records where a reading stopped, not any stop. From slice 2 on, the position it holds is the stop's identity, its run, attempt and stop time.
+
+Entries that are not a stop of a run, such as an escalation or a run that never started, have no stop on a run record to be worked out from. They keep their lines in the two logs until a design says where they go. A slice that finds such an entry whose run has a run record stops and asks.
+
+This rests on a run record being kept while a stop on it is undecided. The code's own comment says a run's files may be cleaned up while its stop is still listed, and the architect has not read what that clean-up removes. Slice 2 confirms the run record itself is kept while a stop on it is undecided, and stops and asks if it is not.
+
+**Slice 2 comes before slice 3.** Slice 2 needs nothing from slice 3: the decisions it shows are read from where they are kept today. Slice 3 needs slice 2, because a decision is bound to the stop it answers as the list names it, and until slice 2 the list names stops by the log's key, which all the stops of one run share. So stopped-run recovery slice 2 (yoyodyne-ifd.428.99.3) waits on neither of the pair, and slice 3 (yoyodyne-ifd.428.99.4) waits on slice 2. This is the order the Slices section already gives.
+
+Why retired and not kept as a copy: a copy rebuilt from run records is a second record of the same stops, and the chains of fixes this design was written to end came from exactly that, a list and a run record that disagreed (rule 1). A copy is either never read, and then worth nothing, or read in place of the run records, and then its age is what a reader sees.
+
+Alternatives rejected:
+
+- **Keeping the logs as a copy rebuilt from run records,** for the reason above.
+- **Retiring both logs in one slice.** It would change where every stop is read and every decision is written in one change too large to review, and leave no slice that can land on its own.
+- **Moving the existing lines into run records.** A run record may already be settled, and the lines are history nobody decides on again; reading them where they are costs nothing.
+
+Must never: write a new stop of a run to `docket.jsonl` once slice 2 has landed; write a new decision or wait about a stop of a run to `docket-closed.jsonl` once slice 3 has landed; show one stop twice because it is in a log and on a run record; delete or rewrite either log.
 
 ## Step 2: the development manager's list
 
