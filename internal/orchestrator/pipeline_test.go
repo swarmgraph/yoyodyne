@@ -3602,6 +3602,80 @@ func TestRunLeavesARunStoppedForARedeployMidAttemptResumableInTheSameSession(t *
 	}
 }
 
+// A developer stopped for a redeploy before its provider reported any session is
+// still left resumable: nothing is lost, because the worktree holds what it
+// wrote, and the session that comes back starts a new developer session there.
+// The run spends no repair attempt and is not cancelled.
+func TestRunLeavesARunStoppedForARedeployBeforeAnySessionResumableInANewSession(t *testing.T) {
+	t.Parallel()
+
+	repository, worktreeRoot, store := restartableFixture(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	ctx, stop := context.WithCancelCause(context.Background())
+	defer stop(nil)
+	drained := RedeployDrain{At: time.Date(2026, 11, 17, 8, 46, 0, 0, time.UTC), Bound: 15 * time.Minute, SessionID: "watch-before"}
+	first := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "partial.txt"), []byte("half done\n"), 0o600)
+	}, approveVerdict)
+	served := first.Respond
+	first.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role != domain.RoleDeveloper {
+			return served(request)
+		}
+		if _, err := served(request); err != nil {
+			return backend.RunResult{}, err
+		}
+		stop(drained)
+		return backend.RunResult{
+			Backend:    domain.BackendClaudeCode,
+			IsError:    true,
+			StopReason: string(execution.ProcessCancelled),
+			Process:    execution.ProcessResult{Status: execution.ProcessCancelled, ExitCode: -1},
+			LastEvent:  request.LastSequence,
+		}, nil
+	}
+	firstPipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, first, []string{"exit 0"}), first)
+
+	paused, err := firstPipeline.Run(ctx, tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v, want a run stopped before any session reported as a pause rather than a failure", err)
+	}
+	if !paused.Paused || paused.Status != runstate.StatusRunning || paused.RedeployStop == nil || paused.RedeployStop.Phase != runstate.PhaseDeveloping {
+		t.Fatalf("outcome = %#v, want a paused run carrying the redeploy stop at its developer attempt", paused)
+	}
+	if tracker.Blocked || tracker.Closed || !tracker.Claimed {
+		t.Fatalf("the stop disturbed the work item: blocked=%t closed=%t claimed=%t", tracker.Blocked, tracker.Closed, tracker.Claimed)
+	}
+	if !strings.Contains(tracker.Notes, "waiting to resume on the new build from its developing step") {
+		t.Fatalf("the item does not say the run is waiting to resume, and from which step:\n%s", tracker.Notes)
+	}
+	stoppedState, err := store.Load(paused.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if stoppedState.Status.Terminal() || stoppedState.ProviderSessionID != "" {
+		t.Fatalf("stopped state = %#v, want a non-terminal run with no session", stoppedState)
+	}
+	if _, err := os.Stat(filepath.Join(stoppedState.WorktreePath, "partial.txt")); err != nil {
+		t.Fatalf("the stopped attempt's work did not survive: %v", err)
+	}
+
+	second := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	secondPipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, second, []string{"exit 0"}), second)
+	outcome, err := secondPipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("resumed Run() error = %v", err)
+	}
+	if outcome.RunID != paused.RunID || outcome.WorktreePath != paused.WorktreePath || outcome.Integration == nil || !tracker.Closed {
+		t.Fatalf("resumed run = %#v, want the stopped run %s finished in %s", outcome, paused.RunID, paused.WorktreePath)
+	}
+	if outcome.RepairAttempts != 0 {
+		t.Fatalf("repair attempts = %d, want the stop to have cost none", outcome.RepairAttempts)
+	}
+}
+
 // And mid-review. A verdict half-made is no verdict, so a run stopped for a
 // redeploy while its reviewer was working keeps its change and is owed the gate
 // again — the checks and a fresh review — with no developer attempt spent on a

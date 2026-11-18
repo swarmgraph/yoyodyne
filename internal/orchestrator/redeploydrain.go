@@ -353,8 +353,8 @@ func stoppedChecks(drained RedeployDrain, results []checks.Result) *runstate.Red
 
 // stoppedForRedeployIsResumable reports a run its hosting session stopped for a
 // redeploy and which can be continued from durable state. A run at its
-// developer attempt continues in the session that attempt established, so it
-// needs one recorded; a run at its checks or its review re-earns the gate from
+// developer attempt continues in the session that attempt established, or in a
+// new one in the same worktree where none was reported; a run at its checks or its review re-earns the gate from
 // the checks, in the worktree the developer left, and needs the session for
 // the independence integration later demands. A run at its promotion is never
 // stopped for a redeploy, so it is never one of these.
@@ -375,7 +375,12 @@ func stoppedForRedeployIsResumable(state runstate.State) bool {
 	default:
 		return false
 	}
-	if state.ProviderSessionID == "" {
+	// A developer attempt stopped before the provider reported a session has
+	// nothing to resume in, but it also has nothing a fresh session would lose:
+	// what the attempt wrote is in the preserved worktree, and the continuation
+	// starts a new developer session there. Cancelling it instead would end a
+	// run for a new build, which is not a reason to end one.
+	if state.ProviderSessionID == "" && state.Phase != runstate.PhaseDeveloping {
 		return false
 	}
 	return state.WorktreePath != "" && state.Branch != "" && state.BaseCommit != ""
@@ -407,6 +412,10 @@ func renderRedeployStopNotes(outcome Outcome) string {
 		default:
 			said += " No check was running when the run stopped, so none was cut short."
 		}
+	}
+	said += fmt.Sprintf(" This run is waiting to resume on the new build from its %s step; no repair attempt or re-run is spent on it.", stopped.Phase)
+	if outcome.ProviderSessionID == "" && stopped.Phase == runstate.PhaseDeveloping {
+		said += " The developer had not reported a session when it was stopped, so it resumes in a new session in the same worktree, with what it had written kept."
 	}
 	lines := []string{
 		said,
