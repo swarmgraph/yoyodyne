@@ -39,7 +39,9 @@ type configDocument struct {
 	// which addresses it reaches on a role's behalf is one statement, and a server
 	// assembled half from one layer and half from another is one nobody declared.
 	// It decodes straight into the effective type for the same reason.
-	MCP       *MCP               `yaml:"mcp"`
+	MCP *MCP `yaml:"mcp"`
+	// Intake replaces an inherited section entirely, for the reason mcp does.
+	Intake    *intakeDocument    `yaml:"intake"`
 	Intent    *intentDocument    `yaml:"intent"`
 	Team      *teamDocument      `yaml:"team"`
 	Approvals *approvalsDocument `yaml:"approvals"`
