@@ -159,6 +159,9 @@ func (d MergeQueueDriver) heldTooLongReason(promoted MergeQueuePromotion) string
 		reason += fmt.Sprintf("; before that it was in the queue for %s, from when it joined at %s, waiting its turn and having its candidate checked and reviewed, and that time does not count toward the limit",
 			waitedFor(asked.Sub(joined)), joined.Local().Format("2006-01-02 15:04 MST"))
 	}
+	if promoted.ForgeSays != "" {
+		reason += "; the last time it was asked, " + promoted.ForgeSays
+	}
 	return reason
 }
 
@@ -314,10 +317,11 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			continue
 		case promoted.Drift:
 			continue
-		case promoted.Dropped || promoted.Unjudged != "" || d.heldTooLong(promoted):
+		case promoted.Dropped || promoted.Unjudged != "" || promoted.RequiredFailed != "" || d.heldTooLong(promoted):
 			// A merge the forge dropped, one it can never make because a check
 			// on the candidate ended without judging the change again after
-			// being run again (mergequeuecheckrerun.go), or one it has held
+			// being run again (mergequeuecheckrerun.go) or because a required
+			// check failed on it (mergequeueforgewait.go), or one it has held
 			// queued past the limit on a queued merge's wait, is withdrawn and
 			// the entry released, so it stops standing at the head of the queue;
 			// the next step hands the change back to its run, kept, for the
@@ -328,6 +332,8 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 				why = "the forge stopped holding its merge without making it: " + promoted.Unresolved
 			case promoted.Unjudged != "":
 				why = promoted.Unjudged
+			case promoted.RequiredFailed != "":
+				why = promoted.RequiredFailed
 			default:
 				why = d.heldTooLongReason(promoted)
 			}
