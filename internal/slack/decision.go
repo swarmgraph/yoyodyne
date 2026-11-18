@@ -38,6 +38,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/notify"
+	"github.com/mason-bryant/yoyodyne/internal/teamrecords"
 )
 
 // optionWord is the one word the grammar knows, so "option 2" and "2" are the
@@ -162,7 +163,7 @@ func (s *steering) decideThread(ctx context.Context, message inboundMessage) {
 	if !s.first(message.ts) {
 		return
 	}
-	s.answerDecision(ctx, message, s.decide(asked, message, time.Now()))
+	s.answerDecision(ctx, message, s.decide(ctx, asked, message, time.Now()))
 }
 
 // standingMark is the state the heartbeat is currently standing on, nothing
@@ -223,7 +224,7 @@ func misplaced(latest Decision, standing string, known bool) string {
 // are owed is which option was taken and the sentence it stood for; the
 // identifier is for the processes that read directives, and `yoyo directive
 // list` is where a person reads it.
-func (s *steering) decide(asked Decision, message inboundMessage, at time.Time) string {
+func (s *steering) decide(ctx context.Context, asked Decision, message inboundMessage, at time.Time) string {
 	// Authority first, and before the reply is read at all — the same rule the
 	// channel holds to, because it is the same record being written. Somebody
 	// forwarded this ask, or shares a machine, is not somebody the project
@@ -235,8 +236,12 @@ func (s *steering) decide(asked Decision, message inboundMessage, at time.Time) 
 	if err != nil {
 		return "Nothing was recorded. " + err.Error()
 	}
-	if _, err := s.recordDecision(asked, chosen, at); err != nil {
+	_, sharing, err := s.recordDecision(ctx, asked, chosen, message, at)
+	if err != nil {
 		return "Nothing was recorded. " + err.Error()
+	}
+	if sharing == teamrecords.SharingNotShared {
+		return keptHere
 	}
 	if chosen.option > 0 {
 		return fmt.Sprintf("Recorded — option %d, %s. Every run reads it from here; nothing carries it out on its own, and `yoyo directive list` is where it is read back.",
@@ -258,14 +263,13 @@ func (s *steering) decide(asked Decision, message inboundMessage, at time.Time) 
 // about a stopped line is unblocking the harness rather than adding a second
 // thing for somebody to settle, and a decision that stopped work would be this
 // tier making the state it exists to end.
-func (s *steering) recordDecision(asked Decision, chosen choice, at time.Time) (directive.Directive, error) {
-	id, err := directive.NewID()
-	if err != nil {
-		return directive.Directive{}, err
-	}
+//
+// It is named by the message that answered, as a reply in a thread is, so a
+// reply seen twice is one decision.
+func (s *steering) recordDecision(ctx context.Context, asked Decision, chosen choice, message inboundMessage, at time.Time) (directive.Directive, teamrecords.Sharing, error) {
 	recorded := directive.Directive{
 		SchemaVersion: directive.SchemaVersion,
-		ID:            id,
+		ID:            directive.ForSlackMessage(message.channel, message.ts),
 		ProductID:     s.sink.store.Product(),
 		Kind:          directive.KindOperational,
 		// A decision about the whole line is the product manager's to act on, which
@@ -278,10 +282,7 @@ func (s *steering) recordDecision(asked Decision, chosen choice, at time.Time) (
 	// Every bound a directive is held to is the directive package's, checked on
 	// the way into the store, so a reply too long to be one is refused in the
 	// thread with the record's own words rather than with a second opinion.
-	if err := s.directives.Record(recorded); err != nil {
-		return directive.Directive{}, err
-	}
-	return recorded, nil
+	return s.write(ctx, recorded)
 }
 
 // decided is what the directive says: what was asked, which offered answer was
@@ -312,12 +313,23 @@ func decided(asked Decision, chosen choice) string {
 // direct message at the top of the channel, in front of everybody except the
 // person who asked for it.
 func (s *steering) answerDecision(ctx context.Context, message inboundMessage, answer string) {
+	// The record is already written wherever one was written, so what failed is
+	// the account of it rather than the act. `yoyo directive list` is where an
+	// operator who saw no answer finds out which it was.
+	s.sayInThread(ctx, message, answer, "a decision was acted on but could not be answered in the direct message it was made in; `yoyo directive list` says what was recorded")
+}
+
+// sayInThread posts one plain sentence, addressed to whoever wrote the message,
+// in the thread the message was in and in the harness's voice. It is not sent
+// through the notifier for the reason answerDecision gives, and is said in the
+// log, with the failure named, when the workspace would not take it.
+func (s *steering) sayInThread(ctx context.Context, message inboundMessage, said, failure string) {
 	identity := s.sink.appearance.Identity(notify.Harness())
 	emoji, url := icon(identity.Avatar)
 	if _, err := s.sink.postCited(ctx, Message{
 		Channel:   message.channel,
 		ThreadTS:  message.threadTS,
-		Text:      tagged(message.user, answer),
+		Text:      tagged(message.user, said),
 		Username:  identity.Name,
 		IconEmoji: emoji,
 		IconURL:   url,
@@ -325,9 +337,6 @@ func (s *steering) answerDecision(ctx context.Context, message inboundMessage, a
 		if ctx.Err() != nil {
 			return
 		}
-		// The record is already written wherever one was written, so what failed is
-		// the account of it rather than the act. `yoyo directive list` is where an
-		// operator who saw no answer finds out which it was.
-		s.sink.log("a decision was acted on but could not be answered in the direct message it was made in; `yoyo directive list` says what was recorded: %v", err)
+		s.sink.log("%s: %v", failure, err)
 	}
 }
