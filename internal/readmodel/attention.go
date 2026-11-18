@@ -1276,6 +1276,16 @@ func reconcileFindingWhose(mover Mover, findings []runstate.ReconcileFinding) st
 	}
 	problem := reconcileFindingWhat("", findings)
 	remedy := "the next `yoyo reconcile` retries this item's settlement once the named refusal is resolved"
+	switch {
+	case strings.Contains(problem, ownership.PublicationNeedsForgeHand):
+		return mover.Possessive() + " — give the harness's forge account the right to close pull requests on the repository, or close the pull request named by hand; the next `yoyo reconcile` sees it closed and clears this"
+	case strings.Contains(problem, ownership.PublicationKeptForDecision) && strings.Contains(problem, "retired without being done"):
+		return mover.Possessive() + " — the next `yoyo reconcile` closes this pull request, saying the item was retired, and keeps its branch; to keep the change instead, reopen the item before then"
+	case strings.Contains(problem, ownership.PublicationKeptForDecision):
+		return mover.Possessive() + " — decide what becomes of the kept change: close the pull request on the forge if the work is not wanted, or reopen the item so the change can land; the next `yoyo reconcile` sees either and clears this"
+	case strings.Contains(problem, ownership.PublicationNotClosed):
+		return mover.Possessive() + " — the next `yoyo reconcile` tries the close again; if the cause named persists, close the pull request on the forge by hand"
+	}
 	if mover == MoverDevelopmentManager {
 		if strings.Contains(problem, "closed but has no later confirmed merged publication") {
 			remedy = "decide what becomes of the closed item's preserved run; closed status alone does not authorize retirement or reopening"

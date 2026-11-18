@@ -397,6 +397,43 @@ func TestConvergeKeepsAClosedItemsRequestWhoseWorkIsNowhere(t *testing.T) {
 	}
 }
 
+// A kept request somebody then closes by hand is settled: the refresh records
+// the forge's answer, and the finding leaves the development manager's list.
+func TestAKeptRequestClosedByHandLeavesTheDevelopmentManagersList(t *testing.T) {
+	t.Parallel()
+
+	fixture := newQueuedFixture(t)
+	earlier := fixture.publishedRun(t, "yoyodyne-task", "run-11112222333344445555666677778888", 863, "job.txt")
+	closed := closedWork{{ID: "yoyodyne-task", Title: "Task", Status: "closed", CloseReason: "Closed as done"}}
+	if result := onlyClosedItem(t, fixture.convergeWithClosed(t, closed)); !result.Kept {
+		t.Fatalf("result = %#v, want the request kept", result)
+	}
+	// What the refresh records once a person has closed it on the forge.
+	recorded, err := fixture.store.Load(earlier.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !hasReconcileFinding(recorded, runstate.ReconcileSuperseded) {
+		t.Fatalf("findings = %#v, want the kept request's finding", recorded.ReconcileFindings)
+	}
+	recorded.PullRequest.State = "CLOSED"
+	if err := fixture.store.Save(recorded); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	again := fixture.convergeWithClosed(t, closed)
+	if len(again.ClosedItems) != 0 || len(fixture.forge.ClosedRequests()) != 0 {
+		t.Fatalf("second pass = %#v, want nothing closed by the harness", again.ClosedItems)
+	}
+	settled, err := fixture.store.Load(earlier.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if hasReconcileFinding(settled, runstate.ReconcileSuperseded) {
+		t.Errorf("findings = %#v, want the finding cleared once the request is closed", settled.ReconcileFindings)
+	}
+}
+
 // Condition 5: a close the forge refused is recorded on the run and the item
 // and put in front of the development manager, and nothing is released.
 func TestConvergeRecordsACloseTheForgeRefused(t *testing.T) {
