@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-11-07T11:58:28.947522Z
       reason: The list of documents this design changes said the MCP design's Slack rule names only the reader's line as an exception, while section 7 here and the MCP design as landed both name the link to the source message as well. The MCP bullet now names both; the other bullets are unchanged. Written from a read of the whole design at main afa296f0.
+    - action: amended
+      by: architect
+      at: 2026-11-16T22:14:57.606984Z
+      reason: Section 2 said the link to a source message reaches the operator by direct message only, while section 7, as built, also allows the line listing what needs him where Slack is not in use, and never a channel. Section 2 now says the same. This is point 3 of bringing four designs into line with what was built (yoyodyne-n2t1); its last point waits for the held machine-home revision. Written from a read of the whole design at main 503cc285; nothing else in the section changes.
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-11-07T11:58:28.947522Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2434, for document-2434.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-16T22:14:57.606984Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2914, for document-2914.1 under the automatic approval policy
 ---
 # Scheduled message intake
 
@@ -117,7 +126,7 @@ The reader's model is chosen in configuration for this one task, and its spend i
 
 A message's key is the server's name and the source's own identifier for it. The key does not name the query, so two queries on one server that return one message produce one record. The first query to write the record handles the message under its own rules, and the record lists any other query that returned it.
 
-Each record also has a short number the harness makes from a digest of the key. The number is what leaves the record: on a started item, in a question, in a report. The source's identifier and link do not, because a source's values may carry text a sender chose. The one exception is the link sent to the operator where a query's questions are reserved for him, by direct message only, as section 7 says.
+Each record also has a short number the harness makes from a digest of the key. The number is what leaves the record: on a started item, in a question, in a report. The source's identifier and link do not, because a source's values may carry text a sender chose. The one exception is the link sent to the operator where a query's questions are reserved for him, only on his own surfaces and never to a channel: by direct message, or on the line listing what needs him where Slack is not in use, as section 7 says.
 
 The record is written through the confined writer under the project's state directory, in `intake/`, and is only ever added to. It is written before any provider call.
 
