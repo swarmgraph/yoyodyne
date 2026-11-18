@@ -356,3 +356,68 @@ func TestReaderReadsNothingFromADetachedIntentRepository(t *testing.T) {
 		t.Fatalf("project read = %#v", results[1])
 	}
 }
+
+// A file longer than one read is read in parts: each part says where it starts
+// and how many bytes remain, and the parts joined are the file.
+func TestReaderReadsALongFileInPartsByOffset(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("0123456789abcdé\n", (2*MaxContentBytes/17)+500)
+	repository := newRepository(t, map[string]string{"long.md": long, "short.md": "short\n"})
+	reader := Reader{Process: execution.OSProcessRunner{}, Directory: repository}
+
+	var assembled strings.Builder
+	offset := 0
+	for parts := 0; parts < 10; parts++ {
+		results, err := reader.Read(context.Background(), []Request{{Action: ActionRead, Path: "long.md", Offset: offset}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		part := results[0]
+		if part.Problem != "" {
+			t.Fatalf("part at %d refused: %s", offset, part.Problem)
+		}
+		if part.Offset != offset && !(offset == 0 && part.Offset == 0) {
+			// a start inside a character moves forward, never back
+			if part.Offset < offset {
+				t.Fatalf("part started at %d, asked for %d", part.Offset, offset)
+			}
+		}
+		if part.Truncated {
+			if part.Remaining != len(long)-part.Offset-len(part.Content) || part.Remaining <= 0 {
+				t.Fatalf("remaining = %d, want %d", part.Remaining, len(long)-part.Offset-len(part.Content))
+			}
+			if rendered := Render(results, AsEvidence); !strings.Contains(rendered, fmt.Sprintf(`"offset":%d`, part.Offset+len(part.Content))) {
+				t.Fatalf("the rendering does not say where to read next: %q", rendered[:300])
+			}
+		}
+		assembled.WriteString(part.Content)
+		offset = part.Offset + len(part.Content)
+		if !part.Truncated {
+			break
+		}
+	}
+	if strings.TrimRight(assembled.String(), "\n") != strings.TrimRight(long, "\n") {
+		t.Fatalf("the parts joined are %d bytes, not the file's %d", assembled.Len(), len(long))
+	}
+
+	results, err := reader.Read(context.Background(), []Request{
+		{Action: ActionRead, Path: "short.md", Offset: 1000},
+		{Action: ActionRead, Path: "short.md", Offset: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(results[0].Problem, "past the end") {
+		t.Fatalf("an offset past the end = %#v", results[0])
+	}
+	if results[1].Content != "ort" || results[1].Offset != 2 {
+		t.Fatalf("a read from offset 2 = %#v", results[1])
+	}
+	if err := (Request{Action: ActionRead, Path: "x", Offset: -1}).Validate(); err == nil {
+		t.Fatal("a negative offset was accepted")
+	}
+	if err := (Request{Action: ActionList, Path: "x", Offset: 1}).Validate(); err == nil {
+		t.Fatal("an offset on a list was accepted")
+	}
+}

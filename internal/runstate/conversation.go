@@ -599,7 +599,7 @@ func (w PendingWrite) Held() bool {
 const (
 	MaxPendingWrites     = artifact.MaxWaitingDocuments
 	MaxHeldWrites        = 4
-	MaxPendingWriteBytes = 64 << 10
+	MaxPendingWriteBytes = 128 << 10
 )
 
 // MaxPendingProposals bounds the undecided proposals one conversation carries.

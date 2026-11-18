@@ -60,8 +60,8 @@ const WriteFence = "```yoyodyne-artifact"
 const (
 	MaxWritesPerReply     = 1
 	maxWritesPerReplyText = "one"
-	MaxWriteBodyBytes     = 64 << 10
-	MaxWriteBlockBytes    = MaxWriteBodyBytes + (8 << 10)
+	MaxWriteBodyBytes     = 128 << 10
+	MaxWriteBlockBytes    = 2*MaxWriteBodyBytes + (8 << 10)
 )
 
 // WriteAction is what one action does to a document: bring it into existence,

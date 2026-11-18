@@ -146,6 +146,12 @@ func repositoryReadPayload(result repositoryread.Result) map[string]any {
 	default:
 		payload["size"] = result.Size
 		payload["bytes"] = len(result.Content)
+		if result.Offset > 0 {
+			payload["offset"] = result.Offset
+		}
+		if result.Remaining > 0 {
+			payload["remaining"] = result.Remaining
+		}
 	}
 	if result.Truncated {
 		payload["truncated"] = true

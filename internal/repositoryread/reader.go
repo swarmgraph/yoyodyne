@@ -184,7 +184,7 @@ func (r Reader) resolve(ctx context.Context, commit string, request Request, red
 	}
 	switch action {
 	case ActionRead:
-		r.readFile(ctx, &result, redactor, remaining)
+		r.readFile(ctx, &result, request.Offset, redactor, remaining)
 	case ActionList:
 		r.listDirectory(ctx, &result)
 	case ActionSearch:
@@ -199,7 +199,7 @@ func (r Reader) resolve(ctx context.Context, commit string, request Request, red
 }
 
 // readFile reads one blob out of the commit's tree.
-func (r Reader) readFile(ctx context.Context, result *Result, redactor execution.Redactor, remaining *int) {
+func (r Reader) readFile(ctx context.Context, result *Result, offset int, redactor execution.Redactor, remaining *int) {
 	entry, problem := r.entry(ctx, result.Commit, result.Path)
 	if problem != "" {
 		result.Problem = problem
@@ -229,7 +229,11 @@ func (r Reader) readFile(ctx context.Context, result *Result, redactor execution
 	// What Git is asked to keep is a little past what will be returned, so the
 	// retained copy is a whole prefix of the file rather than one the runner cut
 	// at a different place, and the bound below is the only cut a reader sees.
-	output, err := r.git(ctx, MaxContentBytes+(64<<10), "cat-file", "blob", entry.object)
+	if offset > size {
+		result.Problem = fmt.Sprintf("offset %d is past the end of %s, which is %d bytes at %s", offset, result.Path, size, shortCommit(result.Commit))
+		return
+	}
+	output, err := r.git(ctx, offset+MaxContentBytes+(64<<10), "cat-file", "blob", entry.object)
 	if err != nil {
 		result.Problem = fmt.Sprintf("%s at %s could not be read: %s", result.Path, shortCommit(result.Commit), singleLine(err.Error()))
 		return
@@ -246,10 +250,25 @@ func (r Reader) readFile(ctx context.Context, result *Result, redactor execution
 		result.Problem = fmt.Sprintf("%s at %s is not text, and the harness reads text only", result.Path, shortCommit(result.Commit))
 		return
 	}
-	bounded, truncatedBy := bound(content, size, *remaining)
+	// A part starts on a whole character, so one that was asked for inside a
+	// multi-byte character begins at the next one.
+	start := offset
+	for start < len(content) && !utf8.RuneStart(content[start]) {
+		start++
+	}
+	if start > len(content) {
+		start = len(content)
+	}
+	bounded, truncatedBy := bound(content[start:], size-start, *remaining)
 	result.Content = redactor.Redact(bounded)
 	result.Truncated = truncatedBy != ""
 	result.TruncatedBy = truncatedBy
+	if start > 0 || result.Truncated {
+		result.Offset = start
+	}
+	if result.Truncated {
+		result.Remaining = size - start - len(bounded)
+	}
 	*remaining -= len(bounded)
 }
 
