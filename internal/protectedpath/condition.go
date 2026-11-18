@@ -347,7 +347,7 @@ func executorInstruction(owner domain.AgentRole) string {
 	if owner == "" {
 		return ""
 	}
-	return fmt.Sprintf(" Or, where the condition is that role's own work rather than a run's, mark the item as carried by its conversation, with executor %q: an item so marked keeps its place in the order, is never selected for a developer run, and is closed by the harness once a revision of a document the %s owns opens with the item's identifier.",
+	return fmt.Sprintf(" Or, where the condition is that role's own work rather than a run's, mark the item as carried by its conversation, with executor %q: an item so marked keeps its place in the order, is never selected for a developer run, and is closed by the harness once each document the %s owns that the item's text names, by path or identifier, has a revision opening with the item's identifier, or on the first such revision where it names none.",
 		domain.ConversationWith(owner), owner)
 }
 
@@ -552,10 +552,10 @@ type ConversationWork struct {
 func (w ConversationWork) Refusal() string {
 	switch w.Field {
 	case "title":
-		return fmt.Sprintf("its title says the %s does the work, which no developer run carries, and the item names no executor: %q. Either mark the item as carried by that conversation, with executor %q, so it is never selected for a developer run and is closed by the harness once a revision of a document the %s owns opens with the item's identifier; or retitle it as the change a run makes.",
+		return fmt.Sprintf("its title says the %s does the work, which no developer run carries, and the item names no executor: %q. Either mark the item as carried by that conversation, with executor %q, so it is never selected for a developer run and is closed by the harness once each document the %s owns that the item's text names, by path or identifier, has a revision opening with the item's identifier, or on the first such revision where it names none; or retitle it as the change a run makes.",
 			w.Role, w.Text, domain.ConversationWith(w.Role), w.Role)
 	default:
-		return fmt.Sprintf("a done-condition says a design or a ruling is recorded, which is the %s's conversation's work and no developer run's, and the item names no executor: %q. Either mark the item as carried by that conversation, with executor %q, so it is never selected for a developer run and is closed by the harness once a revision of a document the %s owns opens with the item's identifier; or take the clause out of the done-condition and say that the %s amends the document through the governed path, with the run's summary naming what there is to record.",
+		return fmt.Sprintf("a done-condition says a design or a ruling is recorded, which is the %s's conversation's work and no developer run's, and the item names no executor: %q. Either mark the item as carried by that conversation, with executor %q, so it is never selected for a developer run and is closed by the harness once each document the %s owns that the item's text names, by path or identifier, has a revision opening with the item's identifier, or on the first such revision where it names none; or take the clause out of the done-condition and say that the %s amends the document through the governed path, with the run's summary naming what there is to record.",
 			w.Role, w.Text, domain.ConversationWith(w.Role), w.Role, w.Role)
 	}
 }

@@ -15,6 +15,10 @@ type LandingTracker struct {
 	// Unrecordable refuses all landing writes; Unclearable only refuses clears.
 	Unrecordable map[string]error
 	Unclearable  map[string]error
+	// Notes is what was appended to each item's notes, in order, and Unnotable
+	// refuses the note writes of the items it names.
+	Notes     map[string][]string
+	Unnotable map[string]error
 }
 
 func (t *LandingTracker) RecordLanding(_ context.Context, id, landing string) (beads.WorkItem, error) {
@@ -40,6 +44,17 @@ func (t *LandingTracker) Complete(_ context.Context, id, reason string) (beads.W
 	}
 	t.Closed[id] = reason
 	return beads.WorkItem{ID: id, Status: "closed"}, nil
+}
+
+func (t *LandingTracker) Update(_ context.Context, id string, change beads.WorkItemChange) (beads.WorkItem, error) {
+	if err := t.Unnotable[id]; err != nil {
+		return beads.WorkItem{}, err
+	}
+	if t.Notes == nil {
+		t.Notes = map[string][]string{}
+	}
+	t.Notes[id] = append(t.Notes[id], change.AppendNotes)
+	return beads.WorkItem{ID: id, Status: "open"}, nil
 }
 
 // Current returns the last landing written to an item.
