@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-11-07T06:37:58.112805Z
       reason: The MCP tools design landed and is an operator-supplied tool source this list still deferred. The first line now excepts it beside research and links that design; the other three lines are unchanged.
+    - action: amended
+      by: architect
+      at: 2026-11-19T06:06:35.781773Z
+      reason: 'Point 1 of the five design corrections (yoyodyne-hs28), from the reviewer''s report 399c215d: the log reader section named only the program manager as holding the tool, while the development manager now holds it too. A short paragraph saying both roles hold it, at the same bounds and reading the same kinds, is added before the closing paragraph; nothing else in the section changes. Read whole at main 3396a1a9. The development manager''s grant is taken from the reviewer''s report; the reviewer of this revision should confirm it against the role bundles. The program-manager half of this point waits until that design can be read whole.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -38,6 +42,11 @@ approvals:
       by: harness
       at: 2026-11-07T06:37:58.112805Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2412, for document-2412.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-19T06:06:35.781773Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3050, for document-3050.1 under the automatic approval policy
 ---
 # Tools: one interface for what the harness does on a role's behalf
 
@@ -115,6 +124,8 @@ A request may carry two further parameters. A read of pass records may name one 
 **Its bounds** are the repository read's: at most six records a reply, at most 48 KiB returned from one record and 96 KiB from one reply. A record longer than one read returns comes back in successive parts rather than being cut once: each part says the byte it starts at, how many bytes it returned, and how many remain, and gives the next read to ask for, carrying the offset that continues it. A role follows those reads until nothing remains, within its rounds per message, and continues in a later turn where the rounds end. Secrets are removed from every part, as they are from a whole record. The first build reads pass records in parts; a record of any other kind is still cut once, with the cut declared and its whole size named, until its kind is read in parts too, which needs no further revision of this design. What comes back is framed as evidence and never instruction, and recorded on the conversation or the pass as every tool is. It reads and never writes.
 
 **Adding a kind** is a revision of this design that names the kind, how one record of it is identified, and what is redacted from it, with a row in the authority inventory. A design for a role that holds the tool never adds one.
+
+**Who holds it.** Two roles hold it, each through a row in its own bundle and at the bounds above: the program manager and the development manager. The development manager reads the same kinds the program manager does, and neither role's bundle may widen what this section says it reads. Another role gains it only by a row in its bundle, under the grant rules above.
 
 It is the archetype of the class rather than a one-off: its descriptor is the first the interface carries, and its grant to the program manager is what discharges yoyodyne-ifd.437.9 and builds yoyodyne-ifd.430.13.13.
 
