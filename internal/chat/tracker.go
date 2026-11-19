@@ -820,7 +820,7 @@ func (s *Session) recordRefusedTrackerBlock(refused *TrackerError, handBack bool
 	recorded := &runstate.TrackerRefusal{
 		Turn:      s.state.Turns,
 		Actions:   refused.Actions,
-		Problem:   boundText(refused.Error(), runstate.MaxTrackerRefusalProblemBytes),
+		Problem:   runstate.FitText(refused.Error(), runstate.MaxTrackerRefusalProblemBytes, ""),
 		RefusedAt: s.options.clock().Now().UTC(),
 	}
 	if unanswered != nil {

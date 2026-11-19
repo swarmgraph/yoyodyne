@@ -558,6 +558,71 @@ const (
 	MaxHandedBackReasonBytes = 2 << 10
 )
 
+// HandedBackReason is the reason a revision handed back is kept with: the run's
+// account folded onto one line and fitted to MaxHandedBackReasonBytes by
+// FitText. The run named keeps the whole account, because the account is
+// composed from that run's record, so a cut reason says where to read the rest.
+func HandedBackReason(account, runID string) string {
+	folded := strings.Join(strings.Fields(account), " ")
+	keptIn := ""
+	if runID = strings.TrimSpace(runID); runID != "" {
+		keptIn = "the record of run " + runID + " keeps all of it"
+	}
+	return FitText(folded, MaxHandedBackReasonBytes, keptIn)
+}
+
+// FitText fits text to at most limit bytes, so a long reason shortens the record
+// that keeps it rather than stopping the record being saved. Text that fits comes
+// back unchanged. Text that does not is cut on a whole character and ends by
+// saying it was cut, how long the whole was, and, where keptIn names it, where the
+// whole is kept. The cut is made short enough that the saying fits too: a cut to
+// the limit with words added after it is a record longer than its limit, which
+// the record's own check then refuses, and so the turn carrying it.
+func FitText(text string, limit int, keptIn string) string {
+	if len(text) <= limit {
+		return text
+	}
+	said := fmt.Sprintf(" [cut here: the whole was %d bytes", len(text))
+	if keptIn = strings.TrimSpace(keptIn); keptIn != "" {
+		said += ", and " + keptIn
+	}
+	said += "]"
+	if len(said) >= limit {
+		return cutOnCharacter(text, limit)
+	}
+	return strings.TrimSpace(cutOnCharacter(text, limit-len(said))) + said
+}
+
+// cutOnCharacter is at most limit bytes of text, ending on a whole character.
+func cutOnCharacter(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	end := max(limit, 0)
+	for end > 0 && !utf8.RuneStart(text[end]) {
+		end--
+	}
+	return text[:end]
+}
+
+// FitStoredReasons fits every reason the record carries to the limit Validate
+// holds it to, before the record is saved. Each reason is fitted where it is
+// written as well; this is the last place it can be, so a reason written past
+// its limit by any route shortens itself rather than refusing the whole turn,
+// which a recurring pass offers again every time and so fails every time.
+func (c *Conversation) FitStoredReasons() {
+	for i := range c.HandedBack {
+		if len(c.HandedBack[i].Reason) > MaxHandedBackReasonBytes {
+			c.HandedBack[i].Reason = HandedBackReason(c.HandedBack[i].Reason, c.HandedBack[i].RunID)
+		}
+	}
+	if c.RefusedBlock != nil && len(c.RefusedBlock.Problem) > MaxTrackerRefusalProblemBytes {
+		refusal := *c.RefusedBlock
+		refusal.Problem = FitText(refusal.Problem, MaxTrackerRefusalProblemBytes, "")
+		c.RefusedBlock = &refusal
+	}
+}
+
 // WaitingDocuments counts the documents MaxPendingWrites bounds: the distinct
 // documents among the writes that are not held for sending. A document whose
 // run is going and a newer revision of it waiting behind that run are one

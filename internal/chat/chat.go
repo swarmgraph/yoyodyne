@@ -5415,6 +5415,7 @@ func (s *Session) record() error {
 	// version of the same reason: a re-read this process kept to itself was thrown
 	// away by every turn that failed.
 	s.state.PendingPicture = s.pendingPicture()
+	s.state.FitStoredReasons()
 	if err := s.options.Store.Save(s.state); err != nil {
 		return fmt.Errorf("record conversation turn: %w", err)
 	}
