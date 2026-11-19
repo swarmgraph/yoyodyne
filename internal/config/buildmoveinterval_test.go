@@ -44,7 +44,7 @@ func TestTheBuildMoveIntervalIsThreeHoursUnlessTheProjectSetsIt(t *testing.T) {
 func TestABuildMoveIntervalOutsideOneToTwentyFourHoursIsRefused(t *testing.T) {
 	t.Parallel()
 
-	for _, value := range []string{"59m", "30m", "24h1m", "48h", "-1h"} {
+	for _, value := range []string{"0s", "59m", "30m", "24h1m", "48h", "-1h"} {
 		_, err := loadProjectError(t, minimalProjectConfig+"execution:\n  build_move_interval: "+value+"\n", nil)
 		if err == nil || !strings.Contains(err.Error(), "must be at least one hour and at most twenty-four hours") {
 			t.Fatalf("build_move_interval %s: LoadResolved() error = %v, want it refused naming the limits", value, err)

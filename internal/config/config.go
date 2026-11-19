@@ -1446,7 +1446,11 @@ func (c Config) Validate() error {
 	if c.Execution.RedeployDrainLimit <= 0 {
 		problems = append(problems, "execution.redeploy_drain_limit must be positive")
 	}
-	if c.Execution.BuildMoveInterval != 0 && (c.Execution.BuildMoveInterval < MinBuildMoveInterval || c.Execution.BuildMoveInterval > MaxBuildMoveInterval) {
+	// Zero is refused too: the shipped defaults always supply three hours, so a
+	// loaded configuration holds zero only where a project wrote it, and zero is
+	// under an hour. BuildMoveEvery still reads zero as the default for a
+	// configuration built in code, which is never validated with this key unset.
+	if c.Execution.BuildMoveInterval < MinBuildMoveInterval || c.Execution.BuildMoveInterval > MaxBuildMoveInterval {
 		problems = append(problems, fmt.Sprintf("execution.build_move_interval is %s, and the least time between two moves onto a new build must be at least one hour and at most twenty-four hours", time.Duration(c.Execution.BuildMoveInterval)))
 	}
 	// Zero is a configuration assembled without the key, which reads the
