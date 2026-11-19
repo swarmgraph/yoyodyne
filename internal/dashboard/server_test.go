@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/developerslot"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -171,6 +172,37 @@ func standingWith(text string) readmodel.Standing {
 			Kind: readmodel.AttentionDirective, ID: "directive-1", Mover: ownership.MoverOperator,
 			Directive: &directive.Directive{ID: "directive-1", Text: text, Unresolved: text},
 		}},
+	}
+}
+
+// The standing served to the page carries each run's developer slot with what
+// it prefers in words, and every configured slot, idle ones and one preferring
+// nothing included, so the page words nothing of its own.
+func TestServesEachDeveloperSlotWithWhatItPrefers(t *testing.T) {
+	t.Parallel()
+	standing := standingWith("ordinary title")
+	standing.Running = []readmodel.RunningRun{{
+		RunID: "run-a", WorkItemID: "yoyodyne-ifd.1", Slot: 1, SlotPrefers: []string{"reliability"},
+		SlotSays: "in developer slot 1, which prefers the reliability label",
+	}}
+	standing.DeveloperSlots = []readmodel.DeveloperSlotStanding{
+		{Slot: developerslot.Slot{Number: 1, Preferred: []string{"reliability"}, RunID: "run-a", WorkItemID: "yoyodyne-ifd.1"}, Says: "developer slot 1, which prefers the reliability label"},
+		{Slot: developerslot.Slot{Number: 2, Preferred: []string{"usability"}}, Says: "developer slot 2 is free and prefers the usability label"},
+		{Slot: developerslot.Slot{Number: 3}, Says: "developer slot 3 is free and prefers no label"},
+	}
+	w := serve(t, stubReader{standing: standing})
+	response, body := w.get("/api/standing", bearer(w.server.Token()))
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("standing: %d %s", response.StatusCode, body)
+	}
+	for _, want := range []string{
+		`"developer_slot":1,"slot_prefers":["reliability"],"slot_says":"in developer slot 1, which prefers the reliability label"`,
+		`{"number":2,"preferred":["usability"],"says":"developer slot 2 is free and prefers the usability label"}`,
+		`{"number":3,"says":"developer slot 3 is free and prefers no label"}`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("standing lacks %s: %s", want, body)
+		}
 	}
 }
 
