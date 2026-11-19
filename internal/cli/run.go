@@ -522,7 +522,7 @@ func buildComponents(configPath string) (components, error) {
 	if err != nil {
 		return components{}, err
 	}
-	return components{
+	parts := components{
 		config:           cfg,
 		configPath:       resolved.Path,
 		repository:       repository,
@@ -556,7 +556,13 @@ func buildComponents(configPath string) (components, error) {
 		worktrees:        worktrees,
 		intentWorktrees:  intentWorktrees,
 		redactValues:     execution.SensitiveEnvironmentValues(os.Environ()),
-	}, nil
+	}
+	// With team mode on, every spend of an item's budgets is counted across the
+	// team's factories and recorded on the shared remote before it is made.
+	if err := wireTeamSpends(parts); err != nil {
+		return components{}, err
+	}
+	return parts, nil
 }
 
 // buildIntentWorktrees is the worktree manager for the project's companion

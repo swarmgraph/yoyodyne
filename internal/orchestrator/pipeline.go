@@ -9614,11 +9614,26 @@ func (a *activeRun) recordReviewVerdict(ctx context.Context, decision review.Dec
 	if err != nil {
 		return fmt.Errorf("identify the process charging the review round attempt %s produced: %w", attempt, err)
 	}
-	if _, err := counters.RecordReviewRound(ctx, a.state.WorkItemID, attempt, charger, a.pipeline.clock().Now()); err != nil {
-		return fmt.Errorf("count the review round attempt %s produced: %w", attempt, err)
+	for {
+		_, err := counters.RecordReviewRound(ctx, a.state.WorkItemID, attempt, charger, a.pipeline.clock().Now())
+		if err == nil {
+			return nil
+		}
+		// With team mode on the round is a record on the shared remote first. One that
+		// could not be pushed is not charged, and the run waits for the remote rather
+		// than ending: a network that does not answer is no fault of the work.
+		if !runstate.IsSpendNotShared(err) {
+			return fmt.Errorf("count the review round attempt %s produced: %w", attempt, err)
+		}
+		if sleepErr := a.pipeline.sleep(ctx, teamSpendRetryInterval); sleepErr != nil {
+			return fmt.Errorf("count the review round attempt %s produced: %w", attempt, errors.Join(err, sleepErr))
+		}
 	}
-	return nil
 }
+
+// teamSpendRetryInterval is how long a run waits before it asks again to record a
+// review round the shared remote did not take.
+const teamSpendRetryInterval = time.Minute
 
 // providerEvidence is what an attempted invocation says about why it produced no
 // answer, separately from the error it returned: a usage limit the provider
