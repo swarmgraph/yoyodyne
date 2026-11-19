@@ -19,6 +19,11 @@ type TeamPullRequest struct {
 	// commit was among its commits, rather than the tool naming it.
 	Found     bool      `json:"found,omitempty"`
 	TrackedAt time.Time `json:"tracked_at"`
+	// Feedback is how far the forge checks have read the reviews and comments
+	// on the request, and the approvals people gave there, kept as information.
+	// Every run the request carries keeps its own copy, moved together by the
+	// check that acted on what it read (TeamPullRequestFeedbackRead).
+	Feedback *PullRequestFeedback `json:"feedback,omitempty"`
 }
 
 // Validate checks the request has a number and a time, and is not both
@@ -33,6 +38,11 @@ func (p TeamPullRequest) Validate() error {
 	}
 	if p.Unverified && p.Found {
 		problems = append(problems, errors.New("a pull request cannot be both unverified and found"))
+	}
+	if p.Feedback != nil {
+		if err := p.Feedback.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("pull request feedback: %w", err))
+		}
 	}
 	return errors.Join(problems...)
 }
@@ -60,6 +70,11 @@ func (u TeamPullRequestTracked) apply(state *State) (bool, error) {
 	}
 	wait := *state.TeamMerge
 	request := u.PullRequest
+	// The same request recorded again keeps what the checks have read of it, so
+	// changing how it is recorded never acts on its feedback a second time.
+	if have := state.TeamMerge.PullRequest; have != nil && have.Number == request.Number && request.Feedback == nil {
+		request.Feedback = have.Feedback
+	}
 	wait.PullRequest = &request
 	state.TeamMerge = &wait
 	state.UpdatedAt = u.At
@@ -108,6 +123,54 @@ func (u TeamPullRequestClosed) apply(state *State) (bool, error) {
 	if err := wait.Validate(); err != nil {
 		return false, fmt.Errorf("run %s cannot record the closing of pull request #%d: %w", state.RunID, u.Number, err)
 	}
+	state.TeamMerge = &wait
+	state.UpdatedAt = u.At
+	return true, nil
+}
+
+// TeamPullRequestFeedbackRead moves a waiting change's copy of the feedback
+// cursor of the pull request that carries it past what a forge check acted on,
+// and keeps the approvals among it as information. Nothing it records starts or
+// stops anything: what was asked for went on the development manager's list
+// before this was written.
+type TeamPullRequestFeedbackRead struct {
+	LandingCommit string
+	Number        int
+	Read          []ForgeFeedbackItem
+	At            time.Time
+}
+
+func (u TeamPullRequestFeedbackRead) apply(state *State) (bool, error) {
+	if !state.WaitingForTeamMerge() || state.TeamMerge.LandingCommit != u.LandingCommit {
+		return false, fmt.Errorf("run %s is not waiting for the team to merge %s, so what was read of pull request #%d is not recorded on it", state.RunID, u.LandingCommit, u.Number)
+	}
+	if state.TeamMerge.PullRequest == nil || state.TeamMerge.PullRequest.Number != u.Number {
+		return false, fmt.Errorf("run %s is not tracked under pull request #%d, so what was read of it is not recorded on it", state.RunID, u.Number)
+	}
+	if len(u.Read) == 0 {
+		return false, nil
+	}
+	request := *state.TeamMerge.PullRequest
+	feedback := PullRequestFeedback{}
+	if request.Feedback != nil {
+		feedback = *request.Feedback
+		feedback.ThroughIDs = append([]string(nil), feedback.ThroughIDs...)
+		feedback.Approvals = append([]ForgeFeedbackItem(nil), feedback.Approvals...)
+	}
+	for _, item := range u.Read {
+		if err := item.Validate(); err != nil {
+			return false, fmt.Errorf("run %s cannot record feedback %s on pull request #%d: %w", state.RunID, item.ID, u.Number, err)
+		}
+		if item.Kind == FeedbackApproval {
+			feedback.RecordApproval(item)
+		}
+	}
+	feedback.Advance(u.Read)
+	feedback.ReadAt = u.At
+	feedback.ReadError = ""
+	request.Feedback = &feedback
+	wait := *state.TeamMerge
+	wait.PullRequest = &request
 	state.TeamMerge = &wait
 	state.UpdatedAt = u.At
 	return true, nil
