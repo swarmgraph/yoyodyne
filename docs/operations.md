@@ -555,7 +555,7 @@ Each pass takes twelve steps, in this order, and each is recorded:
   a stage — an item or a note that is different, missing, or added — or one of
   whose commands failed, is a failure of the pass, naming what changed or what
   bd said.
-- **store-rebuild** — the live tracker store rebuilt from its own export, as
+- **shrink** — the live tracker store rebuilt from its own export, as
   [the design on keeping the store small](designs/tracker-store-size.md)
   decides. Items, notes, dependencies, labels and comments are carried across
   and compared; what is dropped is the store's record of past versions, which

@@ -81,7 +81,7 @@
 //     records whether the listings as the store was are within the design's
 //     ten second limit and for how many measurements in a row, the second in
 //     a row being when the tracker read wait may be revisited.
-//   - store-rebuild: the live tracker store rebuilt from its own export, under
+//   - shrink: the live tracker store rebuilt from its own export, under
 //     the design on keeping the store small
 //     (docs/designs/tracker-store-size.md) (trackerrebuild.go). It runs after
 //     the measurement, on the same goroutine, where the live store is past its
@@ -144,7 +144,7 @@ const (
 	StepReconcile           = "reconcile"
 	StepTrackerCleanup      = "cleanup"
 	StepTrackerMeasure      = "measure"
-	StepTrackerStoreRebuild = "store-rebuild"
+	StepTrackerStoreRebuild = "shrink"
 	StepTrackerLimits       = "limits"
 	StepRebuild             = "rebuild"
 	StepRestartRequests     = "restart-requests"
