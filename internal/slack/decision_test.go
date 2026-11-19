@@ -92,7 +92,7 @@ func TestADecisionRecordsTheChosenOptionWhereEveryRunReadsIt(t *testing.T) {
 	t.Parallel()
 
 	sink, directives, _ := newDecidingSink(t, testOperator)
-	answer := sink.steering.decide(testAsked(), inboundMessage{
+	answer := sink.steering.decide(context.Background(), testAsked(), inboundMessage{
 		user:     testOperator,
 		text:     "2 — let the overnight finish first",
 		ts:       "1750000001.000200",
@@ -135,7 +135,7 @@ func TestADecisionInTheOperatorsOwnWordsIsRecordedAsTheyTypedIt(t *testing.T) {
 	t.Parallel()
 
 	sink, directives, _ := newDecidingSink(t, testOperator)
-	sink.steering.decide(testAsked(), inboundMessage{
+	sink.steering.decide(context.Background(), testAsked(), inboundMessage{
 		user:     testOperator,
 		text:     "neither; I am about to change what is admitted",
 		ts:       "1750000001.000200",
@@ -159,7 +159,7 @@ func TestADecisionFromSomebodyWithoutDirectWorkRecordsNothingAndSaysSo(t *testin
 	t.Parallel()
 
 	sink, directives, _ := newDecidingSink(t, testOperator)
-	answer := sink.steering.decide(testAsked(), inboundMessage{
+	answer := sink.steering.decide(context.Background(), testAsked(), inboundMessage{
 		user:     testStranger,
 		text:     "1",
 		ts:       "1750000001.000200",

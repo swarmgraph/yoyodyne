@@ -680,3 +680,93 @@ func operational() Directive {
 		Text:          "stop opening pull requests for documentation-only changes",
 	}
 }
+
+// Two factories that see the same Slack reply name the same directive, and the
+// name is one the store accepts.
+func TestASlackMessageNamesOneDirective(t *testing.T) {
+	t.Parallel()
+
+	id := ForSlackMessage("C0123", "1760000000.000100")
+	if !ValidID(id) {
+		t.Fatalf("ForSlackMessage() = %q, want a valid directive id", id)
+	}
+	if again := ForSlackMessage("C0123", "1760000000.000100"); again != id {
+		t.Fatalf("ForSlackMessage() = %q then %q, want the same name", id, again)
+	}
+	if ForSlackMessage("C0124", "1760000000.000100") == id || ForSlackMessage("C0123", "1760000000.000101") == id {
+		t.Fatal("ForSlackMessage() gave one name to different messages")
+	}
+	if ForSlackMessage("C01", "230") == ForSlackMessage("C0123", "0") {
+		t.Fatal("ForSlackMessage() let the channel and timestamp run together")
+	}
+}
+
+func TestMergeFillsWhatTheCopyLacksAndChangesNothingItSays(t *testing.T) {
+	t.Parallel()
+
+	earlier := recordedAt.Add(time.Hour)
+	later := recordedAt.Add(2 * time.Hour)
+	base := operational()
+	other := operational()
+	other.Resolution, other.ResolvedAt = "carried out", &later
+	other.Withdrawal, other.WithdrawnBy, other.WithdrawnAt, other.WithdrawnRole = "no longer meant", "the operator", &later, domain.RoleProductManager
+	other.Became, other.BecameReason, other.BecameBy, other.BecameRole, other.BecameAt = "docs/rules.md", "written in", "the operator", domain.RoleArchitect, &later
+
+	merged := Merge(base, other)
+	if got := strings.Join(merged.Dispositions(), ","); got != "resolved,withdrawn,became" {
+		t.Fatalf("Dispositions() = %q, want all three", got)
+	}
+	if !SameDispositions(merged, other) || SameDispositions(merged, base) {
+		t.Fatal("SameDispositions() did not tell the merged copy from the base and from the other")
+	}
+	if err := merged.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if base.ResolvedAt != nil {
+		t.Fatal("Merge() changed its base argument")
+	}
+
+	// What the base already says is kept, whatever the other holds.
+	base.Resolution, base.ResolvedAt = "settled here", &earlier
+	kept := Merge(base, other)
+	if kept.Resolution != "settled here" || !kept.ResolvedAt.Equal(earlier) {
+		t.Fatalf("Merge() = %q at %v, want the base's own resolution kept", kept.Resolution, kept.ResolvedAt)
+	}
+	if kept.Withdrawal != "no longer meant" {
+		t.Fatalf("Merge() withdrawal = %q, want the one the base lacked copied in", kept.Withdrawal)
+	}
+}
+
+func TestSameDispositionsComparesTimesByInstant(t *testing.T) {
+	t.Parallel()
+
+	at := recordedAt.Add(time.Hour)
+	zoned := at.In(time.FixedZone("elsewhere", 3600))
+	a, b := operational(), operational()
+	a.Resolution, a.ResolvedAt = "done", &at
+	b.Resolution, b.ResolvedAt = "done", &zoned
+	if !SameDispositions(a, b) {
+		t.Fatal("SameDispositions() told one instant in two zones apart")
+	}
+	b.Resolution = "done differently"
+	if SameDispositions(a, b) {
+		t.Fatal("SameDispositions() ignored a different resolution")
+	}
+	if len(operational().Dispositions()) != 0 {
+		t.Fatal("Dispositions() named a group an open directive lacks")
+	}
+}
+
+func TestAFactoryIsOptionalAndOneLine(t *testing.T) {
+	t.Parallel()
+
+	d := operational()
+	d.Factory = "the build machine"
+	if err := d.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	d.Factory = "two\nlines"
+	if err := d.Validate(); err == nil || !strings.Contains(err.Error(), "factory cannot span lines") {
+		t.Fatalf("Validate() error = %v, want a refusal of a factory over two lines", err)
+	}
+}

@@ -161,6 +161,22 @@ var auditedDispositionReads = []dispositionSite{
 		Means: "writes the disposition; it is the only thing that does.",
 	},
 	{
+		File: "internal/directive/directive.go", Declaration: "Merge", Read: "ResolvedAt", Reads: 4,
+		Means: "copies a disposition another machine recorded into a copy that lacks one, and leaves one the copy already carries; it asks whether a group is present, never whether the directive still applies.",
+	},
+	{
+		File: "internal/directive/directive.go", Declaration: "(Directive) Dispositions", Read: "ResolvedAt", Reads: 1,
+		Means: "names the groups a copy carries, so a caller can tell whether it holds a change another copy lacks; it says nothing about liveness.",
+	},
+	{
+		File: "internal/directive/directive.go", Declaration: "SameDispositions", Read: "ResolvedAt", Reads: 2,
+		Means: "compares the resolved group of two copies of one directive, as the other two groups are compared; it asks whether they agree, not whether either applies.",
+	},
+	{
+		File: "internal/teamrecords/teamrecords.go", Declaration: "changePath", Read: "ResolvedAt", Reads: 1,
+		Means: "names the file a change to a shared directive is kept in, from what the copy's disposition groups say; it copies the value into the name and asks nothing about whether the directive still applies.",
+	},
+	{
 		File: "internal/goal/goal.go", Declaration: "(Attribution) ApprovalGap", Read: "Resolved()", Reads: 1,
 		Means: "goal attribution, not a directive: an unresolved attribution has already said what is wrong with it.",
 	},
