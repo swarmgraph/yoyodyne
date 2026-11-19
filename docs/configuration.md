@@ -3482,6 +3482,23 @@ one that asked first starts first. A landing takes its turn on its target
 branch first and its place second, never the other way round. A confirmed
 document's landing takes a place only for a document check named here.
 
+**A place is kept free for landing checks.** The order above cannot help a
+landing check that arrives when every place is already running ordinary checks:
+it would wait for a whole check to finish, and every approved change behind it
+in the merge queue with it. So while the harness's merge queue holds an entry
+that still has a heavy check to pass on its candidate, every check that is not
+for a landing — ordinary checks and work continuing preserved changes — is let
+start only while those checks number at most one fewer than the check's places.
+The landing check always finds a place free, and nothing running is stopped to
+make one. When no entry in the queue needs the check, ordinary checks use every
+place. A check named with one place keeps nothing, because keeping its only
+place would stop every ordinary copy of it whenever the queue held an entry; its
+landing checks are still first in the line. A candidate stopped and run again
+keeps the claim until it has passed the check or leaves the queue. It is read
+from the queue's own record each time a place is asked for, so nothing is stored
+and nothing has to be cleared when the entry lands, is handed back, or is
+withdrawn. The number of places is unchanged.
+
 The places are kept in one record under the state root, `heavy-checks/`,
 changed only under a file lock beside it. A place moves through four states,
 each recorded before the step it names: waiting, running (given the place and

@@ -632,12 +632,18 @@ func heavyCheckPermits(cfg config.Config, stateRoot string, runner execution.Pro
 		// saying nothing.
 		return orchestrator.UnopenedHeavyChecks{Execution: cfg.Execution, Err: err}
 	}
-	return orchestrator.HeavyCheckPermits{
+	permits := orchestrator.HeavyCheckPermits{
 		Store: store, Product: cfg.Product.ID, Execution: cfg.Execution,
 		// Each launch is measured against the machine it launched on, which is
 		// what its limit is proposed from (yoyo heavy-checks measurements).
 		Machine: orchestrator.HeavyCheckMachine(runner, cfg.Execution),
 	}
+	// A place is kept free for the merge queue's landing checks while an entry
+	// needs one. Where the queue's record cannot be opened none is kept.
+	if queues, err := runstate.NewMergeQueueStore(stateRoot, cfg.Product.ID); err == nil {
+		permits.LandingNeeds = orchestrator.QueuedHeavyChecks{Queues: queues, Config: cfg, Execution: cfg.Execution}.Needs
+	}
+	return permits
 }
 
 func buildPipeline(configPath string) (orchestrator.Pipeline, error) {
