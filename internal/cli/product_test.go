@@ -671,6 +671,23 @@ func TestTheRealChildrenSayWhichBuildTheyRunAndWhatTheyAreDoing(t *testing.T) {
 	if _, ok := restartsItself.(supervise.Deployable); !ok {
 		t.Fatal("the scheduler is not a part whose build the supervisor reads")
 	}
+	// It says when it is overdue to restart itself, from its own watch log: a
+	// wind-down whose limit passed five minutes ago with nothing since.
+	if _, ok := restartsItself.(supervise.OverdueRestart); !ok {
+		t.Fatal("the scheduler cannot say it is overdue to restart, so a stuck wind-down would hold it on the old build for ever")
+	}
+	began := time.Now().Add(-time.Hour).Truncate(time.Second)
+	limit := began.Add(15 * time.Minute)
+	if err := watch.Record(runstate.WatchTransition{SchemaVersion: runstate.WatchSchemaVersion, SessionID: "watch-0123456789abcdef0123456789abcdef", ProductID: "yoyodyne", State: runstate.WatchWatching, At: began.Add(time.Minute), Reason: "draining",
+		Draining: &runstate.WatchDrain{Since: began, BoundSeconds: 900, Until: limit, Hosting: 1}}); err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+	if overdue, err := scheduler.RestartOverdue(context.Background(), limit.Add(4*time.Minute)); err != nil || overdue != "" {
+		t.Fatalf("RestartOverdue() = %q, %v, want nothing four minutes past the limit", overdue, err)
+	}
+	if overdue, err := scheduler.RestartOverdue(context.Background(), limit.Add(19*time.Minute)); err != nil || !strings.Contains(overdue, "past its limit for winding down to move onto a new build for 19m0s") {
+		t.Fatalf("RestartOverdue() = %q, %v, want the session named as overdue nineteen minutes past its limit", overdue, err)
+	}
 	var sinkChild supervise.Child = sink
 	if _, ok := sinkChild.(supervise.RestartsItself); ok {
 		t.Fatal("the sink says it restarts itself, so nothing would move it onto a deployed build")

@@ -250,13 +250,107 @@ const RestartGrace = 2 * time.Minute
 // otherwise says rather than as a restart nobody is making.
 const DrainOverrunGrace = 30 * time.Minute
 
-// DrainOverrunAfter is how long past its drain bound a session that has not
-// restarted is read as stuck rather than on its way back. Past the bound the
-// restart follows at once unless a run is at its promotion, so a session still
-// draining this long after its bound is reported as a factory problem unless
-// its latest line, under DrainOverrunGrace old, says it is waiting out a
-// promotion; see drainOverrun.
-const DrainOverrunAfter = 10 * time.Minute
+// DrainOverrunAfter is how long past its wind-down limit (DrainLimit) a
+// session that has not restarted is read as stuck rather than on its way back.
+// Past the limit the restart follows within seconds — the longest the session
+// itself waits there is for a run seconds short of its claim or for a stopped
+// run to report back, each bounded at two minutes — so a session still winding
+// down this long after its limit is reported as a factory problem unless its
+// latest line, under DrainOverrunGrace old, says it is waiting out a promotion
+// or a document landing; see drainOverrun.
+const DrainOverrunAfter = 3 * time.Minute
+
+// DrainRestartAfter is how long past its wind-down limit a session that has
+// not restarted is left before the product's supervisor restarts it onto the
+// new build itself (DrainRestartDue). A session that is stuck there pulls no
+// new work, and nothing inside it can be relied on to end the wait, because
+// whatever stuck it is inside it.
+const DrainRestartAfter = 5 * time.Minute
+
+// DrainLimit is the moment a session winding down for a move onto a new build
+// is due to have restarted by: the end of its drain bound, or, where it said it
+// was waiting past the bound for checks already running, the latest moment
+// those checks can run to. A promotion or a document landing is waited out
+// with no moment named, and is read separately (waitingOnUnstopped).
+func DrainLimit(drain runstate.WatchDrain) time.Time {
+	limit := drain.Until
+	if drain.BoundReached && drain.Checking > 0 && drain.ChecksUntil.After(limit) {
+		limit = drain.ChecksUntil
+	}
+	return limit
+}
+
+// DrainPast is a live session that has gone past its wind-down limit without
+// restarting: which session, the limit, the bound it drained under, and how
+// long past the limit it is at the reading.
+type DrainPast struct {
+	SessionID string
+	Limit     time.Time
+	Bound     time.Duration
+	Past      time.Duration
+}
+
+// Says is the session past its limit in plain words, with how long it has
+// been past it. It names the moment once, as the attention line expects.
+func (p DrainPast) Says() string {
+	return fmt.Sprintf("the watch session %s has been past its limit for winding down to move onto a new build for %s, since %s (it winds down for %s, and longer only for checks already running); it has not restarted onto the new build, so it pulls no new work, and the supervisor restarts it once it is %s past that limit",
+		p.SessionID, pastSaid(p.Past), localMoment(p.Limit), p.Bound, pastSaid(DrainRestartAfter))
+}
+
+// pastSaid is how long something has gone on, in words.
+func pastSaid(elapsed time.Duration) string {
+	switch {
+	case elapsed < time.Minute:
+		return "less than a minute"
+	case elapsed < time.Hour:
+		return count(int(elapsed.Minutes()), "minute")
+	case elapsed >= 48*time.Hour:
+		return count(int(elapsed.Hours())/24, "day")
+	default:
+		hours, minutes := int(elapsed.Hours()), int(elapsed.Minutes())%60
+		if minutes == 0 {
+			return count(hours, "hour")
+		}
+		return count(hours, "hour") + " " + count(minutes, "minute")
+	}
+}
+
+// DrainPastLimit is the latest live session in the watch log being past its
+// wind-down limit without having restarted, where it is. A session whose
+// latest line, recently enough to be believed, says it is waiting out a
+// promotion or a document landing is not past it: neither is stopped
+// part-way for a restart, and the session restarts the moment they end.
+//
+// It does not ask whether the session marked its bound as reached. A session
+// that never got back to the top of its loop to mark it is the stuck one this
+// exists to find, and its last line still names the bound it was under.
+func DrainPastLimit(sessions []runstate.WatchTransition, now time.Time) (DrainPast, bool) {
+	live := Live(sessions)
+	if len(live) == 0 {
+		return DrainPast{}, false
+	}
+	latest := live[0]
+	drain := latest.Draining
+	if drain == nil || drain.Until.IsZero() {
+		return DrainPast{}, false
+	}
+	limit := DrainLimit(*drain)
+	if now.Before(limit) || waitingOnUnstopped(latest, now) {
+		return DrainPast{}, false
+	}
+	return DrainPast{SessionID: latest.SessionID, Limit: limit, Bound: drain.Bound(), Past: now.Sub(limit)}, true
+}
+
+// DrainRestartDue is the latest live session having been past its wind-down
+// limit for DrainRestartAfter or more: the session the supervisor restarts
+// onto the new build without waiting any longer for it to restart itself.
+func DrainRestartDue(sessions []runstate.WatchTransition, now time.Time) (DrainPast, bool) {
+	past, over := DrainPastLimit(sessions, now)
+	if !over || past.Past < DrainRestartAfter {
+		return DrainPast{}, false
+	}
+	return past, true
+}
 
 // WhyNothingStarts is the one derivation of what has stopped the choosing.
 //
@@ -461,16 +555,13 @@ func whichSession(sessions []runstate.WatchTransition, now time.Time) Stall {
 // takes of a session stuck there, as a factory problem and as why nothing
 // starts.
 func DrainOverrunOf(sessions []runstate.WatchTransition, now time.Time) (Stall, bool) {
-	live := Live(sessions)
-	if len(live) == 0 {
-		return Stall{}, false
-	}
-	return drainOverrun(live[0], now)
+	return drainOverrun(sessions, now)
 }
 
-// drainOverrun is a live session's drain having run out DrainOverrunAfter or
-// more ago with no restart recorded since. A session waiting for a running
-// check past the bound is left to the reading of it below until its deadline.
+// drainOverrun is the latest live session having been past its wind-down
+// limit (DrainLimit) for DrainOverrunAfter or more with no restart recorded
+// since. A session waiting for a running check past the bound is past its
+// limit only once the latest of those checks' deadlines has gone by.
 //
 // A session waiting out a run at its promotion, or a document landing run, is
 // not stuck however long past the bound that runs: neither is stopped part-way
@@ -479,19 +570,15 @@ func DrainOverrunOf(sessions []runstate.WatchTransition, now time.Time) (Stall, 
 // for as long as its line saying so is under DrainOverrunGrace old — the
 // session says it again at intervals while it waits — and past that it is a
 // session that died waiting, read as stuck like any other.
-func drainOverrun(latest runstate.WatchTransition, now time.Time) (Stall, bool) {
-	drain := latest.Draining
-	if drain == nil || !drain.BoundReached || drain.Checking > 0 || now.Before(drain.Until.Add(DrainOverrunAfter)) {
-		return Stall{}, false
-	}
-	if waitingOnUnstopped(latest, now) {
+func drainOverrun(sessions []runstate.WatchTransition, now time.Time) (Stall, bool) {
+	past, over := DrainPastLimit(sessions, now)
+	if !over || past.Past < DrainOverrunAfter {
 		return Stall{}, false
 	}
 	return Stall{
 		Reason: ReasonDrainOverrun,
-		Says: fmt.Sprintf("the watch session %s has been draining past its bound since %s: the bound of %s ran out with the runs it hosted stopped and preserved, and it has not restarted into the build deployed over it, so it pulls no new work",
-			latest.SessionID, localMoment(drain.Until), drain.Bound()),
-		Since: drain.Until,
+		Says:   past.Says(),
+		Since:  past.Limit,
 	}, true
 }
 
