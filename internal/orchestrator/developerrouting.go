@@ -662,6 +662,12 @@ func (a *activeRun) selectOperationEndpoint(id string) error {
 // launched beside an attempt that may still be running; past the wait's bound
 // the run stops with the reason, preserved, rather than guessing.
 func (a *activeRun) reconcileDeveloperOperation(ctx context.Context, id string) error {
+	return a.reconcileOperation(ctx, id, "developer")
+}
+
+// reconcileOperation is reconcileDeveloperOperation for an operation of either
+// role; what names the role in the words it stops with.
+func (a *activeRun) reconcileOperation(ctx context.Context, id, what string) error {
 	store, ok := a.pipeline.routingStore()
 	if !ok {
 		return errors.New("this run's state store cannot reconcile a launch")
@@ -673,15 +679,15 @@ func (a *activeRun) reconcileDeveloperOperation(ctx context.Context, id string) 
 			err = adoptErr
 		}
 		if err != nil {
-			return fmt.Errorf("reconcile developer operation %s's last launch: %w", id, err)
+			return fmt.Errorf("reconcile %s operation %s's last launch: %w", what, id, err)
 		}
 		if found.Verdict != runstate.LaunchRunning && found.Verdict != runstate.LaunchUncertain {
 			return nil
 		}
 		if waited >= reconcileWait {
 			return stoppedBy(runstate.StopHarness, phaseError{status: runstate.StatusFailed, cause: fmt.Errorf(
-				"developer attempt %s of this run may still be running, so no other attempt is started beside it: %s; the run is preserved, and a continuation reconciles it again",
-				found.Attempt, found.Reason)})
+				"%s attempt %s of this run may still be running, so no other attempt is started beside it: %s; the run is preserved, and a continuation reconciles it again",
+				what, found.Attempt, found.Reason)})
 		}
 		if err := a.pipeline.sleep(ctx, reconcilePoll); err != nil {
 			return err
@@ -957,34 +963,7 @@ func (a *activeRun) knownLimited(endpoint runstate.RoutedEndpoint) (KnownLimit, 
 // limit already known to stand. It is asked of an alternate before a switch
 // commits to it, so a configured alternate is never taken as a promise.
 func (a *activeRun) endpointProblem(ctx context.Context, endpoint runstate.RoutedEndpoint) string {
-	p := a.pipeline
-	providers, err := p.Config.ProviderRegistry()
-	if err != nil {
-		return fmt.Sprintf("the configured providers could not be read: %v", err)
-	}
-	if err := providers.Serves(endpoint.Provider, domain.RoleDeveloper); err != nil {
-		return err.Error()
-	}
-	if _, err := p.Config.Endpoint(p.StateRoot, endpoint.AccountAlias); err != nil {
-		return err.Error()
-	}
-	adapter, ok := p.adapterFor(endpoint.Provider)
-	if !ok {
-		return fmt.Sprintf("this harness cannot start %s", endpoint.Provider)
-	}
-	availability, err := adapter.CheckAvailability(ctx)
-	switch {
-	case err != nil:
-		return fmt.Sprintf("whether %s is installed and logged in could not be checked: %v", endpoint.Provider, err)
-	case !availability.Installed:
-		return availability.NotInstalled(endpoint.Provider)
-	case !availability.Authenticated:
-		return fmt.Sprintf("%s is not logged in", endpoint.Provider)
-	}
-	if limit, known := a.knownLimited(endpoint); known {
-		return "it is already known to have reached its usage limit: " + limit.Says
-	}
-	return ""
+	return a.endpointProblemFor(ctx, endpoint, domain.RoleDeveloper)
 }
 
 // switchDeveloperEndpoint makes the operation's one switch from its primary to

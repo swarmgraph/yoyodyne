@@ -2535,6 +2535,7 @@ func (s *State) recordedTexts() []recordedText {
 	// its refusal rather than chosen from a set this harness keeps, so it is held
 	// to a bound like any other text the provider wrote.
 	own("usage_limit_kind", &s.UsageLimitKind, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	own("usage_limit_account", &s.UsageLimitAccount, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	if s.DirectivePause != nil {
 		unstated("directive_pause.unresolved", "directive_pause.unresolved", &s.DirectivePause.Unresolved, MaxRecordedTextBytes)
 	}
@@ -4192,6 +4193,11 @@ type State struct {
 	// record as ProviderModel, but the reviewer's is recorded only once a review
 	// has answered, and a refused review has not.
 	UsageLimitModel string `json:"usage_limit_model,omitempty"`
+	// UsageLimitAccount is the account the refused invocation was made under
+	// where that is not the run's own: a review routed to the reviewer's
+	// endpoint is made under that endpoint's account, and the refusal is that
+	// account's. Empty is the run's own account, which is every other refusal.
+	UsageLimitAccount string `json:"usage_limit_account,omitempty"`
 	// UsageLimitKind is the provider's own name for the limit that paused the
 	// run, kept as evidence for whoever reads the record afterwards. It outlives
 	// the deadline: what stopped the run is worth knowing even once the run has

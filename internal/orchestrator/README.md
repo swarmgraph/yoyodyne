@@ -298,6 +298,22 @@ A round already under way when it is given them is recorded with its history
 unknown and no switch; a repair begun since (`genuineDeveloperRound`) opens
 with its own.
 
+The reviewer has a pair of its own, turned on by enabling fallback on the
+reviewer agent, and `reviewerrouting.go` is all of it. It is separate from the
+developer's: a slot, a label or the developer's account never picks the
+reviewer's endpoint. `attemptReview` opens or finds the logical operation that
+judges the candidate commit (`beginReviewOperation`, which pins the pair with
+`pinReviewerRouting`), reserves and gates the attempt
+(`prepareReviewAttempt`, building the reviewer for the chosen endpoint through
+`Pipeline.ReviewerFor`), and records how it ended (`finishReviewAttempt`, which
+takes the result for the attempt and candidate it belongs to and refuses a
+late, duplicate or other-candidate one as a verdict). `reviewChange` makes the
+operation's one switch on a classified usage limit (`switchReviewEndpoint`) and
+closes the operation when a verdict is counted (`completeReviewOperation`). The
+review runs under the endpoint's own account, and a wait on a limit records that
+account and model on the run (`UsageLimitAccount`) rather than the developer's.
+A project that does not enable it never reaches any of this.
+
 ### How is a stopped run classified, and what does the item say?
 `stop` decides first whether the error is a pause (usage limit, provider stop,
 directive, dependency, tracker, operator hold, redeploy drain — see
