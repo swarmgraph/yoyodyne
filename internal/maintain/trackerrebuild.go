@@ -26,11 +26,17 @@ import (
 //
 // A rebuild is due when the live store is past
 // services.maintenance.tracker_limits.store_megabytes on disk, or when the
-// harness's own listings of open and ready work over the hour before took longer
-// than listing_seconds (rebuildDue). Both are read without asking the store
-// anything: the size from the disk and the listings' times from the log of
-// calls every harness process keeps, because a store too large to answer in
-// time is exactly the one that is due.
+// latest measurement of the store on a copy, taken since the store was last
+// rebuilt, found either listing past rebuildListingLimit (rebuildDue), as the
+// design's limit says. Neither asks the live store anything: the size is read
+// from the disk and the listings' times from the measurement's record, because
+// a store too large to answer in time is exactly the one that is due.
+//
+// The harness's own listings on the live store, which the limits step reports,
+// do not make a rebuild due. Those are slow mostly from callers waiting their
+// turn at the store, which a rebuild does not cure, and every rebuild holds
+// every caller for up to rebuildBound, so the slow listings it causes would
+// make the next pass rebuild again, without end.
 //
 // Each time one is due, it is done first on a copy of the live store, which
 // holds the store lock only while the store is copied. Only where that copy's
@@ -139,11 +145,11 @@ func (p *Pass) decideRebuild(ctx context.Context, step runstate.SweepStep, now t
 		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the record of earlier rebuilds of the tracker's store could not be read, so whether one was tried lately cannot be told: %v", err)
 		return step
 	}
-	due, size, unread := p.rebuildDue(now)
+	due, size, unread := p.rebuildDue(decided)
 	if due == "" {
 		step.Outcome, step.Detail = runstate.StepSkipped, "the tracker's store is within its limits, so it is not rebuilt"+unread
 		if size > 0 {
-			step.Detail = fmt.Sprintf("the tracker's store is %s on disk and its listings within their limit, so it is not rebuilt%s", runstate.SayBytes(size), unread)
+			step.Detail = fmt.Sprintf("the tracker's store is %s on disk, within its limit, and no measurement on a copy since it was last rebuilt found its listings past their limit, so it is not rebuilt%s", runstate.SayBytes(size), unread)
 		}
 		return step
 	}
@@ -244,11 +250,12 @@ func (p *Pass) describeRefusal(rebuild beads.StoreRebuild, where string) string 
 
 // rebuildDue says why the live store is due a rebuild, empty where it is not:
 // its size on disk is past services.maintenance.tracker_limits.store_megabytes,
-// or the harness's own listings of open and ready work over the hour before took
-// longer than listing_seconds. size is the size read, zero where it was not, and
-// unread says, as a clause to add to the step, a measure that could not be
-// read. Both measures ask the store nothing, so they answer at any size.
-func (p *Pass) rebuildDue(now time.Time) (due string, size int64, unread string) {
+// or the latest measurement on a copy, taken after the last rebuild that
+// replaced the store (decided), found a listing past rebuildListingLimit. size
+// is the size read, zero where it was not, and unread says, as a clause to add
+// to the step, a measure that could not be read. Both measures ask the store
+// nothing, so they answer at any size.
+func (p *Pass) rebuildDue(decided runstate.TrackerStoreRebuilds) (due string, size int64, unread string) {
 	limits := p.trackerLimits()
 	var reasons []string
 	if p.Tracker != nil {
@@ -261,14 +268,29 @@ func (p *Pass) rebuildDue(now time.Time) (due string, size int64, unread string)
 			}
 		}
 	}
-	if p.Calls != nil {
-		if timed, err := p.liveListings(now, limits); err != nil {
-			unread += fmt.Sprintf("; the log of the harness's tracker calls could not be read, so whether its listings on the live store were slow is not known: %v", err)
-		} else if timed.over > 0 {
-			reasons = append(reasons, timed.saysOver(limits, "limit"))
+	if p.Measurements != nil {
+		if measured, err := p.Measurements.Read(); err != nil {
+			unread += fmt.Sprintf("; the record of the store's measurements could not be read, so whether the latest found its listings slow is not known: %v", err)
+		} else if slow := slowMeasuredListings(measured, decided); slow != "" {
+			reasons = append(reasons, slow)
 		}
 	}
 	return strings.Join(reasons, ", and "), size, unread
+}
+
+// slowMeasuredListings says that the latest measurement of the store on a copy
+// found a listing past rebuildListingLimit, and empty where it did not, timed
+// none, or was taken before the last rebuild that replaced the store, whose
+// store it no longer describes.
+func slowMeasuredListings(measured runstate.TrackerStoreMeasurements, decided runstate.TrackerStoreRebuilds) string {
+	latest, found := measured.Latest()
+	if !found || latest.Listings == nil || latest.Listings.Within {
+		return ""
+	}
+	if last, rebuilt := decided.LastReplaced(); rebuilt && !latest.StartedAt().After(last.DecidedAt) {
+		return ""
+	}
+	return fmt.Sprintf("the measurement of the store on a copy at %s found listing open or ready items took longer than its limit of %s", local(latest.StartedAt()), roundTook(rebuildListingLimit))
 }
 
 // refuseRebuild records a rebuild that was not made on its rehearsal, and warns
