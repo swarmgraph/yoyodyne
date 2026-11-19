@@ -202,6 +202,21 @@
     },
     "status": "succeeded",
     "stop_class": "publish",
+    "stops": [
+      {
+        "attempt": 1,
+        "candidate": "\u003ccommit-2\u003e",
+        "cause": "outside",
+        "charged": false,
+        "evidence": {
+          "review_summary": "the change matches the acceptance criteria"
+        },
+        "kept": true,
+        "reason": "publish",
+        "step": "cleaning_up",
+        "stopped_at": "\u003ctime\u003e"
+      }
+    ],
     "target_branch": "main",
     "updated_at": "\u003ctime\u003e",
     "verification": {
