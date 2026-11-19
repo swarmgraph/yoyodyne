@@ -211,19 +211,105 @@ func TestAStoreLeftMissingIsAFailure(t *testing.T) {
 	}
 }
 
-// Another process having the store open is tried again at the next pass and
-// recorded nowhere.
-func TestARebuildBlockedByAnOpenStoreIsTriedAgainAndNotRecorded(t *testing.T) {
+// A process outside the harness that has the store open once the rebuild holds
+// the store lock stops it: the step names the process, the pass is recorded
+// with that reason, and the next pass tries again rather than waiting a day.
+func TestARebuildStoppedByAnOutsideProcessIsRecordedAndTriedAgain(t *testing.T) {
 	t.Parallel()
 	f := newRebuildFixture(t, 1500*megabyte)
-	f.rebuilder.rehearsal = beads.StoreRebuild{Busy: []beads.StoreHolder{{PID: 9, Command: "bd list"}}}
+	f.rebuilder.live = beads.StoreRebuild{Busy: []beads.StoreHolder{{PID: 9, Command: "bd list"}}}
 
 	step := stepNamed(t, f.pass1(t), StepTrackerStoreRebuild)
-	if step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "another process had the store open") {
-		t.Fatalf("rebuild step = %+v, want it skipped for the open store", step)
+	if step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "outside the harness") || !strings.Contains(step.Detail, "process 9 (bd list)") {
+		t.Fatalf("rebuild step = %+v, want it skipped naming the outside process", step)
 	}
-	if read, _ := f.rebuilds.Read(); len(read) != 0 || f.filed(t) != 0 {
-		t.Errorf("recorded %+v and filed %d, want neither", read, f.filed(t))
+	read, err := f.rebuilds.Read()
+	if err != nil || len(read) != 1 || !strings.Contains(read[0].HeldBack, "process 9") || read[0].Refused() || read[0].Replaced() {
+		t.Fatalf("recorded %+v, %v, want one pass held back naming the process", read, err)
+	}
+	if f.filed(t) != 0 {
+		t.Errorf("filed %d warnings after one pass, want none", f.filed(t))
+	}
+	f.now = f.now.Add(time.Hour)
+	stepNamed(t, f.pass1(t), StepTrackerStoreRebuild)
+	if got := strings.Join(f.rebuilder.events, ","); got != "rehearse,rebuild,rehearse,rebuild" {
+		t.Errorf("the rebuild asked %s, want it tried again at the next pass", got)
+	}
+}
+
+// The rehearsal works on a copy, so the live store being open elsewhere does
+// not stop it; only the store changing while it was copied does, and that is
+// recorded.
+func TestARehearsalOnACopyThatSawTheStoreWrittenIsRecorded(t *testing.T) {
+	t.Parallel()
+	f := newRebuildFixture(t, 1500*megabyte)
+	f.rebuilder.rehearsal = beads.StoreRebuild{Moved: "another process wrote to the store while it was copied: embeddeddolt/x was written to"}
+
+	step := stepNamed(t, f.pass1(t), StepTrackerStoreRebuild)
+	if step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "while it was copied") {
+		t.Fatalf("rebuild step = %+v, want it skipped for the write during the copy", step)
+	}
+	if read, _ := f.rebuilds.Read(); len(read) != 1 || read[0].HeldBackBy != heldByStoreWritten {
+		t.Errorf("recorded %+v, want the pass held back for the write during the copy", read)
+	}
+}
+
+// Three passes in a row that did not rebuild the store file exactly one
+// warning naming what stopped them; more passes for the same reason file none,
+// and a different reason files one more.
+func TestThreePassesThatDidNotRebuildWarnOnce(t *testing.T) {
+	t.Parallel()
+	f := newRebuildFixture(t, 1500*megabyte)
+	f.rebuilder.live = beads.StoreRebuild{Busy: []beads.StoreHolder{{PID: 9, Command: "bd list"}}}
+
+	for pass := 1; pass <= 5; pass++ {
+		step := stepNamed(t, f.pass1(t), StepTrackerStoreRebuild)
+		want := 0
+		if pass >= 3 {
+			want = 1
+		}
+		if f.filed(t) != want {
+			t.Fatalf("after pass %d filed %d warnings, want %d (step %q)", pass, f.filed(t), want, step.Detail)
+		}
+		if pass >= 3 && !strings.Contains(step.Detail, "the development manager was warned in") {
+			t.Errorf("pass %d step = %q, want it to name the warning", pass, step.Detail)
+		}
+		f.now = f.now.Add(time.Hour)
+	}
+	filed, err := f.reports.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, each := range filed {
+		if strings.HasPrefix(each.RunID, "tracker-store-rebuild:") && (!strings.Contains(each.Message, "3 passes in a row") || !strings.Contains(each.Message, "process 9 (bd list)")) {
+			t.Errorf("warning = %q, want it to count the passes and name the process", each.Message)
+		}
+	}
+	f.rebuilder.live = beads.StoreRebuild{Waited: "the tracker calls already running did not finish within 2m0s"}
+	stepNamed(t, f.pass1(t), StepTrackerStoreRebuild)
+	if f.filed(t) != 2 {
+		t.Errorf("filed %d warnings once the reason changed, want 2", f.filed(t))
+	}
+}
+
+// A rebuild that goes ahead ends the run of passes that did not, so the next
+// pass held back starts counting again.
+func TestARebuildThatGoesAheadEndsTheCount(t *testing.T) {
+	t.Parallel()
+	f := newRebuildFixture(t, 1500*megabyte)
+	f.rebuilder.live = beads.StoreRebuild{Busy: []beads.StoreHolder{{PID: 9, Command: "bd list"}}}
+	for range 2 {
+		stepNamed(t, f.pass1(t), StepTrackerStoreRebuild)
+		f.now = f.now.Add(time.Hour)
+	}
+	f.rebuilder.live = beads.StoreRebuild{Records: 1881, Took: 20 * time.Second, HeldFor: 22 * time.Second, SizeBefore: 1500 * megabyte, SizeAfter: 1200 * megabyte, Swapped: true}
+	stepNamed(t, f.pass1(t), StepTrackerStoreRebuild)
+	before := f.filed(t)
+	f.now = f.now.Add(time.Hour)
+	f.rebuilder.live = beads.StoreRebuild{Busy: []beads.StoreHolder{{PID: 9, Command: "bd list"}}}
+	step := stepNamed(t, f.pass1(t), StepTrackerStoreRebuild)
+	if f.filed(t) != before || !strings.Contains(step.Detail, "1 pass(es) in a row") {
+		t.Errorf("after a rebuild went ahead, a pass held back = %q with %d new warnings, want it counted as the first and no warning", step.Detail, f.filed(t)-before)
 	}
 }
 
