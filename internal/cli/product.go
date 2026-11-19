@@ -1314,7 +1314,29 @@ func (schedulerChild) Busy(context.Context) (string, error) { return "", nil }
 // started from replaced, stops pulling, waits out the runs it hosts, and
 // re-executes in place. Stopping it instead would cancel those runs.
 func (schedulerChild) RestartsItself() string {
-	return "the watch restarts itself into it between runs, waiting out the runs it hosts under execution.redeploy_drain_limit"
+	return "the watch restarts itself into it between runs, waiting out the runs it hosts under execution.redeploy_drain_limit, and is restarted into it by the supervisor if it has not restarted five minutes past that limit"
+}
+
+// RestartOverdue is the watching session having been past its wind-down limit
+// for a move onto a new build for readmodel.DrainRestartAfter without
+// restarting, read from the watch log the way every surface reads it. Only the
+// session holding the watch lease is asked about, so an older session's last
+// line never stops the one that replaced it.
+func (c schedulerChild) RestartOverdue(_ context.Context, now time.Time) (string, error) {
+	holder, found, err := c.watch.Holder()
+	if err != nil || !found {
+		return "", err
+	}
+	sessions, err := c.watch.List()
+	if err != nil {
+		return "", err
+	}
+	due, over := readmodel.DrainRestartDue(sessions, now)
+	if !over || due.SessionID != holder.SessionID {
+		return "", nil
+	}
+	return fmt.Sprintf("has been past its limit for winding down to move onto a new build for %s, since %s, without restarting itself",
+		due.Past.Round(time.Second), due.Limit.Local().Format("15:04 MST")), nil
 }
 
 func (c schedulerChild) Stop(ctx context.Context) (supervise.Stopped, error) {
