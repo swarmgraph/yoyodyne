@@ -650,8 +650,17 @@ func (w PendingWrite) Held() bool {
 // the route documents land by (docs/designs/document-landing-route.md, rule 5):
 // at most eight waiting documents per role, and one waiting revision per
 // document, where a new revision replaces one whose run has not started and
-// otherwise waits behind it (see the chat package's revisionPlace). Eight at
-// the largest a document may be is still well inside what a state file holds.
+// otherwise waits behind it (see the chat package's revisionPlace).
+//
+// Eight documents at the largest a document may be would not fit in the one
+// megabyte a conversation's record has, because a document that is confirmed
+// for publication is stored twice, as the role wrote it and as the confirmed
+// file. So the documents a conversation keeps are also bounded together, by
+// the bytes the record stores for them (MaxPendingWriteStoredBytes, counted by
+// PendingWriteStoredBytes); a document that would take the total past it is
+// refused with the reason, as a ninth document is. The total is checked where a
+// document is added and not when a record is validated, so a record written
+// before it existed, which the file limit already allowed, still loads and saves.
 //
 // The byte bound matches what the write contract accepts, so a document the
 // harness took from a reply is never one it then cannot write down.
@@ -664,8 +673,26 @@ func (w PendingWrite) Held() bool {
 const (
 	MaxPendingWrites     = artifact.MaxWaitingDocuments
 	MaxHeldWrites        = 4
-	MaxPendingWriteBytes = 64 << 10
+	MaxPendingWriteBytes = 128 << 10
+	// MaxPendingWriteStoredBytes is the room the record gives every document it
+	// keeps together, a little over half of the megabyte the record may take, so
+	// the escaping JSON adds and everything else in the record still fit.
+	MaxPendingWriteStoredBytes = 512 << 10
 )
+
+// PendingWriteStoredBytes is what the record stores for these documents: each
+// body, and for a document confirmed for publication the confirmed file as
+// well.
+func PendingWriteStoredBytes(writes []PendingWrite) int {
+	total := 0
+	for _, write := range writes {
+		total += len(write.Body)
+		if write.Publication != nil {
+			total += len(write.Publication.Candidate.Content)
+		}
+	}
+	return total
+}
 
 // MaxPendingProposals bounds the undecided proposals one conversation carries.
 // A proposal carries the whole of what an operator decides from — its

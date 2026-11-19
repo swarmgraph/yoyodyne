@@ -1,6 +1,7 @@
 package artifact
 
 import (
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -400,5 +401,41 @@ func TestAWriteChecksWhatItAnswersAndItsHold(t *testing.T) {
 		if err := write.Validate(); err == nil || !strings.Contains(err.Error(), test.want) {
 			t.Errorf("%s: Validate() error = %v, want %q", test.name, err, test.want)
 		}
+	}
+}
+
+// A document of 128 KiB, with the newlines and quotes a Markdown document
+// carries escaped in the block, is taken from a reply whole; one past the
+// limit is refused with the limit named.
+func TestAWholeDocumentOf128KiBIsTakenFromAReply(t *testing.T) {
+	t.Parallel()
+
+	if MaxWriteBodyBytes < 128<<10 {
+		t.Fatalf("MaxWriteBodyBytes = %d, want at least 128 KiB", MaxWriteBodyBytes)
+	}
+	line := "A \"quoted\" line of the design, with a newline after it.\n"
+	body := "# Long design\n\n" + strings.Repeat(line, (128<<10)/len(line)-1)
+	body += strings.Repeat("x", 128<<10-len(body))
+	if len(strings.TrimSpace(body)) != 128<<10 {
+		t.Fatalf("test body is %d bytes", len(strings.TrimSpace(body)))
+	}
+	write := aWrite()
+	write.Body = body
+	encoded, err := json.Marshal(map[string]any{"documents": []Write{write}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writes, err := DecodeWrites(string(encoded))
+	if err != nil {
+		t.Fatalf("a 128 KiB document was refused: %v", err)
+	}
+	if len(writes) != 1 || len(writes[0].Body) != len(body) {
+		t.Fatalf("decoded %d writes, body %d bytes", len(writes), len(writes[0].Body))
+	}
+
+	write.Body = body + "y"
+	encoded, _ = json.Marshal(map[string]any{"documents": []Write{write}})
+	if _, err := DecodeWrites(string(encoded)); err == nil || !strings.Contains(err.Error(), "limit is") {
+		t.Fatalf("a document past the limit = %v", err)
 	}
 }
