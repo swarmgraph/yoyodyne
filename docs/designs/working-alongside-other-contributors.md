@@ -38,6 +38,10 @@ revisions:
       by: architect
       at: 2026-11-19T06:10:06.372718Z
       reason: 'Records the architect''s ruling of November 18, 2026 on the developer''s report 689768c7: the batched GitHub GraphQL query for the state of waiting pull requests has no conditional form and is answered in full on every forge check, and that cost is accepted because the query is the only read that says GitHub''s merge queue has taken a pull request. Only section 6 changes; the rest of the design is unchanged from main 3396a1a9.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T11:15:00.948433Z
+      reason: 'Records the ruling on report 98a3d4ec, from the developer working on yoyodyne-ifd.437.53: an approval given from the command line stays recorded as the operator''s for whoever ran it, never resolved to a person or checked against a grant, because a terminal carries no identity to check and permissions between users are out of v1; the dashboard keeps tying a tab to a person by token and refusing anyone without the grant to approve the owner''s own intent. The earlier team-mode draft''s wider rule is named as considered and not adopted. Only the last bullet of section 5 changes; the rest of the section is copied unchanged from main at 347843ab.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -79,6 +83,11 @@ approvals:
       by: harness
       at: 2026-11-19T06:10:06.372718Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3052, for document-3052.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 8
+      by: harness
+      at: 2026-11-19T11:15:00.948433Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3060, for document-3060.1 under the automatic approval policy
 ---
 # Working alongside other contributors
 
@@ -181,6 +190,8 @@ The team pause exists only in team mode. A factory with team mode off never fetc
 - **The one-merge-at-a-time lock being per machine.** The lease stays per machine. Across machines, the guarantee is the remote's own compare and swap. A protected target lands only through its pull request with the reviewed head pinned. An unprotected target is pushed only with a lease naming the target the candidate was built on. Two factories racing to promote cannot both land: the loser's candidate is invalidated and rebuilt without charging a repair, as the merge queue design rules for target movement. The invariant on one promotion per target branch is amended to say this.
 - **Reports, run records and the pause switch being per machine.** Reports, their handling and directives travel between machines, as section 7 describes, and so does what each item has spent, as section 8 describes. The pause gains its team form above. Run records stay per machine, for the reason section 7 gives.
 - **No proof of who an operator is.** The factory does not establish one. The forge account is the identity, and the forge's permissions decide who may merge, review or push. A factory acts on its own operator's decisions, on directives that travel (section 7), and on what the forge shows. It never acts on another machine's own controls: that machine's pause, stop, or decisions about that machine's runs. Permissions between users stay out of v1, as the non-goals say.
+
+  This holds for approvals too. An approval given from the command line is recorded as the operator's, for whoever ran the command, on every machine. The harness does not resolve it to a named person and does not check it against the grant to approve the owner's own intent: a terminal carries no identity the harness could check, and adding a way to sign in at the command line would bring in the permissions between users that v1 leaves out. The dashboard keeps what it already does: it ties each browser tab to a person by that tab's token, and it refuses an approval from anyone who does not hold the grant to approve the owner's own intent. The earlier team-mode draft asked that every approval name the person who gave it, wherever it was given; that was considered and not adopted, for the reason above.
 
 ## 6. Checking the forge
 
