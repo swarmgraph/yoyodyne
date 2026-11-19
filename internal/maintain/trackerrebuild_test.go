@@ -131,7 +131,7 @@ func TestAStoreWithinItsLimitsIsNotRebuilt(t *testing.T) {
 	f := newRebuildFixture(t, 500*megabyte)
 
 	step := stepNamed(t, f.pass1(t), StepTrackerStoreRebuild)
-	if step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "within their limit") {
+	if step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "within its limit") {
 		t.Fatalf("rebuild step = %+v, want it skipped as within its limits", step)
 	}
 	if len(f.rebuilder.events) != 0 {
@@ -364,5 +364,80 @@ func TestAPassWithNoRebuildWiredSaysSo(t *testing.T) {
 	step := stepNamed(t, f.pass1(t), StepTrackerStoreRebuild)
 	if step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "no rebuild of the tracker's store is wired") {
 		t.Errorf("rebuild step = %+v, want it skipped as not wired", step)
+	}
+}
+
+// withMeasured records a measurement of the store on a copy, started at at,
+// whose listings were within rebuildListingLimit or not.
+func (f *rebuildFixture) withMeasured(t *testing.T, at time.Time, within bool) {
+	t.Helper()
+	record, err := runstate.NewTrackerStoreMeasurementStore(t.TempDir(), "calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	measured := runstate.TrackerStoreMeasurement{Measurement: measuredStore(at), Listings: &runstate.ListingLimit{Limit: rebuildListingLimit, Within: within}}
+	if err := record.Record(measured); err != nil {
+		t.Fatal(err)
+	}
+	f.pass.Measurements = record
+}
+
+// Slow listings on the live store do not make a store within its size limit
+// due a rebuild: they come from callers waiting their turn at the store, and a
+// rebuild holds every caller, so rebuilding for them rebuilt the store on every
+// pass.
+func TestSlowLiveListingsDoNotMakeASmallStoreDueARebuild(t *testing.T) {
+	t.Parallel()
+	f := newRebuildFixture(t, 16*megabyte)
+	withCalls(t, f.fixture,
+		listing(f.now.Add(-20*time.Minute), "yoyo status", 114*time.Second),
+		listing(f.now.Add(-10*time.Minute), "yoyo dashboard", 110*time.Second),
+	)
+	f.pass.Reports = f.reports
+
+	step := stepNamed(t, f.pass1(t), StepTrackerStoreRebuild)
+	if step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "16 MB on disk, within its limit") {
+		t.Fatalf("rebuild step = %+v, want it skipped as within its limit", step)
+	}
+	if len(f.rebuilder.events) != 0 {
+		t.Errorf("the rebuild asked %v for slow live listings", f.rebuilder.events)
+	}
+}
+
+// A measurement on a copy that found a listing past its limit makes the store
+// due a rebuild, as the design's limit says, until the store is rebuilt; a
+// measurement taken before that rebuild no longer describes the store and makes
+// nothing due.
+func TestASlowMeasurementMakesTheStoreDueOnceUntilItIsRebuilt(t *testing.T) {
+	t.Parallel()
+	f := newRebuildFixture(t, 600*megabyte)
+	f.withMeasured(t, f.now.Add(-time.Hour), false)
+
+	step := stepNamed(t, f.pass1(t), StepTrackerStoreRebuild)
+	if step.Outcome != runstate.StepRan {
+		t.Fatalf("rebuild step = %+v, want one that ran", step)
+	}
+	read, err := f.rebuilds.Read()
+	if err != nil || len(read) != 1 || !strings.Contains(read[0].Reason, "found listing open or ready items took longer than its limit of 10") {
+		t.Fatalf("recorded %+v, %v, want one rebuild for the slow measurement", read, err)
+	}
+
+	f.rebuilder.events = nil
+	f.now = f.now.Add(10 * time.Minute)
+	step = stepNamed(t, f.pass1(t), StepTrackerStoreRebuild)
+	if step.Outcome != runstate.StepSkipped || len(f.rebuilder.events) != 0 {
+		t.Fatalf("rebuild step = %+v asking %v, want no second rebuild for a measurement taken before the first", step, f.rebuilder.events)
+	}
+}
+
+// A measurement whose listings were within their limit makes nothing due.
+func TestAMeasurementWithinItsListingLimitMakesNothingDue(t *testing.T) {
+	t.Parallel()
+	f := newRebuildFixture(t, 600*megabyte)
+	f.withMeasured(t, f.now.Add(-time.Hour), true)
+
+	step := stepNamed(t, f.pass1(t), StepTrackerStoreRebuild)
+	if step.Outcome != runstate.StepSkipped || len(f.rebuilder.events) != 0 {
+		t.Fatalf("rebuild step = %+v asking %v, want it skipped", step, f.rebuilder.events)
 	}
 }
