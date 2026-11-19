@@ -14,12 +14,21 @@ revisions:
       by: architect
       at: 2026-10-14T08:53:06.354907Z
       reason: 'Part 2 of 10 of renaming the product manager role to Lead Product Manager in governed documents (the rename item, yoyodyne-ifd.437.10): the role''s display name changes in the escalate request kind, product readiness, outcome summaries, the escalation shape, and the role boundaries; nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T16:00:58.157868Z
+      reason: 'Coined-vocabulary replacement, one document of the architect''s part (yoyodyne-ifd.437.21): the retired word ''gate'' is replaced in its three places, each by what it meant - the scheduler holding work on a readiness judgment, and the checks a change must pass - following the register of terms. Nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
       by: harness
       at: 2026-10-14T08:53:06.354907Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 920, for document-920.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-11-19T16:00:58.157868Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3089, for document-3089.1 under the automatic approval policy
 ---
 # The management-loop protocol: request kinds, readiness, outcome summaries, and execution profiles
 
@@ -33,7 +42,7 @@ Three, deliberately: **consult** — ask another role for a judgment within that
 
 ## Readiness
 
-Three independently owned judgments, each revision-aware, advisory first and a scheduler gate only after the umbrella's promotion criterion is met:
+Three independently owned judgments, each revision-aware and advisory first; the scheduler holds work on them only after the umbrella's promotion criterion is met:
 
 - **Product readiness** — Lead Product Manager: intended outcome, approved goal, priority, product acceptance, source revisions.
 - **Architecture readiness** — architect, with a four-value disposition: **clear**, **design-needed**, **cross-cutting**, or **investigation-needed**, naming affected designs, decisions, invariants, interfaces, and revisions. Investigation is commissioned as bounded, read-only work — the architect gains no write-shell authority from needing evidence.
@@ -51,7 +60,7 @@ One coherent escalation from the Lead Product Manager, whatever roles contribute
 
 ## Execution profiles
 
-The development manager selects among five named profiles — **mechanical-low-risk**, **standard**, **high-judgment**, **architecture-sensitive**, **specialist** — never a provider model string; operator policy maps profiles to configured agents and models, changeable without rewriting work items. Risk rules may **promote a profile and never silently demote one**; a failed low-cost attempt escalates once to a stronger profile with reason and added cost recorded; high-risk work — security-sensitive, migrations, concurrency, public interfaces, protected architecture areas — never enters the lowest-cost lane. Independent review and every deterministic gate are identical across profiles, per the routing clause the Claude execution design already binds. Routing is enforced only after phase-level cost, repair, latency, and outcome evidence exists (yoyodyne-ifd.83's line).
+The development manager selects among five named profiles — **mechanical-low-risk**, **standard**, **high-judgment**, **architecture-sensitive**, **specialist** — never a provider model string; operator policy maps profiles to configured agents and models, changeable without rewriting work items. Risk rules may **promote a profile and never silently demote one**; a failed low-cost attempt escalates once to a stronger profile with reason and added cost recorded; high-risk work — security-sensitive, migrations, concurrency, public interfaces, protected architecture areas — never enters the lowest-cost lane. Independent review and every deterministic check are identical across profiles, per the routing clause the Claude execution design already binds. Routing is enforced only after phase-level cost, repair, latency, and outcome evidence exists (yoyodyne-ifd.83's line).
 
 ## Role boundaries, condensed
 
@@ -59,4 +68,4 @@ The authority tables in code and in the harness design remain the enforcement; t
 
 ## The demonstration bar
 
-The loop is done when the brief's nine scenarios demonstrably pass — restart-surviving consults, cross-cutting dispositions that block only affected work, decomposition the scheduler respects, clarifications that refresh readiness, divergence reopening judgments, plain-language escalations, low-cost routing under unchanged gates, single bounded promotion on failure, and idempotency under duplicates, crashes, and open consoles. Those scenarios are this design's acceptance criteria, and the hardening step makes the autonomous path the default while direct role chat stays as inspection and recovery.
+The loop is done when the brief's nine scenarios demonstrably pass — restart-surviving consults, cross-cutting dispositions that block only affected work, decomposition the scheduler respects, clarifications that refresh readiness, divergence reopening judgments, plain-language escalations, low-cost routing under unchanged checks, single bounded promotion on failure, and idempotency under duplicates, crashes, and open consoles. Those scenarios are this design's acceptance criteria, and the hardening step makes the autonomous path the default while direct role chat stays as inspection and recovery.
