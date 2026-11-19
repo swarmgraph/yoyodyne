@@ -740,6 +740,9 @@ type queuedFixture struct {
 	worktrees func(ReconcileWorktrees) ReconcileWorktrees
 	// sleep takes the backoff without taking the time.
 	sleep func(context.Context, time.Duration) error
+	// landings is where the sweep files a report on a merge that is not the
+	// revision the run's review judged; a fixture that sets none files none.
+	landings LandingReporter
 	// docket is the triage docket the sweep dockets and settles publications on,
 	// where a test reads it; a fixture that sets none sweeps without one.
 	docket *memoryDocket
@@ -811,6 +814,7 @@ func (f queuedFixture) reconciler(t *testing.T) Reconciler {
 		Publisher: f.forge,
 		Drops:     f.forge,
 		Sleep:     f.sleep,
+		Landings:  f.landings,
 	}
 	if f.docket != nil {
 		reconciler.Docket = docketerOverStore(f.docket, f.store, docketConfig())

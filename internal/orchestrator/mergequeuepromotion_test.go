@@ -1195,3 +1195,43 @@ func stopAround(when string, do func() error) error {
 	}
 	return do()
 }
+
+// A run's own pull request that the forge merges after the target moved is not
+// the revision the run's review judged, and the settlement that confirms the
+// merge files one critical report naming it. One merged on the base the run
+// was reviewed on files none.
+func TestTheSettlementOfARunsPullRequestChecksTheMergeAgainstItsReview(t *testing.T) {
+	t.Parallel()
+	for _, moved := range []bool{false, true} {
+		name := "merged on the reviewed base"
+		if moved {
+			name = "merged after the target moved"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newQueuedFixture(t)
+			protectBranch(t, fixture.remote, "main")
+			fixture.forge.SetTargetProtection(publish.BranchProtection{Protected: true, By: "branch protection"})
+			reports := &keptMergeReports{}
+			fixture.landings = LandingReporter{Reports: reports, ProductID: "example", RepositoryID: "example"}
+			fixture.run(t)
+			if moved {
+				// Written into the remote directly, as a person's merge on the
+				// forge is, because the remote's rule refuses a push.
+				tip := gitLine(t, fixture.remote, "rev-parse", "refs/heads/main")
+				next := gitLine(t, fixture.remote, "-c", "user.name=Else", "-c", "user.email=else@example.invalid",
+					"commit-tree", tip+"^{tree}", "-p", tip, "-m", "somebody else's merge")
+				runPipelineGit(t, fixture.remote, "update-ref", "refs/heads/main", next, tip)
+			}
+			fixture.forge.PerformQueuedMerge(t)
+			fixture.reconcile(t)
+			merge := gitLine(t, fixture.remote, "rev-parse", "main")
+			switch {
+			case !moved && len(reports.kept) != 0:
+				t.Fatalf("reports = %#v, want none for a merge on the reviewed base", reports.kept)
+			case moved && (len(reports.kept) != 1 || reports.kept[0].Severity != report.SeverityCritical || !strings.Contains(reports.kept[0].Message, merge)):
+				t.Fatalf("reports = %#v, want one critical report naming the merge %s", reports.kept, merge)
+			}
+		})
+	}
+}

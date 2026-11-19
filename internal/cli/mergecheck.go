@@ -62,7 +62,12 @@ func mergeCheck(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return 1
 	}
 	pipeline := orchestrator.Pipeline{Config: parts.config, Reports: reports, Build: buildinfo.Commit()}
-	entries, auditErr := pipeline.AuditLandedMerges(ctx, manager, target, from)
+	states, err := parts.store.Recorded()
+	if err != nil {
+		fmt.Fprintf(stderr, "merge-check failed: read the runs' records: %v\n", err)
+		return 1
+	}
+	entries, auditErr := pipeline.AuditLandedMerges(ctx, manager, orchestrator.RunLandings(states), target, from)
 	if entries == nil && auditErr != nil {
 		fmt.Fprintf(stderr, "merge-check failed: %v\n", auditErr)
 		return 1
@@ -95,9 +100,10 @@ first parent is the base the candidate was checked on, and that the merge
 changed exactly the files the candidate changed. Each difference is filed as one
 critical report naming the merge. Prints every landing and how it came out.
 
-Only merge queue candidates are checked, because only for those did the harness
-record the base the candidate was checked on; every other landing is listed as
-not checked, with the reason. It reads Git in this repository, so fetch first to
+A merge queue candidate is checked against the base it was built on, and any
+other pull request against the base and change its run's review recorded. A
+landing the harness recorded nothing for, such as a pull request a person
+opened, is listed as not checked, with the reason. It reads Git in this repository, so fetch first to
 include landings the local copy of the remote does not have.
 
 Options:

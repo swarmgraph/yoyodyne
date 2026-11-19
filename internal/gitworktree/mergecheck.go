@@ -142,6 +142,11 @@ type LandedPullRequest struct {
 	Candidate string
 	Base      string
 	Subject   string
+	// QueueCandidate is a merge of a merge queue candidate, whose Base is the
+	// base the harness recorded for it. For any other merge Base is only the
+	// first parent of the merged commit, which says nothing about what was
+	// checked, and the caller looks the recorded base up elsewhere.
+	QueueCandidate bool
 	// Unchecked is why no candidate or base could be read from the commit,
 	// where none could: a squash or rebase merge leaves a single-parent commit.
 	Unchecked string
@@ -172,8 +177,8 @@ func (m *Manager) LandedPullRequests(ctx context.Context, ref string, since time
 			continue
 		}
 		landed.Candidate = fields[2]
-		if !strings.Contains(subject, queueCandidateBranchMark) {
-			landed.Unchecked = "it is not a merge queue candidate, so the harness built no candidate on a recorded base for it and Git alone does not say which base it was checked on"
+		landed.QueueCandidate = strings.Contains(subject, queueCandidateBranchMark)
+		if !landed.QueueCandidate {
 			landings = append(landings, landed)
 			continue
 		}

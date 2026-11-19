@@ -11,6 +11,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/report"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 type keptMergeReports struct {
@@ -88,11 +89,11 @@ func TestAMergeAuditChecksEveryLandingAndListsEach(t *testing.T) {
 	auditor := fakeAuditor{
 		answeringConfirmer: answeringConfirmer{check: gitworktree.MergeCheck{FirstParent: "1111111111111111111111111111111111111111"}},
 		landings: []gitworktree.LandedPullRequest{
-			{Merge: "3333333333333333333333333333333333333333", Candidate: "4444444444444444444444444444444444444444", Base: "1111111111111111111111111111111111111111", Subject: "Merge pull request #7 from a/b"},
+			{Merge: "3333333333333333333333333333333333333333", Candidate: "4444444444444444444444444444444444444444", Base: "1111111111111111111111111111111111111111", Subject: "Merge pull request #7 from a/b", QueueCandidate: true},
 			{Merge: "5555555555555555555555555555555555555555", Subject: "squashed", Unchecked: "it has 1 parents, so it is not a merge of a candidate"},
 		},
 	}
-	entries, err := Pipeline{Reports: reports}.AuditLandedMerges(context.Background(), auditor, "origin/main", time.Time{})
+	entries, err := Pipeline{Reports: reports}.AuditLandedMerges(context.Background(), auditor, nil, "origin/main", time.Time{})
 	if err != nil || len(entries) != 2 {
 		t.Fatalf("AuditLandedMerges() = %#v, %v; want both landings listed", entries, err)
 	}
@@ -117,4 +118,60 @@ type fakeAuditor struct {
 
 func (f fakeAuditor) LandedPullRequests(context.Context, string, time.Time) ([]gitworktree.LandedPullRequest, error) {
 	return f.landings, nil
+}
+
+// A pull request a run made is checked against the base and change the run's
+// review recorded; one with no run behind it is listed as not checked.
+func TestAMergeAuditChecksARunsPullRequestAgainstItsRecordedReview(t *testing.T) {
+	t.Parallel()
+	const recordedBase, recordedHead, landedOn = "1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222", "9999999999999999999999999999999999999999"
+	reports := &keptMergeReports{}
+	auditor := fakeAuditor{
+		answeringConfirmer: answeringConfirmer{check: gitworktree.MergeCheck{FirstParent: landedOn}},
+		landings: []gitworktree.LandedPullRequest{
+			{Merge: "3333333333333333333333333333333333333333", Subject: "Merge pull request #11 from a/run-branch"},
+			{Merge: "4444444444444444444444444444444444444444", Subject: "Merge pull request #12 from a/operator-branch"},
+		},
+	}
+	states := []runstate.State{{PullRequest: &runstate.PullRequest{Number: 11}, ReviewBaseCommit: recordedBase, ReviewHeadCommit: recordedHead}}
+	pipeline := Pipeline{Reports: reports, Config: config.Config{Product: config.Product{ID: "example", RepositoryID: "example"}}}
+	entries, err := pipeline.AuditLandedMerges(context.Background(), auditor, RunLandings(states), "origin/main", time.Time{})
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("AuditLandedMerges() = %#v, %v", entries, err)
+	}
+	if entries[0].Matches || entries[0].Unchecked != "" || entries[0].Check.RecordedBase != recordedBase || entries[0].Candidate != recordedHead {
+		t.Errorf("first entry = %#v, want the run's recorded base and head compared and the difference found", entries[0])
+	}
+	if entries[1].Unchecked == "" {
+		t.Errorf("second entry = %q, want it listed as not checked", entries[1].Says())
+	}
+	if len(reports.kept) != 1 || reports.kept[0].Severity != report.SeverityCritical || !strings.Contains(reports.kept[0].Message, "pull request 11") {
+		t.Errorf("reports = %#v, want one critical report naming pull request 11", reports.kept)
+	}
+}
+
+// After a run's own pull request lands, ConfirmRun files the same report.
+func TestAnAfterTheFactRunLandingFilesOneCriticalReportWhenItDiffers(t *testing.T) {
+	t.Parallel()
+	state := runstate.State{WorkItemID: "item-1", ReviewBaseCommit: "1111111111111111111111111111111111111111", ReviewHeadCommit: "2222222222222222222222222222222222222222"}
+	for _, landedOn := range []string{state.ReviewBaseCommit, "9999999999999999999999999999999999999999"} {
+		reports := &keptMergeReports{}
+		reporter := LandingReporter{Reports: reports, ProductID: "example", RepositoryID: "example"}
+		reporter.ConfirmRun(context.Background(), answeringConfirmer{check: gitworktree.MergeCheck{FirstParent: landedOn}}, state, 5, "3333333333333333333333333333333333333333")
+		wantReports := 0
+		if landedOn != state.ReviewBaseCommit {
+			wantReports = 1
+		}
+		if len(reports.kept) != wantReports {
+			t.Errorf("landed on %s: %d reports, want %d", landedOn, len(reports.kept), wantReports)
+		}
+	}
+	// Worktrees that cannot check a merge, or a run with no recorded review,
+	// leave the landing alone.
+	reports := &keptMergeReports{}
+	LandingReporter{Reports: reports}.ConfirmRun(context.Background(), struct{}{}, state, 5, "3333333333333333333333333333333333333333")
+	LandingReporter{Reports: reports}.ConfirmRun(context.Background(), answeringConfirmer{}, runstate.State{}, 5, "3333333333333333333333333333333333333333")
+	if len(reports.kept) != 0 {
+		t.Errorf("reports = %#v, want none", reports.kept)
+	}
 }

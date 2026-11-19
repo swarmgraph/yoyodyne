@@ -120,7 +120,7 @@ func TestLandedPullRequestsNamesEachCandidateAndItsBase(t *testing.T) {
 		t.Fatalf("LandedPullRequests() error = %v", err)
 	}
 	last := landings[len(landings)-1]
-	if last.Merge != merge || last.Candidate != f.candidate || last.Base != f.base || last.Unchecked != "" {
+	if last.Merge != merge || last.Candidate != f.candidate || last.Base != f.base || last.Unchecked != "" || !last.QueueCandidate {
 		t.Fatalf("last landing = %+v, want merge %s of candidate %s on %s", last, merge, f.candidate, f.base)
 	}
 	if first := landings[0]; first.Unchecked == "" {
