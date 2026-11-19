@@ -184,6 +184,7 @@ var pauseMarkersTakenUp = map[string]string{
 var pauseMarkersNotTakenUp = map[string]string{
 	"IntegrationStop":     "an integration stop is resumed by the integration resumer (integrationresume.go), not by a new dispatch",
 	"RecoveryHold":        "a hold the development manager left standing waits on that decision; what it orders is a continuation (recoveryContinuationDue)",
+	"LateStop":            "the record of a stop that reached the run after its checks passed; the run was not paused, it went on to review",
 	"Readopted":           "not a marker but the redeploy stop a resumed run cleared, kept for reading later stalls",
 	"RepairContinuations": "the history of repair grants; a run re-entered in its repair loop is resumed by resumableRepair",
 	"SweepContinuations":  "the history of the sweep continuing a usage-limit wait; the wait itself is UsageLimitResetsAt",

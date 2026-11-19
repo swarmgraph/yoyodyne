@@ -168,7 +168,10 @@ func TestCancellingTheMessageStillStopsItsDocumentRun(t *testing.T) {
 }
 
 // A stop the development manager asks for still ends a document run whose
-// message's deadline has passed, at the run's next boundary.
+// message's deadline has passed. The stop is one that has waited its bound, so
+// it cuts the check short rather than letting the check pass first: a stop that
+// reaches a run only after its checks passed keeps the change for its review
+// instead (promptstop.go).
 func TestAStopRequestStillEndsADocumentRunPastItsMessageDeadline(t *testing.T) {
 	t.Parallel()
 
@@ -180,7 +183,7 @@ func TestAStopRequestStillEndsADocumentRunPastItsMessageDeadline(t *testing.T) {
 	ctx, pass := newPassingDeadline()
 	defer pass()
 	asked := make(chan error, 1)
-	whenStarted(started, func() {
+	onceStarted(started, func() {
 		pass()
 		recorded, err := runs.Recorded()
 		if err != nil || len(recorded) != 1 {
@@ -188,7 +191,7 @@ func TestAStopRequestStillEndsADocumentRunPastItsMessageDeadline(t *testing.T) {
 			return
 		}
 		run := recorded[0]
-		asked <- runs.RecordStop(runstate.StopRequest{SchemaVersion: runstate.StopSchemaVersion, ProductID: run.ProductID, RunID: run.RunID, WorkItemID: run.WorkItemID, RequestedAt: time.Now(), RequestedBy: "the development manager", Decision: runstate.TriageDecisionStop, Reason: "superseded"})
+		asked <- runs.RecordStop(runstate.StopRequest{SchemaVersion: runstate.StopSchemaVersion, ProductID: run.ProductID, RunID: run.RunID, WorkItemID: run.WorkItemID, RequestedAt: time.Now().Add(-runstate.StopTakesEffectWithin - time.Minute), RequestedBy: "the development manager", Decision: runstate.TriageDecisionStop, Reason: "superseded"})
 	})
 	_, _ = session.Send(ctx, "Write it.")
 	select {
