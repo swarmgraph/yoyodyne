@@ -175,7 +175,7 @@ func (s *Session) settleDelivery(record *writeRecord, delivery runstate.Document
 // place of any earlier one of the same document, keeping the latest.
 func (s *Session) keepHandedBack(record *writeRecord, delivery runstate.DocumentDelivery) {
 	artifactID := strings.TrimSpace(record.pending.Write.ID)
-	reason := oneline.Fold(strings.TrimSpace(delivery.Detail), runstate.MaxHandedBackReasonBytes)
+	reason := runstate.HandedBackReason(delivery.Detail, delivery.RunID)
 	if reason == "" {
 		reason = "its run ended without landing it and recorded no reason"
 	}
