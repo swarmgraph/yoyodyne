@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-11-17T23:13:00.761721Z
       reason: 'yoyodyne-ifd.428.126.4.20: rules on rebuilding the store from its own export in place of squashing its history, which the diagnosis on yoyodyne-ifd.428.126.4.19 measured frees no space; removes the wait for runs in flight and the hold on new starts, which stopped every live squash, because the rebuild is bounded under the tracker read wait; rules on the backup folder; and names the build work the fix that brings the store under its limit carries. Supersedes the squash conditions of amendment-d69a4e86 and amendment-b9c01fd4.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T12:22:19.100624Z
+      reason: 'amendment-37cba8f5, approved by the architect: the live rebuild takes the tracker''s write lock first and new calls wait behind it while it waits, so overlapping calls cannot keep it out; only a process outside the harness, looked for after the lock is held, can stop it, and is named; the rehearsal copies under the lock and is never skipped because the live store is open; every due rebuild that does not go ahead is recorded with its reason, with one warning to the development manager after three in a row. Read whole at main a87840011938; only this section changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-11-17T23:13:00.761721Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2974, for document-2974.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-19T12:22:19.100624Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3074, for document-3074.1 under the automatic approval policy
 ---
 # Keeping the tracker store small
 
@@ -86,11 +95,13 @@ A rebuild is due when the store is larger than 1 GB on disk, or when the weekly 
 
 Each time a rebuild is due, maintenance first does the whole rebuild on a copy of the live store:
 
-1. copy the live store;
+1. take the tracker's write lock, copy the live store, and release the lock, so the copy is of one consistent store and the lock is held only for the copying;
 2. export the copy;
 3. build a fresh store from that export;
 4. export the fresh store and compare it with the export in step 2;
 5. record how long steps 2 to 4 took, and the fresh store's size.
+
+The rehearsal is never skipped because the live store is open: it works on a copy, and the copying waits for the lock like any other call.
 
 The comparison must find every item, note, dependency, label and comment unchanged. If any differs, no rebuild runs on the live store, and maintenance files one warning for the development manager naming the step and the first item that differs.
 
@@ -100,19 +111,32 @@ If steps 2 to 4 took longer than 60 seconds, no rebuild runs on the live store, 
 
 When the copy passes, maintenance rebuilds the live store, through the tracker reader and writer:
 
-1. take the tracker's write lock, which every write the harness makes for a role or a run already goes through;
-2. export the live store;
-3. move the live store aside as the kept copy, and record its place and time in the harness's state; it is kept for 14 days and then removed by maintenance;
-4. build a fresh store from the export in step 2;
-5. export the fresh store and compare it with the export in step 2;
-6. if they match, put the fresh store in the live store's place; if they differ, put the kept copy back in its place, and file one warning for the development manager naming the step and the first item that differs;
-7. release the write lock.
+1. take the tracker's write lock before anything else. Every tracker call the harness makes for a role, a run, the dashboard or the scheduler, read or write, goes through the one tracker reader and writer, and once the rebuild is waiting for the lock, a new call waits behind the rebuild rather than ahead of it. So calls that overlap one another cannot keep the rebuild out, and no call the harness makes ever stops a rebuild;
+2. with the lock held, look for any process that has the store open. Because every call the harness makes is now waiting behind the lock, only a process outside the harness can be found. If one is, the rebuild does not go ahead this pass: the lock is released, and the step names that process by its command and process number;
+3. export the live store;
+4. move the live store aside as the kept copy, and record its place and time in the harness's state; it is kept for 14 days and then removed by maintenance;
+5. build a fresh store from the export in step 3;
+6. export the fresh store and compare it with the export in step 3;
+7. if they match, put the fresh store in the live store's place; if they differ, put the kept copy back in its place, and file one warning for the development manager naming the step and the first item that differs;
+8. release the write lock.
 
 The lock is released on every way the step ends, including a failure partway, and a failure partway always ends with either the fresh store or the kept copy in the live store's place, never neither. The rebuild's record states how long it held the lock, the store's size before and after, and which way it ended.
 
+### Every rebuild that does not go ahead is recorded
+
+Each pass at which a rebuild is due and does not go ahead writes one entry to the rebuild record, with the time, the store's size, and the reason in plain words naming what stopped it. The reasons include: the comparison on the copy differed; the rehearsal took longer than 60 seconds; a process outside the harness had the store open, named; the lock was not had within the tracker's ordinary wait for a write; or any other failure before the live store was touched. A line in the pass's own output is not enough on its own.
+
+After three such passes in a row, maintenance files one warning for the development manager naming what stopped each of the three. It files no second warning until the reason changes or a rebuild goes ahead. The warnings above for a comparison that differed or a rehearsal that ran too long are still filed when they happen; the count of three covers every reason.
+
 ### No wait for runs in flight
 
-The rebuild does not wait for runs in flight, and the scheduler does not hold new starts for it. A role or a run that reads or writes the tracker while the lock is held waits behind it, as it waits behind any other write. That is safe because the rehearsed time is bounded at 60 seconds, and an ordinary tracker read already waits up to 120 seconds.
+The rebuild does not wait for runs in flight, and the scheduler does not hold new starts for it. A role or a run that reads or writes the tracker while the lock is held, or while the rebuild is waiting for it, waits behind it, as it waits behind any other write. That is safe because the rehearsed time is bounded at 60 seconds, and an ordinary tracker read already waits up to 120 seconds.
+
+The rebuild as first built skipped whenever another process had the store open, and recorded the skip nowhere. On a busy factory the dashboard, the scheduler and runs have the store open almost all the time, so it skipped every pass and the store stayed at about 1.64 GB on November 19, 2026, after the rebuild had landed. Taking the lock first, looking only for processes outside the harness, and recording every rebuild that does not go ahead were added on November 19, 2026, from the developer's proposal amendment-37cba8f5, raised on the fix that makes the rebuild take the lock first (yoyodyne-ifd.428.126.4.23), which carries this part of build piece 4.
+
+A reviewer of that part checks, beside the checks under Build pieces: the live rebuild takes the lock before looking for any process with the store open; no call the harness makes stops a rebuild; the rehearsal is never skipped because the live store is open; every due rebuild that does not go ahead is in the rebuild record with its reason; and three in a row file exactly one warning.
+
+Rejected: skipping the rebuild whenever any process has the store open. On a busy factory that is always, so the rebuild never runs and the store keeps growing.
 
 Rejected: keeping `bd compact` and `bd flatten`. They were measured to free no space, and a step that cannot shrink the store only adds risk.
 
