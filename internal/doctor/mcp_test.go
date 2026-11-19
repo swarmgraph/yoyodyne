@@ -96,3 +96,34 @@ func TestAStoredMCPCredentialIsReportedWithoutItsValue(t *testing.T) {
 		}
 	}
 }
+
+const reviewThreadsConfig = mcpConfig + `review_threads:
+  server: mail
+  post_tool: send
+  read_tool: search
+  channel: C0123456789
+  reviewers: [U0AAAA1111]
+`
+
+// A refused review_threads section is the configuration that does not load, and
+// the finding says which setting and why, in words.
+func TestARefusedReviewThreadsSectionNamesTheSetting(t *testing.T) {
+	t.Parallel()
+	world := newWorld(t)
+	world.configuration = strings.Replace(reviewThreadsConfig, "reviewers: [U0AAAA1111]", "reviewers: []", 1)
+	report := world.diagnose()
+	finding, found := findingFor(report, "configuration")
+	if !found || finding.Status != StatusProblem {
+		t.Fatalf("configuration = %#v, want a problem: %s", finding, render(report))
+	}
+	if !strings.Contains(finding.Detail, "review_threads.reviewers is empty") {
+		t.Fatalf("detail = %q, want the setting named", finding.Detail)
+	}
+}
+
+func TestAProjectWithNoReviewThreadsSectionIsToldNothingAboutIt(t *testing.T) {
+	t.Parallel()
+	if _, found := findingFor(newWorld(t).diagnose(), "review_threads"); found {
+		t.Fatal("a project with no review_threads section was reported one")
+	}
+}

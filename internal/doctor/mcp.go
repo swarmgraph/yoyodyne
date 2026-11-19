@@ -106,3 +106,20 @@ func (d *diagnosis) checkMCPServer(ctx context.Context, resolved config.Resolved
 	}
 	return Finding{Check: check, Status: StatusOK, Summary: fmt.Sprintf("MCP server %s needs no credential", name)}
 }
+
+// checkReviewThreads reports a project's review_threads section in plain words.
+// A section that does not load is already reported, with the setting it names,
+// as the configuration that does not load; one that loads is said here so an
+// operator can see the request will be posted and where. A project with no
+// section is told nothing.
+func (d *diagnosis) checkReviewThreads(resolved config.Resolved) []Finding {
+	threads := resolved.Config.ReviewThreads
+	if !threads.Configured() {
+		return nil
+	}
+	return []Finding{{
+		Check:   "review_threads",
+		Status:  StatusOK,
+		Summary: fmt.Sprintf("review requests for pull requests a person merges are set for Slack channel %s, and %d listed reviewer(s)' replies are read every %s", threads.Channel, len(threads.Reviewers), threads.CheckEvery),
+	}}
+}
