@@ -1314,7 +1314,7 @@ func (schedulerChild) Busy(context.Context) (string, error) { return "", nil }
 // started from replaced, stops pulling, waits out the runs it hosts, and
 // re-executes in place. Stopping it instead would cancel those runs.
 func (schedulerChild) RestartsItself() string {
-	return "the watch restarts itself into it between runs, waiting out the runs it hosts under execution.redeploy_drain_limit"
+	return "the watch restarts itself into it between runs, at most once every execution.build_move_interval, waiting out the runs it hosts under execution.redeploy_drain_limit"
 }
 
 func (c schedulerChild) Stop(ctx context.Context) (supervise.Stopped, error) {

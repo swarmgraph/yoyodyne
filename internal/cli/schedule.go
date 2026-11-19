@@ -218,6 +218,7 @@ func scheduleWork(ctx context.Context, args []string, stdout, stderr io.Writer) 
 			return 1
 		default:
 			scheduler.Deployment = binary
+			scheduler.LastBuildMove = lastBuildMove(*configPath, time.Now(), stderr)
 		}
 		findMergeDisagreementsAtStart(ctx, *configPath, stderr)
 	}
@@ -558,6 +559,28 @@ func openWatchSession(configPath, sessionID string) (orchestrator.WatchSessions,
 		// revision leaves this empty, which reads as a comparison nobody can make.
 		build: buildinfo.Commit(),
 	}, nil
+}
+
+// lastBuildMove is when this product's watch last moved onto a new build, as
+// the watch log records it, so a session that came back from a move waits the
+// least time between moves from that move rather than from nothing. A log that
+// cannot be read is said, and the session counts from its own start instead,
+// which is never earlier than a move that started it.
+func lastBuildMove(configPath string, started time.Time, stderr io.Writer) time.Time {
+	parts, err := buildComponents(configPath)
+	if err == nil {
+		var transitions []runstate.WatchTransition
+		transitions, _, err = parts.watch.Scan()
+		if err == nil {
+			moves := runstate.BuildMoves(transitions, nil)
+			if len(moves) == 0 {
+				return time.Time{}
+			}
+			return moves[len(moves)-1].Restarted
+		}
+	}
+	fmt.Fprintf(stderr, "when the watch last moved onto a new build could not be read, so the least time before its next move is counted from now: %v\n", err)
+	return started
 }
 
 // openCheckRunner builds the check runner over the product's follow-ups. The
@@ -958,6 +981,9 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// runs it hosts before it restarts anyway, with those runs stopped and
 		// preserved for the session that comes back.
 		RedeployDrainLimit: parts.config.Execution.RedeployDrainLimit.Duration(),
+		// The least time between two moves of the watch session onto a new
+		// build.
+		BuildMoveInterval: parts.config.Execution.BuildMoveEvery(),
 		Start: func(ctx context.Context, workItemID string, selection runstate.Selection) (orchestrator.Outcome, error) {
 			// The pipeline is a value, so each run gets its own with its own
 			// selection on it. Two runs started from one pull therefore record

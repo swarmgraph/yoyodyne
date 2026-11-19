@@ -144,6 +144,7 @@ type executionDocument struct {
 	ForgeCheckInterval                     *Duration `yaml:"forge_check_interval"`
 	MainCheckInterval                      *Duration `yaml:"main_check_interval"`
 	RedeployDrainLimit                     *Duration `yaml:"redeploy_drain_limit"`
+	BuildMoveInterval                      *Duration `yaml:"build_move_interval"`
 	FactoryStallAfter                      *Duration `yaml:"factory_stall_after"`
 	CouldNotRunBeforeStatus                *int      `yaml:"could_not_run_before_status"`
 	UsageWindowDegradedPercent             *int      `yaml:"usage_window_degraded_percent"`
