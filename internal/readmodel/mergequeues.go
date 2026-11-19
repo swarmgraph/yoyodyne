@@ -27,6 +27,9 @@ type MergeQueues interface {
 	Landing(key runstate.MergeQueueKey, entryID string) (runstate.MergeQueueLanding, bool, error)
 	Refusal(key runstate.MergeQueueKey) (runstate.MergeQueueRefusal, bool, error)
 	LastPass(key runstate.MergeQueueKey) (runstate.MergeQueuePass, bool, error)
+	// ForgeReading is the latest reading of what GitHub said a merge it holds
+	// for the entry was waiting on (runstate's mergequeueforgereading.go).
+	ForgeReading(key runstate.MergeQueueKey, entryID string) (runstate.MergeQueueForgeReading, bool, error)
 }
 
 // QueueEntryState is where one queued change stands, from a closed vocabulary
@@ -313,6 +316,18 @@ func readQueueEntry(queues MergeQueues, key runstate.MergeQueueKey, entry runsta
 		return read, fmt.Sprintf("the landing record of %s could not be read: %v", entry.EntryID, err)
 	}
 	if landed && placedByLanding(&read, landing) {
+		if read.State != QueueEntryForgeHolds {
+			return read, ""
+		}
+		// What GitHub last said the merge it holds is waiting on, or that it
+		// could not be asked, is said beside it.
+		reading, found, err := queues.ForgeReading(key, entry.EntryID)
+		if err != nil {
+			return read, fmt.Sprintf("what GitHub last said about %s could not be read: %v", entry.EntryID, err)
+		}
+		if attempt, _ := landing.Current(); found && reading.PullRequest == attempt.PullRequest {
+			read.Why += "; " + reading.Says()
+		}
 		return read, ""
 	}
 	generations, err := queues.Generations(key, entry.EntryID)
