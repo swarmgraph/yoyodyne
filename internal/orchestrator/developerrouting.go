@@ -946,14 +946,7 @@ func classifyDeveloperAttempt(result backend.RunResult, err error) (string, stri
 // usage limit. A record nothing can read establishes nothing, so the endpoint
 // is tried rather than skipped.
 func (a *activeRun) knownLimited(endpoint runstate.RoutedEndpoint) (KnownLimit, bool) {
-	if a.pipeline.EndpointLimits == nil {
-		return KnownLimit{}, false
-	}
-	limit, known, err := a.pipeline.EndpointLimits.KnownLimited(endpoint.AccountAlias, requestedModel(endpoint), a.pipeline.clock().Now())
-	if err != nil {
-		return KnownLimit{}, false
-	}
-	return limit, known
+	return a.pipeline.knownLimit(endpoint)
 }
 
 // endpointProblem says why an endpoint cannot serve a developer invocation

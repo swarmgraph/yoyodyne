@@ -78,13 +78,20 @@ type reviewerRoute struct {
 }
 
 // reviewerPair is the reviewer's endpoint pair resolved now, and false where
-// the project has not enabled fallback for it.
+// the project has not enabled fallback for it or this pipeline cannot record a
+// run's routing.
 func (p Pipeline) reviewerPair() (config.ResolvedEndpointPair, bool, error) {
-	name := p.agentNameForRole(domain.RoleReviewer)
-	if name == "" || p.ReviewerFor == nil {
+	if _, ok := p.routingStore(); !ok {
 		return config.ResolvedEndpointPair{}, false, nil
 	}
-	if _, ok := p.routingStore(); !ok {
+	return p.resolvedReviewerPair()
+}
+
+// resolvedReviewerPair is reviewerPair without the run store, which the merge
+// queue's review, keeping its routing on the queue's generation, does not need.
+func (p Pipeline) resolvedReviewerPair() (config.ResolvedEndpointPair, bool, error) {
+	name := p.agentNameForRole(domain.RoleReviewer)
+	if name == "" || p.ReviewerFor == nil {
 		return config.ResolvedEndpointPair{}, false, nil
 	}
 	pair, err := (config.Resolved{Config: p.Config}).ResolveReviewerEndpoints(name)
@@ -535,8 +542,7 @@ func (a *activeRun) reviewReask(reask *review.Reask, route *reviewerRoute) *revi
 }
 
 // endpointProblemFor says why an endpoint cannot serve a role now.
-func (a *activeRun) endpointProblemFor(ctx context.Context, endpoint runstate.RoutedEndpoint, role domain.AgentRole) string {
-	p := a.pipeline
+func (p Pipeline) endpointProblemFor(ctx context.Context, endpoint runstate.RoutedEndpoint, role domain.AgentRole) string {
 	providers, err := p.Config.ProviderRegistry()
 	if err != nil {
 		return fmt.Sprintf("the configured providers could not be read: %v", err)
@@ -560,8 +566,26 @@ func (a *activeRun) endpointProblemFor(ctx context.Context, endpoint runstate.Ro
 	case !availability.Authenticated:
 		return fmt.Sprintf("%s is not logged in", endpoint.Provider)
 	}
-	if limit, known := a.knownLimited(endpoint); known {
+	if limit, known := p.knownLimit(endpoint); known {
 		return "it is already known to have reached its usage limit: " + limit.Says
 	}
 	return ""
+}
+
+func (a *activeRun) endpointProblemFor(ctx context.Context, endpoint runstate.RoutedEndpoint, role domain.AgentRole) string {
+	return a.pipeline.endpointProblemFor(ctx, endpoint, role)
+}
+
+// knownLimit asks whether an endpoint is already known to have reached its
+// usage limit. A record nothing can read establishes nothing, so the endpoint
+// is tried rather than skipped.
+func (p Pipeline) knownLimit(endpoint runstate.RoutedEndpoint) (KnownLimit, bool) {
+	if p.EndpointLimits == nil {
+		return KnownLimit{}, false
+	}
+	limit, known, err := p.EndpointLimits.KnownLimited(endpoint.AccountAlias, requestedModel(endpoint), p.clock().Now())
+	if err != nil {
+		return KnownLimit{}, false
+	}
+	return limit, known
 }

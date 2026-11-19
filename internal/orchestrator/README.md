@@ -312,7 +312,11 @@ operation's one switch on a classified usage limit (`switchReviewEndpoint`) and
 closes the operation when a verdict is counted (`completeReviewOperation`). The
 review runs under the endpoint's own account, and a wait on a limit records that
 account and model on the run (`UsageLimitAccount`) rather than the developer's.
-A project that does not enable it never reaches any of this.
+The merge queue's review of a candidate uses the same pair
+(`mergequeuereviewrouting.go`): the operation is the generation, its endpoint and
+its one switch are kept on `MergeQueueGeneration.ReviewRouting`, and the serving
+endpoint is on the review evidence. A project that does not enable fallback never
+reaches any of this.
 
 ### How is a stopped run classified, and what does the item say?
 `stop` decides first whether the error is a pause (usage limit, provider stop,

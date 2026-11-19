@@ -236,6 +236,13 @@ type MergeQueueGeneration struct {
 	// aside: started and never ended, or ended without a result. Each is kept so
 	// a reader can see why a stage ran twice.
 	Interruptions []MergeQueueInterruption `json:"interruptions,omitempty"`
+	// ReviewRouting is where this candidate's review stands on the reviewer's
+	// endpoint pair, kept across the attempts set aside above. The candidate's
+	// review is one logical operation: it moves from the primary to the alternate
+	// at most once, and stays there. It is absent for a project whose reviewer
+	// has no fallback, and a new generation, which is a new candidate, starts
+	// without it.
+	ReviewRouting *MergeQueueReviewRouting `json:"review_routing,omitempty"`
 	// Launches are the processes the generation's checks and review were
 	// started as, each written down before it could do any work. They are what
 	// a later worker reads, beside the stage's hold, to tell whether a process
@@ -440,9 +447,31 @@ type MergeQueueReviewEvidence struct {
 	SessionID     string `json:"session_id,omitempty"`
 	Model         string `json:"model,omitempty"`
 	ResolvedModel string `json:"resolved_model,omitempty"`
-	Summary       string `json:"summary,omitempty"`
+	// Provider and AccountAlias are the endpoint the review was made on, and
+	// Choice says whether that was the reviewer pair's primary or its alternate.
+	// All three are empty for a review made without a pair.
+	Provider     domain.Backend `json:"provider,omitempty"`
+	AccountAlias string         `json:"account_alias,omitempty"`
+	Choice       EndpointChoice `json:"choice,omitempty"`
+	Summary      string         `json:"summary,omitempty"`
 	// Problem is why the review ended without a verdict.
 	Problem string `json:"problem,omitempty"`
+}
+
+// MergeQueueReviewRouting is the endpoint a candidate's review is on and the
+// one switch it may make. Selected is the primary until the review moves, and
+// the alternate from then on; the switch is never made twice and never undone.
+type MergeQueueReviewRouting struct {
+	Selected EndpointChoice `json:"selected"`
+	// SwitchedAt, Trigger and Evidence are set once the review has moved to its
+	// alternate: when, whether for a classified usage limit or a primary already
+	// known to be limited, and what showed it.
+	SwitchedAt *time.Time    `json:"switched_at,omitempty"`
+	Trigger    SwitchTrigger `json:"trigger,omitempty"`
+	Evidence   string        `json:"evidence,omitempty"`
+	// Waiting says why the review is waiting on the endpoint it has selected,
+	// in words a person reads; empty when it is not.
+	Waiting string `json:"waiting,omitempty"`
 }
 
 // MergeQueueInterruption is one attempt at a stage that earned nothing and was
@@ -731,6 +760,17 @@ func (g MergeQueueGeneration) validate() error {
 		}
 		if len(g.Review.Summary) > maxMergeQueueEvidenceText || len(g.Review.Problem) > maxMergeQueueEvidenceText {
 			problems = append(problems, errors.New("its review's text exceeds its bound"))
+		}
+	}
+	if routing := g.ReviewRouting; routing != nil {
+		if routing.Selected != EndpointPrimary && routing.Selected != EndpointAlternate {
+			problems = append(problems, fmt.Errorf("its review routing selects %q", routing.Selected))
+		}
+		if (routing.Selected == EndpointAlternate) != (routing.SwitchedAt != nil) {
+			problems = append(problems, errors.New("its review routing selects the alternate only through a recorded switch"))
+		}
+		if len(routing.Evidence) > maxMergeQueueEvidenceText || len(routing.Waiting) > maxMergeQueueEvidenceText {
+			problems = append(problems, errors.New("its review routing's text exceeds its bound"))
 		}
 	}
 	if len(g.Install) > maxMergeQueueInstalls {
@@ -1026,7 +1066,8 @@ func sameReviewEvidence(a, b *MergeQueueReviewEvidence) bool {
 	}
 	return a.Binding == b.Binding && a.StartedAt.Equal(b.StartedAt) && sameTime(a.FinishedAt, b.FinishedAt) &&
 		a.Decision == b.Decision && a.SessionID == b.SessionID && a.Model == b.Model &&
-		a.ResolvedModel == b.ResolvedModel && a.Summary == b.Summary && a.Problem == b.Problem
+		a.ResolvedModel == b.ResolvedModel && a.Summary == b.Summary && a.Problem == b.Problem &&
+		a.Provider == b.Provider && a.AccountAlias == b.AccountAlias && a.Choice == b.Choice
 }
 
 func samePathEvidence(a, b *MergeQueuePathEvidence) bool {

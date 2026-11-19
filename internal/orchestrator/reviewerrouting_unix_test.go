@@ -4,6 +4,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -639,4 +640,209 @@ func TestAProjectWithoutReviewerFallbackKeepsItsExistingReview(t *testing.T) {
 
 func (p *reviewProvider) Capabilities() backend.Capabilities {
 	return backend.Capabilities{StructuredEvents: true}
+}
+
+// limitsByEndpoint is the record of endpoints already known to be limited, keyed
+// by account and model, that says so for a merge queue's review.
+type limitsByEndpoint map[string]bool
+
+func (l limitsByEndpoint) KnownLimited(account, model string, _ time.Time) (KnownLimit, bool, error) {
+	if l[account+"/"+model] {
+		return KnownLimit{Says: "the test recorded a refusal of it"}, true, nil
+	}
+	return KnownLimit{}, false, nil
+}
+
+// recordedLimits keeps the refusals recorded outside a run.
+type recordedLimits struct {
+	mu   sync.Mutex
+	seen []runstate.UsageLimitExhaustion
+}
+
+func (r *recordedLimits) Record(refusal runstate.UsageLimitExhaustion) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seen = append(r.seen, refusal)
+	return nil
+}
+
+// queueReviewPair arranges a merge queue fixture whose reviewer has the pair
+// given, with a fake reviewer behind each provider: refused for a usage limit
+// where refuse says so, and approving otherwise.
+type queueReviewPairing struct {
+	*queueFixture
+	byProvider map[domain.Backend]*countingReviewer
+	limits     *recordedLimits
+}
+
+func newQueuePairing(t *testing.T, spec reviewerPairSpec, refuse map[domain.Backend]bool) queueReviewPairing {
+	t.Helper()
+	f := newQueueFixture(t)
+	pairing := queueReviewPairing{queueFixture: f, byProvider: map[domain.Backend]*countingReviewer{}, limits: &recordedLimits{}}
+	pipeline := f.worker.Pipeline
+	agent := spec.primary
+	agent.Failover = spec.failover
+	pipeline.Config.Agents["reviewer"] = agent
+	pipeline.Config.Accounts = map[string]config.Account{
+		routedClaudeAlias: {Provider: domain.BackendClaudeCode},
+		routedCodexAlias:  {Provider: domain.BackendCodex},
+	}
+	pipeline.StateRoot = t.TempDir()
+	adapter := &orchestratortest.Backend{}
+	pipeline.RecordedBackends = func(named domain.Backend) (backend.Backend, bool) {
+		if named == domain.BackendCodex {
+			return adapter, true
+		}
+		return nil, false
+	}
+	for _, provider := range []domain.Backend{domain.BackendClaudeCode, domain.BackendCodex} {
+		pairing.byProvider[provider] = &countingReviewer{}
+	}
+	pipeline.ReviewerFor = func(endpoint runstate.RoutedEndpoint) (ChangeReviewer, bool) {
+		counting := pairing.byProvider[endpoint.Provider]
+		counting.reviewer = review.Reviewer{
+			Backend: orchestratortest.RoleBackend(func(backend.RunRequest) error { return nil }, approveVerdict), Model: requestedModel(endpoint),
+		}
+		if refuse[endpoint.Provider] {
+			counting.instead = func(int) (review.Result, error, bool) {
+				return review.Result{RequestedModel: requestedModel(endpoint), UsageLimit: &backend.UsageLimit{Kind: "weekly"}}, errors.New("usage limit reached"), true
+			}
+		}
+		return counting, true
+	}
+	f.worker.UsageLimits = pairing.limits
+	return pairing
+}
+
+func (p queueReviewPairing) latest() runstate.MergeQueueGeneration {
+	generations := p.generations()
+	return generations[len(generations)-1]
+}
+
+// A merge queue candidate's review whose primary is refused for a usage limit
+// moves to the alternate once, in either provider direction, and the alternate
+// then gives the verdict on the same candidate. The refused attempt is set aside
+// on the generation, the refusal is recorded against the primary's own account
+// and model, and the serving endpoint is on the review's evidence.
+func TestAQueueCandidateReviewMovesToItsAlternateOnAUsageLimit(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name               string
+		spec               reviewerPairSpec
+		primary, alternate domain.Backend
+		primaryAccount     string
+		alternateAccount   string
+		alternateModel     string
+	}{
+		{"claude code to codex", reviewerPairSpec{claudeReviewerPrimary, toCodex}, domain.BackendClaudeCode, domain.BackendCodex, routedClaudeAlias, routedCodexAlias, routedCodexModel},
+		{"codex to claude code", reviewerPairSpec{codexReviewerPrimary, toClaudeOpus}, domain.BackendCodex, domain.BackendClaudeCode, routedCodexAlias, routedClaudeAlias, "opus"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			f := newQueuePairing(t, test.spec, map[domain.Backend]bool{test.primary: true})
+			verification, err := f.work()
+			if err != nil || verification.Verified || !strings.Contains(verification.Waiting, "moved to") {
+				t.Fatalf("Work() = %#v, %v; want the refused review to move to its alternate and ask again", verification, err)
+			}
+			routing := f.latest().ReviewRouting
+			if routing == nil || routing.Selected != runstate.EndpointAlternate || routing.Trigger != runstate.SwitchUsageLimit || routing.SwitchedAt == nil {
+				t.Fatalf("review routing = %#v, want the one switch on the usage limit recorded", routing)
+			}
+			if len(f.limits.seen) != 1 || f.limits.seen[0].AccountAlias != test.primaryAccount {
+				t.Fatalf("recorded refusals = %#v, want one against the primary's own account %q", f.limits.seen, test.primaryAccount)
+			}
+			verification, err = f.restart()
+			if err != nil || !verification.Verified {
+				t.Fatalf("Work() = %#v, %v; want the alternate's verdict", verification, err)
+			}
+			if f.byProvider[test.primary].calls() != 1 || f.byProvider[test.alternate].calls() != 1 {
+				t.Fatalf("reviews: primary %d, alternate %d; want the refused primary once and the alternate once", f.byProvider[test.primary].calls(), f.byProvider[test.alternate].calls())
+			}
+			served := f.byProvider[test.alternate].last()
+			if served.AccountAlias != test.alternateAccount || served.Spend.AccountAlias != test.alternateAccount || served.Spend.Backend != test.alternate {
+				t.Fatalf("the alternate review ran under account %q (spend %q on %q), want %q on %q", served.AccountAlias, served.Spend.AccountAlias, served.Spend.Backend, test.alternateAccount, test.alternate)
+			}
+			generation := f.latest()
+			evidence := generation.Review
+			if evidence == nil || evidence.Decision != string(review.DecisionApprove) || evidence.Provider != test.alternate ||
+				evidence.AccountAlias != test.alternateAccount || evidence.Choice != runstate.EndpointAlternate || evidence.Model != test.alternateModel {
+				t.Fatalf("review evidence = %#v, want the alternate's approval with its endpoint recorded", evidence)
+			}
+			if set := generation.Interruptions; len(set) != 1 || set[0].Stage != runstate.MergeQueueStageReview || !strings.Contains(set[0].Problem, "usage limit") {
+				t.Fatalf("interruptions = %#v, want the refused attempt set aside", set)
+			}
+			if err := generation.Gate(f.configured()); err != nil {
+				t.Fatalf("the verified generation does not pass its gate: %v", err)
+			}
+		})
+	}
+}
+
+// A primary already known to be limited is passed over before anything is asked
+// of it, and the alternate gives the verdict in the same pass.
+func TestAQueueCandidateReviewSkipsAPrimaryKnownToBeLimited(t *testing.T) {
+	t.Parallel()
+	f := newQueuePairing(t, reviewerPairSpec{claudeReviewerPrimary, toCodex}, nil)
+	f.worker.Pipeline.EndpointLimits = limitsByEndpoint{routedClaudeAlias + "/opus": true}
+	verification, err := f.work()
+	if err != nil || !verification.Verified {
+		t.Fatalf("Work() = %#v, %v; want the alternate to review the candidate", verification, err)
+	}
+	if f.byProvider[domain.BackendClaudeCode].calls() != 0 || f.byProvider[domain.BackendCodex].calls() != 1 {
+		t.Fatalf("reviews: primary %d, alternate %d; want nothing asked of the known-limited primary", f.byProvider[domain.BackendClaudeCode].calls(), f.byProvider[domain.BackendCodex].calls())
+	}
+	routing := f.latest().ReviewRouting
+	if routing == nil || routing.Selected != runstate.EndpointAlternate || routing.Trigger != runstate.SwitchPrimaryLimited {
+		t.Fatalf("review routing = %#v, want the switch past a known limit recorded", routing)
+	}
+}
+
+// When the alternate cannot serve, the review stays on its primary and waits,
+// with the reason on the generation: no review is asked of the alternate, the
+// switch is not spent, and no verdict stands.
+func TestAQueueCandidateReviewStaysOnItsPrimaryWhenTheAlternateCannotServe(t *testing.T) {
+	t.Parallel()
+	f := newQueuePairing(t, reviewerPairSpec{claudeReviewerPrimary, toCodex}, map[domain.Backend]bool{domain.BackendClaudeCode: true})
+	f.worker.Pipeline.EndpointLimits = limitsByEndpoint{routedCodexAlias + "/" + routedCodexModel: true}
+	verification, err := f.work()
+	if err != nil || verification.Verified || !strings.Contains(verification.Waiting, "stays on") {
+		t.Fatalf("Work() = %#v, %v; want a wait on the primary saying why the alternate could not serve", verification, err)
+	}
+	if f.byProvider[domain.BackendCodex].calls() != 0 {
+		t.Fatalf("the alternate was asked %d time(s) although it cannot serve", f.byProvider[domain.BackendCodex].calls())
+	}
+	routing := f.latest().ReviewRouting
+	if routing == nil || routing.Selected != runstate.EndpointPrimary || routing.SwitchedAt != nil || !strings.Contains(routing.Waiting, "already known to have reached its usage limit") {
+		t.Fatalf("review routing = %#v, want the review on its primary, its switch unspent, and the reason recorded", routing)
+	}
+	if err := f.latest().Gate(f.configured()); err == nil {
+		t.Fatal("a refused review passed the gate")
+	}
+}
+
+// An alternate that cannot hold the reviewer's read-only access is never used by
+// a queue candidate's review either: the check made at the moment of the switch
+// refuses it for the same reason a run's review does.
+func TestAQueueCandidateReviewRefusesAnAlternateThatCannotHoldReadOnlyAccess(t *testing.T) {
+	t.Parallel()
+	f := newQueuePairing(t, reviewerPairSpec{claudeReviewerPrimary, toCodex}, map[domain.Backend]bool{domain.BackendClaudeCode: true})
+	pipeline := f.worker.Pipeline
+	pipeline.Config.Providers = map[string]backend.ProviderPlugin{"writes-only": {
+		Adapter: domain.BackendCodex, Binary: "custom-codex", Roles: []domain.AgentRole{domain.RoleReviewer, domain.RoleDeveloper},
+		Postures: []backend.Posture{backend.PostureWorktreeWrite},
+		Dialect:  backend.DialectSpec{Rules: []backend.DialectRule{{Type: "retry", Answer: backend.AnswerRetrying}}},
+	}}
+	snapshot := runstate.RoutingSnapshot{Alternate: &runstate.RoutedEndpoint{Provider: "writes-only", AccountAlias: "writes-only-account", Model: "any"}, FallbackEnabled: true}
+	generation := f.latest0(t)
+	moved, why, err := f.worker.moveQueueReview(context.Background(), nil, queueKey, &generation, snapshot, runstate.SwitchUsageLimit, "refused")
+	if err != nil || moved || !strings.Contains(why, `cannot hold the "read-only" tool access`) {
+		t.Fatalf("moveQueueReview() = %v, %q, %v; want the alternate refused for its permissions", moved, why, err)
+	}
+}
+
+// latest0 is the generation a first pass has not yet made; the refusal above is
+// asked of a generation held in memory only.
+func (p queueReviewPairing) latest0(t *testing.T) runstate.MergeQueueGeneration {
+	t.Helper()
+	return runstate.MergeQueueGeneration{Number: 1}
 }
