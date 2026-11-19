@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-10-20T13:01:21.273322Z
       reason: 'Makes two changes the developer on the confined writers rebuild (yoyodyne-xdj) proposed and the architect approved on 20 October: a child process''s log is fed through a pipe the harness appends from with the batch checks, never through a descriptor handed to the child (amendment-cd567551); test hooks are compiled into the package but refuse to be set outside a test binary (amendment-7a92c2cf). The rest of the text is unchanged.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T17:41:30.561837Z
+      reason: Replaces the retired word 'gate' under the operator's November 8 rule, as part of replacing the retired words in the governed documents (yoyodyne-ifd.437.21). The section 'The gate' is renamed 'When other v1 code may be built', and its five other uses become 'hold' and 'lifted'. Its meaning is unchanged, and nothing else in the document changes. Written from main 1879aa6c6.
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -29,6 +33,11 @@ approvals:
       by: harness
       at: 2026-10-20T13:01:21.273322Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1344, for document-1344.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-19T17:41:30.561837Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3120, for document-3120.1 under the automatic approval policy
 ---
 # Repository-confined writes: physical containment for every owned writer
 
@@ -248,16 +257,16 @@ Nothing here is left to a writer's own care or to configuration.
 - **Handing a child its log's descriptor, checked only when opened.** A link added after the opening would carry every later write by the child outside the root, which is exactly the case the append checks exist for.
 - **Test hooks compiled only into tests by a build tag.** A test run without the tag would skip the rows for moved directories and added links without saying so, and a skipped row reads as a pass.
 
-## The gate
+## When other v1 code may be built
 
-The implementation gate on other V1 code lifts when, and only when, all of these hold:
+Implementing other V1 code was held until, and only until, all of these hold:
 
 - the shared contract is implemented;
 - the artifact, invariant, and initialization writers use it;
 - the known escape cases have regression coverage;
 - the table passes for each of those writers, including the rows for moved directories and added links.
 
-The gate is deliberately narrow. It restores delivery while closing the confirmed defects completely, and it does not extend: broader migration proceeds after it lifts, not inside it. Lifting the gate releases the hold on implementing code; it is not a claim that filesystem security work is complete. An independent reviewer verifies physical containment and the table before the gate lifts.
+The hold is deliberately narrow. It restores delivery while closing the confirmed defects completely, and it does not extend: broader migration proceeds after it is lifted, not inside it. Lifting the hold releases implementing code; it is not a claim that filesystem security work is complete. An independent reviewer verifies physical containment and the table before the hold is lifted.
 
 ## Deferred, deliberately
 
