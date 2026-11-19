@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-11-19T06:03:08.011622Z
       reason: 'Point 5 of the check of six designs against what has landed (yoyodyne-ifd.437.72), answering report-082a83d3: the line on a run sent back from landing said it goes ahead of fresh work of the same priority, while the operator''s rule of October 25 puts work on a kept change ahead of fresh work of any priority, the reliability slot and any dedicated slot included. One sentence changes; nothing else. Point 3 was checked in the same pass and already agrees. Read at main 3396a1a9.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T16:57:30.982917Z
+      reason: 'Replaces the retired word for a required check in the one sentence of this design that still used it, in the bounds on the harness''s own acts: the hold on new work, the operator''s pause and the pause for provider capacity now ''apply to it as they apply to any act that starts a provider''. Part of rewording the architect''s documents under the register of terms; nothing else changes. Read whole at main 473d3600.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -34,6 +38,11 @@ approvals:
       by: harness
       at: 2026-11-19T06:03:08.011622Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3047, for document-3047.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-19T16:57:30.982917Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3106, for document-3106.1 under the automatic approval policy
 ---
 # Forward progress: every admitted item moves or stops with an owner, slots fill when work and capacity exist, recovery ends, and the harness repairs within bounds when management cannot
 
@@ -238,7 +247,7 @@ Those are judgments, and they wait for the role whose judgment they are.
 - An automatic continue that stops again with the same failure is not continued automatically again. The second stop gets a wait that keeps the stop listed for the development manager.
 - At most four automatic continues an hour across the product, set by `execution.harness_recovery_per_hour`, which the development manager sets under section 6 of portable agent configuration. Past it, further stops get a wait that keeps the stop listed.
 - No act on a stop whose failure is shown as the same failure across items, as point 3 says.
-- Every act goes through the recovery tool exactly as hers does. It is bound to an observation taken within fifteen minutes, with the run's expected state and the stop. It is recorded before and after with the harness as the one who acted and the reason "the development manager has been unavailable since" the time, and checked with `run.verify`. The hold on new work, the operator's pause and the pause for provider capacity gate it as they gate any act that starts a provider.
+- Every act goes through the recovery tool exactly as hers does. It is bound to an observation taken within fifteen minutes, with the run's expected state and the stop. It is recorded before and after with the harness as the one who acted and the reason "the development manager has been unavailable since" the time, and checked with `run.verify`. The hold on new work, the operator's pause and the pause for provider capacity apply to it as they apply to any act that starts a provider.
 
 ### Handing back
 
