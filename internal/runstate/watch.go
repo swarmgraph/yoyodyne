@@ -716,6 +716,13 @@ func (d WatchDrain) Bound() time.Duration {
 	return time.Duration(d.BoundSeconds) * time.Second
 }
 
+// unstoppableWaitRest is what a drain past its bound says of everything else
+// while it waits on a promotion or a document landing, neither of which is
+// stopped part-way: the restart is not coming sooner whatever else it stops,
+// so runs at their developer attempt go on and free seats are filled until
+// then.
+const unstoppableWaitRest = "until then runs at their developer attempt go on and free seats are still pulled into, every other run is stopped and preserved for the session that comes back, and its recurring tasks go on firing"
+
 // Says is the drain as the clause every surface prints beside the session's
 // state, so `yoyo status`, the watch log, and the channel name it in one way.
 // Every moment in it is in this machine's zone with the zone named, because it
@@ -741,20 +748,23 @@ func (d WatchDrain) Says() string {
 			if d.Promoting > 0 {
 				waits = append(waits, fmt.Sprintf("%d run(s) at their promotion, waited on since %s, because a promotion is never stopped part-way", d.Promoting, LocalStamp(d.PromotingSince)))
 			}
-			others := "every other run is stopped and preserved for the session that comes back"
+			rest := "every other run is stopped and preserved for the session that comes back, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing"
 			if d.KeptGoing > 0 {
-				others = fmt.Sprintf("%d other run(s) go on working meanwhile rather than sitting stopped, and are stopped and preserved for the session that comes back once the checks end", d.KeptGoing)
+				rest = fmt.Sprintf("%d other run(s) go on working meanwhile rather than sitting stopped, and are stopped and preserved for the session that comes back once the checks end, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing", d.KeptGoing)
 			}
-			return fmt.Sprintf("%s; the bound has run out, so it is waiting for %s; it restarts the moment they finish, %s, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing",
-				said, strings.Join(waits, "; and for "), others)
+			if d.Publishing > 0 || d.Promoting > 0 {
+				rest = unstoppableWaitRest
+			}
+			return fmt.Sprintf("%s; the bound has run out, so it is waiting for %s; it restarts the moment they finish, %s",
+				said, strings.Join(waits, "; and for "), rest)
 		}
 		if d.Checking > 0 {
 			return fmt.Sprintf("%s; the bound has run out, so it is waiting out a check stage in %d run(s) it hosts until %s at the latest, the check-stage bound, and stopping and preserving every other run at a developer attempt or a review for the session that comes back; nothing more is pulled into a free seat until it does, and its recurring tasks go on firing",
 				said, d.Checking, LocalStamp(d.ChecksUntil))
 		}
 		if d.Promoting > 0 {
-			return fmt.Sprintf("%s; the bound has run out, so it has been waiting out %d run(s) it hosts at their promotion since %s, because a promotion is never stopped part-way, and restarts the moment they finish; every other run is stopped and preserved for the session that comes back, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing",
-				said, d.Promoting, LocalStamp(d.PromotingSince))
+			return fmt.Sprintf("%s; the bound has run out, so it has been waiting out %d run(s) it hosts at their promotion since %s, because a promotion is never stopped part-way, and restarts the moment they finish; %s",
+				said, d.Promoting, LocalStamp(d.PromotingSince), unstoppableWaitRest)
 		}
 		return said + "; the bound has run out, so the runs it hosts are stopped and preserved for the session that comes back, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing"
 	}
