@@ -367,6 +367,12 @@ context bundle come from `internal/contextbundle`.
 
 ## Sibling files these questions lead to
 
+This table is not a list of every file, and a change that adds a file does not
+add a row: two changes that each did so conflicted here. Start from a file's
+own leading comment, or `ls internal/orchestrator`, for one not named below.
+`TestReadmeNamesOnlyFilesThatExist` fails when this file names a file that no
+longer exists.
+
 | File | What it holds |
 |---|---|
 | `schedule.go` | `Scheduler.Schedule` (one watch poll), `Pull`, `Starter`, `Scheduler.host` (starts a run), `Scheduler.fire` (recurring passes), `Scheduler.brake` (the hold on new work after a run of blocked runs; its one start goes to a decided recovery of its own test run first, `testRunRecovery`), passed-over reasons (`passedOverReason`), redeploy drain bookkeeping (`redeployDrain`, and `redeployDrain.paused`, the first moment a move onto a new build held work back), what a pull leaves out of the busy developer slots (`workersGone`; `slotlessStarts`: decided recoveries fired with no slot free, `Started.slotless`, left out until their run is on record; and `stalledStarts`: the session's own starts with no run on record past `countedGrace`, at most as many as there are slots); `stopHosted`, which past the bound leaves runs working while a check it waits for is still running; whether a decision a full harness refused is still held back (`capacityGateShut`: only while the runs on record hold every slot too, `recordedSlotsFull`, since the session's own count also holds a slot for each start of its own not yet reserved) |
