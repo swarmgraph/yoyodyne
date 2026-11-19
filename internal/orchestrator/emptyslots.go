@@ -26,7 +26,9 @@ import (
 // countedGrace is how long a start of this session may go without a run in
 // flight on record before the slot it holds is said to be still counted for
 // it. A dispatch takes some seconds to reserve its run, and saying so about
-// every start would write a line for each.
+// every start would write a line for each. Past it, the start also stops
+// counting against the slots, up to as many such starts as there are slots
+// (stalledStarts), so what this names is a start counted beyond that bound.
 const countedGrace = 2 * time.Minute
 
 // slotAccount is what one pull says about its empty slots. free is how many
