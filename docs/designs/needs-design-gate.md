@@ -10,12 +10,21 @@ revisions:
       by: architect
       at: 2026-10-12T18:47:06.923991Z
       reason: 'yoyodyne-pdu - records the October 11 ruling on holding an item until its design is readable: Mason''s eight points of September 30, the three practices from the case of the listing that timed out, the wake while the architect''s conversation is busy, the age report for P0 items, and how a known prerequisite is held before developer selection; resent with the joined words the word check refuses written as ordinary words'
+    - action: amended
+      by: architect
+      at: 2026-11-19T16:07:41.070431Z
+      reason: Replaces the retired word 'gate' in its one place in the prose, 'The gate protects only work that is marked', with 'The hold', the design's own name for it, under the operator's November 8 rule against the word (part of the coined-vocabulary replacement, yoyodyne-ifd.437.21). The file name and id keep the word because stored names are exempt. Nothing else changes.
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-10-12T18:47:06.923991Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 761, for document-761.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-19T16:07:41.070431Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3091, for document-3091.1 under the automatic approval policy
 ---
 # Holding an item until its design is readable
 
@@ -70,7 +79,7 @@ Never both for the same question. When a separate design item closes because its
 
 A known unresolved design prerequisite must be held by the tracker before developer selection can reach the item: either this label or a dependency on the design item. A sentence in the description saying the work waits is not a hold. Whoever admits the work (the Lead Product Manager) or breaks it down (the development manager) checks this when they do it.
 
-The gate protects only work that is marked. It does not find a prerequisite nobody marked, and this design does not claim it does. A prerequisite discovered during a run is the developer's raise above, which marks it.
+The hold protects only work that is marked. It does not find a prerequisite nobody marked, and this design does not claim it does. A prerequisite discovered during a run is the developer's raise above, which marks it.
 
 ## The three practices from the case of the listing that timed out
 
