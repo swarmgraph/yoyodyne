@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-11-19T10:05:19.554207Z
       reason: 'Carries approved amendment-0d2fe158: an architect item counts as landed only when each document it names by path or identifier has a revision opening with its identifier, now that the closing fix (yoyodyne-ifd.437.47) has landed; records that an invariant revision closes no item. Answers reviewer report-e7be3aa6: invariant changes are now sent as typed writes (yoyodyne-0bj landed Nov 5), so the pass no longer holds them. amendment-34e202fb was already carried.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T16:34:42.199687Z
+      reason: 'Replaces the retired word for a required check in four places with ordinary words, under the operator''s November 8 rule, as part of replacing retired words in the architect''s documents (yoyodyne-ifd.437.21): the spending pause holding a pass back, the third constraint now ''Through the usual routes'', a finding going through the route for its kind, and ''a check a change must pass''. Nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -38,6 +42,11 @@ approvals:
       by: harness
       at: 2026-11-19T10:05:19.554207Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3066, for document-3066.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-19T16:34:42.199687Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3100, for document-3100.1 under the automatic approval policy
 ---
 # The architect loop: a windowed pass over what landed, reconciling decisions against documents first
 
@@ -47,7 +56,7 @@ The per-item roles cannot see drift that lives in the accumulation: a decision m
 
 ## What a pass is
 
-A recurring task on the architect's own conversation, on the schedule the project configures, under every rule the recurring-task design in [configurable-workflows](configurable-workflows.md) states: the same authority as a turn the operator opens, the spending pause gating it, and a durable pass record. A pass runs in its own conversation beside the scheduler's pull, never inside it, so a long pass holds up no developer run and no other role's pass. One conversation runs one pass at a time; passes of different conversations run at the same time, up to a bound the harness sets on how many run at once.
+A recurring task on the architect's own conversation, on the schedule the project configures, under every rule the recurring-task design in [configurable-workflows](configurable-workflows.md) states: the same authority as a turn the operator opens, the spending pause holding it back like any other task, and a durable pass record. A pass runs in its own conversation beside the scheduler's pull, never inside it, so a long pass holds up no developer run and no other role's pass. One conversation runs one pass at a time; passes of different conversations run at the same time, up to a bound the harness sets on how many run at once.
 
 What a pass may change is what any architect turn may change, and nothing in it is put to the operator for approval:
 
@@ -67,7 +76,7 @@ Each pass starts a fresh provider session from: the role contract, persona and r
 
 1. **Windowed.** A pass reads what landed since the previous pass — the runs integrated, the documents revised, the amendments decided — and never the corpus. The window is the pass record's own cursor over the run records and the artifact revision logs, the two the freshness measurement already reads.
 2. **Instances, not impressions.** Every finding names the concrete records it generalizes from: two files, two items, two revisions. A finding that names one instance is an observation and is left in the pass record; a finding that names none is not filed.
-3. **Through the gates.** A design revision is a typed document write; work is a report to the Lead Product Manager naming the goal it would serve; a product-document change is an amendment proposal; an invariant change is the architect's own act, sent as a typed document write in the same pass that decides it, never held in the pass record and never sent to the operator to approve. The pass admits nothing and directs nothing.
+3. **Through the usual routes.** A design revision is a typed document write; work is a report to the Lead Product Manager naming the goal it would serve; a product-document change is an amendment proposal; an invariant change is the architect's own act, sent as a typed document write in the same pass that decides it, never held in the pass record and never sent to the operator to approve. The pass admits nothing and directs nothing.
 4. **Silent when empty.** A pass that reconciled nothing and found nothing says so in its record and posts nothing.
 
 ## The first shipment: decided against landed
@@ -81,8 +90,8 @@ Both are derived by the harness from the amendment log, the revision logs, and t
 
 ## The drift review, after that
 
-Over the window and only the window: each landed run's item and the design it built against, read for an implementation decision the design does not carry; each reviewer finding that named a delivered invariant, read for a pattern across runs; each new package or file whose name repeats one that exists, read as a candidate for the entanglement question asked continuously. A finding names its instances and goes through the gate for its kind. The loop reaches the code only through the repository read at a recorded commit, bounded as every such read is.
+Over the window and only the window: each landed run's item and the design it built against, read for an implementation decision the design does not carry; each reviewer finding that named a delivered invariant, read for a pattern across runs; each new package or file whose name repeats one that exists, read as a candidate for the entanglement question asked continuously. A finding names its instances and goes through the route for its kind. The loop reaches the code only through the repository read at a recorded commit, bounded as every such read is.
 
 ## What this deliberately is not
 
-A refactoring engine, a second reviewer, or a gate. Nothing a pass says stops a run, holds a merge, or reorders the backlog, and a pass is never a reason to skip the ruling a design question deserves in the conversation it was asked in.
+A refactoring engine, a second reviewer, or a check a change must pass. Nothing a pass says stops a run, holds a merge, or reorders the backlog, and a pass is never a reason to skip the ruling a design question deserves in the conversation it was asked in.
