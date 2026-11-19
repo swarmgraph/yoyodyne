@@ -5012,12 +5012,14 @@ nothing — a drain with no bound is the wait this exists to end, and the
 configuration refuses it. [Operations](operations.md#a-session-draining-to-restart-into-a-deployed-build)
 says what a drain does and does not stop.
 
-What a deploy costs is one restart per deploy, and the queue is re-read from
-scratch on the way back in exactly as it is at every poll.
+What deploys cost is one restart per `build_move_interval` at most: every build
+installed within that time of the last move is taken up by the same restart,
+onto the newest of them. The queue is re-read from scratch on the way back in
+exactly as it is at every poll.
 
 The bounds cross the restart reduced to what is left of them — `--budget` less
 what the session has spent, `--limit` less what it has started — because a bound
-carried whole would start again at every deploy. A session that has reached
+carried whole would start again at every restart. A session that has reached
 either one stops on the bound instead of restarting: you set that number, and
 taking up a build is not you raising it. There is nothing here for a drain, which
 is a command you are waiting on the return of.
