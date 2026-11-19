@@ -36,12 +36,13 @@ const maxIntentShareDivisor = 2
 // branch review receives the standing set without inventing an attribution.
 //
 // intentRoot is the project's companion intent repository where it keeps one
-// (config.Product.IntentRoot); the home is then read there as its checkout
-// stands, because revision names a commit of the project's repository.
-func AssembleIntent(repositoryRoot, intentRoot, directory string, revision *Revision) (string, error) {
+// (config.Product.IntentRoot); the home is then read there at intentRevision,
+// the commit of that repository, or as its checkout stands where that is nil,
+// because revision names a commit of the project's repository.
+func AssembleIntent(repositoryRoot, intentRoot, directory string, revision, intentRevision *Revision) (string, error) {
 	source := referenceSource{root: repositoryRoot, revision: revision}
 	if strings.TrimSpace(intentRoot) != "" && filepath.Clean(intentRoot) != filepath.Clean(repositoryRoot) {
-		source = referenceSource{root: intentRoot, companion: true}
+		source = referenceSource{root: intentRoot, revision: intentRevision, companion: true}
 	}
 	text, _, err := renderWorkItemIntent(source.root, source, directory, defaultMaxBytes/maxIntentShareDivisor)
 	return text, err
@@ -76,7 +77,9 @@ func renderWorkItemIntent(repositoryRoot string, source referenceSource, directo
 	}
 
 	header := renderWorkItemIntentHeader(clean, source.revision, source.companion)
-	if source.revision != nil {
+	// A companion repository read at a commit is compared with nothing: its
+	// checkout is not read, so a path changed there is not a change to report.
+	if source.revision != nil && !source.companion {
 		var current []string
 		var err error
 		if source.revision.CandidateFiles != nil {
@@ -192,7 +195,9 @@ func renderWorkItemIntentHeader(directory string, revision *Revision, companion 
 	if revision != nil {
 		at = fmt.Sprintf(" Each is read as it stands at %s.", revision.Name)
 	}
-	if companion {
+	if companion && revision != nil {
+		at = fmt.Sprintf("\nThis project keeps them in its companion intent repository rather than in its\nown, and each is read there as it stands at %s. Nothing is read from that\nrepository's uncommitted files.", revision.Name)
+	} else if companion {
 		at = "\nThis project keeps them in its companion intent repository rather than in its\nown, and each is read there as that repository's checkout stands."
 	}
 	return fmt.Sprintf(`

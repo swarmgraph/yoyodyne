@@ -101,6 +101,10 @@ type BranchReviewer struct {
 	NewReviewID func() (string, error)
 	Repository  string
 	Config      config.Config
+	// IntentWorktrees is the project's companion intent repository, where it has
+	// one: the review reads the intent at the commit that repository's target
+	// branch holds rather than at its checkout. Nil reads the checkout.
+	IntentWorktrees IntentWorktrees
 	// StateRoot is where a pooled account's provider home is found. A branch
 	// review has no run to be affined to, so it is made under the reviewer
 	// agent's own account — the same one that agent's conversation is held under
@@ -222,7 +226,11 @@ func (b BranchReviewer) Review(ctx context.Context, request BranchReviewRequest)
 	outcome.Invariants = invariants.IDs()
 	revision := reviewedRevision(ctx, b.Worktrees, change.BaseCommit)
 	revision.CandidateFiles = reviewedRevision(ctx, b.Worktrees, change.HeadCommit).ListFiles
-	intent, err := contextbundle.AssembleIntent(b.Repository, b.Config.Product.IntentRoot(b.Repository), b.Config.Product.Specifications, revision)
+	intentRevision, _, err := intentRevisionOf(ctx, b.Config.Product, b.IntentWorktrees, "")
+	if err != nil {
+		return outcome, fmt.Errorf("assemble branch review product intent: %w", err)
+	}
+	intent, err := contextbundle.AssembleIntent(b.Repository, b.Config.Product.IntentRoot(b.Repository), b.Config.Product.Specifications, revision, intentRevision)
 	if err != nil {
 		return outcome, fmt.Errorf("assemble branch review product intent: %w", err)
 	}

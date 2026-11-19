@@ -54,7 +54,11 @@ type DocumentDecider struct {
 	// is what a retry is refused on where that copy is a later confirmed
 	// revision. A decider without it does not ask.
 	Copies DocumentCopies
-	Clock  execution.Clock
+	// IntentCopies is the same for a run in the companion intent repository,
+	// whose target branch is that repository's and not the project's. A decider
+	// without it does not ask about such a run, and never asks Copies.
+	IntentCopies DocumentCopies
+	Clock        execution.Clock
 	// Factory names the factory in the hidden line its close comments end with
 	// (forgeMark). Nil names the run's product alone.
 	Factory FactoryIdentities
@@ -120,10 +124,14 @@ func (d DocumentDecider) RetryDocument(ctx context.Context, runID string, decisi
 // error, so no retry is recorded on an answer nobody got.
 func (d DocumentDecider) laterRevision(ctx context.Context, state runstate.State) (string, error) {
 	candidate := state.Document.Candidate
-	if d.Copies == nil || strings.TrimSpace(state.TargetBranch) == "" || len(candidate.Artifact.Revisions) == 0 {
+	copies := d.Copies
+	if state.Repository == runstate.RepositoryIntent {
+		copies = d.IntentCopies
+	}
+	if copies == nil || strings.TrimSpace(state.TargetBranch) == "" || len(candidate.Artifact.Revisions) == 0 {
 		return "", nil
 	}
-	copied, err := d.Copies.FileAtCommit(ctx, state.TargetBranch, candidate.Artifact.Path, maxDocumentHistoryBytes)
+	copied, err := copies.FileAtCommit(ctx, state.TargetBranch, candidate.Artifact.Path, maxDocumentHistoryBytes)
 	if errors.Is(err, gitworktree.ErrNotAtCommit) {
 		return "", nil
 	}
