@@ -1257,7 +1257,55 @@ type CarryOut struct {
 	// rather than what a gate said, Gate is what kept it from the attempt, and
 	// Attempts is zero.
 	Unattempted bool `json:"unattempted,omitempty"`
+	// DecidedAt is when the decision this finding is about was recorded, and the
+	// zero time where that is not known. A decision still waiting is said with
+	// how long it had stood by the time of the finding, so one nothing has taken
+	// up for hours reads as that rather than as a fresh wait.
+	DecidedAt time.Time `json:"decided_at,omitempty"`
 }
+
+// waitedSays is when the decision was made and how long it had stood by the
+// finding, or nothing where the decision's time is not known.
+func (c *CarryOut) waitedSays() string {
+	if c == nil || c.DecidedAt.IsZero() || c.RefusedAt.Before(c.DecidedAt) {
+		return ""
+	}
+	return fmt.Sprintf("      You decided it at %s; it had waited %s by then with no run taking it up.\n",
+		c.DecidedAt.UTC().Format(time.RFC3339), SpanInWords(c.RefusedAt.Sub(c.DecidedAt)))
+}
+
+// SpanInWords says a length of time in words, to the minute, such as
+// "6 hours 20 minutes" or "2 days 3 hours", rather than as Go prints one.
+func SpanInWords(span time.Duration) string {
+	if span < time.Minute {
+		return "less than a minute"
+	}
+	unit := func(count int, singular string) string {
+		if count == 1 {
+			return "1 " + singular
+		}
+		return strconv.Itoa(count) + " " + singular + "s"
+	}
+	minutes := int(span / time.Minute)
+	days, hours, mins := minutes/(24*60), minutes/60%24, minutes%60
+	switch {
+	case days > 0 && hours > 0:
+		return unit(days, "day") + " " + unit(hours, "hour")
+	case days > 0:
+		return unit(days, "day")
+	case hours > 0 && mins > 0:
+		return unit(hours, "hour") + " " + unit(mins, "minute")
+	case hours > 0:
+		return unit(hours, "hour")
+	default:
+		return unit(mins, "minute")
+	}
+}
+
+// FinishMergeRequest is the decision a finding names where it is about the
+// development manager's request, through run.recover, to finish a run's merge.
+// That request is recorded on the run rather than as a triage decision.
+const FinishMergeRequest = "finish-merge"
 
 // NoLongerApplies reports a finding that the recovery about this stoppage does
 // not apply, because the item is closed with its work settled. It asks nobody
@@ -2663,14 +2711,23 @@ func (e Entry) renderCarryOut() string {
 			e.WorkItemID, stopped.RunID)
 	}
 	if stopped.NoLongerApplies() {
-		fmt.Fprintf(&rendered, "      The %q recorded about run %s no longer applies, as the harness found at %s: %s\n",
-			stopped.Decision, e.RunID, stopped.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(stopped.Refusal))
-		rendered.WriteString("      Nothing was attempted or spent and nothing is anybody's to decide about it; only reopening the item and recording a new decision makes a recovery of the run apply again.\n")
+		what := fmt.Sprintf("The %q recorded about run %s", stopped.Decision, e.RunID)
+		if stopped.Decision == FinishMergeRequest {
+			what = fmt.Sprintf("Your request to finish the merge of run %s", e.RunID)
+		}
+		fmt.Fprintf(&rendered, "      %s no longer applies, as the harness found at %s: %s\n",
+			what, stopped.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(stopped.Refusal))
+		if clears := strings.TrimSpace(stopped.Clears); clears != "" {
+			fmt.Fprintf(&rendered, "      Nothing was attempted or spent. %s.\n", strings.TrimSuffix(clears, "."))
+		} else {
+			rendered.WriteString("      Nothing was attempted or spent and nothing is anybody's to decide about it; only reopening the item and recording a new decision makes a recovery of the run apply again.\n")
+		}
 		return rendered.String()
 	}
 	if stopped.Unattempted {
 		fmt.Fprintf(&rendered, "      No pass has attempted the %q you decided, as of %s; %s kept it back: %s\n",
 			stopped.Decision, stopped.RefusedAt.UTC().Format(time.RFC3339), stopped.Gate, strings.TrimSpace(stopped.Refusal))
+		rendered.WriteString(stopped.waitedSays())
 		rendered.WriteString(indented("What would clear it", stopped.Clears))
 		rendered.WriteString("      Nothing was spent and the decision still stands; the first pass that reaches it attempts it, and what that attempt comes to replaces this.\n")
 		return rendered.String()
@@ -2679,6 +2736,7 @@ func (e Entry) renderCarryOut() string {
 		fmt.Fprintf(&rendered, "      The harness is carrying out the %q you decided and is waiting on %s (%s, last at %s): %s\n",
 			stopped.Decision, stopped.Gate, plural(stopped.Attempts, "attempt", "attempts"),
 			stopped.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(stopped.Refusal))
+		rendered.WriteString(stopped.waitedSays())
 		rendered.WriteString(indented("What it is waiting for", stopped.Clears))
 		rendered.WriteString("      Nothing was spent and the decision still stands, so the pass that finds it open carries out the same one.\n")
 		return rendered.String()

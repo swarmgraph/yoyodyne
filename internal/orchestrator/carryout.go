@@ -234,6 +234,14 @@ type CarryOut struct {
 	// only once they are. Optional: a carry-out wired without it attempts that
 	// arming every time its pacing allows, and the Rearmer's own gate refuses it.
 	Items RearmItems
+	// Unfinished lists the unfinished items, read once a sweep to find an item
+	// broken out of a stopped run's item to rebuild that run's change, so a
+	// recovery of the run is set aside for it rather than carried out beside it
+	// (recoveryapplicability.go). Optional: a carry-out wired without it finds a
+	// replacement only where the development manager's stop decision names one.
+	Unfinished interface {
+		ListUnfinished(context.Context) ([]beads.WorkItem, error)
+	}
 	// CheckStages continues a run the check stage bound stopped, where she has
 	// decided nothing about it. Optional: a carry-out wired without it leaves such
 	// a stoppage on the docket for her, which is what it was before.
@@ -445,6 +453,7 @@ func (c CarryOut) read() (carryOutReading, error) {
 	// pass that does reads the runs once rather than once per item.
 	history := onceRecorded(c.Runs)
 	itemOf := c.itemReader()
+	unfinishedOf := c.unfinishedReader()
 	now := c.now()
 	read := make(map[string]outstandingItem, len(entries))
 	var items []string
@@ -509,8 +518,8 @@ func (c CarryOut) read() (carryOutReading, error) {
 		if recorded, err := history(); err == nil {
 			// The reading takes no context of its own, as the re-arm reading below
 			// does not; the tracker read it can make is the tracker's bounded one.
-			if account, settled := c.recoverySettled(context.Background(), task, entry.Closed, item.counters, recorded, itemOf); settled {
-				reading.settled = append(reading.settled, settledTask{task: task, account: account})
+			if account, settled := c.recoverySettled(context.Background(), task, entry.Closed, item.counters, recorded, itemOf, unfinishedOf); settled {
+				reading.settled = append(reading.settled, settledTask{task: task, notApplying: account})
 				return
 			}
 		}
@@ -701,7 +710,7 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 	// it is not a decision waiting on a pass, and until it is recorded every pass
 	// reads the item again to find the same thing.
 	for _, settled := range reading.settled {
-		if account := c.recordNoLongerApplies(ctx, settled.task, settled.account); account.RecordProblem != "" {
+		if account := c.recordNoLongerApplies(ctx, settled.task, settled.notApplying); account.RecordProblem != "" {
 			problems = append(problems, fmt.Errorf("record that the %q about run %s of %s no longer applies: %s",
 				settled.task.Decision, settled.task.RunID, settled.task.WorkItemID, account.RecordProblem))
 		}
