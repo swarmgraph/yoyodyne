@@ -502,6 +502,9 @@ type mergeQueuePasses struct {
 	// is the check stages the passes have going (queueCheckStages).
 	stops  map[runstate.MergeQueueKey]context.CancelFunc
 	checks *queueCheckStages
+	// checksCut is the restart having given up waiting on the passes' check
+	// stages (cutChecks).
+	checksCut bool
 }
 
 type mergeQueuePassDone struct {
@@ -588,13 +591,36 @@ const queueStepGrace = 30 * time.Second
 // stopping its passes for a restart.
 func (m *mergeQueuePasses) accepting() bool { return m.checks.accepting() }
 
+// cutChecks is a session past its drain bound giving up its wait on the queue
+// passes whose candidates' checks are running, because a developer slot sits
+// empty with work for it: each such pass is stopped part-way through its
+// stage, which the session that comes back runs again whole, and the restart
+// waits on no queue's checks from here. It returns the queues it stopped.
+func (m *mergeQueuePasses) cutChecks(now, ceiling time.Time) []runstate.MergeQueueKey {
+	m.checks.close()
+	m.checksCut = true
+	var keys []runstate.MergeQueueKey
+	for key := range m.checks.waiting(now, ceiling) {
+		if stop, ok := m.stops[key]; ok && m.inFlight[key] {
+			stop()
+			keys = append(keys, key)
+		}
+	}
+	slices.SortFunc(keys, func(a, b runstate.MergeQueueKey) int { return strings.Compare(a.TargetBranch, b.TargetBranch) })
+	return keys
+}
+
 // checkWaits is the check stages of the passes in flight the restart waits
 // for, in the order of their queues, past the drain bound. Reading it closes
 // the passes to new check stages, since only a session past its bound asks.
 // Past ceiling it is nothing, and every pass is stopped, so a candidate going
-// on from one check to the next holds the restart no longer than that.
+// on from one check to the next holds the restart no longer than that. Once
+// the waits have been given up (cutChecks) there are none.
 func (m *mergeQueuePasses) checkWaits(now, ceiling time.Time) []runstate.WatchCheckWait {
 	m.checks.close()
+	if m.checksCut {
+		return nil
+	}
 	if !now.Before(ceiling) {
 		m.cancel()
 		return nil
