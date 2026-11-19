@@ -35,6 +35,10 @@ revisions:
       by: architect
       at: 2026-11-18T15:56:15.443629Z
       reason: 'yoyodyne-ifd.429.224: a candidate''s pull request opens as a draft and is marked ready by the harness only once the reviewer has approved and every required check has passed on that exact commit, in the same step as the merge; the step is retried through GitHub outages like the merge and never hands an entry back; it returns to draft before a new commit is pushed or on withdrawal; a person''s merge of a ready candidate is followed like the harness''s own, and a merge the harness did not approve files a critical report. A label and a protection rule were rejected because each needs a setting only a person can change. Names one build piece. The rest of the section is copied unchanged from main 1d45a162, read whole before revising.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T04:55:04.87004Z
+      reason: 'yoyodyne-ifd.429.230: the trial starts only when the change turning the setting on lands, and that change waits for every listed piece including confirming the merge commit (yoyodyne-ifd.429.187) and for that confirmation run once over the landings through GitHub since build piece 8 of checks on CI, because unconfirmed landings would otherwise count as successes. Records step 2: the full local check compared with .github/workflows/ci.yml at main e4c9aa75; macOS tests stay in the quick checks, tests needing bd and possibly the Node render test are named gaps, with one build piece. Section read whole at e4c9aa75 before revising.'
 approvals:
     - revision: 0
       by: operator
@@ -70,6 +74,11 @@ approvals:
       by: harness
       at: 2026-11-18T15:56:15.443629Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3018, for document-3018.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-11-19T04:55:04.87004Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3036, for document-3036.1 under the automatic approval policy
 ---
 # Purpose
 
@@ -209,13 +218,26 @@ Rejected:
 
 **What must have landed first.** The setting, off by default (yoyodyne-ifd.429.76.1); reading GitHub's required checks for the exact candidate commit, with workflow digests and the base recorded (yoyodyne-ifd.429.185); the quick local checks, with the review beside the wait (yoyodyne-ifd.429.186); CI results counting only for the exact candidate commit and shown to the reviewer (yoyodyne-ifd.429.76.7); and confirming the merge commit after landing (yoyodyne-ifd.429.187). Each lands with the setting off, so nothing about the queue changes until the switch.
 
+**When the trial starts.** The trial starts with the landing of the change that turns the setting on for this repository (yoyodyne-ifd.429.76.8), and that change may land only once every piece above is on main and the check below has been made. Build piece 8 of [checks on CI](checks-on-ci.md) landing does not start it. The reason: until confirming the merge commit is on main, a landing through GitHub whose revision differs from the one that was checked goes unnoticed, so a trial started earlier would count as successes landings that nobody confirmed.
+
+**Checked once before the switch.** Changes have already landed through GitHub pull requests since build piece 8 of checks on CI landed, without the merge commit being confirmed. Once confirming the merge commit is on main, it is run once over each of those landings. A landing whose merge commit's first parent is not its recorded base, or whose files differ from its candidate's, is filed as a critical report, and the switch waits until each such report is settled.
+
 **The order of the switch.**
 
 1. The builds above land, with the setting off.
-2. The architect compares what this repository's CI jobs run with what the full local check runs, and records any test the local check runs that GitHub does not. Each one either joins the quick local checks or is named as a known gap before the trial starts.
+2. The architect compares what this repository's CI jobs run with what the full local check runs, and records any test the local check runs that GitHub does not. Each one either joins the quick local checks or is named as a known gap before the trial starts. The list is below.
 3. The operator's assistant confirms, on his direction, that the protection on `main` requires exactly the CI job names the harness reads, and that GitHub's own merge queue stays off for `main`, as the section on it below requires. Repository settings are changed only by a person, never by an agent.
-4. The change that turns the setting on for this repository (yoyodyne-ifd.429.76.8) lands. That landing starts the trial.
-5. At the end, the architect records the result in this design.
+4. The check of earlier landings above is made.
+5. The change that turns the setting on for this repository (yoyodyne-ifd.429.76.8) lands. That landing starts the trial.
+6. At the end, the architect records the result in this design.
+
+**Step 2: what the full local check runs that GitHub does not.** Compared on November 18, 2026 from the Makefile and `.github/workflows/ci.yml` at main e4c9aa75. The full local check, `make check`, runs `fmtcheck`, `test`, `race` and `vet`. GitHub's required jobs `test`, `race` and `vet` run `make test`, `make race` and `make vet` on Ubuntu, and the `build` job runs `make fmtcheck` and `make build`, so every target of the full local check runs on GitHub too. What differs is the tests those targets run on each machine:
+
+- **Tests only macOS runs.** The packages `make test-macos` names, and the test in `internal/beads` that runs the developer sandbox under `sandbox-exec`, run nothing on Ubuntu. They are already in the quick local checks and stay there.
+- **Tests that need the tracker program.** Tests that skip where `bd` is not installed skip in GitHub's `test` and `race` jobs, which install no `bd`. The `adoption` job installs it, but runs only the tracker conformance tests and is not a required check. This is a known gap for the trial; it is not moved into the quick local checks, because that would run the whole of `internal/beads` locally on every candidate. A build piece closes it: GitHub's `test` job installs the same pinned `bd` the `adoption` job installs.
+- **The dashboard render test.** It skips where Node is not installed, and `make test` prints whether it passed or skipped. Whether GitHub's Ubuntu machine has Node was not confirmed for this revision. The same build piece reads that line in one `test` job's output; if it says SKIP, the piece adds a step that installs Node to the `test` job, and until then the test is a known gap.
+
+The `race` check is the same on both: each runs `make race` with no package list, so both skip only a change that is all documents, and GitHub's job fetches the whole history that comparison needs. The `adoption` and `codex-resume` targets are not part of the full local check, so they are not gaps.
 
 **What it measures,** each against the three days before the trial, read from the queue's own records of each choice and each landing:
 
@@ -228,14 +250,18 @@ Rejected:
 
 **How long.** Three working days or 40 landings, whichever comes later.
 
-**When it switches back.** At once on a break on `main` that the full local check would have caught; or when fewer than 11 changes land a day for two days running. Switching back is one configuration change, the setting off again, made by the operator's assistant on his direction. Nothing else changes back, because every other rule of the queue stays as it was.
+**When it switches back.** At once on a break on `main` that the full local check would have caught, including one in a test named above as a known gap; or when fewer than 11 changes land a day for two days running. Switching back is one configuration change, the setting off again, made by the operator's assistant on his direction. Nothing else changes back, because every other rule of the queue stays as it was.
 
 **The entries already waiting.** They stay in the queue in the order [the order the queue takes entries in](#the-order-the-queue-takes-entries-in) gives, and from the switch onward go through the new path; most have waited past eight hours, so they go oldest first under its first rule. An entry whose candidate is being checked when the switch happens finishes in the way it started.
+
+Build work: one piece, built and checked on its own. GitHub's `test` job installs the pinned `bd` the `adoption` job installs, and the piece records from one `test` job's output whether the dashboard render test passed or skipped, adding a step that installs Node where it skipped.
 
 A reviewer can check:
 
 - with the setting off, the queue runs exactly as before, whatever has landed;
-- the trial starts only with the change that turns the setting on for this repository, after the protection on `main` was confirmed;
+- the change that turns the setting on lands only after every piece above is on main, the earlier landings have been checked once, and the protection on `main` was confirmed;
+- each earlier landing whose first parent or files differ is filed as a critical report;
+- the step 2 list names every test the full local check runs that GitHub does not, each either in the quick local checks or named as a known gap;
 - each figure above is read from the queue's records, not estimated;
 - switching back needs only the setting turned off.
 
