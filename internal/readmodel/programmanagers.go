@@ -299,6 +299,13 @@ type ProgramManager struct {
 	// waiting, taken, joined to another, completed, or failed, and since when.
 	// It is empty rather than absent for an instance nobody has asked.
 	PassRequests []ProgramManagerPassRequest `json:"pass_requests"`
+	// OpenRequests is every record of the instance's own that is still open, by
+	// identifier: its restart requests nothing has answered, its reports the Lead
+	// Product Manager has not handled — its digests among them — its amendments
+	// nobody has decided, and its exchanges still open. It is what the other
+	// instances' opening lines name it by, and what its own digest restates. It
+	// is empty rather than absent for an instance with none.
+	OpenRequests []string `json:"open_requests"`
 }
 
 // ReadProgramManagers is every program manager instance: each one the
@@ -517,6 +524,7 @@ func deriveProgramManager(sources Sources, instance ProgramManagerInstance, reco
 			derived.RestartRequests = append(derived.RestartRequests, request)
 		}
 	}
+	derived.OpenRequests = records.openOf(instance.Agent)
 
 	var problem, requestsProblem string
 	derived.PassRequests, requestsProblem = readPassRequests(sources, instance.Agent)
@@ -822,6 +830,49 @@ func (c citable) resolve(agent, cites string) (CitedRecord, string) {
 		return "", fmt.Sprintf("it cites %s, which no record that could be read holds; the %s could not be read", cites, strings.Join(c.unread, " and the "))
 	}
 	return "", fmt.Sprintf("it cites %s, which is no request, report, amendment, or exchange on record", cites)
+}
+
+// openOf is every record of the agent's own that is still open, by identifier:
+// restart requests, then reports, then amendments, then exchanges, each in the
+// order it was raised. It is the same reading resolve makes of one citation,
+// made of all of them.
+func (c citable) openOf(agent string) []string {
+	open := []string{}
+	for _, request := range c.restartRequests {
+		if request.Agent == agent && request.Open() {
+			open = append(open, request.ID)
+		}
+	}
+	var filed []report.Report
+	for _, entry := range c.reports {
+		if _, handled := c.handled[entry.ID]; entry.Agent == agent && !handled {
+			filed = append(filed, entry)
+		}
+	}
+	for _, entry := range report.ByFiling(filed) {
+		open = append(open, entry.ID)
+	}
+	for _, proposal := range amendment.Pending(c.amendments) {
+		if proposal.Agent == agent {
+			open = append(open, proposal.ID)
+		}
+	}
+	var asked []exchange.Exchange
+	for _, entry := range c.exchanges {
+		if entry.Asker.Agent == agent && entry.Open() {
+			asked = append(asked, entry)
+		}
+	}
+	sort.Slice(asked, func(first, second int) bool {
+		if !asked[first].OpenedAt.Equal(asked[second].OpenedAt) {
+			return asked[first].OpenedAt.Before(asked[second].OpenedAt)
+		}
+		return asked[first].ID < asked[second].ID
+	})
+	for _, entry := range asked {
+		open = append(open, entry.ID)
+	}
+	return open
 }
 
 func nameOrNobody(agent string) string {
