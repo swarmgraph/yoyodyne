@@ -11,12 +11,21 @@ revisions:
       by: architect
       at: 2026-11-09T17:52:13.891049Z
       reason: 'yoyodyne-ifd.429.132: rules on the operator''s proposal of November 8 to move the race check out of the merge queue, and on what else raises the queue''s landing rate, keeping every landing commit checked whole by its declared list and independently reviewed. Names five build pieces. Written from reads at main 06f384c0.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T20:09:55.758998Z
+      reason: 'Brings decision 1''s run on main every four hours into line with the November 19 ruling that a failure there runs only its failing tests once more on the same commit: a pass the second time files a warning with both results and leaves the last clean commit where it was; a second failure, tests that cannot be named, or a second run that cannot run files the critical report at priority 0; the same test doing this twice in seven days files the critical report. Written from a read of the whole design at main 6df1c6caf; nothing else in the section changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-11-09T17:52:13.891049Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2540, for document-2540.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-19T20:09:55.758998Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3133, for document-3133.1 under the automatic approval policy
 ---
 # How the harness's merge queue lands more than one change an hour
 
@@ -52,9 +61,11 @@ The race check moves to two other places. Both are already ruled under guarantee
 
 - **Before review, in the developer's run.** The race check runs whenever Go code changed, on the packages the change touches and the packages that depend on them (race point 1 of guarantee 9). Its passing result is recorded against the approved head.
 - **On main every four hours, whenever main has moved** (race point 4).
-  - A failure is not run again to make it pass.
-  - The harness files a critical report naming the failing tests, the commit, the last clean commit and the commits between them.
-  - The failure is admitted at priority 0 with the reliability label.
+  - When the run fails, the harness runs only the failing tests once more, on the same commit, under the race detector with the same settings. Both results are kept and shown.
+  - If every one of those tests passes the second time, the harness files a warning report naming them, the commit, and both results. A run that passed only on the second try is not clean: the last clean commit named in later reports does not move, so a race that comes back is still traced to every commit it could have come from.
+  - If a test fails again, the failing tests cannot be named from the output, or the second run cannot run, the harness files a critical report naming the failing tests, the commit, the last clean commit and the commits between them. The failure is admitted at priority 0 with the reliability label.
+  - The same test failing and then passing on main twice within seven days files the critical report after all, naming both runs.
+  - Nothing is hidden by the second run: the first result is kept and reported in every case, and only how severe the report is depends on the second run. This was ruled on November 19 (yoyodyne-fgkk), because tests that GitHub's race job passed on the same commit were raising critical reports, and the same single second run was already ruled for developer runs (yoyodyne-ifd.429.87).
 
   The operator proposed a nightly run. Four hours is kept because it was already ruled, and it shortens the time a race can sit on main.
 
@@ -65,6 +76,8 @@ At admission the queue reads the approved head's record. If Go code changed and 
 - The 44 race failures look like timing under load rather than races found, and no fix of a data race has landed since August.
 - The race detector sees only memory shared inside one process. The harness's real trouble with sharing has come between processes, which file locks guard and the detector cannot see.
 - The race check costs more than half of each code candidate's time.
+
+A second risk follows from the run on main: a real race that shows only now and then is reported as a warning the first time it passes on the second try. The seven-day repeat rule and the unmoved last clean commit limit that risk.
 
 A separate item is classifying the 44 failed race runs. If it finds a real race that only the check on the combined change caught, this decision is revisited, and the race check goes back on the queue's list.
 
