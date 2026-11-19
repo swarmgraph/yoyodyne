@@ -14,6 +14,10 @@ revisions:
       by: architect
       at: 2026-10-25T01:31:19.42613Z
       reason: 'yoyodyne-ifd.428.113: the last revision the design for fewer lifecycle states asks for. A stopped run with a wait that keeps the stop listed counts as stopped; the unresolved hold leaves the development manager''s alternatives and the unknown-result rule, which now records a wait that keeps the stop listed; every wait the harness records for her while she is unavailable keeps the stop listed, so act 5''s check no longer passes at once; the stopped-run recovery and fresh factory-health revisions are recorded as landed.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T06:03:08.011622Z
+      reason: 'Point 5 of the check of six designs against what has landed (yoyodyne-ifd.437.72), answering report-082a83d3: the line on a run sent back from landing said it goes ahead of fresh work of the same priority, while the operator''s rule of October 25 puts work on a kept change ahead of fresh work of any priority, the reliability slot and any dedicated slot included. One sentence changes; nothing else. Point 3 was checked in the same pass and already agrees. Read at main 3396a1a9.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -25,6 +29,11 @@ approvals:
       by: harness
       at: 2026-10-25T01:31:19.42613Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1672, for document-1672.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-11-19T06:03:08.011622Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3047, for document-3047.1 under the automatic approval policy
 ---
 # Forward progress: every admitted item moves or stops with an owner, slots fill when work and capacity exist, recovery ends, and the harness repairs within bounds when management cannot
 
@@ -141,7 +150,7 @@ A developer slot whose provider can be used, left empty for ten minutes while at
 
 - A slot whose provider cannot be used, by the pause on an exhausted provider endpoint (yoyodyne-ifd.435.10) or a login that has lapsed, is not a free slot. It is shown as a slot without capacity, and the items it would take are waiting for capacity, not neglected.
 - A run waiting for a permit for a heavy check keeps its developer slot, as [capacity for heavy checks](heavy-check-capacity.md) says, and is running rather than waiting for capacity, because its worker is live.
-- **A run waiting only to land holds no developer slot.** That is a run whose change is approved and whose remaining steps are the landing and confirming its merge. Those steps are the harness's own under the target branch's landing lease, and a developer slot taken by them keeps a developer from new work while nothing is being developed. The slot is released when the run reaches that step, as a dependency wait releases it. The item stays reserved against a second run. If the run is sent back to its developer, by a conflict the developer can resolve or by checks before landing failing, it takes a slot again like a decided repair, ahead of fresh work of the same priority.
+- **A run waiting only to land holds no developer slot.** That is a run whose change is approved and whose remaining steps are the landing and confirming its merge. Those steps are the harness's own under the target branch's landing lease, and a developer slot taken by them keeps a developer from new work while nothing is being developed. The slot is released when the run reaches that step, as a dependency wait releases it. The item stays reserved against a second run. If the run is sent back to its developer, by a conflict the developer can resolve or by checks before landing failing, it takes a slot again as a decided repair does. Under the [operating rule](../product/operating-rules.md) that work on a change a run has already written and kept goes first, any freed developer slot takes it, the reliability slot and any dedicated slot included, ahead of fresh work of any priority.
 
 ### Landing is coordinated, and visible when it is not
 
