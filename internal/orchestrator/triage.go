@@ -731,6 +731,12 @@ func (d Docketer) joinDecisions(entries []triage.Entry, docketedRuns map[string]
 		// harness is about to act on, which is precisely what a refused carry-out
 		// is not.
 		entry.CarryOut = docketedCarryOut(*entry, decisions.counters)
+		// A request to finish the run's merge is on the run rather than on the
+		// item's record, so one set aside because it no longer applies is read from
+		// the run (recoveryapplicability.go), where nothing later stands about it.
+		if entry.CarryOut == nil && recorded {
+			entry.CarryOut = setAsideFinishMerge(*entry, run)
+		}
 		// A finding about the item's latest decision is shown on the item's entries
 		// where that decision names a run this docket holds no entry for, because
 		// otherwise nothing she reads would carry it: yoyodyne-ifd.187's re-run of
@@ -751,6 +757,16 @@ func docketedRunsOf(entries []triage.Entry) map[string]bool {
 		runs[entry.RunID] = true
 	}
 	return runs
+}
+
+// decidedAtOf is when the decision a carry-out finding is about was recorded:
+// the decision on the item's record where there is one, and otherwise the time
+// the finding itself carries.
+func decidedAtOf(counters runstate.TriageCounters, runID string, recorded runstate.TriageCarryOut) time.Time {
+	if decision, decided := counters.DecisionOf(runID); decided {
+		return decision.DecidedAt
+	}
+	return recorded.DecidedAt
 }
 
 // undocketedCarryOut is the carry-out finding about the item's latest decision
@@ -780,6 +796,7 @@ func undocketedCarryOut(entry triage.Entry, counters runstate.TriageCounters, do
 		Attempts:    recorded.Attempts,
 		RefusedAt:   recorded.RefusedAt,
 		Unattempted: recorded.Unattempted,
+		DecidedAt:   decidedAtOf(counters, latest.RunID, recorded),
 	}
 }
 
@@ -811,6 +828,7 @@ func docketedCarryOut(entry triage.Entry, counters runstate.TriageCounters) *tri
 		Attempts:    recorded.Attempts,
 		RefusedAt:   recorded.RefusedAt,
 		Unattempted: recorded.Unattempted,
+		DecidedAt:   decidedAtOf(counters, entry.RunID, recorded),
 	}
 }
 
