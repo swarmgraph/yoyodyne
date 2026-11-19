@@ -1019,6 +1019,67 @@ request and what answered it on a line of its own. It is also the honest
 limit of it: the harness carries reports to the role that decides, and nothing
 here judges whether it decided well.
 
+### A program manager's digest
+
+A [program manager](designs/program-manager.md) files nothing per finding.
+Everything one of its passes has to say outside its lane goes to the Lead
+Product Manager as **one digest per pass**. It is an ordinary report in the same
+pile: it arrives in her walk of the pile beside every other report, and she
+decides it with the same `handle` action. What makes it a digest is its fixed
+shape, so a run of them reads alike:
+
+- the lane and the pass, which the harness stamps rather than the instance;
+- the items the pass admitted in its lane;
+- each request outside the lane: the work, the goal it would serve, the
+  recommended priority, and why;
+- each objection to a new admission: the item and the concern;
+- one line for each repeated stop cause the pass counted, naming the report that
+  already stands for it, where the pass counted any;
+- the instance's open requests from earlier passes, restated by id rather than
+  repeated.
+
+The instance writes it as one entry of its report block, with a `digest` in
+place of the message:
+
+```text
+{"reports":[{"severity":"warning","digest":{"admissions":["yoyodyne-ifd.500"],
+ "requests":[{"work":"a check on the build cache","goal":"Run development nearly autonomously.","priority":1,"why":"three runs stopped on it"}],
+ "objections":[{"item":"yoyodyne-ifd.501","concern":"it repeats yoyodyne-ifd.480"}],
+ "stop_causes":["check-time-limit/bound/checking: 4 stops, report report-…"],
+ "open_requests":["report-…"]}}]}
+```
+
+The pile shows it as text, so `yoyo reports`, `/reports`, and the walk read it
+without knowing it is a digest:
+
+```text
+  !  report-… [warning] 2026-09-28T16:00:00Z from the factory-flow (program-manager) (…)
+      Digest of the lane "factory-flow", from pass factory-flow#12.
+      Admitted in the lane this pass: yoyodyne-ifd.500.
+      Requests outside the lane:
+      - a check on the build cache — would serve: Run development nearly autonomously.; recommended priority 1; why: three runs stopped on it
+      Objections to new admissions:
+      - yoyodyne-ifd.501: it repeats yoyodyne-ifd.480
+      Repeated stop causes:
+      - check-time-limit/bound/checking: 4 stops, report report-…
+      Open requests from earlier passes: report-….
+```
+
+`yoyo reports --json` carries the shape itself under `digest`.
+
+A digest is filed at `note`, or at `warning` where it carries an objection or a
+blocker of the instance's own. It is never `critical`, because something
+already costing somebody is a report of its own. A pass with nothing to say
+files no digest, and a digest with nothing in it is refused. So is a reply
+carrying two, a second digest in a pass that already filed one, a digest from a
+turn no pass woke, and a digest that does not hold to the shape. Each list holds
+at most 20 entries. A refused digest is not filed; anything else in the same
+report block still is. The reason is written on the pass's record, which `yoyo
+sweeps` reads, and the instance is told on its next turn.
+
+Only a program manager may file one. A digest in any other role's report block
+is refused as that report is collected.
+
 ### Whether the pile is draining
 
 Neither the walk nor the bound is worth anything if nobody talks to the Lead Product

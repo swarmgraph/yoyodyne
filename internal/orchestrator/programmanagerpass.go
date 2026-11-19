@@ -64,6 +64,15 @@ package orchestrator
 // one whose pass a stopped process was carrying is taken again; one whose pass
 // another process is still carrying, with a turn in flight, is not.
 //
+// # What a pass opens with
+//
+// Every pass's message leads with the read model as the operator's surfaces
+// project it: the standing, the throughput windows, the capacity state, the
+// docket and the reports pile as counts, and a line per other instance naming
+// its lane, its status, and its open requests. It is read afresh for each pass,
+// because an instance's conversation is resumed rather than opened and what it
+// was briefed with when it opened is days old. See readmodel/passopening.go.
+//
 // # The model
 //
 // A pass asks for the agent's own model: an instance's triggers name none, and
@@ -80,6 +89,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 )
@@ -149,6 +159,12 @@ type PassRequests interface {
 // conversation, without taking it.
 type InstanceConversations interface {
 	InFlight(agent string) (bool, error)
+}
+
+// PassReadModel is the read model as a pass opens with it. It is satisfied in
+// the CLI over the stores `yoyo status` reads.
+type PassReadModel interface {
+	Opening(ctx context.Context) readmodel.PassOpening
 }
 
 // passStreamOf is the stream a trigger class is read from.
@@ -297,7 +313,7 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 			pass:    passName(claimed),
 			task:    task,
 			trigger: trigger,
-			message: instanceMessage(agent, instance, due, nil, wake, t.addressedTo(task)) + t.stopCauseSection(agent, wake),
+			message: instanceMessage(agent, instance, due, nil, wake, t.addressedTo(task), t.opening(ctx, agent)) + t.stopCauseSection(agent, wake),
 			agent:   agent,
 			events:  wake.counts(),
 			stops:   wake.stops(),
@@ -379,7 +395,7 @@ func (t Trigger) requestedPass(ctx context.Context, agent string, instance confi
 			pass:    pass,
 			task:    task,
 			trigger: runstate.PassTriggerRequest,
-			message: instanceMessage(agent, instance, false, &request, wake, t.addressedTo(task)) + t.stopCauseSection(agent, wake),
+			message: instanceMessage(agent, instance, false, &request, wake, t.addressedTo(task), t.opening(ctx, agent)) + t.stopCauseSection(agent, wake),
 			agent:   agent,
 			events:  wake.counts(),
 			stops:   wake.stops(),
@@ -606,13 +622,22 @@ func (t Trigger) advance(ctx context.Context, agent string, wake passWake, answe
 	return ""
 }
 
+// opening is what the instance's pass opens with, rendered for it, or a
+// sentence saying nothing was wired to read it.
+func (t Trigger) opening(ctx context.Context, agent string) string {
+	if t.ReadModel == nil {
+		return "# Where the product stands, from the read model\n\nNothing was wired to read the read model for this pass, so it opens without the standing, the throughput, the capacity state, the docket, the reports pile, or the other instances' lines. Do not read their absence as nothing to report."
+	}
+	return t.ReadModel.Opening(ctx).Render(agent)
+}
+
 // instanceMessage is what the harness says when it wakes an instance for a
 // pass: who woke it and why, the standing constraints every recurring turn
-// carries, the events since its cursor grouped by stream, the reports addressed
-// to the program manager role as addressedTo renders them, and the account
-// contract. Every instance is put the same reports: a report names the role,
-// not one instance of it.
-func instanceMessage(agent string, instance config.AgentConfig, due bool, request *runstate.PassRequest, wake passWake, addressed string) string {
+// carries, the read model it opens with, the events since its cursor grouped
+// by stream, the reports addressed to the program manager role as addressedTo
+// renders them, and the account contract. Every instance is put the same
+// reports: a report names the role, not one instance of it.
+func instanceMessage(agent string, instance config.AgentConfig, due bool, request *runstate.PassRequest, wake passWake, addressed, opening string) string {
 	lane := strings.TrimSpace(instance.Lane)
 	who := fmt.Sprintf("The harness woke you, the program manager instance %q", agent)
 	if lane != "" {
@@ -633,6 +658,9 @@ func instanceMessage(agent string, instance config.AgentConfig, due bool, reques
 		who + why + " Nobody is waiting at a terminal for this: what you produce is recorded and read later.",
 		"Your authority here is exactly the authority your role already holds — this turn grants you nothing extra, and nothing about being woken on a schedule or by an event widens what you may decide or change.",
 		"Before you file anything, check it against the work already admitted. A duplicate admission costs a whole run and the reviews after it, and a pass that runs on a schedule files the same duplicate every time it runs.",
+		"Everything this pass has to say outside your lane goes to the Lead Product Manager as one digest in your report block, as your contract describes; a pass with nothing to say files none.",
+		"",
+		opening,
 		"",
 	}
 	if request != nil {

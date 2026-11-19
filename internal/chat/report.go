@@ -88,12 +88,20 @@ func deliveredReportBudget(unhandled int) int {
 // and nothing about what the product manager did depended on the block. What is
 // lost is what it was trying to tell the operator, which is exactly why it is
 // said out loud rather than swallowed.
+//
+// Role is the role whose reply carried the block; an empty one is the Lead
+// Product Manager, whose conversation this error was first written for.
 type ReportError struct {
-	Err error
+	Role domain.AgentRole
+	Err  error
 }
 
 func (e *ReportError) Error() string {
-	return "the Lead Product Manager reported something the harness cannot read: " + e.Err.Error()
+	role := e.Role
+	if role == "" {
+		role = domain.RoleProductManager
+	}
+	return "the " + RoleTitle(role) + " reported something the harness cannot read: " + e.Err.Error()
 }
 
 func (e *ReportError) Unwrap() error { return e.Err }
@@ -154,7 +162,7 @@ func (s *Session) recordReportsWithoutToolAudit(entries []report.Entry) ([]repor
 // read. Nothing about the turn changes; without this the report would leave no
 // trace anywhere.
 func (s *Session) noteUnreadableReport(cause error) string {
-	problem := (&ReportError{Err: cause}).Error()
+	problem := (&ReportError{Role: s.state.Role, Err: cause}).Error()
 	if err := s.emit(execution.EventReportUnreadable, map[string]any{
 		"turn":    s.state.Turns,
 		"problem": problem,
@@ -752,4 +760,68 @@ func reportFiled(out io.Writer, theme console.Theme, role domain.AgentRole, repl
 		fmt.Fprintf(out, "a report was not collected: %s\n", reply.ReportProblem)
 	}
 	fmt.Fprintln(out)
+}
+
+// stampDigest stamps a program manager's digest with its lane and its pass, and
+// refuses the digest — and only the digest — where it cannot be filed: this turn
+// is no pass's, or the pass has already filed one. What else the block carried
+// is filed as it would have been, because a critical report beside a refused
+// digest must not be lost with it.
+//
+// Which role may file a digest at all is the report's own rule, applied as it is
+// collected; this is the part only the conversation knows: its lane, and the
+// pass that woke it.
+func (s *Session) stampDigest(entries []report.Entry) ([]report.Entry, string) {
+	// The digest's shape and how many the block carried are judged first, and a
+	// refusal drops the digest alone.
+	candidates, shapeRefusal := report.SeparateDigests(entries)
+	kept := make([]report.Entry, 0, len(candidates))
+	var refused string
+	if shapeRefusal != "" {
+		refused = "the digest this turn carried was refused and nothing of it was filed: " + shapeRefusal
+	}
+	for _, entry := range candidates {
+		if entry.Digest == nil {
+			kept = append(kept, entry)
+			continue
+		}
+		if s.state.Role != report.DigestFiler {
+			refused = fmt.Sprintf("the digest this turn carried was refused and nothing of it was filed: a digest is filed by the %s alone", report.DigestFiler.Title())
+			continue
+		}
+		if reason := s.digestRefusal(); reason != "" {
+			refused = "the digest this turn carried was refused and nothing of it was filed: " + reason
+			continue
+		}
+		stamped := *entry.Digest
+		stamped.Lane, stamped.Pass = s.lane(), s.pass
+		entry.Digest = &stamped
+		kept = append(kept, entry)
+	}
+	return kept, refused
+}
+
+// digestRefusal says why a digest cannot be filed from this turn, or nothing
+// where it can. A digest is one pass's, so a turn no pass woke files none, and a
+// pass that already filed one files no second: the pile is read to say which,
+// because a pass's turns are separate conversations opened one after another.
+func (s *Session) digestRefusal() string {
+	switch {
+	case s.pass == "":
+		return "a digest is a pass's account of what leaves the lane, and this turn is not a pass's; say it to the operator in prose, or file it on your next pass"
+	case s.lane() == "":
+		return "this instance is configured with no lane, so there is no lane for a digest to be about"
+	case s.options.Reports == nil:
+		return errNoReports.Error()
+	}
+	filed, err := s.options.Reports.List()
+	if err != nil {
+		return fmt.Sprintf("whether pass %s already filed a digest could not be read, so none is filed rather than risking a second: %v", s.pass, singleLine(err.Error(), maxTrackerFailureBytes))
+	}
+	for _, earlier := range filed {
+		if earlier.Digest != nil && earlier.Agent == s.options.Agent && earlier.Digest.Pass == s.pass {
+			return fmt.Sprintf("pass %s already filed its digest as %s, and a pass files one", s.pass, earlier.ID)
+		}
+	}
+	return ""
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/health"
 	"github.com/mason-bryant/yoyodyne/internal/logread"
 	"github.com/mason-bryant/yoyodyne/internal/mcpcall"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/repositoryread"
 	"github.com/mason-bryant/yoyodyne/internal/research"
 	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
@@ -55,6 +56,7 @@ func Default() (action.Registry[Call], error) {
 		declaration(capability.AgentContextMutate, "yoyodyne-memory", action.ToolAct, "Write the agent's own memory.", "Each write remembers something, shortens what is remembered, or retires it; at most four in one reply.", "your own memory, with secrets removed and its size limited", "(*Session).performMemoryWrites", action.ToolBounds{RequestsPerReply: 4, RoundsPerMessage: 4}),
 		declaration(capability.LaneReportWrite, "yoyodyne-lane-report", action.ToolAct, "Write the agent's lane report.", "One lane report, which must give a summary, what remains, and what is blocking it.", "your own lane report and no other", "(*Session).writeLaneReport", action.ToolBounds{RequestsPerReply: 1, RoundsPerMessage: 4}),
 		declaration(capability.StopCauseRecord, "yoyodyne-stop-causes", action.ToolAct, "Count the stopped runs your pass was handed and file each cause's one report.", "One block a reply. Each stop names a run and when it stopped, and is counted only where your pass was handed it; each report names a cause, what was at fault, the remedy, and what happened; each note corrects a report already filed.", "your own account of why runs stopped and no other; it changes no report already filed", "(*Session).performStopCauses", action.ToolBounds{RequestsPerReply: 1, RoundsPerMessage: 4}),
+		declaration(capability.ReadModelRead, "yoyodyne-readmodel", action.ToolRead, "Read one named query of the read model in full.", `One block names one query as {"query":"docket"}. The queries are `+readmodel.QueryList()+`; the lane-report query also names the instance as "agent". A block naming two queries, a reply with two blocks, and a name that is not a query are refused with this list, and you may ask again in the round that says so. Every pass already opens with the standing, the throughput windows, the capacity state, the docket and the reports pile as counts, and a line per other program manager; ask for a query where you need what is behind a count.`, "the read model the operator's surfaces are projected from, and never a surface itself; a result longer than 96 KiB is cut with the cut declared", "(*Session).performReadModelAsk", action.ToolBounds{RequestsPerReply: 1, RoundsPerMessage: 2, BytesPerRequest: readmodel.MaxQueryResultBytes, BytesPerReply: readmodel.MaxQueryResultBytes}),
 		declaration(capability.PassRequest, "yoyodyne-pass-request", action.ToolAct, "Ask for a program manager instance's next pass.", "One request naming a configured program manager and what its next pass should look at.", "the configured program managers; the harness alone decides when the pass happens", "(*Session).performPassRequest", action.ToolBounds{RequestsPerReply: 1, RoundsPerMessage: 4}),
 		declaration(capability.ServiceRequestRestart, "yoyodyne-restart", action.ToolAct, "Record a request for a product part to restart.", "One request naming the part and the reason.", "the product's known parts; only the process that supervises them acts on the request", "(*Session).performRestartRequest", action.ToolBounds{RequestsPerReply: 1, RoundsPerMessage: 4}),
 	}
@@ -125,7 +127,6 @@ var Excluded = map[capability.Capability]string{
 	capability.RunStateMutate:     "durable runtime bookkeeping, never requested by a role",
 	capability.ReviewVerdict:      "a run's output, never a tool request",
 	capability.InvariantMutate:    "the invariant CLI, not a conversation request",
-	capability.ReadModelRead:      "declared ahead of the handler for its named query; no request implements it yet",
 	capability.ExchangeAnswer:     "the harness invokes an advisory answer, not a requested action in the answering reply",
 }
 

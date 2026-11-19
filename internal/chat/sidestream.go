@@ -62,6 +62,7 @@ func (a Authority) OnSideStream() Authority {
 		sidestream.Permits(capability.RepositoryList)
 	narrowed.RepositorySearch = a.RepositorySearch && narrowed.RepositoryReads && sidestream.Permits(capability.RepositorySearch)
 	narrowed.LogReads = a.LogReads && sidestream.Permits(capability.LogRead)
+	narrowed.ReadModel = a.ReadModel && sidestream.Permits(capability.ReadModelRead)
 	narrowed.RunInspects = a.RunInspects && sidestream.Permits(capability.RunInspect)
 	narrowed.RunVerifies = a.RunVerifies && sidestream.Permits(capability.RunVerify)
 	narrowed.RunRecovers = a.RunRecovers && sidestream.Permits(capability.RunRecover)

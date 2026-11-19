@@ -511,6 +511,12 @@ type Trigger struct {
 	// trigger wired without it takes no pass anybody asked for, and an instance
 	// whose triggers say nothing is never woken.
 	Requests PassRequests
+
+	// ReadModel is what an instance's pass opens with: the standing, the
+	// throughput windows, the capacity state, the docket and the reports pile as
+	// counts, and a line per other instance. Optional: a trigger wired without
+	// one wakes an instance with its events alone and says so in the message.
+	ReadModel PassReadModel
 	// Conversations says whether a turn is in flight on an instance's
 	// conversation, so an unfinished pass is not mistaken for a dead one.
 	// A due pass queues when it opens the conversation, as a recurring task does.
