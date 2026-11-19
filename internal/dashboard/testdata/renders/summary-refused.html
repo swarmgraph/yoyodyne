@@ -169,7 +169,7 @@
         <section id="live" class="panel live" data-state="ready" aria-labelledby="live-heading">
           <div class="panel-head">
             <h2 id="live-heading">Running now</h2>
-            <p class="panel-note">each developer run and each conversation with a turn in flight</p>
+            <p class="panel-note">each developer run and each conversation with a turn in flight, and each developer slot standing idle with what it prefers</p>
           </div>
           <div class="section-ready">
             <ul id="live-problems" class="degraded" hidden></ul>
@@ -189,6 +189,7 @@
                   <span class="sep"> · </span>
                   <span class="spend">$3.41 so far</span>
                 </p>
+                <p class="card-slot">In developer slot 1, which prefers the reliability label.</p>
                 <p class="card-provenance">claude-code · claude-opus-5 · account default</p>
                 <p class="card-id">started 2026-09-19 13:53:00 · run-c07d6849e1f55fd7b982600b8f97a303</p>
               </li>
@@ -207,6 +208,7 @@
                   <span class="sep"> · </span>
                   <span class="spend spend-unknown">cost unknown (its event log is gone)</span>
                 </p>
+                <p class="card-slot">In developer slot 2, which prefers the usability, product or performance labels.</p>
                 <p class="card-provenance">claude-code · claude-opus-5 · account default</p>
                 <p class="card-id">started 2026-09-19 14:02:00 · run-49839de311bd6b4d06fbfb41f22abdf1</p>
               </li>
@@ -225,6 +227,7 @@
                   <span class="sep"> · </span>
                   <span class="spend">$12.80 so far</span>
                 </p>
+                <p class="card-slot">In developer slot 3, which prefers no label.</p>
                 <p class="card-provenance">claude-code · claude-opus-5 · medium effort · account pool-b</p>
                 <p class="card-id">started 2026-09-19 11:20:00 · run-5035c832b1e04d7fa9c3e2b8d1f06a11</p>
               </li>
@@ -260,6 +263,7 @@
                 <p class="card-provenance">claude-code · claude-fable-5-1</p>
               </li>
             </ul>
+            <ul id="slots-idle" class="slots-idle" aria-label="Developer slots standing idle" hidden></ul>
             <p id="live-note" class="footnote" hidden></p>
           </div>
         </section>

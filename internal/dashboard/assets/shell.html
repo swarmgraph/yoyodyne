@@ -87,7 +87,7 @@
     <section id="live" class="panel live" data-state="loading" aria-labelledby="live-heading">
       <div class="panel-head">
         <h2 id="live-heading">Running now</h2>
-        <p class="panel-note">each developer run and each conversation with a turn in flight</p>
+        <p class="panel-note">each developer run and each conversation with a turn in flight, and each developer slot standing idle with what it prefers</p>
       </div>
       <div class="section-loading"><p class="waiting"><span class="pulse" aria-hidden="true"></span>Reading…</p></div>
       <div class="section-error" role="alert"><p id="live-problem" class="problem"></p><p id="live-remedy" class="remedy"></p></div>
@@ -95,6 +95,7 @@
       <div class="section-ready">
         <ul id="live-problems" class="degraded"></ul>
         <ul id="cards" class="cards"></ul>
+        <ul id="slots-idle" class="slots-idle" aria-label="Developer slots standing idle" hidden></ul>
         <p id="live-note" class="footnote" hidden></p>
       </div>
     </section>
