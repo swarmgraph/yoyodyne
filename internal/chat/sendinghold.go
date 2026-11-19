@@ -261,6 +261,25 @@ func (s *Session) refuseWriteCount(writes []artifact.Write, places []revisionPla
 		return fmt.Errorf("%d documents would be waiting for confirmation or publication and the limit is %d per role. Wait for one to land or be handed back, write a new revision of one already waiting (it replaces the waiting revision if its run has not started), or withdraw one whose run has not started with \"withdraw\"; \"list\" shows each and where it stands",
 			waiting, runstate.MaxPendingWrites)
 	}
+	// A document confirmed for publication is stored twice, so a new one is
+	// counted at twice its length; held documents are stored once.
+	stored := 0
+	for _, record := range s.writes {
+		if !record.decided && !frees(record) {
+			stored += runstate.PendingWriteStoredBytes([]runstate.PendingWrite{record.pending.recorded()})
+		}
+	}
+	for _, write := range writes {
+		if write.Hold != nil {
+			stored += len(write.Body)
+		} else {
+			stored += 2 * len(write.Body)
+		}
+	}
+	if stored > runstate.MaxPendingWriteStoredBytes {
+		return fmt.Errorf("the documents waiting would take %d bytes of the %d bytes one conversation may keep, counting each confirmed document twice. Wait for one to land or be handed back, or withdraw one whose run has not started with \"withdraw\"; \"list\" shows each and where it stands",
+			stored, runstate.MaxPendingWriteStoredBytes)
+	}
 	if held > runstate.MaxHeldWrites {
 		return fmt.Errorf("%d document(s) would be held for sending and the limit is %d; a document that answers several items names them all in one, and the held ones are sent as their holds lift",
 			held, runstate.MaxHeldWrites)

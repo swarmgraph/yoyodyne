@@ -184,7 +184,7 @@ func (r Reader) resolve(ctx context.Context, commit string, request Request, red
 	}
 	switch action {
 	case ActionRead:
-		r.readFile(ctx, &result, redactor, remaining)
+		r.readFile(ctx, &result, request.Offset, redactor, remaining)
 	case ActionList:
 		r.listDirectory(ctx, &result)
 	case ActionSearch:
@@ -199,7 +199,7 @@ func (r Reader) resolve(ctx context.Context, commit string, request Request, red
 }
 
 // readFile reads one blob out of the commit's tree.
-func (r Reader) readFile(ctx context.Context, result *Result, redactor execution.Redactor, remaining *int) {
+func (r Reader) readFile(ctx context.Context, result *Result, offset int, redactor execution.Redactor, remaining *int) {
 	entry, problem := r.entry(ctx, result.Commit, result.Path)
 	if problem != "" {
 		result.Problem = problem
@@ -229,7 +229,11 @@ func (r Reader) readFile(ctx context.Context, result *Result, redactor execution
 	// What Git is asked to keep is a little past what will be returned, so the
 	// retained copy is a whole prefix of the file rather than one the runner cut
 	// at a different place, and the bound below is the only cut a reader sees.
-	output, err := r.git(ctx, MaxContentBytes+(64<<10), "cat-file", "blob", entry.object)
+	if offset > size {
+		result.Problem = fmt.Sprintf("offset %d is past the end of %s, which is %d bytes at %s", offset, result.Path, size, shortCommit(result.Commit))
+		return
+	}
+	output, err := r.git(ctx, offset+MaxContentBytes+(64<<10), "cat-file", "blob", entry.object)
 	if err != nil {
 		result.Problem = fmt.Sprintf("%s at %s could not be read: %s", result.Path, shortCommit(result.Commit), singleLine(err.Error()))
 		return
@@ -246,10 +250,51 @@ func (r Reader) readFile(ctx context.Context, result *Result, redactor execution
 		result.Problem = fmt.Sprintf("%s at %s is not text, and the harness reads text only", result.Path, shortCommit(result.Commit))
 		return
 	}
-	bounded, truncatedBy := bound(content, size, *remaining)
+	// A part starts on a whole character, so one that was asked for inside a
+	// multi-byte character begins at the next one.
+	start := offset
+	for start < len(content) && !utf8.RuneStart(content[start]) {
+		start++
+	}
+	if start > len(content) {
+		start = len(content)
+	}
+	// A part never starts or ends inside a secret: redacting a part alone would
+	// leave the piece of a secret the cut left in it, so a start inside one moves
+	// to its end, and an end inside one moves back to its start. Where a secret
+	// is longer than the part, the end moves past it instead, so a part is never
+	// empty on account of one.
+	spans := redactor.Spans(content)
+	for _, span := range spans {
+		if span[0] < start && start < span[1] {
+			start = span[1]
+		}
+	}
+	bounded, truncatedBy := bound(content[start:], size-start, *remaining)
+	if truncatedBy != "" {
+		end := start + len(bounded)
+		for _, span := range spans {
+			if span[0] < end && end < span[1] {
+				if span[0] > start {
+					end = span[0]
+				} else {
+					end = span[1]
+				}
+				break
+			}
+		}
+		bounded = content[start:end]
+	}
 	result.Content = redactor.Redact(bounded)
 	result.Truncated = truncatedBy != ""
 	result.TruncatedBy = truncatedBy
+	result.Returned = len(bounded)
+	if start > 0 || result.Truncated {
+		result.Offset = start
+	}
+	if result.Truncated {
+		result.Remaining = size - start - len(bounded)
+	}
 	*remaining -= len(bounded)
 }
 

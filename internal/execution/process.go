@@ -930,6 +930,44 @@ func (r Redactor) WithSecretShapes() Redactor {
 	return r
 }
 
+// Spans says where in text the redactor would replace something: the byte ranges
+// of every value it was given, and of every secret recognized by its shape where
+// WithSecretShapes asked for that, sorted and merged so no two overlap. A caller
+// that returns a part of a longer text uses it to keep a cut from landing inside
+// a secret, where redacting the part alone would leave a piece of it behind.
+func (r Redactor) Spans(text string) [][2]int {
+	var spans [][2]int
+	for _, secret := range r.values {
+		for from := 0; from < len(text); {
+			at := strings.Index(text[from:], secret)
+			if at < 0 {
+				break
+			}
+			spans = append(spans, [2]int{from + at, from + at + len(secret)})
+			from += at + 1
+		}
+	}
+	if r.shapes {
+		for _, shape := range secretShapes {
+			for _, found := range shape.pattern.FindAllStringIndex(text, -1) {
+				spans = append(spans, [2]int{found[0], found[1]})
+			}
+		}
+	}
+	sort.Slice(spans, func(i, j int) bool { return spans[i][0] < spans[j][0] })
+	merged := spans[:0]
+	for _, span := range spans {
+		if last := len(merged) - 1; last >= 0 && span[0] < merged[last][1] {
+			if span[1] > merged[last][1] {
+				merged[last][1] = span[1]
+			}
+			continue
+		}
+		merged = append(merged, span)
+	}
+	return merged
+}
+
 // Redact replaces every value the redactor was given, and every secret
 // recognized by its shape where WithSecretShapes asked for that.
 func (r Redactor) Redact(value string) string {

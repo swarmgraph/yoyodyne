@@ -84,10 +84,10 @@ const (
 )
 
 // MaxContentBytes bounds what one read returns. A file larger than this is cut
-// with the cut declared and the file's whole size named, rather than being split
-// across several reads: a role that wants the rest of a long document asks for
-// the part it wants by a narrower question, and a reader of the record sees one
-// read of one path rather than a document reassembled from pieces.
+// with the cut declared, the file's whole size named, and the number of bytes
+// that remain; a role that wants the rest asks again with "offset" set to where
+// the part it was given ended, and each part is its own recorded read of one
+// path at one commit.
 const (
 	MaxContentBytes     = 48 << 10
 	maxContentBytesText = "48 KiB"
@@ -133,6 +133,11 @@ type Request struct {
 	// Repository says which repository the path is in: empty or "project" is the
 	// project's own, and "intent" is the companion intent repository.
 	Repository string `json:"repository,omitempty"`
+	// Offset is the byte of the file a read starts at, counted in the file as the
+	// commit holds it. It is taken on a read alone; left out, a read starts at the
+	// beginning. A start inside a multi-byte character moves on to the next whole
+	// one, and the result says where the part really started.
+	Offset int `json:"offset,omitempty"`
 }
 
 // Validate reports every contract violation in one request at once.
@@ -148,6 +153,9 @@ func (r Request) Validate() error {
 	action := strings.TrimSpace(r.Action)
 	switch action {
 	case ActionRead, ActionList:
+		if r.Offset != 0 && action != ActionRead {
+			problems = append(problems, fmt.Errorf("offset is taken on a %q alone", ActionRead))
+		}
 		if r.Pattern != "" || r.Regexp {
 			problems = append(problems, fmt.Errorf("pattern and regexp are taken on a %q alone", ActionSearch))
 		}
@@ -167,6 +175,9 @@ func (r Request) Validate() error {
 	case "", RepositoryProject, RepositoryIntent:
 	default:
 		problems = append(problems, fmt.Errorf("repository %q is not one the harness reads; it is %q or %q, or left out for the project's", strings.TrimSpace(r.Repository), RepositoryProject, RepositoryIntent))
+	}
+	if r.Offset < 0 {
+		problems = append(problems, fmt.Errorf("offset is %d, and must not be negative", r.Offset))
 	}
 	if len(strings.TrimSpace(r.Path)) > MaxPathBytes {
 		problems = append(problems, fmt.Errorf("path is %d bytes, limit is %d", len(strings.TrimSpace(r.Path)), MaxPathBytes))
@@ -255,6 +266,17 @@ type Result struct {
 	// Size is the whole size of the file at that commit, whether or not all of it
 	// was returned, or the whole number of names in the directory.
 	Size int `json:"size,omitempty"`
+	// Offset is the byte of the file the returned content starts at, and
+	// Remaining is how many bytes of the file lie past the end of it, so a part
+	// says where it sits and a read of the next one is "offset" set to
+	// Offset plus the bytes returned. Both are on a read only.
+	//
+	// Returned is how many bytes of the file the content covers. It is the
+	// number the next offset is counted from: Content has secrets removed from
+	// it, which can change its length, so its own length is not.
+	Offset    int `json:"offset,omitempty"`
+	Returned  int `json:"returned,omitempty"`
+	Remaining int `json:"remaining,omitempty"`
 	// Truncated says the content or the listing was cut to fit, and
 	// TruncatedBy says which bound cut it, so a bounded answer is never read as
 	// the whole of one.
@@ -382,8 +404,11 @@ func Render(results []Result, framing Framing) string {
 			}
 		default:
 			fmt.Fprintf(&rendered, "%d bytes at this commit", result.Size)
-			if result.Truncated {
-				fmt.Fprintf(&rendered, "; the first %d are below, cut %s. The rest was not returned and is not somewhere else in this turn: ask again by a narrower question if you need it", len(result.Content), result.TruncatedBy)
+			switch {
+			case result.Truncated:
+				fmt.Fprintf(&rendered, "; bytes %d to %d are below, cut %s, and %d bytes remain after them. The rest is not somewhere else in this turn: read it with the same request and \"offset\":%d", result.Offset, result.Offset+result.Returned, result.TruncatedBy, result.Remaining, result.Offset+result.Returned)
+			case result.Offset > 0:
+				fmt.Fprintf(&rendered, "; bytes %d to %d are below, which is the end of the file", result.Offset, result.Offset+result.Returned)
 			}
 			rendered.WriteString(":\n\n")
 			rendered.WriteString(strings.TrimRight(result.Content, "\n") + "\n")
@@ -413,7 +438,7 @@ func (r Result) Describe() string {
 	case r.Action == ActionList:
 		line += fmt.Sprintf(" — %d name(s)", len(r.Entries))
 	case r.Truncated:
-		line += fmt.Sprintf(" — %d of %d bytes, cut", len(r.Content), r.Size)
+		line += fmt.Sprintf(" — bytes %d to %d of %d, cut", r.Offset, r.Offset+r.Returned, r.Size)
 	default:
 		line += fmt.Sprintf(" — %d bytes", r.Size)
 	}
@@ -479,7 +504,7 @@ To read, end your reply with exactly one block, after the prose:
 {"requests":[{"action":"read","path":"docs/example.md","why":"what this would settle"},{"action":"list","path":"docs","why":"what this would settle"}]}
 ` + "```" + `
 
-"read" returns one file's content and "list" returns the names one directory holds, and nothing further: a list does not descend, and a read does not follow a link. "path" is relative to the repository root, with forward slashes, and is required on a read; a list may leave it empty for the root. "why" is optional and is what the operator reads afterwards. Name at most ` + maxRequestsPerReplyText + ` paths in one reply. A read returns at most ` + maxContentBytesText + ` of a file, and one reply's reads together return at most ` + maxBytesPerReplyText + `: a file longer than that is cut with the cut declared and the file's whole size named, and is not split across reads, so ask for what you need by a narrower question rather than reading a long document through. A path that names nothing at that commit, a directory asked for as a file, a file that is not text, and a path that is absolute or climbs out of the repository are each refused with the reason, the refusal is handed back to you beside the paths that were read, and it is recorded like a read. A block the harness cannot read at all — an action it does not perform, a field it does not take, more paths than it permits — is different: nothing in it is read, the operator is told, and you are not.
+"read" returns one file's content and "list" returns the names one directory holds, and nothing further: a list does not descend, and a read does not follow a link. "path" is relative to the repository root, with forward slashes, and is required on a read; a list may leave it empty for the root. "why" is optional and is what the operator reads afterwards. Name at most ` + maxRequestsPerReplyText + ` paths in one reply. A read returns at most ` + maxContentBytesText + ` of a file, and one reply's reads together return at most ` + maxBytesPerReplyText + `: a file longer than that is cut with the cut declared, the file's whole size named, where the part starts, and how many bytes remain. To read the next part, ask again with "offset" set to where the last part ended, as in {"action":"read","path":"docs/example.md","offset":49152}; a read that names no offset starts at the beginning. A path that names nothing at that commit, a directory asked for as a file, a file that is not text, and a path that is absolute or climbs out of the repository are each refused with the reason, the refusal is handed back to you beside the paths that were read, and it is recorded like a read. A block the harness cannot read at all — an action it does not perform, a field it does not take, more paths than it permits — is different: nothing in it is read, the operator is told, and you are not.
 
 Where the project keeps its governed documents — the brief, the goals, the designs, the decision records — in a companion intent repository, add "repository":"intent" to a request to read, list, or search there. The harness resolves it against the commit that repository's target branch names, never its working tree, and records which repository and which commit. A request naming no repository reads the project's; in a project that keeps its intent in its own repository, a request naming "intent" is refused with the reason.
 
