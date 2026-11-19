@@ -728,6 +728,9 @@ type Session struct {
 	passFresh           bool
 	freshPass           bool
 	passAccountInPrompt bool
+	// ancestors holds the parents read for the inherited-block line of an item
+	// read, for a minute. See ancestorreads.go.
+	ancestors ancestorReads
 	// proposals is what this process has seen the product manager propose and
 	// what the operator has decided about it. Every proposal and every decision
 	// is durable in the conversation's event log; this is the pending set a

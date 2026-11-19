@@ -29,7 +29,7 @@ func (s *Session) renderInheritedBlocks(ctx context.Context, item beads.WorkItem
 	}
 	blocks, err := beads.InheritedBlocks(item,
 		func(id string) (beads.WorkItem, bool, error) {
-			ancestor, err := s.options.Tracker.Show(ctx, id)
+			ancestor, err := s.readAncestor(ctx, id)
 			if err != nil {
 				return beads.WorkItem{}, false, err
 			}
@@ -68,7 +68,7 @@ func (s *Session) renderInheritedBlocks(ctx context.Context, item beads.WorkItem
 // and the read must not say the scheduler offers an item the queue then holds.
 func (s *Session) queuedAncestor(ctx context.Context) func(id string) (beads.WorkItem, bool, error) {
 	return func(id string) (beads.WorkItem, bool, error) {
-		ancestor, err := s.options.Tracker.Show(ctx, id)
+		ancestor, err := s.readAncestor(ctx, id)
 		if err != nil {
 			return beads.WorkItem{}, false, err
 		}
