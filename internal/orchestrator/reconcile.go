@@ -162,7 +162,11 @@ type Reconciler struct {
 	// These readers compare a confirmed forge landing with running builds,
 	// including keys added only to shipped templates. They are optional for
 	// callers that have no running-service records to compare.
-	Repository    string
+	Repository string
+	// StateRoot is the harness's state directory, where each developer run's
+	// scratch directory is; a run's is removed with its worktree. Empty removes
+	// none.
+	StateRoot     string
 	ConfigFiles   ConfigComparisonFiles
 	ConfigReaders ConfigReaders
 	// Publisher answers what became of a merge the forge queued. It is required

@@ -128,15 +128,28 @@ func TestACLIThatAppliedTheDevelopersSettingsIsInForce(t *testing.T) {
 	if launched.Dir != worktree {
 		t.Fatalf("checked in %q, want the directory a developer would start in", launched.Dir)
 	}
+	scratch, err := execution.PrepareScratchDirectory(t.TempDir(), testRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	developer := &fakeRunner{results: claudeCompletedTurn()}
 	if _, err := (Backend{Runner: developer, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree, Prompt: "do the work",
+		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree, ScratchDirectory: scratch, Prompt: "do the work",
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// The developer's sandbox grants its scratch folder and the check's grants
+	// the directory it runs in, which stands in for one; apart from that one
+	// path the two launches carry the same settings.
 	checked, _ := optionValue(launched.Args, "--settings")
 	given, _ := optionValue(developer.commands[0].Args, "--settings")
-	if checked != given {
+	if got := sandboxWrites(t, checked); !slices.Equal(got, []string{worktree}) {
+		t.Fatalf("the check's sandbox grants %q, want the directory it runs in", got)
+	}
+	if got := sandboxWrites(t, given); !slices.Equal(got, []string{scratch}) {
+		t.Fatalf("the developer's sandbox grants %q, want its scratch folder %q", got, scratch)
+	}
+	if strings.ReplaceAll(checked, worktree, "") != strings.ReplaceAll(given, scratch, "") {
 		t.Fatalf("checked settings %s, want the developer's %s", checked, given)
 	}
 	for _, flag := range append(contextArgs(true), "--permission-mode", worktreeWriteSessionMode, "--allowedTools", "--no-session-persistence") {
@@ -299,4 +312,20 @@ func TestEveryFlagTheAdapterPassesIsOneTheCheckConfirms(t *testing.T) {
 			t.Fatalf("the check passes %s, which it does not confirm", arg)
 		}
 	}
+}
+
+// sandboxWrites is the sandbox's filesystem.allowWrite in settings.
+func sandboxWrites(t *testing.T, settings string) []string {
+	t.Helper()
+	var decoded struct {
+		Sandbox struct {
+			Filesystem struct {
+				AllowWrite []string `json:"allowWrite"`
+			} `json:"filesystem"`
+		} `json:"sandbox"`
+	}
+	if err := json.Unmarshal([]byte(settings), &decoded); err != nil {
+		t.Fatalf("decode settings %s: %v", settings, err)
+	}
+	return decoded.Sandbox.Filesystem.AllowWrite
 }

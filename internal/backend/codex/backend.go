@@ -498,7 +498,10 @@ func invocationArgs(request backend.RunRequest, profile, name string, directorie
 	args = append(args, contextArgs()...)
 	if profile == profileDeveloper {
 		// The worktree is the directory the CLI runs in, and beside it only the
-		// declared cache and scratch the harness prepared for this run.
+		// declared build cache in the repository's Git directory and this run's own
+		// scratch folder in the state directory, confirmed to be that one folder
+		// (execution.PrepareDeveloperDirectories); nothing else in the state
+		// directory is writable.
 		writable := append([]string{request.WorkingDirectory}, directories...)
 		args = append(args, "--config", `approval_policy="never"`)
 		args = append(args, profileArgs(profile, name, writable)...)
@@ -601,7 +604,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 		repository = request.WorkingDirectory
 	}
 	if profile == profileDeveloper {
-		directories, err = execution.PrepareDeveloperDirectories(repository, request.WorkingDirectory, request.RunID)
+		directories, err = execution.PrepareDeveloperDirectories(repository, request.WorkingDirectory, request.RunID, request.ScratchDirectory)
 		if err != nil {
 			return backend.RunResult{}, fmt.Errorf("prepare Codex developer sandbox: %w", err)
 		}

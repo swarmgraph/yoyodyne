@@ -138,7 +138,17 @@ func (b Backend) CheckLaunchSettings(ctx context.Context, directory string) (bac
 		}
 	}
 
-	settings, err := settingsFor(developerSettings, true, directory)
+	// A developer is launched with its scratch directory as the sandbox's one
+	// added write grant (developerSettingsFor), so the check is launched with one
+	// too, or a CLI that rejected the key would drop every developer's settings
+	// with this check still passing. The directory the check runs in stands in
+	// for it: it is writable as the working directory already, so the grant
+	// widens nothing, and it exists, which a sandbox may require of a grant.
+	launched, err := withSandboxWrite(developerSettings, directory)
+	if err != nil {
+		return backend.LaunchSettingsCheck{}, err
+	}
+	settings, err := settingsFor(launched, true, directory)
 	if err != nil {
 		return backend.LaunchSettingsCheck{}, err
 	}

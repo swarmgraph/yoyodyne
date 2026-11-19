@@ -947,6 +947,11 @@ type Outcome struct {
 	// directory, joined. The run carried on exactly as it would have; what was
 	// lost is the git MCP server's use of the repository while they stay.
 	ScratchLinksProblem string `json:"scratch_links_problem,omitempty"`
+	// ScratchRemovalProblem names why this run's scratch directory could not be
+	// removed from the state directory when its worktree was. The run is settled
+	// exactly as it would have been; what is left is a folder no repository
+	// check reads.
+	ScratchRemovalProblem string `json:"scratch_removal_problem,omitempty"`
 	// Invariants names the architectural invariants this run delivered to its
 	// developer and to its reviewer. It is the audit record of which durable
 	// constraints the change was actually held to, which is the thing a
@@ -5291,6 +5296,9 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 		Posture:          p.developer().Posture(),
 		WorkingDirectory: a.worktree.Path,
 		RepositoryRoot:   p.Repository,
+		// The run's own folder in the state directory, the one place there its
+		// provider's sandbox lets it write (prepareScratch).
+		ScratchDirectory: a.scratch,
 		Prompt:           prompt,
 		SessionID:        sessionID,
 		Model:            model,
@@ -8521,6 +8529,9 @@ func (a *activeRun) cleanUp(ctx context.Context) error {
 	a.outcome.BranchRemoved = cleanup.BranchRemoved
 	a.state.WorktreeRemoved = cleanup.WorktreeRemoved
 	a.state.BranchRemoved = cleanup.BranchRemoved
+	if cleanup.WorktreeRemoved {
+		a.removeScratch()
+	}
 	if err != nil {
 		return fmt.Errorf("clean up integrated run artifacts: %w", err)
 	}
@@ -9222,17 +9233,49 @@ func (a *activeRun) liftPreserved(ctx context.Context) error {
 // a second process has to find the directory there whether or not the first
 // process got that far.
 //
+// It is cut under the harness's state directory, at scratch/<run id>/, never
+// in the repository or its Git directory (execution.PrepareScratchDirectory
+// says why), and the developer's provider is given write access to it alone
+// in that directory (backend.RunRequest.ScratchDirectory).
+//
 // A failure here ends the run rather than being carried. The alternative is a
 // contract naming a directory that is not there, which is the run inventing
 // somewhere else to write — and somewhere else is the shared temporary directory
-// this exists to keep runs out of.
+// this exists to keep runs out of. A pipeline given no state directory has
+// nowhere to cut one, and is refused for that reason.
 func (a *activeRun) prepareScratch() error {
-	directory, err := execution.PrepareScratchDirectory(a.pipeline.Repository, a.worktree.Path, a.state.RunID)
+	directory, err := execution.PrepareScratchDirectory(a.pipeline.StateRoot, a.state.RunID)
 	if err != nil {
 		return err
 	}
 	a.scratch = directory
 	return nil
+}
+
+// removeScratch removes this run's scratch directory once its worktree is gone,
+// which is when nothing can continue the run in it. A link inside is removed
+// as a link and never followed (execution.RemoveScratchDirectory). A removal
+// that fails leaves a folder in the state directory that no repository check
+// reads, so it is reported on the outcome rather than failing a run whose work
+// has landed.
+func (a *activeRun) removeScratch() {
+	if err := a.pipeline.removeScratch(a.state.RunID); err != nil {
+		a.outcome.ScratchRemovalProblem = err.Error()
+	}
+}
+
+func (p Pipeline) removeScratch(runID string) error {
+	return removeRunScratch(p.StateRoot, runID)
+}
+
+// removeRunScratch removes a run's scratch directory from the state directory,
+// and does nothing where there is no state directory, which is a process that
+// never cut one.
+func removeRunScratch(stateRoot, runID string) error {
+	if strings.TrimSpace(stateRoot) == "" {
+		return nil
+	}
+	return execution.RemoveScratchDirectory(stateRoot, runID)
 }
 
 // clearScratchLinks removes the links this run's turn left in its scratch

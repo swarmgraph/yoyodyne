@@ -981,6 +981,10 @@ func phasesDeclaredInRunstate(t *testing.T) []runstate.Phase {
 // fails the test, so the next person has to make the same judgement out loud
 // instead of the question never being asked.
 var notAStep = map[string]string{
+	// Removing the run's scratch directory from the state directory is part of
+	// the clean-up step that removed its worktree (cleanUp), not a step of its
+	// own: it follows that removal and decides nothing.
+	"removeScratch": "part of clean-up: removes the run's scratch directory once its worktree is gone",
 	// Checks on CI (cichecks.go): the round's checks are still candidate.check's
 	// verify, and the push and wait are parks of the same run rather than steps
 	// a definition could route.

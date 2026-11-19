@@ -89,7 +89,7 @@ func TestADevelopersTurnTurnsOffEveryServerTheCLIListsForIt(t *testing.T) {
 	t.Parallel()
 	repository, worktree := sandboxRepository(t, true)
 	for _, session := range []string{"", "session-one"} {
-		plain := sandboxCommand(t, repository, worktree, session, domain.RoleDeveloper)
+		plain := sandboxCommand(t, repository, worktree, "", session, domain.RoleDeveloper)
 		if _, found := mcpServersSetting(plain.Args); found {
 			t.Fatalf("a turn with no server listed carries an MCP setting: %q", plain.Args)
 		}

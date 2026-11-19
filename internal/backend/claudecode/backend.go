@@ -93,6 +93,49 @@ const developerSettings = `{"sandbox":{"enabled":true,"failIfUnavailable":true,"
 	`"network":{"allowLocalBinding":true}},` +
 	`"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"yoyo goals guard"}]}]}}`
 
+// developerSettingsFor is developerSettings with the run's own scratch folder,
+// in the harness's state directory, as the sandbox's one write grant beyond
+// what Claude Code grants a session itself: its working directory, its
+// temporary directory, and the repository's Git directory. It is given as
+// `sandbox.filesystem.allowWrite`, which names folders the sandbox adds to
+// those and nothing wider, so nothing else in the state directory -- another
+// run's scratch, the run records, any other store -- is writable
+// (docs/decisions/developer-run-scratch-outside-git.md). Empty is a run the
+// harness cut no scratch folder for, and grants none.
+//
+// The folder is confirmed to be the one cut for this run before it is granted
+// (execution.ConfirmScratchDirectory); one that is not is refused with the
+// reason, and the run does not start, rather than the grant being widened or
+// dropped.
+func developerSettingsFor(scratch, runID, repositoryRoot string) (string, error) {
+	if scratch == "" {
+		return developerSettings, nil
+	}
+	if err := execution.ConfirmScratchDirectory(scratch, runID, repositoryRoot); err != nil {
+		return "", fmt.Errorf("give the developer's sandbox its scratch directory: %w", err)
+	}
+	return withSandboxWrite(developerSettings, scratch)
+}
+
+// withSandboxWrite is settings with directory as the sandbox's
+// `filesystem.allowWrite`, the one write grant it carries.
+func withSandboxWrite(settings, directory string) (string, error) {
+	decoded := map[string]any{}
+	if err := json.Unmarshal([]byte(settings), &decoded); err != nil {
+		return "", fmt.Errorf("decode the settings a developer is given: %w", err)
+	}
+	sandbox, ok := decoded["sandbox"].(map[string]any)
+	if !ok {
+		return "", errors.New("the settings a developer is given carry no sandbox to grant a scratch directory in")
+	}
+	sandbox["filesystem"] = map[string]any{"allowWrite": []string{directory}}
+	encoded, err := json.Marshal(decoded)
+	if err != nil {
+		return "", fmt.Errorf("encode the settings a developer is given: %w", err)
+	}
+	return string(encoded), nil
+}
+
 // developerTools scopes built-in writes to the worktree project root. Bash is
 // separately confined by Claude Code's OS-level sandbox settings below.
 var developerTools = []string{"Bash", "Read", "Edit(/**)", "Write(/**)", "Glob", "Grep"}
@@ -684,7 +727,13 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		}
 	}
 	if !readOnly {
-		baseSettings = developerSettings
+		repository := request.RepositoryRoot
+		if repository == "" {
+			repository = request.WorkingDirectory
+		}
+		if baseSettings, err = developerSettingsFor(request.ScratchDirectory, request.RunID, repository); err != nil {
+			return backend.RunResult{}, err
+		}
 		var repositoryInstructions []backend.LoadedItem
 		settingsSources, plugins, repositoryInstructions = repositoryContext(request.WorkingDirectory)
 		instructions = append(repositoryInstructions, instructions...)

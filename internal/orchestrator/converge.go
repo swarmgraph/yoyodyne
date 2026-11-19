@@ -592,6 +592,14 @@ func (r Reconciler) sweepWorktree(ctx context.Context, recorded runstate.State) 
 func (r Reconciler) recordSweptWorktree(state *runstate.State, preservedWork string) string {
 	swept := r.clock().Now()
 	state.WorktreeRemoved = true
+	// The run's scratch directory goes with its worktree: nothing can continue
+	// the run without one. A folder that could not be removed is in the state
+	// directory, where no repository check reads it, so it is said rather than
+	// holding up the record of the removal.
+	scratchProblem := ""
+	if err := removeRunScratch(r.StateRoot, state.RunID); err != nil {
+		scratchProblem = fmt.Sprintf("the scratch directory of run %s was not removed: %v", state.RunID, err)
+	}
 	state.WorktreeSweptAt = &swept
 	if preservedWork != "" {
 		state.PreservedWorkRef = preservedWork
@@ -605,7 +613,7 @@ func (r Reconciler) recordSweptWorktree(state *runstate.State, preservedWork str
 			"the checkout of run %s was retired and its own record still says otherwise, so anything reading that run will name a directory that is gone: %v",
 			state.RunID, err)
 	}
-	return ""
+	return scratchProblem
 }
 
 // recordPreservedWork tells the work item where a retired checkout's
