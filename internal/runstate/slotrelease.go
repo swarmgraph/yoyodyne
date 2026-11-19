@@ -236,9 +236,12 @@ func (r SlotRelease) sentence(why string) string {
 // development manager's view list, so a slot that reads taken can be traced to
 // the run, or the provider attempt, the harness counts in it.
 type SlotHolder struct {
-	// Slot is the number the run records, and zero for a run counted with no
-	// number recorded.
-	Slot       int    `json:"slot"`
+	// Slot is the number the run records, and zero — left out of what is
+	// written, so no reader takes it for a slot called 0 — for a run counted
+	// with no number recorded. Every developer run records one at its start, or
+	// when it is next taken up again, where a number is free; Says says so of a
+	// counted run that records none.
+	Slot       int    `json:"slot,omitempty"`
 	RunID      string `json:"run_id"`
 	WorkItemID string `json:"work_item_id"`
 	// Counted is whether the run counts against the developer slots now, by the
@@ -289,6 +292,9 @@ func (s *Store) SlotHolders(states []State, now time.Time) []SlotHolder {
 			}
 		}
 		holder.Says = s.holderSays(state, holder.Counted, now)
+		if holder.Counted && holder.Slot == 0 {
+			holder.Says += "; its record names no slot number, so which numbered slot it holds is not known"
+		}
 		holders = append(holders, holder)
 	}
 	sort.SliceStable(holders, func(first, second int) bool {

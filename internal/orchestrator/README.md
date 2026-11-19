@@ -283,8 +283,13 @@ attempt (`prepareDeveloperAttempt`, `Pipeline.EndpointLimits` for a primary
 already known to be limited), records how it ended (`finishDeveloperAttempt`),
 and on a classified usage limit makes the operation's one switch
 (`switchDeveloperEndpoint`), which rewrites those fields to the alternate. The
-slot comes from the scheduler on the run's context (`withDeveloperSlot`). A run
-taken up again while another run holds the slot it records is moved to a free
+slot comes from the scheduler on the run's context (`withDeveloperSlot`). Every
+developer run records a slot, pair or none: a run started with none named on
+its context, as a re-run decision starts one, takes the first free slot in the
+order `developerslot.Assign` places it (`claimDeveloperSlot`,
+`slotClaimOrder`), and a run taken up again whose record names no slot records
+one as it is taken up (`recordTakenUpSlot`, called from `Pipeline.reclaimSlot`).
+A run taken up again while another run holds the slot it records is moved to a free
 slot and records it (runstate's `takeUpSlot`, reached through `AdoptWithin`,
 `ReclaimSlot` and `ReserveLive`), unless it is pinned to that slot's pair, in
 which case it waits for the slot; a moved run settles its sub-agent setting
