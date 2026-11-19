@@ -344,7 +344,7 @@ func WindowStoppedRunRefusals(runs []runstate.State) []runstate.UsageLimitExhaus
 			ResetsAt:      resetsAt,
 			WorkItemID:    run.WorkItemID,
 			Model:         strings.TrimSpace(run.UsageLimitModel),
-			AccountAlias:  strings.TrimSpace(run.AccountAlias),
+			AccountAlias:  refusedAccount(run),
 		}
 		if refusal.Model == "" && run.Phase == runstate.PhaseDeveloping {
 			refusal.Model = strings.TrimSpace(run.ProviderModel)
@@ -359,6 +359,16 @@ func WindowStoppedRunRefusals(runs []runstate.State) []runstate.UsageLimitExhaus
 		return stopped[i].At.Before(stopped[j].At)
 	})
 	return stopped
+}
+
+// refusedAccount is the account a run's refusal was made under: the one the
+// refused invocation recorded where it was not the run's own, as a review routed
+// to the reviewer's endpoint is not, and the run's otherwise.
+func refusedAccount(run runstate.State) string {
+	if account := strings.TrimSpace(run.UsageLimitAccount); account != "" {
+		return account
+	}
+	return strings.TrimSpace(run.AccountAlias)
 }
 
 func parkedRunRefusal(run runstate.State) (runstate.UsageLimitExhaustion, bool) {
@@ -376,7 +386,7 @@ func parkedRunRefusal(run runstate.State) (runstate.UsageLimitExhaustion, bool) 
 		Kind:          strings.TrimSpace(run.UsageLimitKind),
 		WorkItemID:    run.WorkItemID,
 		Model:         strings.TrimSpace(run.UsageLimitModel),
-		AccountAlias:  strings.TrimSpace(run.AccountAlias),
+		AccountAlias:  refusedAccount(run),
 	}
 	if run.UsageLimitPausedSince != nil {
 		refusal.At = run.UsageLimitPausedSince.UTC()

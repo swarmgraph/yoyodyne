@@ -121,6 +121,7 @@ const maxExistingReChecks = 11
 var notReChecks = map[string]string{
 	"provideroutage.go:requireBackendReady":    "the check before one run starts, which holds nothing",
 	"developerrouting.go:endpointProblem":      "the routing of one run to an endpoint",
+	"reviewerrouting.go:endpointProblemFor":    "the routing of one run's developer or review to an endpoint, asked of the alternate before a switch commits to it",
 	"pipeline.go:awaitRecordedUsageLimit":      "a running run waiting out its own usage limit",
 	"provideroutage.go:pauseForProviderOutage": "a running run waiting out a provider refusal",
 	"provideroutage.go:noticeProviderServed":   "a provider that just served a turn, which proves the outage over",

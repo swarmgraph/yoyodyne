@@ -738,6 +738,9 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// A run reserved on another backend before the developer was moved off
 		// it carries on there, in the session it opened.
 		RecordedBackends: recordedBackends(cfg, parts.stateRoot, processRunner),
+		// A review of a project that enables reviewer fallback is made on the
+		// endpoint of the reviewer's own pair it is routed to.
+		ReviewerFor: reviewerForEndpoint(parts),
 		Checks: checks.Runner{
 			Process: processRunner,
 			// The budget every check gets is configured rather than fixed,
@@ -1706,4 +1709,32 @@ func reconcileIntentWorktreesOf(parts components) orchestrator.ReconcileWorktree
 		return nil
 	}
 	return parts.intentWorktrees
+}
+
+// reviewerForEndpoint builds the reviewer for one endpoint of the reviewer's
+// pair: that endpoint's provider, model and effort, with the reviewer agent's
+// own persona and time limit, and the same spend log and tool-use observer as
+// every other review. It reports false for a provider this project no longer
+// describes or this build cannot launch.
+func reviewerForEndpoint(parts components) orchestrator.ReviewerForEndpoint {
+	cfg := parts.config
+	return func(endpoint runstate.RoutedEndpoint) (orchestrator.ChangeReviewer, bool) {
+		if !providerRuns(cfg, endpoint.Provider) {
+			return nil, false
+		}
+		model := endpoint.Model
+		if version := strings.TrimSpace(endpoint.ModelVersion); version != "" {
+			model = version
+		}
+		reviewer := agentForRole(cfg, domain.RoleReviewer)
+		return review.Reviewer{
+			Backend: providerBackend(cfg, parts.stateRoot, endpoint.Provider, parts.runner),
+			Model:   model,
+			Effort:  endpoint.Effort,
+			Persona: reviewer.Persona.Text,
+			Timeout: reviewer.TimeLimits.ReviewLimit(),
+			Spend:   parts.spend,
+			ToolUse: parts.toolUse(),
+		}, true
+	}
 }
