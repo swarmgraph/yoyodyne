@@ -74,6 +74,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
+	"github.com/mason-bryant/yoyodyne/internal/recovery"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -156,6 +157,11 @@ type IntegrationResumeRequest struct {
 	// all, as for a run whose docketing was never written: the request is hers,
 	// and the run's own record is what RecoveryFinishable accepted it on.
 	Asked bool
+	// Harness says the harness is resuming this stop by itself, because its cause
+	// is one the harness resumes (runstate.IntegrationStop.HarnessResumes). Like
+	// Asked, the run's own record is then what the resumption is made on where
+	// the docket holds no entry of the stoppage.
+	Harness bool
 }
 
 // IntegrationResumeResult is what the action did. It reports the resumption it
@@ -235,7 +241,7 @@ func (r IntegrationResumer) Resume(ctx context.Context, request IntegrationResum
 	}
 
 	entry, err := docketedStoppage(r.Docket, runID, "resume")
-	if errors.As(err, &NoDocketedStoppageError{}) && request.Asked {
+	if errors.As(err, &NoDocketedStoppageError{}) && (request.Asked || request.Harness) {
 		entry, err = r.askedStoppage(runID, err)
 	}
 	if err != nil {
@@ -367,8 +373,9 @@ func (r IntegrationResumer) Resume(ctx context.Context, request IntegrationResum
 	return result, runErr
 }
 
-// askedStoppage is the stoppage a run.recover request to finish the merge stands
-// for when the docket holds no entry of it. It is the entry the docket would
+// askedStoppage is the stoppage a run.recover request to finish the merge, or
+// the harness's own resumption of a stop it resumes by itself, stands for when
+// the docket holds no entry of it. It is the entry the docket would
 // hold, keyed as the docket keys it; with nothing on the docket to close, the
 // closure the resumption then attempts is reported beside it rather than
 // refusing it. A run whose record carries no such request is refused as it
@@ -378,7 +385,7 @@ func (r IntegrationResumer) askedStoppage(runID string, refused error) (triage.E
 	if err != nil {
 		return triage.Entry{}, fmt.Errorf("read run %s, whose stoppage is not on the docket, for the request to finish its merge: %w", runID, err)
 	}
-	if !state.RecoveryContinuationOutstanding(runstate.RecoverFinishMerge) {
+	if !state.RecoveryContinuationOutstanding(runstate.RecoverFinishMerge) && !state.HarnessResumesIntegration() {
 		return triage.Entry{}, refused
 	}
 	return triage.Entry{
@@ -461,6 +468,11 @@ type CauseStandsError struct {
 }
 
 func (e CauseStandsError) Error() string {
+	if e.Cause.ClearedBy() == "" {
+		return fmt.Sprintf(
+			"the integration of run %s was not resumed, because what stopped it still stands — %s (%s): %s; nothing was written, and asking again once it answers resumes the same run",
+			e.RunID, e.Cause, e.Cause.Title(), e.Found)
+	}
 	return fmt.Sprintf(
 		"the integration of run %s was not resumed, because what stopped it still stands — %s (%s): %s; nothing was written, so asking again once you %s resumes the same run",
 		e.RunID, e.Cause, e.Cause.Title(), e.Found, e.Cause.ClearedBy())
@@ -469,10 +481,15 @@ func (e CauseStandsError) Error() string {
 func (e CauseStandsError) Unwrap() error { return ErrCauseStands }
 
 // causeCleared asks whether the cause of the stop is still there, for the two
-// causes a person clears outside the primary checkout. The checkout's own cause
-// is asked by ValidateReady for every stop, and the rest — a transport that did
-// not answer, a replay the harness killed — are not standing conditions anybody
-// can look at: the resumed promotion is the only way to ask them.
+// causes a person clears outside the primary checkout and for a transport that
+// did not answer. The checkout's own cause is asked by ValidateReady for every
+// stop. A transport is asked by listing the target on the remotes, which is the
+// read a promotion makes first: only an answer the recovery package reads as a
+// transport not answering refuses, so a project whose remote cannot be listed
+// for some other reason is resumed as it was before, and its promotion says
+// what is wrong. The tracker is asked by the read of the work item below, before
+// anything is written. A replay the harness killed is not a standing condition
+// anybody can look at: the resumed promotion is the only way to ask it.
 //
 // A question that could not be answered refuses too. The run stays stopped with
 // nothing written, which costs a second ask; making it live on an answer nobody
@@ -495,6 +512,10 @@ func (r IntegrationResumer) causeCleared(ctx context.Context, prior runstate.Sta
 				found = err.Error()
 			}
 			return CauseStandsError{RunID: prior.RunID, Cause: cause, Found: found}
+		}
+	case runstate.CauseTransportFailure:
+		if err := r.Worktrees.VerifyRemoteAccess(ctx, prior.TargetBranch); err != nil && recovery.Recoverable(err) {
+			return CauseStandsError{RunID: prior.RunID, Cause: cause, Found: fmt.Sprintf("the remote still did not answer when %s was listed on it: %s", prior.TargetBranch, singleLine(err.Error(), 400))}
 		}
 	}
 	return nil

@@ -898,6 +898,10 @@ func carryOutFrom(parts components) *orchestrator.CarryOut {
 		// carries one out through, with its checks. What became of the request is
 		// noted on the item through the same tracker.
 		Integrations: orchestrator.RecoveredIntegrations{Runs: parts.store, Resumer: integrationResumerFrom(parts), Items: parts.tracker()},
+		// An approved change the tracker, the forge or the network stopped by not
+		// answering, resumed by the harness itself through the same resumer once
+		// they answer, with nobody typing `yoyo triage resume`.
+		Resumes: orchestrator.HarnessResumedIntegrations{Runs: parts.store, Resumer: integrationResumerFrom(parts), Items: parts.tracker()},
 		// A re-run claim she decided to give back, given back through the same
 		// action `yoyo triage give-back` carries it out through.
 		ClaimGiver: claimGiverFrom(parts),

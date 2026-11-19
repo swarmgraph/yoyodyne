@@ -2118,6 +2118,10 @@ func docketIntegrationStop(stopped *runstate.IntegrationStop) *triage.Integratio
 		Detail: singleLine(stopped.Detail, triage.MaxMessageBytes),
 		Phase:  string(stopped.Phase),
 		Title:  stopped.Cause.Title(),
+		// Whether nobody has a step to take for it, and what the harness's own
+		// resumption last found, read from the record that resumption writes.
+		HarnessResumes: stopped.HarnessResumes(),
+		Waiting:        singleLine(stopped.WaitingSays(), triage.MaxMessageBytes),
 	}
 }
 

@@ -321,6 +321,17 @@ func (c EnvironmentalCause) NeedsAPerson() bool {
 	return c.ClearedBy() != ""
 }
 
+// HarnessResumes reports a cause of an integration stop the harness resumes by
+// itself, with nobody asking, once what stopped it answers again: the tracker,
+// the forge or the network not answering. The operating rules say a dropped
+// connection is waited out, and an approved change stopped by one is waited out
+// the same way rather than left for somebody to type `yoyo triage resume`.
+// Every other cause is resumed only when asked, as
+// before.
+func (c EnvironmentalCause) HarnessResumes() bool {
+	return c == CauseTransportFailure
+}
+
 // EndsTheRoundUnjudged reports a cause that ends the round before anything
 // could judge what it holds, so the round is refused without the worktree
 // being asked whether it delivered: the provider's usage window, the check

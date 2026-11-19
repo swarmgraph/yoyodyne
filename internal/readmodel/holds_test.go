@@ -501,17 +501,55 @@ func TestARunThatDiedHoldingItsChangeIsHeldExactlyAsOneThatStoppedIs(t *testing.
 	if !held.Decided("yoyodyne-ifd.436.4") {
 		t.Fatalf("the hold says %q, want the harness named as the next mover", reason)
 	}
-	if !strings.Contains(reason, "`yoyo triage resume`") {
-		t.Fatalf("the hold says %q, want the verb that resumes the promotion named", reason)
+	// A tracker that did not answer is resumed by the harness by itself, so the
+	// hold names no command for anybody to type, and says so early enough to
+	// survive the cut every surface that renders a hold on one line makes.
+	if strings.Contains(reason, "triage resume") {
+		t.Fatalf("the hold says %q, which names a command nobody has to type for a stop the harness resumes by itself", reason)
+	}
+	if index := strings.Index(reason, "the harness resumes it by itself"); index < 0 || index > 200 {
+		t.Fatalf("the hold says %q, want it to say early that the harness resumes the promotion by itself", reason)
 	}
 	if strings.Contains(reason, "the development manager") {
 		t.Fatalf("the hold says %q, which sends the operator to a role the docket tells owes nothing here", reason)
 	}
-	// And the verb survives the cut every surface that renders a hold on one line
-	// makes, because a reason cut before it says what to do says nothing anybody
-	// can act on.
+	// Once the harness has tried, the hold says what it is waiting for and when
+	// it last tried.
+	tried := died
+	tried.NoteHarnessResumeWait("the tracker, the forge, or the network to answer (bd show timed out)", stopped.Add(10*time.Minute))
+	held = heldForAPerson([]runstate.State{tried}, nil, nothingDecided, asRecorded)
+	reason = heldReason(t, held, "yoyodyne-ifd.436.4")
+	if !strings.Contains(reason, "waiting for the tracker, the forge, or the network to answer") || !strings.Contains(reason, "last tried at") {
+		t.Fatalf("the hold says %q, want what the harness's resumption waits for and when it last tried", reason)
+	}
+}
+
+// A stop the harness does not resume by itself still names the verb that
+// resumes it: a primary checkout carrying somebody's edit is a person's to
+// clear, and the resume is then asked for.
+func TestAStopTheHarnessDoesNotResumeItselfStillNamesTheResume(t *testing.T) {
+	t.Parallel()
+
+	stopped := time.Date(2026, 9, 22, 4, 4, 0, 0, time.UTC)
+	run := preservedRun("run-c0c6d18d", "yoyodyne-ifd.436.5", stopped)
+	run.Blocker = ""
+	run.Failure = "the primary checkout carried state the harness does not own"
+	run.ReviewDecision = runstate.ReviewApprove
+	run.ReviewSessionID = "f4c1a0de-review"
+	run.Phase = runstate.PhaseReviewing
+	run.IntegrationStop = &runstate.IntegrationStop{
+		Cause:      runstate.CauseDirtyPrimary,
+		Detail:     run.Failure,
+		Phase:      runstate.PhaseReviewing,
+		RecordedAt: stopped,
+	}
+	held := heldForAPerson([]runstate.State{run}, nil, nothingDecided, asRecorded)
+	reason := heldReason(t, held, "yoyodyne-ifd.436.5")
+	if !held.Decided("yoyodyne-ifd.436.5") {
+		t.Fatalf("the hold says %q, want the harness named as the next mover", reason)
+	}
 	if index := strings.Index(reason, "`yoyo triage resume`"); index < 0 || index > 200 {
-		t.Fatalf("the verb is %d bytes into %q, want it early enough to survive a one-line rendering", index, reason)
+		t.Fatalf("the hold says %q, want the verb that resumes the promotion named early", reason)
 	}
 }
 

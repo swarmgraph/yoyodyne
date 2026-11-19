@@ -420,3 +420,38 @@ func (u MergeDropFound) apply(state *State) (bool, error) {
 	state.UpdatedAt = u.At
 	return true, nil
 }
+
+// HarnessResumeWaited records on an integration stop the harness resumes by
+// itself what its latest try found it still waiting on, and when
+// (State.NoteHarnessResumeWait). It changes nothing on a run the harness no
+// longer resumes by itself: one going again, settled, or handed to the
+// development manager.
+type HarnessResumeWaited struct {
+	Why string
+	At  time.Time
+}
+
+func (u HarnessResumeWaited) apply(state *State) (bool, error) {
+	if !state.HarnessResumesIntegration() || !state.NoteHarnessResumeWait(u.Why, u.At) {
+		return false, nil
+	}
+	state.UpdatedAt = u.At
+	return true, nil
+}
+
+// HarnessResumeRefused records on an integration stop that the harness's own
+// try met something other than a service not answering, which ends its tries
+// (State.NoteHarnessResumeRefused). It changes nothing on a run with no stop,
+// or whose stop already records one.
+type HarnessResumeRefused struct {
+	Why string
+	At  time.Time
+}
+
+func (u HarnessResumeRefused) apply(state *State) (bool, error) {
+	if !state.NoteHarnessResumeRefused(u.Why, u.At) {
+		return false, nil
+	}
+	state.UpdatedAt = u.At
+	return true, nil
+}

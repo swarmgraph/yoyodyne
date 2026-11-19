@@ -5749,7 +5749,9 @@ has the rule.
   change is still on a branch or in a checkout, its stoppage is in front of the
   development manager and nobody has decided about it, a decision about its
   stoppage is recorded and not yet carried out, an approved change the
-  environment stopped short of its promotion is waiting on `yoyo triage resume`,
+  environment stopped short of its promotion is waiting on `yoyo triage resume`
+  (or, where the tracker, GitHub, or the network did not answer, on the harness
+  resuming it by itself once they answer),
   or a run promoted its change and could not finish publishing it. A run that
   ended `failed` holding its change is the first of those exactly as a run that
   ended `stopped` is: a run that fails inside its own process hands nobody a

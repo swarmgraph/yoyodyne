@@ -658,7 +658,11 @@ would read as a dropped network on its own. Nothing about
 the change is in question, so nothing about it is anybody's to decide. A
 diverged target and a refused credential do need a person — to settle the
 branches, or to load the key or renew the login — but what they settle is the
-environment and not the change, so the approval stands through it. `yoyo triage resume
+environment and not the change, so the approval stands through it. A tracker,
+GitHub, or network that did not answer needs nobody: the harness tries the
+resume itself at each pull and resumes the run once they answer
+([the conversation guide](conversation.md#resuming-an-approved-change-the-environment-stopped)
+says how). `yoyo triage resume
 <run-id>` resumes the run at the promotion it stopped short of — replay onto
 where the target now stands, push, merge request — with its approval standing,
 and it charges the item nothing: no review round, no repair grant, no re-run.
@@ -1452,7 +1456,11 @@ An approved change the environment stopped short of its promotion — the
 [integration stop](#how-work-flows-once-you-approve-it) above — is in the second
 wait without her having decided anything, and that is deliberate rather than a miscount: the reviewer decided,
 the environment got in the way, and what the item waits on is the harness
-resuming the promotion with `yoyo triage resume`. The hold names that verb, and
+resuming the promotion with `yoyo triage resume`. Where what stopped it was the
+tracker, GitHub, or the network not answering, the harness resumes it by itself
+once they answer, and the hold says that instead of naming a command, with what
+its last try was waiting for and when. The hold names the verb or the harness's
+own resumption, and
 it names it first, ahead of what was found of the change, so the part that says
 what to do survives a rendering that cuts the reason to a line. The development
 manager's docket says the same thing on the same stoppage, because an item given

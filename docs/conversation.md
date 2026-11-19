@@ -3539,6 +3539,26 @@ person — two refusals, asked last. Two more things are waits rather than
 refusals, and write nothing: your hold on intake applies, for the reason it
 applies to a repair, and a full harness waits for a slot.
 
+One cause is resumed by the harness itself, with nobody typing the command:
+the tracker, GitHub, or the network not answering — a reset connection, a
+tracker call killed at its time limit, a forge that went away. A dropped
+connection is waited out under the operating rules, and an approved change it
+stopped is waited out the same way. At each pull the harness's own pass over
+stopped work tries the same resume: it lists the target on the remote and reads
+the item from the tracker before it writes anything, and while either still
+does not answer it writes onto the run what it is waiting for and when it last
+tried, and tries again at the next pull. Once both answer it resumes the run
+exactly as the command would, charging nothing, and the change lands. `yoyo
+status`, the docket entry, the hold the pull reads, the factory health check,
+and the item's notes all say the harness resumes it by itself and name no
+command; `yoyo status` and the health check add what the last try was waiting
+for and when. A try that meets anything else — a worktree that is not as the
+harness left it, an item closed meanwhile — stops the harness trying: it writes
+why onto the run and the item, and the stop is then the development manager's
+like any other, with `yoyo triage resume` still the way to finish it once that
+is settled. A decision she records about such a stop is carried out instead of
+the harness's own try. Every other cause is resumed only when asked, as above.
+
 A worktree the [convergence sweep](operations.md#recovering-interrupted-runs)
 retired while the run stood stopped is neither. The branch still holds the
 reviewed commit, so the resume puts the checkout back from the branch at
