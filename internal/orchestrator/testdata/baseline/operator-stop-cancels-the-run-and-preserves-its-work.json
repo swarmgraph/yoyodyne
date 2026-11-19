@@ -102,7 +102,7 @@
         "cause": "outside",
         "charged": false,
         "evidence": {
-          "says": "the operator stopped this run at \u003ctime\u003e: it is rewriting the wrong file"
+          "says": "the operator stopped this run at \u003ctime\u003e: it is rewriting the wrong file; it took effect at the run's next step (a stop waits at most 10 minutes for the step a run is in the middle of)"
         },
         "kept": true,
         "reason": "operator-stop",
