@@ -4,6 +4,7 @@ package runstate
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os/exec"
 	"strings"
@@ -482,5 +483,32 @@ func TestAPausedRunWhoseNumberWasClaimedContinuesInAFreeSlot(t *testing.T) {
 	}
 	if stored := load(t, store, paused.RunID); stored.RecordedSlot() != 1 || stored.DependencyPause != nil {
 		t.Fatalf("the record names slot %d with pause %+v, want slot 1 and the pause lifted", stored.RecordedSlot(), stored.DependencyPause)
+	}
+}
+
+// A counted run whose record names no slot number is listed with no number
+// rather than as slot 0, and says its slot is not known, so nobody reading the
+// health check takes it for a run in a slot called 0 beside a slot shown free.
+func TestACountedRunRecordingNoSlotIsNotShownAsSlotZero(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	state := testState(t, StatusRunning)
+	state.WorkItemID = "yoyodyne-unnumbered"
+	if err := store.Create(state); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	holders := store.SlotHolders([]State{state}, time.Now())
+	if len(holders) != 1 {
+		t.Fatalf("holders = %+v, want the one run", holders)
+	}
+	encoded, err := json.Marshal(holders[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), `"slot"`) {
+		t.Fatalf("holder written as %s, want no slot number in it", encoded)
+	}
+	if holders[0].Counted && !strings.Contains(holders[0].Says, "names no slot number") {
+		t.Fatalf("Says = %q, want it to say the record names no slot number", holders[0].Says)
 	}
 }
