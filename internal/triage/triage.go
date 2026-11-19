@@ -448,6 +448,12 @@ type IntegrationStop struct {
 	Phase string `json:"phase"`
 	// Title says what the cause is, in the words the run record gives it.
 	Title string `json:"title,omitempty"`
+	// HarnessResumes says the harness resumes this stop by itself once what did
+	// not answer answers again, so nobody has a step to take for it. Waiting is
+	// what its latest try found it still waiting on and when, in one line, and is
+	// empty before its first try.
+	HarnessResumes bool   `json:"harness_resumes,omitempty"`
+	Waiting        string `json:"waiting,omitempty"`
 }
 
 // ResumeIntegrationSays is the one sentence every surface says of an approved
@@ -470,6 +476,16 @@ func ResumeIntegrationSays(runID, phase, cause, title string) string {
 	return fmt.Sprintf(
 		"run %s's change is approved and the environment stopped it at the %s phase — %s (%s) — so what it needs is `yoyo triage resume %s` once the cause has cleared, which resumes the promotion with the approval standing and charges no review round, repair grant, or re-run",
 		runID, phase, cause, title, runID)
+}
+
+// HarnessResumesIntegrationSays is ResumeIntegrationSays for a stop the harness
+// resumes by itself: the tracker, the forge or the network did not answer. It
+// names no command, because nobody has one to type: the harness tries again at
+// each pull and resumes the promotion once they answer.
+func HarnessResumesIntegrationSays(runID, phase, cause, title string) string {
+	return fmt.Sprintf(
+		"run %s's change is approved and the environment stopped it at the %s phase — %s (%s) — so the harness resumes it by itself once they answer again, from where it stopped with the approval standing, charging no review round, repair grant, or re-run; nobody needs to do anything",
+		runID, phase, cause, title)
 }
 
 // IntegrationResumable reports whether an approved change the environment
@@ -1877,6 +1893,9 @@ func (e Entry) Validate() error {
 		if len(e.IntegrationStop.Detail) > MaxMessageBytes {
 			problems = append(problems, fmt.Errorf("integration_stop: detail is %d bytes, limit is %d", len(e.IntegrationStop.Detail), MaxMessageBytes))
 		}
+		if len(e.IntegrationStop.Waiting) > MaxMessageBytes {
+			problems = append(problems, fmt.Errorf("integration_stop: waiting is %d bytes, limit is %d", len(e.IntegrationStop.Waiting), MaxMessageBytes))
+		}
 		if e.Class != ClassStoppedRun {
 			problems = append(problems, fmt.Errorf("integration_stop: only a stopped run is an approved change the environment stopped, and this entry is a %s", e.Class))
 		}
@@ -2401,10 +2420,17 @@ func (e Entry) renderIntegrationStop() string {
 	}
 	var rendered strings.Builder
 	title := nonEmpty(stopped.Title, "the environment rather than the work")
-	if e.integrationResumable() {
+	switch {
+	case e.integrationResumable() && stopped.HarnessResumes:
+		fmt.Fprintf(&rendered, "      %s. Nothing here is a verdict on the change, and this item's counters stay where the review left them.\n",
+			HarnessResumesIntegrationSays(e.RunID, stopped.Phase, stopped.Cause, title))
+		if waiting := strings.TrimSpace(stopped.Waiting); waiting != "" {
+			fmt.Fprintf(&rendered, "      The harness's resumption is %s.\n", waiting)
+		}
+	case e.integrationResumable():
 		fmt.Fprintf(&rendered, "      %s. Nothing here is a verdict on the change, and this item's counters stay where the review left them.\n",
 			ResumeIntegrationSays(e.RunID, stopped.Phase, stopped.Cause, title))
-	} else {
+	default:
 		fmt.Fprintf(&rendered, "      %s. It was stopped at the %s phase by %s (%s), which is no verdict on the change.\n",
 			IntegrationGoneSays(e.RunID, e.remains()), stopped.Phase, stopped.Cause, title)
 	}
@@ -2490,6 +2516,9 @@ func (e Entry) renderNextMover() string {
 func (e Entry) nextMover() string {
 	gone := ""
 	if e.IntegrationStop != nil {
+		if e.integrationResumable() && e.IntegrationStop.HarnessResumes {
+			return "      Next mover: the harness — this change is approved and the tracker, the forge, or the network did not answer, so the harness resumes it by itself at a later pull once they answer; nothing here needs a decision or a command.\n"
+		}
 		if e.integrationResumable() {
 			return "      Next mover: the harness — this change is approved and the environment stopped it, so what it needs is `yoyo triage resume` once the cause has cleared, not a decision.\n"
 		}

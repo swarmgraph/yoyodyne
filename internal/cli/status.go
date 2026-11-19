@@ -1477,10 +1477,24 @@ func printRunReasons(writer io.Writer, run runstate.RunSummary) bool {
 	// the pull's hold ask it by. Once it is gone the resume would refuse, so the
 	// line says what is gone and that a re-run is the way on instead.
 	if run.IntegrationStop != nil {
-		if triage.IntegrationResumable(run.Found, run.BranchRemoved) {
+		resumable := triage.IntegrationResumable(run.Found, run.BranchRemoved)
+		switch {
+		case resumable && run.IntegrationStop.HarnessResumes():
+			// Nobody has a command to type for this one: the harness tries it again
+			// at each pull, and says what it last found and when.
+			waiting := run.IntegrationStop.WaitingSays()
+			if waiting == "" {
+				waiting = "not tried yet"
+			}
+			fmt.Fprintf(writer, "  integration stop: %s; the harness resumes it by itself at no cost once they answer; %s\n",
+				singleLine(run.IntegrationStop.Describe()), singleLine(waiting))
+		case resumable:
 			fmt.Fprintf(writer, "  integration stop: %s; `yoyo triage resume %s` resumes it at no cost once the cause has cleared\n",
 				singleLine(run.IntegrationStop.Describe()), run.RunID)
-		} else {
+			if refused := strings.TrimSpace(run.IntegrationStop.HarnessRefused); refused != "" {
+				fmt.Fprintf(writer, "  the harness stopped resuming it by itself: %s\n", singleLine(refused))
+			}
+		default:
 			// Each half is folded on its own, so the re-run is never the part a
 			// fold cuts; the branch and worktree lines below say what was found
 			// in full, so the clause here is the listing's short one.

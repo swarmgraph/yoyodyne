@@ -192,7 +192,7 @@ const DecisionContinueStall = "continue-stall"
 // decision, but it is recorded on the run rather than on the item's triage
 // record, so it is handled the same way: nothing about it is written there.
 func harnessOwnTask(decision string) bool {
-	return decision == DecisionContinueChecks || decision == DecisionContinueStall || decision == DecisionFinishMerge
+	return decision == DecisionContinueChecks || decision == DecisionContinueStall || decision == DecisionFinishMerge || decision == DecisionResumeIntegration
 }
 
 // CarryOut fires the decisions the development manager recorded. It decides
@@ -255,6 +255,11 @@ type CarryOut struct {
 	// run.recover (recoveryrequest.go). Optional: a carry-out wired without it
 	// leaves such a request on the run for `yoyo triage resume`.
 	Integrations CarryOutIntegrations
+	// Resumes resumes the approved changes the tracker, the forge or the network
+	// stopped by not answering, by the harness itself once they answer
+	// (transportresume.go). Optional: a carry-out wired without it leaves such a
+	// stop for `yoyo triage resume`.
+	Resumes CarryOutResumes
 	// ClaimGiver gives back the re-run claims the development manager decided to
 	// give back (claimgiveback.go). Optional: a carry-out wired without it leaves
 	// such a decision for `yoyo triage give-back`.
@@ -510,6 +515,13 @@ func (c CarryOut) read() (carryOutReading, error) {
 			}
 		}
 		if !outstanding {
+			task, outstanding, err = c.resumeTask(entry, item)
+			if err != nil {
+				problems = append(problems, err)
+				return
+			}
+		}
+		if !outstanding {
 			return
 		}
 		// A recovery of work its closed item has already settled is not offered:
@@ -651,6 +663,31 @@ func (c CarryOut) read() (carryOutReading, error) {
 			}
 		}
 	}
+	// A stop the harness resumes by itself is recorded on the run, so it is walked
+	// from the runs as well, for a stop whose docket entry was never written.
+	if c.Resumes != nil {
+		if recorded, err := history(); err != nil {
+			problems = append(problems, fmt.Errorf("approved changes the harness resumes by itself were not looked for among the runs: %w", err))
+		} else {
+			for _, state := range recorded {
+				if considered[state.RunID] || state.WorkItemID == "" || !state.HarnessResumesIntegration() {
+					continue
+				}
+				item := itemFor(state.WorkItemID)
+				if item.problem != nil {
+					continue
+				}
+				consider(triage.Entry{
+					Key:             triage.Key(triage.ClassStoppedRun, state.RunID),
+					Class:           triage.ClassStoppedRun,
+					RunID:           state.RunID,
+					WorkItemID:      state.WorkItemID,
+					RecordedAt:      state.IntegrationStop.RecordedAt,
+					IntegrationStop: docketIntegrationStop(state.IntegrationStop),
+				}, item)
+			}
+		}
+	}
 	// A re-arm is fired on its own path, and what that path holds back is written
 	// down here with everything else the sweep holds back, so a re-arm no pass
 	// attempts is as visible on the item as a re-run no pass attempts.
@@ -734,6 +771,13 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 		// written there, where whoever reads the run next finds it.
 		if task.Decision == DecisionFinishMerge && c.Integrations != nil {
 			if err := c.Integrations.Wait(ctx, task.RunID, held.why); err != nil {
+				problems = append(problems, err)
+			}
+			continue
+		}
+		// So is the harness's own resumption of an approved change.
+		if task.Decision == DecisionResumeIntegration && c.Resumes != nil {
+			if err := c.Resumes.Wait(ctx, task.RunID, held.why); err != nil {
 				problems = append(problems, err)
 			}
 			continue
@@ -1113,6 +1157,9 @@ func (c CarryOut) Carry(ctx context.Context, task CarryOutTask) (account Carried
 	}
 	if task.Decision == DecisionContinueStall {
 		return c.continueStall(ctx, task, carried)
+	}
+	if task.Decision == DecisionResumeIntegration {
+		return c.resumeIntegration(ctx, task, carried)
 	}
 	if task.Decision == DecisionFinishMerge {
 		if c.Integrations == nil {

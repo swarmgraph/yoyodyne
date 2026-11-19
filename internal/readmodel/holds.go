@@ -1077,6 +1077,16 @@ func stoppedIntegration(run runstate.State, found triage.Found, preserved bool) 
 	account := fmt.Sprintf(
 		"run %s stopped on it with its change approved, and the environment is what stopped the promotion, so `yoyo triage resume` finishes it rather than a decision or a fresh run",
 		run.RunID)
+	// A stop the harness resumes by itself names no command, because nobody has
+	// one to type, and says what its latest try is waiting for and when it was.
+	if run.IntegrationStop != nil && run.IntegrationStop.HarnessResumes() {
+		account = fmt.Sprintf(
+			"run %s stopped on it with its change approved, because the tracker, the forge, or the network did not answer, and the harness resumes it by itself once they answer, so nobody needs to do anything",
+			run.RunID)
+		if waiting := run.IntegrationStop.WaitingSays(); waiting != "" {
+			account += "; " + waiting
+		}
+	}
 	switch {
 	case !preserved:
 		return account
