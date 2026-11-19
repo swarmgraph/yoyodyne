@@ -252,7 +252,16 @@ the part is doing:
   The supervisor waits for it rather than stopping it, since stopping it would
   cancel those runs. The moment the session lets its lease go to re-execute is
   read as that restart rather than as a death, and a session that has not taken
-  its lease back thirty seconds later is started from the binary.
+  its lease back thirty seconds later is started from the binary. The one
+  exception is a session that has been past its limit for winding down for
+  five minutes without restarting — past the drain bound, or past the latest
+  running check it said it was waiting for, or past the latest moment it said
+  it waits on a merge queue candidate's checks, and not saying it is waiting out a
+  promotion or a document landing. The supervisor then stops it the way
+  `yoyo stop` does and starts it from the deployed binary, recorded as a
+  restart rather than a death; the runs it had already stopped for the move
+  keep what they had and are picked up by the session that comes back, and
+  nothing is restarted this way while a restart is held.
 - **The Slack sink is restarted by the supervisor**, between two passes over
   the records and never while it is answering a product manager turn in a
   thread. The sink makes each pass under a lease of its own; the supervisor
@@ -331,7 +340,7 @@ deploy is moving one:
 Services (supervisor running as pid 48211; the binary on disk is build 3d3d367a1b2c):
   slack: running as pid 48214, logging to …/projects/yoyodyne/state/slack/sink.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
   dashboard: running as pid 48216, serving at http://127.0.0.1:8765/ (ready since 2026-09-28 09:40 PDT), its token in …/projects/yoyodyne/state/dashboard/token, which `yoyo dashboard token` prints, logging to …/projects/yoyodyne/state/dashboard.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
-  scheduler: running as pid 48215, logging to …/projects/yoyodyne/state/scheduler.log, on build 1a2b3c4d5e6f since 2026-09-27 20:56 PDT; on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it between runs, at most once every execution.build_move_interval, waiting out the runs it hosts under execution.redeploy_drain_limit
+  scheduler: running as pid 48215, logging to …/projects/yoyodyne/state/scheduler.log, on build 1a2b3c4d5e6f since 2026-09-27 20:56 PDT; on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it between runs, at most once every execution.build_move_interval, waiting out the runs it hosts under execution.redeploy_drain_limit, and is restarted into it by the supervisor if it has not restarted five minutes past that limit
   maintenance: the supervisor's own pass, every 10m0s; last pass at 2026-09-28T16:30:00Z (4 step(s) ran, 2 skipped, 0 failed); next at 2026-09-28T16:40:00Z
 ```
 
@@ -3921,15 +3930,24 @@ it again every ten minutes while the wait lasts, so a promotion that runs for
 an hour is never reported as a problem; a line saying so that has gone thirty
 minutes without being said again is a session that died waiting. A session
 giving an already-finished check stage its brief grace to record its verdict
-writes nothing while that wait is unchanged. The bound having run out reads
-that way for ten minutes past the bound. A session still draining after that,
-and not saying it is waiting out a promotion, a running check, or a document
-landing run, has stopped restarting — stuck,
-or killed while it waited — and is reported as a factory problem rather than as a session on its way back: `yoyo status`, the
-dashboard's **Factory problems** section, and the channel's heartbeat name the
-session and say since when it has been draining past its bound, whose move is
-the harness's, and that restarting the watch session takes up the deployed
-build with the runs it stopped picked up by the session that comes back. It is
+writes nothing while that wait is unchanged. The session's limit for winding
+down is the end of its bound, or, where it said it was waiting past the bound
+for checks already running, the latest moment those checks can run to. A merge
+queue candidate goes on from one check to the next while the session waits on
+it, so where the session said it was waiting on one, its limit is the latest
+moment it waits on that candidate — ten minutes past the bound — rather than the
+end of the check the candidate was running when the session said so. Being
+past that limit reads as the session on its way back for three minutes. A
+session still winding down after that, and not saying it is waiting out a
+promotion or a document landing run, has stopped restarting — stuck, or killed
+while it waited — and is reported as a factory problem rather than as a session
+on its way back: `yoyo status`, the dashboard's **Factory problems** section,
+and the channel's heartbeat name the session, say since when and for how long
+it has been past its limit, and say that the supervisor restarts it once it is
+five minutes past that limit, whose move is the harness's. The supervisor's
+restart takes up the deployed build with the runs it stopped picked up by the
+session that comes back
+([moving onto a deployed build](#starting-the-product-and-stopping-it)). It is
 said even when every developer slot reads as taken, because the runs it
 stopped keep their seats. The stop
 recorded as a restart reads that way for two minutes, which is the minute the
@@ -7920,8 +7938,9 @@ slowly or not at all`.
    this section. The finding ends when its own pass next carries out its work,
    finished or with more waiting, as described
    [under maintenance](#the-supervisors-maintenance-pass). A watch session
-   that has been draining past its bound for ten minutes without restarting
-   is listed here too, naming the session and since when, until a session
+   that has been past its limit for winding down for three minutes without
+   restarting is listed here too, naming the session, since when, and for how
+   long, until a session
    running the deployed build takes over. One waiting out a run at its
    promotion is not listed, however long the promotion takes. So is a part
    the supervisor starts with

@@ -521,3 +521,83 @@ func TestTheSupervisorIsNotHeldBackByAPartDrainingItself(t *testing.T) {
 		t.Fatalf("Moving() = %q while the scheduler has let its lease go to re-execute, want the scheduler named", moving)
 	}
 }
+
+// overdueScheduler is the watch with a wind-down a test can leave stuck: it
+// never restarts itself, and says it is overdue once the test says so.
+type overdueScheduler struct {
+	selfRestartingChild
+	overdue *string
+}
+
+func (o overdueScheduler) RestartOverdue(context.Context, time.Time) (string, error) {
+	return *o.overdue, nil
+}
+
+// A scheduler past its wind-down limit that has not restarted itself is
+// restarted by the supervisor once it says it is overdue, and not before: it
+// is stopped once, the way `yoyo stop` stops it, started from the deployed
+// binary, and recorded as a restart rather than a death, so the runs it had
+// stopped and preserved for the move are picked up by the session that comes
+// back exactly as after a restart it made itself. While a restart is held, it
+// is left alone and the record says why.
+func TestASchedulerPastItsWindDownLimitIsRestartedOntoTheDeployedBuild(t *testing.T) {
+	t.Parallel()
+
+	store := newStore(t)
+	clock := &clock{now: time.Date(2026, 11, 18, 17, 50, 0, 0, time.UTC)}
+	binary := newBinary(t, "1111111111111111")
+	overdue := ""
+	scheduler := overdueScheduler{
+		selfRestartingChild: selfRestartingChild{newDeployable(config.ServiceScheduler, binary, nil)},
+		overdue:             &overdue,
+	}
+	supervisor := deploySupervisor(t, store, clock, binary, scheduler)
+	held := ""
+	supervisor.RestartHold = func() string { return held }
+	supervisor.Tick(context.Background())
+
+	// The build lands and the scheduler begins winding down; inside its limit,
+	// and past it but not yet overdue, it is left to restart itself.
+	binary.deploy(t, "2222222222222222")
+	for range 4 {
+		clock.advance(DeployEvery)
+		supervisor.Tick(context.Background())
+	}
+	if scheduler.stopCount() != 0 {
+		t.Fatalf("stops = %d, want a scheduler that is not overdue left to restart itself", scheduler.stopCount())
+	}
+
+	// Overdue while a restart is held: left alone, and the record says why.
+	overdue = "has been past its limit for winding down to move onto a new build for 5m0s"
+	held = "the provider cannot be reached"
+	clock.advance(DeployEvery)
+	supervisor.Tick(context.Background())
+	if scheduler.stopCount() != 0 {
+		t.Fatalf("stops = %d, want nothing restarted while a restart is held", scheduler.stopCount())
+	}
+	if got := child(t, loaded(t, store), config.ServiceScheduler); !strings.Contains(got.Redeploy, "past its limit for winding down") || !strings.Contains(got.Redeploy, "the provider cannot be reached") {
+		t.Fatalf("scheduler = %+v, want the record to say it is overdue and what holds the restart", got)
+	}
+
+	held = ""
+	clock.advance(DeployEvery)
+	supervisor.Tick(context.Background())
+	if scheduler.stopCount() != 1 || scheduler.startCount() != 2 {
+		t.Fatalf("stops = %d starts = %d, want the overdue scheduler stopped once and started again", scheduler.stopCount(), scheduler.startCount())
+	}
+	got := child(t, loaded(t, store), config.ServiceScheduler)
+	if got.State != runstate.ChildRunning || got.Build != "2222222222222222" || got.RestartingInto != "" {
+		t.Fatalf("scheduler = %+v, want it running on the deployed build", got)
+	}
+	if got.Restarts != 1 || got.Failures != 0 || !got.DiedAt.IsZero() {
+		t.Fatalf("scheduler = %+v, want one restart into a deployed build and no death counted against it", got)
+	}
+
+	// On the deployed build it is no longer behind, so it is not asked again.
+	overdue = ""
+	clock.advance(DeployEvery)
+	supervisor.Tick(context.Background())
+	if scheduler.stopCount() != 1 {
+		t.Fatalf("stops = %d, want a scheduler on the deployed build left running", scheduler.stopCount())
+	}
+}

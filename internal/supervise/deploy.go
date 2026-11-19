@@ -79,6 +79,16 @@ type RestartsItself interface {
 	RestartsItself() string
 }
 
+// OverdueRestart is a child that restarts itself and can say when it has gone
+// too far past the moment it was due to: the scheduler, whose wind-down for a
+// move onto a new build is bounded, and which a fault inside it can leave
+// winding down for ever (readmodel.DrainRestartDue). What it returns says how
+// it is overdue, in words that finish "the scheduler ...", and is empty where
+// it is not.
+type OverdueRestart interface {
+	RestartOverdue(ctx context.Context, now time.Time) (string, error)
+}
+
 // DeployedBinary is the binary the parts are started from, and the revision it
 // was built from. The file is looked at on every call and read again only when
 // it has been written, which is what a deploy does to it.
@@ -206,6 +216,7 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 	if self {
 		state.RestartingInto = s.deployed
 		state.Redeploy = behind + "; " + child.(RestartsItself).RestartsItself()
+		s.restartOverdue(ctx, child, state, now, build, behind)
 		return
 	}
 	if state.RestartingInto == s.deployed {
@@ -230,6 +241,36 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 		return
 	}
 	s.restart(ctx, child, state, now, build)
+}
+
+// restartOverdue restarts a child that restarts itself, is behind the deployed
+// binary, and has gone too far past the moment it was due to restart itself.
+// It is the one case the supervisor stops such a child: left alone it would
+// hold the product on the old build, pulling no new work, until a person
+// noticed. The restart is the ordinary one, so the child is stopped the way
+// `yoyo stop` stops it and started from the deployed binary, and it counts as
+// a restart rather than a death. What the scheduler had already stopped for
+// the move is kept as the move keeps it, preserved for the session that comes
+// back. Nothing is restarted while a restart is held.
+func (s *Supervisor) restartOverdue(ctx context.Context, child Child, state *runstate.SupervisedChild, now time.Time, from, behind string) {
+	overdue, ok := child.(OverdueRestart)
+	if !ok {
+		return
+	}
+	why, err := overdue.RestartOverdue(ctx, now)
+	if err != nil {
+		s.log("whether the %s service is overdue to restart itself into the deployed build could not be read, so it is asked again at the next look: %v", child.Name(), err)
+		return
+	}
+	if why == "" {
+		return
+	}
+	if held := s.restartHold(); held != "" {
+		state.Redeploy = fmt.Sprintf("%s; it %s, and is not restarted while %s", behind, why, held)
+		return
+	}
+	s.log("the %s service %s, so the supervisor restarts it into the deployed build %s rather than wait any longer", child.Name(), why, short(s.deployed))
+	s.restart(ctx, child, state, now, from)
 }
 
 // restart stops a child that is behind the deployed binary and starts it again

@@ -7508,6 +7508,9 @@ func (d redeployDrain) record(hosting int) *runstate.WatchDrain {
 			if wait.Until.After(recorded.ChecksUntil) {
 				recorded.ChecksUntil = wait.Until
 			}
+			if wait.Queue != "" {
+				recorded.QueueChecksUntil = d.checksCeiling()
+			}
 		}
 	}
 	if d.boundReached {
