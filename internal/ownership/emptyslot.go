@@ -33,6 +33,10 @@ const (
 	// over for something about the item itself: held, parked, waiting on other
 	// work, and the like.
 	EmptySlotNothingEligible EmptySlotCause = "no eligible item"
+	// EmptySlotWaitingOnForge is a free slot beside ready work that the scheduler
+	// never reported as empty, while runs wait on the forge's checks, which hold
+	// no slot. The read model raises it from its own count of the slots.
+	EmptySlotWaitingOnForge EmptySlotCause = "runs waiting on GitHub's checks"
 	// EmptySlotNotKnown is a slot left empty for a reason the scheduler could
 	// not name.
 	EmptySlotNotKnown EmptySlotCause = "not known"
@@ -40,7 +44,7 @@ const (
 
 // EmptySlotCauses is the whole vocabulary.
 func EmptySlotCauses() []EmptySlotCause {
-	return []EmptySlotCause{EmptySlotHold, EmptySlotRule, EmptySlotStillCounted, EmptySlotNothingEligible, EmptySlotNotKnown}
+	return []EmptySlotCause{EmptySlotHold, EmptySlotRule, EmptySlotStillCounted, EmptySlotNothingEligible, EmptySlotWaitingOnForge, EmptySlotNotKnown}
 }
 
 // Valid reports whether a token is one of the causes.
@@ -71,6 +75,8 @@ func emptySlotRule(r Record) (Answer, bool) {
 		return owned(MoverDevelopmentManager, "find why the run is still counted against the slot and have it continued or stopped", "run.recover")
 	case EmptySlotNothingEligible:
 		return owned(MoverDevelopmentManager, "decide the ready items that were passed over, which each say why", "triage decision")
+	case EmptySlotWaitingOnForge:
+		return owned(MoverDevelopmentManager, "find why the scheduler started nothing into the free slot while runs wait on GitHub's checks", "health.observe")
 	case EmptySlotNotKnown:
 		return owned(MoverDevelopmentManager, "find why the scheduler left the slot empty; it could not say", "health.observe")
 	}

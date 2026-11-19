@@ -62,3 +62,49 @@ func TestAnEmptySlotAccountIsANoteReadBackWhole(t *testing.T) {
 		t.Fatalf("Record() of a cleared account error = %v", err)
 	}
 }
+
+// An account naming a child work item, whose id carries the dots of its
+// number, is recorded like any other. The check once held work item ids to the
+// shape of a configured name, so every account naming a slot counted for such
+// an item was refused whole and the log said nothing while the slot stood
+// empty. A cleared account says which step ended it, and where every slot was
+// counted taken, what holds them.
+func TestAnEmptySlotAccountNamingAChildItemIsRecorded(t *testing.T) {
+	t.Parallel()
+
+	store := newTestWatchStore(t, t.TempDir())
+	counted := testWatchTransition(testWatchSessionID, WatchWatching, "1 developer slot left empty")
+	counted.EmptySlots = &EmptySlots{
+		Cause: ownership.EmptySlotStillCounted, Reason: "the slot is still counted as taken for yoyodyne-ifd.309", ReadyUnread: true, FreeSlots: 1,
+		CountedFor: []string{"yoyodyne-ifd.309"},
+		Passed:     []EmptySlotItem{{WorkItemID: "yoyodyne-ifd.428.126.4.19", Why: "sequenced behind work in flight"}},
+		Since:      counted.At, At: counted.At,
+	}
+	full := testWatchTransition(testWatchSessionID, WatchWatching, "no developer slot is left empty while ready work waits")
+	full.At = counted.At.Add(time.Minute)
+	full.EmptySlots = &EmptySlots{
+		Cleared: true, Ended: EmptySlotsEveryTaken, Taken: 2,
+		TakenBy: []EmptySlotHolder{{WorkItemID: "yoyodyne-ifd.428.99.27", RunID: "run-6768ca4fa272988b78495592bf66c31e"}, {WorkItemID: "yoyodyne-ifd.309"}},
+		Since:   full.At, At: full.At,
+	}
+	for _, transition := range []WatchTransition{counted, full} {
+		if err := store.Record(transition); err != nil {
+			t.Fatalf("Record() error = %v", err)
+		}
+	}
+	recorded, err := store.List()
+	if err != nil || len(recorded) != 2 || !recorded[1].EmptySlots.SameReason(*full.EmptySlots) {
+		t.Fatalf("List() = %#v, %v; want both accounts read back whole", recorded, err)
+	}
+
+	for name, wrong := range map[string]EmptySlots{
+		"an ending on a standing account":  {Cause: ownership.EmptySlotRule, Reason: "a rule", Ended: EmptySlotsFilled},
+		"holders without every slot taken": {Cleared: true, Ended: EmptySlotsFilled, Taken: 1, TakenBy: []EmptySlotHolder{{WorkItemID: "yoyodyne-a"}}},
+		"an ending nobody names":           {Cleared: true, Ended: "somewhere"},
+	} {
+		wrong.At, wrong.Since = full.At, full.At
+		if err := wrong.validate(); err == nil {
+			t.Errorf("%s: validate() accepted %+v", name, wrong)
+		}
+	}
+}

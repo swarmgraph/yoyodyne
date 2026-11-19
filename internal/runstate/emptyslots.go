@@ -14,10 +14,11 @@ package runstate
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 )
 
@@ -62,8 +63,46 @@ type EmptySlots struct {
 	Since time.Time `json:"since"`
 	At    time.Time `json:"at"`
 	// Cleared marks the account ending: the poll found no slot empty while
-	// ready work waited. It carries nothing else.
+	// ready work waited. It carries nothing else but why it ended (Ended) and,
+	// where every slot was counted taken, what the poll counted against them.
 	Cleared bool `json:"cleared,omitempty"`
+	// Ended is which step of the poll found no slot empty: every slot counted
+	// taken, every free slot filled, or no ready work for a slot to take. It is
+	// empty on an entry written before it was recorded, and on the cleared
+	// entry a session writes without a pull's reading.
+	Ended EmptySlotsEnded `json:"ended,omitempty"`
+	// TakenBy is, where every slot was counted taken, the first of the runs and
+	// starts the poll counted against them, and Taken how many it counted in
+	// all; a start with no run on record yet names no run.
+	TakenBy []EmptySlotHolder `json:"taken_by,omitempty"`
+	Taken   int               `json:"taken,omitempty"`
+}
+
+// EmptySlotsEnded is the closed set of steps that end an empty slot account.
+type EmptySlotsEnded string
+
+const (
+	// EmptySlotsEveryTaken is a poll that counted every developer slot taken.
+	EmptySlotsEveryTaken EmptySlotsEnded = "every-slot-taken"
+	// EmptySlotsFilled is a poll that started work into every free slot.
+	EmptySlotsFilled EmptySlotsEnded = "slots-filled"
+	// EmptySlotsNoReadyWork is a poll that found no ready work a slot could take.
+	EmptySlotsNoReadyWork EmptySlotsEnded = "no-ready-work"
+)
+
+func (e EmptySlotsEnded) valid() bool {
+	switch e {
+	case "", EmptySlotsEveryTaken, EmptySlotsFilled, EmptySlotsNoReadyWork:
+		return true
+	}
+	return false
+}
+
+// EmptySlotHolder is one run, or one start of the session's own with no run
+// on record yet, that a poll counted against a developer slot.
+type EmptySlotHolder struct {
+	WorkItemID string `json:"work_item_id"`
+	RunID      string `json:"run_id,omitempty"`
 }
 
 // EmptySlotItem is one ready item a poll passed over, and why.
@@ -75,7 +114,10 @@ type EmptySlotItem struct {
 // SameReason reports two accounts giving the same reason over the same slots
 // and the same items passed over, which is when a session writes nothing.
 func (e EmptySlots) SameReason(other EmptySlots) bool {
-	if e.Cleared != other.Cleared || e.Cause != other.Cause || e.Reason != other.Reason {
+	if e.Cleared != other.Cleared || e.Cause != other.Cause || e.Reason != other.Reason || e.Ended != other.Ended || e.Taken != other.Taken {
+		return false
+	}
+	if !slices.Equal(e.TakenBy, other.TakenBy) {
 		return false
 	}
 	if len(e.Slots) != len(other.Slots) || len(e.Passed) != len(other.Passed) {
@@ -116,7 +158,19 @@ func (e EmptySlots) SlotsSaid() string {
 // Says is the account as one sentence.
 func (e EmptySlots) Says() string {
 	if e.Cleared {
-		return "no developer slot is left empty while ready work waits"
+		said := "no developer slot is left empty while ready work waits"
+		switch e.Ended {
+		case EmptySlotsEveryTaken:
+			said += ": every developer slot is counted taken"
+			if len(e.TakenBy) > 0 {
+				said += ", by " + e.takenSaid()
+			}
+		case EmptySlotsFilled:
+			said += ": every free developer slot was filled"
+		case EmptySlotsNoReadyWork:
+			said += ": the queue held no ready work a slot could take"
+		}
+		return said
 	}
 	waiting := "with ready work waiting"
 	switch {
@@ -134,10 +188,57 @@ func (e EmptySlots) Says() string {
 	return fmt.Sprintf("%s left empty %s, %s: %s", e.SlotsSaid(), waiting, because, e.Reason)
 }
 
+// takenSaid names what every slot was counted taken by.
+func (e EmptySlots) takenSaid() string {
+	named := make([]string, 0, len(e.TakenBy))
+	for _, holder := range e.TakenBy {
+		if holder.RunID == "" {
+			named = append(named, holder.WorkItemID+" (started by this session, with no run on record yet)")
+			continue
+		}
+		named = append(named, holder.WorkItemID+" (run "+holder.RunID+")")
+	}
+	said := strings.Join(named, ", ")
+	if more := e.Taken - len(e.TakenBy); more > 0 {
+		said += fmt.Sprintf(", and %d more", more)
+	}
+	return said
+}
+
+// validItem is the shape a work item id is checked against here: the
+// tracker's own, which carries the dots of a child item's number. A run
+// identifier, which a document landing is counted under, has it too.
+func validItem(kind, id string) error {
+	if !beads.ValidIssueID(id) {
+		return fmt.Errorf("%s %q is not a work item id the tracker accepts", kind, id)
+	}
+	return nil
+}
+
 func (e EmptySlots) validate() error {
 	var problems []error
 	if e.At.IsZero() {
 		problems = append(problems, errors.New("an empty slot account records when it was taken"))
+	}
+	if !e.Ended.valid() {
+		problems = append(problems, fmt.Errorf("an empty slot account's ending %q is not one the scheduler names", e.Ended))
+	}
+	if !e.Cleared && (e.Ended != "" || len(e.TakenBy) > 0 || e.Taken != 0) {
+		problems = append(problems, errors.New("only a cleared empty slot account says how it ended"))
+	}
+	if (len(e.TakenBy) > 0 || e.Taken != 0) && e.Ended != EmptySlotsEveryTaken {
+		problems = append(problems, errors.New("an empty slot account names what holds the slots only where every slot was counted taken"))
+	}
+	if len(e.TakenBy) > MaxEmptySlotItems || e.Taken < len(e.TakenBy) {
+		problems = append(problems, fmt.Errorf("an empty slot account names %d of %d slot holders, past the %d it names or more than it counted", len(e.TakenBy), e.Taken, MaxEmptySlotItems))
+	}
+	for _, holder := range e.TakenBy {
+		if err := validItem("empty slot holder", holder.WorkItemID); err != nil {
+			problems = append(problems, err)
+		}
+		if holder.RunID != "" && !beads.ValidIssueID(holder.RunID) {
+			problems = append(problems, fmt.Errorf("empty slot holder run %q is not a run identifier", holder.RunID))
+		}
 	}
 	if e.Cleared {
 		if e.Cause != "" || e.Reason != "" || len(e.Slots) > 0 || len(e.Passed) > 0 || len(e.CountedFor) > 0 {
@@ -172,12 +273,12 @@ func (e EmptySlots) validate() error {
 		problems = append(problems, fmt.Errorf("an empty slot account names %d items a slot is counted for, past the %d it names", len(e.CountedFor), MaxEmptySlotItems))
 	}
 	for _, id := range e.CountedFor {
-		if err := domain.ValidateIdentifier("empty slot item counted for", id); err != nil {
+		if err := validItem("empty slot item counted for", id); err != nil {
 			problems = append(problems, err)
 		}
 	}
 	for _, item := range e.Passed {
-		if err := domain.ValidateIdentifier("empty slot item passed over", item.WorkItemID); err != nil {
+		if err := validItem("empty slot item passed over", item.WorkItemID); err != nil {
 			problems = append(problems, err)
 		}
 		if strings.TrimSpace(item.Why) == "" {

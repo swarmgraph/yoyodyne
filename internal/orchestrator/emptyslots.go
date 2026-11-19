@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/developerslot"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
@@ -33,18 +34,22 @@ const countedGrace = 2 * time.Minute
 
 // slotAccount is what one pull says about its empty slots. free is how many
 // slots it found free, or -1 before it counted them, and slots their numbers;
-// account is the reason a site in the pull set, where one did.
+// taken is what it counted against the slots; account is the reason a site in
+// the pull set, where one did.
 type slotAccount struct {
 	free    int
 	slots   []int
+	taken   map[string]runstate.State
 	account *runstate.EmptySlots
 	set     bool
 }
 
 func newSlotAccount() slotAccount { return slotAccount{free: -1} }
 
-// counted records the free slots this pull found.
-func (a *slotAccount) counted(free int, slots []int) {
+// counted records the free slots this pull found, and what it counted against
+// the rest.
+func (a *slotAccount) counted(free int, slots []int, taken map[string]runstate.State) {
+	a.taken = taken
 	a.free = max(free, 0)
 	a.slots = append([]int(nil), slots...)
 	if len(a.slots) > a.free {
@@ -52,14 +57,15 @@ func (a *slotAccount) counted(free int, slots []int) {
 	}
 }
 
-// say sets the pull's reason. A nil account is the pull having found no slot
-// empty while ready work waited.
+// say sets the pull's reason. A nil account, or a cleared one, is the pull
+// having found no slot empty while ready work waited.
 func (a *slotAccount) say(account *runstate.EmptySlots) {
 	a.account, a.set = account, true
 }
 
 // orElse is the account the pull set, or, where none was, the one a wait in
-// the given state means: nothing where every slot is taken, the hold where the
+// the given state means: every slot taken, naming what holds them, where it
+// counted none free, the hold where the
 // session is braked, a rule where the machine or the provider refuses, and
 // not known otherwise. said is what the session is saying about the wait.
 func (a slotAccount) orElse(state runstate.WatchState, said string, provider bool) *runstate.EmptySlots {
@@ -67,7 +73,7 @@ func (a slotAccount) orElse(state runstate.WatchState, said string, provider boo
 		return a.account
 	}
 	if a.free == 0 {
-		return nil
+		return everyTaken(a.taken)
 	}
 	cause := ownership.EmptySlotNotKnown
 	reason := "the scheduler left the slot empty and could not name why"
@@ -149,6 +155,43 @@ func countedAccount(occupied map[string]runstate.State, gone map[string]bool, mi
 	return account
 }
 
+// everyTaken ends an account where the pull counted every developer slot
+// taken, naming the first of what it counted against them, the item and its
+// run, or the item alone for a start of this session's with no run on record
+// yet. A line that only said no slot stood empty could not be told from one
+// that found no ready work, and the stall it hid was a count of starts that
+// held no slot. An id the record would refuse is counted and not named, so the
+// account is never lost over one name.
+func everyTaken(taken map[string]runstate.State) *runstate.EmptySlots {
+	account := &runstate.EmptySlots{Cleared: true, Ended: runstate.EmptySlotsEveryTaken, Taken: len(taken)}
+	ids := make([]string, 0, len(taken))
+	for id := range taken {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		if len(account.TakenBy) == runstate.MaxEmptySlotItems {
+			break
+		}
+		holder := runstate.EmptySlotHolder{WorkItemID: id, RunID: taken[id].RunID}
+		if !beads.ValidIssueID(holder.WorkItemID) || (holder.RunID != "" && !beads.ValidIssueID(holder.RunID)) {
+			continue
+		}
+		account.TakenBy = append(account.TakenBy, holder)
+	}
+	return account
+}
+
+// slotsFilled ends an account where the pull started work into every free
+// slot, and noReadyWork one where it found no ready work a slot could take.
+func slotsFilled() *runstate.EmptySlots {
+	return &runstate.EmptySlots{Cleared: true, Ended: runstate.EmptySlotsFilled}
+}
+
+func noReadyWork() *runstate.EmptySlots {
+	return &runstate.EmptySlots{Cleared: true, Ended: runstate.EmptySlotsNoReadyWork}
+}
+
 // keptOutByRule is the classes a ready item is passed over in for a rule of
 // the line's rather than for anything about the item: work overlapping a run
 // in flight, an item already tried, the provider's limit, another slot, a
@@ -174,10 +217,11 @@ func notWaiting(class runstate.PassedOverClass) bool {
 // is the reason the pull kept for each item, where it kept one. It is nil
 // where no ready item waited, and not known where the slots stand empty with
 // ready work the walk never reached. Ready work a slot could take is the
-// tracker's ready items that no run carries already.
+// tracker's ready items that no run carries already. Where it leaves no slot
+// empty it says which: every slot filled, or no ready work.
 func walkAccount(slots []int, queue backlog.Queue, passed []readmodel.PassedOverItem, why map[string]string, refused string, heldProvider domain.Backend) *runstate.EmptySlots {
 	if len(slots) == 0 {
-		return nil
+		return slotsFilled()
 	}
 	account := &runstate.EmptySlots{Slots: append([]int(nil), slots...)}
 	// Only ready work counts: an item the tracker does not offer — parked,
@@ -215,10 +259,10 @@ func walkAccount(slots []int, queue backlog.Queue, passed []readmodel.PassedOver
 			account.Ready = len(ready)
 		}
 		if account.Ready == 0 {
-			return nil
+			return noReadyWork()
 		}
 	case first == nil && len(ready) == 0:
-		return nil
+		return noReadyWork()
 	case first == nil && heldProvider != "":
 		account.Cause, account.Reason, account.Ready = ownership.EmptySlotRule,
 			fmt.Sprintf("the free slots dispatch onto %s, whose launch settings are held until a check finds them active", heldProvider), len(ready)
