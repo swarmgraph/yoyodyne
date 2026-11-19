@@ -34,6 +34,10 @@ revisions:
       by: architect
       at: 2026-11-07T09:40:34.421244Z
       reason: 'The Beads decision record landed on November 7, 2026 with the line this section said it was still to gain, so the section now says what the record holds: the export travels through the tracker reference, and the merge''s compared versions and holds are kept outside Beads. The other lines are unchanged.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T06:10:06.372718Z
+      reason: 'Records the architect''s ruling of November 18, 2026 on the developer''s report 689768c7: the batched GitHub GraphQL query for the state of waiting pull requests has no conditional form and is answered in full on every forge check, and that cost is accepted because the query is the only read that says GitHub''s merge queue has taken a pull request. Only section 6 changes; the rest of the design is unchanged from main 3396a1a9.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -70,6 +74,11 @@ approvals:
       by: harness
       at: 2026-11-07T09:40:34.421244Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2428, for document-2428.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-11-19T06:10:06.372718Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3052, for document-3052.1 under the automatic approval policy
 ---
 # Working alongside other contributors
 
@@ -177,7 +186,11 @@ The team pause exists only in team mode. A factory with team mode off never fetc
 
 The harness checks the forge on a schedule of its own, every five minutes by default, apart from the maintenance pass. Maintenance does slow work that has nothing to do with the forge, such as clearing old checkouts and shrinking the tracker's store, and a forge check waiting behind it would notice a person's merge late, or not at all while a maintenance step kept failing. The interval is a numeric limit, and setting it is the development manager's decision.
 
-Each check covers the pull requests the factory is waiting on, the reviews and comments on its open pull requests, and the target branch. With team mode on, it also covers the claim references, the records reference, the tracker reference and the team pause. It uses the forge's conditional requests, so an unchanged answer costs little.
+Each check covers the pull requests the factory is waiting on, the reviews and comments on its open pull requests, and the target branch. With team mode on, it also covers the claim references, the records reference, the tracker reference and the team pause. It uses the forge's conditional requests wherever the forge offers them, so an unchanged answer costs little.
+
+One read has no conditional form, and its cost is accepted. On GitHub, the state of the pull requests the factory is waiting on is asked in one batched query through GitHub's GraphQL interface, up to 50 pull requests a query, and that interface answers every query in full, changed or not (`internal/publish/conditional.go`). So each check costs one full query for every 50 waiting pull requests, every five minutes by default. That query is the only read that says GitHub's own merge queue has taken a pull request, and the check uses it to leave alone a merge a person has already started, as section 3 requires. The reads of each pull request's reviews, comments and branches stay conditional.
+
+Rejected: asking each waiting pull request's state through GitHub's ordinary per pull request reads, which are conditional. It would make an unchanged state cheap, but those reads do not say that GitHub's merge queue has taken the pull request, so the harness could push over a merge a person had started.
 
 A check that cannot reach the forge changes nothing, and the next check tries again. A check that reads a change but cannot make the tracker write that follows from it, such as closing an item whose pull request merged, records nothing as handled: the next check reads the same change and makes the write again. Every write a check makes can be made twice without harm, so a write repeated after a timeout in which it had in fact succeeded leaves the item as it was and adds no second note. Neither failure stops a run or holds back any other work.
 
