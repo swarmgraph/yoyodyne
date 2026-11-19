@@ -64,9 +64,12 @@ func (g *git) Run(_ context.Context, command execution.Command, _ execution.Outp
 }
 
 // runner stands in for the checks runner, answering with what the test sets.
+// Each request is answered with the next of then, where any is left, and with
+// results otherwise.
 type runner struct {
 	mu       sync.Mutex
 	results  []checks.Result
+	then     [][]checks.Result
 	requests []checks.Request
 }
 
@@ -74,6 +77,11 @@ func (r *runner) Run(_ context.Context, request checks.Request, _ func(execution
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.requests = append(r.requests, request)
+	if len(r.then) > 0 {
+		next := r.then[0]
+		r.then = r.then[1:]
+		return next, 0, nil
+	}
 	return r.results, 0, nil
 }
 
@@ -185,7 +193,7 @@ func TestAFailingRunFilesACriticalReportNamingTheCommitTheTestsAndTheLastCleanCo
 	if got.Severity != report.SeverityCritical || got.Role != report.HarnessReporter {
 		t.Fatalf("report = %+v; want a critical report from the harness", got)
 	}
-	for _, want := range []string{brokenCommit, "TestQueue", "github.com/example/queue", cleanCommit, "2 commit(s) landed between them", "1234567 Tidy the queue", "not run again", "priority 0"} {
+	for _, want := range []string{brokenCommit, "TestQueue", "github.com/example/queue", cleanCommit, "2 commit(s) landed between them", "1234567 Tidy the queue", "failed again", "not a test failing under load", "priority 0"} {
 		if !strings.Contains(got.Message, want) {
 			t.Errorf("report message does not say %q:\n%s", want, got.Message)
 		}
@@ -196,14 +204,14 @@ func TestAFailingRunFilesACriticalReportNamingTheCommitTheTestsAndTheLastCleanCo
 		t.Fatalf("recorded run = %+v; want the failure with its report and failing tests", last)
 	}
 
-	// The failure is not run again on the same commit, however long it waits.
+	// Nothing more runs on the same commit, however long it waits.
 	f.now = f.now.Add(8 * time.Hour)
 	outcome, ran = f.look(t)
 	if !ran || outcome.Recorded || !strings.Contains(outcome.Said, "still at") {
 		t.Fatalf("outcome = %+v; want no run on an unmoved branch", outcome)
 	}
-	if len(f.checks.requests) != 2 {
-		t.Fatalf("checks ran %d times; the failure was run again", len(f.checks.requests))
+	if len(f.checks.requests) != 3 {
+		t.Fatalf("checks ran %d times; want the pass, the failure and its one second run, and nothing on the unmoved branch", len(f.checks.requests))
 	}
 	if filed, _ := f.reports.List(); len(filed) != 1 {
 		t.Fatalf("reports = %d; an unmoved branch files nothing more", len(filed))
@@ -465,4 +473,111 @@ func TestARealLeftoverGitNoLongerListsIsClearedAndTheNextRunChecks(t *testing.T)
 		t.Fatal(err)
 	}
 	assertCheckedAndClean(t, f, repo)
+}
+
+const queueFailure = "=== RUN   TestQueue\n--- FAIL: TestQueue (0.01s)\n    --- FAIL: TestQueue/empty (0.00s)\nFAIL\tgithub.com/example/queue\t0.2s\n"
+
+func TestATestThatFailsAndThenPassesWhenRunOnceMoreIsReportedAsFailingUnderLoad(t *testing.T) {
+	f := newFixture(t, t.TempDir())
+	f.checks.results = []checks.Result{passing("make race")}
+	f.look(t)
+
+	f.now = f.now.Add(4 * time.Hour)
+	f.git.head = brokenCommit
+	f.checks.then = [][]checks.Result{{passing("make vet"), failing("make race", queueFailure)}, {passing("make race")}}
+	f.check.Commands = []string{"make vet", "make race"}
+	outcome, ran := f.look(t)
+	if !ran || !outcome.Recorded || outcome.Run.Outcome != runstate.MainCheckPassed {
+		t.Fatalf("outcome = %+v; want a run that passed once its failing tests passed a second time", outcome)
+	}
+
+	// Only the failing check runs again, on the same commit in the same
+	// worktree, told only the tests that failed.
+	if len(f.checks.requests) != 3 {
+		t.Fatalf("checks were asked %d times; want the earlier pass, the run and one second run", len(f.checks.requests))
+	}
+	first, again := f.checks.requests[1], f.checks.requests[2]
+	if len(again.Commands) != 1 || again.Commands[0] != "make race" || again.Directory != first.Directory || again.Permit.Commit != brokenCommit {
+		t.Fatalf("second run = %+v; want make race alone in %s on %s", again, first.Directory, brokenCommit)
+	}
+	want := maincheck.FailingTestsVariable + "=TestQueue\nTestQueue/empty\ngithub.com/example/queue"
+	if len(again.Env) != 1 || again.Env[0] != want {
+		t.Fatalf("second run's environment = %q; want %q", again.Env, want)
+	}
+
+	check := outcome.Run.Checks[1]
+	if check.Outcome != runstate.MainCheckPassed || check.FirstRun == nil || strings.Join(check.FirstRun.FailingTests, ",") != "TestQueue,TestQueue/empty,github.com/example/queue" {
+		t.Fatalf("recorded check = %+v; want a pass that keeps the first run's failing tests", check)
+	}
+	filed, err := f.reports.List()
+	if err != nil || len(filed) != 1 {
+		t.Fatalf("reports = %+v, %v; want one", filed, err)
+	}
+	got := filed[0]
+	if got.Severity != report.SeverityWarning || outcome.Run.ReportID != got.ID {
+		t.Fatalf("report = %+v, run's report %q; want a warning recorded on the run", got, outcome.Run.ReportID)
+	}
+	for _, want := range []string{"failing under load", brokenCommit, "TestQueue", "failed in", "passed in", "when only those tests were run once more", "usual time"} {
+		if !strings.Contains(got.Message, want) {
+			t.Errorf("report message does not say %q:\n%s", want, got.Message)
+		}
+	}
+	if strings.Contains(got.Message, "priority 0") {
+		t.Errorf("a test failing under load is reported as a broken branch:\n%s", got.Message)
+	}
+
+	// The next run is due at the usual interval, and runs once the branch
+	// moves.
+	if due := f.check.NextDue(); !due.Equal(f.now.Add(4 * time.Hour)) {
+		t.Fatalf("next run due %s; want the usual interval after %s", due, f.now)
+	}
+	f.now = f.now.Add(4 * time.Hour)
+	f.git.head = "3333333333333333333333333333333333333333"
+	f.checks.results = []checks.Result{passing("make vet"), passing("make race")}
+	if outcome, ran := f.look(t); !ran || outcome.Run.Outcome != runstate.MainCheckPassed {
+		t.Fatalf("outcome = %+v; want the next run to run as usual", outcome)
+	}
+}
+
+func TestATestThatFailsTwiceIsReportedAsCriticalWithBothResults(t *testing.T) {
+	f := newFixture(t, t.TempDir())
+	f.git.head = brokenCommit
+	f.checks.then = [][]checks.Result{
+		{failing("make race", queueFailure)},
+		{failing("make race", "--- FAIL: TestQueue (0.01s)\nFAIL\tgithub.com/example/queue\t0.1s\n")},
+	}
+	outcome, ran := f.look(t)
+	if !ran || outcome.Run.Outcome != runstate.MainCheckFailed {
+		t.Fatalf("outcome = %+v; want a failed run", outcome)
+	}
+	if len(f.checks.requests) != 2 {
+		t.Fatalf("checks were asked %d times; want the run and one second run", len(f.checks.requests))
+	}
+	check := outcome.Run.Checks[0]
+	if check.FirstRun == nil || len(check.FirstRun.FailingTests) != 3 || strings.Join(check.FailingTests, ",") != "TestQueue,github.com/example/queue" {
+		t.Fatalf("recorded check = %+v; want both runs' failing tests", check)
+	}
+	filed, err := f.reports.List()
+	if err != nil || len(filed) != 1 || filed[0].Severity != report.SeverityCritical {
+		t.Fatalf("reports = %+v, %v; want one critical report", filed, err)
+	}
+	for _, want := range []string{"first run failed in", "TestQueue/empty", "it failed again in", "not a test failing under load", "priority 0"} {
+		if !strings.Contains(filed[0].Message, want) {
+			t.Errorf("report message does not say %q:\n%s", want, filed[0].Message)
+		}
+	}
+}
+
+func TestAFailureNamingNoTestIsNotRunAgainAndIsCritical(t *testing.T) {
+	f := newFixture(t, t.TempDir())
+	f.git.head = brokenCommit
+	f.checks.results = []checks.Result{failing("make race", "something broke\n")}
+	outcome, ran := f.look(t)
+	if !ran || outcome.Run.Outcome != runstate.MainCheckFailed || len(f.checks.requests) != 1 {
+		t.Fatalf("outcome = %+v after %d requests; want a failure not run again", outcome, len(f.checks.requests))
+	}
+	filed, _ := f.reports.List()
+	if len(filed) != 1 || filed[0].Severity != report.SeverityCritical || !strings.Contains(filed[0].Message, "so it was not run again") {
+		t.Fatalf("reports = %+v; want one critical report saying it was not run again", filed)
+	}
 }

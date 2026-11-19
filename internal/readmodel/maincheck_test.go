@@ -54,3 +54,16 @@ func TestStatusSaysNothingAboutMainChecksThatNeverRan(t *testing.T) {
 		t.Fatalf("an unreadable record reads as %q", said)
 	}
 }
+
+func TestStatusSaysWhichTestsPassedOnlyWhenRunOnceMore(t *testing.T) {
+	at := time.Date(2026, 11, 19, 12, 42, 0, 0, time.UTC)
+	passed := mainRun(at, strings.Repeat("c", 40), runstate.MainCheckPassed)
+	passed.Checks[0].FirstRun = &runstate.MainCheckFirstRun{Took: 20 * time.Minute, FailingTests: []string{"TestQueue"}}
+	checks, problem := ReadMainChecks(mainCheckRecord{runs: []runstate.MainCheckRun{passed}})
+	said := Standing{MainChecks: checks, MainChecksProblem: problem}.RenderMainChecks()
+	for _, want := range []string{"last passed on main at cccccccccccc", "fail under load: make race (TestQueue)"} {
+		if !strings.Contains(said, want) {
+			t.Fatalf("status does not say %q:\n%s", want, said)
+		}
+	}
+}
