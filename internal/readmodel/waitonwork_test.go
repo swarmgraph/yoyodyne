@@ -206,3 +206,40 @@ func TestAWaitAboutACarriedOutRerunEndsWhenItsWorkCloses(t *testing.T) {
 		t.Fatalf("held for %q, want it no longer saying she decided to wait", closed)
 	}
 }
+
+// A wait on the held item's own parent, or an item above it, can never end, so
+// the hold reads as awaiting the development manager's decision and says why;
+// a wait on unrelated open work reads as it always did (yoyodyne-ifd.428.99.27).
+func TestAWaitOnTheHeldItemsParentOrAboveReadsAsNeedingADecision(t *testing.T) {
+	t.Parallel()
+
+	stopped := time.Date(2026, 11, 18, 11, 0, 0, 0, time.UTC)
+	tracker := trackerOf{
+		"yoyodyne-ifd.429.146": {ID: "yoyodyne-ifd.429.146", Status: "open", Parent: "yoyodyne-ifd.429"},
+		"yoyodyne-ifd.429":     {ID: "yoyodyne-ifd.429", Status: "open"},
+		"yoyodyne-ifd.435.14":  {ID: "yoyodyne-ifd.435.14", Status: "open"},
+	}
+	for _, test := range []struct {
+		waitsOn string
+		ends    bool
+	}{
+		{waitsOn: "yoyodyne-ifd.429", ends: true},
+		{waitsOn: "yoyodyne-ifd.435.14", ends: false},
+	} {
+		held := map[string]backlog.Hold{
+			"yoyodyne-ifd.429.146": heldFor("run-0123456789abcdef0123456789abcdef", "the run stopped", decidedStanding{waitsOn: test.waitsOn}, stopped),
+		}
+		endWaits(context.Background(), held, tracker)
+		hold := held["yoyodyne-ifd.429.146"]
+		if !test.ends {
+			if hold.WaitsOn != test.waitsOn || !strings.Contains(hold.Reason, waitStands(test.waitsOn)) {
+				t.Fatalf("hold = %#v, want the wait on unrelated work still standing", hold)
+			}
+			continue
+		}
+		if hold.WaitsOn != "" || !strings.Contains(hold.Reason, "that wait can never end, because yoyodyne-ifd.429.146 is under yoyodyne-ifd.429") ||
+			!strings.Contains(hold.Reason, awaitingDecisionClause) || strings.Contains(hold.Reason, waitStands(test.waitsOn)) {
+			t.Fatalf("hold = %#v, want it read as needing her decision, saying why the wait can never end", hold)
+		}
+	}
+}

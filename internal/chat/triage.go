@@ -593,8 +593,11 @@ func (a TrackerAction) waitsOnProblems() []error {
 // refuseFinishedWaitsOn refuses a wait naming work the tracker does not hold as
 // unfinished. A wait on an item that is already closed would come straight back
 // on the next sweep, and one on an item that does not exist would never come
-// back at all, so neither is recorded. Nothing has been spent when this is asked.
-func (s *Session) refuseFinishedWaitsOn(ctx context.Context, waitsOn string) error {
+// back at all, so neither is recorded. Nor is a wait on the stopped item's own
+// parent or any item above it: an item cannot close while work under it is open,
+// so that wait could never end, and the stoppage would leave the development
+// manager's docket for good. Nothing has been spent when this is asked.
+func (s *Session) refuseFinishedWaitsOn(ctx context.Context, id, waitsOn string) error {
 	if waitsOn == "" {
 		return nil
 	}
@@ -604,6 +607,20 @@ func (s *Session) refuseFinishedWaitsOn(ctx context.Context, waitsOn string) err
 	}
 	if status := strings.TrimSpace(item.Status); status == closedWorkItemStatus {
 		return fmt.Errorf("%s is already closed, so a wait on it would end at once; nothing was recorded. Decide the stoppage as it now stands, or name the unfinished item the wait depends on", waitsOn)
+	}
+	chain, err := beads.AncestorChain(id, waitsOn, func(other string) (beads.WorkItem, bool, error) {
+		found, err := s.options.Tracker.Show(ctx, other)
+		if err != nil {
+			return beads.WorkItem{}, false, err
+		}
+		return found, true, nil
+	})
+	if err != nil {
+		return fmt.Errorf("whether %s is above %s in the tracker could not be read, so nothing says a wait on it can ever end; nothing was recorded: %w", waitsOn, id, err)
+	}
+	if chain != nil {
+		return fmt.Errorf("a wait on %s can never end, because %s, and an item cannot close while work under it is still open; nothing was recorded. Decide the stoppage as it now stands, or name an unfinished item outside %s's own line of parents that the wait depends on",
+			waitsOn, beads.DescribeAncestry(id, chain), id)
 	}
 	return nil
 }
@@ -852,7 +869,7 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 		return
 	}
 	waitsOn := strings.TrimSpace(action.WaitsOn)
-	if err := s.refuseFinishedWaitsOn(ctx, waitsOn); err != nil {
+	if err := s.refuseFinishedWaitsOn(ctx, id, waitsOn); err != nil {
 		outcome.refused(err)
 		return
 	}
@@ -954,7 +971,7 @@ func handOf(action TrackerAction, decision string) ownership.HandNeed {
 func (s *Session) carryOutRunlessTriage(ctx context.Context, outcome *TrackerOutcome, id, decision string) {
 	action := outcome.Action
 	waitsOn := strings.TrimSpace(action.WaitsOn)
-	if err := s.refuseFinishedWaitsOn(ctx, waitsOn); err != nil {
+	if err := s.refuseFinishedWaitsOn(ctx, id, waitsOn); err != nil {
 		outcome.refused(err)
 		return
 	}

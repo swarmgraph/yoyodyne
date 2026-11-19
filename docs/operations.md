@@ -4037,7 +4037,12 @@ like a run it could not settle, it is about that one run, so it does not fail
 the command or the maintenance pass. **The sweep also closes the entries of closed items**: every entry still
 standing for an item the tracker holds as closed or retired is closed with it,
 with the reason, and the sweep says how many (`closed_with_item` in `--json`).
-Where bd will not lift its default limit on the listing of closed work, the
+It also puts back on the development manager's list every stopped run whose
+standing wait names its own item's parent or an item above it, which cannot
+close while that item is open, so the wait could never end; the entry carries
+her earlier reasoning and why the wait cannot end, and the sweep says how many
+(`never_ending_waits` in `--json`). A new wait of that shape is refused when she
+records it. Where bd will not lift its default limit on the listing of closed work, the
 items the listing does show closed are closed as usual, the standing entries'
 items it left out are read one at a time, and the sweep says the listing was
 cut (`listing_cut` in `--json`) rather than failing; the development manager's

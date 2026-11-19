@@ -1618,6 +1618,61 @@ func TestAWaitNamesTheWorkItWaitsOnAndRefusesWorkAlreadyClosed(t *testing.T) {
 	}
 }
 
+// A wait on the stopped item's own parent, or on any item above it, can never
+// end: an item cannot close while work under it is open. It is refused with the
+// item named and nothing recorded, and a wait on unrelated work is recorded as
+// before (yoyodyne-ifd.428.99.27).
+func TestAWaitOnTheStoppedItemsOwnParentOrAnythingAboveItIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for _, named := range []struct {
+		name    string
+		waitsOn string
+		applied bool
+		says    string
+	}{
+		{name: "parent", waitsOn: "yoyodyne-ifd.429.174", applied: false,
+			says: "a wait on yoyodyne-ifd.429.174 can never end, because yoyodyne-ifd.429.174.3 is under yoyodyne-ifd.429.174"},
+		{name: "grandparent", waitsOn: "yoyodyne-ifd.429", applied: false,
+			says: "a wait on yoyodyne-ifd.429 can never end, because yoyodyne-ifd.429.174.3 is under yoyodyne-ifd.429.174, which is under yoyodyne-ifd.429"},
+		{name: "unrelated", waitsOn: "yoyodyne-ifd.433.59", applied: true},
+		{name: "sibling", waitsOn: "yoyodyne-ifd.429.174.4", applied: true},
+	} {
+		t.Run(named.name, func(t *testing.T) {
+			t.Parallel()
+
+			answer := trackerReply("Decided.",
+				`{"action":"triage","id":"yoyodyne-ifd.429.174.3","run":"`+stoppedRun+`","decision":"wait","waits_on":"`+named.waitsOn+`","reason":"nothing to do until that closes"}`)
+			tracker := &fakeTracker{items: map[string]beads.WorkItem{
+				"yoyodyne-ifd.429.174.3": {ID: "yoyodyne-ifd.429.174.3", Title: "the item that stopped", Status: "open", Parent: "yoyodyne-ifd.429.174"},
+				"yoyodyne-ifd.429.174.4": {ID: "yoyodyne-ifd.429.174.4", Title: "a sibling", Status: "open", Parent: "yoyodyne-ifd.429.174"},
+				"yoyodyne-ifd.429.174":   {ID: "yoyodyne-ifd.429.174", Title: "its parent", Status: "open", Parent: "yoyodyne-ifd.429"},
+				"yoyodyne-ifd.429":       {ID: "yoyodyne-ifd.429", Title: "the area", Status: "open"},
+				"yoyodyne-ifd.433.59":    {ID: "yoyodyne-ifd.433.59", Title: "unrelated work", Status: "in_progress"},
+			}}
+			docket := &fakeDocket{closes: 1}
+			reply := triageReplyClosing(t, tracker, docket, answer)
+
+			if len(reply.Actions) != 1 || reply.Actions[0].Applied != named.applied {
+				t.Fatalf("actions = %#v, want applied = %t", reply.Actions, named.applied)
+			}
+			if named.applied {
+				if len(docket.closed) != 1 || docket.closed[0].WaitsOn != named.waitsOn {
+					t.Fatalf("closed = %#v, want the wait recorded on %s", docket.closed, named.waitsOn)
+				}
+				return
+			}
+			if len(docket.closed) != 0 || len(tracker.updates) != 0 {
+				t.Fatalf("closed = %#v, updates = %#v, want nothing recorded for a wait that can never end", docket.closed, tracker.updates)
+			}
+			said := reply.Actions[0].Failure + reply.Actions[0].Detail + reply.Actions[0].Summary
+			if !strings.Contains(said, named.says) || !strings.Contains(said, "an item cannot close while work under it is still open") {
+				t.Fatalf("refusal = %#v, want it to say %q and why", reply.Actions[0], named.says)
+			}
+		})
+	}
+}
+
 // Only a wait names the work it waits on, and never its own item.
 func TestOnlyAWaitNamesWorkToWaitOn(t *testing.T) {
 	t.Parallel()
