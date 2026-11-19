@@ -26,6 +26,10 @@ revisions:
       by: architect
       at: 2026-11-19T19:32:40.572051Z
       reason: 'Ruling on the run on main every four hours (race point 4), asked for by yoyodyne-fgkk: a failure runs only its failing tests once more on the same commit; a test that then passes is reported at warning with both results, one that fails again at critical as before, and a test that does this twice in seven days at critical. Every other paragraph of the section is unchanged. The merge-queue pace design''s decision 1 and this design''s reviewer line follow in their own revisions. Read whole at main 035882f4d009.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T22:50:31.304144Z
+      reason: 'Brings the reviewer''s line on the run on main into line with race point 4 as revised on November 19: only the failing tests run once more on the same commit; a second failure, unnamed tests, or a second run that cannot run is critical; a pass the second time is a warning with both results; the same test doing this twice in seven days is critical; and a second-try pass leaves the last clean commit where it was. The other lines are unchanged. Migration item 21 follows in its own revision. Read whole at main 9783c9d5f.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -52,6 +56,11 @@ approvals:
       by: harness
       at: 2026-11-19T19:32:40.572051Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3131, for document-3131.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-19T22:50:31.304144Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3140, for document-3140.1 under the automatic approval policy
 ---
 # Guarantees the whole system relies on: one owning component and one way in for each
 
@@ -415,5 +424,5 @@ Until each named design is revised, this design decides where they differ.
 - The list of places still going around a component only shrinks.
 - No new code adds a whole save of a run record outside the lease holder's versioned save, a slot read followed by a later start, a paid turn without the budget's permission, a cost event parsed outside `internal/cost`, a tracker command run outside `internal/beads`, a configured check launched outside `internal/checks`, or a routine read of all history.
 - With the race check rules on, a change with no Go code changed runs no race check before review; a path the analyser cannot place runs the whole race check; and the local full race on the merge candidate is skipped only with both conditions recorded.
-- The run on main happens only when main moved since the last clean run, and a failure files one critical report naming the commits between.
+- The run on main happens only when main moved since the last clean run. When it fails, only the failing tests run once more, on the same commit, with a permit of their own, and no test runs a third time. A test that fails again, failing tests that cannot be named, or a second run that cannot run files one critical report naming the commits between. Tests that all pass the second time file one warning report that keeps and shows both results. The same test failing and then passing in two runs within seven days files a critical report naming both runs. A run that passed only on the second try does not move the last clean commit.
 - A fix admitted to one of these areas names the parent item (yoyodyne-ifd.428.126) and is written against the component, as the Lead Product Manager's rule says.
