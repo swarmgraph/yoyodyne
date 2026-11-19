@@ -1055,6 +1055,7 @@ Up to three layers produce the effective configuration, later ones winning:
    `execution.check_stage_timeout` (`30m`),
    `execution.landing_check_timeout` (`2h`),
    `execution.redeploy_drain_limit` (`15m`),
+   `execution.build_move_interval` (`3h`),
    `execution.factory_stall_after` (`2h`),
    `execution.could_not_run_before_status` (3),
    `execution.usage_window_degraded_percent` (90),
@@ -4711,6 +4712,7 @@ execution:
   brake_escalation_cycles: 4           # the default: two hours at that cooldown
   brake_probe_overdue_after: 45m       # the default
   redeploy_drain_limit: 15m            # the default
+  build_move_interval: 3h              # the default
 ```
 
 Nothing else about the pass changes, and nothing needed to. Every pull re-reads
@@ -4940,9 +4942,9 @@ either kind of pass on a pull that assembles and is unusable — a capacity of
 zero, or a `--budget` with nothing to price it — because that is a decision about
 the configuration rather than a reading that failed.
 
-**Beyond the three: a watching session takes up a build deployed over it.** When
-the `yoyo` it is running is written over — you rebuild it, you install it — the
-session drains: it restarts into what you deployed the moment it hosts no run
+**Beyond the three: a watching session takes up a build deployed over it.** It moves at most once every `execution.build_move_interval`, three hours unless the project sets otherwise: a build installed sooner than that after the last move waits, and the session goes on working on the build it has. Once the time is up it moves onto the newest build installed at that moment, so the builds that landed in between are never moved onto one by one. Main lands about once an hour, and moving on every landing held new work back for most of an hour each night.
+When that time is up and a newer `yoyo` is installed — you rebuild it, you
+install it — the session drains: it restarts into what you deployed the moment it hosts no run
 and no recurring pass is taking its turns — past the bound, a run it has
 stopped is not one it hosts — and until then it goes on polling, pulling into
 free seats, and, while it still hosts a run, firing its recurring tasks,
@@ -4953,12 +4955,18 @@ first pull. A pass already taking its turns is waited out like a run until the
 bound below; when the session restarts past the bound, every pass still taking
 its turns is stopped, recorded as stopped for a restart rather than failed, and
 tried again at the first pull of the session that comes back. A deploy is the whole of
-the instruction; what is configured is only how long the wait may last:
+the instruction; what is configured is only how often a move may happen and how
+long the wait may last:
 
 ```yaml
 execution:
+  build_move_interval: 3h              # the default; at least 1h, at most 24h
   redeploy_drain_limit: 15m            # the default
 ```
+
+The least time between moves is counted from the last move the watch log
+records, so a session that came back from a move waits from that move, and a
+product whose log records none moves at once.
 
 Past that bound the session restarts anyway. While it waits past the bound for
 a check that is still running — a run's, below, or a merge queue candidate's —
@@ -5134,7 +5142,7 @@ never started under.
 
 A watching session is the same answer said again: `work_poll`,
 `blocked_runs_before_intake_hold`, `max_waiting_pull_requests`, `brake_cooldown`,
-`brake_escalation_cycles`, and `redeploy_drain_limit` are re-read at every pull
+`brake_escalation_cycles`, `redeploy_drain_limit`, and `build_move_interval` are re-read at every pull
 too, so an interval you shorten, a brake you loosen, or a drain bound you
 lengthen under a draining session takes effect at the next wait rather than at
 the next restart, and a bound you tighten under a standing loop is heard at the
@@ -8933,6 +8941,9 @@ These are all errors, reported before any work is claimed:
   and report as passed;
 - an `execution.redeploy_drain_limit` that is zero or negative, since a drain
   with no bound is the two-hour wait on a deploy that the bound exists to end;
+- an `execution.build_move_interval` under one hour or over twenty-four hours:
+  under an hour is a move on nearly every landing again, and over a day leaves
+  fixes waiting in a build nobody runs;
 - an `execution.factory_stall_after` that is negative, which describes no
   limit anybody could mean; zero reads the two-hour default;
 - an `execution.could_not_run_before_status` that is negative, which describes
