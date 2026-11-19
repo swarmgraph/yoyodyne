@@ -4450,7 +4450,8 @@ A developer slot may name an ordered pair of endpoints under
 `execution.developer_slots[].routing`: a primary the slot's runs start on, and
 one alternate they move to when the primary reaches its usage limit. Developer
 runs use it, as [below](#what-a-developer-run-does-with-its-slots-pair); the
-reviewer's own alternate is not used by reviews yet, and the four-slot mapping
+reviewer has a pair of its own, which reviews use as
+[below](#what-a-review-does-with-the-reviewers-pair), and the four-slot mapping
 in the design is a configuration somebody has to apply. Accepting or printing a
 pair does not mean a run has used it: the run's own record says what it used.
 
@@ -4594,7 +4595,26 @@ the run's logged events carry the usage its provider reported; the switch record
 triggered it and the attempt it came from. The model the provider reports
 actually serving is in the run's event log and spend log as before. What
 `yoyo status` and the dashboard say about a run's endpoint and any switch is
-separate work, as is the reviewer's use of its own alternate.
+separate work.
+
+#### What a review does with the reviewer's pair
+
+When `agents.<reviewer>.failover` is enabled, reviews use the reviewer agent's
+own endpoint pair: the agent's own provider, account and model first, and the
+`failover` endpoint as the alternate. The developer's slot, labels and account
+never choose it, and the review runs under the account of the endpoint it is
+made on. A review of a run's change, and a review of a merge queue candidate,
+each move to the alternate once, and only when the provider refuses the review
+for a usage limit or the first endpoint is already known to be limited. The
+alternate is used only if it can serve the reviewer with read-only access, is
+installed and logged in, and is not itself known to be limited. Otherwise the
+review waits on the first endpoint, and the reason is recorded. Once moved, the
+review stays on the alternate for its retries and waits. The alternate starts a
+session of its own and is never given the developer's session. A reply that is
+cut off, late, or for another change is not a verdict. The run's record shows
+the pair, each attempt's endpoint and how it ended; for a merge queue candidate,
+the candidate's record and its review show the endpoint that served it. A
+project without `failover` enabled on the reviewer is reviewed as before.
 
 These new keys require a compatible build: `execution.developer_slots[].number`,
 `execution.developer_slots[].routing` and its endpoint fields, and
