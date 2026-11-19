@@ -6109,6 +6109,8 @@ func (w CarryOutWait) Render() string {
 		what = fmt.Sprintf("the harness's own continuation of run %s at its checks", w.RunID)
 	case DecisionContinueStall:
 		what = fmt.Sprintf("the harness's own continuation of run %s after its AI session stopped", w.RunID)
+	case DecisionResumeIntegration:
+		what = fmt.Sprintf("the harness's own resumption of run %s's approved change", w.RunID)
 	case runstate.TriageDecisionRerun:
 		what = fmt.Sprintf("the re-run the development manager decided about run %s", w.RunID)
 	default:
@@ -6357,7 +6359,7 @@ func keptChange(ctx context.Context, pull Pull, now func() time.Time) func(Carry
 	read := false
 	return func(task CarryOutTask) bool {
 		switch task.Decision {
-		case DecisionContinueChecks, DecisionContinueStall, DecisionFinishMerge:
+		case DecisionContinueChecks, DecisionContinueStall, DecisionFinishMerge, DecisionResumeIntegration:
 			return true
 		case runstate.TriageDecisionRepair, runstate.TriageDecisionRerun:
 		default:
@@ -6451,6 +6453,9 @@ func carryingOutWhat(task CarryOutTask) string {
 	}
 	if task.Decision == DecisionContinueStall {
 		return fmt.Sprintf("the harness stopped the AI session of run %s itself, because it went silent or its total budget ran out, and is continuing the run itself, once, at the phase it stopped in", task.RunID)
+	}
+	if task.Decision == DecisionResumeIntegration {
+		return fmt.Sprintf("the tracker, the forge, or the network did not answer while run %s's approved change was being promoted, and the harness is resuming it by itself now that they answer, with its approval standing", task.RunID)
 	}
 	if task.Decision == DecisionFinishMerge {
 		return fmt.Sprintf("the development manager asked through run.recover for the integration of run %s's approved change to be finished, and the harness is finishing it", task.RunID)

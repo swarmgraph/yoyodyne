@@ -2495,6 +2495,8 @@ func (s *State) recordedTexts() []recordedText {
 	}
 	if s.IntegrationStop != nil {
 		nested("integration_stop.detail", "integration_stop.detail", &s.IntegrationStop.Detail, MaxEnvironmentalDetailBytes)
+		nested("integration_stop.waiting", "integration_stop.waiting", &s.IntegrationStop.Waiting, MaxBlockerBytes)
+		nested("integration_stop.harness_refused", "integration_stop.harness_refused", &s.IntegrationStop.HarnessRefused, MaxBlockerBytes)
 	}
 	if s.ReplayConflict != nil {
 		nested("replay_conflict.detail", "replay_conflict.detail", &s.ReplayConflict.Detail, MaxConflictDetailBytes)

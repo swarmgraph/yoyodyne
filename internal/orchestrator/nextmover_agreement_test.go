@@ -175,8 +175,10 @@ func TestAnApprovedChangeTheEnvironmentStoppedNamesTheHarnessOnBothSurfaces(t *t
 		t.Fatalf("docket = %#v, want the one stoppage docketed", docket.entries)
 	}
 	rendered := docket.entries[0].Render()
-	if !strings.Contains(rendered, "Next mover: the harness") || !strings.Contains(rendered, "yoyo triage resume") {
-		t.Fatalf("the docket entry does not name the harness and the resume:\n%s", rendered)
+	// A tracker that did not answer is resumed by the harness by itself, so the
+	// entry names the harness and no command for anybody to type.
+	if !strings.Contains(rendered, "Next mover: the harness") || !strings.Contains(rendered, "resumes it by itself") || strings.Contains(rendered, "yoyo triage resume") {
+		t.Fatalf("the docket entry does not name the harness as resuming it by itself:\n%s", rendered)
 	}
 
 	held, err := readmodel.HeldForAPerson(context.Background(),
@@ -191,8 +193,8 @@ func TestAnApprovedChangeTheEnvironmentStoppedNamesTheHarnessOnBothSurfaces(t *t
 	if !held.Decided(docketedItem) {
 		t.Fatalf("hold = %q, want the surfaces to name the harness as the docket does", reason)
 	}
-	if !strings.Contains(reason, "`yoyo triage resume`") {
-		t.Fatalf("hold = %q, want it to close on the verb that resumes the promotion", reason)
+	if !strings.Contains(reason, "the harness resumes it by itself") || strings.Contains(reason, "triage resume") {
+		t.Fatalf("hold = %q, want it to say the harness resumes the promotion by itself", reason)
 	}
 }
 
@@ -276,8 +278,10 @@ func TestAnApprovedChangeWhoseBranchIsGoneIsNeverSentToTheResume(t *testing.T) {
 			if len(docket.entries) != 1 {
 				t.Fatalf("docket = %#v, want the one stoppage docketed", docket.entries)
 			}
-			if before := docket.entries[0].Render(); !strings.Contains(before, "yoyo triage resume") {
-				t.Fatalf("with its branch there the entry does not name the resume:\n%s", before)
+			// A tracker that did not answer is resumed by the harness by itself
+			// while the branch is there.
+			if before := docket.entries[0].Render(); !strings.Contains(before, "resumes it by itself") {
+				t.Fatalf("with its branch there the entry does not name the harness's own resumption:\n%s", before)
 			}
 			repository.Survival = test.survival
 

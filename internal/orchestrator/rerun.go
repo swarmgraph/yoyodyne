@@ -1036,12 +1036,27 @@ func noRunInFlight(runs RerunRuns, workItemID string) error {
 	}
 	for _, state := range incomplete {
 		if state.WorkItemID == workItemID {
-			return fmt.Errorf("%s already has run %s in flight in status %s, so it is not work that has stopped",
-				workItemID, state.RunID, state.Status)
+			return runInFlightError{WorkItemID: workItemID, RunID: state.RunID, Status: state.Status}
 		}
 	}
 	return nil
 }
+
+// ErrRunInFlight is what a refusal for an item that already has a run in flight
+// unwraps to. It is a moment rather than a verdict: the run ending clears it.
+var ErrRunInFlight = errors.New("the item already has a run in flight")
+
+type runInFlightError struct {
+	WorkItemID string
+	RunID      string
+	Status     runstate.Status
+}
+
+func (e runInFlightError) Error() string {
+	return fmt.Sprintf("%s already has run %s in flight in status %s, so it is not work that has stopped", e.WorkItemID, e.RunID, e.Status)
+}
+
+func (e runInFlightError) Unwrap() error { return ErrRunInFlight }
 
 // slotIsFree reports a developer slot being free for the fresh run, and reports
 // a full harness as a state rather than as a refusal.

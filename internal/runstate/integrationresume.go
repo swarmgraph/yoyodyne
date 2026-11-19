@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
@@ -68,6 +69,18 @@ type IntegrationStop struct {
 	// approving verdict and the promotion, or integrating.
 	Phase      Phase     `json:"phase"`
 	RecordedAt time.Time `json:"recorded_at"`
+	// Waiting and LastTriedAt are the harness's own account of resuming this
+	// stop by itself (Cause.HarnessResumes): what its latest try found it still
+	// waiting on, in plain words, and when that try was made. Both are empty
+	// until the harness has tried once.
+	Waiting     string     `json:"waiting,omitempty"`
+	LastTriedAt *time.Time `json:"last_tried_at,omitempty"`
+	// HarnessRefused is why the harness stopped trying to resume this stop by
+	// itself: a try that met something other than a service not answering, such
+	// as a worktree that is not as the harness left it. It is set once and ends
+	// the harness's own tries, so the stop is then the development manager's,
+	// exactly as every other integration stop is.
+	HarnessRefused string `json:"harness_refused,omitempty"`
 }
 
 // Validate reports every contract violation in the record at once.
@@ -78,6 +91,15 @@ func (s IntegrationStop) Validate() error {
 	}
 	if len(s.Detail) > MaxEnvironmentalDetailBytes {
 		problems = append(problems, fmt.Errorf("detail is %d bytes, which exceeds the %d byte bound", len(s.Detail), MaxEnvironmentalDetailBytes))
+	}
+	if len(s.Waiting) > MaxBlockerBytes {
+		problems = append(problems, fmt.Errorf("waiting is %d bytes, which exceeds the %d byte bound", len(s.Waiting), MaxBlockerBytes))
+	}
+	if len(s.HarnessRefused) > MaxBlockerBytes {
+		problems = append(problems, fmt.Errorf("harness_refused is %d bytes, which exceeds the %d byte bound", len(s.HarnessRefused), MaxBlockerBytes))
+	}
+	if (s.Waiting != "" || s.HarnessRefused != "") && s.LastTriedAt == nil {
+		problems = append(problems, errors.New("last_tried_at is required beside what the harness's own resumption found"))
 	}
 	if s.Phase != PhaseReviewing && s.Phase != PhaseIntegrating {
 		problems = append(problems, fmt.Errorf("phase %q is not one an approved change is stopped in before its promotion", s.Phase))
@@ -116,8 +138,73 @@ func (s IntegrationStop) Describe() string {
 // run's change is approved, what stopped it, and that `yoyo triage resume` is
 // what resumes it. It is the docket's own wording, so the repair verb's refusal,
 // the docket entry, and the channel line are one sentence rather than three.
+//
+// A stop the harness resumes by itself is said in the sentence that says so
+// instead, so no surface lists it as a step for a person.
 func (s IntegrationStop) ResumeSays(runID string) string {
+	if s.HarnessResumes() {
+		return triage.HarnessResumesIntegrationSays(runID, string(s.Phase), string(s.Cause), s.Cause.Title())
+	}
 	return triage.ResumeIntegrationSays(runID, string(s.Phase), string(s.Cause), s.Cause.Title())
+}
+
+// HarnessResumes reports a stop the harness resumes by itself, once the
+// service that did not answer answers again: its cause is one the harness
+// resumes (EnvironmentalCause.HarnessResumes), and the harness has not stopped
+// trying because a try met something else.
+func (s IntegrationStop) HarnessResumes() bool {
+	return s.Cause.HarnessResumes() && strings.TrimSpace(s.HarnessRefused) == ""
+}
+
+// WaitingSays is what the harness's own resumption of this stop is waiting on
+// and when it last tried, in one line, or empty before its first try. Times are
+// said in the machine's local time with the zone named.
+func (s IntegrationStop) WaitingSays() string {
+	if s.LastTriedAt == nil || strings.TrimSpace(s.Waiting) == "" {
+		return ""
+	}
+	return fmt.Sprintf("waiting for %s; last tried at %s", strings.TrimSpace(s.Waiting), s.LastTriedAt.Local().Format("15:04 MST on Jan 2"))
+}
+
+// HarnessResumesIntegration reports a stopped run whose integration the harness
+// resumes by itself rather than leaving for anybody to ask: it is resumable from
+// its record (ResumableIntegration), and its stop is one the harness resumes.
+func (s State) HarnessResumesIntegration() bool {
+	return s.ResumableIntegration() && s.IntegrationStop.HarnessResumes()
+}
+
+// NoteHarnessResumeWait records on the stop what the harness's own try at
+// resuming it found it still waiting on, and when. It reports whether the
+// record changed, which it does on every try, because when the harness last
+// tried is part of what every surface says.
+func (s *State) NoteHarnessResumeWait(why string, at time.Time) bool {
+	why = strings.TrimSpace(why)
+	if s.IntegrationStop == nil || why == "" {
+		return false
+	}
+	at = at.UTC()
+	stopped := *s.IntegrationStop
+	stopped.Waiting = oneline.Fold(why, MaxBlockerBytes-len(oneline.Marker))
+	stopped.LastTriedAt = &at
+	s.IntegrationStop = &stopped
+	return true
+}
+
+// NoteHarnessResumeRefused records on the stop that the harness's own try at
+// resuming it met something other than a service not answering, and stops the
+// harness trying again. It reports whether the record changed.
+func (s *State) NoteHarnessResumeRefused(why string, at time.Time) bool {
+	why = strings.TrimSpace(why)
+	if s.IntegrationStop == nil || why == "" || s.IntegrationStop.HarnessRefused != "" {
+		return false
+	}
+	at = at.UTC()
+	stopped := *s.IntegrationStop
+	stopped.HarnessRefused = oneline.Fold(why, MaxBlockerBytes-len(oneline.Marker))
+	stopped.Waiting = ""
+	stopped.LastTriedAt = &at
+	s.IntegrationStop = &stopped
+	return true
 }
 
 // ReplayConflict is this run's approved change having conflicted when it was

@@ -4502,7 +4502,9 @@ func integrationStopCauseOf(failure error) (runstate.EnvironmentalCause, bool) {
 		return runstate.CauseRemoteAuthRefused, true
 	case errors.Is(failure, ErrMergeQueueHeld):
 		return runstate.CauseMergeQueueHeld, true
-	case recovery.Recoverable(failure):
+	case recovery.Recoverable(failure), beads.Unanswered(failure):
+		// A tracker call killed at its time limit is the tracker not answering as
+		// surely as a reset connection is, and is resumed the same way.
 		return runstate.CauseTransportFailure, true
 	default:
 		return "", false
@@ -11665,7 +11667,10 @@ func renderFailureNotes(outcome Outcome) string {
 	// says what that costs, because the item's notes are what the next reader
 	// decides from: every verb they would otherwise reach for spends something
 	// for this stop, and the one that spends nothing is named here.
-	if outcome.IntegrationStop != nil {
+	if outcome.IntegrationStop != nil && outcome.IntegrationStop.HarnessResumes() {
+		lines = append(lines, "Integration stop: "+outcome.IntegrationStop.Describe()+
+			"; the harness resumes the promotion by itself once they answer, with the approval standing, charging no review round, repair grant, or re-run; nobody needs to do anything")
+	} else if outcome.IntegrationStop != nil {
 		lines = append(lines, "Integration stop: "+outcome.IntegrationStop.Describe()+
 			"; `yoyo triage resume "+outcome.RunID+"` resumes the promotion with the approval standing once the cause has cleared, charging no review round, repair grant, or re-run")
 	}
