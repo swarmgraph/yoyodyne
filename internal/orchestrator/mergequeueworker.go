@@ -595,7 +595,22 @@ func (w MergeQueueWorker) reviewerReady(ctx context.Context, entry runstate.Merg
 			return mergeQueueWait{reason: reason}
 		}
 	}
-	named := p.reviewer().Backend
+	return w.reviewerReadyOn(ctx, entry, p.reviewer().Backend)
+}
+
+// reviewerReadyOn is the part of reviewerReady that asks whether the provider
+// the review will be made on is installed and logged in.
+func (w MergeQueueWorker) reviewerReadyOn(ctx context.Context, entry runstate.MergeQueueEntry, named domain.Backend) error {
+	p := w.Pipeline
+	if p.ProviderOutages != nil {
+		outage, standing, err := p.ProviderOutages.Standing()
+		if err != nil {
+			return fmt.Errorf("read whether the provider is answering: %w", err)
+		}
+		if standing {
+			return mergeQueueWait{reason: "the review is not asked for while " + outage.Says()}
+		}
+	}
 	provider, ok := p.adapterFor(named)
 	if !ok {
 		return fmt.Errorf("the reviewer runs on %s, which this harness cannot check is ready", named)
@@ -1015,7 +1030,8 @@ func checksPassed(generation runstate.MergeQueueGeneration) bool {
 // review asks an independent reviewer about the generation's candidate,
 // unless one already answered about it. The review is made the way a run's is
 // — the same reviewer, under the run's account, charged to the run and its
-// item as review spend — and it judges the candidate as a whole against the
+// item as review spend; or, where the reviewer enables fallback, on the
+// reviewer's endpoint pair (mergequeuereviewrouting.go) — and it judges the candidate as a whole against the
 // item it was approved for: the original approval was of the head alone, and
 // it does not answer for what the head became on this target.
 func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, run runstate.State, generation runstate.MergeQueueGeneration) (runstate.MergeQueueGeneration, bool, error) {
@@ -1035,7 +1051,23 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 	if !queueCheckStagesOf(ctx).accepting() {
 		return generation, false, mergeQueueWait{reason: "the watch session working this queue is about to restart onto a new build, so the candidate's review is asked for by the session that comes back"}
 	}
-	if err := w.reviewerReady(ctx, entry, run); err != nil {
+	// A project whose reviewer enables fallback reviews the candidate on the
+	// reviewer's own endpoint pair (mergequeuereviewrouting.go); any other project
+	// asks the configured reviewer under the run's account, as it always did.
+	pairing, routed, err := w.queueReviewPair(run, w.now())
+	if err != nil {
+		return generation, false, err
+	}
+	var endpoint runstate.RoutedEndpoint
+	if routed {
+		if endpoint, err = w.chooseQueueReviewEndpoint(ctx, lease, key, &generation, pairing); err != nil {
+			return generation, false, err
+		}
+		err = w.reviewerReadyOn(ctx, entry, endpoint.Provider)
+	} else {
+		err = w.reviewerReady(ctx, entry, run)
+	}
+	if err != nil {
 		return generation, false, err
 	}
 	item, err := p.Tracker.Show(ctx, entry.WorkItemID)
@@ -1078,7 +1110,16 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 		return generation, false, err
 	}
 	account := p.accountFor(run.AccountAlias)
-	result, reviewErr := p.Reviewer.Review(ctx, review.Request{
+	reviewer, reviewBackend, reviewModel, billingAlias := p.Reviewer, p.reviewer().Backend, p.reviewer().Model, run.AccountAlias
+	if routed {
+		built, ok := p.ReviewerFor(endpoint)
+		if !ok || built == nil {
+			return generation, false, fmt.Errorf("this harness cannot start %s to review generation %d on", describeEndpoint(endpoint), generation.Number)
+		}
+		reviewer, reviewBackend, reviewModel, billingAlias = built, endpoint.Provider, requestedModel(endpoint), endpoint.AccountAlias
+		account = p.accountFor(endpoint.AccountAlias)
+	}
+	result, reviewErr := reviewer.Review(ctx, review.Request{
 		RunID:      generation.EventStream(),
 		WorkItemID: entry.WorkItemID,
 		Context:    candidateReviewContext(entry, generation, item.Title, item.Description, item.Design, item.AcceptanceCriteria) + intent,
@@ -1097,12 +1138,12 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 			ProductID:      p.Config.Product.ID,
 			Agent:          p.agentNameForRole(domain.RoleReviewer),
 			Phase:          runstate.SpendPhaseReview,
-			AccountAlias:   run.AccountAlias,
+			AccountAlias:   billingAlias,
 			ConfigRevision: run.ConfigRevision,
-			Backend:        p.reviewer().Backend,
+			Backend:        reviewBackend,
 			RunID:          entry.RunID,
 			WorkItemID:     entry.WorkItemID,
-			Billing:        p.Config.AccountBilling(run.AccountAlias),
+			Billing:        p.Config.AccountBilling(billingAlias),
 		},
 		AccountAlias:     account.Alias,
 		AccountConfigDir: account.Directory,
@@ -1126,7 +1167,14 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 	if result.Decision.Valid() {
 		evidence.Decision = string(result.Decision)
 	}
-	refusal := w.refusedReview(entry, result, reviewErr)
+	if routed {
+		evidence.Provider, evidence.AccountAlias, evidence.Choice = endpoint.Provider, endpoint.AccountAlias, generation.ReviewRouting.Selected
+	}
+	refusedOn, refusedModel := "", ""
+	if routed {
+		refusedOn, refusedModel = endpoint.AccountAlias, requestedModel(endpoint)
+	}
+	refusal := w.refusedReview(entry, result, reviewErr, refusedOn, refusedModel)
 	switch {
 	case refusal != "":
 		evidence.Decision = ""
@@ -1134,24 +1182,43 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 	case reviewErr != nil:
 		evidence.Decision = ""
 		evidence.Problem = boundedEvidence("the review failed: " + reviewErr.Error())
-	case result.RequestedModel != p.reviewer().Model:
+	case result.RequestedModel != reviewModel:
 		// The reviewer reports the selector it ran with, and a verdict from a
 		// reviewer other than the configured one is no verdict, as it is for a
 		// run.
 		evidence.Decision = ""
-		evidence.Problem = boundedEvidence(fmt.Sprintf("the reviewer ran with model %q, and the configured reviewer model is %q", result.RequestedModel, p.reviewer().Model))
+		evidence.Problem = boundedEvidence(fmt.Sprintf("the reviewer ran with model %q, and the configured reviewer model is %q", result.RequestedModel, reviewModel))
 	}
 	generation.Review = &evidence
 	if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
 		return generation, false, fmt.Errorf("record generation %d's review: %w", generation.Number, err)
 	}
 	if refusal != "" {
-		return generation, false, mergeQueueWait{reason: fmt.Sprintf("the provider made no review of generation %d: %s; it is asked again on a later pass", generation.Number, refusal)}
+		reason := fmt.Sprintf("the provider made no review of generation %d: %s; it is asked again on a later pass", generation.Number, refusal)
+		if _, limited := refusedReviewForUsageLimit(result.UsageLimit, reviewErr); limited && routed {
+			// A review refused for its usage limit moves to the alternate once, when
+			// the alternate can serve. The refused attempt is on the record above and
+			// is set aside by the pass that asks again, on the alternate.
+			said := fmt.Sprintf("the review of generation %d on %s was refused for its usage limit", generation.Number, describeEndpoint(endpoint))
+			moved, why, moveErr := w.moveQueueReview(ctx, lease, key, &generation, pairing, runstate.SwitchUsageLimit, said)
+			if moveErr != nil {
+				return generation, false, moveErr
+			}
+			if moved {
+				reason = fmt.Sprintf("the provider made no review of generation %d on %s; it moved to %s and is asked again on a later pass", generation.Number, describeEndpoint(endpoint), describeEndpoint(*pairing.Alternate))
+			} else {
+				reason += "; it stays on " + describeEndpoint(endpoint) + " because " + why
+				if recordErr := w.waitedQueueReview(lease, key, &generation, reason); recordErr != nil {
+					return generation, false, recordErr
+				}
+			}
+		}
+		return generation, false, mergeQueueWait{reason: reason}
 	}
 	if reviewErr != nil {
 		return generation, false, fmt.Errorf("review generation %d: %w", generation.Number, reviewErr)
 	}
-	if err := p.noticeProviderServedBy(p.reviewer().Backend); err != nil {
+	if err := p.noticeProviderServedBy(reviewBackend); err != nil {
 		return generation, false, err
 	}
 	return w.moved(ctx, lease, key, generation)
@@ -1161,11 +1228,11 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 // capacity, overloaded, not logged in or unreachable, or killed by something
 // that judged nothing — and records what a run's review records of the same
 // refusal. It is empty for a review the provider answered.
-func (w MergeQueueWorker) refusedReview(entry runstate.MergeQueueEntry, result review.Result, reviewErr error) string {
+func (w MergeQueueWorker) refusedReview(entry runstate.MergeQueueEntry, result review.Result, reviewErr error, account, model string) string {
 	p := w.Pipeline
 	what := fmt.Sprintf("the merge queue review of %s for run %s", entry.WorkItemID, entry.RunID)
 	if limit, refused := refusedReviewForUsageLimit(result.UsageLimit, reviewErr); refused {
-		_ = recordUsageLimit(w.UsageLimits, p.Config.Product.ID, p.clock().Now(), what, &limit)
+		_ = recordUsageLimitOn(w.UsageLimits, p.Config.Product.ID, p.clock().Now(), what, &limit, account, model)
 		return "the provider's usage limit was reached"
 	}
 	if _, refused := refusedReviewForServerOverload(result.ServerOverload, reviewErr); refused {

@@ -409,7 +409,11 @@ type Pipeline struct {
 	// describes or this build cannot launch. Optional: a pipeline without it
 	// refuses to invoke such a run's developer, before any provider call.
 	RecordedBackends func(named domain.Backend) (backend.Backend, bool)
-	Checks           CheckRunner
+	// ReviewerFor builds the reviewer for one endpoint of the reviewer's pair. It
+	// is read only where the reviewer agent enables fallback (reviewerrouting.go);
+	// nil leaves every review on Reviewer, as before.
+	ReviewerFor ReviewerForEndpoint
+	Checks      CheckRunner
 	// Load is the machine's load, read as each check begins to scale the check
 	// stage's bound the way a local Git command's budget is scaled. Optional: a
 	// pipeline without one — or on a platform that cannot report the load —
@@ -2724,6 +2728,9 @@ type activeRun struct {
 	// behind, on a run pinned to an endpoint pair (developerrouting.go), and nil
 	// for every other invocation.
 	launchGate *execution.LaunchGate
+	// reviewRoute is the routed review operation the review being made serves,
+	// nil for a run whose reviews are not routed.
+	reviewRoute *reviewerRoute
 	// charger is the identity this process charges the item's review rounds
 	// under, minted on first use and kept for the rest of the run so the charge
 	// and the settle that may return it agree. It is deliberately not durable: a
@@ -5651,6 +5658,7 @@ func (a *activeRun) pauseForUsageLimit(ctx context.Context, limit backend.UsageL
 	// Which model was refused is written with the kind, so the park reads back
 	// as a refusal of that model wherever the refusals outside a run are read.
 	a.state.UsageLimitModel = a.refusedModel()
+	a.state.UsageLimitAccount = a.refusedAccount()
 	a.state.PauseCause = runstate.PauseUsageLimit
 	a.outcome.PauseCause = runstate.PauseUsageLimit
 	// A limit is the account's state rather than an outage, so a channel left
@@ -5732,9 +5740,24 @@ func (a *activeRun) pauseForUsageLimit(ctx context.Context, limit backend.UsageL
 // record — so it is the selector that attempt actually requested.
 func (a *activeRun) refusedModel() string {
 	if a.state.Phase == runstate.PhaseReviewing {
+		if endpoint, routed := a.reviewRefusedEndpoint(); routed {
+			return requestedModel(endpoint)
+		}
 		return a.pipeline.reviewer().Model
 	}
 	return a.developerModel()
+}
+
+// refusedAccount is the account the invocation this run is parked on was made
+// under. It is the reviewer endpoint's during a routed review and empty
+// otherwise, which is the run's own account.
+func (a *activeRun) refusedAccount() string {
+	if a.state.Phase == runstate.PhaseReviewing {
+		if endpoint, routed := a.reviewRefusedEndpoint(); routed {
+			return endpoint.AccountAlias
+		}
+	}
+	return ""
 }
 
 // recordPauseStart writes when the pause being recorded began, once per pause:
@@ -5790,6 +5813,7 @@ func (a *activeRun) pauseForServerOverload(ctx context.Context, overload backend
 	// describe this wait as a refusal of it.
 	a.state.UsageLimitResetUnknown = true
 	a.state.UsageLimitModel = ""
+	a.state.UsageLimitAccount = ""
 	a.state.UpdatedAt = p.clock().Now()
 	a.pausedAt = p.clock().Now()
 	a.recordPauseStart()
@@ -9369,11 +9393,32 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 		// by attemptReview — rather than the configuration.
 		if err == nil && reported.servedCleanly {
 			what := fmt.Sprintf("a review of run %s of %s", a.state.RunID, a.state.WorkItemID)
-			if servedErr := a.pipeline.noticeCapacityServed(a.state.AccountAlias, a.state.ReviewModel, what); servedErr != nil {
+			servedAccount, servedModel := a.state.AccountAlias, a.state.ReviewModel
+			if route := a.reviewRoute; route != nil {
+				servedAccount, servedModel = route.endpoint.AccountAlias, requestedModel(route.endpoint)
+			}
+			if servedErr := a.pipeline.noticeCapacityServed(servedAccount, servedModel, what); servedErr != nil {
 				a.outcome.CapacityServedProblem = appendProblem(a.outcome.CapacityServedProblem, servedErr.Error())
 			}
 		}
 		if limit, refused := refusedReviewForUsageLimit(reported.usageLimit, err); refused {
+			// A routed review still on its primary moves to its alternate once, when
+			// the alternate can serve; the refused attempt's session stays with the
+			// primary. Otherwise the limit is waited out on the endpoint the
+			// operation has selected, as it is for a run with no pair.
+			if route := a.reviewRoute; route != nil {
+				evidence := fmt.Sprintf("review attempt %s on %s was refused for its usage limit", route.attempt, describeEndpoint(route.endpoint))
+				if limit.Kind != "" {
+					evidence += " (" + limit.Kind + ")"
+				}
+				switched, switchErr := a.switchReviewEndpoint(ctx, route, runstate.SwitchUsageLimit, route.attempt, evidence)
+				if switchErr != nil {
+					return "", switchErr
+				}
+				if switched {
+					continue
+				}
+			}
 			if pauseErr := a.pauseForUsageLimit(ctx, limit); pauseErr != nil {
 				return "", pauseErr
 			}
@@ -9505,6 +9550,9 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 		if err == nil {
 			if countErr := a.recordReviewVerdict(ctx, decision); countErr != nil {
 				return "", countErr
+			}
+			if closeErr := a.completeReviewOperation(ctx, a.reviewRoute, "the reviewer gave a verdict on the candidate"); closeErr != nil {
+				return "", closeErr
 			}
 		}
 		return decision, err
@@ -9780,6 +9828,32 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 	}
 	account := a.account()
 	attribution := a.spendAttribution(domain.RoleReviewer, runstate.SpendPhaseReview)
+	reviewer, configured := p.Reviewer, p.reviewer().Model
+	var launchGate *execution.LaunchGate
+	// A review of a project that enables reviewer fallback is made on the
+	// reviewer's own endpoint, under that endpoint's account, as one recorded
+	// operation on this candidate (reviewerrouting.go).
+	a.reviewRoute = nil
+	route, err := a.beginReviewOperation(ctx, changes.HeadCommit)
+	if err != nil {
+		return "", providerEvidence{}, err
+	}
+	if route != nil {
+		if err := a.prepareReviewAttempt(ctx, route); err != nil {
+			return "", providerEvidence{}, err
+		}
+		a.reviewRoute = route
+		reviewer, configured, launchGate = route.reviewer, requestedModel(route.endpoint), route.gate
+		account = p.accountFor(route.endpoint.AccountAlias)
+		attribution.AccountAlias, attribution.Backend = route.endpoint.AccountAlias, route.endpoint.Provider
+		attribution.Billing = p.Config.AccountBilling(route.endpoint.AccountAlias)
+		reask = a.reviewReask(reask, route)
+	} else if reask != nil && reask.SessionID != "" && reask.SessionID == a.state.ProviderSessionID {
+		// The developer's session is never the reviewer's to resume.
+		changed := *reask
+		changed.SessionID = ""
+		reask = &changed
+	}
 	// A change landing in the companion intent repository is reviewed beside the
 	// project's code, which it is about and which that repository does not hold.
 	var projectCode review.RepositoryEvidence
@@ -9787,7 +9861,7 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 	if a.landsInIntentRepository() {
 		projectCode, projectCodeCommit = a.projectCodeFor(ctx)
 	}
-	result, reviewErr := p.Reviewer.Review(ctx, review.Request{
+	result, reviewErr := reviewer.Review(ctx, review.Request{
 		RunID:      a.state.RunID,
 		WorkItemID: a.state.WorkItemID,
 		// The item as the developer was given it, with every file it references
@@ -9846,9 +9920,25 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		// piece of work cost is what one subscription was spent.
 		AccountAlias:     account.Alias,
 		AccountConfigDir: account.Directory,
+		LaunchGate:       launchGate,
 	})
 	if result.LastSequence > a.state.LastSequence {
 		a.state.LastSequence = result.LastSequence
+	}
+	// How a routed attempt ended is recorded before anything below reads it. A
+	// result that cannot be taken for this attempt and this candidate supplies
+	// no verdict (finishReviewAttempt).
+	taken := true
+	if route != nil {
+		var finishErr error
+		if taken, finishErr = a.finishReviewAttempt(ctx, route, result, reviewErr); finishErr != nil {
+			return "", providerEvidence{}, finishErr
+		}
+		if !taken {
+			// Nothing the result said is recorded as a verdict, and no round is
+			// counted for it.
+			result.Decision, result.Verdict = "", review.Verdict{}
+		}
 	}
 	// What the reviewer reported is collected before its verdict is read,
 	// because a report survives a review the harness went on to reject: the
@@ -9926,7 +10016,9 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 	// The reviewer reports the selector it actually ran with. Auditing that
 	// against configuration here keeps the recorded evidence a fact rather than
 	// an assumption about how the reviewer was wired.
-	configured := p.reviewer().Model
+	if !taken {
+		return "", providerEvidence{}, stoppedBy(runstate.StopProvider, fmt.Errorf("the review result was not accepted for attempt %s of the review of candidate %s, so it is not a verdict and nothing is integrated on it", route.attempt, route.candidate))
+	}
 	if result.RequestedModel != configured {
 		return "", providerEvidence{}, stoppedBy(runstate.StopProvider, fmt.Errorf("reviewer ran with model %q, configured reviewer model is %q", result.RequestedModel, configured))
 	}

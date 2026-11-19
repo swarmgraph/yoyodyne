@@ -1044,6 +1044,8 @@ var notAStep = map[string]string{
 	"finishDeveloperAttempt":      "records how a developer attempt ended",
 	"switchDeveloperEndpoint":     "moves a developer operation to its alternate on a usage limit, or records why it waits",
 	"selectedDeveloperEndpoint":   "reads which endpoint the developer operation has selected",
+	"switchReviewEndpoint":        "moves a review operation to its alternate on a usage limit, or records why it waits",
+	"completeReviewOperation":     "closes the logical operation whose verdict was counted",
 	"completeDeveloperOperation":  "closes the logical operation the developer has answered",
 	"clearDirectivePause":         "consumes a directive pause the run recorded",
 	"clearDependencyPause":        "consumes a dependency pause the run recorded",

@@ -230,6 +230,7 @@ func (a *activeRun) pauseForProviderOutage(ctx context.Context, outage backend.P
 	// a model, so the record says both rather than carrying a limit's over.
 	a.state.UsageLimitResetUnknown = true
 	a.state.UsageLimitModel = ""
+	a.state.UsageLimitAccount = ""
 	a.state.UpdatedAt = p.clock().Now()
 	a.pausedAt = p.clock().Now()
 	a.recordPauseStart()
