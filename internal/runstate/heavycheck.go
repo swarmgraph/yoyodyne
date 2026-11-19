@@ -338,6 +338,16 @@ type HeavyCheckAsk struct {
 	// configuration says. The record keeps the last one asked with.
 	Limit    int
 	Priority domain.HeavyCheckPriority
+	// LandingNeeds, where set, is the heavy checks, by their execution.heavy_checks
+	// names, that an entry still in the harness's merge queue has yet to pass.
+	// While it names Check, a place for Check is kept free of ordinary and
+	// preserved-work asks (grantable), so a landing check never waits for a whole
+	// developer check to finish. It is read on every poll, before the record's
+	// lock is taken, from the queue's own record, so nothing is stored here and
+	// nothing is left behind when the entry lands or leaves. An error or a nil
+	// answer keeps no place. It is not read for a landing ask, which is never
+	// held back by it.
+	LandingNeeds func() map[string]bool
 	// Read, where set, reads the machine as the check launches, for the
 	// measurements kept beside the record (heavycheckmeasure.go). It is read
 	// before the record's lock is taken, so a slow reading holds up nobody
@@ -606,8 +616,14 @@ func (h *heavyCheckSession) settle() {
 
 // grantable reports whether a waiting permit may be let start now: its check
 // has a free place, and no permit before it in the order is waiting on the
-// same check with somebody waiting on it.
-func (h *heavyCheckSession) grantable(permit HeavyCheckPermit) bool {
+// same check with somebody waiting on it. keeping is whether the merge queue
+// holds an entry that still has this check to pass: then a permit that is not
+// for a landing is let start only while the permits that are not for a landing
+// number at most one fewer than the check's places, so one place is always free
+// for the landing check. Where the check has one place nothing is kept, because
+// keeping it would stop every ordinary copy of the check whenever the queue held
+// an entry; the landing check is still first in the line.
+func (h *heavyCheckSession) grantable(permit HeavyCheckPermit, keeping bool) bool {
 	limit := h.record.Limits[permit.Check]
 	if limit < 1 {
 		limit = 1
@@ -615,6 +631,17 @@ func (h *heavyCheckSession) grantable(permit HeavyCheckPermit) bool {
 	holding := h.record.Holding(permit.Check)
 	if len(holding) >= limit {
 		return false
+	}
+	if keeping && limit > 1 && permit.Priority != domain.HeavyCheckForLanding {
+		others := 0
+		for _, other := range holding {
+			if other.Priority != domain.HeavyCheckForLanding {
+				others++
+			}
+		}
+		if others >= limit-1 {
+			return false
+		}
 	}
 	for _, other := range holding {
 		// The same run's earlier launch of the same command, still running
@@ -708,6 +735,10 @@ func (s *HeavyCheckStore) Acquire(ctx context.Context, ask HeavyCheckAsk, waitin
 		if err := ctx.Err(); err != nil {
 			return nil, giveUp(err)
 		}
+		keeping := false
+		if ask.LandingNeeds != nil && ask.Priority != domain.HeavyCheckForLanding && ask.Limit > 1 {
+			keeping = ask.LandingNeeds()[ask.Check]
+		}
 		session, err := s.open(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -763,7 +794,7 @@ func (s *HeavyCheckStore) Acquire(ctx context.Context, ask HeavyCheckAsk, waitin
 			_ = releaseStateFile(hold)
 			return nil, fmt.Errorf("the permit run %s was waiting on for %s was taken out of the record", ask.RunID, ask.Command)
 		}
-		if session.grantable(*permit) {
+		if session.grantable(*permit, keeping) {
 			now := s.clock()
 			permit.State = HeavyCheckRunning
 			permit.GrantedAt = &now
