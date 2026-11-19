@@ -212,12 +212,21 @@ const noLongerAppliesClears = "Nobody needs to do anything about it. Only reopen
 //     carrying the recovery out would build, review and check the same change
 //     twice at once, the replacement's run beside the old run's.
 //
+// A document's publication run has no tracker item to read: its run stands as
+// its own item. Its own record is asked instead (documentRunSettled).
+//
 // An item or a record that cannot be read establishes nothing, and the
 // recovery is left to the action, whose own gates refuse what they always
 // refused.
 func (c CarryOut) recoverySettled(ctx context.Context, task CarryOutTask, closure *triage.Closure, counters runstate.TriageCounters, recorded []runstate.State, item func(context.Context, string) (beads.WorkItem, bool), unfinished func(context.Context) ([]beads.WorkItem, bool)) (notApplying, bool) {
 	if task.Harness {
 		return notApplying{}, false
+	}
+	if account, settled, document := documentRunSettled(task, recorded); document {
+		if !settled {
+			return notApplying{}, false
+		}
+		return notApplying{account: account, clears: documentSettledClears, noItem: true}, true
 	}
 	read, ok := item(ctx, task.WorkItemID)
 	if !ok || read.ID != task.WorkItemID {
@@ -251,6 +260,72 @@ func (c CarryOut) recoverySettled(ctx context.Context, task CarryOutTask, closur
 type notApplying struct {
 	account string
 	clears  string
+	// noItem says the run stands as its own item, as a document's publication
+	// run does, so there is no tracker item to note the finding on.
+	noItem bool
+}
+
+// documentSettledClears is what would make a recovery of a settled document
+// publication run apply again.
+const documentSettledClears = "Nobody needs to do anything about it. Only the development manager recording a new decision about this run, after the document's own decision, would make a recovery of it apply again"
+
+// documentRunSettled reports a recovery about a document's publication run that
+// no longer applies, read from that run's own record, with the account the
+// finding records. Such a run's work item is the run itself, so the tracker
+// holds nothing to say it closed; asked there, every pass failed to read it,
+// learned nothing, and offered the recovery again. The carry-out then took a
+// developer slot to attempt it, the action refused it on the same unreadable
+// item, and the slot stood counted for a run that was never going to start.
+//
+// It does not apply where:
+//
+//   - the run published its document: nothing of it is left to run again;
+//   - the development manager retried or retired the document
+//     (runstate.DocumentDecision) at or after the recovery was decided. A retry
+//     publishes the document again by a run of its own, and a retirement ends
+//     its publication, so either is the document's work settled the way a
+//     closed item's is. A recovery decided after the document's decision is
+//     somebody deciding past it, and it is left to the action.
+//
+// document reports that the run is a document's publication standing as its
+// own item, which is what decides it whether or not it is settled: the tracker
+// has nothing to add. A run nobody recorded, or one that is not a document's
+// publication, is not this question, and the caller reads the item as it
+// always did.
+func documentRunSettled(task CarryOutTask, recorded []runstate.State) (string, bool, bool) {
+	var run runstate.State
+	found := false
+	for _, state := range recorded {
+		if state.RunID == task.RunID {
+			run, found = state, true
+			break
+		}
+	}
+	if !found || run.Document == nil || run.WorkItemID != task.WorkItemID || run.WorkItemID != run.RunID {
+		return "", false, false
+	}
+	document := fmt.Sprintf("document %s (%s)", run.Document.WriteID, strings.TrimSpace(run.Document.Candidate.Artifact.Title))
+	kept := "Nothing was started and nothing was spent, and nothing was removed: the run's record and the decision are kept"
+	if run.Status == runstate.StatusSucceeded {
+		return fmt.Sprintf("run %s published %s and succeeded, so there is nothing of it to run again. %s", run.RunID, document, kept), true, true
+	}
+	decided := run.DocumentDecision
+	if decided == nil || (!task.DecidedAt.IsZero() && decided.DecidedAt.Before(task.DecidedAt)) {
+		return "", false, true
+	}
+	what := "retired the document, ending its publication"
+	if decided.Decision == runstate.DocumentDecisionRetry {
+		what = "retried the document"
+		if decided.RetriedAs != "" {
+			what += " as run " + decided.RetriedAs
+		}
+	}
+	account := fmt.Sprintf("run %s was the publication of %s, and %s %s at %s, %s, so there is nothing left of this run for %s to do",
+		run.RunID, document, strings.TrimSpace(decided.DecidedBy), what, decided.DecidedAt.UTC().Format(time.RFC3339), decidedSays(task), recoverySays(task))
+	if reason := strings.TrimSpace(decided.Reason); reason != "" {
+		account += " (" + singleLine(reason, 512) + ")"
+	}
+	return account + ". " + kept, true, true
 }
 
 // setAsideClears is what would make a recovery set aside for a replacement
@@ -492,7 +567,7 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 		// Nobody decided a harness continuation, so there is no decision on the
 		// triage record to write a finding against. The explanation goes onto the
 		// item's notes instead, once: the same account read again is the same note.
-		if c.Notes == nil {
+		if c.Notes == nil || found.noItem {
 			return carried
 		}
 		note := fmt.Sprintf("Yoyodyne did not continue run %s itself, because continuing it no longer applies: %s. %s",
@@ -522,7 +597,9 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 		carried.RecordProblem = fmt.Sprintf("and that could not be written onto %s's triage record, so the next pass finds it again: %v", task.WorkItemID, err)
 		return carried
 	}
-	if c.Notes != nil {
+	// A run that stands as its own item has no tracker item to note it on; the
+	// triage record, which the docket reads, is where its finding is kept.
+	if c.Notes != nil && !found.noItem {
 		noting, stopNoting := trackerRecordContext(ctx)
 		defer stopNoting()
 		if err := c.deliverItemNotes(noting, task.WorkItemID); err != nil {
