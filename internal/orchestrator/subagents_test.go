@@ -386,8 +386,9 @@ func threeSlotsWithSubagentsOnSlot2(pipeline *Pipeline) {
 
 // A run the scheduler pulled into a slot that turns sub-agents on records that
 // slot and that setting, and asks for them, in a project where no slot has an
-// endpoint pair. A run started by name in the same project records no slot,
-// as it always did, and takes the agent's setting, which is off.
+// endpoint pair. A run started by name in the same project records the first
+// free slot, slot 1, and takes its setting, which states nothing, so the
+// agent's, which is off.
 func TestARunPulledIntoASlotWithoutAPairRecordsTheSlotAndItsSubagents(t *testing.T) {
 	t.Parallel()
 
@@ -425,8 +426,8 @@ func TestARunPulledIntoASlotWithoutAPairRecordsTheSlotAndItsSubagents(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Routing != nil || state.Subagents != nil {
-		t.Fatalf("a run started by name recorded routing %#v and sub-agents %+v", state.Routing, state.Subagents)
+	if state.RecordedSlot() != 1 || state.Routing.Developer != nil || state.Subagents != nil {
+		t.Fatalf("a run started by name recorded routing %#v and sub-agents %+v, want slot 1 and no sub-agents", state.Routing, state.Subagents)
 	}
 }
 

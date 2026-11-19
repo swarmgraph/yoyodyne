@@ -1984,9 +1984,12 @@ func (p Pipeline) recordDependencyContinued(ctx context.Context, state runstate.
 // full harness rather than failing — the scheduler's pull, a triage carry-out —
 // waits here too, and the run is left paused, holding no slot, exactly as it
 // was.
+//
+// Every run taken up here holds a slot from now on, so one whose record names
+// no slot number is given one (recordTakenUpSlot).
 func (p Pipeline) reclaimSlot(ctx context.Context, state runstate.State) (runstate.State, error) {
 	if state.DependencyPause == nil && !state.CIWait.Waiting() {
-		return state, nil
+		return p.recordTakenUpSlot(ctx, state), nil
 	}
 	state.UpdatedAt = p.clock().Now()
 	reclaimed, err := p.Store.ReclaimSlot(ctx, state, p.Config.Execution.MaxConcurrentDevelopers)
@@ -2000,7 +2003,33 @@ func (p Pipeline) reclaimSlot(ctx context.Context, state runstate.State) (runsta
 	if state.DependencyPause != nil {
 		p.recordDependencyContinued(ctx, state)
 	}
-	return reclaimed, nil
+	return p.recordTakenUpSlot(ctx, reclaimed), nil
+}
+
+// recordTakenUpSlot gives a run taken up again — a repair, a continuation, a
+// resumption — that holds a developer slot and whose record names no slot
+// number the first free one, by the claim a fresh run records its slot with
+// (claimDeveloperSlot). Only a run started before every developer run recorded
+// its slot reaches here with none; without this it would be shown in no slot
+// at all for as long as it went on. A run already numbered keeps its number,
+// which runstate's takeUpSlot has already checked is free. Where no number is
+// free, or the store cannot record one, the run goes on as it was: the number
+// is what the run is called, not whether it may run, which the reservation has
+// already decided.
+func (p Pipeline) recordTakenUpSlot(ctx context.Context, state runstate.State) runstate.State {
+	if state.RecordedSlot() != 0 || !state.HoldsDeveloperSlot() {
+		return state
+	}
+	store, ok := p.routingStore()
+	if !ok {
+		return state
+	}
+	claimed, _, err := claimDeveloperSlot(ctx, store, state, 0, p.Config.Execution.MaxConcurrentDevelopers, p.Config.Execution.DeveloperSlots, p.clock().Now())
+	if err != nil {
+		return state
+	}
+	state.Routing = claimed.Routing
+	return state
 }
 
 // resumeRun picks up a run this process did not finish: one an interrupted

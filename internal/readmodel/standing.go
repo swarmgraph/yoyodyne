@@ -1757,6 +1757,21 @@ func readSlots(sources Sources, running []RunningRun) []DeveloperSlotStanding {
 	return assignment.Slots
 }
 
+// holdingSlots is how many of the running runs hold a developer slot, by the
+// rule readSlots places them by: a document's landing is counted on its own,
+// and a run whose worker is gone holds none. It is what the capacity line says
+// is in the slots, so that line and the health check's slot holders count the
+// same runs.
+func holdingSlots(running []RunningRun) int {
+	holding := 0
+	for _, run := range running {
+		if !run.documentLanding && run.HoldsNoSlot == "" {
+			holding++
+		}
+	}
+	return holding
+}
+
 // readSlotHolders is what the harness counts as holding each developer slot,
 // read off the runs in flight by the store's own rule.
 func readSlotHolders(sources Sources, now time.Time) ([]runstate.SlotHolder, string) {
@@ -2113,7 +2128,7 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 			waits.startable = append(waits.startable, ref)
 			if full {
 				if slotWait == nil {
-					slotWait = &SlotWait{Slots: sources.Capacity, InFlight: len(running), Items: []WorkItemRef{}}
+					slotWait = &SlotWait{Slots: sources.Capacity, InFlight: holdingSlots(running), Items: []WorkItemRef{}}
 				}
 				slotWait.Ready++
 				slotWait.Items = append(slotWait.Items, ref)

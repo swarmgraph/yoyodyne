@@ -11,8 +11,8 @@ package orchestrator
 // than off the configuration, so a reload, an edited label rule, or another
 // run taking a slot changes nothing about a run already going. A slot with no
 // pair, and every project that configures none, takes none of this beyond the
-// slot number a run the scheduler pulled into it records: its runs are invoked
-// exactly as they always were. A run that started before its project configured
+// slot number every developer run records: its runs are invoked exactly as they
+// always were. A run that started before its project configured
 // pairs is given its slot's pair at its next repair or continuation
 // (adoptDeveloperRouting), and is routed from then on as if it had started on it.
 //
@@ -174,8 +174,9 @@ const (
 )
 
 // routesDeveloperSlots reports a configuration naming an endpoint pair for at
-// least one developer slot. Only such a project records a slot on a run the
-// scheduler did not pull into one (pinDeveloperRouting).
+// least one developer slot. Only such a project refuses to start a run the
+// scheduler did not pull into a slot when no slot number is free to record it
+// in (pinDeveloperRouting).
 func (p Pipeline) routesDeveloperSlots() bool {
 	for _, slot := range p.Config.Execution.DeveloperSlots {
 		if slot.Routing != nil {
@@ -270,22 +271,21 @@ func sameEndpoint(a, b runstate.RoutedEndpoint) bool {
 }
 
 // claimDeveloperSlot records the slot a fresh run occupies: the one the
-// scheduler pulled it into where that is still free, and otherwise the lowest
-// free one. A slot another run holding a slot now records is never taken from
+// scheduler pulled it into where that is still free, and otherwise the first
+// free one in the order developerslot.Assign places a run whose record names
+// none — a slot preferring one of its labels, then a slot preferring nothing,
+// then any — so the number recorded is the one the status line would have read
+// it into. A slot another run holding a slot now records is never taken from
 // it; one recorded by a run holding none — paused, or released for want of a
 // live worker — is free, and that run is taken up again in another free slot,
 // or waits for this one where it keeps its endpoint pair (runstate's
 // takeUpSlot).
-func claimDeveloperSlot(ctx context.Context, store RoutingStore, held runstate.State, requested, capacity int, at time.Time) (runstate.State, int, error) {
+func claimDeveloperSlot(ctx context.Context, store RoutingStore, held runstate.State, requested, capacity int, preferences []domain.DeveloperSlot, at time.Time) (runstate.State, int, error) {
 	order := make([]int, 0, capacity)
 	if requested >= 1 && requested <= capacity {
 		order = append(order, requested)
 	}
-	for number := 1; number <= capacity; number++ {
-		if number != requested {
-			order = append(order, number)
-		}
-	}
+	order = append(order, slotClaimOrder(capacity, preferences, held.WorkItemLabels, requested)...)
 	var occupied []string
 	for _, number := range order {
 		claimed, err := store.ClaimSlot(ctx, held, number, capacity, at)
@@ -302,22 +302,60 @@ func claimDeveloperSlot(ctx context.Context, store RoutingStore, held runstate.S
 	return held, 0, fmt.Errorf("no developer slot from 1 to %d is free to record this run in: %s", capacity, strings.Join(occupied, "; "))
 }
 
+// slotClaimOrder is the slots from 1 to capacity, other than skip, in the order
+// developerslot.Assign fills them for a run carrying labels: the slots
+// preferring one of its labels, then the slots preferring nothing, then the
+// rest, each in configured order.
+func slotClaimOrder(capacity int, preferences []domain.DeveloperSlot, labels []string, skip int) []int {
+	preference := func(number int) domain.DeveloperSlot {
+		if number <= len(preferences) {
+			return preferences[number-1]
+		}
+		return domain.DeveloperSlot{}
+	}
+	var suited, plain, rest []int
+	for number := 1; number <= capacity; number++ {
+		if number == skip {
+			continue
+		}
+		switch slot := preference(number); {
+		case slot.Preferring() && slot.Prefers(labels):
+			suited = append(suited, number)
+		case !slot.Preferring():
+			plain = append(plain, number)
+		default:
+			rest = append(rest, number)
+		}
+	}
+	return append(append(suited, plain...), rest...)
+}
+
 // pinDeveloperRouting records the run's developer slot and, where that slot
 // has an explicit pair, the pair itself, before the run claims anything. The
 // run's backend, account, model and effort are then the primary's, and every
 // later invocation reads them back off the record.
 //
-// A run the scheduler pulled into a slot records that slot whether or not any
-// slot has a pair, because the slot's other settings — its sub-agents first
-// (subagents.go) — are read off the record, not off the context. A run started
-// any other way records a slot only in a project that routes slots, as it
-// always did. Where the slot the scheduler chose is no longer free and the run
-// is recorded in another, its selection reason says so, so the status line,
-// which reads the record, and the reason name the same slot.
+// Every developer run records the slot it occupies, whether or not any slot has
+// a pair, because the slot's other settings — its sub-agents first
+// (subagents.go) — are read off the record, and so are the health check's and
+// the status line's slot numbers. A run the scheduler pulled into a slot takes
+// that one where it is still free. A run started any other way — a re-run or a
+// fresh run a development manager's decision started, or a run started by name
+// — takes the first free slot in the order developerslot.Assign would have read
+// it into; before it did, such a run recorded none and was shown in no slot at
+// all while it held one. Where the slot the scheduler chose is no longer free
+// and the run is recorded in another, its selection reason says so, so the
+// status line, which reads the record, and the reason name the same slot.
+//
+// In a project with no pairs, a run that finds no number free to record — every
+// number recorded by a run holding a slot, which only a run started beyond the
+// capacity leaves — goes on unrecorded rather than fail, as it would have
+// before every run recorded one: the reservation already decided it holds a
+// slot, and the number is what it is called, not what it may do.
 func (a *activeRun) pinDeveloperRouting(ctx context.Context) error {
 	p := a.pipeline
 	routed, requested := p.routesDeveloperSlots(), developerSlotOf(ctx)
-	if a.state.HarnessAuthored() || (!routed && requested == 0) {
+	if a.state.HarnessAuthored() {
 		return nil
 	}
 	store, ok := p.routingStore()
@@ -328,8 +366,11 @@ func (a *activeRun) pinDeveloperRouting(ctx context.Context) error {
 		return errors.New("developer slots are configured with endpoint pairs, and this run's state store cannot record a run's slot and pair, so the run was not started on a pair it could not keep to")
 	}
 	now := p.clock().Now()
-	claimed, slot, err := claimDeveloperSlot(ctx, store, a.state, requested, p.Config.Execution.MaxConcurrentDevelopers, now)
+	claimed, slot, err := claimDeveloperSlot(ctx, store, a.state, requested, p.Config.Execution.MaxConcurrentDevelopers, p.Config.Execution.DeveloperSlots, now)
 	if err != nil {
+		if !routed && requested == 0 {
+			return nil
+		}
 		return fmt.Errorf("record the developer slot this run occupies: %w", err)
 	}
 	a.state.Routing = claimed.Routing
@@ -391,7 +432,7 @@ func (a *activeRun) adoptDeveloperRouting(ctx context.Context) error {
 	now := p.clock().Now()
 	capacity := p.Config.Execution.MaxConcurrentDevelopers
 	if a.state.RecordedSlot() == 0 && developerSlotOf(ctx) != 0 {
-		claimed, _, err := claimDeveloperSlot(ctx, store, a.state, developerSlotOf(ctx), capacity, now)
+		claimed, _, err := claimDeveloperSlot(ctx, store, a.state, developerSlotOf(ctx), capacity, p.Config.Execution.DeveloperSlots, now)
 		if err == nil {
 			a.state.Routing = claimed.Routing
 		}
