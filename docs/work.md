@@ -76,9 +76,14 @@ pause and a held intake both leave it paused, and the first pull after either
 lifts continues it. The run writes on the item that it was continued, by whom
 and why, at the moment its pause is lifted — so a continuation refused before
 it got that far writes nothing there. A continuation that comes back without
-the run going on — declined for want of a slot, refused, or paused again — is
-said on the pass and left for a quarter of an hour before a pull attempts it
-again, rather than being tried at every poll. One whose work is still open is
+the run going on — refused, or paused again — is said on the pass and left for
+a quarter of an hour before a pull attempts it again, rather than being tried at
+every poll. One declined only because no developer slot was free is the
+exception: it is attempted again at the next pull, ahead of new work, because
+the slot freeing is all it waits for and leaving it would hand that slot to new
+work. A run that keeps the endpoint pair of the slot it recorded waits for that
+slot alone, and while another run holds it the pull passes the run over naming
+the slot and who holds it, rather than starting it to be refused. One whose work is still open is
 passed over naming what it waits on, and the sweep leaves it alone however long
 that lasts, rather than settling it after half an hour as it does a park
 nothing continues. A stop recorded on such a run is honoured before any

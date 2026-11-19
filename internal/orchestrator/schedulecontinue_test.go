@@ -2,6 +2,8 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +31,8 @@ func (c harnessContinuations) StopRequested(runID string) (runstate.StopRequest,
 
 // continuationFixture is one item whose run paused on a dependency, over the
 // real harness, with the starts the pulls make counted and, where a test asks,
-// refused the way a full harness refuses one.
+// refused: by a tracker that did not answer, or by refusal where a test sets
+// one, such as the way a full harness refuses a start.
 type continuationFixture struct {
 	harness   *realScheduleHarness
 	scheduler Scheduler
@@ -39,6 +42,7 @@ type continuationFixture struct {
 	starts  int
 	refuse  int
 	refused int
+	refusal error
 }
 
 func (f *continuationFixture) start(ctx context.Context, workItemID string, selection runstate.Selection) (Outcome, error) {
@@ -50,7 +54,10 @@ func (f *continuationFixture) start(ctx context.Context, workItemID string, sele
 	}
 	f.mu.Unlock()
 	if refuse {
-		return Outcome{}, runstate.CapacityError{Limit: 1, Active: 1}
+		if f.refusal != nil {
+			return Outcome{}, f.refusal
+		}
+		return Outcome{}, errors.New("load work item: bd show failed with status cancelled and exit code -1")
 	}
 	return f.harness.start(ctx, workItemID, selection)
 }
@@ -203,6 +210,7 @@ func TestAPullContinuesARunPausedOnADependencyOnceItCloses(t *testing.T) {
 // A continuation the start refuses writes nothing on the item and is not
 // attempted again at the next poll: the session remembers it and leaves it for
 // the retry interval. Before, every poll re-dispatched it and re-noted the item.
+// A refusal for want of a developer slot is the exception, below.
 func TestARefusedContinuationIsNotRetriedAtEveryPull(t *testing.T) {
 	t.Parallel()
 
@@ -222,8 +230,8 @@ func TestARefusedContinuationIsNotRetriedAtEveryPull(t *testing.T) {
 	if starts := fixture.startsMade(); starts != 1 {
 		t.Fatalf("starts = %d (%s), want the refused continuation attempted once", starts, schedule.Render())
 	}
-	if len(schedule.Started) != 1 || schedule.Started[0].Declined == "" {
-		t.Fatalf("pass = %s, want the one continuation recorded as declined", schedule.Render())
+	if len(schedule.Started) != 1 || schedule.Started[0].Failure == "" {
+		t.Fatalf("pass = %s, want the one continuation recorded as failed", schedule.Render())
 	}
 	if !deferredSaying(schedule, "yoyodyne-task", "is attempted again from 2026-09-27T18:15:00Z") {
 		t.Fatalf("deferred = %#v, want the refusal and when it is retried named", schedule.Deferred)
@@ -240,6 +248,38 @@ func TestARefusedContinuationIsNotRetriedAtEveryPull(t *testing.T) {
 	again, err := fixture.scheduler.Schedule(context.Background())
 	if err != nil || len(again.Started) != 1 || again.Started[0].Outcome.Integration == nil {
 		t.Fatalf("later pass = %s, %v; want the run continued", again.Render(), err)
+	}
+}
+
+// A continuation turned away only because the developer slot it needed was
+// taken is attempted again at the next pull rather than left for the retry
+// interval: the slot freeing is all it waits for, and a pull that left it would
+// hand that slot to new work instead. Within one pass that reads again after
+// every run it collects, the next pull is the one straight after the refusal.
+func TestAContinuationRefusedForASlotIsTriedAgainAtTheNextPull(t *testing.T) {
+	t.Parallel()
+
+	fixture := pausedOnADependency(t)
+	closeBlocker(fixture.harness, "yoyodyne-task")
+	fixture.refuse = 1
+	fixture.refusal = fmt.Errorf("reserve developer run: %w", runstate.CapacityError{Limit: 1, Active: 1})
+
+	now := time.Date(2026, 11, 18, 18, 32, 0, 0, time.UTC)
+	scheduler := fixture.scheduler
+	scheduler.Now = func() time.Time { return now }
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if starts := fixture.startsMade(); starts != 2 {
+		t.Fatalf("starts = %d (%s), want the continuation refused for its slot attempted again at the next pull", starts, schedule.Render())
+	}
+	if deferredSaying(schedule, "yoyodyne-task", "is attempted again from") {
+		t.Fatalf("deferred = %#v, want no retry interval set for a refusal for want of a slot", schedule.Deferred)
+	}
+	continued := schedule.Started[len(schedule.Started)-1]
+	if continued.Outcome.RunID != fixture.paused.RunID || continued.Outcome.Integration == nil {
+		t.Fatalf("pass = %s, want the paused run continued once its slot came free", schedule.Render())
 	}
 }
 
