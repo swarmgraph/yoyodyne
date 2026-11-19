@@ -54,6 +54,10 @@ revisions:
       by: architect
       at: 2026-11-19T13:32:12.655674Z
       reason: 'Writes point 4 of bringing four designs into line with what was built (yoyodyne-n2t1), answering report-56713f40: machine-identity.json is the machine''s one identity, the older machine.identity field on run state is read only for older records, and the build piece stops and reports if the old field told apart more than the file does. Read whole at main f1b90a7f; no other section changes. Point 5 of that item, the check 7 wording, is still to be written.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T15:50:06.910392Z
+      reason: 'yoyodyne-n2t1 point 5, with yoyodyne-ifd.437.69: validation check 7 now describes what scripts/validate-machine-home.sh runs (init with an intent repository, the intent checks, a landing through the harness''s document route, and a record naming both commits) and names the four parts it prints as not taken or not proved for want of a provider or the tracker. Answers report-a85fffa8 and report-48784e0f. Sent again after the earlier run was withdrawn when an unrelated GitHub test failed on its pull request. Read whole at main cc341fff; no other section changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -110,6 +114,11 @@ approvals:
       by: harness
       at: 2026-11-19T13:32:12.655674Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3079, for document-3079.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 12
+      by: harness
+      at: 2026-11-19T15:50:06.910392Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3084, for document-3084.1 under the automatic approval policy
 ---
 # The machine home
 
@@ -602,19 +611,45 @@ on, and never as passed. Evidence is kept with the validation project's record.
    left them, the run record, the reports, and the output of
    `git worktree list`.
 7. **The companion intent repository.** Requirement: The companion intent
-   repository. Setup: `yoyo init --intent` and the intent repository chosen in
-   the configuration under the project directory. Observed: the governed
-   homes and the tracker export are in the intent repository and the project's
-   repository holds no `.yoyodyne/`; a document revision lands in the intent
-   repository's target branch under the promotion lease; a run's write into a
-   governed home without a grant is refused; the configuration the harness puts
-   in a worktree is untracked and listed in that worktree's exclude file; and
-   the record of a landed change names both commits. Evidence: `git status` of
-   both repositories, the landed commit in the intent repository, the refusal,
-   and the record naming both commits. The validation project runs this check
-   from the build of the checked and reviewed landing route into the companion
-   intent repository (yoyodyne-ifd.78.2) on. A part of it whose build has not
-   landed is recorded as not taken, naming that build, as for every check.
+   repository. Setup: in a fresh repository, `yoyo init --external --intent`,
+   which keeps the configuration under the project directory, naming the
+   intent repository; the check then commits the intent repository as a
+   contributor would. Observed: the configuration under the project directory
+   names the intent repository; the governed homes are in the intent
+   repository; the project's repository holds no `.yoyodyne/`, no `docs/`, no
+   `.beads/` and no agent instruction files, tracks nothing, and keeps the
+   history it started with; `yoyo artifact check --intent` and
+   `yoyo goals check --intent` pass on what init wrote, and the goals check
+   refuses a goals document broken on purpose in a scratch copy and says why;
+   a document sent through the harness's own document route lands in the
+   intent repository's target branch as written, with its confirmation in its
+   revision log, and leaves the project's repository unchanged; and the run's
+   record names the intent commit it read, the project commit, and the commit
+   the landing left, with a review session that is not the author's.
+   Evidence: `git status` of both repositories, the outputs of both checks,
+   the landed commit in the intent repository, and the run's record.
+
+   The validation project's script, `scripts/validate-machine-home.sh`, runs
+   this check from the build of the checked and reviewed landing route into
+   the companion intent repository (yoyodyne-ifd.78.2) on. The script has no
+   provider and no forge, so four things this requirement covers are printed
+   as not taken or not proved, each with its reason, and never as passed:
+
+   - the reviewer of the landed document is scripted, so the check shows that
+     a verdict from a session other than the author's was required and
+     recorded, not that a provider reviewed the document;
+   - the promotion lease is taken by the promotion step before the target
+     branch moves, and the check sees the branch move but does not watch the
+     lease itself;
+   - the refusal of a run's write into a governed home without a grant, and
+     the configuration the harness puts in a worktree being untracked and
+     listed in that worktree's exclude file, both belong to a developer run's
+     worktree, and starting a developer run needs a provider;
+   - the tracker export in the intent repository is written by the tracker,
+     not by `yoyo init`, and the check does not start the tracker.
+
+   Any other part whose build has not landed is recorded as not taken, naming
+   that build, as for every check.
 
 The validation also records three measurements of first use, with no target set
 for any of them:
