@@ -58,6 +58,10 @@ revisions:
       by: architect
       at: 2026-11-19T05:49:39.85583Z
       reason: 'yoyodyne-ifd.437.71: the section on what an exchange carries no longer calls the revision optional for a document. A document (design, goals or other governed document) needs the revision the writer read and is refused without it, and a work item is stamped with when the harness read it, as the reviewer of yoyodyne-dfk reported the harness now does (report-a7d200c3). Adds verification case 11. The rest of the section is unchanged from main 049769b4.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T17:01:39.308085Z
+      reason: 'Replaces the retired word for a required check in three sentences, under the operator''s rule of November 8, 2026: wakeups are held to the same conditions any invocation is held to, the spending pause and intake hold apply to a side thread, and a readiness record becomes a condition the scheduler holds work on only through a later revision. Part of replacing the coined vocabulary in the governed documents (yoyodyne-ifd.437.21). Nothing else changes; the rest is copied from main 473d3600.'
 approvals:
     - policy: approvals.designs
       revision: 7
@@ -89,6 +93,11 @@ approvals:
       by: harness
       at: 2026-11-19T05:49:39.85583Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3042, for document-3042.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 13
+      by: harness
+      at: 2026-11-19T17:01:39.308085Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3108, for document-3108.1 under the automatic approval policy
 ---
 # Management and supervision: the typed request contract and process residency
 
@@ -153,7 +162,7 @@ The request kinds, readiness vocabulary, outcome summaries, execution profiles, 
 
 ## Wakeups
 
-When relevant work arrives — a request lands in an inbox, a docket entry is created, a promotion queue has items — the harness wakes the responsible role automatically, under lease, within bounded coordination cycles and cost. Wakeups are how conversation-executed work stops depending on the operator noticing silence. Every wakeup passes the same gates any invocation passes: the intake hold where it applies, the spending pause always, and the budgets recorded durably before they are spent.
+When relevant work arrives — a request lands in an inbox, a docket entry is created, a promotion queue has items — the harness wakes the responsible role automatically, under lease, within bounded coordination cycles and cost. Wakeups are how conversation-executed work stops depending on the operator noticing silence. Every wakeup is held to the same conditions any invocation is held to: the intake hold where it applies, the spending pause always, and the budgets recorded durably before they are spent.
 
 ## Conversation concurrency
 
@@ -169,11 +178,11 @@ An agent configured for side threads can hold bounded side conversations concurr
 
 **The knob.** Per-agent configuration chooses `queue` — today's behavior, the default — or `side-threads`, in the same block as persona and memory settings. The knob selects behavior and never authority: no configuration can grant a side thread mutations, per `configuration-never-grants-authority`.
 
-**Everything else is inherited, not new.** A side thread is a provider invocation like any other: the spending pause and the intake hold gate it, budgets are committed before spend, it is priced from provider-reported cost and listed beside conversations in the cost surfaces, and account failover serves it exactly as it serves a main turn. This design attacks the deciders-stop shape from the thread side as conversation failover attacks it from the account side; the two compose without touching each other.
+**Everything else is inherited, not new.** A side thread is a provider invocation like any other: the spending pause and the intake hold apply to it, budgets are committed before spend, it is priced from provider-reported cost and listed beside conversations in the cost surfaces, and account failover serves it exactly as it serves a main turn. This design attacks the deciders-stop shape from the thread side as conversation failover attacks it from the account side; the two compose without touching each other.
 
 ## Advisory readiness
 
-Readiness records — product, architecture, delivery — are advisory and operator-visible in the first slice, each carrying evidence, the revision it was judged against, and staleness. They become scheduler gates only through a later revision to this design, made after their invalidation, failure, and accuracy behavior is demonstrated — a readiness gate that goes stale silently is a queue that stops for a reason nobody can see.
+Readiness records — product, architecture, delivery — are advisory and operator-visible in the first slice, each carrying evidence, the revision it was judged against, and staleness. They become conditions the scheduler holds work on only through a later revision to this design, made after their invalidation, failure, and accuracy behavior is demonstrated — a readiness condition that holds work and goes stale silently is a queue that stops for a reason nobody can see.
 
 ## Conflict handling
 
