@@ -210,8 +210,14 @@ func (b conversationTriageBudgets) RecordMergeRearm(ctx context.Context, workIte
 	return runstate.MergeRearmDecision{Publication: publication, Counters: counters}, nil
 }
 
+// RecordDecision records through the run store rather than the ledger alone, so
+// a wait naming no work item leaves a repair or re-run that is still to be
+// carried out standing (runstate.Store.RecordTriageDecision).
 func (b conversationTriageBudgets) RecordDecision(ctx context.Context, workItemID string, decision runstate.TriageDecision) (runstate.TriageCounters, error) {
-	return b.store.RecordDecision(ctx, workItemID, decision, b.clock.Now())
+	if b.runs == nil {
+		return b.store.RecordDecision(ctx, workItemID, decision, b.clock.Now())
+	}
+	return b.runs.RecordTriageDecision(ctx, workItemID, decision, b.clock.Now())
 }
 
 // conversationHeldWork wires what the harness is holding for a person into the

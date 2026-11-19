@@ -193,12 +193,17 @@ var triageDecisions = append(runstate.TriageDecisionVocabulary(), decisionCross,
 // run and is closed by nothing here: the pull that finds it ready takes it off.
 // An attempt that never became a run names none either, and is answered by the
 // runless decisions below.
+//
+// Every decision about a stopped run answers that run's publication too. A
+// repair or a re-scope decided about the run is the development manager's answer
+// for the whole of it, its pull request included, and a decision that left the
+// pull request's entry standing would put the same run to her a second time.
 var triageSettles = map[string]triageSettlement{
-	decisionRepair: {classes: runEntryClasses},
+	decisionRepair: {classes: append(slices.Clone(runEntryClasses), triage.ClassPublication)},
 	// A re-run also answers a publication: handing the change back for a fresh run
 	// is one of the two answers to a request nothing ever asked the forge to merge.
 	decisionRerun:    {classes: append(slices.Clone(runEntryClasses), triage.ClassPublication)},
-	decisionRescope:  {classes: runEntryClasses},
+	decisionRescope:  {classes: append(slices.Clone(runEntryClasses), triage.ClassPublication)},
 	decisionRearm:    {classes: []triage.Class{triage.ClassPublication}},
 	decisionWait:     {classes: append(slices.Clone(runEntryClasses), triage.ClassPublication), revisit: true},
 	decisionEscalate: {classes: append(slices.Clone(runEntryClasses), triage.ClassPublication)},
@@ -1497,10 +1502,11 @@ func (s *Session) recordTriageDecision(ctx context.Context, workItemID string, d
 		if s.options.Triage == nil {
 			return triageSpend{}, nil
 		}
-		if _, err := s.options.Triage.RecordDecision(ctx, workItemID, decided); err != nil {
+		counters, err := s.options.Triage.RecordDecision(ctx, workItemID, decided)
+		if err != nil {
 			return triageSpend{}, err
 		}
-		return triageSpend{}, nil
+		return triageSpend{clause: keptStanding(decided, counters)}, nil
 	}
 	if s.options.Triage == nil {
 		return triageSpend{}, errors.New("no triage budget is wired to this conversation, so a repair, a re-run, or a re-arm cannot be bounded and was not recorded")
@@ -1539,6 +1545,33 @@ func (s *Session) recordTriageDecision(ctx context.Context, workItemID string, d
 			landed: fmt.Sprintf("the merge re-arm is spent against publication %s's durable budget: %d re-arm(s) of it are now recorded", rearmed.Publication, rearmed.Rearms()),
 		}, nil
 	}
+}
+
+// keptStanding says, as a clause of what the development manager is told she
+// recorded, that her wait left an earlier repair or re-run of the same run
+// standing, and what to record instead if she meant to cancel it. It says
+// nothing where the record holds the decision she recorded.
+//
+// The record is the store's answer rather than this package's: a wait naming no
+// work item does not cancel a repair or re-run still to be carried out
+// (runstate.Store.RecordTriageDecision), and what stands afterwards is how that
+// is known here. Telling her at the moment she records it is the point, since a
+// wait she meant as a cancellation and a cancellation she never meant are the
+// two ways this goes wrong, and she is the only one who knows which she meant.
+func keptStanding(decided runstate.TriageDecision, counters runstate.TriageCounters) string {
+	if !decided.KeepsStanding() {
+		return ""
+	}
+	standing, found := counters.DecisionOf(decided.RunID)
+	if !found || standing.Decision == decided.Decision {
+		return ""
+	}
+	what := "re-run"
+	if standing.Decision == decisionRepair {
+		what = "repair"
+	}
+	return fmt.Sprintf("; the %s you decided on this run at %s has not been carried out yet, and a wait that names no work item does not cancel it, so it still stands and the harness carries it out when a developer slot is free. If you meant this wait to cancel it, record the wait again naming the work item it waits on, or record a re-scope or an escalation instead",
+		what, standing.DecidedAt.Local().Format("15:04 MST on January 2"))
 }
 
 // releasedRaise is what an item's parking said about an unmeetable raise at the

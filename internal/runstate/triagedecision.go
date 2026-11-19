@@ -23,6 +23,11 @@ package runstate
 // standing beside it: what a reader and a carry-out both need is the decision
 // that holds now. What that leaves is a record bounded by the runs an item has
 // had, which is bounded in turn by every cap the counters enforce.
+//
+// The one exception is a wait that names nothing to wait on, recorded through
+// the conversation over a repair or re-run that is still to be carried out: that
+// decision is what is being waited for, so it stays standing
+// (Store.RecordTriageDecision).
 
 import (
 	"context"
@@ -420,6 +425,78 @@ func (c TriageCounters) AwaitingCarryOutOf(run State) bool {
 // operation that spends their budget, in the same write, so that a decision and
 // the spend it authorizes can never be one without the other.
 func (s *TriageStore) RecordDecision(ctx context.Context, workItemID string, decision TriageDecision, at time.Time) (TriageCounters, error) {
+	return s.recordDecisionBeside(ctx, workItemID, decision, at, nil)
+}
+
+// RecordTriageDecision is RecordDecision as the development manager's
+// conversation records it: with the run's own record and the item's re-run
+// claims read beside the ledger, so that a wait naming no work item leaves a
+// decided repair or re-run standing while it is still to be carried out.
+//
+// A wait that names nothing to wait on says nothing is to be done yet, and a
+// repair or re-run decided about the same run and not yet carried out is
+// already the thing being waited for: superseding it would leave a decision
+// that asks for no run where one that does stood, and nothing would carry the
+// repair or re-run out. A wait naming the work it depends on is a decision
+// about what happens next, and still supersedes; so does every other decision.
+//
+// The returned record is what stands afterwards: where the earlier decision was
+// kept, it is that decision the record holds about the run, which is how a
+// caller tells the development manager so.
+func (s *Store) RecordTriageDecision(ctx context.Context, workItemID string, decision TriageDecision, at time.Time) (TriageCounters, error) {
+	return s.Triage().recordDecisionBeside(ctx, workItemID, decision, at, func(standing TriageDecision, counters TriageCounters) bool {
+		return s.stillToCarryOut(workItemID, standing, counters)
+	})
+}
+
+// stillToCarryOut reports a repair or re-run standing about one run that the
+// harness has not carried out yet, by the shared rule (triage.AwaitingCarryOut)
+// with the run's own record beside the ledger, and for a re-run the item's
+// claims: a claim taken on the run since the decision, and not given back, is
+// the re-run having been carried out.
+//
+// A record that cannot be read leaves the ledger to answer alone, and a claim
+// list that cannot be read is read as no claim. Both lean towards keeping the
+// decision, which is the direction that loses nothing: a kept decision the
+// harness has already acted on is refused by the guards that keep it from being
+// carried out twice, while a cancelled one is a run nobody starts.
+func (s *Store) stillToCarryOut(workItemID string, standing TriageDecision, counters TriageCounters) bool {
+	if standing.Decision != TriageDecisionRepair && standing.Decision != TriageDecisionRerun {
+		return false
+	}
+	run, err := s.Load(standing.RunID)
+	if err != nil {
+		run = State{RunID: standing.RunID}
+	}
+	if !counters.AwaitingCarryOutOf(run) {
+		return false
+	}
+	if standing.Decision != TriageDecisionRerun {
+		return true
+	}
+	claims, err := s.Reruns().Claimed(workItemID)
+	if err != nil {
+		return true
+	}
+	for _, claim := range claims {
+		if claim.PriorRunID == standing.RunID && claim.GivenBack == nil && !claim.ClaimedAt.Before(standing.DecidedAt) {
+			return false
+		}
+	}
+	return true
+}
+
+// KeepsStanding reports a decision that leaves a repair or re-run still to be
+// carried out about the same run standing rather than superseding it: a wait
+// naming no work item to wait on (Store.RecordTriageDecision).
+func (d TriageDecision) KeepsStanding() bool {
+	return d.Decision == TriageDecisionWait && strings.TrimSpace(d.WaitsOn) == ""
+}
+
+// recordDecisionBeside is RecordDecision with the question of whether the
+// decision standing about the same run is still to be carried out, which a
+// decision that keeps one standing asks. A nil question keeps nothing.
+func (s *TriageStore) recordDecisionBeside(ctx context.Context, workItemID string, decision TriageDecision, at time.Time, stillToCarryOut func(TriageDecision, TriageCounters) bool) (TriageCounters, error) {
 	if decision.Spends() {
 		return TriageCounters{}, fmt.Errorf(
 			"a %q decision spends the item's durable budget, so it is recorded by the operation that spends it rather than on its own",
@@ -434,6 +511,13 @@ func (s *TriageStore) RecordDecision(ctx context.Context, workItemID string, dec
 		return TriageCounters{}, err
 	}
 	return s.update(ctx, workItemID, when, func(counters *TriageCounters) error {
+		// Asked under the item's lock and of the record as it stands under it,
+		// so the decision found standing is the one the write would replace.
+		if stillToCarryOut != nil && prepared.KeepsStanding() {
+			if standing, found := counters.DecisionOf(prepared.RunID); found && stillToCarryOut(standing, *counters) {
+				return errNoTriageChange
+			}
+		}
 		return counters.recordDecision(prepared)
 	})
 }
