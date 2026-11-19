@@ -759,6 +759,9 @@ func (s *Store) Create(state State) error {
 	if err := s.validateState(state); err != nil {
 		return err
 	}
+	// A record created already stopped writes its stop, and nothing a caller
+	// brings is taken for one (runstop.go).
+	state = state.withStopRecorded(stopHistory{})
 	if err := os.MkdirAll(s.root, 0o700); err != nil {
 		return fmt.Errorf("create run state directory: %w", err)
 	}
@@ -837,6 +840,9 @@ func (s *Store) save(state State, reserved bool) error {
 	// The worker is the store's to write (worker.go), whatever the caller's
 	// copy says.
 	state.Worker = s.workerToWrite(state.RunID, head.worker)
+	// The stops are the store's to write too (runstop.go): the stored ones are
+	// kept, and a record that stops the run afresh adds one.
+	state = state.withStopRecorded(head.stops)
 	return s.writeState(state)
 }
 
