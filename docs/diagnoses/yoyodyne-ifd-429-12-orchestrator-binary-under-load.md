@@ -588,7 +588,66 @@ was 44 seconds faster after, and the binary 40 seconds slower. What the move
 shows is the moved tests passing in a binary of their own in about four and a
 half minutes, beside the package rather than inside it.
 
+### The fifth group: part (a) of the remaining tests, the rest of `pipeline_test.go` (yoyodyne-ifd.429.14.5)
+
+On commit 773145980, `go run ./scripts/movetests` counted 59 tests in
+`pipeline_test.go`, and 44 of them could move. This change moved 33 into
+`internal/orchestrator/pipelinerunstests`. They cover the work a failed run
+preserves and the cleanup after a finished one, the models a run records, the
+relaunch budget, a provider that is overloaded, limited, or stopped for a
+redeploy and the run waiting it out, and a promotion whose target moved so the
+change is replayed. Each keeps its name and its assertions, and no wall-clock
+bound was added to any of them. The new tests are in three files, the largest
+50 KB: `preservation_test.go`, `pauses_test.go`, and `replay_test.go`. The
+helpers they added to `testharness` come to about 6 KB.
+
+15 tests stay because they reach `renderPreservationNotes`,
+`maxCommitSubjectBytes`, `singleLine`, `validateClaimedItem`,
+`validateReviewPolicy`, `developerContract`, `developerPrompt`,
+`truncationNotice`, `boundedTail`, `resumableRepair`, `pausedForUsageLimit`,
+`releaseCheckInterval`, `providerStopReason`, `continuableRepair`,
+`deliveryDevelop`, or `deliveryIntegrate`.
+
+11 more could move and stay, for the reason the earlier groups met. The
+usage-limit tests of `pipeline_test.go` are interleaved with three that stay,
+and with the 44 moved Git drew 183 lines of the file as added, which would have
+made the file's diff shown whole. These 11 are kept so that the diff is mostly
+removals, and move with part (b) or the last part: `TestRunWalksRepeatedServerOverloadsIntoThePauseBudget`,
+`TestRunExitsResumableForALongPauseAndIsContinuedByALaterInvocation`,
+`TestRunStopsWithABlockerWhenAUsageLimitResetIsUnusable`,
+`TestAUsageWindowResettingPastTheMaximumPauseEndsTheRunUnjudged`,
+`TestRunDoesNotPauseWhenALimitIsReportedButTheAttemptStillFinished`,
+`TestRunBoundsItsTotalUsageLimitWaitAcrossConsecutivePauses`,
+`TestADeveloperAttemptEndingInErrorRecordsNothingServed`,
+`TestARefusedReviewRecordsNothingServedAndTheAnsweredOneRecordsItsModel`,
+`TestRunPollsAUsageLimitThatNamesNoResetTime`,
+`TestRunProbesBeneathAKnownResetAndReparksOnTheCurrentReport`, and
+`TestRunBoundsHowLongOneProcessStaysOpenAcrossProbes`. Even so Git still draws
+57 lines as added, near the first of the tests that stay; the whole patch is
+231 KB, under the 256 KB bound.
+
+Timed side by side from 11:22 PST on 2026-11-19, with `go test -count=1`, one
+pass each, at a one-minute load that fell from 36 to 8: the commit before the
+change, and this change.
+
+| tree | `internal/orchestrator` | `internal/orchestrator/pipelinerunstests` |
+| --- | --- | --- |
+| before, 773145980 | passed, 1,234s | |
+| after, this change | passed, 1,177s | passed, 19s |
+
+Like the earlier groups, one pass each at a load that moved is not evidence of
+the size of the saving. The package's own binary was 57 seconds shorter and the
+33 moved tests pass in a binary of their own in 19 seconds.
+
+Part (a) is not finished: the 11 tests above could still move. Parts (b), the
+merge queue (which waits on the restart-test fix, yoyodyne-ifd.429.74), (c), the
+scheduler tests, and (d), what is left, remain.
+
 ### What is left
+
+On the tree of the fifth group, the census counts 1,867 tests, 689 of them
+reaching internals, so 1,178 can still move; the figures below are from the tree
+of the fourth group.
 
 On the tree of the fourth group, `go run ./scripts/movetests` counts 1,703
 tests, 593 of them reaching internals, so 1,110 can still move, in groups of
@@ -596,7 +655,7 @@ the size above. (It counted about 950 when this plan was written; tests have
 been added since faster than the groups have taken them away.) By subject and by
 what they cost, a plan the development manager can take or change:
 
-1. The other 43 movable tests in `pipeline_test.go`, in one change.
+1. The other 43 movable tests in `pipeline_test.go`, in one change. Moved in part by the fifth group above, which left 11.
 2. The merge queue: `mergequeueworker_test.go`, `mergequeuerecovery_test.go`,
    `mergequeuepromotion_test.go`, and `queuedchecks_test.go`.
 3. Protection and landing: `protectedpath_test.go`, `protectedtarget_test.go`,

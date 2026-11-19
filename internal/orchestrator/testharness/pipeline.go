@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -676,4 +677,118 @@ func ProviderStopBackend(stops int, status execution.ProcessStatus, verdicts ...
 		}
 	}
 	return provider
+}
+
+// ServerOverloadBackend refuses the developer's first refusals invocations the
+// way a transiently overloaded provider does and serves the work afterwards. The
+// refusal carries the terminal reason and the message the provider CLI actually
+// wrote on the runs this behavior exists for, so a test states the same shape
+// the recognizer reads rather than a category the harness invented.
+func ServerOverloadBackend(refusals int, verdicts ...string) *orchestratortest.Backend {
+	return RefusingBackend(refusals, func(result backend.RunResult) backend.RunResult {
+		result.StopReason = "api_error"
+		result.FinalText = OverloadedMessage
+		result.ServerOverload = &backend.ServerOverload{Detail: OverloadedMessage}
+		return result
+	}, verdicts...)
+}
+
+// OverloadedMessage is what the provider wrote on the runs that failed instantly
+// to a 529, kept whole so the pause a test observes is the pause that message
+// earns.
+const OverloadedMessage = "API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com."
+
+// SteppingUsageLimitBackend refuses the developer once per entry in resets,
+// naming each reset in turn, and serves the work afterwards. Every refusal names
+// a reset that is individually inside the maximum pause, which is what a bound
+// applied per wait rather than per run would wave through.
+func SteppingUsageLimitBackend(resets []time.Time, verdict string) *orchestratortest.Backend {
+	provider := &orchestratortest.Backend{DeveloperSession: "developer-session", ReviewerSession: "reviewer-session"}
+	refused := 0
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleReviewer {
+			return backend.RunResult{
+				Backend: domain.BackendClaudeCode, SessionID: provider.ReviewerSession,
+				ResolvedModel: ReviewerResolved, FinalText: verdict,
+				Process: execution.ProcessResult{Status: execution.ProcessSucceeded}, LastEvent: request.LastSequence,
+			}, nil
+		}
+		if refused < len(resets) {
+			reset := resets[refused]
+			refused++
+			return backend.RunResult{
+				Backend: domain.BackendClaudeCode, SessionID: provider.DeveloperSession,
+				IsError: true, StopReason: "usage_limit",
+				UsageLimit: &backend.UsageLimit{Kind: "five_hour", ResetsAt: reset},
+				Process:    execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1},
+				LastEvent:  request.LastSequence,
+			}, nil
+		}
+		if err := os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600); err != nil {
+			return backend.RunResult{}, err
+		}
+		return backend.RunResult{
+			Backend: domain.BackendClaudeCode, SessionID: provider.DeveloperSession,
+			ResolvedModel: DeveloperResolved, FinalText: "implemented the work item",
+			Process: execution.ProcessResult{Status: execution.ProcessSucceeded}, LastEvent: request.LastSequence,
+		}, nil
+	}
+	return provider
+}
+
+// StoppingReviewer wraps a backend so its first review is stopped by the harness
+// on time rather than answered.
+func StoppingReviewer(inner func(backend.RunRequest) (backend.RunResult, error), session string) func(backend.RunRequest) (backend.RunResult, error) {
+	stopped := false
+	return func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleReviewer && !stopped {
+			stopped = true
+			return backend.RunResult{
+				Backend:    domain.BackendClaudeCode,
+				SessionID:  session,
+				IsError:    true,
+				StopReason: string(execution.ProcessStalled),
+				Process:    execution.ProcessResult{Status: execution.ProcessStalled, ExitCode: -1},
+				LastEvent:  request.LastSequence,
+			}, nil
+		}
+		return inner(request)
+	}
+}
+
+// ConflictsTwiceAtLanding is a developer whose approved change to relative
+// conflicts at landing twice. Each attempt writes mine into the worktree, and
+// while it is out the target moves onto the same line: to theirs the first
+// time, and to theirsAgain on every attempt after it. So the first conflict is
+// answered by the run's one reconciliation attempt, which keeps this run's
+// answer, and the second meets a run whose reconciliation attempt is already
+// used — the conflict a run with no repair attempt left still stops on.
+func ConflictsTwiceAtLanding(t *testing.T, repository, relative, mine, theirs, theirsAgain string) func(backend.RunRequest) error {
+	t.Helper()
+	attempts := 0
+	return func(request backend.RunRequest) error {
+		attempts++
+		if err := os.WriteFile(filepath.Join(request.WorkingDirectory, relative), []byte(mine), 0o600); err != nil {
+			return err
+		}
+		answer := theirs
+		if attempts > 1 {
+			answer = theirsAgain
+		}
+		WritePipelineFile(t, repository, relative, answer)
+		RunPipelineGit(t, repository, "add", relative)
+		RunPipelineGit(t, repository, "commit", "-m", "conflicting target change "+strconv.Itoa(attempts))
+		return nil
+	}
+}
+
+const SomebodyElsesSecondAnswer = "somebody else's second answer\n"
+
+func ReadPipelineFile(t *testing.T, root, relative string) string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(root, relative))
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", relative, err)
+	}
+	return string(content)
 }
