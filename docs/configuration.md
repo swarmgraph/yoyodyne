@@ -7903,7 +7903,7 @@ intake:
       fields: {id: ts, sender: user, text: text, sent_at: ts, link: permalink}
       senders: [U123, U456]          # or anyone: true, never both
       reader: message-reader         # the default, and the only reader there is
-      rules: intake-rules            # the id of the rules document
+      rules: docs/intake/rules.md    # the path of the rules document
       questions: lead-product-manager  # the default, or person
       limits: {messages_per_run: 20, messages_per_day: 100, starts_per_day: 5, questions_per_day: 5, text_bytes: 4096}
 ```
@@ -7920,7 +7920,8 @@ Loading refuses, saying what is wrong in plain words:
   its own record of the messages it has read, so two machines could both start
   work from one message;
 - a missing `items`, a missing `id`, `sender`, `text` or `sent_at` field, a
-  `reader` other than `message-reader`, a missing `rules` id, a `questions`
+  `reader` other than `message-reader`, a missing `rules` path or one that is
+  absolute, climbs out of the repository, or does not end in `.md`, a `questions`
   value other than the two above, and a limit below 1. A limit left out takes
   the value shown above.
 
@@ -7929,6 +7930,50 @@ often, and whose messages it takes, with `anyone: true` named in that line and
 in the effective configuration below it wherever it is set. The whole section
 is yours alone: a role's write to the configuration is refused for `intake` and
 everything under it.
+
+### The rules document
+
+`rules` names the Markdown document a query's messages are judged by, by its
+path in the repository. Where you keep it is yours to choose; the harness fixes
+no path. Its rules are listed under a `## Rules` heading, each opening with an
+identifier in square brackets and saying which messages it covers, with its
+parts indented under it:
+
+```markdown
+## Rules
+
+- [slack-bug-report] A person reports something in the product that is broken.
+  Not a feature request, and not a question about how to use it.
+  - workflow: delivery
+  - goal: nearly-autonomous
+  - priority: 1
+  - type: bug
+  - label: bug
+  - title: Fix the problem reported in a message
+  - done: The reported behaviour no longer happens, and a test shows it.
+  - from: the direction this rule came from
+```
+
+`workflow`, `goal`, `priority`, `type`, `title` and `done` are required, and
+`label` and `from` are optional. Everything about the work a message starts
+comes from the rule and nothing from the message. The document may carry
+frontmatter, and where it does it has to say `kind: rules` and `status:
+active`.
+
+The document is read as the target branch holds it when each query run
+starts, never from a working tree, and that commit is what the decisions on the
+run's messages are recorded against. A rule is refused, and the others still
+apply, when it is written so that it cannot be read, names a goal that is not
+an active goal by its identifier, sets priority 0 (a message from outside does
+not go ahead of reliability work without somebody deciding that), names a
+workflow other than `delivery`, or shares its identifier with another rule. A
+document that cannot be read as rules at all — missing on the target branch, no
+`## Rules` heading, or no rule that can be used — stops that query's readers
+and is reported once to the Lead Product Manager; its messages wait, and none
+is lost. A rules document a query names is read by the message reader and is
+not given to every role as product intent, even when it is kept under the
+product's specification home. **In this build the document is read and checked
+by the code that a query run will use; nothing runs a query yet.**
 
 ## Slack review threads
 

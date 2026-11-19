@@ -21,7 +21,7 @@ intake:
       items: messages
       fields: {id: ts, sender: user, text: text, sent_at: ts}
       senders: [U123, U456]
-      rules: intake-rules
+      rules: docs/intake/rules.md
     open-reports:
       tool: slack.search
       since_argument: after
@@ -30,7 +30,7 @@ intake:
       items: messages
       fields: {id: ts, sender: user, text: text, sent_at: ts}
       anyone: true
-      rules: intake-rules
+      rules: docs/intake/rules.md
       questions: person
 `
 
@@ -45,8 +45,8 @@ func TestConfigShowShowsTheIntakeQueriesAndAnyone(t *testing.T) {
 		t.Fatalf("config show: code %d, stderr %q", code, stderr)
 	}
 	for _, want := range []string{
-		"# intake query open-reports: calls slack.search every 15m0s, messages from anyone (anyone: true), judged by the rules in intake-rules, questions to person\n",
-		"# intake query slack-bugs: calls slack.search every 1h0m0s, messages from 2 listed senders, judged by the rules in intake-rules, questions to lead-product-manager\n",
+		"# intake query open-reports: calls slack.search every 15m0s, messages from anyone (anyone: true), judged by the rules in docs/intake/rules.md, questions to person\n",
+		"# intake query slack-bugs: calls slack.search every 1h0m0s, messages from 2 listed senders, judged by the rules in docs/intake/rules.md, questions to lead-product-manager\n",
 		"intake:\n",
 		"anyone: true\n",
 		"- U123\n",

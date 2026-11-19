@@ -72,6 +72,9 @@ type conversationGround struct {
 	// role is answering for documents it would otherwise have to be told the
 	// contents of by the operator.
 	roleDocuments []contextbundle.DocumentSet
+	// withheld are the rules documents the project's intake queries name, which
+	// the message reader reads and no conversation is given.
+	withheld []string
 	// docket is the work that has stopped moving. It is wired for the
 	// development manager alone, because that is the role that decides what
 	// becomes of a stoppage, and gathering it is what puts the docket in front of
@@ -100,6 +103,7 @@ func newConversationGround(parts components, role domain.AgentRole) conversation
 		specifications:       parts.config.Product.Specifications,
 		shippedDocumentation: parts.config.Product.ShippedDocumentation,
 		roleDocuments:        roleDocumentSets(role, parts.config.Product),
+		withheld:             parts.config.Intake.RulesPaths(),
 		docket:               conversationDocket(parts, role),
 		docketWindow:         conversationDocketWindow(parts, role),
 		gitBinary:            "git",
@@ -741,6 +745,7 @@ func (g conversationGround) Gather(ctx context.Context) (chat.Briefing, error) {
 		SpecificationsDirectory:      g.specifications,
 		ShippedDocumentation:         g.shippedDocumentation,
 		RoleDocuments:                g.roleDocuments,
+		Withheld:                     g.withheld,
 		WorkItems:                    items,
 		WorkItemsUnavailable:         unavailable,
 		TriageDocket:                 docket,

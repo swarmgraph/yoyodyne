@@ -360,6 +360,12 @@ type ProductRequest struct {
 	// nothing.
 	RoleDocuments []DocumentSet
 	MaxBytes      int
+	// Withheld are repository-relative documents of the project's repository
+	// that are not carried however they are filed: the rules documents the
+	// project's intake queries name (config.Intake.RulesPaths), which the message
+	// reader reads and no other role is given. They are withheld only where the
+	// documents are read from the project's own repository.
+	Withheld []string
 }
 
 // DocumentSet is one directory of a role's own documents, with what to call
@@ -432,6 +438,11 @@ func AssembleProduct(request ProductRequest) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, err
 	}
+	withheld := request.Withheld
+	if strings.TrimSpace(request.IntentRoot) != "" && filepath.Clean(request.IntentRoot) != filepath.Clean(request.RepositoryRoot) {
+		withheld = nil
+	}
+	specificationPaths = withhold(specificationPaths, withheld)
 
 	// The header ends with a note about the role's own documents, and what that
 	// note says depends on which of them were actually found — so the header is
@@ -542,7 +553,7 @@ func AssembleProduct(request ProductRequest) (Bundle, error) {
 	// documentation of what ships, so intent still wins the budget over
 	// everything and description still loses to both. What did not fit is named
 	// beside the specifications that did not fit, for the same reason.
-	roleSections, roleDocumentsFound, err := readRoleDocuments(intentRoot, roleDocuments, &bundle, maxBytes, &omitted)
+	roleSections, roleDocumentsFound, err := readRoleDocuments(intentRoot, roleDocuments, withheld, &bundle, maxBytes, &omitted)
 	if err != nil {
 		return Bundle{}, err
 	}
@@ -1325,7 +1336,7 @@ func (b Bundle) holds(path string) bool {
 // as omitted rather than silently missing. A set whose directory does not exist
 // contributes nothing: a repository that has recorded no designs yet is a fact
 // about the repository, not a failure to assemble a context.
-func readRoleDocuments(root repowrite.Root, sets []DocumentSet, bundle *Bundle, maxBytes int, omitted *[]string) (string, map[string]bool, error) {
+func readRoleDocuments(root repowrite.Root, sets []DocumentSet, withheld []string, bundle *Bundle, maxBytes int, omitted *[]string) (string, map[string]bool, error) {
 	var rendered strings.Builder
 	// Which directories actually carried a document into the context, so the
 	// header can say what is here rather than what was asked for.
@@ -1335,7 +1346,7 @@ func readRoleDocuments(root repowrite.Root, sets []DocumentSet, bundle *Bundle, 
 		if err != nil {
 			return "", nil, err
 		}
-		for _, documentPath := range paths {
+		for _, documentPath := range withhold(paths, withheld) {
 			// A document reachable from two sets — decision records with the
 			// invariants nested underneath them — is carried once rather than
 			// twice, and stays under the label it was first read as.

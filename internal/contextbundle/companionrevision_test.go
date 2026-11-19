@@ -106,7 +106,7 @@ func TestCompanionIntentWithoutARevisionStillReadsTheCheckout(t *testing.T) {
 func TestAssembleIntentReadsCompanionIntentAtItsRevision(t *testing.T) {
 	t.Parallel()
 	project, companion, revision := companionFixture(t)
-	text, err := AssembleIntent(project, companion, "docs/product", nil, revision)
+	text, err := AssembleIntent(project, companion, "docs/product", nil, revision, nil)
 	if err != nil {
 		t.Fatalf("AssembleIntent() error = %v", err)
 	}
@@ -118,7 +118,7 @@ func TestAssembleIntentReadsCompanionIntentAtItsRevision(t *testing.T) {
 			t.Fatalf("branch intent carried the checkout's %q:\n%s", unwanted, text)
 		}
 	}
-	checkout, err := AssembleIntent(project, companion, "docs/product", nil, nil)
+	checkout, err := AssembleIntent(project, companion, "docs/product", nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
