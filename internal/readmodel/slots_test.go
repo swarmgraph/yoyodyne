@@ -279,3 +279,79 @@ func TestTheRunningLineSaysARunWasMovedToAnotherSlotAndWhy(t *testing.T) {
 		})
 	}
 }
+
+// storeHolders lists what holds each developer slot by the run store's own
+// rule (runstate.Store.SlotHolders), which is what the health check carries.
+type storeHolders struct {
+	fakeRuns
+	store *runstate.Store
+}
+
+func (s storeHolders) SlotHolders(states []runstate.State, now time.Time) []runstate.SlotHolder {
+	return s.store.SlotHolders(states, now)
+}
+
+// The running line, the health check's slot holders, and each run's record
+// name the same slot for every run in flight, and a slot with a run in it is
+// never shown free: a run a re-run decision started, recorded in the dedicated
+// slot it fell back into, reads there, not in the slot its labels would have
+// read it into, and the slot it would have been read into reads free.
+func TestTheRunningLineAndTheSlotHoldersNameTheSlotTheRecordNames(t *testing.T) {
+	t.Parallel()
+	store, err := runstate.NewStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inSlot := func(runID, item string, slot int, labels []string, started time.Time) runstate.State {
+		return runstate.State{RunID: runID, WorkItemID: item, Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping,
+			StartedAt: started, WorkItemLabels: labels,
+			Routing: &runstate.RunRouting{Version: runstate.RoutingVersion, Slot: &runstate.RoutedSlot{Number: slot, Origin: runstate.RoutingClaimed, RecordedAt: started}}}
+	}
+	runs := []runstate.State{
+		inSlot("run-rerun", "yoyodyne-ifd.1", 3, nil, moment.Add(-2*time.Hour)),
+		inSlot("run-pulled", "yoyodyne-ifd.2", 1, []string{"dashboard"}, moment.Add(-time.Hour)),
+	}
+	sources := quietSources()
+	sources.Capacity = 3
+	sources.Slots = []domain.DeveloperSlot{{Prefer: []string{"dashboard"}}, {}, {Prefer: []string{"team-development"}, Dedicated: true}}
+	sources.Runs = storeHolders{fakeRuns: fakeRuns{incomplete: runs}, store: store}
+	standing := ReadStanding(context.Background(), sources)
+
+	recorded := map[string]int{}
+	for _, run := range runs {
+		recorded[run.RunID] = run.RecordedSlot()
+	}
+	for _, run := range standing.Running {
+		if run.Slot != recorded[run.RunID] {
+			t.Errorf("running line puts %s in slot %d, its record names slot %d", run.RunID, run.Slot, recorded[run.RunID])
+		}
+	}
+	if len(standing.SlotHolders) != len(runs) {
+		t.Fatalf("slot holders = %+v, want both runs", standing.SlotHolders)
+	}
+	for _, holder := range standing.SlotHolders {
+		if holder.Slot != recorded[holder.RunID] {
+			t.Errorf("slot holders put %s in slot %d, its record names slot %d", holder.RunID, holder.Slot, recorded[holder.RunID])
+		}
+	}
+	for _, slot := range standing.DeveloperSlots {
+		busy := slot.Number == 1 || slot.Number == 3
+		if slot.Free() == busy {
+			t.Errorf("developer slot %d free = %t, want it free only if no run records it", slot.Number, slot.Free())
+		}
+	}
+	rendered := standing.Render()
+	if strings.Contains(rendered, "developer slot 3 is free") || !strings.Contains(rendered, "developer slot 2 is free") {
+		t.Fatalf("rendered:\n%s\nwant slot 3 shown taken and slot 2 shown free", rendered)
+	}
+}
+
+// The count of runs in the developer slots that a slot wait states leaves out
+// a document's landing and a run whose worker is gone, as the slot holders do.
+func TestTheSlotCountLeavesOutRunsHoldingNoSlot(t *testing.T) {
+	t.Parallel()
+	running := []RunningRun{{RunID: "run-a"}, {RunID: "run-b", HoldsNoSlot: "the process that was working on it is gone"}, {RunID: "run-c", documentLanding: true}}
+	if got := holdingSlots(running); got != 1 {
+		t.Fatalf("holdingSlots() = %d, want only the run holding a slot", got)
+	}
+}

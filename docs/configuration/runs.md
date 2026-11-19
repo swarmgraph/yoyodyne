@@ -1106,14 +1106,17 @@ and reads its sub-agent setting from the new slot. A run that
 keeps its slot's endpoint pair is never moved; it waits for that slot, and the
 wait names the slot, the run holding it, and why.
 A run the scheduler pulled into a slot records that slot in every project, or
-the lowest free one where that was taken by the time the run recorded it, and
+the first free one, in the order below, where that was taken by the time the run recorded it, and
 then its selection reason names the slot it runs in. The recorded slot is also
 where the run's sub-agent setting is read from
-([developer sub-agents](../configuration.md#developer-sub-agents-on-a-cheaper-model)). A run started by name records
-its slot only in a project that names an endpoint pair for at least one slot
-([developer slot endpoints](../configuration.md#developer-slot-endpoints)), and then records the lowest free one. For
-a run started by name in any other project, and for every run recorded before
-slots were, which slot a run is in is read off what is in flight against what the slots prefer, the same way every
+([developer sub-agents](../configuration.md#developer-sub-agents-on-a-cheaper-model)). A run started with no slot named — a re-run or
+fresh run a development manager's decision started, or a run started by name —
+records the first free slot in the order the slots' preferences place it: a
+slot preferring one of its labels, then a slot preferring nothing, then any
+other. A run taken up again whose record names no slot records the first free one,
+in the same order, as it is taken up. So the health check's list of what holds each slot and
+the running line of `yoyo status` name the slot the record names. For a run
+recorded before slots were, or one that found no number free, which slot a run is in is read off what is in flight against what the slots prefer, the same way every
 time, by the scheduler and by `yoyo status` alike. A run over labelled work is in a slot that prefers its
 label while one is unassigned, and everything else is in a slot with no
 preference first and in a preferring slot only once those are full — which is
