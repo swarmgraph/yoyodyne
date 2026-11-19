@@ -568,8 +568,11 @@ Each pass takes twelve steps, in this order, and each is recorded:
   disk and from the log of calls, so deciding lists no work items and answers
   however large the store is.
 
-  Each time a rebuild is due, it is made first on a copy of the live store: the
-  copy is exported, a new store is built from that export (`bd init`, `bd
+  Each time a rebuild is due, it is made first on a copy of the live store. The
+  pass holds the store lock exclusive only while it copies the store, so no
+  tracker call of the harness's writes to it halfway through; another process
+  having the live store open never stops this rehearsal, since it works on a
+  copy. The copy is exported, a new store is built from that export (`bd init`, `bd
   import`, `bd gc`), the new store is exported, and the two exports are
   compared record by record. The new store carries the old one's project
   identity and prefix. Where the exports differ, or any step fails, or the
@@ -580,8 +583,12 @@ Each pass takes twelve steps, in this order, and each is recorded:
   not tried again for a day.
 
   Where the copy passes, the live store is rebuilt. The pass takes the store
-  lock exclusive, so every other tracker call waits behind it for the build,
-  which was a minute or less on the copy; it exports the live store, builds and
+  lock exclusive before anything else, so every other tracker call the harness
+  makes waits behind it for the build, and a tracker call already running when
+  the rebuild starts is waited for rather than stopping it. Once the rebuild is
+  waiting for the lock, new calls queue behind it, so calls that overlap one
+  another cannot keep it out. The build is
+  a minute or less on the copy; the pass exports the live store, builds and
   compares the new store away from the live one, and only where they match
   moves the old database aside into `tracker-store-rebuild-kept/` (its place
   recorded in `tracker-store-rebuilds/` first) and moves the new one into its
@@ -590,10 +597,17 @@ Each pass takes twelve steps, in this order, and each is recorded:
   holds new runs: a run that reads the tracker meanwhile waits behind the
   rebuild like behind any other write, and gives up only after the 120-second
   read wait. The old store is kept for fourteen days and removed by the first
-  pass after that. No other process may have the store open when the rebuild
-  starts, and a store whose holders cannot be told is not rebuilt; a store in
-  use, or written to while it was copied, is a skip and the next pass tries
-  again. A rebuilt store still past its size limit files one warning for the
+  pass after that. With the lock held, none of the harness's own calls can be
+  running, so only a process outside the harness that still has the store open
+  then, such as a person's `bd` at a terminal, stops the rebuild, and the step
+  names it; a store whose holders cannot be told is not rebuilt either. Every
+  rebuild that is due and does not go ahead — stopped by such a process, by
+  the lock not being had within 120 seconds, by the store being written to
+  while it was copied, or by a directory it needed not being made — is recorded
+  in `tracker-store-rebuilds/` with its reason, and the next pass tries again.
+  After three such passes in a row the pass files one warning for the
+  development manager naming what stopped the latest, and files no other until
+  that reason changes. A rebuilt store still past its size limit files one warning for the
   development manager with the figures, not filed again until they change.
   The step and the record say how long every other call waited, the store's
   size either side, and where the old store is kept. Processes still running a

@@ -9,9 +9,10 @@ package runstate
 // is recorded and before it is moved there, which is the kept copy's place
 // recorded before anything is replaced, and again, replacing that, once the
 // rebuild has ended. A record that was never replaced is a rebuild whose end
-// nobody saw. A rebuild that never started — another process using the store,
-// or the store changing while it was copied — is said on the pass and not
-// recorded, and the next pass tries again.
+// nobody saw. A rebuild that was due and did not go ahead — a process outside
+// the harness having the store open, the store lock not had in time, the store
+// changing while it was copied, or a directory it needed not made — is
+// recorded too, with what stopped it, and the next pass tries again.
 //
 // The kept stores are in a directory of their own beside the records, under
 // the product's state, each named by when it was made, and removed once they
@@ -63,8 +64,14 @@ type TrackerStoreRebuild struct {
 	// Ended says the rebuild's end is recorded here; a record without it was
 	// written once the old store's place was recorded, and before it was moved.
 	Ended bool `json:"ended,omitempty"`
-	// Reported is the warning filed about a rebuild that was not made, or empty
-	// where none was filed.
+	// HeldBack says, where the rebuild was due and did not go ahead, what
+	// stopped it, and HeldBackBy which kind of thing that was, which a warning
+	// about several such passes in a row is not repeated for until it changes.
+	HeldBack   string `json:"held_back,omitempty"`
+	HeldBackBy string `json:"held_back_by,omitempty"`
+	// Reported is the warning filed about a rebuild that was not made, or about
+	// several passes in a row that did not go ahead, or empty where none was
+	// filed.
 	Reported string `json:"reported,omitempty"`
 	// StillOver is the figures of a rebuilt store still past its limit, which its
 	// warning carries and a later rebuild's are compared with so the warning is
@@ -76,8 +83,12 @@ type TrackerStoreRebuild struct {
 
 // Refused reports a decision not to rebuild the live store, because the
 // rehearsal was too long, failed, or found a record different, or because the
-// live rebuild itself did not pass.
+// live rebuild itself did not pass. A rebuild held back is not refused: what
+// stopped it is outside the rebuild, so the next pass tries again.
 func (r TrackerStoreRebuild) Refused() bool {
+	if r.HeldBack != "" {
+		return false
+	}
 	if r.TooLong > 0 {
 		return true
 	}
@@ -131,6 +142,9 @@ func (r TrackerStoreRebuild) Says() string {
 			said += "; the old store's place was recorded and its end was not"
 		}
 	}
+	if r.HeldBack != "" {
+		said += "; it did not go ahead, because " + r.HeldBack
+	}
 	if r.StillOver != "" {
 		said += "; the store is STILL PAST its limit: " + r.StillOver
 	}
@@ -149,6 +163,17 @@ func (r TrackerStoreRebuilds) Latest() (TrackerStoreRebuild, bool) {
 		return TrackerStoreRebuild{}, false
 	}
 	return r[len(r)-1], true
+}
+
+// HeldBackInARow is the decisions at the end of the record that were held
+// back, oldest first: the passes in a row since a rebuild last went ahead or
+// was refused.
+func (r TrackerStoreRebuilds) HeldBackInARow() TrackerStoreRebuilds {
+	start := len(r)
+	for start > 0 && r[start-1].HeldBack != "" {
+		start--
+	}
+	return r[start:]
 }
 
 // LastReplaced is the latest rebuild that replaced the live store, where one
@@ -217,6 +242,7 @@ func (s *TrackerStoreRebuildStore) Record(rebuild TrackerStoreRebuild) error {
 	rebuild.SchemaVersion, rebuild.ProductID = TrackerStoreRebuildSchemaVersion, s.productID
 	rebuild.DecidedAt = rebuild.DecidedAt.UTC()
 	rebuild.Reason = oneline.Fold(rebuild.Reason, maxTrackerStoreCleanupTextBytes)
+	rebuild.HeldBack = oneline.Fold(rebuild.HeldBack, maxTrackerStoreCleanupTextBytes)
 	encoded, err := json.Marshal(rebuild)
 	if err != nil {
 		return err

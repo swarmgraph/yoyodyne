@@ -5,7 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
@@ -124,8 +127,124 @@ func TestARebuildReplacesTheLiveDatabaseAndKeepsTheOldOne(t *testing.T) {
 	}
 }
 
-// Another process having the store open stops a rebuild before anything is
-// built or moved.
+// A rehearsal works on a copy, so another process having the live store open
+// does not stop it, and it does not ask who has.
+func TestARehearsalIsNotStoppedByAStoreSomeoneHasOpen(t *testing.T) {
+	t.Parallel()
+	client, _ := realStore(t)
+	var asked []string
+	client.Holders = fixedHolders{holders: []StoreHolder{{PID: 42, Command: "bd list"}}, asked: &asked}
+
+	rebuild, err := client.RehearseRebuild(context.Background(), pinnedDirectory(t))
+	if err != nil || !rebuild.Passed() || len(rebuild.Busy) != 0 {
+		t.Fatalf("rehearsal = %+v, %v, want one that passed with the store open elsewhere", rebuild, err)
+	}
+	if len(asked) != 0 {
+		t.Errorf("the rehearsal asked who had %v open, want it not to ask", asked)
+	}
+}
+
+// inFlightCall is a bd call the harness is making, which has the store open
+// for as long as it runs, as the finder that answers for it says.
+type inFlightCall struct {
+	running  atomic.Bool
+	started  chan struct{}
+	finished atomic.Int64
+	once     sync.Once
+}
+
+func (c *inFlightCall) Run(context.Context, execution.Command, execution.OutputObserver) (execution.ProcessResult, error) {
+	c.running.Store(true)
+	c.once.Do(func() { close(c.started) })
+	time.Sleep(400 * time.Millisecond)
+	c.finished.Store(time.Now().UnixNano())
+	c.running.Store(false)
+	return execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "[]"}, nil
+}
+
+func (c *inFlightCall) Holders(context.Context, string) ([]StoreHolder, error) {
+	if c.running.Load() {
+		return []StoreHolder{{PID: 77, Command: "bd list --json"}}, nil
+	}
+	return nil, nil
+}
+
+// A tracker call the harness is making when the rebuild starts does not stop
+// it: the rebuild takes the store lock, which waits for that call to finish,
+// and then finds nobody else with the store open and goes ahead.
+func TestARebuildGoesAheadWhileAHarnessCallHasTheStoreOpen(t *testing.T) {
+	t.Parallel()
+	client, project := realStore(t)
+	call := &inFlightCall{started: make(chan struct{})}
+	client.Holders = call
+	caller := Client{Runner: call, Dir: project, Timeout: conformanceTimeout}
+	answered := make(chan error, 1)
+	go func() {
+		_, err := caller.run(context.Background(), "list", "--json")
+		answered <- err
+	}()
+	<-call.started
+	if found, _ := call.Holders(context.Background(), ""); len(found) == 0 {
+		t.Fatal("the harness call does not have the store open when the rebuild starts")
+	}
+	work, kept := pinnedDirectory(t), pinnedDirectory(t)
+
+	rebuild, err := client.RebuildStore(context.Background(), work, kept, "20261119T000000.000000000Z-A", func(StoreRebuild) error { return nil })
+	if err != nil || !rebuild.Swapped || len(rebuild.Busy) != 0 || rebuild.Unknown != "" || rebuild.Waited != "" {
+		t.Fatalf("rebuild = %+v, %v, want it to go ahead once the harness call finished", rebuild, err)
+	}
+	if err := <-answered; err != nil {
+		t.Errorf("the harness call error = %v, want it answered", err)
+	}
+	if finished := time.Unix(0, call.finished.Load()); !rebuild.StartedAt.After(finished) {
+		t.Errorf("the rebuild held the store from %v, before the harness call finished at %v", rebuild.StartedAt, finished)
+	}
+}
+
+// Calls that overlap one another without a gap never leave the store lock free,
+// and the rebuild still gets it: once it is waiting, new calls queue behind it.
+func TestOverlappingCallsDoNotKeepTheRebuildFromTheStoreLock(t *testing.T) {
+	t.Parallel()
+	project := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(project, ".beads"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, ".beads", "metadata.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	caller := Client{Dir: project, Timeout: 10 * time.Second, Holders: fixedHolders{}}
+	// Each of four callers takes the lock shared again the moment it lets go,
+	// holding it 40 ms at a time and staggered, until a deadline of their own.
+	end := time.Now().Add(4 * time.Second)
+	var wg sync.WaitGroup
+	for index := range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			time.Sleep(time.Duration(index) * 10 * time.Millisecond)
+			for time.Now().Before(end) {
+				unlock, err := caller.lockStore(context.Background(), true)
+				if err != nil {
+					continue
+				}
+				time.Sleep(40 * time.Millisecond)
+				unlock()
+			}
+		}()
+	}
+	time.Sleep(100 * time.Millisecond)
+	rebuilder := Client{Dir: project, Timeout: time.Second, Holders: fixedHolders{}}
+	unlock, err := rebuilder.lockStore(context.Background(), false)
+	if err != nil {
+		t.Errorf("the rebuild could not take the store lock among overlapping calls: %v", err)
+	} else {
+		unlock()
+	}
+	wg.Wait()
+}
+
+// A process outside the harness that has the store open once the rebuild holds
+// the store lock stops it before anything is built or moved, and is named.
 func TestARebuildWaitsForAStoreSomeoneHasOpen(t *testing.T) {
 	t.Parallel()
 	client, project := realStore(t)

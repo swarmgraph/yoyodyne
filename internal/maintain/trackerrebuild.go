@@ -32,20 +32,28 @@ import (
 // calls every harness process keeps, because a store too large to answer in
 // time is exactly the one that is due.
 //
-// Each time one is due, it is done first on a copy of the live store. Only
-// where that copy's two exports held every record the same, and building took
-// no more than rebuildBound, is the live store rebuilt, holding the store lock
-// exclusive so every other tracker call waits behind it for that long. Nothing
-// waits for runs in flight and nothing holds new runs: the bound is what keeps
-// the wait inside the 120 seconds an ordinary tracker read allows.
+// Each time one is due, it is done first on a copy of the live store, which
+// holds the store lock only while the store is copied. Only where that copy's
+// two exports held every record the same, and building took no more than
+// rebuildBound, is the live store rebuilt. The live rebuild takes the store
+// lock exclusive before anything else, so every other tracker call the harness
+// makes waits behind it for that long rather than stopping it; only a process
+// outside the harness still having the store open once the lock is held stops
+// it. Nothing waits for runs in flight and nothing holds new runs: the bound is
+// what keeps the wait inside the 120 seconds an ordinary tracker read allows.
 //
 // A rehearsal that failed, found a record different, or took too long is
 // recorded and warns the development manager once, and is not tried again for
 // rebuildRetry, so a store that cannot be rebuilt is not copied on every pass.
 // A rebuilt store still past its limit warns once with its figures, and again
-// only when they change. One that never started, because another process had
-// the store open or it changed while it was copied, is tried again at the next
-// pass and recorded nowhere.
+// only when they change.
+//
+// A rebuild that was due and did not go ahead for a reason outside it — a
+// process outside the harness having the store open, the lock not had in time,
+// the store changing while it was copied, or a directory it needed not made —
+// is recorded with that reason and tried again at the next pass (holdBack).
+// After heldBackWarnAfter such passes in a row the development manager is
+// warned once, naming what stopped them, and not again until that changes.
 
 const (
 	// rebuildListingLimit is the design's limit on listing open items and listing
@@ -62,6 +70,19 @@ const (
 	// rebuildRetry is how long after a rehearsal that did not pass the next is
 	// tried.
 	rebuildRetry = 24 * time.Hour
+	// heldBackWarnAfter is how many passes in a row a due rebuild may not go
+	// ahead before the development manager is warned.
+	heldBackWarnAfter = 3
+)
+
+// What held a due rebuild back, as a record keeps it, so a warning about
+// several passes in a row is repeated only when this changes.
+const (
+	heldByOutsideProcess = "a process outside the harness had the store open"
+	heldByUnknownHolders = "who had the store open could not be told"
+	heldByLockWait       = "the store lock was not had in time"
+	heldByStoreWritten   = "the store was written to while it was copied"
+	heldByFailure        = "a step before the rebuild failed"
 )
 
 // StoreRebuilder rebuilds the live tracker store. It is satisfied by
@@ -133,21 +154,17 @@ func (p *Pass) decideRebuild(ctx context.Context, step runstate.SweepStep, now t
 	record := runstate.TrackerStoreRebuild{Name: p.Rebuilds.NewName(now), DecidedAt: now, Reason: due, Bound: rebuildBound}
 	work, err := p.Rebuilds.WorkDirectory()
 	if err != nil {
-		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the store is due a rebuild because %s, and the directory to build it in could not be made, so it was not rebuilt: %v", due, err)
-		return step
+		return p.holdBack(step, record, decided, heldByFailure, fmt.Sprintf("the directory to build it in could not be made: %v", err), runstate.StepFailed)
 	}
 	defer work.Close()
 	rehearsal, err := p.Rebuilder.RehearseRebuild(ctx, work)
 	switch {
-	case len(rehearsal.Busy) > 0:
-		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("the store is due a rebuild because %s, and it was not tried because another process had the store open: %s; the next pass tries again", due, beads.SayHolders(rehearsal.Busy))
-		return step
+	case rehearsal.Waited != "":
+		return p.holdBack(step, record, decided, heldByLockWait, "the store lock could not be taken to copy the store: "+rehearsal.Waited, runstate.StepSkipped)
 	case rehearsal.Moved != "":
-		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("the store is due a rebuild because %s, and it was not tried because %s; the next pass tries again", due, rehearsal.Moved)
-		return step
+		return p.holdBack(step, record, decided, heldByStoreWritten, rehearsal.Moved+", which only a process outside the harness can do while the store lock is held", runstate.StepSkipped)
 	case rehearsal.Failed == "" && err != nil:
-		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the store is due a rebuild because %s, and a copy of it could not be made or cleaned up: %v; the next pass tries again", due, err)
-		return step
+		return p.holdBack(step, record, decided, heldByFailure, fmt.Sprintf("a copy of it could not be made or cleaned up: %v", err), runstate.StepFailed)
 	}
 	record.Rehearsal = &rehearsal
 	if rehearsal.Passed() && rehearsal.Took > rebuildBound {
@@ -157,7 +174,64 @@ func (p *Pass) decideRebuild(ctx context.Context, step runstate.SweepStep, now t
 	if !rehearsal.Passed() {
 		return p.refuseRebuild(step, record, now, p.describeRefusal(rehearsal, "on a copy"))
 	}
-	return p.rebuildLive(ctx, step, record, work, now)
+	return p.rebuildLive(ctx, step, record, decided, work, now)
+}
+
+// holdBack records a due rebuild that did not go ahead, saying why, and warns
+// the development manager once it is the heldBackWarnAfter-th such pass in a
+// row, unless a warning in this run of passes already named the same kind of
+// reason. earlier is every decision recorded before this one. A warning that
+// cannot be filed leaves the record unwarned, so the next pass held back for
+// the same reason files it.
+func (p *Pass) holdBack(step runstate.SweepStep, record runstate.TrackerStoreRebuild, earlier runstate.TrackerStoreRebuilds, kind, why string, outcome runstate.SweepStepOutcome) runstate.SweepStep {
+	record.HeldBack, record.HeldBackBy, record.Ended = why, kind, true
+	inARow := append(earlier.HeldBackInARow(), record)
+	step.Outcome = outcome
+	step.Detail = fmt.Sprintf("the tracker's store is due a rebuild from its export because %s, and it did not go ahead, because %s; %d pass(es) in a row have not rebuilt it, and the next pass tries again", record.Reason, why, len(inARow))
+	if len(inARow) >= heldBackWarnAfter {
+		step = p.warnHeldBack(step, &record, inARow)
+	}
+	if err := p.Rebuilds.Record(record); err != nil {
+		step.Outcome = runstate.StepFailed
+		step.Detail += fmt.Sprintf("; that it did not go ahead could not be recorded: %v", err)
+		return step
+	}
+	step.Detail += "; recorded in " + p.Rebuilds.Path()
+	return step
+}
+
+// warnHeldBack files the warning about passes in a row that did not rebuild
+// the store, unless the latest warning among them was about the same kind of
+// reason as the last.
+func (p *Pass) warnHeldBack(step runstate.SweepStep, record *runstate.TrackerStoreRebuild, inARow runstate.TrackerStoreRebuilds) runstate.SweepStep {
+	for index := len(inARow) - 2; index >= 0; index-- {
+		if inARow[index].Reported == "" {
+			continue
+		}
+		if inARow[index].HeldBackBy == record.HeldBackBy {
+			step.Detail += "; the development manager was warned in " + inARow[index].Reported
+			return step
+		}
+		break
+	}
+	if p.Reports == nil {
+		step.Outcome = runstate.StepFailed
+		step.Detail += "; no report pile is wired, so the development manager could not be warned"
+		return step
+	}
+	message := fmt.Sprintf("Maintenance has not rebuilt the tracker store from its export for %d passes in a row (the %s step), though it is due because %s. "+
+		"The latest pass did not go ahead because %s. The live store was not changed, and every pass tries again. "+
+		"Each pass is recorded in %s, and this warning is not filed again until what stops the rebuild changes.",
+		len(inARow), StepTrackerStoreRebuild, record.Reason, record.HeldBack, p.Rebuilds.Path())
+	filed, err := p.warn(*record, message, record.DecidedAt)
+	if err != nil {
+		step.Outcome = runstate.StepFailed
+		step.Detail += fmt.Sprintf("; the warning to the development manager could not be filed, and the next pass tries again: %v", err)
+		return step
+	}
+	record.Reported = filed
+	step.Detail += "; the development manager was warned in " + filed
+	return step
 }
 
 // describeRefusal says what stopped a rebuild, for the warning.
@@ -225,12 +299,11 @@ func (p *Pass) refuseRebuild(step runstate.SweepStep, record runstate.TrackerSto
 
 // rebuildLive rebuilds the live store, recording where the old one is kept
 // before it is moved there and what the rebuild came to once it has ended.
-func (p *Pass) rebuildLive(ctx context.Context, step runstate.SweepStep, record runstate.TrackerStoreRebuild, work *repowrite.PinnedRoot, now time.Time) runstate.SweepStep {
-	due := "the tracker's store is due a rebuild from its export because " + record.Reason
+// earlier is every decision recorded before this one.
+func (p *Pass) rebuildLive(ctx context.Context, step runstate.SweepStep, record runstate.TrackerStoreRebuild, earlier runstate.TrackerStoreRebuilds, work *repowrite.PinnedRoot, now time.Time) runstate.SweepStep {
 	kept, err := p.Rebuilds.KeptDirectory()
 	if err != nil {
-		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("%s, and the directory its old store is kept in could not be made, so it was not rebuilt: %v", due, err)
-		return step
+		return p.holdBack(step, record, earlier, heldByFailure, fmt.Sprintf("the directory its old store is kept in could not be made: %v", err), runstate.StepFailed)
 	}
 	defer kept.Close()
 	live, cancel := context.WithTimeout(ctx, rebuildLiveBound)
@@ -240,12 +313,14 @@ func (p *Pass) rebuildLive(ctx context.Context, step runstate.SweepStep, record 
 		return p.Rebuilds.Record(record)
 	})
 	switch {
+	case rebuilt.Waited != "":
+		return p.holdBack(step, record, earlier, heldByLockWait, "the store lock could not be taken for the rebuild: "+rebuilt.Waited, runstate.StepSkipped)
 	case len(rebuilt.Busy) > 0:
-		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("%s, and it was not rebuilt because another process had it open: %s; the next pass tries again", due, beads.SayHolders(rebuilt.Busy))
-		return step
+		return p.holdBack(step, record, earlier, heldByOutsideProcess, "with the store lock held, a process outside the harness still had the store open: "+beads.SayHolders(rebuilt.Busy), runstate.StepSkipped)
 	case rebuilt.Unknown != "":
-		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("%s, and it was not rebuilt because whether another process had it open could not be told: %s; the next pass tries again", due, rebuilt.Unknown)
-		return step
+		return p.holdBack(step, record, earlier, heldByUnknownHolders, "with the store lock held, whether a process outside the harness still had the store open could not be told: "+rebuilt.Unknown, runstate.StepSkipped)
+	case err != nil && rebuilt.Step == "" && rebuilt.Failed == "" && !rebuilt.Swapped:
+		return p.holdBack(step, record, earlier, heldByFailure, fmt.Sprintf("the rebuild could not start: %v", err), runstate.StepFailed)
 	}
 	record.Rebuild, record.Ended = &rebuilt, true
 	if !rebuilt.Swapped {

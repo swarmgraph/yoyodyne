@@ -30,10 +30,19 @@ import (
 // two moves happens away from the live store.
 //
 // RehearseRebuild does that on a copy of the live store, and says how long
-// the build took, which is what the live rebuild holds the store for.
-// RebuildStore does it on the live store while holding the store lock
-// exclusive (storelock.go), so every other bd call waits behind it, and only
-// then, with the two exports found equal, replaces the live database: the old
+// the build took, which is what the live rebuild holds the store for. It holds
+// the store lock exclusive (storelock.go) only while it copies the store, so
+// the copy is not written to by the harness's own calls halfway through; the
+// build itself runs on the copy with the lock released. Another process having
+// the live store open never stops it, since it works on a copy.
+//
+// RebuildStore takes the store lock exclusive before anything else, so every
+// other bd call the harness makes waits behind it rather than stopping it, and
+// only then looks for processes that still have the database open. With the
+// lock held, none of the harness's own calls can be running, so a process
+// found then is one outside the harness, such as a person's bd at a terminal,
+// and it alone stops the rebuild, by name. Otherwise the build runs, and with
+// the two exports found equal, the live database is replaced: the old
 // database is moved aside as the kept copy, whose place is recorded first, and
 // the new one is moved into its place. A failure at either move puts the old
 // database back, so the store is never left without one.
@@ -61,11 +70,16 @@ const (
 type StoreRebuild struct {
 	// Store is the live store directory.
 	Store string `json:"store"`
-	// Busy is the processes that had the store open, and Unknown why who had it
-	// open could not be told; either stopped the rebuild before anything was
-	// built or moved.
+	// Busy is the processes outside the harness that had the store open once the
+	// live rebuild held the store lock, and Unknown why who had it open could not
+	// be told; either stopped the live rebuild before anything was built or
+	// moved. Neither is looked for by a rehearsal.
 	Busy    []StoreHolder `json:"busy,omitempty"`
 	Unknown string        `json:"unknown,omitempty"`
+	// Waited says the store lock could not be taken, because the tracker calls
+	// already running did not finish within the client's bound; nothing was
+	// copied, built or moved.
+	Waited string `json:"waited,omitempty"`
 	// Moved is what changed in the store while it was copied, for a rehearsal.
 	Moved string `json:"moved,omitempty"`
 	// StartedAt is when the rebuild began. CopyTook is how long the copy took, for
@@ -126,19 +140,16 @@ type builtStore struct {
 // the live store. The copy and everything made from it are removed before this
 // returns.
 //
-// Another process having the store open, or the store changing while it was
-// copied, is not an error: nothing is built, the rebuild says why, and the next
-// pass tries again.
+// The store lock not being had in time, or the store changing while it was
+// copied, which only a process outside the harness can do while the lock is
+// held, is not an error: nothing is built, the rebuild says why, and the
+// caller records it.
 func (c Client) RehearseRebuild(ctx context.Context, work *repowrite.PinnedRoot) (rebuild StoreRebuild, err error) {
 	store := storeDirectory(c.Dir, c.beadsDirVariable())
 	if store == "" {
 		return rebuild, fmt.Errorf("no tracker store was found from %s", describeDir(c.Dir))
 	}
 	rebuild.Store = store
-	database := databaseDirectory(store)
-	if rebuild.Busy, rebuild.Unknown = c.storeHolders(ctx, database); len(rebuild.Busy) > 0 {
-		return rebuild, nil
-	}
 	if err := work.RemoveAll(measuredCopyName); err != nil {
 		return rebuild, fmt.Errorf("remove the copy of the tracker's store an earlier rebuild left in %s: %w", work.Path(), err)
 	}
@@ -148,28 +159,9 @@ func (c Client) RehearseRebuild(ctx context.Context, work *repowrite.PinnedRoot)
 	defer func() {
 		err = errors.Join(err, work.RemoveAll(measuredCopyName), work.RemoveAll(rebuildFreshName), work.RemoveAll(rebuildExportName))
 	}()
-	before, err := storeFingerprint(store)
-	if err != nil {
+	usable, err := c.copyUnderLock(ctx, store, work, &rebuild)
+	if err != nil || !usable {
 		return rebuild, err
-	}
-	rebuild.StartedAt = time.Now()
-	if err := copyStore(store, work, measuredCopyName); err != nil {
-		return rebuild, fmt.Errorf("copy the tracker's store %s into %s: %w", store, work.Path(), err)
-	}
-	rebuild.CopyTook = time.Since(rebuild.StartedAt)
-	if c.storeCopied != nil {
-		c.storeCopied()
-	}
-	after, err := storeFingerprint(store)
-	if err != nil {
-		return rebuild, err
-	}
-	if moved := fingerprintChange(before, after); moved != "" {
-		rebuild.Moved = moved
-		return rebuild, nil
-	}
-	if size, err := directorySize(database); err == nil {
-		rebuild.SizeBefore = size
 	}
 	project := filepath.Join(work.Path(), measuredCopyName)
 	copied := c.pinnedTo(project, filepath.Join(project, ".beads"))
@@ -179,6 +171,55 @@ func (c Client) RehearseRebuild(ctx context.Context, work *repowrite.PinnedRoot)
 	return built.rebuild, err
 }
 
+// copyUnderLock copies the store into work while holding the store lock
+// exclusive, and says whether the copy is one to build from: false, with the
+// rebuild saying why, where the lock was not had in time or the store changed
+// while it was copied.
+func (c Client) copyUnderLock(ctx context.Context, store string, work *repowrite.PinnedRoot, rebuild *StoreRebuild) (bool, error) {
+	unlock, err := c.lockStore(ctx, false)
+	if waited, ok := lockWaited(err); ok {
+		rebuild.Waited = waited
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	before, err := storeFingerprint(store)
+	if err != nil {
+		return false, err
+	}
+	if size, err := directorySize(databaseDirectory(store)); err == nil {
+		rebuild.SizeBefore = size
+	}
+	rebuild.StartedAt = time.Now()
+	if err := copyStore(store, work, measuredCopyName); err != nil {
+		return false, fmt.Errorf("copy the tracker's store %s into %s: %w", store, work.Path(), err)
+	}
+	rebuild.CopyTook = time.Since(rebuild.StartedAt)
+	if c.storeCopied != nil {
+		c.storeCopied()
+	}
+	after, err := storeFingerprint(store)
+	if err != nil {
+		return false, err
+	}
+	if moved := fingerprintChange(before, after); moved != "" {
+		rebuild.Moved = moved
+		return false, nil
+	}
+	return true, nil
+}
+
+// lockWaited is the store lock not had in time, in words, where err is that.
+func lockWaited(err error) (string, bool) {
+	var busy storeBusy
+	if errors.As(err, &busy) {
+		return oneline.Fold(busy.Error(), maxMeasureSaid), true
+	}
+	return "", false
+}
+
 // RebuildStore rebuilds the live store as the comment at the top of this file
 // says. work is a directory the caller owns, where the new store is built; kept
 // is where the old database is kept, under name, and recorded is called with the
@@ -186,8 +227,9 @@ func (c Client) RehearseRebuild(ctx context.Context, work *repowrite.PinnedRoot)
 // The two directories have to be on the volume the store is on, since a move
 // that would have to copy is refused rather than made.
 //
-// The store being open elsewhere is not an error: nothing is done, the rebuild
-// says who has it, and the caller tries again. A rebuild whose exports differ
+// The store lock not being had in time, or a process outside the harness having
+// the store open once it is held, is not an error: nothing is built or moved,
+// the rebuild says why and names the process, and the caller records it. A rebuild whose exports differ
 // leaves the live store as it was. A rebuild that failed at a move has put the
 // old database back, or, where it could not, says so in the error.
 func (c Client) RebuildStore(ctx context.Context, work, kept *repowrite.PinnedRoot, name string, recorded func(StoreRebuild) error) (rebuild StoreRebuild, err error) {
@@ -200,9 +242,6 @@ func (c Client) RebuildStore(ctx context.Context, work, kept *repowrite.PinnedRo
 	}
 	rebuild.Store = store
 	database := databaseDirectory(store)
-	if rebuild.Busy, rebuild.Unknown = c.storeHolders(ctx, database); len(rebuild.Busy) > 0 || rebuild.Unknown != "" {
-		return rebuild, nil
-	}
 	if err := work.RemoveAll(rebuildFreshName); err != nil {
 		return rebuild, fmt.Errorf("remove the store an earlier rebuild left in %s: %w", work.Path(), err)
 	}
@@ -210,6 +249,10 @@ func (c Client) RebuildStore(ctx context.Context, work, kept *repowrite.PinnedRo
 		err = errors.Join(err, work.RemoveAll(rebuildFreshName), work.RemoveAll(rebuildExportName))
 	}()
 	unlock, err := c.lockStore(ctx, false)
+	if waited, ok := lockWaited(err); ok {
+		rebuild.Waited = waited
+		return rebuild, nil
+	}
 	if err != nil {
 		return rebuild, err
 	}
@@ -218,6 +261,12 @@ func (c Client) RebuildStore(ctx context.Context, work, kept *repowrite.PinnedRo
 		unlock()
 		rebuild.HeldFor = time.Since(held)
 	}()
+	// Looked for only now: with the lock held, every bd call the harness makes
+	// is waiting behind it, so whoever still has the database open is outside
+	// the harness, and moving the database away under it would lose its write.
+	if rebuild.Busy, rebuild.Unknown = c.storeHolders(ctx, database); len(rebuild.Busy) > 0 || rebuild.Unknown != "" {
+		return rebuild, nil
+	}
 	rebuild.StartedAt = held
 	if size, err := directorySize(database); err == nil {
 		rebuild.SizeBefore = size
@@ -406,8 +455,8 @@ func issuePrefix(records map[string]string) (string, error) {
 	return prefix, nil
 }
 
-// storeHolders is who has the store open, and why that could not be told
-// where it could not.
+// storeHolders is who other than this process has the store open, and why
+// that could not be told where it could not.
 func (c Client) storeHolders(ctx context.Context, database string) ([]StoreHolder, string) {
 	lookup, cancel := context.WithTimeout(ctx, holderLookupTimeout)
 	defer cancel()
@@ -415,5 +464,13 @@ func (c Client) storeHolders(ctx context.Context, database string) ([]StoreHolde
 	if err != nil {
 		return nil, oneline.Fold(err.Error(), maxMeasureSaid)
 	}
-	return holders, ""
+	// This process never opens the database itself, since every call is a bd of
+	// its own, so it is not counted where a finder names it.
+	others := holders[:0]
+	for _, holder := range holders {
+		if holder.PID != os.Getpid() {
+			others = append(others, holder)
+		}
+	}
+	return others, ""
 }
