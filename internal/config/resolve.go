@@ -365,6 +365,7 @@ func newResolution() *resolution {
 				ForgeCheckInterval:                    DefaultForgeCheckInterval,
 				MainCheckInterval:                     DefaultMainCheckInterval,
 				RedeployDrainLimit:                    defaultRedeployDrainLimit,
+				BuildMoveInterval:                     DefaultBuildMoveInterval,
 				FactoryStallAfter:                     defaultFactoryStallAfter,
 				CouldNotRunBeforeStatus:               defaultCouldNotRunBeforeStatus,
 				UsageWindowDegradedPercent:            defaultUsageWindowDegradedPercent,
@@ -472,6 +473,7 @@ func newResolution() *resolution {
 			"execution.forge_check_interval":                       OriginDefault,
 			"execution.main_check_interval":                        OriginDefault,
 			"execution.redeploy_drain_limit":                       OriginDefault,
+			"execution.build_move_interval":                        OriginDefault,
 			"execution.factory_stall_after":                        OriginDefault,
 			"execution.could_not_run_before_status":                OriginDefault,
 			"execution.usage_window_degraded_percent":              OriginDefault,
@@ -531,6 +533,7 @@ func (r *resolution) apply(applied layer) error {
 		setValue(r.origins, "execution.forge_check_interval", execution.ForgeCheckInterval, &r.config.Execution.ForgeCheckInterval, applied.origin)
 		setValue(r.origins, "execution.main_check_interval", execution.MainCheckInterval, &r.config.Execution.MainCheckInterval, applied.origin)
 		setValue(r.origins, "execution.redeploy_drain_limit", execution.RedeployDrainLimit, &r.config.Execution.RedeployDrainLimit, applied.origin)
+		setValue(r.origins, "execution.build_move_interval", execution.BuildMoveInterval, &r.config.Execution.BuildMoveInterval, applied.origin)
 		setValue(r.origins, "execution.factory_stall_after", execution.FactoryStallAfter, &r.config.Execution.FactoryStallAfter, applied.origin)
 		setValue(r.origins, "execution.could_not_run_before_status", execution.CouldNotRunBeforeStatus, &r.config.Execution.CouldNotRunBeforeStatus, applied.origin)
 		setValue(r.origins, "execution.usage_window_degraded_percent", execution.UsageWindowDegradedPercent, &r.config.Execution.UsageWindowDegradedPercent, applied.origin)

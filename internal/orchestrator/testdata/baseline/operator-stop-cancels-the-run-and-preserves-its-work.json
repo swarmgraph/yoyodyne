@@ -83,6 +83,15 @@
     "provider_session_id": "developer-session",
     "repository_id": "yoyodyne",
     "review_effort_reported": false,
+    "routing": {
+      "generation": 1,
+      "slot": {
+        "number": 1,
+        "origin": "claimed",
+        "recorded_at": "\u003ctime\u003e"
+      },
+      "version": 2
+    },
     "run_id": "run-0123456789abcdef0123456789abcdef",
     "schema_version": 1,
     "started_at": "\u003ctime\u003e",

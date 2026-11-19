@@ -30,6 +30,10 @@ revisions:
       by: architect
       at: 2026-11-01T03:51:58.190419Z
       reason: 'amendment-5f75dcef follow-up: acceptance criterion 2 said restarts and capacity release do not renumber a run, which contradicts the landed slot section; it now tests that a run with an explicit pair waits for its own slot, a run without one moves to a free slot with the move recorded, a waiting run never keeps fresh work out of a free slot, and no two workers share a run''s worktree. The other criteria are unchanged.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T16:38:56.879661Z
+      reason: Replaces the retired word for a required check in its two remaining places with plain words (a late event cannot count as a passed check or an approved review; adoption preserves all existing checks and approvals), and names the operator by role rather than by first name, under the item replacing retired words in the architect's documents (yoyodyne-ifd.437.21). Nothing else changes.
 approvals:
     - revision: 3
       by: operator
@@ -45,8 +49,12 @@ approvals:
       by: harness
       at: 2026-11-01T03:51:58.190419Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2071, for document-2071.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-19T16:38:56.879661Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3102, for document-3102.1 under the automatic approval policy
 ---
-
 # Execution routing: pinned invocations, developer slots, and safe provider fallback
 
 ## Purpose and governing boundaries
@@ -165,7 +173,7 @@ If the source may still be executing, leave the transition waiting for reconcili
 
 If the destination may have launched but its launch acknowledgment was lost, query by the reserved attempt identity. Adopt its running execution or durable result. A replacement launch is permitted only after the launcher establishes that it cannot overlap the earlier execution. Where the platform cannot establish that fact, preserve the run with a visible recovery reason; an uncertain state is not permission to duplicate work.
 
-A late event from an older attempt remains attached to that attempt. It cannot overwrite the current selection, complete the wrong operation, or authorize a gate. Validate generation, operation, attempt, and candidate references when consuming events. Preserve valid late usage reports even when their execution result is no longer current.
+A late event from an older attempt remains attached to that attempt. It cannot overwrite the current selection, complete the wrong operation, or count as a passed check or an approved review. Validate generation, operation, attempt, and candidate references when consuming events. Preserve valid late usage reports even when their execution result is no longer current.
 
 Recovery also checks externally visible effects before asking a reconstructed developer to repeat them. A provider switch must not duplicate a commit, push, publication, or other action already performed. Existing compare-and-swap, pinned-candidate, and reconciliation rules still apply. This design promises one active execution for an operation, not magical exactly-once semantics for arbitrary provider actions.
 
@@ -217,9 +225,9 @@ Conversation account failover remains turn-boundary behavior under its own enabl
 
 Use the existing governed configuration-file application path. A generic role-applied configuration service, another account-pooling project, or replacement provider adapters are not prerequisites. The implementation must first support validation, selection, persistence, recovery, and actual invocation consumption of the new routing fields.
 
-The development manager coordinates a bounded application step for the existing effective configuration source. That step records the baseline revision or digest, previews the exact change, validates it with the deployed compatible binary, and applies it atomically only if the baseline still matches. Its authorized scope is the four developer pairs in the table, preservation of slot 1's reliability preference, and the reviewer alternate rules above. Preserve the four-slot count, other preferences, completed manager configuration, credentials, unrelated role settings, and all existing gates.
+The development manager coordinates a bounded application step for the existing effective configuration source. That step records the baseline revision or digest, previews the exact change, validates it with the deployed compatible binary, and applies it atomically only if the baseline still matches. Its authorized scope is the four developer pairs in the table, preservation of slot 1's reliability preference, and the reviewer alternate rules above. Preserve the four-slot count, other preferences, completed manager configuration, credentials, unrelated role settings, and all existing checks and approvals.
 
-If the effective source is protected from an ordinary developer run, the development manager routes this exact patch and verification through the supported protected-path application mechanism. A missing writer capability is an execution obstacle with an owner and release condition, not a request for Mason to decide the routing again. If only a person can write that source, provide the concrete patch and the exact action required. Keep live adoption outstanding until evidence returns.
+If the effective source is protected from an ordinary developer run, the development manager routes this exact patch and verification through the supported protected-path application mechanism. A missing writer capability is an execution obstacle with an owner and release condition, not a request for the operator to decide the routing again. If only a person can write that source, provide the concrete patch and the exact action required. Keep live adoption outstanding until evidence returns.
 
 After application, record validation success, the effective revision, the source and precedence of every pair, and the running binary that consumes it. Observe actual developer invocation records for each of the four slots and reviewer invocation records under the new policy. Verify the actual endpoint against the recorded selected configuration; printed configuration alone is insufficient.
 

@@ -245,7 +245,8 @@ moves the part onto it, one part at a time, and never in the middle of what
 the part is doing:
 
 - **The scheduler restarts itself**, as it always has: the watch session sees
-  the binary replaced, stops pulling, waits out the runs it hosts under
+  the binary replaced and, at most once every `execution.build_move_interval`
+  (three hours by default), stops pulling, waits out the runs it hosts under
   `execution.redeploy_drain_limit`, and re-executes in place
   ([a session draining to restart into a deployed build](#a-session-draining-to-restart-into-a-deployed-build)).
   The supervisor waits for it rather than stopping it, since stopping it would
@@ -330,7 +331,7 @@ deploy is moving one:
 Services (supervisor running as pid 48211; the binary on disk is build 3d3d367a1b2c):
   slack: running as pid 48214, logging to …/projects/yoyodyne/state/slack/sink.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
   dashboard: running as pid 48216, serving at http://127.0.0.1:8765/ (ready since 2026-09-28 09:40 PDT), its token in …/projects/yoyodyne/state/dashboard/token, which `yoyo dashboard token` prints, logging to …/projects/yoyodyne/state/dashboard.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
-  scheduler: running as pid 48215, logging to …/projects/yoyodyne/state/scheduler.log, on build 1a2b3c4d5e6f since 2026-09-27 20:56 PDT; on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it between runs, waiting out the runs it hosts under execution.redeploy_drain_limit
+  scheduler: running as pid 48215, logging to …/projects/yoyodyne/state/scheduler.log, on build 1a2b3c4d5e6f since 2026-09-27 20:56 PDT; on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it between runs, at most once every execution.build_move_interval, waiting out the runs it hosts under execution.redeploy_drain_limit
   maintenance: the supervisor's own pass, every 10m0s; last pass at 2026-09-28T16:30:00Z (4 step(s) ran, 2 skipped, 0 failed); next at 2026-09-28T16:40:00Z
 ```
 
@@ -3663,7 +3664,11 @@ in the configuration guide are the settings and the arithmetic.
 A watching `yoyo work` session runs the binary it was started from, so when you
 install or rebuild `yoyo` over it, the session restarts itself into the new
 build — [how work flows](work.md#letting-the-harness-choose-the-work) says why
-nothing outside the process can. Between finding the deploy and restarting, the
+nothing outside the process can. It moves at most once every
+`execution.build_move_interval`, three hours by default: a build installed
+sooner than that after the last move waits, the session says once in its log
+when it will move, and when the time is up it moves onto the newest build
+installed then. Between the move falling due and restarting, the
 session is **draining**, and it is worth being exact about what that does and
 does not stop, because on 2026-09-19 it stopped everything: at 07:35Z the
 session logged that it was restarting, then did nothing for over two hours
@@ -3770,7 +3775,7 @@ attempt, as the point on promotions below says:
   says how many, and they are stopped and preserved together the first time no
   check is left to wait for, with the restart a few seconds after. So
   the scheduler is on a deployed build within `execution.redeploy_drain_limit`
-  and ten minutes of finding it, except while a promotion or a document landing
+  and ten minutes of its move falling due, except while a promotion or a document landing
   run is waited out, which the session's line names with since when. Load can scale a check's limit, and
   the check stage's `execution.check_stage_timeout`, to hours, and neither is
   waited for in full: a check the load has let run past its configured limit
