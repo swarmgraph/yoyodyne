@@ -81,21 +81,19 @@
 //     records whether the listings as the store was are within the design's
 //     ten second limit and for how many measurements in a row, the second in
 //     a row being when the tracker read wait may be revisited.
-//   - squash: the live tracker store's history squashed, under the three
-//     conditions of the design on keeping the store small
-//     (docs/designs/tracker-store-size.md), decided once on each measurement
-//     (trackersquash.go). It runs after the measurement, on the same
-//     goroutine, so the pass's own tracker calls are over before it starts.
-//     It holds the store for as long as bd takes, and every other tracker call
-//     waits behind it meanwhile, which is why it runs only where the
-//     measurement shows the listings past their limit or the store doubled
-//     since its last squash, why one that leaves the listings past the limit
-//     warns the development manager once with the figures, why the step says
-//     how long the store was held, and why, once one
-//     is due, it holds new runs and starts only once no developer run is in
-//     flight, giving up if they have not finished within the watch session's
-//     redeploy drain bound. That wait holds the pass up for as long as the
-//     bound.
+//   - shrink: the live tracker store rebuilt from its own export, under
+//     the design on keeping the store small
+//     (docs/designs/tracker-store-size.md) (trackerrebuild.go). It runs after
+//     the measurement, on the same goroutine, where the live store is past its
+//     size limit on disk or the harness's own listings over the hour before
+//     were slower than their limit. It rebuilds a copy first, compares what it
+//     built with what it started from, and rebuilds the live store only where
+//     every record was the same and the copy took no more than a minute. The
+//     live rebuild holds the store for that long and every other tracker call
+//     waits behind it; nothing waits for runs in flight and nothing holds new
+//     runs. The store it replaced is kept for 14 days. A rebuild that did not
+//     go ahead, or left the store past its limit, warns the development manager
+//     once.
 //   - limits: the live store's size on disk, and how long the harness's own
 //     listings of open and ready work took over the hour before, against
 //     services.maintenance.tracker_limits (trackerlimits.go). It asks the store
@@ -141,18 +139,18 @@ import (
 
 // The step names, as the sweep record carries them.
 const (
-	StepProvider        = "provider"
-	StepRunIndex        = "index"
-	StepReconcile       = "reconcile"
-	StepTrackerCleanup  = "cleanup"
-	StepTrackerMeasure  = "measure"
-	StepTrackerSquash   = "squash"
-	StepTrackerLimits   = "limits"
-	StepRebuild         = "rebuild"
-	StepRestartRequests = "restart-requests"
-	StepRedeploy        = "redeploy"
-	StepSlack           = "slack"
-	StepRelease         = releasecut.StepName
+	StepProvider            = "provider"
+	StepRunIndex            = "index"
+	StepReconcile           = "reconcile"
+	StepTrackerCleanup      = "cleanup"
+	StepTrackerMeasure      = "measure"
+	StepTrackerStoreRebuild = "shrink"
+	StepTrackerLimits       = "limits"
+	StepRebuild             = "rebuild"
+	StepRestartRequests     = "restart-requests"
+	StepRedeploy            = "redeploy"
+	StepSlack               = "slack"
+	StepRelease             = releasecut.StepName
 )
 
 const (
@@ -325,31 +323,20 @@ type Pass struct {
 	// store to; its zero value is the configuration's default.
 	Calls         TrackerCalls
 	TrackerLimits config.TrackerLimits
-	// Squasher is the primary checkout's tracker store as the squashing step
-	// squashes it, Squashes the record of each decision and where the copies are
-	// kept, and Reports where the warning about changed records is filed; where
-	// the first two or Measurements are nil the step says so. RepositoryID and
-	// Build are what that warning is attributed to.
-	Squasher     StoreSquasher
-	Squashes     Squashes
+	// Rebuilder is the primary checkout's tracker store as the rebuilding step
+	// rebuilds it, Rebuilds the record of each decision and where the replaced
+	// stores are kept, and Reports where the warnings are filed; where
+	// Rebuilder or Rebuilds is nil the step says so. RepositoryID and Build are
+	// what a warning is attributed to.
+	Rebuilder    StoreRebuilder
+	Rebuilds     Rebuilds
 	Reports      Reports
 	RepositoryID string
 	Build        string
-	// SquashHolds is where the squash holds new runs while it is due or
-	// running, Runs the product's runs it waits on, and DrainBound the watch
-	// session's redeploy drain bound, the longest it waits for them and the
-	// longest squash it runs; where either of the first two is nil no squash
-	// runs and the step says so. Zero DrainBound is the configuration's default.
-	SquashHolds SquashHolds
-	Runs        RunsInFlight
-	DrainBound  time.Duration
 	// RunIndex is the run records' index the pass rebuilds; where it is nil the
 	// step says nothing is wired and the index is rebuilt only by the other
 	// readers that rebuild it (runstate.Store.RebuildRunIndex).
 	RunIndex RunIndex
-	// Sleep waits while the squash waits for the runs in flight, reporting false
-	// where ctx ended first; nil waits on the clock.
-	Sleep func(ctx context.Context, d time.Duration) bool
 
 	Now func() time.Time
 	Log func(format string, args ...any)
@@ -399,14 +386,14 @@ type underway struct {
 
 // offGoroutine is what the pass does off the supervisor's goroutine: the run
 // index rebuilt, then reconcile, then the tracker's cleanup, with the record of the cleanup where one ran,
-// then the measurement of the tracker's store, then its squash, and then the
+// then the measurement of the tracker's store, then its rebuild, and then the
 // check of its limits.
 type offGoroutine struct {
 	indexed    runstate.SweepStep
 	reconciled runstate.SweepStep
 	cleaned    cleanedTracker
 	measured   runstate.SweepStep
-	squashed   runstate.SweepStep
+	rebuilt    runstate.SweepStep
 	limits     runstate.SweepStep
 }
 
@@ -501,7 +488,7 @@ func (p *Pass) Look(ctx context.Context, now time.Time) {
 		work.reconciled = p.reconcile(ctx)
 		work.cleaned = p.cleanUpTracker(ctx)
 		work.measured = p.measureTracker(ctx)
-		work.squashed = p.squashTracker(ctx)
+		work.rebuilt = p.rebuildTracker(ctx)
 		work.limits = p.checkTrackerLimits()
 		done <- work
 	}()
@@ -574,7 +561,7 @@ func (p *Pass) finish(ctx context.Context, done offGoroutine) {
 	recorded.Steps = append(recorded.Steps, done.reconciled)
 	recorded.Steps = append(recorded.Steps, done.cleaned.step)
 	recorded.Steps = append(recorded.Steps, done.measured)
-	recorded.Steps = append(recorded.Steps, done.squashed)
+	recorded.Steps = append(recorded.Steps, done.rebuilt)
 	recorded.Steps = append(recorded.Steps, done.limits)
 	if done.cleaned.cleanup != nil {
 		p.cleanedUp, p.cleanupsRead = done.cleaned.cleanup, true
@@ -976,7 +963,7 @@ func (p *Pass) measureTracker(ctx context.Context) runstate.SweepStep {
 }
 
 // listingLimit is how the measurement's listings of open and ready items, as
-// the store was, stood against squashListingLimit, counting the measurements
+// the store was, stood against rebuildListingLimit, counting the measurements
 // before it in a row that were within it too; nil where it did not time both.
 // The earlier ones are judged from their own stages, so a measurement recorded
 // before this was kept counts as well.
@@ -985,7 +972,7 @@ func listingLimit(measured runstate.TrackerStoreMeasurement, earlier runstate.Tr
 	if !timed {
 		return nil
 	}
-	limit := &runstate.ListingLimit{Limit: squashListingLimit, Within: within}
+	limit := &runstate.ListingLimit{Limit: rebuildListingLimit, Within: within}
 	if !within {
 		return limit
 	}
@@ -1004,7 +991,7 @@ func listingLimit(measured runstate.TrackerStoreMeasurement, earlier runstate.Tr
 }
 
 // listedAsItIsWithin reports whether a measurement timed both listings as the
-// store was, and whether both finished within squashListingLimit. A listing
+// store was, and whether both finished within rebuildListingLimit. A listing
 // that failed, which is how one that ran out of time is recorded, is past it.
 func listedAsItIsWithin(measured runstate.TrackerStoreMeasurement) (within, timed bool) {
 	stage, found := measured.Measurement.Stage(beads.StageAsItIs)
@@ -1017,7 +1004,7 @@ func listedAsItIsWithin(measured runstate.TrackerStoreMeasurement) (within, time
 		if !found {
 			return false, false
 		}
-		if listing.Failed != "" || listing.Took > squashListingLimit {
+		if listing.Failed != "" || listing.Took > rebuildListingLimit {
 			within = false
 		}
 	}

@@ -44,7 +44,7 @@ const (
 
 // checkTrackerLimits compares the live store's size and the harness's listing
 // times over the last hour with their bounds. It runs off the supervisor's
-// goroutine, after the squash, and touches nothing of the supervisor's but
+// goroutine, after the rebuild, and touches nothing of the supervisor's but
 // limitsWarned, which only this goroutine reads or writes while a pass runs.
 func (p *Pass) checkTrackerLimits() runstate.SweepStep {
 	step := runstate.SweepStep{Name: StepTrackerLimits}

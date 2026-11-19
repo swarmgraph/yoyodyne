@@ -4011,9 +4011,6 @@ type scheduleHarness struct {
 	// will not catch up to the remote's. A pull is wired with it only where a
 	// test asks, so every other test's pass reads no divergence at all.
 	divergences ScheduleDivergences
-	// squashHolds is maintenance's hold on new runs for a tracker squash, wired
-	// only where a test asks.
-	squashHolds ScheduleSquashHolds
 	// maxWaitingPullRequests and personMerges are the limit on pull requests
 	// waiting for a person to merge and the runs waiting, wired only where a
 	// test asks.
@@ -4264,7 +4261,6 @@ func (h *scheduleHarness) open(context.Context) (Pull, error) {
 		CapacityProbes:              h.capacityProbes,
 		UnknownResetProbe:           h.unknownResetProbe,
 		Divergences:                 h.divergences,
-		SquashHolds:                 h.squashHolds,
 		MaxWaitingPullRequests:      h.maxWaitingPullRequests,
 		PersonMerges:                h.personMerges,
 		LaunchSettings:              h.launchSettings,

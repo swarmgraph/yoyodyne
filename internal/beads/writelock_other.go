@@ -17,3 +17,7 @@ func lockWriteFile(context.Context, *os.File) error {
 func unlockWriteFile(*os.File) error {
 	return nil
 }
+
+// lockStoreFile is not available here; a call runs without the store lock, as
+// it did before there was one.
+func lockStoreFile(context.Context, *os.File, bool) error { return nil }

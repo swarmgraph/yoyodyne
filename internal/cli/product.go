@@ -843,26 +843,12 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 		}
 		pass.Calls = calls
 		pass.TrackerLimits = maintenance.TrackerLimits
-		squashes, err := runstate.NewTrackerStoreSquashStore(p.stateRoot, productID)
+		rebuilds, err := runstate.NewTrackerStoreRebuildStore(p.stateRoot, productID)
 		if err != nil {
 			return nil, nil, err
 		}
-		pass.Squasher = beads.Client{Runner: p.runner, Dir: repository}
-		pass.Squashes = squashes
-		// The squash holds new runs while it is due and waits for the developer
-		// runs in flight, for at most the bound a watch session waits for its
-		// runs before a redeploy.
-		squashHolds, err := runstate.NewTrackerSquashHoldStore(p.stateRoot, productID)
-		if err != nil {
-			return nil, nil, err
-		}
-		runs, err := runstate.NewStore(p.stateRoot, productID)
-		if err != nil {
-			return nil, nil, err
-		}
-		pass.SquashHolds = squashHolds
-		pass.Runs = runs
-		pass.DrainBound = p.resolved.Config.Execution.RedeployDrainLimit.Duration()
+		pass.Rebuilder = beads.Client{Runner: p.runner, Dir: repository}
+		pass.Rebuilds = rebuilds
 		pass.Reports = reports
 		pass.RepositoryID = string(p.resolved.Config.Product.RepositoryID)
 		pass.Build = buildinfo.Commit()

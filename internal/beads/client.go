@@ -570,6 +570,10 @@ type Client struct {
 	// write to the store at that moment to show a copy made while the store
 	// changed is discarded.
 	storeCopied func()
+	// storeLocked is set on the client the rebuild of the store makes its own
+	// calls with, which already holds the store lock exclusive and so must not
+	// ask for it again (storelock.go).
+	storeLocked bool
 }
 
 // beadsDirVariable is the BEADS_DIR bd is run under: the store this client is
@@ -2143,6 +2147,11 @@ func (c Client) runWithin(ctx context.Context, limit time.Duration, args ...stri
 	if binary == "" {
 		binary = "bd"
 	}
+	unlockStore, err := c.lockStore(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	defer unlockStore()
 	command := execution.Command{
 		Name:           binary,
 		Args:           args,

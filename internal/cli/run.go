@@ -179,10 +179,6 @@ type components struct {
 	// while it stands, and lifted by the first check that finds the settings in
 	// force again or by a pull on another harness build.
 	launchSettings *runstate.LaunchSettingsHoldStore
-	// squashHolds is maintenance's hold on new runs while a squash of the
-	// tracker store is due or running: placed and lifted by the maintenance
-	// pass, read by a watching session that starts nothing while it stands.
-	squashHolds *runstate.TrackerSquashHoldStore
 	// landingHolds is the hold an outside tool places on landing on one target
 	// branch (`yoyo landing hold`), read under the promotion lease by every path
 	// that lands.
@@ -477,10 +473,6 @@ func buildComponents(configPath string) (components, error) {
 	if err != nil {
 		return components{}, err
 	}
-	squashHolds, err := runstate.NewTrackerSquashHoldStore(stateRoot, cfg.Product.ID)
-	if err != nil {
-		return components{}, err
-	}
 	landingHolds, err := runstate.NewLandingHoldStore(stateRoot, cfg.Product.ID)
 	if err != nil {
 		return components{}, err
@@ -556,7 +548,6 @@ func buildComponents(configPath string) (components, error) {
 		capacityProbes:   capacityProbes,
 		divergences:      divergences,
 		launchSettings:   launchSettings,
-		squashHolds:      squashHolds,
 		landingHolds:     landingHolds,
 		spend:            spendLog,
 		trackerListings:  trackerListings,
