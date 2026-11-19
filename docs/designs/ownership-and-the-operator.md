@@ -50,6 +50,10 @@ revisions:
       by: architect
       at: 2026-11-19T04:38:32.222791Z
       reason: 'yoyodyne-la2d: the closed list of reasons the operator owns gains `install`, for a program that has to be installed or put on the search path on the harness''s machine. The outage row returns it for a provider program that cannot be found, instead of `credential`. Adding a reason is now a revision of the closed-list section, checked against the invariant''s wording, which already covers an act only a person can physically perform, so the invariant is unchanged. Adds the plain wording for every reason, two tests and three build items. Fixes both contradictions the reviewer found in the refused document-3029.1. Answers report-6e42263e and report-cd0ca6fd. Written against main at e4c9aa75.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T17:04:47.537531Z
+      reason: 'Part of replacing the coined vocabulary in the governed documents (yoyodyne-ifd.437.21): the entry kind for a step only a person can take was written with the retired word for a required check, in the list of kinds and in the owner table. Both now read ''a step set aside for a person'', the plain wording this design already gives the reason, with the stored name `human-gate` beside it. Nothing else changes. Written against main at 473d3600.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -101,6 +105,11 @@ approvals:
       by: harness
       at: 2026-11-19T04:38:32.222791Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3033, for document-3033.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 11
+      by: harness
+      at: 2026-11-19T17:04:47.537531Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3110, for document-3110.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -129,10 +138,11 @@ named reason.
 A new package, `internal/ownership`, holds the registry. It is a table keyed by
 entry kind. The kinds are the ones the read model already names: amendment,
 waiting document, directive, report, owed step, publication, degraded service,
-failing task, hold, outage, stall, held work, human gate, conversation-carried
-item, operator action, stoppage, escalation, diverged target, follow-up, intake
-question, and the ages of the report pile and the amendment queue. Each kind has
-one rule. The rule reads the entry's record and returns:
+failing task, hold, outage, stall, held work, a step set aside for a person
+(`human-gate`), conversation-carried item, operator action, stoppage,
+escalation, diverged target, follow-up, intake question, and the ages of the
+report pile and the amendment queue. Each kind has one rule. The rule reads the
+entry's record and returns:
 
 - `owner`, from the existing mover vocabulary: the operator, a role, the
   harness, or nobody where the entry lifts on a clock no one controls;
@@ -183,7 +193,7 @@ her pass, and she files it against the registry.
 | stoppage | the development manager |
 | escalation | the role it names; the operator only when it carries a reason from the closed list |
 | held work | the owner of the group it is held in |
-| human gate | the operator, reason `human-gate` |
+| a step set aside for a person (`human-gate`) | the operator, reason `human-gate` |
 | conversation-carried item | the role its executor marker names |
 | diverged target | the operator, reason `diverged-history` |
 | follow-up | the owner the follow-up recorded when it was written, which the rule for what it is about resolved then; the operator only with a reason from the closed list; a follow-up the operator or his assistant records is never owned by the operator, and is the Lead Product Manager's unless it names another role |
