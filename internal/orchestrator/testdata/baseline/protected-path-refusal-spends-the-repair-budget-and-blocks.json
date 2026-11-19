@@ -117,6 +117,21 @@
     },
     "status": "failed",
     "stop_class": "repair-budget",
+    "stops": [
+      {
+        "attempt": 1,
+        "candidate": "\u003ccommit-2\u003e",
+        "cause": "work",
+        "charged": true,
+        "evidence": {
+          "says": "protected paths refused after 2 of 2 permitted attempt(s): docs/designs/delivery.md, docs/product/brief.md"
+        },
+        "kept": true,
+        "reason": "repair-budget",
+        "step": "checking",
+        "stopped_at": "\u003ctime\u003e"
+      }
+    ],
     "target_branch": "main",
     "updated_at": "\u003ctime\u003e",
     "verification": {

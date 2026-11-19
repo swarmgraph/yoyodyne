@@ -206,6 +206,30 @@
     },
     "status": "failed",
     "stop_class": "repair-budget",
+    "stops": [
+      {
+        "attempt": 1,
+        "candidate": "\u003ccommit-2\u003e",
+        "cause": "work",
+        "charged": true,
+        "evidence": {
+          "findings": [
+            {
+              "file": "feature.txt",
+              "line": 1,
+              "message": "add the missing file",
+              "severity": "blocker"
+            }
+          ],
+          "review_summary": "the change misses the acceptance criteria",
+          "says": "independent review requires repair after 2 of 2 permitted attempt(s): the change misses the acceptance criteria"
+        },
+        "kept": true,
+        "reason": "repair-budget",
+        "step": "reviewing",
+        "stopped_at": "\u003ctime\u003e"
+      }
+    ],
     "target_branch": "main",
     "updated_at": "\u003ctime\u003e",
     "verification": {
