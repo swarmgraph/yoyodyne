@@ -13,6 +13,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/recovery"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -312,21 +313,30 @@ func (a *activeRun) settleRemoteTarget(ctx context.Context) error {
 	// a reset one here would stop a run whose change is built, checked, and
 	// approved. The drift this is actually looking for is not a recoverable class,
 	// so it is reported as promptly as it always was.
-	err := a.recovering(ctx, runstate.RetryRemoteTarget, func(ctx context.Context) error {
+	//
+	// A GitHub that cannot be reached at all is not waited out here, under the
+	// promotion lease, but by the run with the lease given back (forgewait.go):
+	// the read is made again, from the top of the landing, until GitHub answers.
+	remote, target := a.pipeline.Config.Execution.Remote, a.worktree.TargetBranch
+	err := a.recoveringReachable(ctx, runstate.RetryRemoteTarget, func(ctx context.Context) error {
 		return a.pipeline.Worktrees.VerifyRemoteTarget(ctx, standing)
 	})
 	if err == nil {
 		return nil
 	}
 	if !errors.Is(err, gitworktree.ErrRemoteTargetDrift) {
-		return fmt.Errorf("check the remote target branch before promoting: %w", err)
+		return awayFromForge("reading where "+remote+"'s "+target+" stands before landing",
+			fmt.Errorf("check the remote target branch before promoting: %w", err))
 	}
-	catchup, catchupErr := recoveringValue(ctx, a, runstate.RetryCatchUpTarget, func(ctx context.Context) (gitworktree.Catchup, error) {
-		return a.pipeline.Worktrees.CatchUpTarget(ctx, a.worktree.TargetBranch)
+	var catchup gitworktree.Catchup
+	catchupErr := a.recoveringReachable(ctx, runstate.RetryCatchUpTarget, func(ctx context.Context) error {
+		var attemptErr error
+		catchup, attemptErr = a.pipeline.Worktrees.CatchUpTarget(ctx, target)
+		return attemptErr
 	})
 	if catchupErr != nil {
-		return fmt.Errorf("bring %s onto what %s has before promoting: %w",
-			a.worktree.TargetBranch, a.pipeline.Config.Execution.Remote, catchupErr)
+		return awayFromForge("bringing the local "+target+" onto "+remote+"'s before landing",
+			fmt.Errorf("bring %s onto what %s has before promoting: %w", target, remote, catchupErr))
 	}
 	// A remote with no such branch is not a divergence but a repository whose
 	// target has never been published, and the publication that follows the
@@ -463,20 +473,42 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 	// does not read a recoverable class in it and buy a second window for a
 	// question already answered.
 	a.landingAt(fmt.Sprintf("asking the forge to merge pull request #%d into %s", published.Number, integration.TargetBranch), landingAsksForge)
+	// A GitHub that cannot be reached here is waited for in place, with the
+	// promotion lease given back for the wait and taken again before the check
+	// and the merge are made again (untilGitHubAnswers, forgewait.go): the
+	// promotion is made, so the landing cannot start again from the top. Each
+	// boundary below returns a failure that never reached GitHub at once rather
+	// than waiting it out under the lease, and a connection that dropped is
+	// asked again on the boundary's own short window first. Asking the merge
+	// again is safe however its connection failed, because the request names the
+	// head commit.
 	var verifyFailure error
-	result, err := recoveringValue(ctx, a, runstate.RetryMerge, func(ctx context.Context) (publish.MergeResult, error) {
-		verifyFailure = a.recovering(ctx, runstate.RetryRemoteTarget, func(ctx context.Context) error {
-			return a.pipeline.Worktrees.VerifyRemoteTarget(ctx, integration)
+	var result publish.MergeResult
+	err := a.untilGitHubAnswers(ctx, fmt.Sprintf("asking GitHub to merge pull request #%d into %s", published.Number, integration.TargetBranch), recovery.Recoverable, func(ctx context.Context) error {
+		verifyFailure, result = nil, publish.MergeResult{}
+		mergeErr := a.recoveringReachable(ctx, runstate.RetryMerge, func(ctx context.Context) error {
+			verifyFailure = a.recoveringReachable(ctx, runstate.RetryRemoteTarget, func(ctx context.Context) error {
+				return a.pipeline.Worktrees.VerifyRemoteTarget(ctx, integration)
+			})
+			if verifyFailure != nil {
+				return errPreMergeVerification
+			}
+			var attemptErr error
+			result, attemptErr = a.pipeline.Publisher.Merge(ctx, publish.MergeRequest{
+				Number:     published.Number,
+				HeadCommit: published.HeadCommit,
+				Method:     mergeMethod,
+			})
+			return attemptErr
 		})
 		if verifyFailure != nil {
-			return publish.MergeResult{}, errPreMergeVerification
+			return verifyFailure
 		}
-		return a.pipeline.Publisher.Merge(ctx, publish.MergeRequest{
-			Number:     published.Number,
-			HeadCommit: published.HeadCommit,
-			Method:     mergeMethod,
-		})
+		return mergeErr
 	})
+	if stoppedWhileWaiting(err) {
+		return err
+	}
 	if verifyFailure != nil {
 		a.landingAt(fmt.Sprintf("checking where %s's %s stands before asking the forge to merge pull request #%d", a.pipeline.Config.Execution.Remote, integration.TargetBranch, published.Number), landingReadsRemote)
 		cause := fmt.Errorf("check the remote target branch before merging: %w", verifyFailure)
@@ -525,7 +557,17 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 		return nil
 	}
 	a.landingAt(fmt.Sprintf("confirming the forge merged pull request #%d", published.Number), landingAsksForge)
-	merged, err := a.awaitMerge(ctx)
+	// GitHub has the merge by now, so a GitHub that cannot be reached here is
+	// waited for and asked the same question again, never the merge.
+	var merged publish.PullRequest
+	err = a.untilGitHubAnswers(ctx, fmt.Sprintf("asking GitHub whether pull request #%d merged", published.Number), recovery.Recoverable, func(ctx context.Context) error {
+		var askErr error
+		merged, askErr = a.awaitMerge(ctx)
+		return askErr
+	})
+	if stoppedWhileWaiting(err) {
+		return err
+	}
 	if err != nil {
 		a.recordPublishFailure(fmt.Errorf("confirm the pull request merged: %w", err))
 		return nil
@@ -552,9 +594,17 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 	// where it is the merge of this promotion on the remote, and otherwise found in
 	// the remote history.
 	a.landingAt(fmt.Sprintf("checking that %s's %s carries pull request #%d", a.pipeline.Config.Execution.Remote, integration.TargetBranch, published.Number), landingReadsRemote)
-	remoteTarget, err := recoveringValue(ctx, a, runstate.RetryRemoteTarget, func(ctx context.Context) (string, error) {
-		return a.pipeline.Worktrees.ConfirmRemoteTarget(ctx, integration, merged.MergeCommit)
+	var remoteTarget string
+	err = a.untilGitHubAnswers(ctx, fmt.Sprintf("checking that %s's %s carries pull request #%d", a.pipeline.Config.Execution.Remote, integration.TargetBranch, published.Number), recovery.Recoverable, func(ctx context.Context) error {
+		return a.recoveringReachable(ctx, runstate.RetryRemoteTarget, func(ctx context.Context) error {
+			var readErr error
+			remoteTarget, readErr = a.pipeline.Worktrees.ConfirmRemoteTarget(ctx, integration, merged.MergeCommit)
+			return readErr
+		})
 	})
+	if stoppedWhileWaiting(err) {
+		return err
+	}
 	if err != nil {
 		cause := fmt.Errorf("confirm the merge reached %s: %w", integration.TargetBranch, err)
 		if integration.ThroughPullRequest {
@@ -745,15 +795,22 @@ var mergeConfirmationDelays = []time.Duration{time.Second, 2 * time.Second, 4 * 
 //
 // A query that fails on the forge's own answer is returned immediately: that is
 // something an operator has to see, and asking again would only delay it. A
-// query that fails on the connection carrying it is a different thing and is
-// waited out like every other transport failure — the merge has already
-// happened, and reporting a completed publication as outstanding because the
-// confirmation could not be fetched is precisely the loss this exists to stop.
+// query that fails on the connection carrying it is a different thing — the
+// merge has already happened, and reporting a completed publication as
+// outstanding because the confirmation could not be fetched is precisely the
+// loss this exists to stop. A connection that dropped is asked again on the
+// boundary's own window; one that never reached GitHub is returned at once, and
+// publishIntegration waits for GitHub with the promotion lease given back and
+// asks again (untilGitHubAnswers).
 func (a *activeRun) awaitMerge(ctx context.Context) (publish.PullRequest, error) {
 	askForge := func(ctx context.Context) (publish.PullRequest, error) {
-		return recoveringValue(ctx, a, runstate.RetryMergeConfirmation, func(ctx context.Context) (publish.PullRequest, error) {
-			return a.pipeline.Publisher.State(ctx, a.worktree.Branch)
+		var merged publish.PullRequest
+		err := a.recoveringReachable(ctx, runstate.RetryMergeConfirmation, func(ctx context.Context) error {
+			var askErr error
+			merged, askErr = a.pipeline.Publisher.State(ctx, a.worktree.Branch)
+			return askErr
 		})
+		return merged, err
 	}
 	merged, err := askForge(ctx)
 	for attempt := 0; err == nil && !merged.Merged && attempt < len(mergeConfirmationDelays); attempt++ {
