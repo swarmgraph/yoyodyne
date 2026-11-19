@@ -223,7 +223,8 @@ func (a *activeRun) waitToInstallAgain(ctx context.Context, wait runstate.Instal
 		}
 		err := p.sleep(ctx, min(remaining, installWaitSlice))
 		if err == nil {
-			err = a.stopRequested()
+			// After its checks passed, a stop found here keeps the change.
+			err = a.honorStop()
 		}
 		if err != nil {
 			// A wait cut short is not a wait any more, so the record the ending
