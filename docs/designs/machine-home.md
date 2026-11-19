@@ -50,6 +50,10 @@ revisions:
       by: architect
       at: 2026-11-19T08:09:53.089499Z
       reason: 'Writes two approved changes. From amendment-7289128c (developer on the companion intent repository landing route): validation check 7 now says the validation project runs it, and any part whose build has not landed is still recorded as not taken. From amendment-ed80fe5a: binding with --replace refuses while the project''s worktrees hold a worktree of the clone it would unbind that is kept from a stopped run, naming each, and goes ahead once each is settled or removed; validation check 5 and the enforced list follow. The enforced list''s ''protected-path gate'' is reworded under the operator''s November 8 rule. Read whole at main fbc388af; no other sentence changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T13:32:12.655674Z
+      reason: 'Writes point 4 of bringing four designs into line with what was built (yoyodyne-n2t1), answering report-56713f40: machine-identity.json is the machine''s one identity, the older machine.identity field on run state is read only for older records, and the build piece stops and reports if the old field told apart more than the file does. Read whole at main f1b90a7f; no other section changes. Point 5 of that item, the check 7 wording, is still to be written.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -101,6 +105,11 @@ approvals:
       by: harness
       at: 2026-11-19T08:09:53.089499Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2809, for document-2809.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 11
+      by: harness
+      at: 2026-11-19T13:32:12.655674Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3079, for document-3079.1 under the automatic approval policy
 ---
 # The machine home
 
@@ -136,7 +145,8 @@ project owns:
   the first time the harness needs it, and never made again while the file is
   there, so the machine keeps one identity across every project, rename, build,
   and move. It sits at the top because the machine is the same whichever
-  project it runs; the product id is what tells projects apart.
+  project it runs; the product id is what tells projects apart. It is the
+  machine's only identity, as the paragraph after this list says.
 - `heavy-checks/` — the permits for heavy checks and the lock beside them.
   They count the heavy checks running across every project on the machine, so
   no project owns them; see
@@ -145,6 +155,22 @@ project owns:
   count split across projects would need every project's lock for each request
   and would move with a project when it is renamed.
 - `logs/` — the harness's own logs.
+
+**One identity for the machine.** Run state written by earlier builds carries
+a machine identity of its own, recorded as `machine.identity`. The two are not
+kept apart on purpose: that field was made before `machine-identity.json`
+existed, and nothing needs a second. From this revision on,
+`machine-identity.json` is the one identity of the machine. Every record that
+says which machine or which factory did something takes it from that file,
+and a claim on a work item names the factory identity built from it. The
+harness writes no new value of `machine.identity` from anywhere else, and
+reads the old field only to interpret records written before this change.
+Keeping both was rejected because two records of one fact can disagree
+without anything noticing, which is the fault the binding paragraph under The
+commands rules out. The build piece that moves run state onto this file first
+checks whether the old field ever told apart two things the file does not,
+such as two homes on one machine; if it did, the piece stops and reports that
+to the architect rather than folding them together.
 
 Anything that today sits beside `products/` under the state root and belongs to
 one product moves under that product's project directory; the build classifies
