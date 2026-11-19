@@ -43,3 +43,16 @@ func JobFailure(checkRun int64) publish.CheckReading {
 		Passing: 1,
 	}
 }
+
+// QueuedOnProtectedTarget is a run that landed through its pull request and
+// finished with the forge holding the merge.
+func QueuedOnProtectedTarget(t *testing.T) (QueuedFixture, *orchestratortest.CheckedForge, orchestrator.Outcome) {
+	t.Helper()
+	fixture := NewQueuedFixture(t)
+	fixture.Forge.SetTargetProtection(publish.BranchProtection{Protected: true, By: "ruleset"})
+	outcome := fixture.Run(t)
+	if outcome.Integration == nil || !outcome.Integration.ThroughPullRequest {
+		t.Fatalf("integration = %#v, want a landing through the pull request", outcome.Integration)
+	}
+	return fixture, &orchestratortest.CheckedForge{Forge: fixture.Forge}, outcome
+}

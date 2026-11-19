@@ -3,6 +3,7 @@ package testharness
 import (
 	"testing"
 
+	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
@@ -38,4 +39,12 @@ type QueuedForge interface {
 	SetOnMerge(onMerge func())
 	Hold(branch string, request publish.PullRequest)
 	ClosedRequests() []publish.CloseRequest
+}
+
+// RecordingBackend is a provider that remembers every invocation it served and
+// the session it served the developer under.
+type RecordingBackend interface {
+	backend.Backend
+	RequestsMade() []backend.RunRequest
+	DeveloperSessionID() string
 }

@@ -1,6 +1,7 @@
 package testharness
 
 import (
+	"os"
 	"testing"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -22,4 +23,11 @@ func NewSweepManager(t *testing.T, repository, worktreeRoot string) *gitworktree
 		t.Fatalf("gitworktree.New() error = %v", err)
 	}
 	return worktrees
+}
+
+func WriteSweepFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile(%s) error = %v", path, err)
+	}
 }

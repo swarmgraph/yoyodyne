@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -370,4 +372,19 @@ func TestReconcileStillKeepsARunHeldByADecisionWhenListingsTimeOut(t *testing.T)
 		t.Fatalf("the held run's branch %q is gone", after.Branch)
 	}
 	assertOneReadAheadAndNoListing(t, bd, state.WorkItemID)
+}
+
+// refusingCleanup refuses the first cleanup attempts and then delegates, which
+// is how a sweep that could not finish is exercised end to end.
+type refusingCleanup struct {
+	ReconcileWorktrees
+	refusals int
+}
+
+func (w *refusingCleanup) CleanupIntegrated(ctx context.Context, request gitworktree.CleanupRequest) (gitworktree.Cleanup, error) {
+	if w.refusals > 0 {
+		w.refusals--
+		return gitworktree.Cleanup{}, errors.New("worktree is busy")
+	}
+	return w.ReconcileWorktrees.CleanupIntegrated(ctx, request)
 }
