@@ -149,17 +149,33 @@ func TestOnlyACallThatRanOutOfTimeIsASlowCall(t *testing.T) {
 	}
 }
 
+// stoppedByCallerRunner reports at once that the call was stopped, the way the
+// operating-system runner does when the caller's deadline ends a call, without
+// waiting for that deadline to pass. The client tells a call that ran from one
+// that never started by whether the caller's deadline was still ahead when it
+// started the runner, so a test that needs the call to have run gives the
+// caller a deadline no load on the machine can reach and lets the runner end
+// the call instead of the clock.
+type stoppedByCallerRunner struct{}
+
+func (stoppedByCallerRunner) Run(context.Context, execution.Command, execution.OutputObserver) (execution.ProcessResult, error) {
+	return execution.ProcessResult{Status: execution.ProcessTimedOut, ExitCode: -1}, nil
+}
+
 // A call stopped by its caller's shorter deadline says that was the cause,
 // rather than the tracker or a holder.
 func TestACallStoppedByItsCallersDeadlineSaysThatWasTheCause(t *testing.T) {
 	t.Parallel()
 	kept := &keptSlowCalls{}
-	client := Client{Runner: &deadlineRunner{}, Dir: slowStore(t, 10), Holders: fixedHolders{}, SlowCalls: kept}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	client := Client{Runner: stoppedByCallerRunner{}, Dir: slowStore(t, 10), Holders: fixedHolders{}, SlowCalls: kept}
+	// Shorter than the client's limit, so it is the caller's deadline that
+	// counts, and far longer than anything before the runner can take.
+	callerDeadline := DefaultTimeout / 2
+	ctx, cancel := context.WithTimeout(context.Background(), callerDeadline)
 	defer cancel()
 	_, err := client.run(ctx, "list", "--all")
 	call, ok := SlowCallOf(err)
-	if !ok || call.CallerDeadline <= 0 || len(kept.calls) != 1 {
+	if !ok || call.CallerDeadline <= 0 || call.CallerDeadline > callerDeadline || len(kept.calls) != 1 {
 		t.Fatalf("SlowCallOf(%v) = %+v, %t, kept %d; want the caller's deadline kept", err, call, ok, len(kept.calls))
 	}
 	if want := "and was stopped by its caller's own deadline of"; !strings.Contains(call.Cause(), want) {
