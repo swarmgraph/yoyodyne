@@ -56,6 +56,10 @@ func (s *DirectiveStore) Root() string { return s.root }
 // plain answer rather than a failure to look.
 var ErrNoDirective = errors.New("no directive is recorded under that reference")
 
+// ErrDirectiveRecorded reports a directive recorded under an identifier already
+// in use, which for one named by a Slack message means it is already recorded.
+var ErrDirectiveRecorded = errors.New("the directive is already recorded")
+
 // Record makes one directive durable. It is an exclusive create: a directive is
 // recorded once, and two processes recording at the same moment must not be able
 // to overwrite each other's.
@@ -73,7 +77,7 @@ func (s *DirectiveStore) Record(recorded directive.Directive) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("directive %s is already recorded", recorded.ID)
+			return fmt.Errorf("directive %s is already recorded: %w", recorded.ID, ErrDirectiveRecorded)
 		}
 		return fmt.Errorf("create directive: %w", err)
 	}
@@ -289,6 +293,14 @@ func (s *DirectiveStore) settle(reference string, apply func(directive.Directive
 		return directive.Directive{}, err
 	}
 	return settled, nil
+}
+
+// Adopt replaces an already-recorded directive with the given version. It is
+// for the shared records only: putting this machine's copy in step with the
+// version that stands on the shared remote, or applying a change another
+// machine recorded. Nothing else revises a directive except the settle path.
+func (s *DirectiveStore) Adopt(recorded directive.Directive) error {
+	return s.save(recorded)
 }
 
 // save replaces one recorded directive atomically. Every revision a directive
