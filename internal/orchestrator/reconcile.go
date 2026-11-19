@@ -235,6 +235,11 @@ type Reconciler struct {
 	// such a pull request, and a forge check reports the ones already tracked as
 	// unread.
 	TeamPullRequests TeamPullRequestReader
+	// LandingPaths lists the paths a landing commit changed, which names the
+	// items a line comment on a tracked pull request may be about
+	// (teampullrequestfeedback.go). Optional: a reconciler wired without it names
+	// every item the request carries and says which touched the file was not read.
+	LandingPaths LandingPathReader
 	// Filer files the item a queued merge's check red on the target itself is,
 	// one per target branch and check, as a red landing files its own; the merge
 	// then waits on that item rather than being handed to a person. Optional: a
