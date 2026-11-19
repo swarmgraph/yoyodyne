@@ -1,7 +1,7 @@
 # internal/orchestrator — code map
 
-Read this before paging through `pipeline.go` (about 9,700 lines) or
-`schedule.go` (about 6,300). It names symbols, not line numbers; find them
+Read this before paging through `pipeline.go` or `schedule.go`, both very
+large. It names symbols, not line numbers; find them
 with `rg -n 'func \(a \*activeRun\) verify\b' internal/orchestrator`.
 
 ## What the package does
@@ -370,8 +370,9 @@ context bundle come from `internal/contextbundle`.
 This table is not a list of every file, and a change that adds a file does not
 add a row: two changes that each did so conflicted here. Start from a file's
 own leading comment, or `ls internal/orchestrator`, for one not named below.
-`TestReadmeNamesOnlyFilesThatExist` fails when this file names a file that no
-longer exists.
+`TestReadmeNamesOnlyFilesThatExist` and `TestReadmeNamesOnlySymbolsThatExist`
+fail when this file names a file or a Go identifier that no longer exists, so
+keep it to names and leave out sizes and counts.
 
 | File | What it holds |
 |---|---|
