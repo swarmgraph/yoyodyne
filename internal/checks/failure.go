@@ -105,6 +105,10 @@ type failureCapture struct {
 	windowFound bool
 	windowFull  bool
 	windowCut   bool
+	// failingTests is the line the project's declared reading made of the
+	// failure (FailingTests.Describe), written under the names, and empty for a
+	// check no reading applies to.
+	failingTests string
 }
 
 func (c *failureCapture) add(text string) {
@@ -198,6 +202,9 @@ func (c failureCapture) render() string {
 	header := "No failing test or package was named in the captured output, so only its end is kept.\n"
 	if len(c.names) > 0 {
 		header = failingNamesTitle + strings.Join(c.names, ", ") + "\n"
+	}
+	if c.failingTests != "" {
+		header += c.failingTests + "\n"
 	}
 	window := c.renderWindow()
 	trailing := len(c.tail) - len(strings.TrimRight(c.tail, "\n"))

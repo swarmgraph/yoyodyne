@@ -760,6 +760,9 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 			// place among the machine's before it launches; a project that names
 			// none never opens the record of places.
 			Permits: heavyCheckPermits(cfg, parts.stateRoot, processRunner),
+			// A failed check the project declares a reading for has its failing
+			// tests, each with its file, recorded on the run (failing_tests).
+			FailingTests: cfg.FailingTests,
 		},
 		// The stage's bound is that figure scaled for the machine's load, by the
 		// same reading and cap a local Git command's budget is scaled by, because

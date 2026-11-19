@@ -24,6 +24,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/capability"
+	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/outsidefile"
@@ -152,8 +153,14 @@ type Config struct {
 	// runs the way it runs a check, with network access (install.go). They are
 	// the operator's to write and never a role's. A project that names none
 	// installs nothing, which is what every project did before this existed.
-	Install []InstallStep          `yaml:"install,omitempty" json:"install,omitempty"`
-	Agents  map[string]AgentConfig `yaml:"agents" json:"agents"`
+	Install []InstallStep `yaml:"install,omitempty" json:"install,omitempty"`
+	// FailingTests are how the project's checks name their failing tests, each
+	// with the file it is in (failingtests.go). A failed check one of them
+	// names has its failing tests recorded on the run; a check none names is
+	// recorded as it always was. A project that declares none reads nothing,
+	// which is what every project did before this existed.
+	FailingTests []checks.TestReading   `yaml:"failing_tests,omitempty" json:"failing_tests,omitempty"`
+	Agents       map[string]AgentConfig `yaml:"agents" json:"agents"`
 	// Accounts are the provider accounts this project runs agents under, keyed by
 	// the alias each one is named by. It is top level rather than under `agents`
 	// because an account is a thing several agents share: which roles run on which
@@ -1359,6 +1366,7 @@ func (c Config) Validate() error {
 	}
 	problems = append(problems, developerSlotProblems(c.Execution)...)
 	problems = append(problems, heavyCheckProblems(c)...)
+	problems = append(problems, failingTestProblems(c)...)
 	problems = append(problems, ciCheckProblems(c)...)
 	problems = append(problems, developerModelProblems(c.Execution)...)
 	if c.Execution.RepairAttemptsBeforeReplan < 0 {

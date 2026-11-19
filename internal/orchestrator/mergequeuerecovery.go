@@ -259,6 +259,12 @@ func ClassifyMergeQueueFailure(evidence MergeQueueFailureEvidence) (MergeQueueFa
 		}
 		failure.Reason = fmt.Sprintf("%s failed on generation %d's candidate, %s at %s with %s merged onto it, and passes on %s at that base",
 			result.Command, generation.Number, generation.TargetBranch, generation.TargetBase, strings.Join(generation.Heads, ", "), generation.TargetBranch)
+		// The failing tests the project's reading named go with it, so the
+		// developer the change is handed back to is told which tests failed
+		// rather than only which check.
+		if result.FailingTests != "" {
+			failure.Reason += ". " + strings.TrimSuffix(result.FailingTests, ".")
+		}
 		return defect(failure, generation, evidence.SuspectedHeads), true, nil
 	}
 	if len(checksRun.Results) != len(generation.Checks.Commands) {
