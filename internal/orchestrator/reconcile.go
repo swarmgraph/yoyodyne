@@ -519,9 +519,13 @@ func (r Reconciler) reconcileRun(ctx context.Context, recorded runstate.State) R
 	defer lease.Release()
 
 	clearErr := r.retrySchedulingWaitClear(ctx, &state)
+	noteErr := r.retryMergeQueueNote(ctx, &state)
 	result, err := r.settle(ctx, state)
 	if clearErr != nil {
 		result.Failure = clearErr.Error()
+	}
+	if noteErr != nil {
+		result.Failure = joinProblem(result.Failure, noteErr.Error())
 	}
 	if err != nil {
 		// A step that failed partway is never described as settled, however
