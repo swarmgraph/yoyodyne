@@ -212,12 +212,21 @@ const noLongerAppliesClears = "Nobody needs to do anything about it. Only reopen
 //     carrying the recovery out would build, review and check the same change
 //     twice at once, the replacement's run beside the old run's.
 //
+// A document's publication run has no tracker item to read: its run stands as
+// its own item. Its own record is asked instead (documentRunSettled).
+//
 // An item or a record that cannot be read establishes nothing, and the
 // recovery is left to the action, whose own gates refuse what they always
 // refused.
 func (c CarryOut) recoverySettled(ctx context.Context, task CarryOutTask, closure *triage.Closure, counters runstate.TriageCounters, recorded []runstate.State, item func(context.Context, string) (beads.WorkItem, bool), unfinished func(context.Context) ([]beads.WorkItem, bool)) (notApplying, bool) {
 	if task.Harness {
 		return notApplying{}, false
+	}
+	if account, settled, document := documentRunSettled(task, recorded); document {
+		if !settled {
+			return notApplying{}, false
+		}
+		return notApplying{account: account, clears: documentSettledClears, noItem: true}, true
 	}
 	read, ok := item(ctx, task.WorkItemID)
 	if !ok || read.ID != task.WorkItemID {
@@ -251,6 +260,86 @@ func (c CarryOut) recoverySettled(ctx context.Context, task CarryOutTask, closur
 type notApplying struct {
 	account string
 	clears  string
+	// noItem says the run stands as its own item, as a document's publication
+	// run does, so there is no tracker item to note the finding on.
+	noItem bool
+}
+
+// documentSettledClears is what acts on an ended document publication run
+// instead of a recovery of it.
+const documentSettledClears = "Nobody needs to do anything about this decision. A re-run or a repair of a document's publication run never applies, because its work item is the run itself and the tracker holds no item for either action to start from; to publish the document again, the development manager retries it, and to end its publication she retires it, both through the document decision on the run"
+
+// documentRunSettled reports a recovery about a document's publication run that
+// does not apply, read from that run's own record, with the account the finding
+// records. Such a run's work item is the run itself, so the tracker holds no
+// item under it. Asked there, every pass learned nothing and offered the
+// recovery again; the scheduler then took a developer slot to carry it out,
+// and the re-run or repair action refused it on the same missing item, because
+// both read the item before they start anything (Rerunner.itemCanBeRun,
+// RepairContinuer). So the slot stood counted on every pull for a run that
+// could never start.
+//
+// It does not apply where:
+//
+//   - the run published its document: nothing of it is left to run again;
+//   - the decision is a re-run or a repair and the run has ended, whenever the
+//     decision was made. Neither action can start without a tracker item, and
+//     the development manager's document decision is what acts on a stopped
+//     publication instead: a retry publishes the document again by a run of
+//     its own, and a retirement ends its publication;
+//   - the development manager already retried or retired the document at or
+//     after any other recovery was decided.
+//
+// The third bullet is for the harness's own continuations of a document run;
+// the second answers every decision of hers about an ended one.
+//
+// The boolean after settled reports that the run is a document's publication
+// standing as its own item, which decides the question whether or not it is
+// settled: the tracker has nothing to add. A run nobody recorded, or one that is
+// not a document's publication, is not this question, and the caller reads the
+// item as it always did.
+func documentRunSettled(task CarryOutTask, recorded []runstate.State) (string, bool, bool) {
+	var run runstate.State
+	found := false
+	for _, state := range recorded {
+		if state.RunID == task.RunID {
+			run, found = state, true
+			break
+		}
+	}
+	if !found || run.Document == nil || run.WorkItemID != task.WorkItemID || run.WorkItemID != run.RunID {
+		return "", false, false
+	}
+	document := fmt.Sprintf("document %s (%s)", run.Document.WriteID, strings.TrimSpace(run.Document.Candidate.Artifact.Title))
+	kept := "Nothing was started and nothing was spent, and nothing was removed: the run's record and the decision are kept"
+	if run.Status == runstate.StatusSucceeded {
+		return fmt.Sprintf("run %s published %s and succeeded, so there is nothing of it to run again. %s", run.RunID, document, kept), true, true
+	}
+	decided := run.DocumentDecision
+	what := ""
+	if decided != nil {
+		what = fmt.Sprintf("; %s retired the document, ending its publication, at %s", strings.TrimSpace(decided.DecidedBy), decided.DecidedAt.UTC().Format(time.RFC3339))
+		if decided.Decision == runstate.DocumentDecisionRetry {
+			what = fmt.Sprintf("; %s retried the document", strings.TrimSpace(decided.DecidedBy))
+			if decided.RetriedAs != "" {
+				what += " as run " + decided.RetriedAs
+			}
+			what += " at " + decided.DecidedAt.UTC().Format(time.RFC3339)
+		}
+		if reason := strings.TrimSpace(decided.Reason); reason != "" {
+			what += " (" + singleLine(reason, 512) + ")"
+		}
+	}
+	recovery := task.Decision == runstate.TriageDecisionRerun || task.Decision == runstate.TriageDecisionRepair
+	if recovery && run.Status.Terminal() {
+		return fmt.Sprintf("run %s was the publication of %s and ended as %s%s. %s, %s, cannot be carried out on it: the run's work item is the run itself, the tracker holds no item for a re-run or a repair to start from, and a stopped publication is acted on through the document decision instead. %s",
+			run.RunID, document, run.Status, what, recoverySays(task), decidedSays(task), kept), true, true
+	}
+	if decided == nil || (!task.DecidedAt.IsZero() && decided.DecidedAt.Before(task.DecidedAt)) {
+		return "", false, true
+	}
+	return fmt.Sprintf("run %s was the publication of %s%s, %s, so there is nothing left of this run for %s to do. %s",
+		run.RunID, document, what, decidedSays(task), recoverySays(task), kept), true, true
 }
 
 // setAsideClears is what would make a recovery set aside for a replacement
@@ -492,7 +581,7 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 		// Nobody decided a harness continuation, so there is no decision on the
 		// triage record to write a finding against. The explanation goes onto the
 		// item's notes instead, once: the same account read again is the same note.
-		if c.Notes == nil {
+		if c.Notes == nil || found.noItem {
 			return carried
 		}
 		note := fmt.Sprintf("Yoyodyne did not continue run %s itself, because continuing it no longer applies: %s. %s",
@@ -522,7 +611,9 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 		carried.RecordProblem = fmt.Sprintf("and that could not be written onto %s's triage record, so the next pass finds it again: %v", task.WorkItemID, err)
 		return carried
 	}
-	if c.Notes != nil {
+	// A run that stands as its own item has no tracker item to note it on; the
+	// triage record, which the docket reads, is where its finding is kept.
+	if c.Notes != nil && !found.noItem {
 		noting, stopNoting := trackerRecordContext(ctx)
 		defer stopNoting()
 		if err := c.deliverItemNotes(noting, task.WorkItemID); err != nil {
