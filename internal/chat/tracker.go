@@ -1799,6 +1799,11 @@ func (s *Session) applyTrackerAction(ctx context.Context, outcome *TrackerOutcom
 	// Where in the message's record of tracker waits this action starts, so what
 	// it reports about waiting is its own rather than the message's.
 	waitsBefore := s.trackerRetryAttempts()
+	if outcome.Action.Action != actionRead {
+		// Whatever this action writes, a read after it is of the tracker as it now
+		// stands (see ancestorReads).
+		s.ancestors.clear()
+	}
 	if outcome.Action.readsTargetFirst() {
 		s.readActionTarget(ctx, outcome)
 	}

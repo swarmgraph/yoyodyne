@@ -1130,13 +1130,18 @@ note naming it was in the part of the notes the read cut.
 A read also says when the item is blocked through an item it was broken out
 of. Beads holds back every item under a parent that waits on unfinished work,
 and nothing on the child's own links says so. So between the item and its runs
-the read walks the item's parents as the tracker holds them now, and where one
+the read walks the item's parents as the tracker holds them, and where one
 waits on work the item does not record itself, it says so on an `inherited
 block:` line naming the chain of parents and what the waiting one waits on:
 
 ```text
 inherited block: blocked through its parent 'Automatic document publication' (yoyodyne-ifd.433.21), which waits on 'Amendment ownership design' (yoyodyne-ifd.437.14, open). The item records no such link itself; the tracker holds it back with its parent, and offers it once that work is finished.
 ```
+
+Within one conversation a parent read in the last minute is reused rather than
+read again, so the line can describe a parent as it stood up to a minute ago.
+Any tracker action other than a read drops what was kept, so a role always sees
+the effect of its own change.
 
 Each item is named by its title and then its identifier, and by its identifier
 alone where the tracker gave no title. A wait further up names every link —
