@@ -8838,11 +8838,17 @@ the intake hold, the stoppage being over, the item being one a run may start on,
 a free developer slot. Crossing a cap and spending it are two decisions and stay
 two.
 
-**These budgets are per machine.** Two collaborators running their own harnesses
-against one repository each hold a full set for the same item, so a cap of one is
-a cap of two across the pair. That is a recorded limit rather than a design, and
+**These budgets are per machine unless team mode is on.** With team mode off,
+the count on one machine is the whole count. With team mode on, every spend is a
+record in the shared records reference, the count a spend is held to is the
+count across every factory, only the factory holding the item's claim spends, and
+a spend that cannot be pushed to the shared remote is not made and is not charged.
+So a cap of one is a cap of one for the team, and a factory that takes over an
+item starts from what the earlier one spent. Each factory still applies its own
+configured caps to that shared count. See
 [`docs/team-mode-scope.md`](team-mode-scope.md#a-recorded-gap-per-item-budgets-are-per-machine)
-states it where the team-mode design will need it.
+and section 8 of
+[the design for working alongside other contributors](designs/working-alongside-other-contributors.md#8-each-items-budgets-across-machines).
 
 #### A crossing the development manager takes himself
 
