@@ -5579,6 +5579,14 @@ has the rule.
   development manager's passes carry lists it as a condition, with the same
   reason.
 
+  A run waiting on GitHub's checks holds no developer slot. When the scheduler's
+  last word is that no slot stands empty, yet this reading finds a slot free,
+  ready work startable, and runs waiting on GitHub's checks, and that has stood
+  for five minutes, the reading says it itself: no run is working in the free
+  slots, the runs waiting on GitHub hold none, and it names each of those runs.
+  The development manager moves it, because the scheduler and the reading
+  disagree about the slots.
+
   ```text
   Running (2 developer runs, and developer slot 3 empty while ready work waits):
     …
