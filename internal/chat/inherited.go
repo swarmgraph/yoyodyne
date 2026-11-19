@@ -5,7 +5,8 @@ package chat
 // The tracker holds every item under a waiting parent back with it, and nothing
 // on the child's own links says so: a read of the child showed its own links and
 // nothing holding it, and roles read it as ready while the tracker offered it to
-// nobody. So a read walks the item's parents as the tracker holds them now and
+// nobody. So a read walks the item's parents as the tracker holds them (a parent
+// this session read in the last minute is reused: see ancestorreads.go) and
 // says, after the item, which of them waits and on what. It reports a state the
 // tracker already holds and changes nothing about readiness; where every parent
 // that waits is waiting on the item itself, it says the scheduler offers the
