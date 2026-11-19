@@ -15,8 +15,21 @@ import (
 // than to the process, so two writes from one process queue behind one another
 // exactly as two processes' do.
 func lockWriteFile(ctx context.Context, file *os.File) error {
+	return lockFile(ctx, file, syscall.LOCK_EX)
+}
+
+// lockStoreFile takes the store lock (storelock.go): shared for an ordinary bd
+// call, exclusive for the rebuild of the store.
+func lockStoreFile(ctx context.Context, file *os.File, shared bool) error {
+	if shared {
+		return lockFile(ctx, file, syscall.LOCK_SH)
+	}
+	return lockFile(ctx, file, syscall.LOCK_EX)
+}
+
+func lockFile(ctx context.Context, file *os.File, how int) error {
 	for {
-		err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		err := syscall.Flock(int(file.Fd()), how|syscall.LOCK_NB)
 		if err == nil {
 			return nil
 		}

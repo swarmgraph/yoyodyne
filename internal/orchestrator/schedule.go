@@ -282,11 +282,6 @@ const (
 	// converged; every run a drain started into it would stop on the same
 	// divergence after a whole development and review.
 	ScheduleDivergedTarget = "a target branch will not catch up to the remote's, so nothing more was chosen"
-	// ScheduleSquashHeld reports a drain that stopped because maintenance holds
-	// new runs while a squash of the tracker store is due or running. A watch
-	// waits it out instead, until maintenance lifts the hold or it ends on its
-	// own (squashhold.go).
-	ScheduleSquashHeld = "maintenance is squashing the tracker store's history, so nothing more was chosen"
 	// ScheduleWaitingPullRequests reports a drain that stopped because as many
 	// approved changes as execution.max_waiting_pull_requests allows are waiting
 	// for a person to merge their pull requests. A watch waits it out instead,
@@ -922,11 +917,6 @@ type Pull struct {
 	// pull wired without it chooses into a wedged target exactly as it did, and
 	// each run it starts stops on the divergence itself.
 	Divergences ScheduleDivergences
-	// SquashHolds is maintenance's hold on new runs while a squash of the
-	// tracker store is due or running. Optional; see squashhold.go. A pull
-	// wired without it starts runs into the squash, whose tracker reads wait
-	// behind it.
-	SquashHolds ScheduleSquashHolds
 	// LaunchSettings is the product's record of a developer's provider that did
 	// not put in force what a developer is launched with, and Build the harness
 	// revision this pull runs, which a hold another build placed is lifted on.
@@ -1404,12 +1394,6 @@ type Schedule struct {
 	// read past as though none stood.
 	DivergedTargets       []runstate.DivergedTarget `json:"diverged_targets,omitempty"`
 	DivergedTargetProblem string                    `json:"diverged_target_problem,omitempty"`
-	// SquashHold is maintenance's hold on new runs for a tracker squash as the
-	// last pull found it standing, nil once it is lifted or has ended.
-	// SquashHoldProblem names a record that could not be read, which the pull
-	// read past as though none stood.
-	SquashHold        *runstate.TrackerSquashHold `json:"squash_hold,omitempty"`
-	SquashHoldProblem string                      `json:"squash_hold_problem,omitempty"`
 	// WaitingPullRequests is the pull requests waiting for a person to merge as
 	// the last pull found them, where they were at the limit that stops new
 	// work, and nil otherwise. WaitingPullRequestsProblem names a reading that
@@ -2797,23 +2781,6 @@ pulling:
 				break
 			}
 			if !awaitProvider(pull, account{reason: divergedTargetReason(diverged), running: running}) {
-				schedule.Stopped = ScheduleCancelled
-				break
-			}
-			continue
-		}
-		// A squash of the tracker store that maintenance has found due is read
-		// here, for the reason the divergence above is: nothing a person placed,
-		// and every run a pull started into it would read the tracker while the
-		// squash holds it. It is read before anything is re-adopted, carried out,
-		// continued, or chosen, so nothing new starts while it stands, and what is
-		// already running is collected as it ends (squashhold.go).
-		if squashing, standing := s.squashHeld(&schedule, pull); standing {
-			if !s.Watching {
-				schedule.Stopped = ScheduleSquashHeld
-				break
-			}
-			if !awaitProvider(pull, account{reason: squashing.Says(), running: running}) {
 				schedule.Stopped = ScheduleCancelled
 				break
 			}
@@ -8748,17 +8715,11 @@ func (s Schedule) Render() string {
 	if s.DivergedTargetProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.DivergedTargetProblem)
 	}
-	if s.SquashHold != nil {
-		fmt.Fprintf(&rendered, "%s\n", s.SquashHold.Says())
-	}
 	if s.WaitingPullRequests != nil {
 		fmt.Fprintf(&rendered, "%s\n", s.WaitingPullRequests.Says())
 	}
 	if s.WaitingPullRequestsProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.WaitingPullRequestsProblem)
-	}
-	if s.SquashHoldProblem != "" {
-		fmt.Fprintf(&rendered, "%s\n", s.SquashHoldProblem)
 	}
 	if s.LaunchSettingsHold != nil {
 		fmt.Fprintf(&rendered, "%s\n", s.LaunchSettingsHold.Says())

@@ -555,66 +555,50 @@ Each pass takes twelve steps, in this order, and each is recorded:
   a stage — an item or a note that is different, missing, or added — or one of
   whose commands failed, is a failure of the pass, naming what changed or what
   bd said.
-- **squash** — the live tracker store's history squashed, as
+- **store-rebuild** — the live tracker store rebuilt from its own export, as
   [the design on keeping the store small](designs/tracker-store-size.md)
-  decides, and never an item or a note. It is decided once on each
-  measurement. It squashes nothing where the measurement listed open and ready
-  items within ten seconds as the store was or after the cleanup; it squashes
-  the history older than thirty days (`bd compact --days 30 --force`) where
-  that alone brought them within ten seconds; all history (`bd flatten
-  --force`) only where that did not and squashing all of it did; and the
-  history older than thirty days where no stage did, because the listings are
-  past the limit. A store at least twice the size on disk that the last
-  finished squash left it is squashed the same way even where its listings are
-  within ten seconds, and so is a live store whose size on disk is past
-  `services.maintenance.tracker_limits.store_megabytes`, or whose listings of
-  open and ready work by the harness over the hour before took longer than
-  `listing_seconds`. Those two are read as the **limits** step reads them,
-  from the disk and from the log of calls, because a listing on an idle copy
-  is quick however large the live store has grown, so the measurement alone
-  never finds the live store due. A squash that finishes where, on the measured copy, the
-  listings were still past ten seconds after the same squash files one
-  warning for the development manager with the figures: the listings' times at
-  each stage and the store's size either side of the squash. It is not filed
-  again while the last finished squash before it had the same listing times in
-  whole seconds, and one that could not be filed is filed by the next pass. A
-  squash runs only when all three of the design's
-  conditions hold. The measurement must show every item and note unchanged at
-  the cleanup and at each squash up to the one chosen. No other process may
-  have the store open, before the copy below or after it, and a store whose
-  holders cannot be told is not squashed. And the live store must first be
-  copied whole into `tracker-store-squash-copies/` under the product's state,
-  the copy's place recorded in `tracker-store-squashes/` before bd runs. A copy
-  is kept fourteen days and removed by the first pass after that. A store in
-  use, or written to while it was copied, is a skip with the copy removed, and
-  the next pass tries again. A measurement on which any stage changed an item or
-  a note squashes nothing, and the pass files one warning for the development
-  manager naming the stage and the items; later passes on the same measurement
-  file nothing more. bd holds its lock on the store for the whole squash, so
-  every other tracker call waits behind it, and one whose own limit runs out
-  first fails and is tried again by its caller. So a squash whose time on the
-  measured copy is longer than `execution.redeploy_drain_limit` (fifteen
-  minutes by default) is not run, and the pass files one warning for the
-  development manager naming the step and that time, and, where the store's
-  size or the slow listings made it due, saying so with the store's size on
-  disk. Otherwise the pass reads
-  the store's size on disk, which lists no work items and so answers however
-  large the store is, and then holds new runs in `tracker-squash-hold.json`
-  under the product's state: a watching session starts nothing while it
-  stands, and says why at each poll. The squash starts once no developer
-  run is in flight, counted again every fifteen seconds after a first wait of
-  two minutes, so that a run the scheduler started just as the hold was
-  placed is counted. Runs still in flight once the hold has stood for
-  `execution.redeploy_drain_limit` mean no squash: the hold is lifted, new
-  runs start again, and the pass files one warning for the development
-  manager naming the step and how many runs were still going. The hold is
-  lifted however the step ends, and ends on its own at that limit plus the
-  measured copy and squash time if a pass dies holding it, so nobody has to
-  lift it by hand. The step and the record
-  say how long the squash waited for runs, how long it held the store, and how
-  long the same squash took on the measured copy, which is the figure to read beforehand; bd is stopped after twenty minutes. A
-  squash bd failed or that was stopped is a failure of the pass, and its copy is
-  what the store is restored from.
+  decides. Items, notes, dependencies, labels and comments are carried across
+  and compared; what is dropped is the store's record of past versions, which
+  no bd command gives back the disk space of (the cleanup above and `bd
+  compact` and `bd flatten` were measured to give back none). The step runs
+  where the live store's size on disk is past
+  `services.maintenance.tracker_limits.store_megabytes`, or the harness's own
+  listings of open and ready work over the hour before took longer than
+  `listing_seconds`. Both are read as the **limits** step reads them, from the
+  disk and from the log of calls, so deciding lists no work items and answers
+  however large the store is.
+
+  Each time a rebuild is due, it is made first on a copy of the live store: the
+  copy is exported, a new store is built from that export (`bd init`, `bd
+  import`, `bd gc`), the new store is exported, and the two exports are
+  compared record by record. The new store carries the old one's project
+  identity and prefix. Where the exports differ, or any step fails, or the
+  build took longer than a minute, the live store is not touched, the decision
+  is recorded in `tracker-store-rebuilds/` under the product's state, and the
+  pass files one warning for the development manager naming the step and the
+  first record that differs, or the time. A rehearsal that did not go ahead is
+  not tried again for a day.
+
+  Where the copy passes, the live store is rebuilt. The pass takes the store
+  lock exclusive, so every other tracker call waits behind it for the build,
+  which was a minute or less on the copy; it exports the live store, builds and
+  compares the new store away from the live one, and only where they match
+  moves the old database aside into `tracker-store-rebuild-kept/` (its place
+  recorded in `tracker-store-rebuilds/` first) and moves the new one into its
+  place. A move that fails puts the old database back. The lock is released
+  however the step ends. Nothing waits for developer runs in flight and nothing
+  holds new runs: a run that reads the tracker meanwhile waits behind the
+  rebuild like behind any other write, and gives up only after the 120-second
+  read wait. The old store is kept for fourteen days and removed by the first
+  pass after that. No other process may have the store open when the rebuild
+  starts, and a store whose holders cannot be told is not rebuilt; a store in
+  use, or written to while it was copied, is a skip and the next pass tries
+  again. A rebuilt store still past its size limit files one warning for the
+  development manager with the figures, not filed again until they change.
+  The step and the record say how long every other call waited, the store's
+  size either side, and where the old store is kept. Processes still running a
+  build from before this step took the store lock do not wait for it, so the
+  product is moved onto the new build before the first rebuild.
 - **limits** — the live tracker store held to
   `services.maintenance.tracker_limits`: its size on disk against
   `store_megabytes`, and how long the harness's own listings of open and ready
