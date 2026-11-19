@@ -11,12 +11,21 @@ revisions:
       by: architect
       at: 2026-10-29T02:40:20.979266Z
       reason: 'yoyodyne-jsml: the operator asked on October 28 for a developer slot that works on its label. Rules that a slot may be dedicated to its label ahead of priority 0 work elsewhere. With nothing on its label it takes the ordinary order. Work on a change already written still goes first, under the operating rule. The status line says what the slot does, and a configuration with every slot dedicated is refused. Names one build piece. Rewritten from the refused draft, with the label name marked as a name.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T05:37:16.004949Z
+      reason: 'yoyodyne-ifd.437.74: step 3 of the order for a freed dedicated slot now says that, within a priority, items the Lead Product Manager placed first come first, earliest placement first, then the rest oldest admitted, pointing to the design for placing an item first (reviewer report 5dca189a). One clause and one sentence; the decision is otherwise unchanged.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-10-29T02:40:20.979266Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1928, for document-1928.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-19T05:37:16.004949Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3040, for document-3040.1 under the automatic approval policy
 ---
 # A developer slot may be dedicated to its label
 
@@ -42,8 +51,10 @@ The whole order for a freed dedicated slot is:
 
 1. work on a change a run has already written, carrying its label;
 2. work on a change a run has already written, carrying any other label;
-3. fresh ready work carrying its label, highest priority first, then oldest admitted;
+3. fresh ready work carrying its label, highest priority first; within a priority, the items the Lead Product Manager placed first come first, earliest placement first, as [placing an item first](../designs/placing-an-item-first.md) describes, and then the rest, oldest admitted first;
 4. the ordinary order every other slot uses.
+
+The ordinary order in step 4 counts placements in the same way, so an item placed first keeps its place whichever step takes it.
 
 **4. The status line says what the slot is doing, in plain words.** The three cases read like these:
 
