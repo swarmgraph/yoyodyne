@@ -887,9 +887,12 @@ the head of the branch runs land on, every `execution.main_check_interval`,
 four hours by default, and only when the branch has moved since the last run.
 It works in a worktree of its own under the product's state directory and never
 touches your checkout. `yoyo status` says when the branch last passed them. A
-failure is not run again: it files a critical report naming the commit, the
-failing tests, the last commit that passed and the commits between, and the
-next run waits for the branch to move. A run that could not run files a
+check that fails has its failing tests run once more on the same commit. A test
+that passes then fails only when the machine is busy: the run counts as passed,
+and a warning names the test as failing under load with both results. A test
+that fails again, or a failure whose output names no test, files a critical
+report naming the commit, both runs' failing tests, the last commit that passed
+and the commits between. Either way the next run waits for the branch to move. A run that could not run files a
 warning and is tried again ten minutes later. While a run is under way, the supervisor
 waits for it to finish before it moves onto a new build.
 [The checks run on main](configuration.md#the-checks-run-on-main) has the rest.

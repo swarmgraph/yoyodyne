@@ -62,6 +62,15 @@ func (s Standing) RenderMainChecks() string {
 	}
 	latest := checks.Latest
 	if latest.Outcome == runstate.MainCheckPassed {
+		var underLoad []string
+		for _, check := range latest.Checks {
+			if check.FirstRun != nil {
+				underLoad = append(underLoad, check.Command+" ("+strings.Join(check.FirstRun.FailingTests, ", ")+")")
+			}
+		}
+		if len(underLoad) > 0 {
+			fmt.Fprintf(&text, "  Latest run passed only when its failing tests were run once more, so they fail under load: %s\n", strings.Join(underLoad, "; "))
+		}
 		return text.String()
 	}
 	on := ""
