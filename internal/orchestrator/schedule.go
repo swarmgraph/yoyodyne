@@ -1187,6 +1187,11 @@ type Started struct {
 	// began is when this session made the start, which a decision passed over
 	// because of a start still before its reservation is told (occupiedWhy).
 	began time.Time
+	// slotless marks a decided recovery the pull fired with no developer slot
+	// free, only so that its own capacity check records the full harness. It
+	// was given no slot, so it is never counted against one until its run is
+	// on record (slotlessStarts).
+	slotless bool
 	// awayCause is set when Failure is the provider turning the dispatch away —
 	// a login nobody has renewed, an API nothing reaches — which the settle reads
 	// to count the start toward nothing. It is not on the record because the
@@ -2982,12 +2987,15 @@ pulling:
 		// (stalledStarts). uncounted is both, and is what every count of the free
 		// slots below leaves out.
 		gone := workersGone(pull.Runs, occupied, mine, s.now())
-		uncounted := stalledStarts(occupied, mine, schedule.Started, pull.Capacity, s.now())
+		uncounted := slotlessStarts(occupied, mine, schedule.Started)
+		for id := range stalledStarts(withoutItems(occupied, uncounted), mine, schedule.Started, pull.Capacity, s.now()) {
+			uncounted[id] = true
+		}
 		for id := range gone {
 			uncounted[id] = true
 		}
 		free := pull.Capacity - (len(occupied) - len(uncounted))
-		pullSlots.counted(free, slotNumbers(pull.slotsOf(withoutItems(occupied, uncounted), nil).Free()))
+		pullSlots.counted(free, slotNumbers(pull.slotsOf(withoutItems(occupied, uncounted), nil).Free()), withoutItems(occupied, uncounted))
 		// freed is the slots that came free since the last pull and whose runs had
 		// held them, which the line a filling poll writes says; heldElsewhere is how
 		// many slots another process's runs hold now, which decides what a session
@@ -3276,6 +3284,12 @@ pulling:
 				filledByCarryOut++
 				tookSlot = true
 			}
+			// One fired with no slot free took none, and is left out of every count
+			// of the slots, in this pull and the next, until its run is on record.
+			if !tookSlot && !reusesSlot {
+				schedule.Started[index].slotless = true
+				uncounted[task.WorkItemID] = true
+			}
 			carrying = true
 			firedCarryOuts++
 			// Hosted like any run this session starts, so a drain bound that runs
@@ -3332,6 +3346,7 @@ pulling:
 				id := signal.task.WorkItemID
 				if state, placed := occupied[id]; placed && state.RunID == "" {
 					delete(occupied, id)
+					delete(uncounted, id)
 					waitingRuns[id] = state
 				}
 			}
@@ -3497,7 +3512,11 @@ pulling:
 		if free < 1 {
 			// Every slot is counted as taken, which is an empty slot only where one
 			// is counted for a start of this session that has no run on record.
-			pullSlots.say(countedAccount(withoutItems(occupied, uncounted), uncounted, mine, schedule.Started, s.now()))
+			counted := countedAccount(withoutItems(occupied, uncounted), uncounted, mine, schedule.Started, s.now())
+			if counted == nil {
+				counted = everyTaken(withoutItems(occupied, uncounted))
+			}
+			pullSlots.say(counted)
 			session.emptySlots(pullSlots.account)
 			// Closing a conversation-carried item whose document has landed needs
 			// no slot, so a full machine does not hold it back: the queue is read
@@ -8301,6 +8320,28 @@ func stalledStarts(occupied map[string]runstate.State, mine map[string]int, star
 	set := make(map[string]bool, len(stalled))
 	for _, start := range stalled[:min(len(stalled), max(capacity, 0))] {
 		set[start.id] = true
+	}
+	return set
+}
+
+// slotlessStarts is the session's own starts with no run on record that were
+// fired with no developer slot free (Started.slotless). A pull with no slot
+// free still fires a decided recovery so that its capacity check records the
+// full harness; that start holds no slot, and counting one for it while it
+// waits on the tracker kept the next pull full as well, which fired the next
+// decision the same way, so fresh work never found a slot. Unlike a stalled
+// start it is left out at once and without a bound: it was never given a slot.
+// Its run, once reserved, is counted from its record like any other.
+func slotlessStarts(occupied map[string]runstate.State, mine map[string]int, started []Started) map[string]bool {
+	set := map[string]bool{}
+	for id, state := range occupied {
+		index, ours := mine[id]
+		if !ours || state.RunID != "" || index < 0 || index >= len(started) {
+			continue
+		}
+		if started[index].slotless {
+			set[id] = true
+		}
 	}
 	return set
 }

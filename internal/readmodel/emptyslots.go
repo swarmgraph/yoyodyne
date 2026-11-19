@@ -86,7 +86,7 @@ type emptySlotsReading struct {
 // because the scheduler writes again only once it next polls; a slot still
 // counted as taken is kept whatever the count says, because the count is what
 // it is about.
-func readEmptySlots(sources Sources, reading emptySlotsReading) (*EmptySlots, string) {
+func readEmptySlots(sources Sources, reading emptySlotsReading, waiting []RunningRun, now time.Time) (*EmptySlots, string) {
 	if sources.Sessions == nil {
 		return nil, ""
 	}
@@ -96,7 +96,7 @@ func readEmptySlots(sources Sources, reading emptySlotsReading) (*EmptySlots, st
 	}
 	account, session, standing := LatestEmptySlots(sessions)
 	if !standing {
-		return nil, ""
+		return forgeWaitSlots(sessions, reading, waiting, now), ""
 	}
 	if account.Cause != ownership.EmptySlotStillCounted && reading.free == 0 {
 		return nil, ""
@@ -110,6 +110,88 @@ func readEmptySlots(sources Sources, reading emptySlotsReading) (*EmptySlots, st
 		record.EmptySlot = account.Cause
 	}
 	return &EmptySlots{EmptySlots: account, SessionID: session, Owner: ownership.Resolve(ownership.KindEmptySlot, record)}, ""
+}
+
+// forgeWaitStands is how long the scheduler may go without reporting a free slot
+// empty, beside ready work and runs waiting on GitHub's checks, before the read
+// model says so itself. It is several polls, so a slot the next poll fills is
+// not reported.
+const forgeWaitStands = 5 * time.Minute
+
+// forgeWaitSlots is the account the read model makes itself where the scheduler
+// reports no empty slot, yet this reading finds a developer slot free, ready work
+// startable, and runs waiting on GitHub's checks. Such a run holds no slot
+// (runstate.State.HoldsDeveloperSlot), so the slot is free and ready work should
+// have been started into it; the scheduler saying nothing is the contradiction.
+// It names the runs waiting so a reader sees what the slot was last used for. It
+// answers nothing before the scheduler's last word has stood for
+// forgeWaitStands, or where no scheduler word is on record to measure from.
+func forgeWaitSlots(sessions []runstate.WatchTransition, reading emptySlotsReading, waiting []RunningRun, now time.Time) *EmptySlots {
+	if reading.free < 1 || reading.startable < 1 || reading.held {
+		return nil
+	}
+	var runs []string
+	for _, run := range waiting {
+		if run.WaitingForCI {
+			runs = append(runs, titled(run.Title, run.WorkItemID))
+		}
+	}
+	if len(runs) == 0 {
+		return nil
+	}
+	var last *runstate.WatchTransition
+	for index := range sessions {
+		if sessions[index].EmptySlots != nil && (last == nil || !sessions[index].EmptySlots.At.Before(last.EmptySlots.At)) {
+			last = &sessions[index]
+		}
+	}
+	if last == nil || !last.EmptySlots.Cleared {
+		return nil
+	}
+	// What the scheduler last said was that no slot stood empty; the reading
+	// finding one free since then is the disagreement, and its age is how long
+	// the scheduler's word has stood.
+	if now.Sub(last.EmptySlots.At) < forgeWaitStands {
+		return nil
+	}
+	shown := runs
+	if len(shown) > runstate.MaxEmptySlotItems {
+		shown = shown[:runstate.MaxEmptySlotItems]
+	}
+	// What the scheduler last counted, where it said, is the other half of the
+	// disagreement: a count of every slot taken names what it counted.
+	counted := ""
+	if last.EmptySlots.Ended == runstate.EmptySlotsEveryTaken {
+		counted = "; the scheduler last counted every developer slot taken"
+		if len(last.EmptySlots.TakenBy) > 0 {
+			counted = strings.TrimPrefix(last.EmptySlots.Says(), "no developer slot is left empty while ready work waits: ")
+			counted = "; the scheduler last said " + counted
+		}
+	}
+	account := runstate.EmptySlots{
+		Cause: ownership.EmptySlotWaitingOnForge,
+		Reason: singleLine(fmt.Sprintf("no run is working in %s, and the scheduler has reported none empty since %s%s; the runs waiting on GitHub's checks hold no developer slot: %s",
+			slotsFree(reading.free), localMoment(last.EmptySlots.At), counted, strings.Join(shown, ", ")), runstate.MaxWatchReasonBytes),
+		FreeSlots: reading.free,
+		Ready:     reading.startable,
+		Since:     last.EmptySlots.At,
+		At:        last.EmptySlots.At,
+	}
+	return &EmptySlots{EmptySlots: account, SessionID: last.SessionID, Owner: ownership.Resolve(ownership.KindEmptySlot, ownership.Record{EmptySlot: account.Cause})}
+}
+
+func slotsFree(free int) string {
+	if free == 1 {
+		return "1 developer slot"
+	}
+	return fmt.Sprintf("%d developer slots", free)
+}
+
+func titled(title, id string) string {
+	if strings.TrimSpace(title) == "" {
+		return id
+	}
+	return title + " (" + id + ")"
 }
 
 // renderEmptySlots is the lines the running line says the account in: the
