@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-11-09T12:24:07.492529Z
       reason: 'Brings race point 3 into line with choosing checks by change as revised on November 8 (document-2501.1, answering amendment-ce54085e): the harness''s own merge queue''s whole run over exactly the commit that lands now verifies the merge candidate for the race check, read from the harness''s own records, and point 3 names the same four cases as that design. Points 1, 2 and 4, the macOS paragraphs and the weekly measures are unchanged. Three passages elsewhere in this design that still name only the forge''s queue follow with the design for the queue''s pace. Read whole at main bbdc919a.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T19:32:40.572051Z
+      reason: 'Ruling on the run on main every four hours (race point 4), asked for by yoyodyne-fgkk: a failure runs only its failing tests once more on the same commit; a test that then passes is reported at warning with both results, one that fails again at critical as before, and a test that does this twice in seven days at critical. Every other paragraph of the section is unchanged. The merge-queue pace design''s decision 1 and this design''s reviewer line follow in their own revisions. Read whole at main 035882f4d009.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-11-09T12:24:07.492529Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2526, for document-2526.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-19T19:32:40.572051Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3131, for document-3131.1 under the automatic approval policy
 ---
 # Guarantees the whole system relies on: one owning component and one way in for each
 
@@ -262,7 +271,13 @@ Measured October 20 to 25, the single `make race` permit was busy 72% of 130 hou
    - **A queue is on, but its conditions are not shown to hold.** Where a condition of either queue case is not met, not declared, shown false or could not be read, where the harness's queue no longer runs the full race check, or where the queue checked a commit other than the one that lands, the local full race check runs on the merge candidate, as with no queue, because when in doubt, everything runs. The record names the condition that was not shown, and why.
    Every other check before promotion runs whole on this machine in every case. How the harness's queue lands more than one change an hour, and where its race check then runs, is being designed under yoyodyne-ifd.429.132. Until that design lands and revises this point, the second case needs the queue's own run to include the full race check.
    This differs from the answer I gave in exchange 9bb52ecf, which only recorded a failed condition; from this point as first written in this design, which also accepted a forge rule that a branch be current and did not say what a setting that could not be read meant; and from its October 25 revision, which let only the forge's merge queue stand in for the local run.
-4. **A full race run on main: accepted.** The harness runs the whole `make race` on main every four hours, only when main has moved since the last clean run. It runs as one of the harness's recurring tasks, whose schedule the development manager sets under section 6, and takes a permit like any other check. A failure is not run again to make it pass. The harness files a critical report naming the failing tests, the commit, the last clean commit and the commits between them. That is admitted at priority 0 with the reliability label, as the operating rules require for anything that blocks reliable execution, so work enters through admission like any other.
+4. **A full race run on main: accepted.** The harness runs the whole `make race` on main every four hours, only when main has moved since the last clean run. It runs as one of the harness's recurring tasks, whose schedule the development manager sets under section 6, and takes a permit like any other check. When it fails, the harness does this:
+   - The tests that failed, and only those, are run once more on the same commit, under the race detector, with the same settings and a permit of their own. Nothing else is run again, and no test is run a third time.
+   - If any of them fails again, if the failing tests cannot be named from the check's output, or if the second run cannot run, the harness files a critical report naming the failing tests, the commit, the last clean commit and the commits between them. That is admitted at priority 0 with the reliability label, as the operating rules require for anything that blocks reliable execution, so work enters through admission like any other.
+   - If every one of them passes the second time, the harness files a warning report instead of a critical one. It names each test that failed under load and then passed on the same commit, and keeps and shows both results.
+   - If the same test fails and then passes in two runs on main within seven days, the harness files the critical report above, naming both runs. A test that keeps doing this is either a race or a test that cannot be trusted, and either blocks reliable execution.
+   - A run that passed only on the second try is not a clean run. The last clean commit named in later reports stays the last commit whose run passed the first time, so a race that comes back is still traced to every commit it could have come from. The next run still waits for main to move.
+   A failure is still never run again to make it pass: the first result is kept, shown beside the second, and reported, and only its severity depends on the second run. This is the same single second run that a developer run's failure in tests the change does not touch already gets (yoyodyne-ifd.429.87). It was ruled on November 19, 2026 (yoyodyne-fgkk) because three of five runs on main that day raised critical alarms for tests that GitHub's race job passed on the same commit, and each alarm cost the operator's attention. The risk accepted is that a real race appearing only now and then is reported at warning the first time; the seven day rule and the unchanged last clean commit limit it.
 
 **Race coverage on macOS is required.** This repository has code built only on macOS: the keychain, launchd, file system and process handling. The tests only macOS exercises keep running on this machine on every change, in the short local check that [checks on CI](checks-on-ci.md) keeps. The race detector over that code runs in point 4's run on main, on this Mac. When the macOS CI job (yoyodyne-ifd.428.122) runs the race detector over that code on each pull request, it takes over that coverage, and point 4 may move to the forge.
 
