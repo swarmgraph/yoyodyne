@@ -265,33 +265,39 @@ type notApplying struct {
 	noItem bool
 }
 
-// documentSettledClears is what would make a recovery of a settled document
-// publication run apply again.
-const documentSettledClears = "Nobody needs to do anything about it. Only the development manager recording a new decision about this run, after the document's own decision, would make a recovery of it apply again"
+// documentSettledClears is what acts on an ended document publication run
+// instead of a recovery of it.
+const documentSettledClears = "Nobody needs to do anything about this decision. A re-run or a repair of a document's publication run never applies, because its work item is the run itself and the tracker holds no item for either action to start from; to publish the document again, the development manager retries it, and to end its publication she retires it, both through the document decision on the run"
 
 // documentRunSettled reports a recovery about a document's publication run that
-// no longer applies, read from that run's own record, with the account the
-// finding records. Such a run's work item is the run itself, so the tracker
-// holds nothing to say it closed; asked there, every pass failed to read it,
-// learned nothing, and offered the recovery again. The carry-out then took a
-// developer slot to attempt it, the action refused it on the same unreadable
-// item, and the slot stood counted for a run that was never going to start.
+// does not apply, read from that run's own record, with the account the finding
+// records. Such a run's work item is the run itself, so the tracker holds no
+// item under it. Asked there, every pass learned nothing and offered the
+// recovery again; the scheduler then took a developer slot to carry it out,
+// and the re-run or repair action refused it on the same missing item, because
+// both read the item before they start anything (Rerunner.itemCanBeRun,
+// RepairContinuer). So the slot stood counted on every pull for a run that
+// could never start.
 //
 // It does not apply where:
 //
 //   - the run published its document: nothing of it is left to run again;
-//   - the development manager retried or retired the document
-//     (runstate.DocumentDecision) at or after the recovery was decided. A retry
-//     publishes the document again by a run of its own, and a retirement ends
-//     its publication, so either is the document's work settled the way a
-//     closed item's is. A recovery decided after the document's decision is
-//     somebody deciding past it, and it is left to the action.
+//   - the decision is a re-run or a repair and the run has ended, whenever the
+//     decision was made. Neither action can start without a tracker item, and
+//     the development manager's document decision is what acts on a stopped
+//     publication instead: a retry publishes the document again by a run of
+//     its own, and a retirement ends its publication;
+//   - the development manager already retried or retired the document at or
+//     after any other recovery was decided.
 //
-// document reports that the run is a document's publication standing as its
-// own item, which is what decides it whether or not it is settled: the tracker
-// has nothing to add. A run nobody recorded, or one that is not a document's
-// publication, is not this question, and the caller reads the item as it
-// always did.
+// The third bullet is for the harness's own continuations of a document run;
+// the second answers every decision of hers about an ended one.
+//
+// The boolean after settled reports that the run is a document's publication
+// standing as its own item, which decides the question whether or not it is
+// settled: the tracker has nothing to add. A run nobody recorded, or one that is
+// not a document's publication, is not this question, and the caller reads the
+// item as it always did.
 func documentRunSettled(task CarryOutTask, recorded []runstate.State) (string, bool, bool) {
 	var run runstate.State
 	found := false
@@ -310,22 +316,30 @@ func documentRunSettled(task CarryOutTask, recorded []runstate.State) (string, b
 		return fmt.Sprintf("run %s published %s and succeeded, so there is nothing of it to run again. %s", run.RunID, document, kept), true, true
 	}
 	decided := run.DocumentDecision
+	what := ""
+	if decided != nil {
+		what = fmt.Sprintf("; %s retired the document, ending its publication, at %s", strings.TrimSpace(decided.DecidedBy), decided.DecidedAt.UTC().Format(time.RFC3339))
+		if decided.Decision == runstate.DocumentDecisionRetry {
+			what = fmt.Sprintf("; %s retried the document", strings.TrimSpace(decided.DecidedBy))
+			if decided.RetriedAs != "" {
+				what += " as run " + decided.RetriedAs
+			}
+			what += " at " + decided.DecidedAt.UTC().Format(time.RFC3339)
+		}
+		if reason := strings.TrimSpace(decided.Reason); reason != "" {
+			what += " (" + singleLine(reason, 512) + ")"
+		}
+	}
+	recovery := task.Decision == runstate.TriageDecisionRerun || task.Decision == runstate.TriageDecisionRepair
+	if recovery && run.Status.Terminal() {
+		return fmt.Sprintf("run %s was the publication of %s and ended as %s%s. %s, %s, cannot be carried out on it: the run's work item is the run itself, the tracker holds no item for a re-run or a repair to start from, and a stopped publication is acted on through the document decision instead. %s",
+			run.RunID, document, run.Status, what, recoverySays(task), decidedSays(task), kept), true, true
+	}
 	if decided == nil || (!task.DecidedAt.IsZero() && decided.DecidedAt.Before(task.DecidedAt)) {
 		return "", false, true
 	}
-	what := "retired the document, ending its publication"
-	if decided.Decision == runstate.DocumentDecisionRetry {
-		what = "retried the document"
-		if decided.RetriedAs != "" {
-			what += " as run " + decided.RetriedAs
-		}
-	}
-	account := fmt.Sprintf("run %s was the publication of %s, and %s %s at %s, %s, so there is nothing left of this run for %s to do",
-		run.RunID, document, strings.TrimSpace(decided.DecidedBy), what, decided.DecidedAt.UTC().Format(time.RFC3339), decidedSays(task), recoverySays(task))
-	if reason := strings.TrimSpace(decided.Reason); reason != "" {
-		account += " (" + singleLine(reason, 512) + ")"
-	}
-	return account + ". " + kept, true, true
+	return fmt.Sprintf("run %s was the publication of %s%s, %s, so there is nothing left of this run for %s to do. %s",
+		run.RunID, document, what, decidedSays(task), recoverySays(task), kept), true, true
 }
 
 // setAsideClears is what would make a recovery set aside for a replacement

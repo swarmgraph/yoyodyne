@@ -13,13 +13,15 @@ import (
 )
 
 // A document's publication run stands as its own work item, so the tracker
-// holds nothing under its identifier. A re-run the development manager decided
-// about such a run, and then made pointless by retiring or retrying the
-// document, was offered by every pass: the check that a recovery no longer
-// applies asked the tracker, learned nothing, and the scheduler took a
-// developer slot to carry the re-run out, which the action refused on the same
-// missing item. These cover that run being set aside on its own record, its
-// slot left free, and a re-run that still has work to do still offered.
+// holds nothing under its identifier, and the re-run and repair actions both
+// read the run's item from the tracker before they start anything. A re-run the
+// development manager decided about an ended publication can therefore never
+// start. Before this, the check that a recovery no longer applies asked the
+// tracker, learned nothing, and the scheduler took a developer slot on every
+// pull to carry the re-run out, which the action then refused. These cover
+// such a re-run being set aside on the run's own record, whenever it was
+// decided and whether or not the document was retried or retired, and its slot
+// left free.
 
 // noSuchItem is the tracker as it answers about a document's publication run:
 // it holds no item of that name. It counts every question so a test can show
@@ -56,6 +58,9 @@ type documentRecoveryFixture struct {
 	decider  DocumentDecider
 	tracker  *noSuchItem
 	rerunner *countingRerunner
+	// readAt is when the carry-out reads the records: after every decision a
+	// test records, as any pass that meets them is.
+	readAt time.Time
 }
 
 func newDocumentRecoveryFixture(t *testing.T, rerunAt time.Time) documentRecoveryFixture {
@@ -72,7 +77,7 @@ func newDocumentRecoveryFixture(t *testing.T, rerunAt time.Time) documentRecover
 	}
 	return documentRecoveryFixture{
 		runs: runs, docket: docketer.Docket, last: last, decider: decider(runs, forge),
-		tracker: &noSuchItem{}, rerunner: &countingRerunner{},
+		tracker: &noSuchItem{}, rerunner: &countingRerunner{}, readAt: time.Now().Add(3 * time.Hour),
 	}
 }
 
@@ -84,6 +89,7 @@ func (f documentRecoveryFixture) carryOut() CarryOut {
 		Reruns:    f.runs.Reruns(),
 		Runs:      f.runs,
 		Rerunner:  f.rerunner,
+		Clock:     docketClockAt{at: f.readAt},
 	}
 }
 
@@ -97,28 +103,26 @@ func offered(t *testing.T, carrying CarryOut) []CarryOutTask {
 	return chosen
 }
 
-// The case reported from November 16 on: the re-run was decided, then the
-// document was retired. Before the retirement the re-run is offered and takes
-// a slot, which is the decision working as meant. After it the run is skipped,
-// no slot is counted for it, the tracker is never asked about an item it does
-// not hold, and the finding is written once on the run's triage record so later
-// passes skip it without reading anything. A task the scheduler chose before
-// the retirement is refused as no longer applying when it is carried out.
-func TestARetiredDocumentPublicationsRerunIsSkippedAndHoldsNoSlot(t *testing.T) {
-	t.Parallel()
-
-	f := newDocumentRecoveryFixture(t, docketedNow)
-	before := offered(t, f.carryOut())
-	if len(before) != 1 || before[0].RunID != f.last.RunID || before[0].Decision != runstate.TriageDecisionRerun {
-		t.Fatalf("chosen = %#v, want the decided re-run chosen into a slot while the document is undecided", before)
+// rerunTask is the re-run the development manager decided about the
+// publication run, as the carry-out would offer it.
+func (f documentRecoveryFixture) rerunTask(decidedAt time.Time) CarryOutTask {
+	return CarryOutTask{
+		WorkItemID: f.last.WorkItemID, RunID: f.last.RunID, DocketKey: triage.Key(triage.ClassStoppedRun, f.last.RunID),
+		Decision: runstate.TriageDecisionRerun, Reason: rerunReasoning, DecidedAt: decidedAt,
 	}
+}
 
-	if _, err := f.decider.RetireDocument(context.Background(), f.last.RunID, developmentManagersDecision); err != nil {
-		t.Fatalf("RetireDocument() error = %v", err)
-	}
+// requireSkipped shows the publication run's re-run left out of two pulls in
+// a row with both developer slots free, the finding written on the run's triage
+// record and naming want, the re-run no longer read as waiting on the harness,
+// and the tracker never asked about an item it does not hold. Carrying out the
+// re-run anyway, as a pull that chose it before the record changed would,
+// starts nothing.
+func requireSkipped(t *testing.T, f documentRecoveryFixture, task CarryOutTask, want string) {
+	t.Helper()
 	for pass := 0; pass < 2; pass++ {
 		if chosen := offered(t, f.carryOut()); len(chosen) != 0 {
-			t.Fatalf("pass %d: chosen = %#v; want the retired publication skipped and every slot left free", pass, chosen)
+			t.Fatalf("pass %d: chosen = %#v; want the publication run's re-run skipped and every slot left free", pass, chosen)
 		}
 		if _, err := f.carryOut().RecordUnattempted(context.Background(), time.Minute, nil); err != nil {
 			t.Fatalf("pass %d: RecordUnattempted() error = %v", pass, err)
@@ -129,8 +133,9 @@ func TestARetiredDocumentPublicationsRerunIsSkippedAndHoldsNoSlot(t *testing.T) 
 		t.Fatal(err)
 	}
 	finding, found := counters.NoLongerApplies(f.last.RunID)
-	if !found || !strings.Contains(finding.Refusal, "retired the document") || !strings.Contains(finding.Refusal, f.last.Document.WriteID) {
-		t.Fatalf("finding = %#v, %v; want one saying the document was retired", finding, found)
+	if !found || !strings.Contains(finding.Refusal, want) || !strings.Contains(finding.Refusal, f.last.Document.WriteID) ||
+		!strings.Contains(finding.Clears, "retries it") || !strings.Contains(finding.Clears, "retires it") {
+		t.Fatalf("finding = %#v, %v; want one saying %q and pointing to the document retry or retirement", finding, found, want)
 	}
 	if counters.AwaitingCarryOut(f.last.RunID) {
 		t.Fatal("the re-run still reads as awaiting the harness")
@@ -138,8 +143,7 @@ func TestARetiredDocumentPublicationsRerunIsSkippedAndHoldsNoSlot(t *testing.T) 
 	if f.tracker.shown != 0 || f.tracker.noted != 0 {
 		t.Fatalf("the tracker was asked %d time(s) and noted %d time(s) about an item it does not hold", f.tracker.shown, f.tracker.noted)
 	}
-
-	carried, outcome, err := f.carryOut().Carry(context.Background(), before[0])
+	carried, outcome, err := f.carryOut().Carry(context.Background(), task)
 	if err != nil {
 		t.Fatalf("Carry() error = %v", err)
 	}
@@ -148,30 +152,53 @@ func TestARetiredDocumentPublicationsRerunIsSkippedAndHoldsNoSlot(t *testing.T) 
 	}
 }
 
+// A failed publication with a re-run decided and no document decision: the
+// re-run action reads the run's work item from the tracker before it starts,
+// and the tracker holds none, so the re-run can never start. Before this it was
+// chosen into a developer slot on every pull and refused there.
+func TestAFailedDocumentPublicationsRerunIsSkippedAndHoldsNoSlot(t *testing.T) {
+	t.Parallel()
+
+	f := newDocumentRecoveryFixture(t, docketedNow)
+	if f.last.Status != runstate.StatusFailed || f.last.DocumentDecision != nil {
+		t.Fatalf("run = %s with document decision %+v, want a failed publication nobody has decided", f.last.Status, f.last.DocumentDecision)
+	}
+	requireSkipped(t, f, f.rerunTask(docketedNow), "cannot be carried out on it")
+}
+
+// The case reported from November 16 on: the re-run was decided on October
+// 12, and the document was retired on October 13.
+func TestARetiredDocumentPublicationsRerunIsSkippedAndHoldsNoSlot(t *testing.T) {
+	t.Parallel()
+
+	f := newDocumentRecoveryFixture(t, docketedNow)
+	if _, err := f.decider.RetireDocument(context.Background(), f.last.RunID, developmentManagersDecision); err != nil {
+		t.Fatalf("RetireDocument() error = %v", err)
+	}
+	requireSkipped(t, f, f.rerunTask(docketedNow), "retired the document")
+}
+
+// A re-run decided after the retirement cannot start either, so it is skipped
+// the same way rather than holding a slot on every pull.
+func TestARerunDecidedAfterTheDocumentsRetirementIsSkipped(t *testing.T) {
+	t.Parallel()
+
+	later := time.Now().Add(time.Hour)
+	f := newDocumentRecoveryFixture(t, later)
+	if _, err := f.decider.RetireDocument(context.Background(), f.last.RunID, developmentManagersDecision); err != nil {
+		t.Fatalf("RetireDocument() error = %v", err)
+	}
+	requireSkipped(t, f, f.rerunTask(later), "retired the document")
+}
+
 // A retry is the document's publication handed to a run of its own, so a
-// re-run of the stopped run decided before it is skipped the same way.
-func TestARetriedDocumentPublicationsEarlierRerunIsSkipped(t *testing.T) {
+// re-run of the stopped run is skipped the same way.
+func TestARetriedDocumentPublicationsRerunIsSkipped(t *testing.T) {
 	t.Parallel()
 
 	f := newDocumentRecoveryFixture(t, docketedNow)
 	if _, err := f.decider.RetryDocument(context.Background(), f.last.RunID, developmentManagersDecision); err != nil {
 		t.Fatalf("RetryDocument() error = %v", err)
 	}
-	if chosen := offered(t, f.carryOut()); len(chosen) != 0 {
-		t.Fatalf("chosen = %#v; want the retried publication's old re-run skipped", chosen)
-	}
-}
-
-// A re-run decided after the document's decision is somebody deciding past it,
-// so it is left to the action exactly as before.
-func TestARerunDecidedAfterTheDocumentsDecisionIsStillOffered(t *testing.T) {
-	t.Parallel()
-
-	f := newDocumentRecoveryFixture(t, time.Now().Add(time.Hour))
-	if _, err := f.decider.RetireDocument(context.Background(), f.last.RunID, developmentManagersDecision); err != nil {
-		t.Fatalf("RetireDocument() error = %v", err)
-	}
-	if chosen := offered(t, f.carryOut()); len(chosen) != 1 || chosen[0].RunID != f.last.RunID {
-		t.Fatalf("chosen = %#v, want the re-run decided after the retirement offered", chosen)
-	}
+	requireSkipped(t, f, f.rerunTask(docketedNow), "retried the document")
 }
