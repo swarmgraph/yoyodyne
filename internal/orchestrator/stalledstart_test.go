@@ -88,27 +88,32 @@ func TestFreshWorkStartsInASlotTheRecordsShowFreeWhileAStartWaitsOnASlowTracker(
 		}
 		return h.complete(id), nil
 	}
-	// Every wait moves the session's clock on by the interval it asked for, so
-	// the waiting start passes its grace within a few polls. Past ten without
-	// the fresh work started, the waiting start is let go so the test ends, and
-	// the assertions below say what went wrong.
+	// Every wait moves the session's clock on by the interval it asked for, at
+	// least a minute, so the waiting start passes its grace within a few polls.
+	// The polls cost no real time, so the waiting start is let go on a real
+	// timer instead of a count of polls: if the fresh work has not started by
+	// then, the test ends and the assertions below say what went wrong.
+	giveUp := time.AfterFunc(10*time.Second, func() {
+		harness.mu.Lock()
+		gaveUp = true
+		harness.mu.Unlock()
+		letStuckGo()
+	})
+	defer giveUp.Stop()
 	tick := func() {
 		harness.mu.Lock()
 		defer harness.mu.Unlock()
 		polls++
-		if polls > 10 && !gaveUp {
-			gaveUp = true
-			letStuckGo()
-		}
 	}
 	interval := func(wait time.Duration) <-chan time.Time {
 		<-stuckWaiting
 		tick()
 		harness.mu.Lock()
-		harness.now = harness.now.Add(wait)
+		harness.now = harness.now.Add(max(wait, time.Minute))
 		harness.mu.Unlock()
 		elapsed := make(chan time.Time, 1)
 		elapsed <- time.Time{}
+		time.Sleep(time.Millisecond)
 		return elapsed
 	}
 	harness.onSleep = func(h *scheduleHarness, _ int) bool {
@@ -116,7 +121,7 @@ func TestFreshWorkStartsInASlotTheRecordsShowFreeWhileAStartWaitsOnASlowTracker(
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		finished = !stuckPending && len(h.order) >= 2 && h.running == 0 && stuckStarts > 1
-		return !finished && polls < 20
+		return !finished && !gaveUp
 	}
 
 	schedule, err := Scheduler{
