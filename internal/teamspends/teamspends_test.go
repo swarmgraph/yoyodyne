@@ -380,3 +380,53 @@ func TestAMachineJoiningPushesItsEarlierSpendsOnce(t *testing.T) {
 		t.Errorf("SpendsJoined() = %v, %v, %v", at, done, err)
 	}
 }
+
+// A machine that spends through the shared records, and takes in another
+// factory's spend, before its join runs pushes only what it counted before it
+// began: its live counters hold records that are already on the remote.
+func TestJoiningPushesWhatWasKeptAndNotWhatSpendingRaisedTheCountersTo(t *testing.T) {
+	t.Parallel()
+	a, b, _ := newFactories(t)
+	ctx := context.Background()
+	bigger := caps
+	bigger.RepairGrants = 5
+	// B counted one repair grant before team mode, in a store that did not count
+	// through the remote, and keeps it before it spends through the remote.
+	before, err := runstate.NewStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := before.Triage().GrantRepair(ctx, item, decided(runstate.TriageDecisionRepair, runOne), 1, epoch, bigger); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.state.KeepSpendsBefore(ctx, before.Triage().All, epoch); err != nil {
+		t.Fatal(err)
+	}
+	// A spends one; B then spends one of its own, which raises B's counters to
+	// the team's count.
+	a.hold(t)
+	if _, err := a.runs.Triage().GrantRepair(ctx, item, decided(runstate.TriageDecisionRepair, runOne), 1, epoch, bigger); err != nil {
+		t.Fatal(err)
+	}
+	b.hold(t)
+	if _, err := b.runs.Triage().GrantRepair(ctx, item, decided(runstate.TriageDecisionRepair, runTwo), 1, epoch, bigger); err != nil {
+		t.Fatal(err)
+	}
+	if got := remoteSpends(t, b); got != 2 {
+		t.Fatalf("remote spends = %d before joining, want A's and B's", got)
+	}
+	// Keeping again changes nothing, as a second process starting would.
+	if err := b.state.KeepSpendsBefore(ctx, b.runs.Triage().All, epoch); err != nil {
+		t.Fatal(err)
+	}
+	joined, err := b.spender.JoinKept(ctx, b.state)
+	if err != nil || joined.Pushed != 1 {
+		t.Fatalf("JoinKept() = %+v, %v, want only the one spend counted before joining", joined, err)
+	}
+	if got := remoteSpends(t, b); got != 3 {
+		t.Errorf("remote spends = %d after joining, want 3", got)
+	}
+	if again, err := b.spender.JoinKept(ctx, b.state); err != nil || again.Pushed != 0 {
+		t.Errorf("second JoinKept() = %+v, %v, want nothing", again, err)
+	}
+}

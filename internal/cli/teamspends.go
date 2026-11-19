@@ -46,10 +46,16 @@ func teamSpends(parts components) (teamspends.Spender, *runstate.SharedRecordsSt
 
 // wireTeamSpends gives the run store the team's spends, so every grant, re-run,
 // merge re-arm and review round is counted across factories and recorded before
-// it is made. With team mode off it does nothing.
+// it is made. With team mode off it does nothing. What this machine had counted
+// on its own is kept first, once, because the first spend through the shared
+// records raises the counters to the team's count and they are no longer this
+// machine's own after it.
 func wireTeamSpends(parts components) error {
-	spender, _, on, err := teamSpends(parts)
+	spender, state, on, err := teamSpends(parts)
 	if err != nil || !on {
+		return err
+	}
+	if err := state.KeepSpendsBefore(context.Background(), parts.store.Triage().All, time.Now()); err != nil {
 		return err
 	}
 	parts.store.UseSharedSpends(spender)
@@ -64,15 +70,6 @@ func joinTeamSpends(ctx context.Context, parts components) error {
 	if err != nil || !on {
 		return err
 	}
-	if _, done, err := state.SpendsJoined(); err != nil || done {
-		return err
-	}
-	items, err := parts.store.Triage().All()
-	if err != nil {
-		return err
-	}
-	if _, err := spender.Join(ctx, items); err != nil {
-		return err
-	}
-	return state.MarkSpendsJoined(time.Now())
+	_, err = spender.JoinKept(ctx, state)
+	return err
 }

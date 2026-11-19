@@ -412,3 +412,28 @@ func keyDigest(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:])[:8]
 }
+
+// JoinKept pushes the spends this machine counted before it began counting
+// through the shared records (runstate.SharedRecordsStore.KeepSpendsBefore), once.
+// It pushes what was kept and never the live counters, which by now hold spends
+// that are already records and other factories' spends copied in. A machine that
+// already joined does nothing, and one that could not reach the remote tries
+// again at the next check.
+func (s Spender) JoinKept(ctx context.Context, state *runstate.SharedRecordsStore) (Joined, error) {
+	if _, done, err := state.SpendsJoined(); err != nil || done {
+		return Joined{}, err
+	}
+	kept, found, err := state.SpendsBefore()
+	if err != nil || !found {
+		return Joined{}, err
+	}
+	items := make([]runstate.TriageCounters, 0, len(kept))
+	for _, k := range kept {
+		items = append(items, runstate.TriageCounters{WorkItemID: k.WorkItemID, RepairGrants: k.RepairGrants, Reruns: k.Reruns, ReviewRounds: k.ReviewRounds, RearmedPublications: k.RearmedPublications})
+	}
+	joined, err := s.Join(ctx, items)
+	if err != nil {
+		return Joined{}, err
+	}
+	return joined, state.MarkSpendsJoined(s.now())
+}

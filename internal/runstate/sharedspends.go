@@ -221,3 +221,88 @@ func (s *SharedRecordsStore) MarkSpendsJoined(at time.Time) error {
 	}
 	return nil
 }
+
+// ---- what was counted before joining ----
+
+const spendsBeforeFile = "shared-spends-before.json"
+
+// SpendsBefore is what this machine had counted on one item before it began
+// counting through the shared records.
+type SpendsBefore struct {
+	WorkItemID          string         `json:"work_item_id"`
+	RepairGrants        int            `json:"repair_grants,omitempty"`
+	Reruns              int            `json:"reruns,omitempty"`
+	ReviewRounds        int            `json:"review_rounds,omitempty"`
+	RearmedPublications map[string]int `json:"rearmed_publications,omitempty"`
+}
+
+type spendsBeforeRecord struct {
+	SchemaVersion int            `json:"schema_version"`
+	At            time.Time      `json:"at"`
+	Items         []SpendsBefore `json:"items"`
+}
+
+// SpendsBefore reads what this machine counted before it joined, and false where
+// it was never kept.
+func (s *SharedRecordsStore) SpendsBefore() ([]SpendsBefore, bool, error) {
+	encoded, err := os.ReadFile(filepath.Join(s.stateRoot, s.productDirectory(), spendsBeforeFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	var record spendsBeforeRecord
+	if _, err := decodeTolerating(encoded, &record); err != nil {
+		return nil, false, fmt.Errorf("decode what was counted before joining the team's spends: %w", err)
+	}
+	return record.Items, true, nil
+}
+
+// KeepSpendsBefore keeps what this machine has counted on its own items, once,
+// before any spend is counted through the shared records. It is what joining
+// pushes, because the live counters stop being this machine's own the moment a
+// spend raises them to the team's count. Under the records lock, so a second
+// process starting beside this one finds it kept rather than keeping counters
+// the first has already raised. Nothing is kept for a machine that already
+// joined or already kept it.
+func (s *SharedRecordsStore) KeepSpendsBefore(ctx context.Context, read func() ([]TriageCounters, error), at time.Time) error {
+	release, err := s.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if _, kept, err := s.SpendsBefore(); err != nil || kept {
+		return err
+	}
+	if _, joined, err := s.SpendsJoined(); err != nil || joined {
+		return err
+	}
+	counters, err := read()
+	if err != nil {
+		return err
+	}
+	record := spendsBeforeRecord{SchemaVersion: 1, At: at.UTC(), Items: []SpendsBefore{}}
+	for _, c := range counters {
+		if c.RepairGrants == 0 && c.Reruns == 0 && c.ReviewRounds == 0 && len(c.RearmedPublications) == 0 {
+			continue
+		}
+		record.Items = append(record.Items, SpendsBefore{WorkItemID: c.WorkItemID, RepairGrants: c.RepairGrants, Reruns: c.Reruns, ReviewRounds: c.ReviewRounds, RearmedPublications: c.RearmedPublications})
+	}
+	encoded, err := encodeRecord("spends before joining", record)
+	if err != nil {
+		return err
+	}
+	root, err := pinStateRoot(s.stateRoot, s.anchor)
+	if err != nil {
+		return fmt.Errorf("pin the shared records' state root: %w", err)
+	}
+	defer root.Close()
+	if err := root.Unchanged(); err != nil {
+		return err
+	}
+	if err := root.WriteFile(filepath.Join(s.productDirectory(), spendsBeforeFile), encoded, 0o600, false); err != nil {
+		return fmt.Errorf("keep what this machine counted before joining: %w", err)
+	}
+	return nil
+}
