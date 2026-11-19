@@ -46,6 +46,10 @@ revisions:
       by: architect
       at: 2026-11-10T02:28:56.344478Z
       reason: 'Writes the change approved as amendment-705ab9d9: the sentence on how a role''s read is resolved now says a role names the intent repository on the read, the harness resolves it at the intent repository''s target-branch commit and says which repository and commit it read, and the staleness and link checks still resolve governed paths there themselves. The same section''s two uses of the word ''gate'' are reworded under the operator''s November 8 rule. Read whole at main 6f2e4b56; no requirement changes and no other section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T08:09:53.089499Z
+      reason: 'Writes two approved changes. From amendment-7289128c (developer on the companion intent repository landing route): validation check 7 now says the validation project runs it, and any part whose build has not landed is still recorded as not taken. From amendment-ed80fe5a: binding with --replace refuses while the project''s worktrees hold a worktree of the clone it would unbind that is kept from a stopped run, naming each, and goes ahead once each is settled or removed; validation check 5 and the enforced list follow. The enforced list''s ''protected-path gate'' is reworded under the operator''s November 8 rule. Read whole at main fbc388af; no other sentence changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -92,6 +96,11 @@ approvals:
       by: harness
       at: 2026-11-10T02:28:56.344478Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2564, for document-2564.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 10
+      by: harness
+      at: 2026-11-19T08:09:53.089499Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2809, for document-2809.1 under the automatic approval policy
 ---
 # The machine home
 
@@ -231,6 +240,13 @@ current. A command started in the unbound clone then meets the refusal for a
 second clone given under Identity above, naming the bound clone. Where the
 unbound repository is no longer at its recorded path there is no marker to
 remove, and binding says so rather than failing.
+
+Binding with `--replace` refuses while the project's `worktrees/` holds a
+worktree of the clone it would unbind that is kept from a stopped run, and the
+refusal names each such worktree and the run it was kept for. Those worktrees
+belong to the old clone, so binding past them would leave a stopped run's kept
+work tied to a repository the project no longer uses. Binding goes ahead once
+each of them is settled, by the decision on its run, or removed.
 
 Treating a kept configuration's `product.repository` as the authority was
 rejected. The binding is keyed on the git common directory, which every
@@ -522,13 +538,16 @@ on, and never as passed. Evidence is kept with the validation project's record.
    after.
 5. **The project commands.** Requirement: The commands. Setup: `yoyo project
    bind` while the recorded repository still exists, with and without
-   `--replace`, and while a run is in flight; `yoyo project rename` with the
-   configuration under the project directory and again with a committed id
-   that does not read the new name. Observed: each refusal this design names
-   happens and changes nothing; each command that succeeds says what it did;
-   and each is recorded in the project's state as an act naming who ran it.
-   Evidence: the outputs, the project directory before and after, and the
-   recorded acts.
+   `--replace`, and while a run is in flight; `yoyo project bind --replace`
+   while the project's `worktrees/` holds a worktree of the clone it would
+   unbind that is kept from a stopped run, and again once that worktree is
+   removed; `yoyo project rename` with the configuration under the project
+   directory and again with a committed id that does not read the new name.
+   Observed: each refusal this design names happens and changes nothing, and
+   the refusal for a kept worktree names each such worktree and its run; each
+   command that succeeds says what it did; and each is recorded in the
+   project's state as an act naming who ran it. Evidence: the outputs, the
+   project directory before and after, and the recorded acts.
 6. **The move.** Requirement: The migration, with a harness running. Setup: an
    old platform home holding one product's state, an external configuration,
    one preserved worktree, a run record naming that worktree, and one run in
@@ -566,8 +585,10 @@ on, and never as passed. Evidence is kept with the validation project's record.
    in a worktree is untracked and listed in that worktree's exclude file; and
    the record of a landed change names both commits. Evidence: `git status` of
    both repositories, the landed commit in the intent repository, the refusal,
-   and the record naming both commits. Until the contributor-mode epic
-   (yoyodyne-ifd.78) builds this, the check is recorded as not taken.
+   and the record naming both commits. The validation project runs this check
+   from the build of the checked and reviewed landing route into the companion
+   intent repository (yoyodyne-ifd.78.2) on. A part of it whose build has not
+   landed is recorded as not taken, naming that build, as for every check.
 
 The validation also records three measurements of first use, with no target set
 for any of them:
@@ -586,6 +607,9 @@ A measurement that was not taken is recorded as not taken, never as zero.
 - A `product.id` that is not one safe path segment is refused at load.
 - The binding refusals above: second clone, shared id, and missing repository,
   each with its remedy named; a first start binds and says so.
+- Binding with `--replace` refuses while the project's `worktrees/` holds a
+  worktree of the clone it would unbind that is kept from a stopped run,
+  naming each.
 - The machine's identity is made only when `machine-identity.json` is absent,
   and never made again while the file is there.
 - State is never moved while anything is in flight: the supervisor moves it
@@ -600,7 +624,7 @@ A measurement that was not taken is recorded as not taken, never as zero.
 - While `home-move.json` shows a step not done, no process does work in either
   home except finishing or undoing the move.
 - The intent repository's target is a promotion target under the lease, and the
-  protected-path gate applies to its homes as to the project's.
+  check on protected paths applies to its homes as to the project's.
 - A record that evidences a change carries both commits where there are two.
 
 ## Alternatives rejected
