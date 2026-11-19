@@ -107,7 +107,7 @@ func TestTheStallIsNamedInTheOrderAnOperatorActsIn(t *testing.T) {
 // restart, and it waits on nobody.
 func TestASessionRestartingIntoADeployedBuildIsNeitherIdleNorAbsent(t *testing.T) {
 	t.Parallel()
-	since := moment.Add(-20 * time.Minute)
+	since := moment.Add(-16 * time.Minute)
 	drained := runstate.WatchTransition{SessionID: "watch-1", State: runstate.WatchIdle, At: moment.Add(-time.Minute),
 		Draining: &runstate.WatchDrain{Since: since, BoundSeconds: 900, Until: since.Add(15 * time.Minute), Hosting: 1, BoundReached: true}}
 	stall := WhyNothingStarts(Conditions{Sessions: held(drained), Now: moment})
@@ -168,10 +168,13 @@ func TestASessionRestartingIntoADeployedBuildIsNeitherIdleNorAbsent(t *testing.T
 	if stall := WhyNothingStarts(Conditions{Sessions: held(skipped), Now: moment}); stall.Reason != ReasonRedeploying || !strings.Contains(stall.Says, "less than one poll away") {
 		t.Fatalf("stall = %+v, want the skipped pull named as the session restarting", stall)
 	}
-	// A skip whose bound is long past belongs to a session that has since
-	// stopped or died, and reads as the idle line it is.
-	if stall := WhyNothingStarts(Conditions{Sessions: held(skipped), Now: moment.Add(time.Hour)}); stall.Reason != ReasonSessionIdle {
-		t.Fatalf("stall = %+v, want a stale skip read as an idle session", stall)
+	// A skip whose bound is long past, with no line since saying the bound was
+	// reached, belongs to a session that never got back to mark it: stuck or
+	// dead while still live in the log, and read as past its wind-down limit
+	// rather than as an idle session. A session that stopped since says so in
+	// a later line of its own.
+	if stall := WhyNothingStarts(Conditions{Sessions: held(skipped), Now: moment.Add(time.Hour)}); stall.Reason != ReasonDrainOverrun {
+		t.Fatalf("stall = %+v, want a stale skip read as a session past its wind-down limit", stall)
 	}
 
 	restarting := runstate.WatchTransition{SessionID: "watch-1", State: runstate.WatchStopped, At: moment.Add(-time.Minute), Restarting: true}
@@ -198,7 +201,7 @@ func TestASessionRestartingIntoADeployedBuildIsNeitherIdleNorAbsent(t *testing.T
 	// drain: it pulls into free seats and fires its tasks right up to the restart.
 	watching := runstate.WatchTransition{SessionID: "watch-2", State: runstate.WatchWatching, At: moment,
 		Draining: &runstate.WatchDrain{Since: since, BoundSeconds: 900, Until: since.Add(15 * time.Minute), Hosting: 1}}
-	if stall := WhyNothingStarts(Conditions{Sessions: held(watching)}); stall.Stopped() {
+	if stall := WhyNothingStarts(Conditions{Sessions: held(watching), Now: moment}); stall.Stopped() {
 		t.Fatalf("stall = %+v, want a draining session inside its bound read as choosing", stall)
 	}
 }
@@ -221,7 +224,7 @@ func TestASessionDrainingPastItsBoundIsAFactoryProblem(t *testing.T) {
 	if stall.Reason != ReasonDrainOverrun || !stall.Since.Equal(until) {
 		t.Fatalf("stall = %+v, want the session named as draining past its bound since the bound ran out", stall)
 	}
-	for _, want := range []string{"watch-8b54", "draining past its bound since " + localMoment(until), "has not restarted", "pulls no new work"} {
+	for _, want := range []string{"watch-8b54", "past its limit for winding down to move onto a new build for 45 minutes, since " + localMoment(until), "has not restarted", "pulls no new work", "the supervisor restarts it once it is 5 minutes past that limit"} {
 		if !strings.Contains(stall.Says, want) {
 			t.Fatalf("says = %q, want %q in it", stall.Says, want)
 		}
@@ -602,5 +605,111 @@ func TestABlockedSessionCarriesItsCauseAheadOfAnIdleSession(t *testing.T) {
 	watching := runstate.WatchTransition{SessionID: "working", State: runstate.WatchWatching, At: moment}
 	if got := WhyNothingStarts(Conditions{Sessions: held(blocked, watching), Now: moment}); got.Stopped() {
 		t.Fatalf("a session choosing work was reported as stopped: %+v", got)
+	}
+}
+
+// A session whose wind-down for a move onto a new build has passed its limit
+// is named in plain words with how long it has been past, and is due to be
+// restarted by the supervisor once it is DrainRestartAfter past it. The shape
+// is the one seen on 2026-11-18: the session began winding down at 17:53, its
+// fifteen minutes ran out at 18:08, and it wrote nothing more — not even that
+// the bound was reached.
+func TestASessionPastItsWindDownLimitIsNamedAndDueARestart(t *testing.T) {
+	t.Parallel()
+	since := time.Date(2026, 11, 19, 1, 53, 0, 0, time.UTC)
+	limit := since.Add(15 * time.Minute)
+	stuck := runstate.WatchTransition{SessionID: "watch-e4c9", State: runstate.WatchWatching, At: since.Add(time.Minute),
+		Draining: &runstate.WatchDrain{Since: since, BoundSeconds: 900, Until: limit, Hosting: 2}}
+	sessions := []runstate.WatchTransition{stuck}
+
+	if _, past := DrainPastLimit(sessions, limit.Add(-time.Second)); past {
+		t.Fatal("a session inside its wind-down limit was read as past it")
+	}
+	if _, over := DrainOverrunOf(sessions, limit.Add(DrainOverrunAfter-time.Second)); over {
+		t.Fatal("a session moments past its limit was named as stuck before it had time to restart")
+	}
+	stall, over := DrainOverrunOf(sessions, limit.Add(DrainOverrunAfter))
+	if !over || !stall.Since.Equal(limit) {
+		t.Fatalf("stall = %+v, want a session past its limit with no line since named as stuck from its limit", stall)
+	}
+	for _, want := range []string{"watch-e4c9", "past its limit for winding down to move onto a new build for 3 minutes", "since " + localMoment(limit), "has not restarted onto the new build"} {
+		if !strings.Contains(stall.Says, want) {
+			t.Fatalf("says = %q, want %q in it", stall.Says, want)
+		}
+	}
+	if _, due := DrainRestartDue(sessions, limit.Add(DrainRestartAfter-time.Second)); due {
+		t.Fatal("a session under five minutes past its limit was due a restart")
+	}
+	due, restart := DrainRestartDue(sessions, limit.Add(19*time.Minute))
+	if !restart || due.SessionID != "watch-e4c9" || due.Past != 19*time.Minute || !due.Limit.Equal(limit) {
+		t.Fatalf("due = %+v, want the session due a restart nineteen minutes past its limit", due)
+	}
+
+	// A session waiting past its bound for a check already running has the
+	// latest of those checks' deadlines as its limit.
+	checksUntil := limit.Add(10 * time.Minute)
+	checking := stuck
+	checking.Draining = &runstate.WatchDrain{Since: since, BoundSeconds: 900, Until: limit, Hosting: 1, BoundReached: true, Checking: 1, ChecksUntil: checksUntil}
+	if _, due := DrainRestartDue([]runstate.WatchTransition{checking}, checksUntil.Add(DrainRestartAfter-time.Second)); due {
+		t.Fatal("a session waiting for a running check was due a restart before the check's deadline and five minutes past it")
+	}
+	if due, restart := DrainRestartDue([]runstate.WatchTransition{checking}, checksUntil.Add(DrainRestartAfter)); !restart || !due.Limit.Equal(checksUntil) {
+		t.Fatalf("due = %+v, want the session due a restart five minutes past its last check's deadline", due)
+	}
+
+	// A session waiting past its bound on a merge queue candidate's checks
+	// waits on the candidate from one check to the next until the moment it
+	// recorded for that wait, so it is neither named as stuck nor due a
+	// restart until that moment has gone by, however soon the check it was
+	// running when it wrote its line was due to end.
+	queueUntil := limit.Add(10 * time.Minute)
+	queueing := stuck
+	queueing.At = limit.Add(time.Second)
+	queueing.Draining = &runstate.WatchDrain{Since: since, BoundSeconds: 900, Until: limit, Hosting: 1, BoundReached: true, KeptGoing: 1,
+		Checking: 1, ChecksUntil: limit.Add(2 * time.Minute), QueueChecksUntil: queueUntil,
+		CheckWaits: []runstate.WatchCheckWait{{Queue: "main", Generation: 3, Check: "make test", Until: limit.Add(2 * time.Minute)}}}
+	queued := []runstate.WatchTransition{queueing}
+	if got := DrainLimit(*queueing.Draining); !got.Equal(queueUntil) {
+		t.Fatalf("limit = %v, want %v, the latest moment the session waits on the candidate", got, queueUntil)
+	}
+	for _, now := range []time.Time{limit.Add(2*time.Minute + DrainOverrunAfter), limit.Add(2*time.Minute + DrainRestartAfter), queueUntil.Add(-time.Second)} {
+		if _, past := DrainPastLimit(queued, now); past {
+			t.Fatalf("a session waiting on a merge queue candidate's checks was read as past its limit at %v, before its wait on the candidate ended", now)
+		}
+		if stall, over := DrainOverrunOf(queued, now); over {
+			t.Fatalf("stall = %+v, want a session waiting on a merge queue candidate's checks not listed as stuck at %v", stall, now)
+		}
+		if due, restart := DrainRestartDue(queued, now); restart {
+			t.Fatalf("due = %+v, want a session waiting on a merge queue candidate's checks not restarted at %v", due, now)
+		}
+	}
+	if _, over := DrainOverrunOf(queued, queueUntil.Add(DrainOverrunAfter-time.Second)); over {
+		t.Fatal("a session moments past its wait on a merge queue candidate was named as stuck before it had time to restart")
+	}
+	if stall, over := DrainOverrunOf(queued, queueUntil.Add(DrainOverrunAfter)); !over || !stall.Since.Equal(queueUntil) {
+		t.Fatalf("stall = %+v, want a session past its wait on the candidate named as stuck from the end of that wait", stall)
+	}
+	if due, restart := DrainRestartDue(queued, queueUntil.Add(DrainRestartAfter)); !restart || !due.Limit.Equal(queueUntil) {
+		t.Fatalf("due = %+v, want the session due a restart five minutes past the end of its wait on the candidate", due)
+	}
+
+	// A promotion or a document landing still being waited out, said recently,
+	// is never cut short: stopping either part-way is what the wind-down exists
+	// to avoid, and the session restarts the moment it ends.
+	for _, waiting := range []runstate.WatchDrain{
+		{Since: since, BoundSeconds: 900, Until: limit, Hosting: 1, BoundReached: true, Promoting: 1, PromotingSince: limit},
+		{Since: since, BoundSeconds: 900, Until: limit, Hosting: 1, BoundReached: true, Publishing: 1},
+	} {
+		now := limit.Add(time.Hour)
+		line := runstate.WatchTransition{SessionID: "watch-e4c9", State: runstate.WatchWatching, At: now.Add(-time.Minute), Draining: &waiting}
+		if due, restart := DrainRestartDue([]runstate.WatchTransition{line}, now); restart {
+			t.Fatalf("due = %+v, want a session still saying it waits out a promotion or document landing left to finish it", due)
+		}
+	}
+
+	// The session that took over is not the stuck one, and nothing is due.
+	back := runstate.WatchTransition{SessionID: "watch-0497", State: runstate.WatchWatching, At: limit.Add(20 * time.Minute)}
+	if due, restart := DrainRestartDue([]runstate.WatchTransition{stuck, back}, limit.Add(21*time.Minute)); restart {
+		t.Fatalf("due = %+v, want nothing due once a session on the new build has taken over", due)
 	}
 }

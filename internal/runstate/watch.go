@@ -633,6 +633,14 @@ type WatchDrain struct {
 	Checking    int              `json:"checking,omitempty"`
 	ChecksUntil time.Time        `json:"checks_until,omitzero"`
 	CheckWaits  []WatchCheckWait `json:"check_waits,omitempty"`
+	// QueueChecksUntil is the latest moment the session waits on a merge
+	// queue's candidate, where one of CheckWaits is a queue's. A candidate goes
+	// on from one check to the next while the session waits, so the moment its
+	// current check ends, which is all ChecksUntil carries, is not when the wait
+	// ends: the session waits on it until this, the drain bound plus its ceiling
+	// on waiting for checks, and stops the queue then. Zero is no such wait, or a
+	// record from a session that did not say.
+	QueueChecksUntil time.Time `json:"queue_checks_until,omitzero"`
 	// Publishing is how many document landing runs the session was waiting on
 	// when it recorded this, past the bound: runs it hosts, and runs one of its
 	// recurring passes started. A document landing is never stopped for a

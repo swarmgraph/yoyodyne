@@ -811,6 +811,14 @@ func TestARestartLetsAMergeQueueCandidatesChecksFinish(t *testing.T) {
 			drain.CheckWaits[0].Generation == 3 && drain.CheckWaits[0].Check == "make race" &&
 			strings.Contains(drain.Says(), "the merge queue for main, checking build 3 of the queued change, to finish make race") {
 			said = true
+			// The candidate goes on from one check to the next, so the line
+			// carries the latest moment the session waits on it, the bound
+			// plus the ceiling on waiting for checks, which is what a reader
+			// of the record takes as the moment it is due to have restarted
+			// by.
+			if want := drain.Until.Add(redeployCheckWaitCeiling); !drain.QueueChecksUntil.Equal(want) {
+				t.Fatalf("queue checks until = %v, want %v, the latest moment the session waits on the candidate", drain.QueueChecksUntil, want)
+			}
 		}
 	}
 	if !said {
