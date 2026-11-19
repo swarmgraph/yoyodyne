@@ -311,6 +311,10 @@ func (s *Store) holderSays(state State, counted bool, now time.Time) string {
 	switch {
 	case state.DependencyPause != nil:
 		return "not counted: the run is paused on work its item waits on, and takes a slot again when it continues"
+	case state.CIWait.Waiting() && state.CIWait.Overdue(now):
+		limit := time.Duration(state.CIWait.WaitLimitSeconds) * time.Second
+		return fmt.Sprintf("not counted: the run's wait for the forge's checks on the commit it pushed passed its limit of %s at %s, and the scheduler continues it at its first pull with a slot it can take, ahead of new work",
+			limit, state.CIWait.PushedAt.Add(limit).UTC().Format(time.RFC3339))
 	case state.CIWait.Waiting():
 		return "not counted: the run is waiting for the forge's checks on the commit it pushed, and takes a slot again when it continues"
 	case state.SlotRelease.releasesWorker(state.Worker):
