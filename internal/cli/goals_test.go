@@ -1250,3 +1250,57 @@ func TestUncheckedGoalsAuditListsRelevantGoalsBesideLostAttributions(t *testing.
 		t.Fatalf("unchecked listing omitted relevance: %s", rendered.String())
 	}
 }
+
+func TestGoalsCheckPassesASoundSetAndSaysWhatItRead(t *testing.T) {
+	t.Parallel()
+
+	configPath := writeConfig(t, validConfig)
+	project := filepath.Dir(configPath)
+	writeArtifact(t, project, "docs/product/brief.md", artifactDocument("brief", "brief", "Product brief", nil)+briefStatingOneGoal)
+	writeArtifact(t, project, "docs/product/goals/v1-goals.md",
+		artifactDocument("v1-goals", "goals", "V1 goals", []string{"brief"})+oneGoalOnOneLine)
+
+	stdout, stderr, code := runCLI(t, "goals", "check", "--config", configPath)
+	if code != 0 {
+		t.Fatalf("check code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+	for _, want := range []string{"1 goal", "docs/product/goals/v1-goals.md", "sound"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("check stdout = %q, want it to contain %q", stdout, want)
+		}
+	}
+}
+
+func TestGoalsCheckFailsOnAGoalsDocumentWithAFormatProblem(t *testing.T) {
+	t.Parallel()
+
+	configPath := writeConfig(t, validConfig)
+	project := filepath.Dir(configPath)
+	writeArtifact(t, project, "docs/product/brief.md", artifactDocument("brief", "brief", "Product brief", nil)+briefStatingOneGoal)
+	writeArtifact(t, project, "docs/product/goals/v1-goals.md",
+		artifactDocument("v1-goals", "goals", "V1 goals", []string{"brief"})+oneGoalWrappedOntoTwoLines)
+
+	_, stderr, code := runCLI(t, "goals", "check", "--config", configPath)
+	if code != 1 || !strings.Contains(stderr, "goal not written on one line") {
+		t.Fatalf("check code = %d, stderr = %q, want 1 naming the wrapped goal", code, stderr)
+	}
+	stdout, _, code := runCLI(t, "goals", "check", "--json", "--config", configPath)
+	if code != 1 || !strings.Contains(stdout, "wrap_problems") {
+		t.Fatalf("json check code = %d, stdout = %q, want 1 carrying the problem", code, stdout)
+	}
+}
+
+func TestGoalsCheckWithIntentReadsTheNamedDirectory(t *testing.T) {
+	t.Parallel()
+
+	configPath := writeConfig(t, validConfig)
+	candidate := t.TempDir()
+	writeArtifact(t, candidate, "docs/product/brief.md", artifactDocument("brief", "brief", "Product brief", nil)+briefStatingOneGoal)
+	writeArtifact(t, candidate, "docs/product/goals/v1-goals.md",
+		artifactDocument("v1-goals", "goals", "V1 goals", []string{"brief"})+oneGoalOnOneLine)
+
+	stdout, stderr, code := runCLI(t, "goals", "check", "--config", configPath, "--intent", candidate)
+	if code != 0 || !strings.Contains(stdout, "1 goal") {
+		t.Fatalf("check --intent code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+}
