@@ -717,7 +717,7 @@ func TestARecurringPassAsksForACorrectionAtMostOnceAcrossWorkTurns(t *testing.T)
 func TestAPassWithARefusedBlockAndTwoSweepBlocksKeepsItsWorkAndIsToldNextTime(t *testing.T) {
 	t.Parallel()
 
-	first := rememberedRuling + "\n\n```yoyodyne-ask\nnot json\n```\n\n" +
+	first := rememberedRuling + "\n\n```yoyodyne-health\nnot json\n```\n\n" +
 		"```yoyodyne-sweep\n" + `{"status":"more","summary":"halfway"}` + "\n```\n\n" + recoveredReport
 	p := newReportRecoveryPass(t, first, recoveredReport)
 
@@ -725,7 +725,7 @@ func TestAPassWithARefusedBlockAndTwoSweepBlocksKeepsItsWorkAndIsToldNextTime(t 
 	if pass.Failed || pass.Result == nil || pass.Result.Summary != "recorded the ruling" {
 		t.Fatalf("first pass = %+v, want the last sweep block recorded as the account", pass)
 	}
-	if !strings.Contains(pass.Problem, "more than one sweep block") || !strings.Contains(pass.Problem, "question to another role block was refused") {
+	if !strings.Contains(pass.Problem, "more than one sweep block") || !strings.Contains(pass.Problem, "health read block was refused") {
 		t.Fatalf("first pass problem = %q, want the extra sweep block and the refused question named", pass.Problem)
 	}
 	memories, _, err := p.memories.Live("architect")

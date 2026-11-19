@@ -208,3 +208,14 @@ func renderRefusedBlock(block refusedBlock) string {
 		"If you still want what that block asked for, send the block again, corrected.\n\n",
 		block.Kind, block.Block, singleLine(block.Err.Error(), runstate.MaxTrackerRefusalProblemBytes))
 }
+
+// refusedAskUnread reports whether a reply's refused blocks include a question
+// to another role, which is told to its sender in the same message.
+func refusedAskUnread(refused []refusedBlock) bool {
+	for _, block := range refused {
+		if block.Kind == blockAsk {
+			return true
+		}
+	}
+	return false
+}
