@@ -562,11 +562,16 @@ Each pass takes twelve steps, in this order, and each is recorded:
   no bd command gives back the disk space of (the cleanup above and `bd
   compact` and `bd flatten` were measured to give back none). The step runs
   where the live store's size on disk is past
-  `services.maintenance.tracker_limits.store_megabytes`, or the harness's own
-  listings of open and ready work over the hour before took longer than
-  `listing_seconds`. Both are read as the **limits** step reads them, from the
-  disk and from the log of calls, so deciding lists no work items and answers
-  however large the store is.
+  `services.maintenance.tracker_limits.store_megabytes`, or the latest
+  measurement of the store on a copy, taken since the store was last rebuilt,
+  found listing open or ready items took longer than ten seconds. The size is
+  read from the disk and the listings from the measurement's record, so
+  deciding lists no work items and answers however large the store is. The
+  harness's own slow listings on the live store, which the **limits** step
+  reports, do not make a rebuild due: they come mostly from callers waiting
+  their turn at the store, which a rebuild does not cure, and each rebuild
+  holds every caller for up to a minute, so rebuilding for them rebuilt the
+  store again at every pass.
 
   Each time a rebuild is due, it is made first on a copy of the live store. The
   pass holds the store lock exclusive only while it copies the store, so no
