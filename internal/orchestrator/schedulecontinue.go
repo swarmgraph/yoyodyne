@@ -10,9 +10,20 @@ package orchestrator
 // and one nobody is told to take. So every pull reads the runs paused this way,
 // asks the tracker what each item still waits on, and continues the ones whose
 // dependencies have all closed, in the same way `yoyo run` would have.
+//
+// A run waiting for the forge's checks on the commit it pushed (cichecks.go) is
+// continued here too, once the forge has decided or its wait limit has passed,
+// and so is one whose program ended while it was being continued
+// (ciWaitLostItsHost). A continuation is work on a change already written, so it
+// goes ahead of new work: one turned away only because a developer slot was not
+// free is attempted again at the next pull rather than left for
+// continuationRetry, and one that has to wait for its own slot is passed over
+// naming that slot rather than started to be refused, so a fresh pull never
+// takes the slot it is waiting for while it sits out a retry.
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -38,8 +49,17 @@ type ScheduleContinuations interface {
 // left before a pull attempts it again. It is the carry-out's own pacing for a
 // gate shut for one item, and for the same reason: an unpaced retry would take
 // a developer slot at every poll for as long as the cause stood, and crowd out
-// everything behind it.
+// everything behind it. A continuation turned away only because no developer
+// slot was free is not paced (lostTheSlot): the slot freeing is the whole of
+// what it waits for, and pacing it would hand that slot to new work.
 const continuationRetry = 15 * time.Minute
+
+// lostTheSlot reports a continuation turned away only because the developer
+// slot it needed was not free when it came to take it.
+func lostTheSlot(done completed) bool {
+	var capacity runstate.CapacityError
+	return done.err != nil && errors.As(done.err, &capacity) && !capacity.Landings
+}
 
 // refusedContinuation is what a session remembers of a continuation that did
 // not go on: when it came back, and what it said.
@@ -98,9 +118,10 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 	if err != nil {
 		return nil, fmt.Errorf("read the runs paused on work their items wait on: %w", err)
 	}
+	now := s.now()
 	var paused []runstate.State
 	for _, state := range incomplete {
-		if !pausedForDependency(state) && !state.CIWait.Waiting() {
+		if !pausedForDependency(state) && !state.CIWait.Waiting() && !ciWaitLostItsHost(pull.Runs, state, now) {
 			continue
 		}
 		// A run this session is already continuing is in flight here under its
@@ -146,25 +167,33 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 				continue
 			}
 			if !decided {
-				passOver(state.WorkItemID, fmt.Sprintf("run %s is waiting for %s (waited %s): %s", state.RunID, waitSummary(state), state.CIWait.Waited(s.now()).Round(time.Second), why))
+				passOver(state.WorkItemID, fmt.Sprintf("run %s is waiting for %s (waited %s): %s", state.RunID, waitSummary(state), state.CIWait.Waited(now).Round(time.Second), why))
 				continue
 			}
+			if slot, holder := slotWaitedFor(pull.Runs, state, incomplete, now); slot != 0 {
+				passOver(state.WorkItemID, fmt.Sprintf("run %s's forge checks are decided (%s)%s, and it is continued at the first pull after developer slot %d is free: it keeps the endpoint pair that slot is configured with, and run %s holds the slot now",
+					state.RunID, why, overdueSince(*state.CIWait, now), slot, holder))
+				continue
+			}
+			// A run whose program ended after it took its slot back holds none now
+			// (ciWaitLostItsHost), so it takes a free one like a run still waiting.
 			_, holdsOne := occupied[state.WorkItemID]
+			holdsOne = holdsOne && !ciWaitLostItsHost(pull.Runs, state, now)
 			if s.Limit > 0 && started+len(continuing) >= s.Limit {
 				break
 			}
 			if !holdsOne {
 				if free < 1 {
-					passOver(state.WorkItemID, fmt.Sprintf("run %s's forge checks are decided (%s) and it is continued when a developer slot is free", state.RunID, why))
+					passOver(state.WorkItemID, fmt.Sprintf("run %s's forge checks are decided (%s)%s, and it is continued at the first pull with a developer slot free, ahead of any new work", state.RunID, why, overdueSince(*state.CIWait, now)))
 					continue
 				}
 				free--
 			}
-			continuing = append(continuing, pausedContinuation{
-				state:    state,
-				holdsOne: holdsOne,
-				reason:   fmt.Sprintf("run %s waited for %s since %s and the forge has decided (%s), so the harness is continuing it in its own worktree and developer session", state.RunID, waitSummary(state), state.CIWait.PushedAt.UTC().Format(time.RFC3339), why),
-			})
+			reason := fmt.Sprintf("run %s waited for %s since %s and the forge has decided (%s), so the harness is continuing it in its own worktree and developer session", state.RunID, waitSummary(state), state.CIWait.PushedAt.UTC().Format(time.RFC3339), why)
+			if ciWaitLostItsHost(pull.Runs, state, now) {
+				reason = fmt.Sprintf("run %s waited for %s since %s and was being continued when the program carrying it ended; the forge has decided (%s), so the harness is continuing it in its own worktree and developer session", state.RunID, waitSummary(state), state.CIWait.PushedAt.UTC().Format(time.RFC3339), why)
+			}
+			continuing = append(continuing, pausedContinuation{state: state, holdsOne: holdsOne, reason: reason})
 			continue
 		}
 		item, err := pull.Continuations.Show(ctx, state.WorkItemID)
@@ -178,6 +207,11 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 		if blockers := blockingDependencies(withoutMetDependencies(item, met)); len(blockers) > 0 {
 			passOver(state.WorkItemID, fmt.Sprintf("run %s is paused because %s waits on unfinished work: %s; it is continued at the first pull after that closes",
 				state.RunID, state.WorkItemID, strings.Join(blockers, ", ")))
+			continue
+		}
+		if slot, holder := slotWaitedFor(pull.Runs, state, incomplete, now); slot != 0 {
+			passOver(state.WorkItemID, fmt.Sprintf("run %s was paused waiting on %s, which has closed, and it is continued at the first pull after developer slot %d is free: it keeps the endpoint pair that slot is configured with, and run %s holds the slot now",
+				state.RunID, state.DependencyPause.Summary(), slot, holder))
 			continue
 		}
 		_, holdsOne := occupied[state.WorkItemID]
@@ -211,6 +245,57 @@ func waitSummary(state runstate.State) string {
 		return state.CIWait.Summary()
 	}
 	return "nothing recorded"
+}
+
+// ciWaitLostItsHost reports a run that took a developer slot back to read the
+// forge for its wait (runstate.CIWait.SlotTaken) and whose program ended before
+// it read the forge and ended or renewed the wait — a restart stopping the
+// session part-way through the continuation, or the process dying. Nothing else
+// takes such a run up: it carries no stop for a restart to re-adopt, and its
+// record still says it holds a slot, so it reads as neither waiting nor
+// stopped. Its worker being gone (holdsDeveloperSlot) is what says nobody is
+// behind it, and the pull continues it as it would a run still waiting. Where
+// the runs cannot say whether a worker is alive, nothing is read as lost.
+func ciWaitLostItsHost(runs ScheduleRuns, state runstate.State, now time.Time) bool {
+	if state.CIWait == nil || !state.CIWait.SlotTaken || state.RedeployStop != nil || !pausedForCIWait(state) {
+		return false
+	}
+	return !holdsDeveloperSlot(runs, state, now)
+}
+
+// slotWaitedFor is the developer slot a continued run would have to wait for,
+// and the run holding it now. A run that keeps the endpoint pair of the slot it
+// recorded is taken up only in that slot (runstate.Store.takeUpSlot), so while
+// another run holds the slot a continuation would only be dispatched to be
+// refused. It is zero where the run could be taken up now. The store makes the
+// final decision when the run takes its slot back; this is the same reading
+// made from the records the pull already holds, so the pull neither spends a
+// free slot on a run that cannot use it nor reads the tracker for it.
+func slotWaitedFor(runs ScheduleRuns, state runstate.State, incomplete []runstate.State, now time.Time) (int, string) {
+	number := state.RecordedSlot()
+	if number == 0 || state.Routing.Developer == nil {
+		return 0, ""
+	}
+	for _, other := range incomplete {
+		if other.RunID == state.RunID || other.RecordedSlot() != number {
+			continue
+		}
+		if holdsDeveloperSlot(runs, other, now) {
+			return number, other.RunID
+		}
+	}
+	return 0, ""
+}
+
+// overdueSince is a clause saying when a wait for the forge's checks passed
+// its limit, for a pass-over line about a run that is decided and still not
+// taken up; empty for a wait still inside it.
+func overdueSince(wait runstate.CIWait, now time.Time) string {
+	if !wait.Overdue(now) {
+		return ""
+	}
+	limit := time.Duration(wait.WaitLimitSeconds) * time.Second
+	return fmt.Sprintf("; its wait passed its limit of %s at %s", limit, wait.PushedAt.Add(limit).UTC().Format(time.RFC3339))
 }
 
 // ciWaitDecided asks whether the forge has decided a waiting run. Where no

@@ -150,7 +150,10 @@ when a usable checkout may never have existed.
 A directive or unfinished dependency parks the run before another gate or
 promotion. With `execution.ci_checks.enabled`, a run that has pushed its
 candidate commit parks while the forge's required checks run, holding no
-developer slot; a later pull reads the forge and continues it. The wait limit
+developer slot; a later pull reads the forge and continues it, ahead of new
+work, and so does the first pull of a scheduler restarted while the run waits —
+including one whose program ended after it had taken the run's slot back and
+before it read the forge. The wait limit
 passing, a required check ending cancelled, skipped or in another state that is
 neither a pass nor a failure, a forge that stays unreadable, and the setting
 being switched off each end the wait with the full checks on this machine,

@@ -1948,7 +1948,9 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			delete(continuing, done.index)
 			record := *started
 			record.record(done)
-			if why, refused := continuationRefused(done, record); refused {
+			// One that lost its slot is attempted again at the next pull, ahead of
+			// new work, rather than paced (lostTheSlot).
+			if why, refused := continuationRefused(done, record); refused && !lostTheSlot(done) {
 				refusedContinuations[runID] = refusedContinuation{at: s.now(), why: why}
 			} else {
 				delete(refusedContinuations, runID)
@@ -8372,6 +8374,10 @@ func (s *Started) record(done completed) {
 	case errors.As(done.err, &capacity) && capacity.Landings:
 		s.Declined = fmt.Sprintf("the last free document landing went to another document before this one was reserved (%d landing, limit %d)",
 			capacity.Active, capacity.Limit)
+	case errors.As(done.err, &capacity) && capacity.Slot != 0:
+		// A run waiting for the one slot it records is not short of capacity in
+		// general, and the count alone would say a slot was free and still refused.
+		s.Declined = capacity.Error()
 	case errors.As(done.err, &capacity):
 		s.Declined = fmt.Sprintf("the last free developer slot went to another run before this one was reserved (%d active, limit %d)",
 			capacity.Active, capacity.Limit)
