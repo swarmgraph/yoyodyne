@@ -5568,6 +5568,30 @@ has the rule.
   development manager's passes carry lists it as a condition, with the same
   reason.
 
+  When the scheduler finds no slot empty it says which of three things it
+  found, on the same log line: every developer slot counted taken, naming the
+  first five runs it counted and calling a start of its own with no run on
+  record yet just that; every free slot filled; or no ready work a slot could
+  take. A line that only said no slot stood empty could not tell a full
+  machine from an empty queue. It says it again whenever what it found
+  changes, including the runs it counted.
+
+  A run waiting on GitHub's checks holds no developer slot, and neither does a
+  decided recovery the scheduler fires with no slot free. It fires one so the
+  recovery's own capacity check records that the slots are full, and that start
+  is never counted against a slot until its run is on record. Until
+  yoyodyne-ifd.428.164 it was counted at the next pull while the tracker kept it
+  waiting, so that pull read full too and fired the next decision the same way,
+  and ready work did not start for hours while both slots stood empty on record.
+
+  When the scheduler's last word is that no slot stands empty, yet this reading
+  finds a slot free, ready work startable, and runs waiting on GitHub's checks,
+  and that has stood for five minutes, the reading says it itself: no run is
+  working in the free slots, what the scheduler last counted the slots taken
+  by, and that the runs waiting on GitHub hold none, naming each of them. The
+  development manager moves it, because the scheduler and the reading disagree
+  about the slots.
+
   ```text
   Running (2 developer runs, and developer slot 3 empty while ready work waits):
     …

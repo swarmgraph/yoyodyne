@@ -27,7 +27,7 @@ func TestAnEmptySlotAccountStandsOnlyWhileItDescribesTheMachine(t *testing.T) {
 		Passed: []runstate.EmptySlotItem{{WorkItemID: "yoyodyne-a", Why: "sequenced behind work in flight: it overlaps run-1"}}}
 	sessions := []runstate.WatchTransition{emptySlotNote("watch-1", moment.Add(-time.Hour), rule)}
 	read := func(transitions []runstate.WatchTransition, reading emptySlotsReading) *EmptySlots {
-		empty, problem := readEmptySlots(Sources{Sessions: fakeSessions{transitions: transitions}}, reading)
+		empty, problem := readEmptySlots(Sources{Sessions: fakeSessions{transitions: transitions}}, reading, nil, moment)
 		if problem != "" {
 			t.Fatalf("readEmptySlots() problem = %q", problem)
 		}
@@ -62,12 +62,12 @@ func TestAnEmptySlotUnderAHoldIsWhoeverPlacedTheHold(t *testing.T) {
 	held := runstate.EmptySlots{Cause: ownership.EmptySlotHold, Reason: "new work is held", ReadyUnread: true, Slots: []int{2}}
 	transitions := []runstate.WatchTransition{emptySlotNote("watch-1", moment, held)}
 	operator := runstate.IntakeHold{HeldBy: runstate.IntakeHolderOperator}
-	empty, _ := readEmptySlots(Sources{Sessions: fakeSessions{transitions: transitions}}, emptySlotsReading{free: 1, startable: 2, intake: operator, held: true})
+	empty, _ := readEmptySlots(Sources{Sessions: fakeSessions{transitions: transitions}}, emptySlotsReading{free: 1, startable: 2, intake: operator, held: true}, nil, moment)
 	if empty == nil || !empty.Owner.Owner.IsOperator() || empty.Owner.Reason != ownership.OperatorOwnHold {
 		t.Fatalf("empty = %+v, want the operator's own hold his, under his own-hold reason", empty)
 	}
 	brake := runstate.IntakeHold{HeldBy: runstate.IntakeHolderBrake}
-	empty, _ = readEmptySlots(Sources{Sessions: fakeSessions{transitions: transitions}}, emptySlotsReading{free: 1, startable: 2, intake: brake, held: true})
+	empty, _ = readEmptySlots(Sources{Sessions: fakeSessions{transitions: transitions}}, emptySlotsReading{free: 1, startable: 2, intake: brake, held: true}, nil, moment)
 	if empty == nil || empty.Owner.Owner != ownership.MoverDevelopmentManager {
 		t.Fatalf("empty = %+v, want the brake's hold the development manager's", empty)
 	}
@@ -115,3 +115,53 @@ func TestTheRunningLineNamesTheItemASlotIsStillCountedFor(t *testing.T) {
 		t.Fatalf("EmptySlotsCountedFor() = %v, want the one item named", named)
 	}
 }
+
+// A free slot beside ready work, with the only runs that were in it waiting on
+// GitHub, is said by the reading itself once the scheduler's last word — that no
+// slot stands empty — has stood for several polls, naming the runs waiting.
+func TestForgeWaitSlotsNamesTheRunsWaitingOnGitHub(t *testing.T) {
+	moment := time.Date(2026, 11, 18, 15, 0, 0, 0, time.UTC)
+	cleared := []runstate.WatchTransition{emptySlotNote("watch-1", moment.Add(-10*time.Minute), runstate.EmptySlots{Cleared: true,
+		Ended: runstate.EmptySlotsEveryTaken, Taken: 1, TakenBy: []runstate.EmptySlotHolder{{WorkItemID: "yoyodyne-ifd.309"}}})}
+	waiting := []RunningRun{
+		{WorkItemID: "yoyodyne-ifd.429.193", Title: "Review threads", WaitingForCI: true},
+		{WorkItemID: "yoyodyne-ifd.78.2", WaitingForCI: true},
+		{WorkItemID: "yoyodyne-x", WaitingOn: "yoyodyne-y"},
+	}
+	sources := Sources{Sessions: fakeSessions{transitions: cleared}}
+	reading := emptySlotsReading{free: 2, startable: 3}
+
+	empty, problem := readEmptySlots(sources, reading, waiting, moment)
+	if problem != "" || empty == nil {
+		t.Fatalf("readEmptySlots() = %v, %q; want an account of runs waiting on GitHub", empty, problem)
+	}
+	if empty.Cause != ownership.EmptySlotWaitingOnForge {
+		t.Fatalf("cause = %q", empty.Cause)
+	}
+	for _, want := range []string{"2 developer slots", "Review threads (yoyodyne-ifd.429.193)", "yoyodyne-ifd.78.2", "waiting on GitHub",
+		"the scheduler last said every developer slot is counted taken, by yoyodyne-ifd.309 (started by this session, with no run on record yet)"} {
+		if !strings.Contains(empty.Reason, want) {
+			t.Errorf("reason %q does not say %q", empty.Reason, want)
+		}
+	}
+	if strings.Contains(empty.Reason, "yoyodyne-x") {
+		t.Errorf("reason %q names a run that is not waiting on GitHub", empty.Reason)
+	}
+
+	// Within the polls the scheduler is given, nothing is said.
+	if early, _ := readEmptySlots(sources, reading, waiting, moment.Add(-8*time.Minute)); early != nil {
+		t.Errorf("a slot the next poll fills was reported: %v", early.Says())
+	}
+	// No ready work, no free slot, or no run waiting on GitHub: nothing is said.
+	for name, none := range map[string]*EmptySlots{
+		"no ready work": first(readEmptySlots(sources, emptySlotsReading{free: 2, startable: 0}, waiting, moment)),
+		"no free slot":  first(readEmptySlots(sources, emptySlotsReading{free: 0, startable: 3}, waiting, moment)),
+		"no waiting":    first(readEmptySlots(sources, reading, waiting[2:], moment)),
+	} {
+		if none != nil {
+			t.Errorf("%s: reported %v", name, none.Says())
+		}
+	}
+}
+
+func first(empty *EmptySlots, _ string) *EmptySlots { return empty }

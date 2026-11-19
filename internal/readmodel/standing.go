@@ -1170,7 +1170,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		}
 		slots.free = max(sources.Capacity-busy, 0)
 	}
-	standing.EmptySlots, standing.EmptySlotsProblem = readEmptySlots(sources, slots)
+	standing.EmptySlots, standing.EmptySlotsProblem = readEmptySlots(sources, slots, paused, now)
 	// The provider's usage window is read out of the same stall the refusals are
 	// worded from, rather than derived a second time here: one reading of one
 	// silence, said in two places, is the rule this whole package holds.

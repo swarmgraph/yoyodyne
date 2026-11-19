@@ -116,14 +116,18 @@ func TestNoEligibleItemIsRecordedWithWhyTheReadyItemsWerePassedOver(t *testing.T
 	// while ready work waits.
 	if account := walkAccount([]int{3}, backlog.Queue{Entries: []backlog.Entry{{ID: "yoyodyne-parked"}}}, []readmodel.PassedOverItem{
 		{ID: "yoyodyne-parked", Class: runstate.PassedOverParked},
-	}, nil, "", ""); account != nil {
-		t.Fatalf("account = %+v, want none over a queue with no ready work", account)
+	}, nil, "", ""); account == nil || !account.Cleared || account.Ended != runstate.EmptySlotsNoReadyWork {
+		t.Fatalf("account = %+v, want it ended as no ready work over a queue with none", account)
 	}
 	// Ready work already in flight is not waiting.
 	if account := walkAccount([]int{3}, queueOf("yoyodyne-going"), []readmodel.PassedOverItem{
 		{ID: "yoyodyne-going", Class: runstate.PassedOverAlreadyInFlight},
-	}, nil, "", ""); account != nil {
-		t.Fatalf("account = %+v, want none where the only ready item is in flight", account)
+	}, nil, "", ""); account == nil || !account.Cleared || account.Ended != runstate.EmptySlotsNoReadyWork {
+		t.Fatalf("account = %+v, want it ended as no ready work where the only ready item is in flight", account)
+	}
+	// Every free slot filled is said as that.
+	if account := walkAccount(nil, queueOf("yoyodyne-x"), nil, nil, "", ""); account == nil || !account.Cleared || account.Ended != runstate.EmptySlotsFilled {
+		t.Fatalf("account = %+v, want it ended as every free slot filled", account)
 	}
 }
 
@@ -158,12 +162,12 @@ func TestASlotStillCountedForAFinishedStartIsRecordedWithWhatItIsCountedFor(t *t
 }
 
 // A wait nobody named a reason for is recorded as not known, never as nothing,
-// and a wait with every slot taken records nothing.
+// and a wait with every slot taken says so, naming what holds them.
 func TestAnEmptySlotNobodyNamedIsRecordedAsNotKnown(t *testing.T) {
 	t.Parallel()
 
 	slots := newSlotAccount()
-	slots.counted(1, []int{2})
+	slots.counted(1, []int{2}, nil)
 	account := slots.orElse(runstate.WatchIdle, "something nobody classified", false)
 	if account == nil || account.Cause != ownership.EmptySlotNotKnown || strings.TrimSpace(account.Reason) == "" {
 		t.Fatalf("account = %+v, want a reason recorded as not known", account)
@@ -172,9 +176,19 @@ func TestAnEmptySlotNobodyNamedIsRecordedAsNotKnown(t *testing.T) {
 		t.Fatalf("says = %q, want the reason said as not known", account.Says())
 	}
 	full := newSlotAccount()
-	full.counted(0, nil)
-	if account := full.orElse(runstate.WatchIdle, "", false); account != nil {
-		t.Fatalf("account = %+v, want nothing where no slot is free", account)
+	full.counted(0, nil, map[string]runstate.State{
+		"yoyodyne-ifd.428.99.27": {WorkItemID: "yoyodyne-ifd.428.99.27", RunID: "run-6768ca4fa272988b78495592bf66c31e"},
+		"yoyodyne-ifd.309":       {WorkItemID: "yoyodyne-ifd.309"},
+	})
+	account = full.orElse(runstate.WatchIdle, "", false)
+	if account == nil || !account.Cleared || account.Ended != runstate.EmptySlotsEveryTaken || account.Taken != 2 {
+		t.Fatalf("account = %+v, want every slot said as taken where none is free", account)
+	}
+	says := account.Says()
+	for _, want := range []string{"every developer slot is counted taken", "yoyodyne-ifd.309 (started by this session, with no run on record yet)", "yoyodyne-ifd.428.99.27 (run run-6768ca4fa272988b78495592bf66c31e)"} {
+		if !strings.Contains(says, want) {
+			t.Errorf("says %q, want it to name %q", says, want)
+		}
 	}
 	if account := walkAccount([]int{1}, queueOf("yoyodyne-x"), nil, nil, "", ""); account == nil || account.Cause != ownership.EmptySlotNotKnown {
 		t.Fatalf("account = %+v, want ready work the walk never reached recorded as not known", account)
