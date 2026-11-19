@@ -34,6 +34,10 @@ revisions:
       by: architect
       at: 2026-11-07T22:48:07.62355Z
       reason: 'Answers the reviewer''s report-7f05fc5c: the Double-promote bullet said a lost race replays under execution.integration_retries_before_reconciliation, which reads as if that setting limits lost races. Stopped run recovery, as revised on October 27 and October 30 (read at main be1ecd7d), says lost races have a fixed limit of five, a clean replay that passed its checks is not counted, and the setting counts only replays that stop on the change itself. The bullet now says the same; the other bullets are unchanged and nothing else in the design changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T17:08:05.359465Z
+      reason: 'Replaces the retired word for a required check in its two places in this design, as part of replacing the coined vocabulary in the governed documents (yoyodyne-ifd.437.21): the tracker boundary''s read ''at a gate boundary'' becomes the read a run makes ''between two of its steps'', and a check stopped by its time limit ''earns no credit toward any gate'' becomes ''toward any check the change must pass''. Written whole from a read at main 473d3600; nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -65,6 +69,11 @@ approvals:
       by: harness
       at: 2026-11-07T22:48:07.62355Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2457, for document-2457.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-11-19T17:08:05.359465Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3112, for document-3112.1 under the automatic approval policy
 ---
 # Recoverable and terminal failures: the boundary per failure class, and what a retry may never do
 
@@ -88,11 +97,11 @@ A failure whose class the harness does not recognize is treated as an answer and
 
 **The forge and the remote** — the push, the pull request opened or updated, the remote target read, the merge request, the merge confirmation, the remote branch deleted, the catch-up. Recoverable: transport failures, 5xx answers, and a rate limit that names when to ask again. Answers: an authentication refusal, a protection rule unmet, a conflict with the base, a head that is not the integrated commit, a method the repository forbids, and any 4xx. Ambiguous: a push or a merge request that timed out after it was sent, disambiguated by reading the branch or the request's state before anything is asked again; the push is compare-and-swap and the merge is pinned to the commit and asked as of the branch's requirements, so a request that did take effect is found rather than repeated. Each of these boundaries keeps its own two-hour window.
 
-**The tracker.** Recoverable: a `bd` killed under load, a lock that timed out, a listing that did not return. Answers: a refusal by content — an unknown item, a status the tracker will not move, a claim it declines for a reason it states. The read a run makes at a gate boundary parks the run when its window is spent rather than ending it, because a busy store is not a verdict; the read a dispatch makes before any run exists refuses the dispatch and records nothing on a run, because there is none. A conversation's calls share one window per operator message.
+**The tracker.** Recoverable: a `bd` killed under load, a lock that timed out, a listing that did not return. Answers: a refusal by content — an unknown item, a status the tracker will not move, a claim it declines for a reason it states. The read a run makes between two of its steps parks the run when its window is spent rather than ending it, because a busy store is not a verdict; the read a dispatch makes before any run exists refuses the dispatch and records nothing on a run, because there is none. A conversation's calls share one window per operator message.
 
 **Local Git.** A command the harness's own budget ended was refused from outside the work and is not retried in place: a replay it killed is abandoned and recorded as an integration stop the resume picks up, and a checkout it killed is refused with nothing charged. A conflict is an answer, to a person, with both sides preserved. Neither is a recoverable failure, because the identical command on the same machine at the same load is not a different request.
 
-**The checks and the review.** A failing check and a repair verdict are answers to the developer and are never retried, with one bounded exception: a failure confined to tests the change does not touch, which the next section describes. A check stopped by its own time limit, or by the stage's limit, is not a failing check: it did not finish, so it is neither a pass nor a failure, and it earns no credit toward any gate. It is recovered within fixed bounds:
+**The checks and the review.** A failing check and a repair verdict are answers to the developer and are never retried, with one bounded exception: a failure confined to tests the change does not touch, which the next section describes. A check stopped by its own time limit, or by the stage's limit, is not a failing check: it did not finish, so it is neither a pass nor a failure, and it earns no credit toward any check the change must pass. It is recovered within fixed bounds:
 
 - It is run again from the start, on the same candidate commit, at most twice, and the first run and both reruns together take at most three times its limit. Both bounds are shared by every path that runs checks, so no path gets an allowance of its own.
 - Each rerun is recorded on the run before it starts. A restart or redeploy of the harness never resets the count: a process that comes back finds the reruns it had already spent.
